@@ -13,7 +13,7 @@ A single, file-system-backed memory system that:
 
 1. Captures observations from three coding agents — **Claude Code**, **Codex CLI**, and **Google Antigravity** — using each platform's native hooks plus a shared MCP server.
 2. Curates raw observations into a structured **markdown wiki** following Andrej Karpathy's LLM Wiki pattern (April 2026) and the "LLM Wiki v2" extensions (April 2026, agentmemory lessons).
-3. Has **zero persistent daemons, zero ports, zero databases, zero migrations**. Storage is plain markdown + small JSON sidecars under one directory; git is the durable backup; recovery from any disaster is `git checkout`.
+3. Has **zero persistent infrastructure between sessions, zero bound network ports, zero databases, zero migrations**. The MCP server runs only inside an active agent session (stdio, host-spawned, killed when host closes); it holds no state of its own and translates MCP calls directly into filesystem reads/writes. Storage is plain markdown + small JSON sidecars under one directory; git is the durable backup; recovery from any disaster is `git checkout`.
 4. Is **simplest possible while remaining feature-rich, reliable, and state-of-the-art** — the four-criterion brief the user posed in brainstorming.
 
 It explicitly is NOT a daemon-based system. It does not run continuously. It does not bind ports. It does not have a SQLite store. Every reliability failure documented in the `codex/windows-codex-desktop-stability` session is structurally absent from this design because the components that fail in agentmemory do not exist here.
@@ -24,7 +24,7 @@ It explicitly is NOT a daemon-based system. It does not run continuously. It doe
 
 1. **Files are the source of truth.** Anything not on disk under `~/.memory/` does not exist.
 2. **Markdown is the storage format.** Human-readable, ripgrep-able, git-versionable, Obsidian-compatible, future-proof beyond any specific tool.
-3. **The LLM is the engine, not a separate process.** Curation, lint, crystallize, query — all performed by whichever LLM is in front of the user (Claude / Codex / Antigravity), invoked via slash commands or scheduled hooks. No separate "memory engine" process.
+3. **The LLM is the engine; the MCP server is a thin stateless filesystem translator.** Curation, lint, crystallize, query reasoning — all performed by whichever LLM is in front of the user (Claude / Codex / Antigravity). The MCP server only exists during an active session (stdio, host-spawned), holds zero in-process state, and exists solely to give the LLM a typed interface to filesystem reads/writes. No "memory engine" daemon between sessions; no bound network ports; failure modes that bit agentmemory (stale dead-PID sockets, port management, cwd-coupled data, supervisor lifecycle) are structurally impossible.
 4. **Hooks ingest passively. MCP queries actively.** Two complementary paths, one storage backend.
 5. **Embeddings are sidecars, not a database.** Vectors live in `*.embeddings.jsonl` files next to the markdown they index. No vector DB to run.
 6. **Git is the backup, history, and rollback layer.** No custom snapshot/restore code. `git log`, `git diff`, `git checkout`, `git restore`.
@@ -323,7 +323,9 @@ Three thin manifest files, one per platform, all pointing at the same scripts:
 }
 ```
 
-Codex and Antigravity get analogous manifests adapted to each platform's hook event names. (Antigravity event names confirmed at implementation time against current `antigravity.google/docs` — they inherit from Gemini CLI's hook system.)
+**Codex (desktop + CLI):** shares `~/.codex/config.toml` for all surfaces (verified May 2026 — `developers.openai.com/codex/hooks` confirms hooks span CLI, desktop app, and IDE extension). One Codex install path registers hooks for ALL Codex surfaces simultaneously. Hook events: SessionStart (matches startup/resume/clear), PreToolUse, PostToolUse, UserPromptSubmit, PreCompact + PostCompact (added Codex 0.129.0 April 2026), Stop.
+
+**Antigravity desktop:** **NO hook system** (verified May 2026 against `antigravity.google/docs/mcp` and surrounding pages — Antigravity desktop has no session lifecycle hooks comparable to Claude Code or Codex). Antigravity ingestion happens via the MCP server's `memory.log_observation` tool only — the in-session LLM (Gemini in Antigravity) actively calls memory tools to record observations. No passive hook firehose on Antigravity. Manifest for Antigravity is therefore the MCP server registration in `~/.gemini/antigravity/mcp_config.json`, not a hooks file.
 
 ### 5.3 Event identification
 
@@ -365,24 +367,33 @@ Hooks capture the firehose. MCP gives the LLM a way to *deliberately* save and r
 
 **Stdio MCP only.** No HTTP, no ports, no listening. The MCP server is a Node process spawned by each tool when the user opens a session; it dies when the tool closes. Cannot orphan. Cannot conflict with another instance.
 
-### 6.3 Tools exposed
+### 6.3 Tools exposed — phased rollout
 
-The MCP server exposes exactly these tools (intentionally small surface):
+**Phase 1 minimal MCP (3 tools)** — ships in the first cut so Antigravity (which has no hooks) has an ingestion path from day one:
 
 | Tool | Input | Output |
 |---|---|---|
-| `memory.log_observation` | `{ text: string, tags?: string[], confidence?: number }` | `{ path: string, ts: string }` — written to `raw/<date>/<tool>-<session>.md` under `## Observation` heading |
-| `memory.search` | `{ query: string, k?: number, scope?: "wiki" \| "raw" \| "both", min_score?: number }` | `{ results: [{ path, snippet, score, type }, ...] }` — runs ripgrep + embedding cosine + frontmatter graph traversal, fused with reciprocal rank fusion |
-| `memory.read_page` | `{ path: string }` | `{ frontmatter: object, content: string, relations_resolved: object }` |
+| `memory.log_observation` | `{ text: string, tags?: string[], confidence?: number, source?: string }` | `{ path: string, ts: string }` — written to `raw/<date>/<tool>-<session>.md` under `## Observation` heading |
+| `memory.read_page` | `{ path: string }` | `{ frontmatter: object, content: string }` — relations resolution deferred to Phase 3 |
 | `memory.list_pages` | `{ type?: string, tag?: string, status?: string }` | `{ pages: [{ path, title, summary, updated }, ...] }` |
-| `memory.compile` | `{ since?: string, scope?: string }` | spawns the compile workflow as a subprocess and returns the digest; see §8 |
+
+**Phase 3 full MCP (12 tools)** — extends the Phase 1 server, doesn't replace it. Adds:
+
+| Tool | Input | Output |
+|---|---|---|
+| `memory.search` | `{ query: string, k?: number, scope?: "wiki" \| "raw" \| "both", min_score?: number }` | `{ results: [{ path, snippet, score, type }, ...] }` — RRF over BM25 + voyage-4-large embeddings + graph expansion + Voyage Rerank 2.5 |
+| `memory.graph_query` | `{ start: string, depth?: number, types?: string[] }` | typed neighborhood (§7.3) |
+| `memory.graph_stats` | `{}` | degree distribution, orphans, most-connected |
+| `memory.graph_path` | `{ from: string, to: string, max_depth?: number, types?: string[] }` | shortest typed path |
+| `memory.compile` | `{ since?: string, scope?: string }` | spawns compile workflow as subprocess; see §8 |
 | `memory.lint` | `{}` | `{ contradictions, orphan_pages, stale_claims, broken_links }` |
-| `memory.crystallize` | `{ thread: string \| string[] }` | spawns the crystallize workflow; produces a digest under `crystals/` |
+| `memory.crystallize` | `{ thread: string \| string[] }` | spawns crystallize; produces a digest under `crystals/` |
 | `memory.stats` | `{}` | `{ total_pages, by_type, last_updated, embeddings_coverage }` |
+| `memory.graph_export` | `{ format: "json" \| "graphml" \| "canvas" }` | full graph in requested format |
 
 ### 6.4 Implementation
 
-Single Node file (`scripts/mcp-server.mjs`) using `@modelcontextprotocol/sdk`. Stateless. Every call reads the current state from disk, computes, writes if needed, returns. No in-memory cache that could go stale.
+Single Node file (`scripts/mcp-server.mjs`) using **`@modelcontextprotocol/sdk` ^1.29** (verified May 2026, requires Node.js 18+, stdio + Streamable HTTP supported; we use stdio only). Stateless. Every call reads the current state from disk, computes, writes if needed, returns. No in-memory cache that could go stale. The Phase 1 server (3 tools) and Phase 3 server (12 tools) share the same file — Phase 3 just registers more tools alongside the originals.
 
 ### 6.5 Platform registration
 
@@ -824,7 +835,7 @@ Explicit out-of-scope to prevent scope creep:
 - Cloud sync (other than the user's existing git remote habit)
 - Real-time dashboard / web UI (Obsidian gives free GUI if wanted)
 - A web server / REST API of any kind
-- Daemon / always-on processes
+- Persistent daemons that survive between agent sessions, bound network ports, or server-managed state. (Explicitly allowed and required: stdio MCP servers spawned and killed per-session by host tools — they cannot exhibit the failure modes §11 catalogs because they have no port and no lifetime independent of the host.)
 - Custom search engine implementation beyond minimal BM25
 - Replacing CLAUDE.md (the schema.md complements it; CLAUDE.md remains for tool-specific config)
 - A standalone graph database engine like Neo4j (the graph is derived from frontmatter on-demand — we DO have graph operations and queries, just no separate DB engine)
