@@ -309,7 +309,7 @@ Then reciprocal rank fusion (RRF) merges. RRF is the same fusion agentmemory use
 {"path": "wiki/projects/agentmemory.md", "hash": "<sha256>", "vector": [...], "model": "voyage-3-large", "ts": "..."}
 ```
 
-- **Provider:** configurable in `config.yaml`. Default: Voyage AI (`voyage-3-large`, ~1024-dim, $0.18/M tokens — cheapest reliable embedding API as of 2026-05) with OpenAI `text-embedding-3-large` as alternate. Optional local-only mode via Ollama + `nomic-embed-text` for offline use.
+- **Provider:** configurable in `config.yaml`. Default: Voyage AI **`voyage-3.5`** ($0.06/M tokens, beats OpenAI `text-embedding-3-large` by ~8% on retrieval per Voyage's published evals, 32K context window, supports Matryoshka dimensions 2048/1024/512/256 for speed/storage tuning). Verified current via web search 2026-05-20. Alternates: OpenAI `text-embedding-3-small` ($0.02/M, safe default), Voyage 4 family (MoE, January 2026), Cohere `embed-v4` (slight MTEB lead at 65.2 vs voyage-3-large's 65.1). Optional local-only mode via Ollama + `nomic-embed-text` for offline use.
 - **Refresh:** lazy. On `memory.search`, the MCP server computes the SHA256 of each wiki page; any pages whose hash doesn't match the JSONL entry get re-embedded. Stale entries are removed. This means embeddings stay current automatically with no scheduled job.
 - **Cost ceiling:** the first wiki build costs N × 1k tokens × $0.18/M ≈ a few cents for a few hundred pages. Incremental refresh is near-free.
 
@@ -634,7 +634,7 @@ Explicit out-of-scope to prevent scope creep:
 
 These are decisions worth confirming before writing the implementation plan:
 
-1. **Embedding provider default.** Voyage AI (`voyage-3-large`, paid API) recommended for quality and cost; OpenAI `text-embedding-3-large` as fallback; Ollama+nomic for offline. Does the user want a different default?
+1. **Embedding provider default.** Voyage AI **`voyage-3.5`** (paid API, $0.06/M tokens, current best price/quality per May 2026 web verification) recommended. Alternates: OpenAI `text-embedding-3-small` ($0.02/M, lower-quality safe default), Ollama+nomic for offline. Does the user want a different default? (Note: my initial recommendation of voyage-3-large was corrected after user requested online grounding — voyage-3-large is superseded by voyage-3.5 at 1/3 the price.)
 2. **Whether `raw/` is committed to git.** Default proposed: gitignored (privacy / size). Alternative: committed to give full audit trail with the cost of larger repo.
 3. **Whether the system should consume Claude Code's session transcripts at `~/.claude/projects/.../*.jsonl` as a redundant ingestion path** (belt-and-suspenders against hook failures). Adds complexity but provides recovery if hooks ever silently break.
 4. **The implementation language.** TypeScript+ESM matches the existing agentmemory toolchain and is portable. Alternative: a single Bash + Python toolchain to drop the npm dependency entirely. TypeScript proposed for type safety and ecosystem.
