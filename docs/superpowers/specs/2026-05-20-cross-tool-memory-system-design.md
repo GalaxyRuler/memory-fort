@@ -86,6 +86,48 @@ It explicitly is NOT a daemon-based system. It does not run continuously. It doe
 - Git's diff/blame/log give time-travel, attribution, and undo for free.
 - The split `raw/` vs `wiki/` mirrors Karpathy's "source code vs compiled binary" mental model.
 
+### 3.1 Storage growth and retention
+
+The four storage components grow at very different rates and need different treatment:
+
+| Component | Growth rate | Bounded? | Strategy |
+|---|---|---|---|
+| `raw/` | Linear with session activity. ~400 KB/session × 5-10 sessions/day = 2-4 MB/day | **No** | **Retention window with compile-before-delete** |
+| `wiki/` | Bounded by entities the user actually has. ~5 KB/page × ~1000 pages = 5 MB | Yes | Slow growth; manual review only |
+| `crystals/` | Bounded by intentional creation. ~20 KB × ~100/year = 2 MB/year | Yes | Never auto-delete; user-curated |
+| `embeddings/` | 4 KB/page (1024-dim float32) or 2 KB/page (512-dim Matryoshka). Bounded by source page count. | Yes | Auto-prunes when source files removed |
+
+**Without retention, raw/ accumulates ~1.5 GB/year under heavy use.** After git compression that's ~450 MB/year in `.git/objects/`. Manageable but not free, and grows unbounded.
+
+**Retention policy** (default; all values configurable in `config.yaml`):
+
+```yaml
+retention:
+  raw_window_days: 90              # raw/<date>/ files older than this are eligible for archival
+  raw_compile_before_delete: true   # always run compile to extract wiki-worthy content first
+  embeddings_prune_with_raw: true   # drop raw/* embeddings when source files archived
+  wiki_status_stale_days: 180       # active wiki pages updated > N days ago get "stale" lint flag
+  crystals_never_auto_delete: true  # crystals are intentional; preserve forever
+  archive_before_delete: true       # move to ~/.memory/.archive/ (gitignored) before deletion
+```
+
+**Operational loop:**
+
+1. `memory compile` runs first and extracts anything wiki-worthy from expiring raw/ files.
+2. `memory retain --apply` (or a scheduled task once a week): moves expired raw/ files to `.archive/`, prunes corresponding embedding records.
+3. `.archive/` is gitignored. User can `rm -rf .archive/` for hard cleanup once confident.
+4. Per-file override: `keep: true` in raw frontmatter prevents auto-archival.
+
+**Storage budget projections** with default 90-day retention:
+
+| Use level | Steady-state on-disk | After 5 years |
+|---|---|---|
+| Light (1-2 sessions/day) | ~200 MB | ~250 MB (wiki + crystals + git history grow) |
+| Moderate (5-10 sessions/day) | ~1.5 GB | ~2 GB |
+| Heavy (20+ sessions/day) | ~3 GB | ~5 GB |
+
+Compare to agentmemory's data store (33 files, ~1 MB at last snapshot) — same order of magnitude per active window; the difference is human-readable markdown rather than opaque binary blobs, so the storage is auditable, grep-able, and git-compressible.
+
 ---
 
 ## 4. Schema (`schema.md`) — the controlling document
@@ -161,6 +203,44 @@ On ingest, the LLM strips:
 - Anything explicitly tagged with `<!-- private -->` in the source
 
 Filtered text is replaced with `[REDACTED: <reason>]`. Original raw text stays in `raw/` (gitignored by default; user can opt in to commit raw).
+
+### 4.6 Obsidian as the GUI — first-class, not optional
+
+`~/.memory/` IS an Obsidian vault by design. Obsidian is the **primary visualization and editing surface** for the wiki. The user opens Obsidian → File → Open Vault → `~/.memory/` → has the entire memory system as a navigable, graph-visualized, full-text-searchable knowledge base.
+
+**What Obsidian gives for free** (no implementation cost on our side):
+
+| Feature | What it does |
+|---|---|
+| **Graph View** | Interactive visualization of all `[[wikilinks]]` and frontmatter relations. **This IS the graph-memory visualization.** Zoom, filter by tag/folder, color by type. |
+| Backlinks panel | Every page shows what links to it — derived live from the link graph |
+| Tag explorer | Browse and filter by `#tag` (inline) or `tags: [...]` (frontmatter) |
+| Full-text search | Across all markdown; supports regex, tag, file-property filters |
+| Outline panel | Per-page table of contents |
+| Hover preview | Hover over a `[[wikilink]]` shows the target's content |
+| Dataview plugin | SQL-like queries over frontmatter (e.g., `LIST FROM #lesson WHERE updated > date(today)-90`) |
+| Daily Notes plugin | Optional auto-daily-journal pages that cross-link into wiki |
+| Templates plugin | New-page templates aligned with our schema |
+| Canvas files | Visual maps of clusters of pages connected by edges |
+
+**Compatibility commitments our system MUST hold:**
+
+- Frontmatter is YAML (Obsidian's parser is YAML-only; no TOML).
+- `[[wikilinks]]` use filename-only form when slugs are unique (`[[agentmemory]]`) or relative-path form (`[[projects/agentmemory]]`) when not.
+- Tags in frontmatter use list form `tags: [windows, stability]` — Obsidian renders these in Tags panel.
+- Filename casing is consistent for cross-platform portability (we're Windows-primary; Obsidian is case-insensitive but be consistent).
+- Markdown sticks to CommonMark + Obsidian-flavored extensions; no syntax Obsidian doesn't render (no RST-style admonitions, no custom directives).
+- ISO 8601 dates (`2026-05-20`) — matches Obsidian's Daily Notes default.
+
+**User workflow with Obsidian active:**
+
+1. Chat with Claude/Codex/Antigravity — observations flow via hooks into `raw/`.
+2. Periodically run `memory compile` (or let session-end hook do it) — raw becomes curated wiki pages.
+3. Open Obsidian to explore: Graph View for visual structure, Backlinks for context, full-text search for retrieval.
+4. Edit pages directly in Obsidian if the LLM-curated version needs human refinement — it's just markdown.
+5. Use Dataview plugin for custom queries the MCP server doesn't expose.
+
+**Obsidian is NOT required.** Everything works via grep + the LLM in your agent without Obsidian installed. But the user's "utilize Obsidian" requirement is satisfied: every Obsidian feature works against our vault layout from day one.
 
 ---
 
@@ -316,6 +396,44 @@ Then reciprocal rank fusion (RRF) merges. RRF is the same fusion agentmemory use
 ### 7.2 No vector DB
 
 The JSONL file is loaded fully into memory per query. At 1024-dim float32, 10000 pages = 40 MB. Cosine similarity over 10000 vectors is ~1ms. There is no scenario in personal-scale use where this needs a real vector DB.
+
+### 7.3 Graph memory — first-class layer
+
+The knowledge graph is derived on-demand from frontmatter `relations:` blocks AND inline `[[wikilinks]]` across all wiki pages. Zero-bytes incremental storage — the graph IS the markdown.
+
+**Edge types** (defined authoritatively in `schema.md`):
+
+| Type | Direction | Semantics |
+|---|---|---|
+| `uses` | A → B | A is a project/system that uses B (a tool/library) |
+| `depends_on` | A → B | A's functioning requires B |
+| `supersedes` | A → B | A replaces B (B archived) |
+| `contradicts` | A → B | A's content disagrees with B; needs human resolution |
+| `caused_by` | A → B | A (problem/event) was caused by B |
+| `fixed_by` | A → B | A was fixed by B (decision/commit/lesson) |
+| `derived_from` | A → B | A's content was distilled from B (e.g., crystal from raw thread) |
+| `mentioned_in` | A → B | A appears in B (often auto-extracted) |
+| `linked` | A → B | Generic association; least specific. Inline `[[wikilinks]]` create implicit `linked` edges. |
+
+**Graph operations exposed via MCP and CLI:**
+
+| Operation | Purpose |
+|---|---|
+| `memory.graph_query({ start, depth, types })` | Returns the typed neighborhood of a starting node |
+| `memory.graph_stats()` | Degree distribution, most-connected nodes, orphans (no inbound or outbound edges) |
+| `memory.graph_path({ from, to, max_depth, types? })` | Shortest typed path between two nodes |
+| `memory.graph_export({ format })` | Dump as JSON / GraphML / Obsidian Canvas for external tools |
+
+**Two population paths:**
+
+1. **Explicit** (Phase 1+) — frontmatter `relations:` written by the LLM (or human) at page creation/update time. High precision, lower recall. Default.
+2. **Implicit** (Phase 6+, opt-in) — LLM compile pass scans raw observations for entity mentions and proposes new edges. Proposals land in `~/.memory/relations-proposals.md` for human/lint review before merging. Lower precision; user gates the merge. Disabled by default; enabled via `config.yaml: graph.implicit_extraction: true`.
+
+**Graph traversal in retrieval** (already mentioned §7 — making it explicit here): tier-3 search fuses BM25 + embedding cosine + 1-hop graph expansion from BM25 top-K, then RRF over all three. This is the same multi-signal fusion agentmemory's worker uses internally (scored 95.2% on LongMemEval — see [[references/karpathy-llm-wiki-pattern]]).
+
+**Visualization is Obsidian Graph View** (per §4.6). No custom visualizer to build. Both `[[wikilinks]]` and frontmatter relations render as edges; filters work by tag and folder. The user's "graph memory" requirement is satisfied at zero implementation cost for visualization.
+
+**Performance:** loading the full graph means scanning all `wiki/**/*.md` frontmatter on each MCP call. At 5000 pages this is ~100ms first call, sub-1ms cached per-session. The MCP server caches the parsed graph in-process per call; a session that issues multiple graph queries reuses the parse.
 
 ---
 
@@ -578,14 +696,15 @@ The system has no daemon, so there is no "daemon-up integration test" to design 
 - Frontmatter validation
 - **Acceptance:** running `memory compile` against Phase 1's accumulated raw output produces a curated wiki
 
-### Phase 3 — Retrieval & MCP
+### Phase 3 — Retrieval, MCP, and graph layer
 - BM25 implementation
-- Embeddings layer (Voyage + JSONL sidecar + lazy refresh)
-- Graph traversal via frontmatter
-- Reciprocal rank fusion
-- MCP server with all 8 tools
+- Embeddings layer (Voyage `voyage-3.5` + JSONL sidecar + lazy refresh)
+- Frontmatter graph parsing + in-memory typed-graph structure
+- Graph query operations (`memory.graph_query`, `memory.graph_stats`, `memory.graph_path`)
+- Reciprocal rank fusion across BM25 + vector + 1-hop graph expansion
+- MCP server with all ~11 tools (the 8 base + 3 graph)
 - Claude Code MCP registration
-- **Acceptance:** `memory search "X"` and `memory.search` MCP call return ranked results from a real wiki
+- **Acceptance:** `memory search "X"` returns RRF-fused results; `memory.graph_query` returns typed neighborhoods; Obsidian Graph View renders the same edges the MCP server reports
 
 ### Phase 4 — Cross-platform + crystallize
 - Codex hooks manifest + MCP registration
@@ -600,12 +719,15 @@ The system has no daemon, so there is no "daemon-up integration test" to design 
 - Verify
 - **Acceptance:** the user's existing agentmemory content is queryable via `memory search` from any of the three platforms
 
-### Phase 6 — Polish
-- `memory doctor` checks (verify hook installation, MCP registration, recent activity, errors.log size)
+### Phase 6 — Polish, Obsidian verification, retention, optional implicit graph
+- `memory doctor` checks (verify hook installation, MCP registration, recent activity, errors.log size, retention pass overdue)
 - `memory backup` (git commit + push)
-- Documentation (architecture.md, cli.md)
-- (Optional) `.gitattributes` for cross-platform line-ending hygiene per slice 4 lesson
-- **Acceptance:** the system is documented well enough for the user to operate it without re-reading this spec
+- `memory retain --apply` retention pass + scheduled-task installer
+- Obsidian vault verification — load `~/.memory/` in Obsidian, confirm Graph View / Backlinks / Dataview all work against our schema
+- Documentation (architecture.md, cli.md, obsidian-setup.md)
+- `.gitattributes` for cross-platform line-ending hygiene per slice 4 lesson
+- **Optional (opt-in via `config.yaml`):** implicit graph extraction during compile — LLM proposes new edges; proposals land in `relations-proposals.md` for human/lint review
+- **Acceptance:** the system is documented well enough for the user to operate it without re-reading this spec; retention runs cleanly on a 90-day-old raw/ dataset; Obsidian opens the vault and shows a non-empty Graph View
 
 Each phase ships its own commit on its own branch, gets its own implementation plan via `writing-plans`, and ends with verification before the next phase starts.
 
@@ -622,7 +744,7 @@ Explicit out-of-scope to prevent scope creep:
 - Daemon / always-on processes
 - Custom search engine implementation beyond minimal BM25
 - Replacing CLAUDE.md (the schema.md complements it; CLAUDE.md remains for tool-specific config)
-- A graph database (frontmatter relations are the graph)
+- A standalone graph database engine like Neo4j (the graph is derived from frontmatter on-demand — we DO have graph operations and queries, just no separate DB engine)
 - Maintaining backward compatibility with agentmemory's HTTP API
 - Multi-machine sync beyond what `git pull` / `git push` provide
 - A "team" feature
