@@ -142,13 +142,17 @@ Voyage `voyage-3.5` priced at $0.06 per 1M input tokens (May 2026, web-verified)
 | Search queries | ~100-500/month × 50 tokens | 5-25K | <$0.01 |
 | Migration one-shot (agentmemory import) | ~few hundred new pages | ~500K one-time | $0.03 once |
 
-**Yearly projections** (after first-build):
+**Yearly projections — best-of-class profile** (voyage-4-large embeddings + Voyage Rerank 2.5 + HyDE via in-session LLM):
 
-| Use intensity | Yearly API cost |
-|---|---|
-| Light (1-2 sessions/day, ~200 wiki pages) | **~$0.40** |
-| Moderate (5-10 sessions/day, ~500 wiki pages) | **~$1.00** |
-| Heavy (20+ sessions/day, ~1500 wiki pages) | **~$2.00** |
+| Use intensity | Embeddings/yr | Rerank/yr | Total NEW API/yr |
+|---|---:|---:|---:|
+| Light (1-2 sessions/day, ~200 wiki pages) | ~$0.40 | ~$2 | **~$2.50** |
+| Moderate (5-10 sessions/day, ~500 wiki pages) | ~$1.00 | ~$6 | **~$7** |
+| Heavy (20+ sessions/day, ~1500 wiki pages) | ~$2-4 | ~$15 | **~$20** |
+
+HyDE and implicit graph extraction add zero separate API cost — they run through the user's existing agent session (Claude Opus 4.6 / Gemini 3.1 Pro / GPT-5.3, whichever is current).
+
+For perspective, total best-of-class memory infrastructure cost runs ~$20/year heavy use — well under one month of any agent subscription.
 
 **Why the cost is so low:**
 
@@ -428,13 +432,51 @@ Then reciprocal rank fusion (RRF) merges. RRF is the same fusion agentmemory use
 {"path": "wiki/projects/agentmemory.md", "hash": "<sha256>", "vector": [...], "model": "voyage-3-large", "ts": "..."}
 ```
 
-- **Provider:** configurable in `config.yaml`. Default: Voyage AI **`voyage-3.5`** ($0.06/M tokens, beats OpenAI `text-embedding-3-large` by ~8% on retrieval per Voyage's published evals, 32K context window, supports Matryoshka dimensions 2048/1024/512/256 for speed/storage tuning). Verified current via web search 2026-05-20. Alternates: OpenAI `text-embedding-3-small` ($0.02/M, safe default), Voyage 4 family (MoE, January 2026), Cohere `embed-v4` (slight MTEB lead at 65.2 vs voyage-3-large's 65.1). Optional local-only mode via Ollama + `nomic-embed-text` for offline use.
+- **Provider (best-of-class):** Voyage AI **`voyage-4-large`** (January 2026 release, MoE architecture, industry-first shared embedding spaces — means voyage-4-large indexes wiki and voyage-4-lite encodes queries without space mismatch, gaining latency without losing quality). Full 2048-dim embeddings (storage is free at personal scale; no Matryoshka truncation needed). Verified current via web search 2026-05-20. Alternates: voyage-3.5 ($0.06/M, slightly older), OpenAI `text-embedding-3-small` ($0.02/M, lower quality safe default), Ollama + `nomic-embed-text` (local, free, lower quality).
 - **Refresh:** lazy. On `memory.search`, the MCP server computes the SHA256 of each wiki page; any pages whose hash doesn't match the JSONL entry get re-embedded. Stale entries are removed. This means embeddings stay current automatically with no scheduled job.
 - **Cost ceiling:** the first wiki build costs N × 1k tokens × $0.18/M ≈ a few cents for a few hundred pages. Incremental refresh is near-free.
 
 ### 7.2 No vector DB
 
 The JSONL file is loaded fully into memory per query. At 1024-dim float32, 10000 pages = 40 MB. Cosine similarity over 10000 vectors is ~1ms. There is no scenario in personal-scale use where this needs a real vector DB.
+
+### 7.2.1 Reranker layer (best-of-class)
+
+After BM25 + vector + graph retrieval produces a top-K candidate set (typically K=50), a **cross-encoder reranker** re-scores the candidates against the query to surface the truly best matches.
+
+**Default reranker: Voyage Rerank 2.5** (~600ms latency, web-verified May 2026). Same API ecosystem as embeddings (single SDK, single key). 15-40% retrieval accuracy boost on BEIR-style benchmarks compared to vector-only.
+
+**Pipeline:**
+
+```
+query
+  ├─ HyDE expansion (§7.2.2) ──> hypothetical-answer text
+  ├─ BM25 over wiki/* (top-50)
+  ├─ Voyage embed query + cosine over wiki.embeddings.jsonl (top-50)
+  └─ 1-hop graph expansion from top BM25/vector hits along relations
+       │
+       └─> merged candidate set (~100 unique pages)
+              │
+              └─> Voyage Rerank 2.5 (rerank against query)
+                     │
+                     └─> top-10 → LLM synthesis
+```
+
+Reranker invoked from `memory.search` MCP tool and `memory search` CLI by default. Optional override via `--no-rerank` for cheaper / faster latency.
+
+**Cost:** ~$0.05 per 1k reranked passages (Voyage pricing May 2026). At ~500 queries/month with 50 candidates each, ~$1.25/month heavy use.
+
+**Alternates if Voyage degrades:** Cohere Rerank v4.0 Pro (1629 ELO, ~600ms), Zerank 2 (1638 ELO, top of leaderboard), Pinecone Rerank V0 (best BEIR NDCG@10), Mixedbread `mxbai-rerank-large` (open-source, self-hostable).
+
+### 7.2.2 HyDE — query expansion via the in-session LLM
+
+Before embedding the user's raw query, ask the in-session LLM (Claude/Codex/Antigravity) to draft a hypothetical answer to the query. Embed *that hypothetical answer* and search against it. This pulls relevant pages even when the query terms don't appear verbatim in the wiki.
+
+Implementation: a single prompt template `prompts/hyde.md` that the MCP `memory.search` tool optionally invokes when the query is short or abstract (≤ 5 words, or no exact-match in BM25). Output is a 100-300 token hypothetical paragraph used as the search vector.
+
+**Cost:** $0 separate — runs through the user's existing agent session. Adds ~1s latency per query.
+
+**Disable via `--no-hyde`** or `config.yaml: search.hyde: false` if not desired.
 
 ### 7.3 Graph memory — first-class layer
 
@@ -735,15 +777,18 @@ The system has no daemon, so there is no "daemon-up integration test" to design 
 - Frontmatter validation
 - **Acceptance:** running `memory compile` against Phase 1's accumulated raw output produces a curated wiki
 
-### Phase 3 — Retrieval, MCP, and graph layer
-- BM25 implementation
-- Embeddings layer (Voyage `voyage-3.5` + JSONL sidecar + lazy refresh)
+### Phase 3 — Retrieval, MCP, graph layer, reranker, HyDE
+- BM25 implementation (sparse retrieval)
+- Embeddings layer (**Voyage `voyage-4-large`** + JSONL sidecar + lazy refresh, 2048-dim, chunking for pages > 1500 tokens)
+- Voyage Rerank 2.5 cross-encoder layer (§7.2.1)
+- HyDE query expansion via in-session LLM (§7.2.2)
 - Frontmatter graph parsing + in-memory typed-graph structure
+- **Implicit graph extraction during compile** (promoted from Phase 6 — proposes new edges from raw observations; lands in `relations-proposals.md` for human/lint review)
 - Graph query operations (`memory.graph_query`, `memory.graph_stats`, `memory.graph_path`)
-- Reciprocal rank fusion across BM25 + vector + 1-hop graph expansion
-- MCP server with all ~11 tools (the 8 base + 3 graph)
+- RRF fusion across BM25 + vector + 1-hop graph expansion → reranker → top-K
+- MCP server with all ~12 tools (8 base + 3 graph + 1 reranker-disable override)
 - Claude Code MCP registration
-- **Acceptance:** `memory search "X"` returns RRF-fused results; `memory.graph_query` returns typed neighborhoods; Obsidian Graph View renders the same edges the MCP server reports
+- **Acceptance:** `memory search "X"` returns reranked RRF-fused results; `memory.graph_query` returns typed neighborhoods; Obsidian Graph View renders the same edges the MCP server reports; implicit graph extraction produces a non-empty `relations-proposals.md` after a compile pass over real raw observations
 
 ### Phase 4 — Cross-platform + crystallize
 - Codex hooks manifest + MCP registration
@@ -758,15 +803,14 @@ The system has no daemon, so there is no "daemon-up integration test" to design 
 - Verify
 - **Acceptance:** the user's existing agentmemory content is queryable via `memory search` from any of the three platforms
 
-### Phase 6 — Polish, Obsidian verification, retention, optional implicit graph
+### Phase 6 — Polish, Obsidian verification, retention scheduler
 - `memory doctor` checks (verify hook installation, MCP registration, recent activity, errors.log size, retention pass overdue)
 - `memory backup` (git commit + push)
 - `memory retain --apply` retention pass + scheduled-task installer
 - Obsidian vault verification — load `~/.memory/` in Obsidian, confirm Graph View / Backlinks / Dataview all work against our schema
 - Documentation (architecture.md, cli.md, obsidian-setup.md)
 - `.gitattributes` for cross-platform line-ending hygiene per slice 4 lesson
-- **Optional (opt-in via `config.yaml`):** implicit graph extraction during compile — LLM proposes new edges; proposals land in `relations-proposals.md` for human/lint review
-- **Acceptance:** the system is documented well enough for the user to operate it without re-reading this spec; retention runs cleanly on a 90-day-old raw/ dataset; Obsidian opens the vault and shows a non-empty Graph View
+- **Acceptance:** the system is documented well enough for the user to operate it without re-reading this spec; retention runs cleanly on a 90-day-old raw/ dataset; Obsidian opens the vault and shows a non-empty Graph View; implicit graph extraction (already shipped in Phase 3) is producing proposals on real data
 
 Each phase ships its own commit on its own branch, gets its own implementation plan via `writing-plans`, and ends with verification before the next phase starts.
 
