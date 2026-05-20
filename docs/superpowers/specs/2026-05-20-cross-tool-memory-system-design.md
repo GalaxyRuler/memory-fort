@@ -128,6 +128,45 @@ retention:
 
 Compare to agentmemory's data store (33 files, ~1 MB at last snapshot) — same order of magnitude per active window; the difference is human-readable markdown rather than opaque binary blobs, so the storage is auditable, grep-able, and git-compressible.
 
+### 3.2 Operating cost — API spend
+
+The only NEW API cost introduced by this system is **embeddings**. Compile / lint / crystallize workflows run through whichever LLM is already in the user's session (Claude / Codex / Antigravity) — they use existing subscriptions, not a separate bill.
+
+Voyage `voyage-3.5` priced at $0.06 per 1M input tokens (May 2026, web-verified). Token math:
+
+| Item | Heavy-use volume | Tokens/month | Cost/month |
+|---|---|---|---|
+| Wiki page initial embed | ~1000 pages × 1500 tokens | 1.5M one-time | $0.09 first build |
+| Wiki re-embed (changes only, content-hashed) | ~10% pages change/month | 150K | $0.009 |
+| Raw observation embeddings (if enabled) | ~5-10 sessions/day × 3K tokens | 450K-900K | $0.03-0.05 |
+| Search queries | ~100-500/month × 50 tokens | 5-25K | <$0.01 |
+| Migration one-shot (agentmemory import) | ~few hundred new pages | ~500K one-time | $0.03 once |
+
+**Yearly projections** (after first-build):
+
+| Use intensity | Yearly API cost |
+|---|---|
+| Light (1-2 sessions/day, ~200 wiki pages) | **~$0.40** |
+| Moderate (5-10 sessions/day, ~500 wiki pages) | **~$1.00** |
+| Heavy (20+ sessions/day, ~1500 wiki pages) | **~$2.00** |
+
+**Why the cost is so low:**
+
+1. Scales with curated wiki content (slow growth, bounded) — not with raw session activity.
+2. Lazy refresh: only content-hash-changed pages re-embed.
+3. Voyage 3.5's $0.06/M pricing is 3x cheaper than its predecessor voyage-3-large.
+4. Disabling raw embeddings drops cost further (raw is high-volume, low-retrieval-value).
+
+**Optimization paths if even this is too much:**
+
+| Switch to | Yearly heavy use | Tradeoff |
+|---|---|---|
+| OpenAI `text-embedding-3-small` ($0.02/M) | ~$0.30 | Slightly lower MTEB retrieval scores |
+| Ollama + `nomic-embed-text` (local, free) | $0 | Requires local GPU/CPU; lower quality |
+| Disable raw embeddings, wiki only | <$0.50 | No semantic search over raw observations; LLM still consumes raw during compile |
+
+For perspective: a single week of heavy Claude Code use likely costs 10-100x more than a full year of memory embeddings. The embedding cost is noise on existing agent spend.
+
 ---
 
 ## 4. Schema (`schema.md`) — the controlling document
