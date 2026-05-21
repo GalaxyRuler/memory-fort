@@ -8,19 +8,13 @@ Update this file whenever a real issue is observed but deferred. Keep entries te
 
 ## Open
 
-### F1. PostToolUse hook captures empty `**Output:**` block
+### F1. PostToolUse hook captures empty `**Output:**` block (Claude Code) — LIKELY RESOLVED at d243ae2 (pending Claude Code re-verification)
 
-**Discovered:** 2026-05-21, during the post-step-7-fix checkpoint verification (headless `claude -p` session with the memory plugin loaded).
+**Discovered:** 2026-05-21, during the post-step-7-fix checkpoint verification (headless `claude -p` session with the memory plugin loaded). **Likely resolved:** 2026-05-21 at step #16.5 (`d243ae2`) — the same field-fallback chain that fixed Codex (F7) also widens Claude Code's output reading: `readToolOutput(payload)` now falls back through `tool_output ?? tool_response ?? output`. If Claude Code's PostToolUse payload uses any of those, output is captured.
 
-**Symptom:** A real Claude Code session ran the Bash tool with `echo hooks-fired` (which produced visible stdout `hooks-fired`). The post-tool-use hook fired and produced a raw file, but the captured `**Output:**` block in the ToolUse section was empty. The block layout was correct; just the output content was missing.
+**Outstanding:** A real Claude Code session needs to verify output is now captured. Do this by running `claude --plugin-dir ~/.memory/claude-code-plugin -p "Run echo hello via Bash"` and inspecting the resulting raw file's ToolUse Output section. If still empty, the diagnostic in error-handler.ts will have logged the actual payload shape to errors.log — read that and add the correct field name to readToolOutput's fallback chain.
 
-**Hypothesis:** Claude Code's actual `PostToolUse` hook payload does NOT expose the tool output under `payload.tool_output` the way our [src/hooks/error-handler.ts](../src/hooks/error-handler.ts) `HookPayload` interface assumes. Field name may be different (`tool_response`? `output`? nested under a `result` key?), or output may not be passed to hooks at all (security/privacy default?). Need to inspect a real payload via `--debug` or by writing the raw JSON to disk for one invocation.
-
-**Suggested fix:** In Phase 2's compile pass, instrument one of the hook scripts to dump the raw payload to a debug file, run a session, inspect the actual shape, update `HookPayload` + `formatToolUseBlock` accordingly. Test against the captured shape.
-
-**Phase:** Phase 2 (Curation) — when we have real raw observations to compile, this gets re-examined.
-
-**Workaround:** None needed for Phase 1 — Prompt blocks and ToolUse-with-input are still captured. Just tool OUTPUT is missing from the raw file.
+**Phase:** Verification pending; if still failing, debug as Phase 2 work.
 
 ---
 
@@ -74,7 +68,13 @@ Update this file whenever a real issue is observed but deferred. Keep entries te
 
 ---
 
-### F7. Codex hooks fire but produce no raw files (Codex payload shape differs from Claude Code's)
+### F7. ~~Codex hooks fire but produce no raw files~~ — RESOLVED at d243ae2
+
+**Discovered:** 2026-05-21 step #16 E2E smoke. **Resolved:** 2026-05-21 at step #16.5 commit `d243ae2`. The fix added field-fallback chains in `src/hooks/util/payload-fields.ts` (`session_id ?? turn_id`, `tool_output ?? tool_response ?? output`, etc.) plus loud diagnostic logging on malformed stdin. Smoke verified: `codex exec` → raw file `~/.memory/raw/2026-05-21/codex-019e4bfa-3ed3-7cf0-94fe-a1a429cc0464.md` appeared with `source: codex`, real session UUID, prompt block, and ToolUse block including captured output. Phase 1 multi-platform passive ingestion now works for Claude Code + Codex (Antigravity is MCP-only by design).
+
+---
+
+### F7 (original entry, preserved for audit trail)
 
 **Discovered:** 2026-05-21, during step #16 E2E smoke. Running `codex exec --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox "..."` correctly fires hooks (`hook: PostToolUse Completed`, `hook: Stop Completed` visible in Codex output) but no `codex-*` raw file appears under `~/.memory/raw/<date>/`. `errors.log` is empty — meaning the silent-skip path in `error-handler.ts` is being taken (JSON.parse on stdin fails, hook exits 0 without writing).
 
