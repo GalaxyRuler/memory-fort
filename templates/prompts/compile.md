@@ -1,0 +1,180 @@
+# `memory compile` — distill raw observations into curated wiki pages
+
+You are running the compile workflow inside the user's active agent session. The CLI emitted this prompt with several context blocks substituted in (`{{schema_content}}`, `{{index_content}}`, etc.). Your job is to read those, then use your file-editing tools to update the wiki in `~/.memory/wiki/`.
+
+You do the entire compile pass in this session. Do not call out to another agent. Do not return a "here's what I would do" plan — actually do the work.
+
+---
+
+## Inputs
+
+### Schema (the controlling document)
+
+The user's memory schema dictates what entity types exist, what edge types relate them, what naming rules apply, and what quality standards each page must meet. Read it before you touch anything.
+
+```
+{{schema_content}}
+```
+
+### Current wiki index
+
+```
+{{index_content}}
+```
+
+### Recent log lines
+
+The last ~50 lines of `~/.memory/log.md`. Look for the most recent `## [<date>] compile | ...` entry — that's your "since" cutoff. Don't reprocess raws you've already seen.
+
+```
+{{recent_log_lines}}
+```
+
+### Raw files to process
+
+```
+{{raw_files_list}}
+```
+
+### Raw file contents
+
+Each file's contents in order. Files may be truncated to ~10KB each if very long.
+
+```
+{{raw_content}}
+```
+
+---
+
+## Procedure
+
+Work through these steps in order. Use your `Read`, `Write`, `Edit`, and `Glob` tools (or equivalents in your agent) to do the work.
+
+### Step 1 — Extract entity candidates
+
+For each raw file, identify what entity types it mentions. Entity types per schema:
+
+- `projects` — codebases, services
+- `people` — collaborators, users
+- `decisions` — specific choices with reasons
+- `lessons` — reusable facts learned from incidents
+- `references` — external knowledge (papers, blog posts, docs)
+- `tools` — software dependencies, services
+
+For each candidate, note:
+- The slug (lowercase-kebab-case per schema §4)
+- The expected wiki path (`wiki/<category>/<slug>.md`)
+- One-sentence summary of why this entity is interesting
+
+### Step 2 — Cross-session signal threshold
+
+Per schema §6: **do not create a wiki page from a single raw session's content.** Wait for the same entity to appear across 3+ raw sessions OR for an explicit user instruction.
+
+For each candidate:
+- If the entity already has a wiki page → proceed to Step 3 (update it).
+- If it doesn't AND it appears in ≥ 3 distinct raw files in this batch (or across this batch + recent prior sessions visible from `index.md`) → create it.
+- If it doesn't AND it's a single-session mention → skip; let it stay in `raw/` until a future compile sees the cross-session signal.
+
+### Step 3 — Update existing pages
+
+For each entity with an existing wiki page:
+1. Read the page.
+2. Identify what's new in the raw observations beyond what the page already says.
+3. Append a `## [<YYYY-MM-DD>] update` section with the new content.
+4. Update the `updated:` field in frontmatter to today's date.
+5. If new relations were observed, add them to `relations:` (preserve existing relations).
+6. Do NOT rewrite or delete existing content. Append only.
+
+### Step 4 — Create new pages (only when threshold met)
+
+For each entity that crossed the threshold and doesn't yet have a page:
+1. Create the file at `wiki/<category>/<slug>.md`.
+2. Frontmatter follows the contract from schema §3 — required: `type`, `title`, `created` (today), `updated` (today). Set `status: active`. Set `confidence` based on how certain the content is (0.7 if multi-session direct observation; 0.5 if inferred).
+3. First line of body: one-sentence summary (what shows in `index.md`).
+4. Body: prose explanation, with `[[wikilinks]]` to related pages where appropriate.
+5. `relations:` filled with the typed edges you observed (uses, depends_on, etc. per schema §5).
+
+### Step 5 — Privacy filter
+
+Before writing ANY content (update or create), apply the privacy filter from schema §7:
+
+- Strip API key patterns: `sk-[a-zA-Z0-9_-]{20,}`, `AIza[a-zA-Z0-9_-]{30,}`, `gh[ps]_[a-zA-Z0-9]{36,}`, `Bearer [a-zA-Z0-9_.-]+`.
+- Strip credentials in URLs: `https?://[^:]+:[^@]+@`.
+- Strip PEM blocks (`-----BEGIN <anything>-----`).
+- Replace stripped content with `[REDACTED: <category>]`.
+
+The raw observations stay un-filtered in `~/.memory/raw/` (gitignored). Only wiki/ content gets filtered.
+
+### Step 6 — Update `index.md`
+
+After all page mutations, regenerate `~/.memory/index.md`:
+
+1. Read existing index.
+2. For each new wiki page, add a one-line entry: `- [<title>](<wiki/path>) — <one-sentence summary>`.
+3. Update entries for pages whose title changed.
+4. Keep the index alphabetized by category, then by slug.
+
+### Step 7 — Append to `log.md`
+
+Append a single line to `~/.memory/log.md`:
+
+```
+## [<YYYY-MM-DD HH:MM:SS>] compile | N raw → M updates, K new pages
+```
+
+Where N is the number of raw files processed, M is the number of existing wiki pages updated, K is the number of new wiki pages created.
+
+### Step 8 — Report
+
+At the end of the compile pass, print this structured summary to the user (your final agent response):
+
+```
+Compile complete.
+
+Raw files processed: N
+Wiki pages updated:  M
+Wiki pages created:  K
+
+New pages:
+  - wiki/projects/<slug>.md — <title>
+  - wiki/lessons/<slug>.md — <title>
+
+Updated pages:
+  - wiki/projects/<existing>.md — added X update section
+  - ...
+
+Skipped (single-session signal, will reconsider next compile):
+  - candidate-entity-1
+  - candidate-entity-2
+```
+
+---
+
+## Anti-patterns — do NOT do these
+
+- **Do not silently delete contradictions.** If new content disagrees with what an existing page says, add the new content under an `## [<date>] update` section AND add the old page to the new content's `relations.contradicts`. The lint pass surfaces these for human resolution.
+- **Do not create a `people/X.md` page from a one-off mention.** Wait for cross-session signal.
+- **Do not use marketing language.** "Best-in-class", "state-of-the-art", "robust" — banned per schema §10. State facts.
+- **Do not include emojis** unless the user explicitly used them.
+- **Do not bypass the privacy filter** to keep a "useful" credential in the wiki. There's no useful credential; rotate it.
+- **Do not update `confidence:` to 1.0** without evidence. New claims start at 0.5-0.7.
+- **Do not invent relations.** If the raw observations don't establish a `uses` or `depends_on` link, don't write one.
+- **Do not rewrite existing wiki content.** Append `## [<date>] update` sections only. Preserve audit trail.
+
+---
+
+## What "good" looks like
+
+A successful compile pass:
+- Touches a small number of files (probably 1-5 wiki pages per pass)
+- Adds new content under dated update sections, never deletes
+- Updates `index.md` with any new pages
+- Appends one line to `log.md`
+- Produces a structured summary report
+- Leaves the wiki in a state that `memory lint --checks-only` would report 0 frontmatter errors and 0 broken links against
+
+If you're tempted to write a page with content that isn't directly supported by what's in the raw observations — stop. Wait for more sessions to confirm.
+
+If a raw observation seems important but doesn't fit the entity categories — note it for the user in your summary report but don't force it into a wiki page.
+
+Now proceed.
