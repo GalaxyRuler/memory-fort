@@ -139,4 +139,52 @@ program
     }
   });
 
+function registerStub(name: string, phase: number, description: string): void {
+  program
+    .command(name)
+    .description(
+      `${description} (Phase ${phase} - not yet implemented in Phase 1)`,
+    )
+    .allowUnknownOption()
+    .allowExcessArguments()
+    .action(() => {
+      console.error(
+        `memory ${name}: not yet implemented in Phase 1. ` +
+          `Slated for Phase ${phase}. See plan: ` +
+          `docs/superpowers/plans/2026-05-20-phase-1-foundation-plan.md`,
+      );
+      process.exit(2);
+    });
+}
+
+registerStub(
+  "search",
+  3,
+  "Hybrid retrieval (BM25 + voyage-4-large + rerank + graph)",
+);
+registerStub("compile", 2, "Compile raw observations into curated wiki pages");
+registerStub("lint", 2, "Check the wiki for contradictions, orphans, stale claims");
+registerStub(
+  "crystallize",
+  4,
+  "Distill a completed thread into a long-form digest",
+);
+registerStub("backup", 6, "git commit + push memory state to remote");
+registerStub("page", 2, "Pretty-print a wiki page with resolved relations");
+registerStub(
+  "import-from-agentmemory",
+  5,
+  "One-shot migration from GalaxyRuler/agentmemory",
+);
+registerStub(
+  "retain",
+  6,
+  "Run retention policy: archive expired raws, prune embeddings",
+);
+registerStub(
+  "schedule",
+  6,
+  "Install OS-level scheduled tasks (Windows Task Scheduler / cron)",
+);
+
 program.parseAsync(process.argv);
