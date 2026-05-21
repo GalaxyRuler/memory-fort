@@ -49,7 +49,7 @@ Branch: `main`. Author identity for commits: `GalaxyRuler <aoa@live.ca>`.
   },
   "devDependencies": {
     "typescript": "^5",
-    "tsdown": "^0.6",
+    "tsdown": "^0.22",
     "vitest": "^2",
     "@types/node": "^20",
     "@types/js-yaml": "^4"
