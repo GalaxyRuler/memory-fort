@@ -124,9 +124,19 @@ program
           totalMaxBytes: opts.totalMaxBytes,
           outputPath: opts.output,
         });
-        process.stdout.write(result.prompt);
+        if (opts.output) {
+          console.error(`Compile prompt written to ${opts.output}`);
+          console.error(`  raw files included: ${result.rawFilesIncluded.length}`);
+          console.error(`  raw files skipped:  ${result.rawFilesSkipped.length}`);
+          console.error(`  since cutoff:       ${result.sinceCutoff}`);
+          if (result.truncatedAtTotalCap) {
+            console.error("  WARNING: total-cap reached; some raws excluded");
+          }
+        } else {
+          process.stdout.write(result.prompt);
+        }
       } catch (err) {
-        console.error((err as Error).message);
+        console.error(`memory compile failed: ${(err as Error).message}`);
         process.exit(1);
       }
     },

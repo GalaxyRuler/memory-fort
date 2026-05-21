@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { spawnSync } from "node:child_process";
 import {
   mkdir,
   readFile,
@@ -8,9 +9,11 @@ import {
 } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { mkdtemp } from "node:fs/promises";
 import { runCompile } from "../../../src/cli/commands/compile.js";
+
+const CLI = resolve(process.cwd(), "dist", "cli.mjs");
 
 const TEMPLATE = [
   "SCHEMA={{schema_content}}",
@@ -162,5 +165,22 @@ describe("runCompile", () => {
 
     expect(existsSync(outputPath)).toBe(true);
     expect(await readFile(outputPath, "utf-8")).toBe(result.prompt);
+  });
+
+  it("--output writes file and suppresses prompt on stdout", async () => {
+    const rawPath = join(root, "raw", "2026-05-21", "manual-a.md");
+    const outputPath = join(tmp, "compile-cli-prompt.md");
+    await writeFile(rawPath, "raw for cli output");
+
+    const r = spawnSync("node", [CLI, "compile", "--output", outputPath], {
+      encoding: "utf-8",
+      env: { ...process.env, MEMORY_ROOT: root },
+    });
+
+    expect(r.status).toBe(0);
+    expect(r.stdout.trim()).toBe("");
+    expect(r.stderr).toContain(`Compile prompt written to ${outputPath}`);
+    expect(existsSync(outputPath)).toBe(true);
+    expect(await readFile(outputPath, "utf-8")).toContain("SCHEMA=# Schema");
   });
 });
