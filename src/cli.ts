@@ -1,9 +1,12 @@
 #!/usr/bin/env node
 import { Command } from "commander";
+import { runDoctor, formatDoctorResult } from "./cli/commands/doctor.js";
 import { runGrep, type GrepScope } from "./cli/commands/grep.js";
 import { runInit } from "./cli/commands/init.js";
 import { runInstall } from "./cli/commands/install.js";
 import { runLog } from "./cli/commands/log.js";
+import { runStats, formatStatsResult } from "./cli/commands/stats.js";
+import { runTailErrors } from "./cli/commands/tail-errors.js";
 
 const program = new Command();
 
@@ -96,5 +99,44 @@ program
       }
     },
   );
+
+program
+  .command("stats")
+  .description("Summarize memory state — file counts, install status, git state")
+  .action(async () => {
+    try {
+      const result = await runStats();
+      process.stdout.write(formatStatsResult(result));
+    } catch (err) {
+      console.error(`memory stats failed: ${(err as Error).message}`);
+      process.exit(1);
+    }
+  });
+
+program
+  .command("doctor")
+  .description("Structural health check; exits non-zero if any check fails")
+  .action(async () => {
+    try {
+      const result = await runDoctor();
+      process.stdout.write(`${formatDoctorResult(result)}\n`);
+      process.exit(result.failed > 0 ? 1 : 0);
+    } catch (err) {
+      console.error(`memory doctor failed: ${(err as Error).message}`);
+      process.exit(1);
+    }
+  });
+
+program
+  .command("tail-errors")
+  .description("Live tail of ~/.memory/errors.log (Ctrl+C to exit)")
+  .action(async () => {
+    try {
+      await runTailErrors();
+    } catch (err) {
+      console.error(`memory tail-errors failed: ${(err as Error).message}`);
+      process.exit(1);
+    }
+  });
 
 program.parseAsync(process.argv);
