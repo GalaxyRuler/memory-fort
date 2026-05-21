@@ -6,10 +6,7 @@ export async function runInstall(platform: string): Promise<void> {
   switch (platform) {
     case "claude-code": {
       const result = await installClaudeCode();
-      const banner = result.alreadyInstalled
-        ? "Memory plugin for Claude Code already installed"
-        : "Installed memory plugin for Claude Code";
-      console.log(`${banner} at ${result.pluginDir}`);
+      console.log(`Installed memory plugin for Claude Code at ${result.pluginDir}`);
       for (const line of result.log) console.log(`  ${line}`);
       console.log("");
       console.log("Next steps:");
@@ -21,7 +18,7 @@ export async function runInstall(platform: string): Promise<void> {
         "  2. OR start a session with: claude --plugin-dir ~/.memory/claude-code-plugin",
       );
       console.log(
-        "  3. MCP server will be available after step #8 — hooks work now.",
+        `  3. Plugin MCP config is at: ${result.pluginMcpConfigPath}`,
       );
       return;
     }

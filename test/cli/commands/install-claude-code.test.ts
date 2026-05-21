@@ -111,30 +111,63 @@ describe("installClaudeCode", () => {
     expect((await lstat(join(memDir, "scripts"))).isSymbolicLink()).toBe(false);
   });
 
-  it("creates .mcp.json with memory server entry", async () => {
+  it("creates .mcp.json INSIDE the plugin dir, NOT in claudeDir", async () => {
     const result = await installClaudeCode({ repoDir, claudeDir });
-    expect(result.mcpConfigCreated).toBe(true);
-    const mcp = JSON.parse(await readFile(result.mcpConfigPath, "utf-8"));
+    expect(result.pluginMcpConfigPath).toBe(
+      join(memDir, "claude-code-plugin", ".mcp.json"),
+    );
+    expect(existsSync(join(memDir, "claude-code-plugin", ".mcp.json"))).toBe(true);
+    expect(existsSync(join(claudeDir, ".mcp.json"))).toBe(false);
+    const mcp = JSON.parse(await readFile(result.pluginMcpConfigPath, "utf-8"));
     expect(mcp.mcpServers.memory).toBeDefined();
     expect(mcp.mcpServers.memory.command).toBe("node");
-    expect(mcp.mcpServers.memory.args[0]).toContain(
-      "claude-code-plugin/scripts/mcp-server.mjs",
-    );
   });
 
-  it("merges into existing .mcp.json without destroying entries", async () => {
+  it("plugin .mcp.json uses ${CLAUDE_PLUGIN_ROOT} for the server path", async () => {
+    await installClaudeCode({ repoDir, claudeDir });
+    const content = JSON.parse(
+      await readFile(join(memDir, "claude-code-plugin", ".mcp.json"), "utf-8"),
+    );
+    const args = content.mcpServers.memory.args as string[];
+    expect(args.some((arg) => arg.includes("${CLAUDE_PLUGIN_ROOT}"))).toBe(true);
+  });
+
+  it("migrates legacy ~/.claude/.mcp.json by removing our entry and preserving others", async () => {
     await mkdir(claudeDir, { recursive: true });
     await writeFile(
       join(claudeDir, ".mcp.json"),
       JSON.stringify({
-        mcpServers: { other: { command: "node", args: ["other.mjs"] } },
+        mcpServers: {
+          memory: { command: "node", args: ["old.mjs"] },
+          other: { command: "node", args: ["keep.mjs"] },
+        },
       }),
     );
     const result = await installClaudeCode({ repoDir, claudeDir });
-    expect(result.mcpConfigCreated).toBe(false);
-    const mcp = JSON.parse(await readFile(result.mcpConfigPath, "utf-8"));
-    expect(mcp.mcpServers.other).toBeDefined();
-    expect(mcp.mcpServers.memory).toBeDefined();
+    expect(result.legacyMigrated).toBe(true);
+    const content = JSON.parse(await readFile(join(claudeDir, ".mcp.json"), "utf-8"));
+    expect(content.mcpServers.memory).toBeUndefined();
+    expect(content.mcpServers.other).toBeDefined();
+  });
+
+  it("deletes legacy ~/.claude/.mcp.json entirely if only our entry was there", async () => {
+    await mkdir(claudeDir, { recursive: true });
+    await writeFile(
+      join(claudeDir, ".mcp.json"),
+      JSON.stringify({
+        mcpServers: {
+          memory: { command: "node", args: ["old.mjs"] },
+        },
+      }),
+    );
+    const result = await installClaudeCode({ repoDir, claudeDir });
+    expect(result.legacyMigrated).toBe(true);
+    expect(existsSync(join(claudeDir, ".mcp.json"))).toBe(false);
+  });
+
+  it("no-ops migration when legacy .mcp.json does not exist", async () => {
+    const result = await installClaudeCode({ repoDir, claudeDir });
+    expect(result.legacyMigrated).toBe(false);
   });
 
   it("appends to log.md", async () => {
@@ -146,14 +179,26 @@ describe("installClaudeCode", () => {
   it("is idempotent and reports already installed on second invocation", async () => {
     await installClaudeCode({ repoDir, claudeDir });
     const result = await installClaudeCode({ repoDir, claudeDir });
-    expect(result.alreadyInstalled).toBe(true);
-    expect(result.log.some((line) => line.includes("already installed"))).toBe(true);
+    expect(result.pluginMcpConfigPath).toBe(
+      join(memDir, "claude-code-plugin", ".mcp.json"),
+    );
+    expect(existsSync(result.pluginMcpConfigPath)).toBe(true);
+    expect(existsSync(join(claudeDir, ".mcp.json"))).toBe(false);
   });
 
   it("uses MEMORY_CLAUDE_DIR when claudeDir is not provided", async () => {
     process.env["MEMORY_CLAUDE_DIR"] = claudeDir;
+    await mkdir(claudeDir, { recursive: true });
+    await writeFile(
+      join(claudeDir, ".mcp.json"),
+      JSON.stringify({
+        mcpServers: {
+          memory: { command: "node", args: ["old.mjs"] },
+        },
+      }),
+    );
     const result = await installClaudeCode({ repoDir });
-    expect(result.mcpConfigPath).toBe(join(claudeDir, ".mcp.json"));
-    expect(existsSync(result.mcpConfigPath)).toBe(true);
+    expect(result.legacyMigrated).toBe(true);
+    expect(existsSync(join(claudeDir, ".mcp.json"))).toBe(false);
   });
 });

@@ -1,16 +1,14 @@
-import { join, resolve, dirname } from "node:path";
+import { join, dirname } from "node:path";
 import { existsSync } from "node:fs";
-import { lstat, unlink } from "node:fs/promises";
+import { lstat, readFile, unlink } from "node:fs/promises";
 import { homedir } from "node:os";
 import {
   memoryRoot,
   logPath,
-  mcpServerPath,
   scriptsDir,
 } from "../../../storage/paths.js";
 import { atomicWrite, atomicAppend } from "../../../storage/atomic-write.js";
 import { ensureSymlinkOrJunction } from "../../util/symlink-or-junction.js";
-import { mergeJsonFile } from "../../util/json-merge.js";
 
 export interface InstallClaudeCodeOptions {
   /** Override repo path (default: derived from this script's location). */
@@ -24,9 +22,8 @@ export interface InstallClaudeCodeOptions {
 export interface InstallClaudeCodeResult {
   pluginDir: string;
   scriptsLink: string;
-  mcpConfigPath: string;
-  mcpConfigCreated: boolean;
-  alreadyInstalled: boolean;
+  pluginMcpConfigPath: string;
+  legacyMigrated: boolean;
   log: string[];
 }
 
@@ -107,13 +104,9 @@ export async function installClaudeCode(
   const pluginDir = join(root, "claude-code-plugin");
   const manifestPath = join(pluginDir, ".claude-plugin", "plugin.json");
   const hooksPath = join(pluginDir, "hooks", "hooks.json");
+  const pluginMcpConfigPath = join(pluginDir, ".mcp.json");
   const pluginScriptsDir = join(pluginDir, "scripts");
   const repoHooks = join(repoDir, "dist", "hooks");
-  const wasInstalled =
-    existsSync(manifestPath) &&
-    existsSync(hooksPath) &&
-    existsSync(pluginScriptsDir) &&
-    existsSync(join(claudeDir, ".mcp.json"));
 
   await atomicWrite(manifestPath, JSON.stringify(PLUGIN_MANIFEST, null, 2) + "\n");
   log.push(`wrote plugin manifest at ${manifestPath}`);
@@ -130,21 +123,17 @@ export async function installClaudeCode(
   });
   log.push(`${linkResult} plugin scripts link ${pluginScriptsDir} -> ${repoHooks}`);
 
-  const mcpConfigPath = join(claudeDir, ".mcp.json");
-  const mcpPatch = {
+  const legacyMigrated = await migrateLegacyUserMcp(claudeDir, log);
+  const pluginMcpConfig = {
     mcpServers: {
       memory: {
         command: "node",
-        args: [slashPath(mcpServerPath())],
+        args: ["${CLAUDE_PLUGIN_ROOT}/scripts/mcp-server.mjs"],
       },
     },
   };
-  const { created: mcpCreated } = await mergeJsonFile(mcpConfigPath, mcpPatch);
-  log.push(
-    mcpCreated
-      ? `created ${mcpConfigPath} with memory MCP entry`
-      : `merged memory entry into existing ${mcpConfigPath}`,
-  );
+  await atomicWrite(pluginMcpConfigPath, JSON.stringify(pluginMcpConfig, null, 2) + "\n");
+  log.push(`wrote plugin MCP config at ${pluginMcpConfigPath}`);
 
   const now = opts.now ?? new Date();
   await atomicAppend(
@@ -152,17 +141,11 @@ export async function installClaudeCode(
     `## [${now.toISOString()}] install | claude-code: plugin + hooks + MCP\n`,
   );
 
-  const alreadyInstalled = wasInstalled && !mcpCreated && linkResult === "exists";
-  if (alreadyInstalled) {
-    log.push("already installed: Claude Code plugin, hooks link, and MCP entry");
-  }
-
   return {
     pluginDir,
     scriptsLink: pluginScriptsDir,
-    mcpConfigPath,
-    mcpConfigCreated: mcpCreated,
-    alreadyInstalled,
+    pluginMcpConfigPath,
+    legacyMigrated,
     log,
   };
 }
@@ -178,10 +161,6 @@ function resolveRepoDir(): string {
   throw new Error("Could not locate repo root from script location");
 }
 
-function slashPath(path: string): string {
-  return resolve(path).replace(/\\/g, "/");
-}
-
 async function removeOldTopLevelScriptsLink(): Promise<void> {
   const oldScripts = scriptsDir();
   try {
@@ -191,4 +170,40 @@ async function removeOldTopLevelScriptsLink(): Promise<void> {
     // Missing path or unlink failure is not fatal; the plugin-local
     // scripts link is authoritative after this fix.
   }
+}
+
+async function migrateLegacyUserMcp(
+  claudeDir: string,
+  log: string[],
+): Promise<boolean> {
+  const legacy = join(claudeDir, ".mcp.json");
+  if (!existsSync(legacy)) return false;
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(await readFile(legacy, "utf-8")) as Record<string, unknown>;
+  } catch {
+    return false;
+  }
+
+  const servers = parsed["mcpServers"];
+  if (typeof servers !== "object" || servers === null) return false;
+  const serverMap = servers as Record<string, unknown>;
+  if (!("memory" in serverMap)) return false;
+
+  delete serverMap["memory"];
+
+  const remainingServerKeys = Object.keys(serverMap);
+  const remainingTopKeys = Object.keys(parsed).filter((key) => key !== "mcpServers");
+  if (remainingServerKeys.length === 0 && remainingTopKeys.length === 0) {
+    await unlink(legacy);
+    log.push(`removed legacy ${legacy} (only contained our memory entry)`);
+  } else {
+    if (remainingServerKeys.length === 0) {
+      delete parsed["mcpServers"];
+    }
+    await atomicWrite(legacy, JSON.stringify(parsed, null, 2) + "\n");
+    log.push(`removed memory entry from ${legacy}; preserved other entries`);
+  }
+
+  return true;
 }
