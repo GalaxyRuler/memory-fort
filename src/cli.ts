@@ -3,6 +3,7 @@ import { Command } from "commander";
 import { runGrep, type GrepScope } from "./cli/commands/grep.js";
 import { runInit } from "./cli/commands/init.js";
 import { runInstall } from "./cli/commands/install.js";
+import { runLog } from "./cli/commands/log.js";
 
 const program = new Command();
 
@@ -64,5 +65,36 @@ program
     const result = runGrep({ pattern, scope, contextLines: ctx });
     process.exit(result.exitCode);
   });
+
+program
+  .command("log <text>")
+  .description("Append an observation to today's manual-source raw file")
+  .option(
+    "--tag <tag>",
+    "tag for the observation (repeatable)",
+    (value: string, prev: string[] = []) => [...prev, value],
+  )
+  .option("--confidence <n>", "confidence 0..1", parseFloat)
+  .action(
+    async (
+      text: string,
+      opts: { tag?: string[]; confidence?: number },
+    ) => {
+      try {
+        const result = await runLog({
+          text,
+          tags: opts.tag,
+          confidence: opts.confidence,
+        });
+        console.log(`Logged to ${result.path}`);
+        console.log(`  session: ${result.sessionId}`);
+        console.log(`  bytes:   ${result.bytesAppended}`);
+      } catch (err) {
+        const msg = (err as Error).message;
+        console.error(msg);
+        process.exit(msg.startsWith("memory log:") ? 2 : 1);
+      }
+    },
+  );
 
 program.parseAsync(process.argv);
