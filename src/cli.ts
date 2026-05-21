@@ -5,6 +5,7 @@ import { runDoctor, formatDoctorResult } from "./cli/commands/doctor.js";
 import { runGrep, type GrepScope } from "./cli/commands/grep.js";
 import { runInit } from "./cli/commands/init.js";
 import { runInstall } from "./cli/commands/install.js";
+import { runLint } from "./cli/commands/lint.js";
 import { runLog } from "./cli/commands/log.js";
 import { runStats, formatStatsResult } from "./cli/commands/stats.js";
 import { runTailErrors } from "./cli/commands/tail-errors.js";
@@ -131,6 +132,34 @@ program
   );
 
 program
+  .command("lint")
+  .description("Assemble an LLM lint prompt or run programmatic wiki checks")
+  .option("--checks-only", "run programmatic checks instead of prompt mode")
+  .option("--stale-days <n>", "stale-page threshold in days", parseInteger)
+  .action(
+    async (opts: {
+      checksOnly?: boolean;
+      staleDays?: number;
+    }) => {
+      try {
+        const result = await runLint({
+          checksOnly: opts.checksOnly,
+          staleDays: opts.staleDays,
+        });
+        if (result.mode === "prompt") {
+          process.stdout.write(result.prompt);
+        } else {
+          process.stdout.write(result.report);
+          process.exit(result.hasBlockingIssues ? 1 : 0);
+        }
+      } catch (err) {
+        console.error((err as Error).message);
+        process.exit(1);
+      }
+    },
+  );
+
+program
   .command("stats")
   .description("Summarize memory state — file counts, install status, git state")
   .action(async () => {
@@ -192,7 +221,6 @@ registerStub(
   3,
   "Hybrid retrieval (BM25 + voyage-4-large + rerank + graph)",
 );
-registerStub("lint", 2, "Check the wiki for contradictions, orphans, stale claims");
 registerStub(
   "crystallize",
   4,
