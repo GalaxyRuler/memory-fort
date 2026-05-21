@@ -49,6 +49,22 @@ Each hook script is a one-shot Node.js process that reads stdin (the hook payloa
 
 The MCP server is a stateless stdio process spawned by each host on session start. It registers three tools, services requests against `~/.memory/`, and exits when the host closes.
 
+## Curation pipeline
+
+Ingest is passive and automated: hooks and MCP calls append markdown firehose data under `raw/`. Curation is deliberate and LLM-assisted: the user runs commands that assemble context, then the active agent session edits or inspects `wiki/`.
+
+`compile` is the bridge from accumulated observations to curated wiki pages. The LLM reads raw observations and proposes updates to `wiki/`. The cross-session signal threshold — usually 3 or more raw mentions before creating a new page — is enforced by instructions in the prompt template, not by `memory compile` itself. The CLI reads `schema.md`, `index.md`, recent `log.md` lines, and raw files newer than the latest compile cutoff, substitutes them into `prompts/compile.md`, and prints the result.
+
+`lint` checks structural integrity. Programmatic mode (`--checks-only`) catches mechanical issues: invalid frontmatter, broken `[[wikilinks]]`, broken `relations:` targets, orphan pages, stale active pages, and low-confidence drafts. LLM mode adds judgment: distinguishing real issues from intentional edge cases, suggesting concrete next steps, and prioritizing what to fix first.
+
+`page` is read-only inspection for one wiki page. It resolves outbound edges from `relations:` and discovers inbound edges by reverse-scanning other pages. Use it to verify that a relation points to a real page and to see which pages cite the one being inspected.
+
+```
+raw/*.md  -> compile (LLM)  -> wiki/*.md  -> lint (LLM or --checks-only)  -> page (inspect)
+```
+
+Every curation command is an orchestrator. The CLI assembles context and performs deterministic filesystem reads; the LLM does judgment in the user's active agent session. No CLI command calls an LLM directly.
+
 ## Why no daemon
 
 Every reliability failure documented in the `codex/windows-codex-desktop-stability` session of agentmemory (the predecessor) required a persistent daemon with bound ports: stale dead-PID sockets, port management, `cwd`-coupled data directories, supervisor lifecycle, hardcoded port config files. None of those failure modes can exist here because the components that fail don't exist. The MCP server uses stdio — no ports. It lives only inside a session — no orphan processes between sessions.
@@ -73,6 +89,7 @@ See [troubleshooting.md](troubleshooting.md) for the top failure modes per platf
 ## Related docs
 
 - [cli.md](cli.md) — CLI command reference
+- [curation-workflow.md](curation-workflow.md) — compile/lint/page operating loop
 - [install-claude-code.md](install-claude-code.md) — Claude Code install walkthrough
 - [install-codex.md](install-codex.md) — Codex install walkthrough
 - [install-antigravity.md](install-antigravity.md) — Antigravity install walkthrough

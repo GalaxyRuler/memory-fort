@@ -2,6 +2,91 @@
 
 `memory <subcommand> [options]` — single binary at `dist/cli.mjs`, installed as `memory` on PATH via npm-link or by running `node dist/cli.mjs` directly.
 
+## compile
+
+**Synopsis:**
+```bash
+memory compile [--since <iso>] [--per-file-max-bytes <bytes>] [--total-max-bytes <bytes>] [-o, --output <path>]
+```
+
+**Description:**
+Assemble an LLM prompt by substituting recent raw observations, schema, index, and log context into `~/.memory/prompts/compile.md`. This command is an orchestrator: the LLM in your active agent session reads the printed prompt and performs the actual wiki edits. `memory compile` never calls an LLM and never writes to `wiki/`.
+
+**Options:**
+
+| Flag | Default | Description |
+|---|---|---|
+| `--since <iso>` | Latest `compile` entry in `log.md`, or epoch if none | Only include raw files modified at or after this timestamp |
+| `--per-file-max-bytes <bytes>` | `10000` | Maximum content read from each raw file |
+| `--total-max-bytes <bytes>` | `200000` | Maximum raw content folded into the prompt across all files |
+| `-o, --output <path>` | stdout only | Also write the assembled prompt to a file |
+
+**Examples:**
+```bash
+node dist/cli.mjs compile
+node dist/cli.mjs compile --output compile-prompt.md
+```
+
+**Exit codes:** 0 success, 1 error. If `~/.memory/prompts/compile.md` is missing, run `memory init` first.
+
+---
+
+## lint
+
+**Synopsis:**
+```bash
+memory lint [--checks-only] [--stale-days <n>]
+```
+
+**Description:**
+Run the wiki lint workflow in one of two modes. By default, `memory lint` assembles an LLM prompt using the same orchestrator pattern as `compile`: the CLI prints context, and the user's active agent session does the judgment work. With `--checks-only`, the CLI skips the LLM and runs programmatic checks directly: frontmatter validity, broken `[[wikilinks]]`, broken `relations:` targets, orphan pages, stale active pages, and low-confidence drafts. `--checks-only` exits 1 if any frontmatter or broken-relation issues exist because those are data-integrity blockers; other categories are advisory and exit 0.
+
+**Options:**
+
+| Flag | Default | Description |
+|---|---|---|
+| `--checks-only` | off | Run programmatic checks and print a structured text report |
+| `--stale-days <n>` | `180` | Stale-page threshold used by `--checks-only` |
+
+**Examples:**
+```bash
+node dist/cli.mjs lint
+node dist/cli.mjs lint --checks-only
+```
+
+**Exit codes:** 0 success or no blocking issues, 1 if `--checks-only` finds frontmatter or broken-relation issues, 1 on internal error.
+
+---
+
+## page
+
+**Synopsis:**
+```bash
+memory page <target> [--no-inbound]
+```
+
+**Description:**
+Pretty-print a single wiki page with frontmatter, body, resolved relations, and inbound references. Outbound `relations:` entries are resolved to page paths and titles. Inbound references are other pages that link to the target via `[[wikilinks]]` or `relations:` entries. The command is read-only.
+
+**Target resolution:**
+`<target>` may be a relative path such as `projects/agentmemory.md` or `projects/agentmemory`, or a filename without extension such as `agentmemory`. If a filename-only target matches multiple pages, the command prints an error listing the candidates and asks for a relative path.
+
+**Options:**
+
+| Flag | Default | Description |
+|---|---|---|
+| `--no-inbound` | off | Skip the inbound-references scan, which is faster on large wikis |
+
+**Examples:**
+```bash
+node dist/cli.mjs page agentmemory
+node dist/cli.mjs page projects/agentmemory.md --no-inbound
+```
+
+**Exit codes:** 0 success, 1 if the target does not resolve or `wiki/` is missing.
+
+---
+
 ## Phase 1 commands (implemented)
 
 ### `memory init [--reset]`
@@ -112,11 +197,8 @@ Each prints a "not yet implemented in Phase 1" message and exits 2. The CLI surf
 | Stub | Phase |
 |---|---|
 | `memory search` | 3 — Hybrid retrieval (BM25 + voyage-4-large embeddings + Voyage Rerank 2.5 + graph traversal) |
-| `memory compile` | 2 — Compile raw observations into curated wiki pages |
-| `memory lint` | 2 — Check wiki for contradictions, orphans, stale claims, broken `[[wikilinks]]` |
 | `memory crystallize` | 4 — Distill a completed thread into a long-form digest |
 | `memory backup` | 6 — git commit + push memory state to remote |
-| `memory page` | 2 — Pretty-print a wiki page with resolved relations |
 | `memory import-from-agentmemory` | 5 — One-shot migration from GalaxyRuler/agentmemory's binary state store |
 | `memory retain` | 6 — Run retention policy (archive expired raws, prune embeddings) |
 | `memory schedule` | 6 — Install OS-level scheduled tasks (Windows Task Scheduler / cron / launchd) |
