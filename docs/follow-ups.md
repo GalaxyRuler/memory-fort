@@ -101,7 +101,7 @@ Update this file whenever a real issue is observed but deferred. Keep entries te
 
 ---
 
-### F8. js-yaml auto-coerces YYYY-MM-DD frontmatter dates to Date objects
+### F8. ~~js-yaml auto-coerces YYYY-MM-DD frontmatter dates to Date objects~~ — RESOLVED at ce18692
 
 **Discovered:** 2026-05-22, during Step #8 (memory page) implementation. **Workaround in place:** page.ts has a local `renderScalar` helper that handles `Date instanceof` for the Created/Updated header fields.
 
@@ -119,6 +119,8 @@ Update this file whenever a real issue is observed but deferred. Keep entries te
 Fix (1) is the root-cause fix — guarantees strings regardless of how users author their pages. Fix (2) is a workaround and doesn't protect against users hand-writing pages with unquoted dates.
 
 **Suggested fix:** Option 1 in a small Phase 2 follow-up slice before tagging `v0.2.0-phase2`. Add a focused test in `test/storage/frontmatter.test.ts` asserting that `parseFrontmatter("---\ncreated: 2026-05-22\n---\n")` returns `frontmatter.created === "2026-05-22"` (string), not a `Date`. Then update parseFrontmatter to use the non-date-casting schema. Confirm no other tests break.
+
+**Resolved:** 2026-05-22 — `parseFrontmatter` and `serializeFrontmatter` now use `yaml.JSON_SCHEMA`, which omits the YAML 1.1 timestamp auto-cast. Regression tests in `test/frontmatter.test.ts` and `test/curation/checks.test.ts` lock the behavior.
 
 **Phase:** Phase 2 — fix before v0.2.0-phase2 tag. Same-tier priority as F4 (template literal in schema.md): a real silent-miss bug, but not blocking the rest of the Phase 2 curation work.
 
