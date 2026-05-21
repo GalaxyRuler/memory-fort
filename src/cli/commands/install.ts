@@ -1,4 +1,5 @@
 import { installClaudeCode } from "./install/claude-code.js";
+import { installCodex } from "./install/codex.js";
 
 export type Platform = "claude-code" | "codex" | "antigravity";
 
@@ -22,9 +23,21 @@ export async function runInstall(platform: string): Promise<void> {
       );
       return;
     }
-    case "codex":
-      console.error("codex install: implemented in step #9");
-      process.exit(2);
+    case "codex": {
+      const result = await installCodex();
+      console.log(`Installed memory hooks + MCP for Codex at ${result.codexConfigPath}`);
+      for (const line of result.log) console.log(`  ${line}`);
+      console.log("");
+      console.log("Next steps:");
+      console.log(
+        "  1. Restart any open Codex sessions (desktop or CLI) to pick up the new config.",
+      );
+      console.log(
+        "  2. Both Codex desktop and Codex CLI share ~/.codex/config.toml — one install covers both.",
+      );
+      console.log("  3. Verify with: codex config show");
+      return;
+    }
     case "antigravity":
       console.error("antigravity install: implemented in step #10");
       process.exit(2);
