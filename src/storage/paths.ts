@@ -65,7 +65,7 @@ export function scriptsDir(): string {
 }
 
 export function mcpServerPath(): string {
-  return join(scriptsDir(), "mcp-server.mjs");
+  return join(memoryRoot(), "claude-code-plugin", "scripts", "mcp-server.mjs");
 }
 
 export function formatIsoDate(date: Date): string {

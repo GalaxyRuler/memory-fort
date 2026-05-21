@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtemp, rm, mkdir, writeFile, readFile } from "node:fs/promises";
+import { mkdtemp, rm, mkdir, writeFile, readFile, lstat } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -60,6 +60,19 @@ describe("installClaudeCode", () => {
     expect(manifest.name).toBe("memory");
   });
 
+  it("plugin manifest author is an object (Claude Code validation requirement)", async () => {
+    await installClaudeCode({ repoDir, claudeDir });
+    const manifest = JSON.parse(
+      await readFile(
+        join(memDir, "claude-code-plugin", ".claude-plugin", "plugin.json"),
+        "utf-8",
+      ),
+    );
+    expect(typeof manifest.author).toBe("object");
+    expect(manifest.author).not.toBeNull();
+    expect(manifest.author.name).toBe("GalaxyRuler");
+  });
+
   it("writes hooks.json with all five hook events", async () => {
     await installClaudeCode({ repoDir, claudeDir });
     const hooks = JSON.parse(
@@ -75,10 +88,27 @@ describe("installClaudeCode", () => {
     expect(hooks.hooks.Stop).toBeDefined();
   });
 
-  it("links scripts dir to repo dist/hooks", async () => {
+  it("hooks.json uses ${CLAUDE_PLUGIN_ROOT} prefix (not absolute paths)", async () => {
     await installClaudeCode({ repoDir, claudeDir });
-    expect(existsSync(join(memDir, "scripts"))).toBe(true);
-    expect(existsSync(join(memDir, "scripts", "session-start.mjs"))).toBe(true);
+    const hooks = JSON.parse(
+      await readFile(
+        join(memDir, "claude-code-plugin", "hooks", "hooks.json"),
+        "utf-8",
+      ),
+    );
+    const sessionStartCmd = hooks.hooks.SessionStart[0].hooks[0].command;
+    expect(sessionStartCmd).toContain("${CLAUDE_PLUGIN_ROOT}");
+    expect(sessionStartCmd).not.toMatch(/[A-Z]:/);
+    expect(sessionStartCmd).not.toMatch(/^\/[^$]/);
+  });
+
+  it("links plugin scripts dir to repo dist/hooks", async () => {
+    await installClaudeCode({ repoDir, claudeDir });
+    expect(existsSync(join(memDir, "claude-code-plugin", "scripts"))).toBe(true);
+    expect(
+      existsSync(join(memDir, "claude-code-plugin", "scripts", "session-start.mjs")),
+    ).toBe(true);
+    expect((await lstat(join(memDir, "scripts"))).isSymbolicLink()).toBe(false);
   });
 
   it("creates .mcp.json with memory server entry", async () => {
@@ -87,6 +117,9 @@ describe("installClaudeCode", () => {
     const mcp = JSON.parse(await readFile(result.mcpConfigPath, "utf-8"));
     expect(mcp.mcpServers.memory).toBeDefined();
     expect(mcp.mcpServers.memory.command).toBe("node");
+    expect(mcp.mcpServers.memory.args[0]).toContain(
+      "claude-code-plugin/scripts/mcp-server.mjs",
+    );
   });
 
   it("merges into existing .mcp.json without destroying entries", async () => {
