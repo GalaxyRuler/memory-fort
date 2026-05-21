@@ -8,13 +8,9 @@ Update this file whenever a real issue is observed but deferred. Keep entries te
 
 ## Open
 
-### F1. PostToolUse hook captures empty `**Output:**` block (Claude Code) — LIKELY RESOLVED at d243ae2 (pending Claude Code re-verification)
+### F1. ~~PostToolUse hook captures empty `**Output:**` block (Claude Code)~~ — RESOLVED at d243ae2
 
-**Discovered:** 2026-05-21, during the post-step-7-fix checkpoint verification (headless `claude -p` session with the memory plugin loaded). **Likely resolved:** 2026-05-21 at step #16.5 (`d243ae2`) — the same field-fallback chain that fixed Codex (F7) also widens Claude Code's output reading: `readToolOutput(payload)` now falls back through `tool_output ?? tool_response ?? output`. If Claude Code's PostToolUse payload uses any of those, output is captured.
-
-**Outstanding:** A real Claude Code session needs to verify output is now captured. Do this by running `claude --plugin-dir ~/.memory/claude-code-plugin -p "Run echo hello via Bash"` and inspecting the resulting raw file's ToolUse Output section. If still empty, the diagnostic in error-handler.ts will have logged the actual payload shape to errors.log — read that and add the correct field name to readToolOutput's fallback chain.
-
-**Phase:** Verification pending; if still failing, debug as Phase 2 work.
+**Discovered:** 2026-05-21 step #7-fix checkpoint. **Resolved:** 2026-05-21 at step #16.5 (`d243ae2`) — the field-fallback chain in `readToolOutput` (`tool_output ?? tool_response ?? output`) picked up Claude Code's payload shape. Verified at `c08532d` regression test: real headless Claude session produced `claude-code-ef879585-7049-4bd5-a083-3e2698f7a296.md` with the Output section populated (stdout, stderr, interrupted, isImage fields). Same fix that closed F7 (Codex) also closed F1 (Claude Code) — that's the value of platform-agnostic fallback chains over per-platform branching.
 
 ---
 
