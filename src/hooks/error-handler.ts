@@ -3,12 +3,12 @@ import { atomicAppend } from "../storage/atomic-write.js";
 
 /**
  * Minimal shape of the JSON payload each platform's hook system
- * sends on stdin. Platforms vary slightly; the fields here are
- * the conservative intersection that all three (Claude Code,
- * Codex, manual CLI invocation) provide. Hooks that need
- * platform-specific fields cast the payload at the call site.
+ * sends on stdin. Platform payloads vary, so writer hooks use
+ * payload field readers with fallback chains instead of branching
+ * on platform identity.
  */
 export interface HookPayload {
+  // Claude Code shape
   session_id?: string;
   cwd?: string;
   prompt?: string;
@@ -16,6 +16,18 @@ export interface HookPayload {
   tool_input?: unknown;
   tool_output?: unknown;
   entrypoint?: string;
+  // Codex shape
+  turn_id?: string;
+  tool_use_id?: string;
+  tool_response?: unknown;
+  // Generic fallbacks observed in the wild
+  toolName?: string;
+  toolInput?: unknown;
+  output?: unknown;
+  user_prompt?: string;
+  message?: string;
+  working_directory?: string;
+  // Other / unknown
   [key: string]: unknown;
 }
 
@@ -55,9 +67,25 @@ export async function runHook(ctx: HookContext): Promise<void> {
     try {
       payload = JSON.parse(raw) as HookPayload;
     } catch {
-      // Malformed JSON on stdin: skip silently. Host tools
-      // occasionally send empty stdin during plugin setup;
-      // logging these as errors floods errors.log.
+      if (
+        process.env["MEMORY_SDK_CHILD"] === "1" ||
+        process.env["AGENTMEMORY_SDK_CHILD"] === "1"
+      ) {
+        return;
+      }
+      const preview =
+        raw.length > 4096 ? `${raw.slice(0, 4096)}...[truncated]` : raw;
+      const line =
+        `${nowFn().toISOString()} ${ctx.hookName} stdin-parse-failed ` +
+        `(length=${raw.length}, env-CODEX_HOME=${!!process.env["CODEX_HOME"]}, ` +
+        `env-CLAUDECODE=${!!process.env["CLAUDECODE"]}) raw:\n` +
+        `${preview}\n\n`;
+      try {
+        await appendErrFn(line);
+      } catch {
+        // If errors.log itself cannot be written, keep the hook
+        // non-disruptive for the host session.
+      }
       return;
     }
     if (isSdkChildContext(payload)) {

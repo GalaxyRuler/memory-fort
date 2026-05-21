@@ -68,4 +68,33 @@ describe("postToolUseBody", () => {
     expect(captured.sessionId).toBe("unknown");
     expect(captured.tool).toBe("codex");
   });
+
+  it("accepts Codex-style tool fields", async () => {
+    const calls: any[] = [];
+    await postToolUseBody(
+      {
+        turn_id: "turn-456",
+        working_directory: "C:\\repo",
+        toolName: "Shell",
+        toolInput: { command: "echo hi" },
+        tool_response: "hi",
+      },
+      {
+        detectTool: () => "codex",
+        ensureRawSessionFile: async (i) => {
+          calls.push({ kind: "ensure", ...i });
+          return "/fake/path";
+        },
+        appendBlock: async (i) => {
+          calls.push({ kind: "append", ...i });
+        },
+        now: () => fixedNow,
+      },
+    );
+    expect(calls[0].sessionId).toBe("turn-456");
+    expect(calls[0].cwd).toBe("C:\\repo");
+    expect(calls[1].block).toContain("ToolUse: Shell");
+    expect(calls[1].block).toContain('"command": "echo hi"');
+    expect(calls[1].block).toContain("hi");
+  });
 });

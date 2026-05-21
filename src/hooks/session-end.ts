@@ -5,6 +5,7 @@ import {
   appendBlock,
   formatMarker,
 } from "./raw-file.js";
+import { readCwd, readSessionId } from "./util/payload-fields.js";
 import type { ToolName } from "../storage/paths.js";
 
 export interface SessionEndDeps {
@@ -24,14 +25,8 @@ export async function sessionEndBody(
   const nowFn = deps.now ?? (() => new Date());
 
   const tool: ToolName = detectFn();
-  const sessionId =
-    typeof payload.session_id === "string" && payload.session_id.length > 0
-      ? payload.session_id
-      : "unknown";
-  const cwd =
-    typeof payload.cwd === "string" && payload.cwd.length > 0
-      ? payload.cwd
-      : process.cwd();
+  const sessionId = readSessionId(payload);
+  const cwd = readCwd(payload);
   const now = nowFn();
 
   await ensureFn({ tool, sessionId, cwd, now });

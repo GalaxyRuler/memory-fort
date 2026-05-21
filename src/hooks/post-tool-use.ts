@@ -5,6 +5,13 @@ import {
   appendBlock,
   formatToolUseBlock,
 } from "./raw-file.js";
+import {
+  readCwd,
+  readSessionId,
+  readToolInput,
+  readToolName,
+  readToolOutput,
+} from "./util/payload-fields.js";
 import type { ToolName } from "../storage/paths.js";
 
 export interface PostToolUseDeps {
@@ -23,21 +30,12 @@ export async function postToolUseBody(
   const appendFn = deps.appendBlock ?? appendBlock;
   const nowFn = deps.now ?? (() => new Date());
 
-  const toolName =
-    typeof payload.tool_name === "string" && payload.tool_name.length > 0
-      ? payload.tool_name
-      : null;
+  const toolName = readToolName(payload);
   if (!toolName) return;
 
   const tool: ToolName = detectFn();
-  const sessionId =
-    typeof payload.session_id === "string" && payload.session_id.length > 0
-      ? payload.session_id
-      : "unknown";
-  const cwd =
-    typeof payload.cwd === "string" && payload.cwd.length > 0
-      ? payload.cwd
-      : process.cwd();
+  const sessionId = readSessionId(payload);
+  const cwd = readCwd(payload);
   const now = nowFn();
 
   await ensureFn({ tool, sessionId, cwd, now });
@@ -46,8 +44,8 @@ export async function postToolUseBody(
     sessionId,
     block: formatToolUseBlock({
       toolName,
-      toolInput: payload.tool_input,
-      toolOutput: payload.tool_output ?? "",
+      toolInput: readToolInput(payload),
+      toolOutput: readToolOutput(payload) ?? "",
       now,
       maxOutputBytes: 8192,
     }),

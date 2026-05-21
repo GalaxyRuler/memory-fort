@@ -57,13 +57,31 @@ describe("runHook", () => {
     expect(appendedErrors[0]).toContain("2026-05-21T12:34:56");
   });
 
-  it("malformed JSON on stdin -> silent skip, exits 0, no error logged", async () => {
+  it("malformed JSON on stdin writes a diagnostic and exits 0", async () => {
     const { ctx, exitCodes, appendedErrors } = makeCtx({
       readStdin: async () => "not valid json {",
     });
     await runHook(ctx);
     expect(exitCodes).toEqual([0]);
-    expect(appendedErrors).toEqual([]);
+    expect(appendedErrors.length).toBe(1);
+    expect(appendedErrors[0]).toContain("stdin-parse-failed");
+    expect(appendedErrors[0]).toContain("not valid json {");
+  });
+
+  it("malformed JSON from SDK child env still skips silently", async () => {
+    const ORIG = process.env["MEMORY_SDK_CHILD"];
+    process.env["MEMORY_SDK_CHILD"] = "1";
+    try {
+      const { ctx, exitCodes, appendedErrors } = makeCtx({
+        readStdin: async () => "not valid json {",
+      });
+      await runHook(ctx);
+      expect(exitCodes).toEqual([0]);
+      expect(appendedErrors).toEqual([]);
+    } finally {
+      if (ORIG === undefined) delete process.env["MEMORY_SDK_CHILD"];
+      else process.env["MEMORY_SDK_CHILD"] = ORIG;
+    }
   });
 
   it("SDK child context (env var) -> skip body, exit 0", async () => {

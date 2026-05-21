@@ -5,6 +5,11 @@ import {
   appendBlock,
   formatPromptBlock,
 } from "./raw-file.js";
+import {
+  readCwd,
+  readPrompt,
+  readSessionId,
+} from "./util/payload-fields.js";
 import type { ToolName } from "../storage/paths.js";
 
 export interface PromptSubmitDeps {
@@ -23,21 +28,12 @@ export async function promptSubmitBody(
   const appendFn = deps.appendBlock ?? appendBlock;
   const nowFn = deps.now ?? (() => new Date());
 
-  const prompt =
-    typeof payload.prompt === "string" && payload.prompt.trim().length > 0
-      ? payload.prompt
-      : null;
+  const prompt = readPrompt(payload);
   if (!prompt) return; // nothing to log
 
   const tool: ToolName = detectFn();
-  const sessionId =
-    typeof payload.session_id === "string" && payload.session_id.length > 0
-      ? payload.session_id
-      : "unknown";
-  const cwd =
-    typeof payload.cwd === "string" && payload.cwd.length > 0
-      ? payload.cwd
-      : process.cwd();
+  const sessionId = readSessionId(payload);
+  const cwd = readCwd(payload);
   const now = nowFn();
 
   await ensureFn({ tool, sessionId, cwd, now });

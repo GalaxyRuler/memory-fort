@@ -63,4 +63,29 @@ describe("promptSubmitBody", () => {
     expect(captured.sessionId).toBe("unknown");
     expect(captured.tool).toBe("codex");
   });
+
+  it("accepts Codex-style prompt fields", async () => {
+    const calls: any[] = [];
+    await promptSubmitBody(
+      {
+        turn_id: "turn-123",
+        working_directory: "C:\\repo",
+        user_prompt: "codex prompt",
+      },
+      {
+        detectTool: () => "codex",
+        ensureRawSessionFile: async (i) => {
+          calls.push({ kind: "ensure", ...i });
+          return "/fake/path";
+        },
+        appendBlock: async (i) => {
+          calls.push({ kind: "append", ...i });
+        },
+        now: () => fixedNow,
+      },
+    );
+    expect(calls[0].sessionId).toBe("turn-123");
+    expect(calls[0].cwd).toBe("C:\\repo");
+    expect(calls[1].block).toContain("codex prompt");
+  });
 });
