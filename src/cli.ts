@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { Command } from "commander";
 import { runInit } from "./cli/commands/init.js";
+import { runInstall } from "./cli/commands/install.js";
 
 const program = new Command();
 
@@ -27,6 +28,18 @@ program
       }
     } catch (err) {
       console.error(`memory init failed: ${(err as Error).message}`);
+      process.exit(1);
+    }
+  });
+
+program
+  .command("install <platform>")
+  .description("Install hooks + MCP for a platform (claude-code, codex, antigravity)")
+  .action(async (platform: string) => {
+    try {
+      await runInstall(platform);
+    } catch (err) {
+      console.error(`memory install ${platform} failed: ${(err as Error).message}`);
       process.exit(1);
     }
   });
