@@ -400,9 +400,9 @@ Each step independently committable. Tests run after each substantive step. Code
 | 3 | Hook error-handler wrapper (§3.1) + test | Error path verified |
 | 4 | Hook scripts (§3.2-3.7) + tests | Mock payloads produce expected raw files |
 | 5 | **Schema template authored.** Write `templates/schema.md` per §10 below. ~200 lines, 12 sections. Committed in source repo. | Template file exists; content matches §10 mandates |
-| **CHECKPOINT** | **Manual verification gate (user-driven, NOT codex-automated).** Install Phase 1 partial (steps 1-5) on the user's machine. Run a real Claude Code session. Verify a raw session file appears at `~/.memory/raw/<date>/claude-code-<id>.md` with prompt + tool-use blocks. If this fails, debug before proceeding. | Real Claude Code session produces real raw file |
 | 6 | CLI: `memory init` (§5.1) + test | Layout + schema.md created; idempotent |
-| 7 | CLI: `memory install claude-code` (§5.2) + test | Manifest written; MCP entry added |
+| 7 | CLI: `memory install claude-code` (§5.2) + test. Smoke test MUST use `MEMORY_CLAUDE_DIR` env var override (analogous to `MEMORY_ROOT`) so the test never writes to the user's real `~/.claude/.mcp.json`. | Manifest written; MCP entry added in temp dir, not user's real config |
+| **CHECKPOINT** | **Manual verification gate (user-driven, NOT codex-automated).** With steps 1-7 installed on the user's machine, run a real Claude Code session. Verify a raw session file appears at `~/.memory/raw/<date>/claude-code-<id>.md` with prompt + tool-use blocks. If this fails, debug before proceeding to step #8. | Real Claude Code session produces real raw file |
 | 8 | MCP server: implement 3 tools (§4) + tests | Tools handle valid/invalid input; stateless verified |
 | 9 | CLI: `memory install codex` + test | Codex config.toml written; covers both desktop + CLI |
 | 10 | CLI: `memory install antigravity` + test | mcp_config.json written; no hooks (correctly) |
