@@ -21,7 +21,6 @@ function runStub(
 describe("stub commands", () => {
   const stubs: Array<[string, number]> = [
     ["search", 3],
-    ["compile", 2],
     ["lint", 2],
     ["crystallize", 4],
     ["backup", 6],

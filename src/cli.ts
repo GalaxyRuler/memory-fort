@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { Command } from "commander";
+import { runCompile } from "./cli/commands/compile.js";
 import { runDoctor, formatDoctorResult } from "./cli/commands/doctor.js";
 import { runGrep, type GrepScope } from "./cli/commands/grep.js";
 import { runInit } from "./cli/commands/init.js";
@@ -101,6 +102,35 @@ program
   );
 
 program
+  .command("compile")
+  .description("Assemble an LLM prompt from raw observations and wiki context")
+  .option("--since <iso>", "ISO date/timestamp cutoff for raw files")
+  .option("--per-file-max-bytes <n>", "max raw bytes per file", parseInteger)
+  .option("--total-max-bytes <n>", "max total raw bytes", parseInteger)
+  .option("-o, --output <path>", "also write the assembled prompt to a file")
+  .action(
+    async (opts: {
+      since?: string;
+      perFileMaxBytes?: number;
+      totalMaxBytes?: number;
+      output?: string;
+    }) => {
+      try {
+        const result = await runCompile({
+          since: opts.since,
+          perFileMaxBytes: opts.perFileMaxBytes,
+          totalMaxBytes: opts.totalMaxBytes,
+          outputPath: opts.output,
+        });
+        process.stdout.write(result.prompt);
+      } catch (err) {
+        console.error((err as Error).message);
+        process.exit(1);
+      }
+    },
+  );
+
+program
   .command("stats")
   .description("Summarize memory state — file counts, install status, git state")
   .action(async () => {
@@ -162,7 +192,6 @@ registerStub(
   3,
   "Hybrid retrieval (BM25 + voyage-4-large + rerank + graph)",
 );
-registerStub("compile", 2, "Compile raw observations into curated wiki pages");
 registerStub("lint", 2, "Check the wiki for contradictions, orphans, stale claims");
 registerStub(
   "crystallize",
@@ -188,3 +217,11 @@ registerStub(
 );
 
 program.parseAsync(process.argv);
+
+function parseInteger(value: string): number {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed)) {
+    throw new Error(`Invalid integer: ${value}`);
+  }
+  return parsed;
+}
