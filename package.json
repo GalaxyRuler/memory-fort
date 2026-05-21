@@ -1,0 +1,28 @@
+{
+  "name": "@galaxyruler/memory-system",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Cross-tool memory system: Claude Code + Codex + Antigravity → unified ~/.memory/ wiki",
+  "scripts": {
+    "build": "tsdown",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "memory": "node dist/cli.mjs"
+  },
+  "engines": { "node": ">=20" },
+  "bin": { "memory": "dist/cli.mjs" },
+  "dependencies": {
+    "commander": "^12",
+    "gray-matter": "^4",
+    "js-yaml": "^4",
+    "@modelcontextprotocol/sdk": "^1.29"
+  },
+  "devDependencies": {
+    "typescript": "^5",
+    "tsdown": "^0.22",
+    "vitest": "^2",
+    "@types/node": "^20",
+    "@types/js-yaml": "^4"
+  }
+}
