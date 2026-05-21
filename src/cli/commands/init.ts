@@ -41,6 +41,7 @@ const SUBDIRS = [
   "embeddings",
   "scripts",
   ".archive",
+  "prompts",
 ];
 
 const GITIGNORE_CONTENT = `# Memory runtime artifacts not stored in git
@@ -106,6 +107,21 @@ export async function runInit(opts: InitOptions = {}): Promise<InitResult> {
     result.created.push(schemaPath());
   } else {
     result.preserved.push(schemaPath());
+  }
+
+  // prompts/*.md are copied verbatim; compile/lint substitute variables at runtime.
+  const promptsSourceDir = promptsTemplateDir(opts.sourceRepoDir);
+  const promptsDestDir = join(root, "prompts");
+  for (const name of ["compile.md", "lint.md"] as const) {
+    const srcPath = join(promptsSourceDir, name);
+    const destPath = join(promptsDestDir, name);
+    if (!existsSync(destPath) && existsSync(srcPath)) {
+      const content = await readFile(srcPath, "utf-8");
+      await atomicWrite(destPath, content);
+      result.created.push(destPath);
+    } else if (existsSync(destPath)) {
+      result.preserved.push(destPath);
+    }
   }
 
   if (!existsSync(indexPath())) {
@@ -209,5 +225,15 @@ function templatePath(sourceRepoDir?: string): string {
     "..",
     "templates",
     "schema.md",
+  );
+}
+
+function promptsTemplateDir(sourceRepoDir?: string): string {
+  if (sourceRepoDir) return join(sourceRepoDir, "templates", "prompts");
+  return resolve(
+    dirname(fileURLToPath(import.meta.url)),
+    "..",
+    "templates",
+    "prompts",
   );
 }
