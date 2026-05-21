@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { Command } from "commander";
+import { runGrep, type GrepScope } from "./cli/commands/grep.js";
 import { runInit } from "./cli/commands/init.js";
 import { runInstall } from "./cli/commands/install.js";
 
@@ -42,6 +43,26 @@ program
       console.error(`memory install ${platform} failed: ${(err as Error).message}`);
       process.exit(1);
     }
+  });
+
+program
+  .command("grep <pattern>")
+  .description("Search memory (ripgrep over ~/.memory/raw/ and/or ~/.memory/wiki/)")
+  .option("--scope <scope>", "raw | wiki | both (default: both)", "both")
+  .option("-C, --context <n>", "lines of context (default: 2)", "2")
+  .action((pattern: string, opts: { scope: string; context: string }) => {
+    const scope = opts.scope as GrepScope;
+    if (!["raw", "wiki", "both"].includes(scope)) {
+      console.error(`Invalid --scope: ${scope}. Use raw, wiki, or both.`);
+      process.exit(2);
+    }
+    const ctx = parseInt(opts.context, 10);
+    if (!Number.isFinite(ctx) || ctx < 0) {
+      console.error(`Invalid --context: ${opts.context}. Use a non-negative integer.`);
+      process.exit(2);
+    }
+    const result = runGrep({ pattern, scope, contextLines: ctx });
+    process.exit(result.exitCode);
   });
 
 program.parseAsync(process.argv);
