@@ -1,3 +1,4 @@
+import { installAntigravity } from "./install/antigravity.js";
 import { installClaudeCode } from "./install/claude-code.js";
 import { installCodex } from "./install/codex.js";
 
@@ -38,9 +39,26 @@ export async function runInstall(platform: string): Promise<void> {
       console.log("  3. Verify with: codex config show");
       return;
     }
-    case "antigravity":
-      console.error("antigravity install: implemented in step #10");
-      process.exit(2);
+    case "antigravity": {
+      const result = await installAntigravity();
+      console.log(`Installed memory MCP for Antigravity at ${result.mcpConfigPath}`);
+      for (const line of result.log) console.log(`  ${line}`);
+      console.log("");
+      console.log("Next steps:");
+      console.log(
+        "  1. Restart Antigravity desktop (or open a new session) to load the memory MCP.",
+      );
+      console.log(
+        "  2. Antigravity has NO hook system — the LLM in your Antigravity session uses the",
+      );
+      console.log(
+        "     memory MCP tools (log_observation, read_page, list_pages) to record + retrieve memory.",
+      );
+      console.log(
+        "  3. Hooks ARE active for Claude Code and Codex sessions if you ran their installs.",
+      );
+      return;
+    }
     default:
       console.error(
         `Unknown platform: ${platform}. Valid: claude-code, codex, antigravity`,
