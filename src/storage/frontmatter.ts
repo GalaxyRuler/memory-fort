@@ -31,6 +31,18 @@ const KNOWN_TYPES: EntityType[] = [
 
 const KNOWN_STATUS = ["active", "archived", "superseded"] as const;
 
+const KNOWN_RELATIONS = [
+  "uses",
+  "depends_on",
+  "supersedes",
+  "contradicts",
+  "caused_by",
+  "fixed_by",
+  "derived_from",
+  "mentioned_in",
+  "linked",
+] as const;
+
 export function parseFrontmatter(content: string): {
   frontmatter: Frontmatter;
   body: string;
@@ -82,6 +94,43 @@ export function validateFrontmatter(
   }
   if (f["status"] !== undefined && !KNOWN_STATUS.includes(f["status"] as never)) {
     errors.push(`status must be one of: ${KNOWN_STATUS.join(", ")}`);
+  }
+  if (f["confidence"] !== undefined) {
+    const c = f["confidence"];
+    if (typeof c !== "number" || !Number.isFinite(c) || c < 0 || c > 1) {
+      errors.push("confidence must be a number between 0 and 1");
+    }
+  }
+  if (f["tags"] !== undefined) {
+    if (!Array.isArray(f["tags"])) {
+      errors.push("tags must be an array of strings");
+    } else {
+      const allStrings = (f["tags"] as unknown[]).every(
+        (t) => typeof t === "string",
+      );
+      if (!allStrings) {
+        errors.push("tags must contain only strings");
+      }
+    }
+  }
+  if (f["relations"] !== undefined) {
+    const rel = f["relations"];
+    if (typeof rel !== "object" || rel === null || Array.isArray(rel)) {
+      errors.push("relations must be an object");
+    } else {
+      for (const [k, v] of Object.entries(rel as Record<string, unknown>)) {
+        if (!KNOWN_RELATIONS.includes(k as never)) {
+          errors.push(
+            `relations.${k} is not a known edge type (expected one of: ${KNOWN_RELATIONS.join(", ")})`,
+          );
+        }
+        if (!Array.isArray(v)) {
+          errors.push(`relations.${k} must be an array of page paths`);
+        } else if (!(v as unknown[]).every((s) => typeof s === "string")) {
+          errors.push(`relations.${k} must contain only string page paths`);
+        }
+      }
+    }
   }
   if (errors.length > 0) return { valid: false, errors };
   return { valid: true, fm: fm as Frontmatter };
