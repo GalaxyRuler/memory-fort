@@ -345,6 +345,33 @@ describe("checkStale", () => {
     expect(checkStale(pages, { now: NOW, thresholdDays: 10 }).length).toBe(1);
     expect(checkStale(pages, { now: NOW, thresholdDays: 30 }).length).toBe(0);
   });
+
+  it("detects stale pages whose frontmatter uses unquoted YYYY-MM-DD dates", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "checks-stale-"));
+    try {
+      await mkdir(join(tmp, "projects"), { recursive: true });
+      await writeFile(
+        join(tmp, "projects", "a.md"),
+        [
+          "---",
+          "type: projects",
+          "title: A",
+          "created: 2025-08-01",
+          "updated: 2025-08-01",
+          "status: active",
+          "---",
+          "body",
+        ].join("\n"),
+      );
+
+      const pages = await loadWiki(tmp);
+      const issues = checkStale(pages, { now: NOW });
+      expect(issues).toHaveLength(1);
+      expect(issues[0]!.category).toBe("stale");
+    } finally {
+      await rm(tmp, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("checkDrafts", () => {

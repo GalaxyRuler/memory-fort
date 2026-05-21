@@ -72,3 +72,50 @@ describe("frontmatter", () => {
     expect(r.valid).toBe(false);
   });
 });
+
+describe("frontmatter YAML date coercion", () => {
+  it("unquoted YYYY-MM-DD parses as a string, not a Date", () => {
+    const { frontmatter } = parseFrontmatter(
+      "---\ncreated: 2026-05-22\nupdated: 2026-05-22\ntype: projects\ntitle: T\n---\nbody\n",
+    );
+    expect(typeof frontmatter.created).toBe("string");
+    expect(frontmatter.created).toBe("2026-05-22");
+    expect(typeof frontmatter.updated).toBe("string");
+    expect(frontmatter.updated).toBe("2026-05-22");
+  });
+
+  it("round-trip preserves the unquoted date as a string", () => {
+    const original =
+      "---\ncreated: 2026-05-22\nupdated: 2026-05-22\ntype: projects\ntitle: T\n---\nbody\n";
+    const { frontmatter, body } = parseFrontmatter(original);
+    const reserialized = serializeFrontmatter(frontmatter, body);
+    const { frontmatter: roundTripped } = parseFrontmatter(reserialized);
+    expect(roundTripped.created).toBe("2026-05-22");
+    expect(roundTripped.updated).toBe("2026-05-22");
+  });
+
+  it("other scalar types still parse correctly under JSON_SCHEMA", () => {
+    const { frontmatter } = parseFrontmatter(
+      [
+        "---",
+        "created: 2026-05-22",
+        "updated: 2026-05-22",
+        "type: projects",
+        "title: T",
+        "confidence: 0.8",
+        "tags: [alpha, beta]",
+        "relations:",
+        "  uses: [typescript, vitest]",
+        "---",
+        "body",
+      ].join("\n"),
+    );
+
+    expect(frontmatter.confidence).toBe(0.8);
+    expect(typeof frontmatter.confidence).toBe("number");
+    expect(frontmatter.tags).toEqual(["alpha", "beta"]);
+    expect(frontmatter.relations).toEqual({
+      uses: ["typescript", "vitest"],
+    });
+  });
+});

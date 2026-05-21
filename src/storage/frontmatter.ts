@@ -43,11 +43,25 @@ const KNOWN_RELATIONS = [
   "linked",
 ] as const;
 
+const YAML_DUMP_OPTIONS: yaml.DumpOptions = {
+  schema: yaml.JSON_SCHEMA,
+  indent: 2,
+  lineWidth: -1,         // never wrap
+  noRefs: true,
+  quotingType: '"',
+};
+
+const YAML_ENGINE = {
+  parse: (input: string): object =>
+    (yaml.load(input, { schema: yaml.JSON_SCHEMA }) ?? {}) as object,
+  stringify: (data: object): string => yaml.dump(data, YAML_DUMP_OPTIONS),
+};
+
 export function parseFrontmatter(content: string): {
   frontmatter: Frontmatter;
   body: string;
 } {
-  const parsed = matter(content);
+  const parsed = matter(content, { engines: { yaml: YAML_ENGINE } });
   return {
     frontmatter: parsed.data as Frontmatter,
     body: parsed.content,
@@ -59,15 +73,17 @@ export function serializeFrontmatter(
   body: string,
 ): string {
   // js-yaml dump with consistent style: no flow, 2-space indent
-  const fmYaml = yaml.dump(fm, {
-    indent: 2,
-    lineWidth: -1,         // never wrap
-    noRefs: true,
-    quotingType: '"',
-  });
+  const fmYaml = quoteDateFields(yaml.dump(fm, YAML_DUMP_OPTIONS));
   // Ensure body ends in single newline; trim leading blank
   const cleanBody = body.replace(/^\n+/, "").replace(/\n*$/, "\n");
   return `---\n${fmYaml}---\n\n${cleanBody}`;
+}
+
+function quoteDateFields(text: string): string {
+  return text.replace(
+    /^(created|updated): (\d{4}-\d{2}-\d{2})$/gm,
+    '$1: "$2"',
+  );
 }
 
 export function validateFrontmatter(
