@@ -16,6 +16,11 @@ export default defineConfig([
   },
   {
     ...common,
+    entry: { cli: "src/cli.ts" },
+    clean: false,
+  },
+  {
+    ...common,
     entry: { "hooks/prompt-submit": "src/hooks/prompt-submit.ts" },
     clean: false,
   },
