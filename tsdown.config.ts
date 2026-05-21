@@ -44,4 +44,10 @@ export default defineConfig([
     entry: { "hooks/session-start": "src/hooks/session-start.ts" },
     clean: false,
   },
+  {
+    ...common,
+    entry: { "hooks/mcp-server": "src/mcp/server.ts" },
+    clean: false,
+    dts: false,
+  },
 ]);

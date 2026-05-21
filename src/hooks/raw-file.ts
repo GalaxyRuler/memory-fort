@@ -70,6 +70,21 @@ export function formatMarker(label: string, now: Date): string {
   return `\n---\n## [${ts}] ${label}\n\n`;
 }
 
+export function formatObservationBlock(input: {
+  text: string;
+  tags?: string[];
+  confidence?: number;
+  now: Date;
+}): string {
+  const ts = formatTimestamp(input.now);
+  const meta = [
+    input.tags && input.tags.length > 0 ? `tags: ${input.tags.join(", ")}` : null,
+    input.confidence !== undefined ? `confidence: ${input.confidence}` : null,
+  ].filter(Boolean);
+  const metaLine = meta.length > 0 ? `_${meta.join(" · ")}_\n\n` : "";
+  return `\n## [${ts}] Observation\n\n${metaLine}${input.text}\n`;
+}
+
 /**
  * Ensure the raw session file exists with proper frontmatter.
  * If the file exists, this is a no-op. If absent, atomically
