@@ -74,6 +74,23 @@ Update this file whenever a real issue is observed but deferred. Keep entries te
 
 ---
 
+### F7. Codex hooks fire but produce no raw files (Codex payload shape differs from Claude Code's)
+
+**Discovered:** 2026-05-21, during step #16 E2E smoke. Running `codex exec --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox "..."` correctly fires hooks (`hook: PostToolUse Completed`, `hook: Stop Completed` visible in Codex output) but no `codex-*` raw file appears under `~/.memory/raw/<date>/`. `errors.log` is empty — meaning the silent-skip path in `error-handler.ts` is being taken (JSON.parse on stdin fails, hook exits 0 without writing).
+
+**Hypothesis:** Codex's hook payload shape differs from Claude Code's. Per Codex docs (verified May 2026): the PostToolUse payload uses `tool_response` (not `tool_output`), `turn_id` (not `session_id`), and may not include `prompt` on UserPromptSubmit in the shape we expect. Either:
+1. Codex sends an empty stdin (no JSON at all) — `JSON.parse("")` fails → silent skip
+2. Codex sends JSON but with different field names — parse succeeds, but our writers see `payload.prompt`/`tool_name`/`session_id` as undefined and bail early
+3. Codex sends nested JSON (e.g., `{ payload: {...} }`) — parse succeeds, but our code reads top-level fields
+
+**Suggested fix:** Diagnostic step first — instrument the error-handler (or session-end.mjs as the always-fires hook) to dump the actual Codex stdin payload to a debug file. Confirm the shape. Then update `HookPayload` interface + the field-reading logic in the writer hooks (prompt-submit, post-tool-use) to accept BOTH Claude Code's shape AND Codex's shape.
+
+**Phase:** Phase 1 step #16.5 (queued — fix before v0.1.0-phase1 tag). Critical because it's the difference between "memory captures from all three platforms" and "memory captures only from Claude Code".
+
+**Workaround in the meantime:** Codex MCP works (`memory.log_observation` via MCP succeeds — verified at 19:01 in this session). Users in Codex can `Use the memory log_observation tool to remember X` explicitly; they just don't get the passive firehose.
+
+---
+
 ### F6. Orphan raw file at `~/.memory/raw/2026-05-21/claude-code-checkpoint-test-1779374918.md`
 
 **Discovered:** 2026-05-21, during the checkpoint verification.
