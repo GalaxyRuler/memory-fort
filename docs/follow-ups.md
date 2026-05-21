@@ -38,11 +38,11 @@ Update this file whenever a real issue is observed but deferred. Keep entries te
 
 ---
 
-### F3. MCP entry referenced a not-yet-built script — script now exists (d8a00c2); full integration pending step #7-fix-2
+### F3. ~~MCP integration~~ — FULLY RESOLVED at 84143e8 + verified 2026-05-21
 
-**Discovered:** 2026-05-21, after step #7 install. **Partial resolution:** 2026-05-21 at step #8 commit `d8a00c2` — `dist/hooks/mcp-server.mjs` exists; the plugin's `scripts/mcp-server.mjs` symlink resolves to it.
+**Discovered:** 2026-05-21, after step #7 install. **Fully resolved:** 2026-05-21 — script existed at step #8 (`d8a00c2`), wrong-location fixed at step #7-fix-2 (`84143e8`), end-to-end verified via real `claude --plugin-dir ...` session where Claude Code connected to `plugin:memory:memory` server in 544ms, selected `mcp__plugin_memory_memory__log_observation`, called it, produced `~/.memory/raw/2026-05-21/manual-mcp-1779378835136.md` with the expected content.
 
-**Outstanding:** End-to-end verification (real `claude -p` session calling the memory MCP tool) revealed the MCP entry was written to the WRONG location (`~/.claude/.mcp.json` — not a Claude Code recognized path for plugin MCPs). The agentmemory reference uses `plugin/.mcp.json` inside the plugin dir, which Claude Code auto-loads. Step #7-fix-2 (queued) moves our entry to the right location and migrates the legacy file. Full F3 closure happens when step #7-fix-2 ships AND a real Claude session can call `log_observation` end-to-end.
+**Key learning for future installs:** plugin-bundled MCPs live at `<plugin>/.mcp.json` (NOT user-level `~/.claude/.mcp.json`). Tool name in session is `mcp__plugin_<source>_<server>__<tool>`.
 
 ---
 
