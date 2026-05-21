@@ -7,6 +7,7 @@ import { runInit } from "./cli/commands/init.js";
 import { runInstall } from "./cli/commands/install.js";
 import { runLint } from "./cli/commands/lint.js";
 import { runLog } from "./cli/commands/log.js";
+import { runPage } from "./cli/commands/page.js";
 import { runStats, formatStatsResult } from "./cli/commands/stats.js";
 import { runTailErrors } from "./cli/commands/tail-errors.js";
 
@@ -160,6 +161,21 @@ program
   );
 
 program
+  .command("page <target>")
+  .description("Pretty-print a wiki page with resolved relations and inbound references")
+  .option("--no-inbound", "skip the inbound-references scan")
+  .action(async (target: string, opts: { inbound?: boolean }) => {
+    try {
+      const noInbound = opts.inbound === false;
+      const result = await runPage(target, { noInbound });
+      process.stdout.write(result.rendered);
+    } catch (err) {
+      console.error(`memory page failed: ${(err as Error).message}`);
+      process.exit(1);
+    }
+  });
+
+program
   .command("stats")
   .description("Summarize memory state — file counts, install status, git state")
   .action(async () => {
@@ -227,7 +243,6 @@ registerStub(
   "Distill a completed thread into a long-form digest",
 );
 registerStub("backup", 6, "git commit + push memory state to remote");
-registerStub("page", 2, "Pretty-print a wiki page with resolved relations");
 registerStub(
   "import-from-agentmemory",
   5,

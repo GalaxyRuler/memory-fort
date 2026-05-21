@@ -23,7 +23,6 @@ describe("stub commands", () => {
     ["search", 3],
     ["crystallize", 4],
     ["backup", 6],
-    ["page", 2],
     ["import-from-agentmemory", 5],
     ["retain", 6],
     ["schedule", 6],
