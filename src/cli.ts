@@ -5,6 +5,7 @@ import { runDoctor, formatDoctorResult } from "./cli/commands/doctor.js";
 import { runGrep, type GrepScope } from "./cli/commands/grep.js";
 import { runInit } from "./cli/commands/init.js";
 import { runInstall } from "./cli/commands/install.js";
+import { runInstallVps } from "./cli/commands/install-vps.js";
 import { runLint } from "./cli/commands/lint.js";
 import { runLog } from "./cli/commands/log.js";
 import { runPage } from "./cli/commands/page.js";
@@ -48,6 +49,35 @@ program
       await runInstall(platform);
     } catch (err) {
       console.error(`memory install ${platform} failed: ${(err as Error).message}`);
+      process.exit(1);
+    }
+  });
+
+program
+  .command("install-vps")
+  .description("Lay out /root/memory-system/ on the VPS via SSH (idempotent)")
+  .option("--ssh-host <host>", "VPS hostname over Tailscale (default: srv1317946)")
+  .option("--install-root <path>", "install root on the VPS (default: /root/memory-system)")
+  .option("--dry-run", "print SSH commands without executing")
+  .action(async (opts: { sshHost?: string; installRoot?: string; dryRun?: boolean }) => {
+    try {
+      const result = await runInstallVps({
+        sshHost: opts.sshHost,
+        installRoot: opts.installRoot,
+        dryRun: opts.dryRun,
+      });
+      if (opts.dryRun) {
+        return;
+      }
+      console.error(`VPS install complete at ${result.host}:${result.installRoot}`);
+      console.error(`  steps: ${result.steps.length}`);
+      console.error(`  services changed: ${result.servicesChanged ? "YES (investigate)" : "no"}`);
+      if (result.servicesChanged) {
+        console.error("WARNING: existing services state differs pre vs post. Inspect pre/post snapshots.");
+        process.exit(1);
+      }
+    } catch (err) {
+      console.error(`memory install-vps failed: ${(err as Error).message}`);
       process.exit(1);
     }
   });
