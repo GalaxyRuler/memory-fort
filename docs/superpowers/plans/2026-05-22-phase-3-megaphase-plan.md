@@ -270,6 +270,32 @@ Windows ~/.memory/  --git push/pull-->  VPS /root/memory-system/memory.git
 - Files: `src/cli/commands/sync.ts` (new), `src/sync/status.ts` (new), `src/cli.ts`, tests.
 - Acceptance: tests cover clean sync, local-ahead, remote-ahead, divergent conflict, and dirty worktree requiring user action.
 - Notes: do not auto-resolve markdown conflicts. The user or active agent handles conflicts.
+- Notes: `memory sync` runs `git pull --rebase` followed by `git push`. On push-reject (remote-ahead), retry pull-rebase + push once more.
+- Notes: real merge conflicts after rebase are surfaced loudly: write to `errors.log`, increment `conflicts-pending` in `~/.memory/.sync-state.json`, and exit non-zero from the CLI.
+- Notes: conflicts are never auto-resolved.
+
+### Slice 3.5 — Auto-sync post-hook
+
+- Goal: trigger `git push` automatically after each hook batch on creator machines. Debounce ~5 seconds so a burst of writes coalesces into one push. Async — never blocks the hook itself. Failures (offline, VPS down) log as info, not error.
+- Files: `src/sync/auto-push.ts` (new), updates to `src/hooks/util/` to call into the auto-push debouncer from PostToolUse/Stop/SessionEnd handlers, `test/sync/auto-push.test.ts` (new).
+- Acceptance: unit tests cover debounce coalescing, success path, push-reject (triggers pull-rebase + retry), and offline path (logs as info, increments pending-push counter, does not crash). Real smoke from WhiteDragon pushes to the VPS bare repo within 5 seconds of a hook write.
+- Notes: auto-sync uses the same `memory sync` machinery from Slice 3; this slice is the trigger, not the implementation of push-retry-pull-rebase.
+
+### Slice 3.6 — `merge-conflict` lint category
+
+- Goal: extend Phase 2 `memory lint --checks-only` with a blocking `merge-conflict` category.
+- Files: `src/curation/checks.ts` (modify existing), `test/curation/checks.test.ts` (extend existing).
+- Acceptance: scanner checks every `.md` file under `~/.memory/wiki/`, `~/.memory/raw/`, and `~/.memory/crystals/` for `<<<<<<<`, `=======`, and `>>>>>>>` on lines of their own. Each hit is reported as a `merge-conflict` issue. `memory lint --checks-only` exits 1 when any `merge-conflict` issue exists.
+- Notes: this category joins `frontmatter` and `broken-relation` as a data-integrity blocker.
+
+### Slice 3.7 — Sync status surfaces and compile runner guard
+
+- Goal: surface sync health in Phase 1 commands and reduce accidental multi-machine compile conflicts.
+- Files: `src/cli/commands/stats.ts`, `src/cli/commands/doctor.ts`, `src/cli/commands/compile.ts`, sync-state helpers, tests.
+- Acceptance: `memory stats` and `memory doctor` show last-synced timestamp, pending-push count, and conflict-pending count from `~/.memory/.sync-state.json`. `memory compile` reads `roles.compile_runner` from `~/.memory/config.yaml`.
+- Notes: new config key: `roles.compile_runner: <machine-hostname>` (default empty — no preferred runner).
+- Notes: if `compile_runner` is set and current hostname does not match, `memory compile` prints `This machine isn't the designated compile runner (configured: <name>; this machine: <hostname>). Running compile here may produce merge conflicts. Press Enter to proceed, Ctrl-C to abort.` to stderr and waits for confirmation.
+- Notes: enforcement is soft. `--force` skips the prompt; it never hard-blocks.
 
 ### Slice 4 — VPS systemd services and timers
 
@@ -324,6 +350,9 @@ Windows ~/.memory/  --git push/pull-->  VPS /root/memory-system/memory.git
 - Goal: wrap Voyage embeddings and rerank. Read `VOYAGE_API_KEY` from env with optional `config.yaml` override. Normalize errors to warnings.
 - Files: `src/retrieval/voyage-client.ts`, `src/storage/config.ts`, tests.
 - Acceptance: mocked unit tests cover env/config precedence and errors; real smoke returns a 2048-dim `voyage-4-large` vector.
+- Notes: every `voyageClient.embed()` and `voyageClient.rerank()` call wraps in a 30-second hard timeout using `AbortController` or the SDK's equivalent cancellation API.
+- Notes: timeout rejects as `VoyageTimeoutError`, extending `VoyageUnavailableError`.
+- Notes: search degrades through the same fallback path as "Voyage unreachable."
 
 ### Slice 12 — Graph signal and metadata signal
 
@@ -355,12 +384,32 @@ Windows ~/.memory/  --git push/pull-->  VPS /root/memory-system/memory.git
 - Goal: replace the search stub with real CLI search: `--scope raw|wiki|crystals|all`, `--k`, `--min-score`, `--no-rerank`, `--no-hyde`, `--json`, `--explain`.
 - Files: `src/cli/commands/search.ts`, `src/cli.ts`, `test/cli/commands/search.test.ts`, `test/cli/stubs.test.ts`.
 - Acceptance: JSON output parses; pretty output is readable; fallback warning goes to stderr.
+- Notes: when the VPS API is unreachable (timeout > 5 seconds or network error), print this exact text to stderr and exit 3:
+
+```text
+Search backend offline (VPS unreachable). To find content while offline:
+
+Use memory.list_pages to browse the wiki structure
+Use memory.read_page to fetch a specific page
+Run "memory grep <keywords>" in a shell for keyword search
+```
+
+- Notes: exit 3 is distinct from invalid flags (2) and internal errors (1).
 
 ### Slice 17 — MCP `memory.search`
 
 - Goal: add MCP search tool over the same backend.
 - Files: `src/mcp/server.ts`, `test/mcp/server.test.ts`.
 - Acceptance: existing MCP tools still pass; real Claude Code MCP call returns ranked results from the synced corpus.
+- Notes: when the VPS API is unreachable (timeout > 5 seconds or network error), return this exact text as the tool error response so Claude can fall back to existing tools:
+
+```text
+Search backend offline (VPS unreachable). To find content while offline:
+
+Use memory.list_pages to browse the wiki structure
+Use memory.read_page to fetch a specific page
+Run "memory grep <keywords>" in a shell for keyword search
+```
 
 ### Slice 18 — Dashboard search and graph views
 
@@ -368,6 +417,9 @@ Windows ~/.memory/  --git push/pull-->  VPS /root/memory-system/memory.git
 - Files: dashboard modules and tests.
 - Acceptance: dashboard search result count and ordering match `memory search --json` for the same query/options.
 - Notes: graph view can start as HTML lists/tables; no heavy client graph library unless later scoped.
+- Notes: top of dashboard always shows either `Last synced: <timestamp>` or `X commits pending push (offline since <timestamp>)`.
+- Notes: if `conflicts-pending > 0` from `~/.memory/.sync-state.json` or the `merge-conflict` lint category finds any issue, display a red banner: `X files have unresolved merge conflicts` with a list of paths.
+- Notes: banner links open the conflicted file path in the dashboard for read-only reference. The user resolves via their editor.
 
 ### Slice 19 — Backup and restore
 
@@ -379,8 +431,10 @@ Windows ~/.memory/  --git push/pull-->  VPS /root/memory-system/memory.git
 ### Slice 20 — Docs
 
 - Goal: document sync, dashboard, search, VPS install, Tailscale-only access, backup/restore, and troubleshooting.
-- Files: `docs/cli.md`, `docs/architecture.md`, `docs/retrieval-workflow.md`, `docs/sync-workflow.md`, `docs/dashboard.md`.
+- Files: `docs/cli.md`, `docs/architecture.md`, `docs/retrieval-workflow.md`, `docs/sync-workflow.md`, `docs/dashboard.md`, `docs/sync-conflict-runbook.md` (new).
 - Acceptance: user can install on a new machine and connect to the VPS without rereading this plan.
+- Notes: `docs/sync-conflict-runbook.md` walks the user through spotting conflicts (lint output, dashboard banner, stats), reading git conflict markers, choosing a resolution, committing the resolved file, and resuming sync.
+- Notes: `docs/retrieval-workflow.md` includes search-latency expectations: first search after a large curation pass may take 5-15 seconds while embeddings refresh; subsequent searches are fast.
 
 ### Slice 21 — Megaphase checkpoint
 
@@ -415,13 +469,17 @@ Windows ~/.memory/  --git push/pull-->  VPS /root/memory-system/memory.git
 - **Backups miss the bare repo.** Mitigation: backup the bare repo and checkout metadata explicitly; checkpoint restore test.
 - **Megaphase too large.** Mitigation: each slice is independently testable and committable; checkpoint gates before tag.
 
-## Open questions before Slice 1
+## Resolved before Slice 1 (2026-05-22 grill round)
 
-- Should the dashboard live at `/memory/` under the existing Tailscale host, or should the existing root route be moved so memory owns `/`?
-- Should the central bare repo be `/root/memory-system/memory.git` or `/opt/memory-system/memory.git`? The plan defaults to `/root/memory-system` because SSH access is root and the user requested `~/memory-system/` if no better candidate exists.
-- Should raw embeddings be enabled by default, or should raw search start BM25-only with wiki/crystal embeddings first?
-- Does the user want dashboard editing in Phase 3, or read/search/inspect only?
-- Should memory backups be copied off-box, or is local rotating tarball enough for Phase 3 because git remotes already duplicate data to clients?
+- Dashboard route: use `/memory/` under `https://srv1317946.tail6916d8.ts.net/`; do not move the existing root route.
+- VPS storage root: use `/root/memory-system/` for the bare repo, checkout, service config, logs, and backups.
+- Raw embeddings: enabled by default, alongside wiki and crystal embeddings.
+- Dashboard mutability: read-only for Phase 3. Users resolve edits/conflicts through their editor, agent, Obsidian, or CLI.
+- Backup strategy: local rotating tarball backups on the VPS for Phase 3; no off-box backup requirement in this phase.
+- Auto-sync: creator machines auto-push after hook batches with ~5s debounce. Offline/VPS-down states are info, not errors.
+- Conflict policy: pull-rebase + push retry once; real conflicts are never auto-resolved and are surfaced in `errors.log`, `.sync-state.json`, lint, stats, doctor, and dashboard.
+- Offline search behavior: CLI exits 3 and MCP returns a tool error with the exact fallback instructions when the VPS API is unreachable for more than 5 seconds or errors at the network layer.
+- Refresh latency: first search after a large curation pass may take 5-15 seconds while embeddings refresh; subsequent searches should be fast because content hashes skip unchanged documents.
 
 ## Notes for implementers
 
