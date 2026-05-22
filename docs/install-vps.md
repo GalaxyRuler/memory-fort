@@ -1,6 +1,6 @@
 # Install VPS
 
-`memory install-vps` lays out the Phase 3 server-side directory tree on the VPS over SSH. It creates `/root/memory-system/`, initializes the bare memory git repository, locks down permissions, writes install metadata, and installs the memory-owned systemd units for the dashboard placeholder and local backups. It does not touch Tailscale Serve, Caddy, Vaultwarden, or any existing non-memory service configuration.
+`memory install-vps` lays out the Phase 3 server-side directory tree on the VPS over SSH. It creates `/root/memory-system/`, initializes the bare memory git repository, locks down permissions, writes install metadata, and installs the memory-owned systemd units for the read-only dashboard and local backups. It does not touch Tailscale Serve, Caddy, Vaultwarden, or any existing non-memory service configuration.
 
 ## Prerequisites
 
@@ -69,11 +69,11 @@ After install, the VPS has:
 
 The installer writes three unit files under `/etc/systemd/system/`:
 
-- `memory-dashboard.service` runs a minimal Node placeholder dashboard on `127.0.0.1:4410`.
+- `memory-dashboard.service` runs the read-only Node dashboard on `127.0.0.1:4410`.
 - `memory-backup.service` runs `/root/memory-system/services/memory-backup.sh` as a one-shot backup job.
 - `memory-backup.timer` triggers the backup service daily at `04:00 UTC`.
 
-The dashboard placeholder responds on `/healthz` with `ok` and serves a small HTML page that says the real dashboard ships in Phase 3 Slice 6. It binds to localhost only; Tailscale routing is added later.
+Slice 6 replaced the original placeholder with `dashboard.mjs`, which imports the bundled dashboard server from `dashboard-bundle.mjs`. The older `dashboard-placeholder.mjs` file remains on disk as a fallback reference, but systemd no longer points at it. The dashboard responds on `/healthz` with `ok`, exposes `/api/status` as JSON, and serves server-rendered HTML at `/`. It binds to localhost only; Tailscale Serve owns the tailnet-only `/memory/` route.
 
 Backups are local tarballs under `/root/memory-system/backups/`. The backup script archives `memory.git`, `vault`, `services`, `env`, and `install-info.json`, skips logs and backups, and keeps the last 30 daily archives. The `04:00 UTC` schedule intentionally avoids the known `03:00 UTC` Vaultwarden and OpenClaw backup windows.
 
@@ -93,7 +93,7 @@ ssh root@srv1317946 'systemctl disable --now memory-dashboard memory-backup.time
 
 ## Idempotency
 
-Re-running the command is safe. If `/root/memory-system/` already exists, the command skips the directory creation step. The bare repository step is guarded with `[ -d /root/memory-system/memory.git ] || git init --bare ...`, so it is harmless on repeat runs. `install-info.json` is refreshed with the latest install timestamp. The systemd templates and scripts are re-uploaded each time, then `systemctl daemon-reload` and `systemctl enable --now ...` are run idempotently.
+Re-running the command is safe. If `/root/memory-system/` already exists, the command skips the directory creation step. The bare repository step is guarded with `[ -d /root/memory-system/memory.git ] || git init --bare ...`, so it is harmless on repeat runs. `install-info.json` is refreshed with the latest install timestamp. The systemd templates and scripts are re-uploaded each time, then `systemctl daemon-reload`, `systemctl enable --now ...`, and a dashboard restart are run idempotently so the latest dashboard bundle is active.
 
 ## Troubleshooting
 

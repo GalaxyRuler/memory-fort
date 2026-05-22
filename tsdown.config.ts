@@ -31,6 +31,11 @@ export default defineConfig([
   },
   {
     ...common,
+    entry: { "dashboard/server": "src/dashboard/server.ts" },
+    clean: false,
+  },
+  {
+    ...common,
     entry: { "hooks/auto-push-worker": "src/sync/auto-push-worker.ts" },
     clean: false,
   },

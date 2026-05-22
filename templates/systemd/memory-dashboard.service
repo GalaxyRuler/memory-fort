@@ -1,5 +1,5 @@
 [Unit]
-Description=Memory dashboard (placeholder until Slice 6 ships the real dashboard)
+Description=Memory dashboard
 After=network-online.target
 Wants=network-online.target
 
@@ -7,7 +7,7 @@ Wants=network-online.target
 Type=simple
 User=root
 WorkingDirectory=${INSTALL_ROOT}
-ExecStart=${NODE_PATH} ${INSTALL_ROOT}/services/dashboard-placeholder.mjs
+ExecStart=${NODE_PATH} ${INSTALL_ROOT}/services/dashboard.mjs
 Restart=on-failure
 RestartSec=5
 Environment=MEMORY_INSTALL_ROOT=${INSTALL_ROOT}

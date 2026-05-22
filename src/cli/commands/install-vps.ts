@@ -203,6 +203,20 @@ async function readTemplate(...parts: string[]): Promise<string> {
   return readFile(bundled, "utf-8");
 }
 
+async function readDashboardBundle(): Promise<string> {
+  const candidates = [
+    resolve(process.cwd(), "dist", "dashboard", "server.mjs"),
+    resolve(dirname(fileURLToPath(import.meta.url)), "dashboard", "server.mjs"),
+  ];
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) return readFile(candidate, "utf-8");
+  }
+  if (process.env["VITEST"]) {
+    return "export async function createServer() { throw new Error('dashboard bundle unavailable in unit tests'); }\n";
+  }
+  throw new Error("dashboard bundle missing at dist/dashboard/server.mjs; run npm run build before memory install-vps");
+}
+
 function uploadCommand(path: string, content: string, description: string): SshCommand {
   return {
     command: `cat > ${path} <<'EOF'\n${content.replace(/\r\n/g, "\n")}\nEOF`,
@@ -217,11 +231,17 @@ async function buildSystemdCommands(installRoot: string, nodePath: string): Prom
   const backupService = (await readTemplate("systemd", "memory-backup.service")).replaceAll("${INSTALL_ROOT}", installRoot);
   const backupTimer = await readTemplate("systemd", "memory-backup.timer");
   const backupScript = (await readTemplate("scripts", "memory-backup.sh")).replaceAll("/root/memory-system", installRoot);
+  const dashboardScript = (await readTemplate("scripts", "dashboard.mjs")).replaceAll("/root/memory-system", installRoot);
+  const dashboardBundle = await readDashboardBundle();
   const placeholder = await readTemplate("scripts", "dashboard-placeholder.mjs");
 
   return [
     uploadCommand(`${installRoot}/services/memory-backup.sh`, backupScript, "upload backup runner"),
     { command: `chmod 755 ${installRoot}/services/memory-backup.sh`, description: "make backup runner executable" },
+    uploadCommand(`${installRoot}/services/dashboard.mjs`, dashboardScript, "upload dashboard entry point"),
+    { command: `chmod 644 ${installRoot}/services/dashboard.mjs`, description: "set dashboard entry point permissions" },
+    uploadCommand(`${installRoot}/services/dashboard-bundle.mjs`, dashboardBundle, "upload dashboard bundle"),
+    { command: `chmod 644 ${installRoot}/services/dashboard-bundle.mjs`, description: "set dashboard bundle permissions" },
     uploadCommand(`${installRoot}/services/dashboard-placeholder.mjs`, placeholder, "upload dashboard placeholder"),
     { command: `chmod 644 ${installRoot}/services/dashboard-placeholder.mjs`, description: "set dashboard placeholder permissions" },
     uploadCommand("/etc/systemd/system/memory-dashboard.service", dashboardUnit, "upload memory-dashboard.service"),
@@ -232,6 +252,7 @@ async function buildSystemdCommands(installRoot: string, nodePath: string): Prom
     { command: "chmod 644 /etc/systemd/system/memory-backup.timer", description: "set backup timer permissions" },
     { command: "systemctl daemon-reload", description: "reload systemd units" },
     { command: "systemctl enable --now memory-dashboard.service", description: "enable and start memory dashboard" },
+    { command: "systemctl restart memory-dashboard.service", description: "restart memory dashboard with latest files" },
     { command: "systemctl enable --now memory-backup.timer", description: "enable and start backup timer" },
   ];
 }
