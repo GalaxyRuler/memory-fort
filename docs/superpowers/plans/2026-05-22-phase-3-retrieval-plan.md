@@ -1,3 +1,9 @@
+> **SUPERSEDED BY** `2026-05-22-phase-3-megaphase-plan.md` (same date).
+>
+> This plan reflected a single-machine, terminal-first retrieval design. After the v0.1.0-phase1 + v0.2.0-phase2 curation dogfood, the user clarified the system must support multi-machine sync, a Tailscale-only web dashboard on their VPS, and all retrieval signals integrated. The new plan covers that megaphase. This file is preserved as a historical record of the simpler design we did not adopt.
+
+---
+
 # Phase 3 — Retrieval, MCP search tool, reranker, HyDE
 
 **Spec:** `docs/superpowers/specs/2026-05-20-cross-tool-memory-system-design.md`
