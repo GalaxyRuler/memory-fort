@@ -10,6 +10,7 @@ import { runLint } from "./cli/commands/lint.js";
 import { runLog } from "./cli/commands/log.js";
 import { runPage } from "./cli/commands/page.js";
 import { runStats, formatStatsResult } from "./cli/commands/stats.js";
+import { runSyncBootstrap } from "./cli/commands/sync-bootstrap.js";
 import { runTailErrors } from "./cli/commands/tail-errors.js";
 
 const program = new Command();
@@ -78,6 +79,34 @@ program
       }
     } catch (err) {
       console.error(`memory install-vps failed: ${(err as Error).message}`);
+      process.exit(1);
+    }
+  });
+
+program
+  .command("sync-bootstrap")
+  .description("Configure ~/.memory/ to use the VPS bare repo as remote `vps` and install the post-receive hook")
+  .option("--remote-name <name>", "remote name (default: vps)")
+  .option("--ssh-host <host>", "VPS hostname (default: from config or srv1317946)")
+  .option("--vps-install-root <path>", "VPS install root (default: /root/memory-system)")
+  .option("--branch <name>", "branch to push (default: main)")
+  .option("--skip-initial-push", "configure remote but don't push existing commits")
+  .action(async (opts) => {
+    try {
+      const result = await runSyncBootstrap({
+        remoteName: opts.remoteName,
+        sshHost: opts.sshHost,
+        vpsInstallRoot: opts.vpsInstallRoot,
+        branch: opts.branch,
+        skipInitialPush: opts.skipInitialPush,
+      });
+      console.error("Sync bootstrap complete.");
+      console.error(`  remote:           ${result.remoteName} -> ${result.remoteUrl}`);
+      console.error(`  remote created:   ${result.remoteCreated ? "yes (new)" : `no (was ${result.previousRemoteUrl})`}`);
+      console.error(`  post-receive:     ${result.postReceiveInstalled ? "installed" : "skipped"}`);
+      console.error(`  initial push:     ${result.initialPushPerformed ? "performed" : "skipped (remote already has commits)"}`);
+    } catch (err) {
+      console.error(`memory sync-bootstrap failed: ${(err as Error).message}`);
       process.exit(1);
     }
   });
