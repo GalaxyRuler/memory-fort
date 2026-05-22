@@ -95,3 +95,7 @@ Look first at:
 ```text
 .sync-state.json
 ```
+
+## Raw Observation Privacy
+
+`raw/` is tracked in git for Path 2 sync, so raw observations can move between creator machines and the VPS dashboard can report the same raw corpus the local machine sees. These files contain unfiltered hook observations. That is acceptable for this personal, Tailscale-only deployment, but the VPS git history will retain anything committed there. If a credential, token, or private key appears in a raw file, rotate that secret rather than relying on later deletion from the working tree.

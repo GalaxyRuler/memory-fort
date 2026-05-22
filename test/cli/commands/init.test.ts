@@ -42,6 +42,11 @@ describe("runInit", () => {
     expect(existsSync(join(result.root, "config.yaml"))).toBe(true);
     expect(existsSync(join(result.root, "errors.log"))).toBe(true);
     expect(existsSync(join(result.root, ".gitignore"))).toBe(true);
+    const gitignore = await readFile(join(result.root, ".gitignore"), "utf-8");
+    expect(gitignore).toContain("errors.log");
+    expect(gitignore).toContain(".archive/");
+    expect(gitignore).toContain("embeddings/raw.*.jsonl");
+    expect(gitignore).not.toContain("raw/");
   });
 
   it("renders schema.md template with no placeholders remaining", async () => {

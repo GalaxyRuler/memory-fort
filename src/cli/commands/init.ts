@@ -45,7 +45,6 @@ const SUBDIRS = [
 ];
 
 const GITIGNORE_CONTENT = `# Memory runtime artifacts not stored in git
-raw/
 errors.log
 .archive/
 embeddings/raw.*.jsonl
