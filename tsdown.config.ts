@@ -21,6 +21,21 @@ export default defineConfig([
   },
   {
     ...common,
+    entry: { "sync/auto-push": "src/sync/auto-push.ts" },
+    clean: false,
+  },
+  {
+    ...common,
+    entry: { "sync/auto-push-worker": "src/sync/auto-push-worker.ts" },
+    clean: false,
+  },
+  {
+    ...common,
+    entry: { "hooks/auto-push-worker": "src/sync/auto-push-worker.ts" },
+    clean: false,
+  },
+  {
+    ...common,
     entry: { "hooks/prompt-submit": "src/hooks/prompt-submit.ts" },
     clean: false,
   },

@@ -13,11 +13,16 @@ import {
   readToolOutput,
 } from "./util/payload-fields.js";
 import type { ToolName } from "../storage/paths.js";
+import { errorsLogPath, memoryRoot } from "../storage/paths.js";
+import { atomicAppend } from "../storage/atomic-write.js";
+import { scheduleAutoPush } from "../sync/auto-push.js";
 
 export interface PostToolUseDeps {
   detectTool?: typeof detectTool;
   ensureRawSessionFile?: typeof ensureRawSessionFile;
   appendBlock?: typeof appendBlock;
+  scheduleAutoPush?: typeof scheduleAutoPush;
+  appendErrorLog?: (line: string) => Promise<void>;
   now?: () => Date;
 }
 
@@ -28,6 +33,8 @@ export async function postToolUseBody(
   const detectFn = deps.detectTool ?? detectTool;
   const ensureFn = deps.ensureRawSessionFile ?? ensureRawSessionFile;
   const appendFn = deps.appendBlock ?? appendBlock;
+  const scheduleFn = deps.scheduleAutoPush ?? (deps.ensureRawSessionFile || deps.appendBlock ? null : scheduleAutoPush);
+  const appendErrorFn = deps.appendErrorLog ?? ((line: string) => atomicAppend(errorsLogPath(), line));
   const nowFn = deps.now ?? (() => new Date());
 
   const toolName = readToolName(payload);
@@ -51,6 +58,13 @@ export async function postToolUseBody(
     }),
     now,
   });
+  if (scheduleFn) {
+    try {
+      await scheduleFn({ memoryRoot: memoryRoot() });
+    } catch (err) {
+      await appendErrorFn(`${nowFn().toISOString()} auto-push schedule failed: ${(err as Error).message}\n`);
+    }
+  }
 }
 
 if (process.argv[1]?.endsWith("post-tool-use.mjs")) {

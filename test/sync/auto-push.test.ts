@@ -1,0 +1,79 @@
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { scheduleAutoPush, readPendingFile } from "../../src/sync/auto-push.js";
+
+interface SpawnCall {
+  cmd: string;
+  args: string[];
+  opts?: Record<string, unknown>;
+}
+
+function makeSpawn() {
+  const calls: SpawnCall[] = [];
+  const spawnFn = (cmd: string, args: string[], opts?: Record<string, unknown>) => {
+    calls.push({ cmd, args, opts });
+    return { pid: 1234, unref() {} };
+  };
+  return { calls, spawnFn };
+}
+
+describe("scheduleAutoPush", () => {
+  let tmp: string;
+
+  beforeEach(async () => {
+    tmp = await mkdtemp(join(tmpdir(), "auto-push-"));
+  });
+
+  afterEach(async () => {
+    await rm(tmp, { recursive: true, force: true });
+  });
+
+  it("scheduleAutoPush writes a token to .auto-push-pending", async () => {
+    const { spawnFn } = makeSpawn();
+
+    const result = await scheduleAutoPush({ memoryRoot: tmp, spawnFn: spawnFn as never });
+    const pending = await readPendingFile(tmp);
+
+    expect(result.scheduled).toBe(true);
+    expect(pending?.token).toMatch(/^[a-f0-9]{16}$/);
+    expect(pending?.scheduledAt).toBeTruthy();
+    expect(pending?.debounceMs).toBe(5000);
+  });
+
+  it("scheduleAutoPush invokes spawn with worker path + memoryRoot + token", async () => {
+    const { calls, spawnFn } = makeSpawn();
+
+    const result = await scheduleAutoPush({
+      memoryRoot: tmp,
+      workerPath: "C:/repo/dist/sync/auto-push-worker.mjs",
+      spawnFn: spawnFn as never,
+    });
+
+    expect(calls[0]?.cmd).toBe("node");
+    expect(calls[0]?.args).toEqual(["C:/repo/dist/sync/auto-push-worker.mjs", tmp, result.token]);
+  });
+
+  it("scheduleAutoPush spawn options are detached, stdio ignore, windowsHide true", async () => {
+    const { calls, spawnFn } = makeSpawn();
+
+    await scheduleAutoPush({ memoryRoot: tmp, spawnFn: spawnFn as never });
+
+    expect(calls[0]?.opts).toMatchObject({
+      detached: true,
+      stdio: "ignore",
+      windowsHide: true,
+    });
+  });
+
+  it("Two rapid scheduleAutoPush calls leave only the second token", async () => {
+    const { spawnFn } = makeSpawn();
+
+    await scheduleAutoPush({ memoryRoot: tmp, spawnFn: spawnFn as never });
+    const second = await scheduleAutoPush({ memoryRoot: tmp, spawnFn: spawnFn as never });
+    const pending = await readPendingFile(tmp);
+
+    expect(pending?.token).toBe(second.token);
+  });
+});
