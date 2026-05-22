@@ -1,5 +1,7 @@
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { configPath } from "../../storage/paths.js";
 import { makeRealSshRunner, type SshCommand, type SshRunner } from "../../sync/ssh-runner.js";
 
@@ -17,6 +19,13 @@ export interface InstallVpsResult {
   preSnapshot: { tailscaleServe: string; listening: string; caddyStatus: string };
   postSnapshot: { tailscaleServe: string; listening: string; caddyStatus: string };
   servicesChanged: boolean;
+  systemd: {
+    dashboardServiceActive: boolean;
+    backupTimerActive: boolean;
+    backupTimerNext: string;
+    healthzOk: boolean;
+    nodePath: string;
+  };
 }
 
 interface Snapshot {
@@ -27,6 +36,7 @@ interface Snapshot {
 
 const DEFAULT_HOST = "srv1317946";
 const DEFAULT_INSTALL_ROOT = "/root/memory-system";
+const DEFAULT_NODE_PATH = "/usr/local/node22/bin/node";
 
 const SNAPSHOT_COMMANDS: Array<SshCommand & { key: keyof Snapshot }> = [
   {
@@ -51,6 +61,16 @@ const SNAPSHOT_COMMANDS: Array<SshCommand & { key: keyof Snapshot }> = [
 
 function emptySnapshot(): Snapshot {
   return { tailscaleServe: "", listening: "", caddyStatus: "" };
+}
+
+function emptySystemd(nodePath = ""): InstallVpsResult["systemd"] {
+  return {
+    dashboardServiceActive: false,
+    backupTimerActive: false,
+    backupTimerNext: "",
+    healthzOk: false,
+    nodePath,
+  };
 }
 
 function isSafeRemotePath(path: string): boolean {
@@ -128,7 +148,28 @@ function buildIdempotencyCommand(installRoot: string): SshCommand {
 }
 
 function snapshotChanged(a: Snapshot, b: Snapshot): boolean {
-  return a.tailscaleServe !== b.tailscaleServe || a.listening !== b.listening || a.caddyStatus !== b.caddyStatus;
+  return normalizeSnapshotText(a.tailscaleServe) !== normalizeSnapshotText(b.tailscaleServe) ||
+    normalizeListeningPorts(a.listening) !== normalizeListeningPorts(b.listening) ||
+    normalizeSnapshotText(a.caddyStatus) !== normalizeSnapshotText(b.caddyStatus);
+}
+
+function normalizeListeningPorts(value: string): string {
+  return value
+    .split(/\r?\n/)
+    .filter((line) => !line.includes(":4410"))
+    .map((line) => line.trim().split(/\s+/)[3] ?? "")
+    .filter((port) => port.length > 0 && port !== "Local")
+    .sort()
+    .join("\n");
+}
+
+function normalizeSnapshotText(value: string): string {
+  return value
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .sort()
+    .join("\n");
 }
 
 async function runChecked(host: string, runner: SshRunner, cmd: SshCommand) {
@@ -155,6 +196,101 @@ function printDryRun(host: string, commands: SshCommand[]): void {
   }
 }
 
+async function readTemplate(...parts: string[]): Promise<string> {
+  const local = resolve(process.cwd(), "templates", ...parts);
+  if (existsSync(local)) return readFile(local, "utf-8");
+  const bundled = resolve(dirname(fileURLToPath(import.meta.url)), "..", "templates", ...parts);
+  return readFile(bundled, "utf-8");
+}
+
+function uploadCommand(path: string, content: string, description: string): SshCommand {
+  return {
+    command: `cat > ${path} <<'EOF'\n${content.replace(/\r\n/g, "\n")}\nEOF`,
+    description,
+  };
+}
+
+async function buildSystemdCommands(installRoot: string, nodePath: string): Promise<SshCommand[]> {
+  const dashboardUnit = (await readTemplate("systemd", "memory-dashboard.service"))
+    .replaceAll("${INSTALL_ROOT}", installRoot)
+    .replaceAll("${NODE_PATH}", nodePath);
+  const backupService = (await readTemplate("systemd", "memory-backup.service")).replaceAll("${INSTALL_ROOT}", installRoot);
+  const backupTimer = await readTemplate("systemd", "memory-backup.timer");
+  const backupScript = (await readTemplate("scripts", "memory-backup.sh")).replaceAll("/root/memory-system", installRoot);
+  const placeholder = await readTemplate("scripts", "dashboard-placeholder.mjs");
+
+  return [
+    uploadCommand(`${installRoot}/services/memory-backup.sh`, backupScript, "upload backup runner"),
+    { command: `chmod 755 ${installRoot}/services/memory-backup.sh`, description: "make backup runner executable" },
+    uploadCommand(`${installRoot}/services/dashboard-placeholder.mjs`, placeholder, "upload dashboard placeholder"),
+    { command: `chmod 644 ${installRoot}/services/dashboard-placeholder.mjs`, description: "set dashboard placeholder permissions" },
+    uploadCommand("/etc/systemd/system/memory-dashboard.service", dashboardUnit, "upload memory-dashboard.service"),
+    { command: "chmod 644 /etc/systemd/system/memory-dashboard.service", description: "set dashboard service permissions" },
+    uploadCommand("/etc/systemd/system/memory-backup.service", backupService, "upload memory-backup.service"),
+    { command: "chmod 644 /etc/systemd/system/memory-backup.service", description: "set backup service permissions" },
+    uploadCommand("/etc/systemd/system/memory-backup.timer", backupTimer, "upload memory-backup.timer"),
+    { command: "chmod 644 /etc/systemd/system/memory-backup.timer", description: "set backup timer permissions" },
+    { command: "systemctl daemon-reload", description: "reload systemd units" },
+    { command: "systemctl enable --now memory-dashboard.service", description: "enable and start memory dashboard" },
+    { command: "systemctl enable --now memory-backup.timer", description: "enable and start backup timer" },
+  ];
+}
+
+async function resolveNodePath(host: string, runner: SshRunner): Promise<string> {
+  const result = await runChecked(host, runner, {
+    command: "which node",
+    description: "resolve Node path",
+    allowNonZeroExit: true,
+  });
+  const nodePath = result.stdout.trim();
+  if (result.exitCode !== 0 || !nodePath) {
+    throw new Error(`Node not found on ${host}; install Node or ensure ${DEFAULT_NODE_PATH} is available`);
+  }
+  return nodePath;
+}
+
+function parseTimerNext(output: string): string {
+  const match = /(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}:\d{2})\s+UTC/.exec(output);
+  if (!match) return "";
+  return `${match[1]}T${match[2]}Z`;
+}
+
+async function verifySystemd(host: string, runner: SshRunner, nodePath: string): Promise<InstallVpsResult["systemd"]> {
+  const dashboard = await runChecked(host, runner, {
+    command: "systemctl is-active memory-dashboard.service",
+    description: "verify memory dashboard service",
+    allowNonZeroExit: true,
+  });
+  const timer = await runChecked(host, runner, {
+    command: "systemctl is-active memory-backup.timer",
+    description: "verify memory backup timer",
+    allowNonZeroExit: true,
+  });
+  const timerList = await runChecked(host, runner, {
+    command: "systemctl list-timers memory-backup.timer --no-pager",
+    description: "capture memory backup timer schedule",
+    allowNonZeroExit: true,
+  });
+  const healthz = await runChecked(host, runner, {
+    command: "curl -sS http://127.0.0.1:4410/healthz",
+    description: "verify dashboard health endpoint",
+    allowNonZeroExit: true,
+  });
+  await runChecked(host, runner, {
+    command: 'ss -tlnp | grep ":4410"',
+    description: "verify dashboard port listener",
+    allowNonZeroExit: true,
+  });
+
+  return {
+    dashboardServiceActive: dashboard.stdout.trim() === "active",
+    backupTimerActive: timer.stdout.trim() === "active",
+    backupTimerNext: parseTimerNext(timerList.stdout),
+    healthzOk: healthz.stdout.trim() === "ok",
+    nodePath,
+  };
+}
+
 export async function runInstallVps(opts: InstallVpsOptions = {}): Promise<InstallVpsResult> {
   const host = opts.sshHost ?? (await readConfiguredHost()) ?? DEFAULT_HOST;
   const installRoot = opts.installRoot ?? DEFAULT_INSTALL_ROOT;
@@ -167,7 +303,15 @@ export async function runInstallVps(opts: InstallVpsOptions = {}): Promise<Insta
   const allLayoutCommands = buildLayoutCommands(installRoot, true, now);
 
   if (opts.dryRun === true) {
-    printDryRun(host, [...SNAPSHOT_COMMANDS, idempotency, ...allLayoutCommands, ...SNAPSHOT_COMMANDS]);
+    const systemdCommands = await buildSystemdCommands(installRoot, DEFAULT_NODE_PATH);
+    printDryRun(host, [
+      ...SNAPSHOT_COMMANDS,
+      idempotency,
+      ...allLayoutCommands,
+      { command: "which node", description: "resolve Node path" },
+      ...systemdCommands,
+      ...SNAPSHOT_COMMANDS,
+    ]);
     return {
       host,
       installRoot,
@@ -175,6 +319,7 @@ export async function runInstallVps(opts: InstallVpsOptions = {}): Promise<Insta
       preSnapshot: emptySnapshot(),
       postSnapshot: emptySnapshot(),
       servicesChanged: false,
+      systemd: emptySystemd(DEFAULT_NODE_PATH),
     };
   }
 
@@ -195,6 +340,20 @@ export async function runInstallVps(opts: InstallVpsOptions = {}): Promise<Insta
     });
   }
 
+  const nodePath = await resolveNodePath(host, runner);
+  const systemdCommands = await buildSystemdCommands(installRoot, nodePath);
+  for (const cmd of systemdCommands) {
+    const result = await runChecked(host, runner, cmd);
+    steps.push({
+      command: cmd.command,
+      description: cmd.description,
+      output: result.stdout || result.stderr,
+      exitCode: result.exitCode,
+    });
+  }
+
+  const systemd = await verifySystemd(host, runner, nodePath);
+
   const postSnapshot = await captureSnapshot(host, runner);
   return {
     host,
@@ -203,5 +362,6 @@ export async function runInstallVps(opts: InstallVpsOptions = {}): Promise<Insta
     preSnapshot,
     postSnapshot,
     servicesChanged: snapshotChanged(preSnapshot, postSnapshot),
+    systemd,
   };
 }

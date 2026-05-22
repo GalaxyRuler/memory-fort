@@ -173,4 +173,91 @@ describe("runInstallVps", () => {
     await expect(runInstallVps({ runner })).rejects.toThrow(/mkdir.*Permission denied/);
     expect(commands(runner).filter((command) => command === "tailscale serve status")).toHaveLength(1);
   });
+
+  it("Installer uploads dashboard unit with substituted install root", async () => {
+    const runner = makeRunner((call) => ({
+      stdout: call.command.command.includes("test -d")
+        ? "EXISTS\n"
+        : call.command.command === "which node"
+          ? "/usr/local/node22/bin/node\n"
+          : call.command.command.includes("curl -sS")
+            ? "ok\n"
+            : "active\n",
+    }));
+
+    await runInstallVps({ installRoot: "/tmp/mem", runner });
+
+    const upload = commands(runner).find((command) =>
+      command.startsWith("cat > /etc/systemd/system/memory-dashboard.service"),
+    );
+    expect(upload).toBeDefined();
+    expect(upload).toContain("WorkingDirectory=/tmp/mem");
+    expect(upload).not.toContain("${INSTALL_ROOT}");
+  });
+
+  it("Installer uploads backup script with executable bit", async () => {
+    const runner = makeRunner((call) => ({
+      stdout: call.command.command.includes("test -d")
+        ? "EXISTS\n"
+        : call.command.command === "which node"
+          ? "/usr/local/node22/bin/node\n"
+          : call.command.command.includes("curl -sS")
+            ? "ok\n"
+            : "active\n",
+    }));
+
+    await runInstallVps({ runner });
+
+    expect(commands(runner).some((command) => command.startsWith("cat > /root/memory-system/services/memory-backup.sh"))).toBe(true);
+    expect(commands(runner)).toContain("chmod 755 /root/memory-system/services/memory-backup.sh");
+  });
+
+  it("Installer runs daemon-reload and enables services", async () => {
+    const runner = makeRunner((call) => ({
+      stdout: call.command.command.includes("test -d")
+        ? "EXISTS\n"
+        : call.command.command === "which node"
+          ? "/usr/local/node22/bin/node\n"
+          : call.command.command.includes("curl -sS")
+            ? "ok\n"
+            : "active\n",
+    }));
+
+    await runInstallVps({ runner });
+
+    expect(commands(runner)).toContain("systemctl daemon-reload");
+    expect(commands(runner)).toContain("systemctl enable --now memory-dashboard.service");
+    expect(commands(runner)).toContain("systemctl enable --now memory-backup.timer");
+  });
+
+  it("Result includes systemd verification fields", async () => {
+    const runner = makeRunner((call) => {
+      if (call.command.command.includes("test -d")) return { stdout: "EXISTS\n" };
+      if (call.command.command === "which node") return { stdout: "/usr/local/node22/bin/node\n" };
+      if (call.command.command === "systemctl is-active memory-dashboard.service") return { stdout: "active\n" };
+      if (call.command.command === "systemctl is-active memory-backup.timer") return { stdout: "active\n" };
+      if (call.command.command.includes("systemctl list-timers")) {
+        return { stdout: "Sat 2026-05-23 04:00:00 UTC 2h left n/a n/a memory-backup.timer memory-backup.service\n" };
+      }
+      if (call.command.command.includes("curl -sS")) return { stdout: "ok\n" };
+      return { stdout: "same\n" };
+    });
+
+    const result = await runInstallVps({ runner });
+
+    expect(result.systemd.dashboardServiceActive).toBe(true);
+    expect(result.systemd.backupTimerActive).toBe(true);
+    expect(result.systemd.healthzOk).toBe(true);
+    expect(result.systemd.nodePath).toBe("/usr/local/node22/bin/node");
+  });
+
+  it("Installer fails cleanly if Node not found on VPS", async () => {
+    const runner = makeRunner((call) => {
+      if (call.command.command.includes("test -d")) return { stdout: "EXISTS\n" };
+      if (call.command.command === "which node") return { stderr: "not found", exitCode: 1 };
+      return { stdout: "same\n" };
+    });
+
+    await expect(runInstallVps({ runner })).rejects.toThrow(/Node.*srv1317946/);
+  });
 });

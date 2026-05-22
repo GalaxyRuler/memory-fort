@@ -1,0 +1,9 @@
+[Unit]
+Description=Memory backup runner
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=${INSTALL_ROOT}/services/memory-backup.sh
+StandardOutput=append:${INSTALL_ROOT}/logs/backup.log
+StandardError=append:${INSTALL_ROOT}/logs/backup.log

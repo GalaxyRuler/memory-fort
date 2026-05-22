@@ -1,0 +1,19 @@
+[Unit]
+Description=Memory dashboard (placeholder until Slice 6 ships the real dashboard)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=${INSTALL_ROOT}
+ExecStart=${NODE_PATH} ${INSTALL_ROOT}/services/dashboard-placeholder.mjs
+Restart=on-failure
+RestartSec=5
+Environment=MEMORY_INSTALL_ROOT=${INSTALL_ROOT}
+Environment=NODE_ENV=production
+StandardOutput=append:${INSTALL_ROOT}/logs/dashboard.log
+StandardError=append:${INSTALL_ROOT}/logs/dashboard.log
+
+[Install]
+WantedBy=multi-user.target

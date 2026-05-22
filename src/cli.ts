@@ -76,6 +76,11 @@ program
       console.error(`VPS install complete at ${result.host}:${result.installRoot}`);
       console.error(`  steps: ${result.steps.length}`);
       console.error(`  services changed: ${result.servicesChanged ? "YES (investigate)" : "no"}`);
+      console.error(`  node path:        ${result.systemd.nodePath}`);
+      console.error(`  dashboard:        ${result.systemd.dashboardServiceActive ? "active" : "inactive"}`);
+      console.error(`  backup timer:     ${result.systemd.backupTimerActive ? "active" : "inactive"}`);
+      console.error(`  backup next:      ${result.systemd.backupTimerNext || "(unknown)"}`);
+      console.error(`  healthz:          ${result.systemd.healthzOk ? "ok" : "failed"}`);
       if (result.servicesChanged) {
         console.error("WARNING: existing services state differs pre vs post. Inspect pre/post snapshots.");
         process.exit(1);
