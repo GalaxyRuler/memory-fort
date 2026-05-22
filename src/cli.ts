@@ -9,7 +9,10 @@ import { runInstallVps } from "./cli/commands/install-vps.js";
 import { runLint } from "./cli/commands/lint.js";
 import { runLog } from "./cli/commands/log.js";
 import { runPage } from "./cli/commands/page.js";
+import { runPull, formatPullSuccess } from "./cli/commands/pull.js";
+import { runPush, formatPushSuccess } from "./cli/commands/push.js";
 import { runStats, formatStatsResult } from "./cli/commands/stats.js";
+import { runSync, formatSyncSuccess } from "./cli/commands/sync.js";
 import { runSyncBootstrap } from "./cli/commands/sync-bootstrap.js";
 import { runTailErrors } from "./cli/commands/tail-errors.js";
 
@@ -108,6 +111,48 @@ program
     } catch (err) {
       console.error(`memory sync-bootstrap failed: ${(err as Error).message}`);
       process.exit(1);
+    }
+  });
+
+program
+  .command("sync")
+  .description("Pull-rebase then push to the VPS remote; surfaces conflicts loudly")
+  .option("--remote-name <name>", "remote name (default: vps)")
+  .option("--branch <name>", "branch (default: main)")
+  .action(async (opts: { remoteName?: string; branch?: string }) => {
+    try {
+      const result = await runSync({ remoteName: opts.remoteName, branch: opts.branch });
+      process.stderr.write(formatSyncSuccess(result, opts.remoteName ?? "vps", opts.branch ?? "main"));
+    } catch (err) {
+      handleSyncCliError("sync", err);
+    }
+  });
+
+program
+  .command("pull")
+  .description("git pull --rebase from VPS remote")
+  .option("--remote-name <name>", "remote name (default: vps)")
+  .option("--branch <name>", "branch (default: main)")
+  .action(async (opts: { remoteName?: string; branch?: string }) => {
+    try {
+      const result = await runPull({ remoteName: opts.remoteName, branch: opts.branch });
+      process.stderr.write(formatPullSuccess(result, opts.remoteName ?? "vps", opts.branch ?? "main"));
+    } catch (err) {
+      handleSyncCliError("pull", err);
+    }
+  });
+
+program
+  .command("push")
+  .description("git push to VPS remote with retry on push-reject")
+  .option("--remote-name <name>", "remote name (default: vps)")
+  .option("--branch <name>", "branch (default: main)")
+  .action(async (opts: { remoteName?: string; branch?: string }) => {
+    try {
+      const result = await runPush({ remoteName: opts.remoteName, branch: opts.branch });
+      process.stderr.write(formatPushSuccess(result, opts.remoteName ?? "vps", opts.branch ?? "main"));
+    } catch (err) {
+      handleSyncCliError("push", err);
     }
   });
 
@@ -336,4 +381,12 @@ function parseInteger(value: string): number {
     throw new Error(`Invalid integer: ${value}`);
   }
   return parsed;
+}
+
+function handleSyncCliError(command: string, err: unknown): never {
+  const exitCode = typeof (err as { exitCode?: unknown }).exitCode === "number"
+    ? (err as { exitCode: number }).exitCode
+    : 1;
+  console.error(`memory ${command} failed: ${(err as Error).message}`);
+  process.exit(exitCode);
 }
