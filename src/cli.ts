@@ -5,6 +5,7 @@ import { runDoctor, formatDoctorResult } from "./cli/commands/doctor.js";
 import { runGrep, type GrepScope } from "./cli/commands/grep.js";
 import { runInit } from "./cli/commands/init.js";
 import { runInstall } from "./cli/commands/install.js";
+import { runInstallTailscaleRoute } from "./cli/commands/install-tailscale-route.js";
 import { runInstallVps } from "./cli/commands/install-vps.js";
 import { runLint } from "./cli/commands/lint.js";
 import { runLog } from "./cli/commands/log.js";
@@ -87,6 +88,35 @@ program
       }
     } catch (err) {
       console.error(`memory install-vps failed: ${(err as Error).message}`);
+      process.exit(1);
+    }
+  });
+
+program
+  .command("install-tailscale-route")
+  .description("Add /memory/ path route to Tailscale Serve on the VPS (preserves existing routes)")
+  .option("--ssh-host <host>", "VPS hostname (default: srv1317946)")
+  .option("--dashboard-port <port>", "local dashboard port on VPS (default: 4410)", (v) => parseInt(v, 10))
+  .option("--path-prefix <path>", "path prefix on Tailscale Serve (default: /memory)")
+  .option("--dry-run", "print the tailscale serve command without executing")
+  .action(async (opts: { sshHost?: string; dashboardPort?: number; pathPrefix?: string; dryRun?: boolean }) => {
+    try {
+      const result = await runInstallTailscaleRoute({
+        sshHost: opts.sshHost,
+        dashboardPort: opts.dashboardPort,
+        pathPrefix: opts.pathPrefix,
+        dryRun: opts.dryRun,
+      });
+      if (opts.dryRun) return;
+      console.error("Tailscale route install complete.");
+      console.error(`  host:             ${result.host}`);
+      console.error(`  route:            ${result.pathPrefix} -> http://127.0.0.1:${result.dashboardPort}`);
+      console.error(`  already configured: ${result.alreadyConfigured ? "yes" : "no"}`);
+      console.error(`  reachability VPS:   ${result.reachabilityVps ? "ok" : "failed"}`);
+      console.error(`  reachability local: ${result.reachabilityLocal ? "ok" : "failed"}`);
+      console.error(`  serve command:      ${result.serveCommand}`);
+    } catch (err) {
+      console.error(`memory install-tailscale-route failed: ${(err as Error).message}`);
       process.exit(1);
     }
   });
