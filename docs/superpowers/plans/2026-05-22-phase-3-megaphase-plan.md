@@ -225,6 +225,40 @@ ls -t "${BACKUP_DIR}/vaultwarden_"*.tar.gz 2>/dev/null | tail -n +31 | xargs -r 
 
 Planning implication: add `/root/memory-system/backup.sh` and a daily root crontab or systemd timer at a non-conflicting time. The backup should archive the bare repo, dashboard checkout metadata, and service config. It should not mix into Vaultwarden's archive, but should follow the same local-archive + rotation pattern.
 
+## VPS re-verified (2026-05-22 post-upgrade)
+
+The user upgraded the VPS after the initial discovery — Ubuntu major version bump, new Docker workloads, new host services. Re-verified via direct SSH from WhiteDragon. Memory-system install survived intact; Phase 3 design assumptions still hold. No plan changes required.
+
+| Item | 2026-05-22 baseline | Post-upgrade | Impact |
+|---|---|---|---|
+| Hostname | srv1317946 | srv1317946 | none |
+| OS | Ubuntu 25.10 | **Ubuntu 26.04 LTS** (Resolute Raccoon) | none |
+| systemd | 257 | 259 | none |
+| git | 2.51.0 | 2.53.0 | none |
+| Node | v22.22.0 | v22.22.0 | none |
+| Disk | 74G free on / | 193G total, 72G free, 122G used | none |
+| Caddy | active, fronts vault.alkulaib.io | active v2.11.3, also bound on 100.85.80.22:8088 (new tailnet-IP listener) | none for memory dashboard plan |
+| Tailscale Serve routes | root → 127.0.0.1:18789, :8443 → 127.0.0.1:5678 | unchanged | `/memory/` subpath strategy unaffected |
+| Vaultwarden | Docker, healthy | Docker, healthy (uptime varies — periodic Docker restarts observed during slice smokes) | none |
+| memory-system install | Slice 1+2 deployed | Intact: install-info.json, post-receive hook, last checkout `9d1a721` (Slice 3 cleanup) | all artifacts survived |
+| Port 4410 (planned dashboard) | reserved, free | still free | dashboard plan unaffected |
+
+### New services on the box
+
+Services added since the baseline discovery. None conflict with memory-system Phase 3:
+- **iAqar stack**: `iaqar-postgres` (port 15432 → container 5432) + `iaqar-redis` (port 16379 → container 6379) + Fastify API at port 4400 (`/opt/iaqar/current/apps/api/dist/index.js`). User's Riyadh investment analyzer now hosted on the same VPS.
+- **alkulaib-staging**: Docker container `alkulaib:86708fd3...` on port 5050. Staging environment for alkulaib.io.
+- **next-server v16.1.6**: Next.js 16 app on port 3000. Likely the public alkulaib.io site or related.
+- **qdrant-openclaw**: Qdrant vector DB container on port 6333 — used by OpenClaw, NOT by memory-system. The "no vector DB" decision in §Boundaries still applies to memory-system; Qdrant's presence on the box is unrelated.
+- **Redis on host**: port 6379 (separate from the iaqar-redis container at 16379). Likely used by OpenClaw or alkulaib-staging.
+- **Postgres on host**: port 5432 (separate from iaqar-postgres). Likely used by OpenClaw or alkulaib-staging.
+
+The Caddyfile likely added iAqar + alkulaib-staging routing during the upgrade. Direct inspection deferred — none of these public-facing routes affect memory-system, which uses Tailscale Serve, not public Caddy.
+
+### Confirmation
+
+Phase 3 slices 3.5 (auto-sync) and forward proceed unchanged. The architectural assumptions in §Architecture and the slice ports/paths in the slices below remain valid post-upgrade. Future slices that touch VPS infrastructure (4, 5, 6, 14, 19, 21) should still snapshot service state pre/post per the implementer notes.
+
 ## Architecture
 
 Phase 3 has four layers:
