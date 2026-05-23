@@ -126,7 +126,7 @@ Fix (1) is the root-cause fix — guarantees strings regardless of how users aut
 
 ---
 
-### F11. Claude Code plugin scripts tracked inside `~/.memory/` repo create rebuild noise
+### F11. ~~Claude Code plugin scripts tracked inside `~/.memory/` repo create rebuild noise~~ — RESOLVED at ee690b2
 
 **Discovered:** 2026-05-23, during Phase 3 Slice 6.5b implementation when Codex had to make a `chore: update deployed auto-push worker bounded retry bundle` commit in the live `~/.memory/` repo after rebuilding the source repo.
 
@@ -140,11 +140,13 @@ Fix (1) is the root-cause fix — guarantees strings regardless of how users aut
 3. Update the `memory init` template's .gitignore similarly so fresh installs never track the plugin dir
 4. Commit + push the cleanup
 
+**Resolved:** 2026-05-23 — Phase 3 polish Slice 19 un-tracked `claude-code-plugin/` in the live `~/.memory/` repo, added `claude-code-plugin/` to the live `.gitignore`, and updated the `memory init` template so fresh installs ignore it.
+
 **Phase:** Phase 3 — slot before v0.3.0-phase3 tag if convenient; not blocking remaining slices. Workaround in place (Codex commits the bundle updates manually).
 
 ---
 
-### F12. CRLF warnings on raw files newly tracked under Windows
+### F12. ~~CRLF warnings on raw files newly tracked under Windows~~ — RESOLVED at ee690b2
 
 **Discovered:** 2026-05-23, during Phase 3 Slice 6.5 (un-gitignore raw/) when the existing 29 raws were first added to git on the Windows machine.
 
@@ -159,7 +161,46 @@ Fix (1) is the root-cause fix — guarantees strings regardless of how users aut
 
 This pins line endings to LF for all markdown files, suppressing the warnings and ensuring consistent content across Linux (VPS) and Windows (creator machines). One small commit in the live repo + an update to the `memory init` template so fresh installs ship the .gitattributes.
 
+**Resolved:** 2026-05-23 — Phase 3 polish Slice 19 added live and init-template `.gitattributes` rules for `.md`, `.yaml`, and `.json` files.
+
 **Phase:** Phase 3 — slot alongside F11 in the same cleanup slice if you do one.
+
+---
+
+### F14. ~~Embedding sidecars should be ignored wholesale~~ — RESOLVED at ee690b2
+
+**Discovered:** 2026-05-23, during the Slice 10 audit after the fake-vector smoke created `embeddings/wiki.embeddings.jsonl`.
+
+**Symptom:** The live `.gitignore` only ignored `embeddings/raw.*.jsonl`, so wiki/crystal embedding sidecars could appear as untracked files after local or VPS-side search refreshes.
+
+**Hypothesis:** Embeddings are runtime sidecars computed from synced content and should not be tracked in the live `~/.memory/` git repo.
+
+**Suggested fix:** Replace the narrow `embeddings/raw.*.jsonl` ignore rule with `embeddings/` in both the live repo and the `memory init` template.
+
+**Resolved:** 2026-05-23 — Phase 3 polish Slice 19 broadened the ignore rule to `embeddings/` and verified no embedding sidecars remain tracked.
+
+**Phase:** Phase 3 polish — same cleanup slice as F11/F12.
+
+---
+
+### F19. ~~Live `config.yaml` line 19 malformed inline allowlist/comment form~~ — RESOLVED at ee690b2
+
+**Discovered:** 2026-05-23, during Phase 3 polish cleanup after repeated config parse checks targeted line 19 of the live `~/.memory/config.yaml`.
+
+**Symptom:** The live config used an inline empty array plus trailing explanatory comment for `privacy.allowlist`, which was harder for the minimal config parser and humans to distinguish from malformed inline YAML.
+
+**Hypothesis:** Keeping the comment on its own line and the value as a plain `allowlist: []` avoids parser ambiguity without changing the setting.
+
+**Suggested fix:** In the live `~/.memory/config.yaml`, split the comment and value into two lines:
+```yaml
+privacy:
+  # regex patterns that bypass the redaction filter
+  allowlist: []
+```
+
+**Resolved:** 2026-05-23 — Phase 3 polish Slice 19 normalized the live config line and verified `memory stats` no longer emits a config parse warning.
+
+**Phase:** Phase 3 polish — same cleanup slice as F11/F12/F14.
 
 ---
 
