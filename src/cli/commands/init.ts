@@ -108,10 +108,10 @@ export async function runInit(opts: InitOptions = {}): Promise<InitResult> {
     result.preserved.push(schemaPath());
   }
 
-  // prompts/*.md are copied verbatim; compile/lint substitute variables at runtime.
+  // prompts/*.md are copied verbatim; consumers substitute variables at runtime.
   const promptsSourceDir = promptsTemplateDir(opts.sourceRepoDir);
   const promptsDestDir = join(root, "prompts");
-  for (const name of ["compile.md", "lint.md"] as const) {
+  for (const name of ["compile.md", "lint.md", "hyde.md"] as const) {
     const srcPath = join(promptsSourceDir, name);
     const destPath = join(promptsDestDir, name);
     if (!existsSync(destPath) && existsSync(srcPath)) {

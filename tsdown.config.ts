@@ -91,6 +91,11 @@ export default defineConfig([
   },
   {
     ...common,
+    entry: { "retrieval/hyde": "src/retrieval/hyde.ts" },
+    clean: false,
+  },
+  {
+    ...common,
     entry: { "storage/config": "src/storage/config.ts" },
     clean: false,
   },

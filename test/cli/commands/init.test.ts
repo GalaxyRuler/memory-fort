@@ -42,6 +42,9 @@ describe("runInit", () => {
     expect(existsSync(join(result.root, "config.yaml"))).toBe(true);
     expect(existsSync(join(result.root, "errors.log"))).toBe(true);
     expect(existsSync(join(result.root, ".gitignore"))).toBe(true);
+    expect(existsSync(join(result.root, "prompts", "compile.md"))).toBe(true);
+    expect(existsSync(join(result.root, "prompts", "lint.md"))).toBe(true);
+    expect(existsSync(join(result.root, "prompts", "hyde.md"))).toBe(true);
     const gitignore = await readFile(join(result.root, ".gitignore"), "utf-8");
     expect(gitignore).toContain("errors.log");
     expect(gitignore).toContain(".archive/");
