@@ -272,6 +272,52 @@ privacy:
 
 ---
 
+### F13. ~~Bundling strategy for retrieval/dashboard/runtime dependencies was implicit~~ — RESOLVED at d6e0024
+
+**Discovered:** 2026-05-23, during Phase 3 retrieval and dashboard slices as different bundles needed different dependency strategies.
+
+**Symptom:** The project intentionally mixes self-contained retrieval bundles, external `voyageai` runtime loading, and cold-start hook bundles, but that strategy was only encoded in build/deploy behavior and slice notes.
+
+**Hypothesis:** Future polish or dependency updates could accidentally re-bundle `gray-matter`/`js-yaml`, break the `voyageai` CommonJS workaround, or remove the VPS runtime dependency install unless the strategy is documented in architecture.
+
+**Suggested fix:** Add a "Bundling strategy" subsection to `docs/architecture.md` explaining each major bundle family, why `voyageai` stays external, why some retrieval modules use self-contained parsers, and how `install-vps` supplies the runtime SDK.
+
+**Resolved:** 2026-05-23 — Phase 3 polish Slice 22 documented the bundling/runtime strategy in `docs/architecture.md`.
+
+**Phase:** Phase 3 polish — documentation-only closeout.
+
+---
+
+### F17. ~~Raw embedding refresh exceeds Voyage token caps on large sessions~~ — RESOLVED at d6e0024
+
+**Discovered:** 2026-05-23, during Phase 3 `/api/search` raw/all-scope verification.
+
+**Symptom:** Refreshing raw embeddings sent large batches of raw sessions to Voyage. Some raw sessions are huge, and the old fixed 64-doc batch could exceed Voyage's cumulative batch cap by an order of magnitude. The live pre-fix raw search produced 41 warnings, including a 400 response for a 905,271-token batch against a 120,000-token limit.
+
+**Hypothesis:** Raw embedding refresh needs two guardrails: truncate each document before embedding, and split batches by estimated cumulative token count rather than document count alone.
+
+**Suggested fix:** Estimate tokens with a stable chars/4 heuristic, truncate each document to a 30K-token safety margin, and build batches under a 100K-token cumulative safety margin while keeping `batchSize` as a max-doc soft cap.
+
+**Resolved:** 2026-05-23 — Phase 3 polish Slice 22 added per-doc truncation plus token-aware batch construction in `refreshEmbeddings`. Post-deploy raw search returned 3 raw results with `degraded: false` and zero warnings.
+
+**Phase:** Phase 3 polish — functional closeout before checkpoint/tag.
+
+---
+
+### F21. Search-quality thresholds are hardcoded in `runSearch`
+
+**Discovered:** 2026-05-23, during Phase 3 polish Slice 21 when F18 exposed weak vector matches and tiny lexical stopword hits for sentinel nonsense queries.
+
+**Symptom:** The search core now has good default ranking-quality thresholds (`MIN_VECTOR_SCORE = 0.25` and a small query-side lexical stopword set), but they are hardcoded inside `src/retrieval/search.ts`.
+
+**Hypothesis:** Hardcoded values are fine for Phase 3, but future tuning may want these exposed as `SearchOptions` such as `cosineFloor` and `stopwords`, or loaded from config once real usage patterns settle.
+
+**Suggested fix:** Leave the current defaults in place for Phase 3. In a future polish/tuning slice, make the thresholds configurable while preserving current defaults for CLI/MCP/dashboard callers.
+
+**Phase:** Phase 4 polish/tuning — not blocking the Phase 3 checkpoint.
+
+---
+
 ## Resolved
 
 (none yet)
