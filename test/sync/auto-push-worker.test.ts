@@ -141,4 +141,75 @@ describe("runAutoPushWorker", () => {
     expect(state.conflicts_pending).toBe(2);
     expect(errors).toContain("auto-push conflict | 2 files | wiki/foo.md, wiki/bar.md");
   });
+
+  it("Worker calls autoCommitRawsIfDirty before runSync", async () => {
+    await writePendingFile(tmp, {
+      token: "A",
+      scheduledAt: now().toISOString(),
+      debounceMs: 5000,
+    });
+    const events: string[] = [];
+    const logs: string[] = [];
+
+    const result = await runAutoPushWorker({
+      memoryRoot: tmp,
+      myToken: "A",
+      sleepFn,
+      autoCommitFn: async () => {
+        events.push("auto-commit");
+        return { kind: "committed", filesCount: 3, commitSha: "abc1234ffff" };
+      },
+      syncFn: async () => {
+        events.push("sync");
+        return {
+          initialState: "local-ahead",
+          finalState: "clean",
+          actionsPerformed: ["push"],
+          retried: false,
+          conflictFiles: [],
+        };
+      },
+      logSink: async (line) => {
+        logs.push(line);
+      },
+      now,
+    });
+
+    expect(result).toEqual({ outcome: "pushed", details: "1 commits" });
+    expect(events).toEqual(["auto-commit", "sync"]);
+    expect(logs.some((line) => line.includes("auto-committed 3 raw observation file(s) as abc1234"))).toBe(true);
+  });
+
+  it("Worker skips push when non-raw files are dirty", async () => {
+    await writePendingFile(tmp, {
+      token: "A",
+      scheduledAt: now().toISOString(),
+      debounceMs: 5000,
+    });
+    let syncCalls = 0;
+    const logs: string[] = [];
+
+    const result = await runAutoPushWorker({
+      memoryRoot: tmp,
+      myToken: "A",
+      sleepFn,
+      autoCommitFn: async () => ({
+        kind: "skipped-non-raw-dirty",
+        dirtyNonRawFiles: ["wiki/projects/foo.md"],
+      }),
+      syncFn: async () => {
+        syncCalls += 1;
+        throw new Error("should not sync");
+      },
+      logSink: async (line) => {
+        logs.push(line);
+      },
+      now,
+    });
+
+    expect(result).toEqual({ outcome: "offline", details: "non-raw dirty tree" });
+    expect(syncCalls).toBe(0);
+    expect(logs.some((line) => line.includes("auto-push skipped: non-raw dirty files present"))).toBe(true);
+    expect(logs.some((line) => line.includes("wiki/projects/foo.md"))).toBe(true);
+  });
 });

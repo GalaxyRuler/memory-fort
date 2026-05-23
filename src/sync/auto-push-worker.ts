@@ -1,6 +1,8 @@
 import { join } from "node:path";
 import { atomicAppend } from "../storage/atomic-write.js";
 import { runSync, type SyncResult } from "../cli/commands/sync.js";
+import { autoCommitRawsIfDirty, type AutoCommitResult } from "./auto-commit-raws.js";
+import { makeRealCommandRunner } from "./git-remote.js";
 import {
   readSyncStateFile,
   writeSyncStateFile,
@@ -14,6 +16,7 @@ export interface WorkerOptions {
   memoryRoot: string;
   myToken: string;
   sleepFn?: (ms: number) => Promise<void>;
+  autoCommitFn?: () => Promise<AutoCommitResult>;
   syncFn?: () => Promise<Partial<SyncResult>>;
   logSink?: (line: string) => Promise<void>;
   now?: () => Date;
@@ -36,9 +39,17 @@ export async function runAutoPushWorker(opts: WorkerOptions): Promise<WorkerResu
   if (!latest) return { outcome: "no-pending-file" };
   if (latest.token !== opts.myToken) return { outcome: "stale-token" };
 
+  const autoCommitFn = opts.autoCommitFn ??
+    (opts.syncFn
+      ? async () => ({ kind: "no-dirty-files" as const })
+      : () => autoCommitRawsIfDirty({ memoryRoot: opts.memoryRoot, runner: makeRealCommandRunner(), now: nowFn }));
+  const initialAutoCommit = await handleAutoCommit(opts.memoryRoot, autoCommitFn, nowFn, opts.logSink);
+  if (initialAutoCommit === "skipped") return { outcome: "offline", details: "non-raw dirty tree" };
+
   const syncFn = opts.syncFn ?? (() => runSync({ memoryRoot: opts.memoryRoot }));
   try {
-    const result = await syncFn();
+    const result = await syncAfterRawCommits(opts.memoryRoot, syncFn, autoCommitFn, nowFn, opts.logSink);
+
     if (result.finalState === "conflicted") {
       const conflictFiles = result.conflictFiles ?? result.syncStateFile?.conflict_files ?? [];
       await markConflict(opts.memoryRoot, conflictFiles, nowFn, opts.logSink);
@@ -57,6 +68,10 @@ export async function runAutoPushWorker(opts: WorkerOptions): Promise<WorkerResu
     await writeLog(opts.memoryRoot, `[${nowFn().toISOString()}] auto-push success | ${pushedCommits} commits\n`, opts.logSink);
     return { outcome: "pushed", details: `${pushedCommits} commits` };
   } catch (err) {
+    if (err instanceof AutoPushSkipError) {
+      return { outcome: "offline", details: err.message };
+    }
+
     const e = err as Error & { exitCode?: number; conflictFiles?: string[] };
     if (e.exitCode === 3) {
       const state = await readSyncStateFile(opts.memoryRoot);
@@ -76,6 +91,70 @@ export async function runAutoPushWorker(opts: WorkerOptions): Promise<WorkerResu
       opts.logSink,
     );
     return { outcome: "offline", details: e.message };
+  }
+}
+
+async function syncAfterRawCommits(
+  memoryRoot: string,
+  syncFn: () => Promise<Partial<SyncResult>>,
+  autoCommitFn: () => Promise<AutoCommitResult>,
+  nowFn: () => Date,
+  logSink?: (line: string) => Promise<void>,
+): Promise<Partial<SyncResult>> {
+  let lastDirtyError: unknown;
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      return await syncFn();
+    } catch (err) {
+      const e = err as Error & { exitCode?: number };
+      if (e.exitCode !== 2) throw err;
+      lastDirtyError = err;
+
+      const retryAutoCommit = await handleAutoCommit(memoryRoot, autoCommitFn, nowFn, logSink);
+      if (retryAutoCommit === "skipped") {
+        throw new AutoPushSkipError("non-raw dirty tree");
+      }
+      if (retryAutoCommit !== "committed") throw err;
+    }
+  }
+  throw lastDirtyError;
+}
+
+class AutoPushSkipError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "AutoPushSkipError";
+  }
+}
+
+async function handleAutoCommit(
+  memoryRoot: string,
+  autoCommitFn: () => Promise<AutoCommitResult>,
+  nowFn: () => Date,
+  logSink?: (line: string) => Promise<void>,
+): Promise<"clean" | "committed" | "skipped"> {
+  const autoCommit = await autoCommitFn();
+  const nowIso = nowFn().toISOString();
+  switch (autoCommit.kind) {
+    case "no-dirty-files":
+      return "clean";
+    case "committed":
+      await writeLog(
+        memoryRoot,
+        `[${nowIso}] auto-committed ${autoCommit.filesCount} raw observation file(s) as ${autoCommit.commitSha.slice(0, 7)}\n`,
+        logSink,
+      );
+      return "committed";
+    case "skipped-non-raw-dirty": {
+      const shown = autoCommit.dirtyNonRawFiles.slice(0, 3).join(", ");
+      const suffix = autoCommit.dirtyNonRawFiles.length > 3 ? "..." : "";
+      await writeLog(
+        memoryRoot,
+        `[${nowIso}] auto-push skipped: non-raw dirty files present (run \`memory sync\` after committing: ${shown}${suffix})\n`,
+        logSink,
+      );
+      return "skipped";
+    }
   }
 }
 

@@ -47,6 +47,18 @@ When the token still matches, the worker runs the same conflict-aware sync path 
 
 Offline is normal. The worker logs an informational failure line to `auto-sync.log`, updates `pending_push_count`, deletes the pending file, and exits `0`. It does not write to `errors.log`.
 
+### When wiki/ is dirty
+
+If you have uncommitted edits in `wiki/` (or `crystals/`, or top-level files), auto-sync deliberately skips the push:
+
+```text
+[<iso>] auto-push skipped: non-raw dirty files present (run `memory sync` after committing: wiki/projects/foo.md)
+```
+
+This preserves in-progress wiki edits - you commit when you're ready, not when auto-sync decides. Raw observations under `raw/` are different: append-only firehose data, so auto-sync auto-commits them with a `chore: auto-capture <N> raw observation file(s)` message before pushing.
+
+The auto-commit happens inside the post-hook worker, after the debounce window. One commit per debounce cycle (5+ seconds), not one per hook fire.
+
 **Conflict**
 
 Conflicts are serious and require manual resolution. The worker follows the Slice 3 sync behavior: it records conflict files in `.sync-state.json`, writes to `errors.log`, logs the conflict in `auto-sync.log`, and exits. Future automatic pushes refuse until the user resolves the conflict state.

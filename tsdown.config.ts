@@ -26,6 +26,11 @@ export default defineConfig([
   },
   {
     ...common,
+    entry: { "sync/auto-commit-raws": "src/sync/auto-commit-raws.ts" },
+    clean: false,
+  },
+  {
+    ...common,
     entry: { "sync/auto-push-worker": "src/sync/auto-push-worker.ts" },
     clean: false,
   },
