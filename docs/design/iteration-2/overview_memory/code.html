@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Memory - Overview</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&amp;family=JetBrains+Mono:wght@400;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              "colors": {
+                      "on-error": "#690005",
+                      "surface-container-low": "#1d1a24",
+                      "surface-variant": "#36333d",
+                      "on-tertiary": "#4b2800",
+                      "text-primary": "#ededed",
+                      "lesson-amber": "#fbbf24",
+                      "surface-dim": "#14121b",
+                      "primary-container": "#9c79ff",
+                      "on-secondary": "#002b73",
+                      "on-tertiary-container": "#412200",
+                      "session-zinc": "#52525b",
+                      "on-error-container": "#ffdad6",
+                      "surface-tint": "#cebdff",
+                      "secondary-container": "#004dbf",
+                      "on-tertiary-fixed": "#2d1600",
+                      "on-secondary-fixed": "#001848",
+                      "tool-emerald": "#34d399",
+                      "project-blue": "#5b8bff",
+                      "primary-fixed-dim": "#cebdff",
+                      "tertiary": "#ffb873",
+                      "outline": "#948ea0",
+                      "secondary-fixed": "#dae2ff",
+                      "secondary": "#b2c5ff",
+                      "text-muted": "rgba(237,237,237,0.45)",
+                      "inverse-on-surface": "#322f39",
+                      "surface-container": "#211e28",
+                      "inverse-surface": "#e7e0ed",
+                      "inverse-primary": "#6a3add",
+                      "on-secondary-container": "#b7c8ff",
+                      "error-container": "#93000a",
+                      "on-tertiary-fixed-variant": "#6a3b00",
+                      "border-emphasis": "rgba(255,255,255,0.12)",
+                      "on-primary-fixed-variant": "#5212c4",
+                      "surface-bright": "#3b3842",
+                      "primary": "#cebdff",
+                      "error": "#ffb4ab",
+                      "tertiary-container": "#d07d1b",
+                      "primary-fixed": "#e8ddff",
+                      "reference-cyan": "#22d3ee",
+                      "on-secondary-fixed-variant": "#0040a2",
+                      "tertiary-fixed-dim": "#ffb873",
+                      "background": "#14121b",
+                      "on-primary-container": "#310082",
+                      "on-primary-fixed": "#21005d",
+                      "on-surface": "#e7e0ed",
+                      "surface": "#14121b",
+                      "decision-purple": "#8b5fff",
+                      "surface-container-highest": "#36333d",
+                      "outline-variant": "#494455",
+                      "tertiary-fixed": "#ffdcbf",
+                      "surface-container-high": "#2b2832",
+                      "on-background": "#e7e0ed",
+                      "secondary-fixed-dim": "#b2c5ff",
+                      "surface-container-lowest": "#0f0d16",
+                      "on-primary": "#390093",
+                      "text-secondary": "rgba(237,237,237,0.7)",
+                      "person-pink": "#f472b6",
+                      "border-subtle": "rgba(255,255,255,0.06)",
+                      "on-surface-variant": "#cbc3d7",
+                      "crystal-gold": "#fcd34d"
+              },
+              "borderRadius": {
+                      "DEFAULT": "0.25rem",
+                      "lg": "0.5rem",
+                      "xl": "0.75rem",
+                      "full": "9999px"
+              },
+              "spacing": {
+                      "container-max": "1200px",
+                      "sidebar-width": "220px",
+                      "gutter": "24px",
+                      "inline-gap": "8px",
+                      "stack-gap": "12px"
+              },
+              "fontFamily": {
+                      "body-sm": [
+                              "Inter"
+                      ],
+                      "mono-base": [
+                              "JetBrains Mono"
+                      ],
+                      "body-lg": [
+                              "Inter"
+                      ],
+                      "headline-sm": [
+                              "Inter"
+                      ],
+                      "body-md": [
+                              "Inter"
+                      ],
+                      "label-caps": [
+                              "Inter"
+                      ],
+                      "headline-lg": [
+                              "Inter"
+                      ],
+                      "headline-md": [
+                              "Inter"
+                      ]
+              },
+              "fontSize": {
+                      "body-sm": [
+                              "13px",
+                              {
+                                      "lineHeight": "18px",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "mono-base": [
+                              "13px",
+                              {
+                                      "lineHeight": "20px",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "body-lg": [
+                              "16px",
+                              {
+                                      "lineHeight": "24px",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "headline-sm": [
+                              "16px",
+                              {
+                                      "lineHeight": "24px",
+                                      "letterSpacing": "-0.01em",
+                                      "fontWeight": "600"
+                              }
+                      ],
+                      "body-md": [
+                              "14px",
+                              {
+                                      "lineHeight": "20px",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "label-caps": [
+                              "11px",
+                              {
+                                      "lineHeight": "16px",
+                                      "letterSpacing": "0.05em",
+                                      "fontWeight": "600"
+                              }
+                      ],
+                      "headline-lg": [
+                              "24px",
+                              {
+                                      "lineHeight": "32px",
+                                      "letterSpacing": "-0.02em",
+                                      "fontWeight": "600"
+                              }
+                      ],
+                      "headline-md": [
+                              "20px",
+                              {
+                                      "lineHeight": "28px",
+                                      "letterSpacing": "-0.02em",
+                                      "fontWeight": "600"
+                              }
+                      ]
+              }
+      },
+          },
+        }
+    </script>
+<style>
+        body {
+            background-color: theme('colors.background');
+            color: theme('colors.text-primary');
+            margin: 0;
+            padding: 0;
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+        
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+
+        .emissive-node {
+            position: relative;
+        }
+        .emissive-node::before {
+            content: '';
+            position: absolute;
+            top: -2px; left: -2px; right: -2px; bottom: -2px;
+            border-radius: inherit;
+            background: currentColor;
+            opacity: 0.15;
+            z-index: -1;
+            filter: blur(2px);
+        }
+    </style>
+</head>
+<body class="antialiased font-body-md text-body-md bg-background text-text-primary selection:bg-primary-container selection:text-on-primary-container">
+<!-- Top Navigation Bar -->
+<nav class="fixed top-0 right-0 w-full md:w-[calc(100%-220px)] h-[48px] bg-surface/80 dark:bg-surface/80 backdrop-blur-xl border-b border-border-subtle flex justify-between items-center px-gutter ml-[220px] z-40">
+<div class="hidden md:flex items-center gap-4 w-full max-w-md relative">
+<div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+<span class="material-symbols-outlined text-text-muted text-[16px]">search</span>
+</div>
+<input class="w-full bg-surface-container-high border border-border-subtle rounded-full py-1.5 pl-10 pr-12 font-body-sm text-body-sm text-text-primary focus:border-border-emphasis focus:ring-0 focus:outline-none placeholder-text-muted transition-colors" placeholder="Search..." type="text"/>
+<div class="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
+<span class="font-mono-base text-mono-base text-text-muted">⌘K</span>
+</div>
+</div>
+<!-- Mobile menu button (visible only on small screens) -->
+<button class="md:hidden text-text-secondary hover:text-text-primary p-2">
+<span class="material-symbols-outlined">menu</span>
+</button>
+<div class="flex items-center gap-inline-gap ml-auto">
+<span class="material-symbols-outlined text-text-muted hover:text-text-primary cursor-pointer transition-colors text-[20px]" data-icon="notifications">notifications</span>
+<div class="w-6 h-6 rounded-full bg-surface-container-highest overflow-hidden border border-border-subtle ml-2 cursor-pointer">
+<img alt="User profile" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCKRKRJHMQd_Ogit-EMaUyQavqs7_Y31jVXaI0AXZWyDxQOO3_Qy5XvELhVQ0yrCyzWRXoDkXENNQEqRGaYfMvrdUWC1nkl9qRN7Zu1yABeuZmlUsXUt4eYzzv8aL8pwdsd2Dqw9k2GprF-CTQNFBJummNx0PTdvBakOzBPQ0Ip65mlobfYzYumdepPL64DnUMrECUqxf8JvjBGrhZs1gkxWsfbfwYMslLh1vk5z7ECeDKX3tqbM9FWeCBt0Wv2QCJmXaG2CGTw0zFa"/>
+</div>
+</div>
+</nav>
+<!-- Side Navigation Bar -->
+<aside class="hidden md:flex flex-col h-full py-gutter px-3 fixed left-0 top-0 w-[220px] bg-surface-container-low dark:bg-surface-container-low border-r border-border-subtle z-50">
+<div class="flex items-center gap-3 px-3 mb-8">
+<div class="w-8 h-8 rounded bg-primary-container flex items-center justify-center text-on-primary-container">
+<span class="material-symbols-outlined text-[18px]">memory</span>
+</div>
+<div>
+<h1 class="font-headline-md text-headline-md font-bold tracking-tight text-primary dark:text-primary leading-none">memory</h1>
+<span class="font-mono-base text-[10px] text-text-muted leading-none">v2.4.0-stable</span>
+</div>
+</div>
+<nav class="flex-1 flex flex-col gap-1 overflow-y-auto pr-2 custom-scrollbar">
+<!-- Active Tab -->
+<a class="flex items-center gap-inline-gap px-3 py-2 text-primary bg-surface-container-highest rounded-lg font-bold group" href="#">
+<span class="material-symbols-outlined text-[18px]" style="font-variation-settings: 'FILL' 1;">dashboard</span>
+<span class="font-body-sm text-body-sm">Overview</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg group" href="#">
+<span class="material-symbols-outlined text-[18px] group-hover:scale-[0.98] transition-transform">search</span>
+<span class="font-body-sm text-body-sm">Search</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg group" href="#">
+<span class="material-symbols-outlined text-[18px] group-hover:scale-[0.98] transition-transform">menu_book</span>
+<span class="font-body-sm text-body-sm">Wiki</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg group" href="#">
+<span class="material-symbols-outlined text-[18px] group-hover:scale-[0.98] transition-transform">article</span>
+<span class="font-body-sm text-body-sm">Raw</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg group" href="#">
+<span class="material-symbols-outlined text-[18px] group-hover:scale-[0.98] transition-transform">hub</span>
+<span class="font-body-sm text-body-sm">Graph</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg group" href="#">
+<span class="material-symbols-outlined text-[18px] group-hover:scale-[0.98] transition-transform">timeline</span>
+<span class="font-body-sm text-body-sm">Timeline</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg group" href="#">
+<span class="material-symbols-outlined text-[18px] group-hover:scale-[0.98] transition-transform">pulse_alert</span>
+<span class="font-body-sm text-body-sm">Activity</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg group" href="#">
+<span class="material-symbols-outlined text-[18px] group-hover:scale-[0.98] transition-transform">layers</span>
+<span class="font-body-sm text-body-sm">Sessions</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg group" href="#">
+<span class="material-symbols-outlined text-[18px] group-hover:scale-[0.98] transition-transform">diamond</span>
+<span class="font-body-sm text-body-sm">Crystals</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg group" href="#">
+<span class="material-symbols-outlined text-[18px] group-hover:scale-[0.98] transition-transform">policy</span>
+<span class="font-body-sm text-body-sm">Audit</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg group mt-4" href="#">
+<span class="material-symbols-outlined text-[18px] group-hover:scale-[0.98] transition-transform">settings</span>
+<span class="font-body-sm text-body-sm">Settings</span>
+</a>
+</nav>
+<div class="mt-auto pt-4 border-t border-border-subtle">
+<div class="flex items-center justify-between px-3 py-2">
+<div class="flex items-center gap-2 text-text-secondary">
+<span class="material-symbols-outlined text-[16px] text-tool-emerald">cloud_done</span>
+<span class="font-body-sm text-body-sm">Status</span>
+</div>
+<span class="font-mono-base text-mono-base text-[10px] text-text-muted">Syncing...</span>
+</div>
+</div>
+</aside>
+<!-- Main Content Area -->
+<main class="md:ml-[220px] pt-[48px] min-h-screen">
+<div class="max-w-[container-max] mx-auto p-4 md:p-gutter">
+<!-- Page Header -->
+<div class="mb-8">
+<h2 class="font-headline-lg text-headline-lg text-text-primary">Overview</h2>
+<p class="font-body-sm text-body-sm text-text-secondary mt-1">System telemetry and recent cognitive activity.</p>
+</div>
+<!-- Three Column Layout -->
+<div class="grid grid-cols-1 lg:grid-cols-12 gap-gutter">
+<!-- Left Column: Recent Activity Feed (Col span 3) -->
+<div class="lg:col-span-3 flex flex-col gap-4">
+<h3 class="font-label-caps text-label-caps text-text-muted uppercase tracking-wider">Recent Activity</h3>
+<div class="flex flex-col gap-3 relative before:absolute before:inset-y-0 before:left-[11px] before:w-[1px] before:bg-border-subtle">
+<!-- Activity Item 1 -->
+<div class="flex gap-3 relative">
+<div class="w-6 h-6 rounded-full bg-surface-container-high border border-border-subtle flex items-center justify-center shrink-0 z-10">
+<div class="w-2 h-2 rounded-full bg-primary emissive-node text-primary"></div>
+</div>
+<div class="pt-0.5">
+<p class="font-body-sm text-body-sm text-text-primary leading-tight">compile ran <span class="text-text-muted">·</span> 11 new wiki pages</p>
+<span class="font-mono-base text-[11px] text-text-muted">2d ago</span>
+</div>
+</div>
+<!-- Activity Item 2 -->
+<div class="flex gap-3 relative">
+<div class="w-6 h-6 rounded-full bg-surface-container-high border border-border-subtle flex items-center justify-center shrink-0 z-10">
+<div class="w-2 h-2 rounded-full bg-reference-cyan emissive-node text-reference-cyan"></div>
+</div>
+<div class="pt-0.5">
+<p class="font-body-sm text-body-sm text-text-primary leading-tight">raw session captured <span class="text-text-muted">·</span> claude-code</p>
+<span class="font-mono-base text-[11px] text-text-muted">3d ago</span>
+</div>
+</div>
+<!-- Activity Item 3 -->
+<div class="flex gap-3 relative">
+<div class="w-6 h-6 rounded-full bg-surface-container-high border border-border-subtle flex items-center justify-center shrink-0 z-10">
+<div class="w-2 h-2 rounded-full bg-project-blue emissive-node text-project-blue"></div>
+</div>
+<div class="pt-0.5">
+<p class="font-body-sm text-body-sm text-text-primary leading-tight">graph merged <span class="text-text-muted">·</span> 4 nodes resolved</p>
+<span class="font-mono-base text-[11px] text-text-muted">4d ago</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Middle Column: At a Glance 2x2 & Top Searches (Col span 6) -->
+<div class="lg:col-span-6 flex flex-col gap-6">
+<h3 class="font-label-caps text-label-caps text-text-muted uppercase tracking-wider">At a Glance</h3>
+<!-- 2x2 Grid -->
+<div class="grid grid-cols-2 gap-4">
+<!-- Card 1 -->
+<div class="bg-surface-container p-4 rounded-lg border border-border-subtle flex flex-col justify-between h-28 relative overflow-hidden group hover:border-border-emphasis transition-colors">
+<div class="absolute inset-0 bg-gradient-to-br from-primary/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
+<div class="flex items-center gap-2 text-text-secondary z-10">
+<span class="material-symbols-outlined text-[16px]">menu_book</span>
+<span class="font-body-sm text-body-sm">Wiki pages</span>
+</div>
+<div class="z-10 flex items-baseline gap-2">
+<span class="font-mono-base text-2xl font-bold text-text-primary">13</span>
+<span class="font-mono-base text-[10px] text-tool-emerald flex items-center"><span class="material-symbols-outlined text-[12px]">trending_up</span>+2</span>
+</div>
+<!-- Fake Sparkline -->
+<div class="absolute bottom-0 left-0 right-0 h-8 opacity-20 pointer-events-none">
+<svg class="w-full h-full stroke-primary fill-none" preserveaspectratio="none" stroke-width="2" viewbox="0 0 100 20"><path d="M0,20 Q10,15 20,18 T40,10 T60,12 T80,5 T100,2"></path></svg>
+</div>
+</div>
+<!-- Card 2 -->
+<div class="bg-surface-container p-4 rounded-lg border border-border-subtle flex flex-col justify-between h-28 relative overflow-hidden group hover:border-border-emphasis transition-colors">
+<div class="absolute inset-0 bg-gradient-to-br from-reference-cyan/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
+<div class="flex items-center gap-2 text-text-secondary z-10">
+<span class="material-symbols-outlined text-[16px]">article</span>
+<span class="font-body-sm text-body-sm">Raw observations</span>
+</div>
+<div class="z-10 flex items-baseline gap-2">
+<span class="font-mono-base text-2xl font-bold text-text-primary">38</span>
+<span class="font-mono-base text-[10px] text-tool-emerald flex items-center"><span class="material-symbols-outlined text-[12px]">trending_up</span>+5</span>
+</div>
+</div>
+<!-- Card 3 -->
+<div class="bg-surface-container p-4 rounded-lg border border-border-subtle flex flex-col justify-between h-28 relative overflow-hidden group hover:border-border-emphasis transition-colors">
+<div class="absolute inset-0 bg-gradient-to-br from-project-blue/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
+<div class="flex items-center gap-2 text-text-secondary z-10">
+<span class="material-symbols-outlined text-[16px]">hub</span>
+<span class="font-body-sm text-body-sm">Embeddings indexed</span>
+</div>
+<div class="z-10 flex items-baseline gap-2">
+<span class="font-mono-base text-2xl font-bold text-text-primary">51<span class="text-text-muted">/51</span></span>
+<div class="w-2 h-2 rounded-full bg-tool-emerald emissive-node text-tool-emerald ml-1" title="In Sync"></div>
+</div>
+</div>
+<!-- Card 4 -->
+<div class="bg-surface-container p-4 rounded-lg border border-border-subtle flex flex-col justify-between h-28 relative overflow-hidden group hover:border-border-emphasis transition-colors">
+<div class="absolute inset-0 bg-gradient-to-br from-lesson-amber/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
+<div class="flex items-center gap-2 text-text-secondary z-10">
+<span class="material-symbols-outlined text-[16px]">sync</span>
+<span class="font-body-sm text-body-sm">Sync lag</span>
+</div>
+<div class="z-10">
+<span class="font-mono-base text-2xl font-bold text-text-primary">~5s</span>
+</div>
+</div>
+</div>
+<!-- Top Searches -->
+<div class="mt-4 bg-surface-container p-5 rounded-lg border border-border-subtle">
+<h4 class="font-body-sm text-body-sm font-semibold mb-3 text-text-secondary">Top searches this week</h4>
+<div class="flex flex-wrap gap-2">
+<span class="px-2.5 py-1 rounded bg-surface-variant border border-border-subtle font-mono-base text-[12px] text-text-primary flex items-center gap-1.5 hover:bg-surface-bright cursor-pointer transition-colors"><span class="w-1.5 h-1.5 rounded-full bg-reference-cyan inline-block"></span>claude-code</span>
+<span class="px-2.5 py-1 rounded bg-surface-variant border border-border-subtle font-mono-base text-[12px] text-text-primary flex items-center gap-1.5 hover:bg-surface-bright cursor-pointer transition-colors"><span class="w-1.5 h-1.5 rounded-full bg-project-blue inline-block"></span>design system</span>
+<span class="px-2.5 py-1 rounded bg-surface-variant border border-border-subtle font-mono-base text-[12px] text-text-primary flex items-center gap-1.5 hover:bg-surface-bright cursor-pointer transition-colors"><span class="w-1.5 h-1.5 rounded-full bg-lesson-amber inline-block"></span>react hooks</span>
+<span class="px-2.5 py-1 rounded bg-surface-variant border border-border-subtle font-mono-base text-[12px] text-text-primary flex items-center gap-1.5 hover:bg-surface-bright cursor-pointer transition-colors"><span class="w-1.5 h-1.5 rounded-full bg-person-pink inline-block"></span>meeting notes</span>
+</div>
+</div>
+</div>
+<!-- Right Column: Needs Attention (Col span 3) -->
+<div class="lg:col-span-3 flex flex-col gap-4">
+<h3 class="font-label-caps text-label-caps text-lesson-amber uppercase tracking-wider flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px]">warning</span> Needs Attention
+                    </h3>
+<div class="bg-surface-container p-4 rounded-lg border border-lesson-amber/20 flex flex-col gap-3 relative overflow-hidden">
+<div class="absolute top-0 right-0 w-16 h-16 bg-lesson-amber/5 blur-xl rounded-full"></div>
+<div class="flex items-start gap-3 z-10">
+<span class="material-symbols-outlined text-lesson-amber text-[18px] mt-0.5">article</span>
+<div>
+<p class="font-body-sm text-body-sm text-text-primary font-medium">17 raws uncompiled</p>
+<p class="font-body-sm text-[12px] text-text-secondary mt-1">Queue is backing up. Processing expected in ~2m.</p>
+<button class="mt-2 text-[12px] font-mono-base text-primary hover:text-primary-fixed transition-colors">force compile ↲</button>
+</div>
+</div>
+<div class="h-px w-full bg-border-subtle my-1"></div>
+<div class="flex items-start gap-3 z-10">
+<span class="material-symbols-outlined text-error text-[18px] mt-0.5">link_off</span>
+<div>
+<p class="font-body-sm text-body-sm text-text-primary font-medium">2 broken relations</p>
+<p class="font-body-sm text-[12px] text-text-secondary mt-1">Orphaned nodes detected in Wiki space.</p>
+<button class="mt-2 text-[12px] font-mono-base text-primary hover:text-primary-fixed transition-colors">review nodes ↲</button>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</main>
+<script>
+        // Micro-interaction for top searches
+        document.querySelectorAll('.hover\\:bg-surface-bright').forEach(chip => {
+            chip.addEventListener('click', function() {
+                this.classList.add('scale-95');
+                setTimeout(() => this.classList.remove('scale-95'), 150);
+            });
+        });
+    </script>
+</body></html>

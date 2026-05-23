@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Memory System - Compile View</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&amp;family=JetBrains+Mono:wght@400&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "primary-fixed": "#e8ddff",
+                        "error": "#ffb4ab",
+                        "person-pink": "#f472b6",
+                        "surface-tint": "#cebdff",
+                        "on-secondary-fixed-variant": "#0040a2",
+                        "tertiary-container": "#d07d1b",
+                        "surface": "#14121b",
+                        "on-secondary-container": "#b7c8ff",
+                        "on-tertiary-fixed": "#2d1600",
+                        "surface-container-high": "#2b2832",
+                        "tertiary-fixed-dim": "#ffb873",
+                        "on-primary-container": "#310082",
+                        "on-secondary-fixed": "#001848",
+                        "on-error-container": "#ffdad6",
+                        "on-primary": "#390093",
+                        "on-primary-fixed-variant": "#5212c4",
+                        "inverse-on-surface": "#322f39",
+                        "surface-variant": "#36333d",
+                        "surface-bright": "#3b3842",
+                        "inverse-primary": "#6a3add",
+                        "on-background": "#e7e0ed",
+                        "surface-container-lowest": "#0f0d16",
+                        "inverse-surface": "#e7e0ed",
+                        "primary": "#cebdff",
+                        "on-surface-variant": "#cbc3d7",
+                        "secondary": "#b2c5ff",
+                        "tertiary-fixed": "#ffdcbf",
+                        "on-tertiary-container": "#412200",
+                        "border-subtle": "rgba(255,255,255,0.06)",
+                        "border-emphasis": "rgba(255,255,255,0.12)",
+                        "on-surface": "#e7e0ed",
+                        "tool-emerald": "#34d399",
+                        "text-secondary": "rgba(237,237,237,0.7)",
+                        "secondary-fixed-dim": "#b2c5ff",
+                        "surface-container": "#211e28",
+                        "decision-purple": "#8b5fff",
+                        "secondary-fixed": "#dae2ff",
+                        "primary-container": "#9c79ff",
+                        "on-primary-fixed": "#21005d",
+                        "surface-container-highest": "#36333d",
+                        "on-tertiary-fixed-variant": "#6a3b00",
+                        "on-error": "#690005",
+                        "session-zinc": "#52525b",
+                        "outline": "#948ea0",
+                        "surface-dim": "#14121b",
+                        "on-tertiary": "#4b2800",
+                        "crystal-gold": "#fcd34d",
+                        "lesson-amber": "#fbbf24",
+                        "surface-container-low": "#1d1a24",
+                        "project-blue": "#5b8bff",
+                        "text-primary": "#ededed",
+                        "tertiary": "#ffb873",
+                        "secondary-container": "#004dbf",
+                        "background": "#14121b",
+                        "text-muted": "rgba(237,237,237,0.45)",
+                        "error-container": "#93000a",
+                        "reference-cyan": "#22d3ee",
+                        "outline-variant": "#494455",
+                        "primary-fixed-dim": "#cebdff",
+                        "on-secondary": "#002b73"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "container-max": "1200px",
+                        "gutter": "24px",
+                        "inline-gap": "8px",
+                        "sidebar-width": "220px",
+                        "stack-gap": "12px"
+                    },
+                    "fontFamily": {
+                        "headline-lg": ["Inter"],
+                        "headline-sm": ["Inter"],
+                        "body-lg": ["Inter"],
+                        "mono-base": ["JetBrains Mono"],
+                        "headline-md": ["Inter"],
+                        "label-caps": ["Inter"],
+                        "body-sm": ["Inter"],
+                        "body-md": ["Inter"]
+                    },
+                    "fontSize": {
+                        "headline-lg": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.02em", "fontWeight": "600" }],
+                        "headline-sm": ["16px", { "lineHeight": "24px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+                        "body-lg": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                        "mono-base": ["13px", { "lineHeight": "20px", "fontWeight": "400" }],
+                        "headline-md": ["20px", { "lineHeight": "28px", "letterSpacing": "-0.02em", "fontWeight": "600" }],
+                        "label-caps": ["11px", { "lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "600" }],
+                        "body-sm": ["13px", { "lineHeight": "18px", "fontWeight": "400" }],
+                        "body-md": ["14px", { "lineHeight": "20px", "fontWeight": "400" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        .emissive-node {
+            box-shadow: 0 0 12px var(--tw-color-decision-purple);
+        }
+        .stream-line {
+            stroke-dasharray: 4;
+            animation: dash 20s linear infinite;
+        }
+        @keyframes dash {
+            to { stroke-dashoffset: -1000; }
+        }
+        .pulse-op {
+            animation: pulse-op 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+        @keyframes pulse-op {
+            0%, 100% { opacity: 1; }
+            50% { opacity: .5; }
+        }
+    </style>
+</head>
+<body class="bg-background text-on-surface h-screen overflow-hidden flex font-body-md selection:bg-primary-container selection:text-on-primary-container">
+<!-- TopNavBar (Hidden, specific to Compile view intent) -->
+<!-- SideNavBar (Hidden, transaction/focused flow) -->
+<!-- Compile View Canvas -->
+<main class="flex-1 h-full relative flex flex-col items-center justify-center bg-surface-container-lowest">
+<!-- Background Grid -->
+<div class="absolute inset-0 pointer-events-none opacity-20" style="background-image: radial-gradient(circle at 1px 1px, rgba(255,255,255,0.15) 1px, transparent 0); background-size: 24px 24px;"></div>
+<!-- Central Visualization Area -->
+<div class="relative w-full max-w-[1000px] h-[600px] flex items-center justify-center">
+<!-- Nodes Visualization -->
+<div class="absolute inset-0 flex items-center justify-between px-20">
+<!-- Raw Session Nodes Source -->
+<div class="flex flex-col gap-6 opacity-60">
+<div class="flex items-center gap-3">
+<div class="w-3 h-3 rounded-full bg-session-zinc shadow-[0_0_8px_rgba(82,82,91,0.5)]"></div>
+<span class="font-mono-base text-mono-base text-text-secondary">node_38a1</span>
+</div>
+<div class="flex items-center gap-3">
+<div class="w-3 h-3 rounded-full bg-session-zinc shadow-[0_0_8px_rgba(82,82,91,0.5)]"></div>
+<span class="font-mono-base text-mono-base text-text-secondary">node_9b4f</span>
+</div>
+<div class="flex items-center gap-3">
+<div class="w-3 h-3 rounded-full bg-session-zinc shadow-[0_0_8px_rgba(82,82,91,0.5)]"></div>
+<span class="font-mono-base text-mono-base text-text-secondary">node_2c7e</span>
+</div>
+</div>
+<!-- Central Curated Node -->
+<div class="relative z-10 flex flex-col items-center justify-center group">
+<div class="w-16 h-16 rounded-full bg-decision-purple/20 border border-decision-purple emissive-node flex items-center justify-center backdrop-blur-md mb-4 pulse-op">
+<span class="material-symbols-outlined text-decision-purple" style="font-variation-settings: 'FILL' 1;">hub</span>
+</div>
+<div class="bg-surface-container/80 backdrop-blur-md border border-border-emphasis rounded-lg px-4 py-2 flex flex-col items-center">
+<span class="font-label-caps text-label-caps text-decision-purple uppercase tracking-wider mb-1">New Decision</span>
+<span class="font-headline-sm text-headline-sm text-text-primary text-center">Implement Canvas Overlays</span>
+</div>
+</div>
+</div>
+<!-- Connecting Lines (SVG) -->
+<svg class="absolute inset-0 w-full h-full pointer-events-none" style="z-index: 0;">
+<path class="stream-line" d="M 250 150 Q 500 150 500 300" fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="1.5"></path>
+<path class="stream-line" d="M 250 300 Q 500 300 500 300" fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="1.5"></path>
+<path class="stream-line" d="M 250 450 Q 500 450 500 300" fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="1.5"></path>
+<!-- Moving particles on lines -->
+<circle cx="0" cy="0" fill="#8b5fff" r="3">
+<animatemotion dur="3s" path="M 250 150 Q 500 150 500 300" repeatcount="indefinite"></animatemotion>
+</circle>
+<circle cx="0" cy="0" fill="#8b5fff" r="3">
+<animatemotion dur="2.5s" path="M 250 300 Q 500 300 500 300" repeatcount="indefinite"></animatemotion>
+</circle>
+<circle cx="0" cy="0" fill="#8b5fff" r="3">
+<animatemotion dur="3.5s" path="M 250 450 Q 500 450 500 300" repeatcount="indefinite"></animatemotion>
+</circle>
+</svg>
+</div>
+<!-- Telemetry & Logs Panel (Glassmorphism) -->
+<div class="absolute bottom-12 left-1/2 transform -translate-x-1/2 w-full max-w-[800px] flex gap-4">
+<!-- Log Panel -->
+<div class="flex-1 bg-surface-container/60 backdrop-blur-xl border border-border-emphasis rounded-xl p-4 flex flex-col">
+<div class="flex items-center justify-between mb-3 border-b border-border-subtle pb-2">
+<span class="font-label-caps text-label-caps text-text-muted uppercase">Compiler Log</span>
+<span class="font-mono-base text-[10px] text-tool-emerald flex items-center gap-1">
+<span class="w-1.5 h-1.5 rounded-full bg-tool-emerald"></span> RUNNING
+                    </span>
+</div>
+<div class="flex flex-col gap-2 font-mono-base text-mono-base overflow-y-auto max-h-[120px]" id="log-container">
+<div class="text-text-secondary flex gap-2"><span class="text-text-muted">[10:42:01]</span> <span>Parsing session history...</span></div>
+<div class="text-text-secondary flex gap-2"><span class="text-text-muted">[10:42:03]</span> <span>Identifying common semantic threads.</span></div>
+<div class="text-decision-purple flex gap-2"><span class="text-text-muted">[10:42:04]</span> <span>Synthesizing Decision cluster [weight: 0.92]</span></div>
+<div class="text-text-primary flex gap-2"><span class="text-text-muted">[10:42:05]</span> <span>Forming edge 'derived_from' -&gt; node_9b4f</span></div>
+</div>
+</div>
+<!-- Stats Panel -->
+<div class="w-64 bg-surface-container/60 backdrop-blur-xl border border-border-emphasis rounded-xl p-4 flex flex-col justify-between">
+<div>
+<span class="font-label-caps text-label-caps text-text-muted uppercase mb-2 block">Confidence</span>
+<div class="flex items-end gap-2">
+<span class="font-headline-lg text-headline-lg text-text-primary tracking-tighter">0.92</span>
+<span class="font-body-sm text-body-sm text-text-secondary mb-1">/ 1.0</span>
+</div>
+<div class="w-full h-1 bg-surface-variant rounded-full mt-2 overflow-hidden">
+<div class="h-full bg-decision-purple w-[92%] rounded-full shadow-[0_0_8px_rgba(139,95,255,0.8)]"></div>
+</div>
+</div>
+<button class="mt-4 w-full bg-gradient-to-r from-primary-container to-inverse-primary text-on-primary-container font-headline-sm text-headline-sm rounded-lg py-2 px-4 shadow-[0_0_15px_rgba(106,58,221,0.3)] hover:opacity-90 transition-opacity flex items-center justify-center gap-2">
+<span class="material-symbols-outlined text-sm">commit</span> Commit to Graph
+                </button>
+</div>
+</div>
+<!-- Header -->
+<div class="absolute top-8 left-8 flex items-center gap-3">
+<span class="material-symbols-outlined text-text-muted">memory</span>
+<h1 class="font-headline-md text-headline-md text-text-primary font-bold tracking-tight">Compilation Phase</h1>
+</div>
+<!-- Close Action -->
+<button class="absolute top-8 right-8 w-8 h-8 flex items-center justify-center rounded-full bg-surface-container border border-border-subtle text-text-secondary hover:text-text-primary transition-colors">
+<span class="material-symbols-outlined text-[18px]">close</span>
+</button>
+</main>
+<script>
+        // Simple script to auto-scroll log for effect
+        const logContainer = document.getElementById('log-container');
+        if(logContainer) {
+            logContainer.scrollTop = logContainer.scrollHeight;
+        }
+    </script>
+</body></html>

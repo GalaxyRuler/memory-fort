@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Memory - Settings</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "on-error": "#690005",
+                        "surface-container-low": "#1d1a24",
+                        "surface-variant": "#36333d",
+                        "on-tertiary": "#4b2800",
+                        "text-primary": "#ededed",
+                        "lesson-amber": "#fbbf24",
+                        "surface-dim": "#14121b",
+                        "primary-container": "#9c79ff",
+                        "on-secondary": "#002b73",
+                        "on-tertiary-container": "#412200",
+                        "session-zinc": "#52525b",
+                        "on-error-container": "#ffdad6",
+                        "surface-tint": "#cebdff",
+                        "secondary-container": "#004dbf",
+                        "on-tertiary-fixed": "#2d1600",
+                        "on-secondary-fixed": "#001848",
+                        "tool-emerald": "#34d399",
+                        "project-blue": "#5b8bff",
+                        "primary-fixed-dim": "#cebdff",
+                        "tertiary": "#ffb873",
+                        "outline": "#948ea0",
+                        "secondary-fixed": "#dae2ff",
+                        "secondary": "#b2c5ff",
+                        "text-muted": "rgba(237,237,237,0.45)",
+                        "inverse-on-surface": "#322f39",
+                        "surface-container": "#211e28",
+                        "inverse-surface": "#e7e0ed",
+                        "inverse-primary": "#6a3add",
+                        "on-secondary-container": "#b7c8ff",
+                        "error-container": "#93000a",
+                        "on-tertiary-fixed-variant": "#6a3b00",
+                        "border-emphasis": "rgba(255,255,255,0.12)",
+                        "on-primary-fixed-variant": "#5212c4",
+                        "surface-bright": "#3b3842",
+                        "primary": "#cebdff",
+                        "error": "#ffb4ab",
+                        "tertiary-container": "#d07d1b",
+                        "primary-fixed": "#e8ddff",
+                        "reference-cyan": "#22d3ee",
+                        "on-secondary-fixed-variant": "#0040a2",
+                        "tertiary-fixed-dim": "#ffb873",
+                        "background": "#14121b",
+                        "on-primary-container": "#310082",
+                        "on-primary-fixed": "#21005d",
+                        "on-surface": "#e7e0ed",
+                        "surface": "#14121b",
+                        "decision-purple": "#8b5fff",
+                        "surface-container-highest": "#36333d",
+                        "outline-variant": "#494455",
+                        "tertiary-fixed": "#ffdcbf",
+                        "surface-container-high": "#2b2832",
+                        "on-background": "#e7e0ed",
+                        "secondary-fixed-dim": "#b2c5ff",
+                        "surface-container-lowest": "#0f0d16",
+                        "on-primary": "#390093",
+                        "text-secondary": "rgba(237,237,237,0.7)",
+                        "person-pink": "#f472b6",
+                        "border-subtle": "rgba(255,255,255,0.06)",
+                        "on-surface-variant": "#cbc3d7",
+                        "crystal-gold": "#fcd34d"
+                    },
+                    borderRadius: {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px",
+                        "md": "6px" 
+                    },
+                    spacing: {
+                        "container-max": "1200px",
+                        "sidebar-width": "220px",
+                        "gutter": "24px",
+                        "inline-gap": "8px",
+                        "stack-gap": "12px"
+                    },
+                    fontFamily: {
+                        "body-sm": ["Inter"],
+                        "mono-base": ["JetBrains Mono"],
+                        "body-lg": ["Inter"],
+                        "headline-sm": ["Inter"],
+                        "body-md": ["Inter"],
+                        "label-caps": ["Inter"],
+                        "headline-lg": ["Inter"],
+                        "headline-md": ["Inter"]
+                    },
+                    fontSize: {
+                        "body-sm": ["13px", { lineHeight: "18px", fontWeight: "400" }],
+                        "mono-base": ["13px", { lineHeight: "20px", fontWeight: "400" }],
+                        "body-lg": ["16px", { lineHeight: "24px", fontWeight: "400" }],
+                        "headline-sm": ["16px", { lineHeight: "24px", letterSpacing: "-0.01em", fontWeight: "600" }],
+                        "body-md": ["14px", { lineHeight: "20px", fontWeight: "400" }],
+                        "label-caps": ["11px", { lineHeight: "16px", letterSpacing: "0.05em", fontWeight: "600" }],
+                        "headline-lg": ["24px", { lineHeight: "32px", letterSpacing: "-0.02em", fontWeight: "600" }],
+                        "headline-md": ["20px", { lineHeight: "28px", letterSpacing: "-0.02em", fontWeight: "600" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 300, 'GRAD' 0, 'opsz' 24;
+        }
+        .material-symbols-outlined[data-weight="fill"] {
+            font-variation-settings: 'FILL' 1, 'wght' 300, 'GRAD' 0, 'opsz' 24;
+        }
+        
+        /* Custom Scrollbar for sleek dark mode look */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #36333d;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #494455;
+        }
+    </style>
+</head>
+<body class="bg-background text-on-background font-body-md h-screen w-full flex overflow-hidden selection:bg-primary/30 selection:text-primary">
+<!-- SideNavBar -->
+<nav class="bg-surface-container-low dark:bg-surface-container-low text-primary dark:text-primary font-body-md text-body-md fixed left-0 top-0 h-full w-[220px] border-r border-border-subtle flex flex-col py-gutter px-3 z-50">
+<!-- Header -->
+<div class="px-3 mb-8 flex items-center gap-3">
+<div class="w-8 h-8 rounded-md bg-surface-variant border border-border-subtle flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-primary text-[18px]">memory</span>
+</div>
+<div>
+<div class="font-headline-md text-headline-md font-bold tracking-tight text-primary dark:text-primary">memory</div>
+<div class="text-[10px] text-text-muted">v2.4.0-stable</div>
+</div>
+</div>
+<!-- Main Navigation -->
+<div class="flex-1 flex flex-col gap-1 overflow-y-auto overflow-x-hidden">
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined text-[18px]">dashboard</span>
+<span>Overview</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined text-[18px]">search</span>
+<span>Search</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined text-[18px]">menu_book</span>
+<span>Wiki</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined text-[18px]">article</span>
+<span>Raw</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined text-[18px]">hub</span>
+<span>Graph</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined text-[18px]">timeline</span>
+<span>Timeline</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined text-[18px]">pulse_alert</span>
+<span>Activity</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined text-[18px]">layers</span>
+<span>Sessions</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined text-[18px]">diamond</span>
+<span>Crystals</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined text-[18px]">policy</span>
+<span>Audit</span>
+</a>
+<!-- Active Tab -->
+<a class="flex items-center gap-inline-gap px-3 py-2 text-primary bg-surface-container-highest rounded-lg font-bold scale-[0.98] transition-transform" href="#">
+<span class="material-symbols-outlined text-[18px]" data-weight="fill">settings</span>
+<span>Settings</span>
+</a>
+</div>
+<!-- Footer Navigation -->
+<div class="mt-4 pt-4 border-t border-border-subtle flex flex-col gap-1">
+<div class="px-3 py-2 text-[11px] text-text-muted uppercase tracking-wider font-semibold">Syncing...</div>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined text-[18px]">cloud_done</span>
+<span>Status</span>
+</a>
+</div>
+</nav>
+<!-- Main Content Area -->
+<main class="ml-[220px] flex-1 flex flex-col h-full relative">
+<!-- TopNavBar -->
+<header class="bg-surface/80 dark:bg-surface/80 backdrop-blur-xl text-text-primary font-body-sm text-body-sm fixed top-0 right-0 w-[calc(100%-220px)] h-[48px] border-b border-border-subtle flex justify-between items-center px-gutter z-40">
+<div class="flex items-center gap-4">
+<div class="font-headline-sm text-headline-sm text-text-primary">Settings</div>
+<div class="h-4 w-px bg-border-subtle"></div>
+<div class="text-text-muted font-mono-base text-mono-base hidden md:block">Preferences &amp; Integrations</div>
+</div>
+<div class="flex items-center gap-4">
+<button class="w-[200px] h-8 bg-surface-container border border-border-subtle rounded-full flex items-center px-3 text-text-muted hover:border-outline transition-colors group">
+<span class="material-symbols-outlined text-[16px] mr-2 group-hover:text-text-primary">search</span>
+<span class="flex-1 text-left text-[12px]">Search settings...</span>
+<kbd class="font-mono-base text-[10px] bg-surface-variant px-1.5 py-0.5 rounded text-text-secondary">⌘K</kbd>
+</button>
+<div class="flex items-center gap-2">
+<button class="text-text-muted hover:text-text-primary cursor-pointer w-8 h-8 flex items-center justify-center rounded-full hover:bg-surface-variant transition-colors">
+<span class="material-symbols-outlined text-[20px]">notifications</span>
+</button>
+<div class="w-8 h-8 rounded-full bg-surface-variant border border-border-subtle overflow-hidden">
+<!-- Placeholder for profile image -->
+<div class="w-full h-full bg-surface-bright flex items-center justify-center text-[12px] font-medium text-text-secondary">US</div>
+</div>
+</div>
+</div>
+</header>
+<!-- Scrollable Canvas -->
+<div class="flex-1 overflow-y-auto pt-[80px] pb-12 px-gutter">
+<div class="max-w-[800px] mx-auto flex flex-col gap-8">
+<!-- Page Header (Optional, but good for context) -->
+<div>
+<h1 class="font-headline-lg text-headline-lg text-text-primary mb-2">Configuration</h1>
+<p class="font-body-md text-body-md text-text-secondary">Manage your identity, external integrations, and system preferences.</p>
+</div>
+<!-- SECTION: Identity -->
+<section class="bg-surface-container border border-border-subtle rounded-xl overflow-hidden">
+<div class="px-6 py-4 border-b border-border-subtle bg-surface-container-low flex items-center gap-3">
+<span class="material-symbols-outlined text-text-secondary">person</span>
+<h2 class="font-headline-sm text-headline-sm text-text-primary">Identity</h2>
+</div>
+<div class="p-6 flex flex-col gap-6">
+<div class="flex items-start gap-6">
+<div class="w-16 h-16 rounded-full bg-surface-variant border border-border-subtle flex items-center justify-center shrink-0 overflow-hidden relative group cursor-pointer">
+<div class="absolute inset-0 bg-black/50 hidden group-hover:flex items-center justify-center z-10 transition-all">
+<span class="material-symbols-outlined text-white text-[20px]">upload</span>
+</div>
+<span class="text-text-secondary font-headline-md">US</span>
+</div>
+<div class="flex-1 grid grid-cols-1 md:grid-cols-2 gap-4">
+<div class="flex flex-col gap-1.5">
+<label class="font-label-caps text-label-caps text-text-secondary uppercase tracking-wider">Display Name</label>
+<input class="bg-surface-dim border border-border-subtle rounded-md px-3 py-2 text-text-primary font-body-md focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/50 w-full transition-all" type="text" value="User System"/>
+</div>
+<div class="flex flex-col gap-1.5">
+<label class="font-label-caps text-label-caps text-text-secondary uppercase tracking-wider">Handle</label>
+<div class="flex relative">
+<span class="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted font-mono-base">@</span>
+<input class="bg-surface-dim border border-border-subtle rounded-md pl-7 pr-3 py-2 text-text-primary font-mono-base focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/50 w-full transition-all" type="text" value="usersystem"/>
+</div>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- SECTION: Memory Paths -->
+<section class="bg-surface-container border border-border-subtle rounded-xl overflow-hidden">
+<div class="px-6 py-4 border-b border-border-subtle bg-surface-container-low flex items-center gap-3">
+<span class="material-symbols-outlined text-text-secondary">folder_open</span>
+<h2 class="font-headline-sm text-headline-sm text-text-primary">Memory Paths</h2>
+</div>
+<div class="p-6 flex flex-col gap-4">
+<div class="flex flex-col gap-1.5">
+<label class="font-label-caps text-label-caps text-text-secondary uppercase tracking-wider">Root Directory</label>
+<div class="flex gap-2">
+<input class="bg-surface-dim border border-border-subtle rounded-md px-3 py-2 text-text-muted font-mono-base w-full cursor-not-allowed" readonly="" type="text" value="~/.memory/vault_primary"/>
+<button class="px-4 py-2 bg-surface-variant border border-border-subtle rounded-md text-text-primary hover:bg-surface-bright transition-colors font-body-md text-body-md whitespace-nowrap">Change...</button>
+</div>
+<p class="text-[12px] text-text-muted mt-1">The primary location where all raw markdown and graph data is stored.</p>
+</div>
+</div>
+</section>
+<!-- SECTION: Voyage AI -->
+<section class="bg-surface-container border border-border-subtle rounded-xl overflow-hidden">
+<div class="px-6 py-4 border-b border-border-subtle bg-surface-container-low flex items-center justify-between">
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-text-secondary">psychology</span>
+<h2 class="font-headline-sm text-headline-sm text-text-primary">Voyage AI</h2>
+</div>
+<div class="flex items-center gap-2 px-2.5 py-1 bg-tool-emerald/10 border border-tool-emerald/20 rounded-full">
+<div class="w-1.5 h-1.5 rounded-full bg-tool-emerald animate-pulse"></div>
+<span class="text-[11px] font-mono-base text-tool-emerald uppercase tracking-wider">Connected</span>
+</div>
+</div>
+<div class="p-6 flex flex-col gap-4">
+<div class="flex flex-col gap-1.5">
+<label class="font-label-caps text-label-caps text-text-secondary uppercase tracking-wider">API Key</label>
+<div class="flex gap-2">
+<input class="bg-surface-dim border border-border-subtle rounded-md px-3 py-2 text-text-primary font-mono-base focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/50 w-full transition-all" type="password" value="sk-voyage-xxxxxxxxxxxxxxxxxxxxxxxx"/>
+<button class="px-3 py-2 bg-surface-variant border border-border-subtle rounded-md text-text-secondary hover:text-text-primary hover:bg-surface-bright transition-colors flex items-center justify-center">
+<span class="material-symbols-outlined text-[18px]">visibility</span>
+</button>
+</div>
+<p class="text-[12px] text-text-muted mt-1">Used for vector embeddings and semantic search capabilities.</p>
+</div>
+</div>
+</section>
+<!-- SECTION: Sync -->
+<section class="bg-surface-container border border-border-subtle rounded-xl overflow-hidden">
+<div class="px-6 py-4 border-b border-border-subtle bg-surface-container-low flex items-center gap-3">
+<span class="material-symbols-outlined text-text-secondary">sync_alt</span>
+<h2 class="font-headline-sm text-headline-sm text-text-primary">Sync (VPS Host)</h2>
+</div>
+<div class="p-6 flex flex-col gap-4">
+<div class="flex flex-col gap-1.5">
+<label class="font-label-caps text-label-caps text-text-secondary uppercase tracking-wider">Remote Endpoint</label>
+<input class="bg-surface-dim border border-border-subtle rounded-md px-3 py-2 text-text-primary font-mono-base focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/50 w-full transition-all" type="text" value="https://sync.memory.local:8443"/>
+</div>
+<div class="flex flex-col gap-1.5 mt-2">
+<label class="font-label-caps text-label-caps text-text-secondary uppercase tracking-wider">Authentication Token</label>
+<input class="bg-surface-dim border border-border-subtle rounded-md px-3 py-2 text-text-primary font-mono-base focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/50 w-full transition-all" type="password" value="token_xxxxxxxxxxxxx"/>
+</div>
+</div>
+</section>
+<!-- SECTION: Display -->
+<section class="bg-surface-container border border-border-subtle rounded-xl overflow-hidden">
+<div class="px-6 py-4 border-b border-border-subtle bg-surface-container-low flex items-center gap-3">
+<span class="material-symbols-outlined text-text-secondary">palette</span>
+<h2 class="font-headline-sm text-headline-sm text-text-primary">Display</h2>
+</div>
+<div class="p-6 flex flex-col gap-8">
+<!-- Density -->
+<div class="flex flex-col gap-3">
+<label class="font-label-caps text-label-caps text-text-secondary uppercase tracking-wider">Layout Density</label>
+<div class="flex gap-4">
+<label class="flex items-center gap-2 cursor-pointer group">
+<div class="w-4 h-4 rounded-full border border-primary flex items-center justify-center bg-surface-dim">
+<div class="w-2 h-2 rounded-full bg-primary"></div>
+</div>
+<span class="font-body-md text-text-primary group-hover:text-primary transition-colors">Comfortable</span>
+</label>
+<label class="flex items-center gap-2 cursor-pointer group">
+<div class="w-4 h-4 rounded-full border border-border-subtle flex items-center justify-center bg-surface-dim">
+</div>
+<span class="font-body-md text-text-secondary group-hover:text-text-primary transition-colors">Compact</span>
+</label>
+</div>
+</div>
+<!-- Accent Color -->
+<div class="flex flex-col gap-3">
+<label class="font-label-caps text-label-caps text-text-secondary uppercase tracking-wider">Accent Color</label>
+<div class="flex gap-3">
+<button class="w-8 h-8 rounded-full bg-primary ring-2 ring-primary ring-offset-2 ring-offset-surface-container flex items-center justify-center">
+<span class="material-symbols-outlined text-on-primary text-[16px]">check</span>
+</button>
+<button class="w-8 h-8 rounded-full bg-project-blue hover:scale-110 transition-transform cursor-pointer"></button>
+<button class="w-8 h-8 rounded-full bg-tool-emerald hover:scale-110 transition-transform cursor-pointer"></button>
+<button class="w-8 h-8 rounded-full bg-person-pink hover:scale-110 transition-transform cursor-pointer"></button>
+<button class="w-8 h-8 rounded-full bg-lesson-amber hover:scale-110 transition-transform cursor-pointer"></button>
+</div>
+</div>
+</div>
+</section>
+<!-- SECTION: Privacy & Backups (Combined in a grid for layout variety) -->
+<div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+<!-- Privacy -->
+<section class="bg-surface-container border border-border-subtle rounded-xl overflow-hidden flex flex-col">
+<div class="px-6 py-4 border-b border-border-subtle bg-surface-container-low flex items-center gap-3">
+<span class="material-symbols-outlined text-text-secondary">shield_lock</span>
+<h2 class="font-headline-sm text-headline-sm text-text-primary">Privacy</h2>
+</div>
+<div class="p-6 flex-1 flex flex-col gap-5">
+<label class="flex items-start justify-between gap-4 cursor-pointer">
+<div class="flex flex-col">
+<span class="font-body-md text-text-primary">Local-Only Mode</span>
+<span class="text-[12px] text-text-muted">Disable all external network calls. Overrides Sync and AI settings.</span>
+</div>
+<div class="relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center justify-center rounded-full bg-surface-variant border border-border-subtle mt-1">
+<span class="translate-x-[2px] inline-block h-3.5 w-3.5 transform rounded-full bg-text-secondary transition"></span>
+</div>
+</label>
+<div class="h-px bg-border-subtle w-full"></div>
+<label class="flex items-start justify-between gap-4 cursor-pointer">
+<div class="flex flex-col">
+<span class="font-body-md text-text-primary">Anonymous Telemetry</span>
+<span class="text-[12px] text-text-muted">Help improve the app by sending crash reports.</span>
+</div>
+<!-- Toggle Active State -->
+<div class="relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center justify-center rounded-full bg-primary mt-1">
+<span class="translate-x-[8px] inline-block h-3.5 w-3.5 transform rounded-full bg-on-primary transition"></span>
+</div>
+</label>
+</div>
+</section>
+<!-- Backups -->
+<section class="bg-surface-container border border-border-subtle rounded-xl overflow-hidden flex flex-col">
+<div class="px-6 py-4 border-b border-border-subtle bg-surface-container-low flex items-center gap-3">
+<span class="material-symbols-outlined text-text-secondary">save</span>
+<h2 class="font-headline-sm text-headline-sm text-text-primary">Backups</h2>
+</div>
+<div class="p-6 flex-1 flex flex-col gap-5">
+<label class="flex items-start justify-between gap-4 cursor-pointer">
+<div class="flex flex-col">
+<span class="font-body-md text-text-primary">Automated Snapshots</span>
+<span class="text-[12px] text-text-muted">Create daily zips of your vault.</span>
+</div>
+<div class="relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center justify-center rounded-full bg-primary mt-1">
+<span class="translate-x-[8px] inline-block h-3.5 w-3.5 transform rounded-full bg-on-primary transition"></span>
+</div>
+</label>
+<div class="flex flex-col gap-1.5 mt-2">
+<label class="font-label-caps text-label-caps text-text-secondary uppercase tracking-wider">Retention</label>
+<select class="bg-surface-dim border border-border-subtle rounded-md px-3 py-2 text-text-primary font-body-md focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/50 w-full appearance-none">
+<option>Keep last 7 days</option>
+<option>Keep last 30 days</option>
+<option>Keep indefinitely</option>
+</select>
+</div>
+</div>
+</section>
+</div>
+<!-- SECTION: Danger Zone -->
+<section class="border border-error/20 rounded-xl overflow-hidden mt-4 relative">
+<div class="absolute inset-0 bg-error/5 pointer-events-none"></div>
+<div class="px-6 py-4 border-b border-error/10 bg-error/10 flex items-center gap-3">
+<span class="material-symbols-outlined text-error">warning</span>
+<h2 class="font-headline-sm text-headline-sm text-error">Danger Zone</h2>
+</div>
+<div class="p-6 flex flex-col gap-6 relative z-10">
+<div class="flex items-center justify-between gap-4">
+<div class="flex flex-col">
+<span class="font-body-md font-semibold text-text-primary">Purge Memory Cache</span>
+<span class="text-[12px] text-text-muted">Clears local vector embeddings and generated cache. Does not delete source files.</span>
+</div>
+<button class="px-4 py-2 bg-surface-variant border border-border-subtle rounded-md text-text-primary hover:bg-surface-bright transition-colors font-body-md text-body-md whitespace-nowrap">Purge Cache</button>
+</div>
+<div class="h-px bg-error/10 w-full"></div>
+<div class="flex items-center justify-between gap-4">
+<div class="flex flex-col">
+<span class="font-body-md font-semibold text-error">Delete Account &amp; Data</span>
+<span class="text-[12px] text-text-muted">Permanently removes all data from this device and remote sync servers.</span>
+</div>
+<button class="px-4 py-2 bg-error text-on-error rounded-md hover:bg-error/90 transition-colors font-body-md text-body-md font-medium whitespace-nowrap">Delete Everything</button>
+</div>
+</div>
+</section>
+<!-- Save Action Sticky Bar -->
+<div class="sticky bottom-6 mt-8 p-4 bg-surface-container/90 backdrop-blur-md border border-border-subtle rounded-xl flex items-center justify-between shadow-lg">
+<span class="text-body-sm text-text-muted">Unsaved changes</span>
+<div class="flex gap-3">
+<button class="px-4 py-2 bg-transparent text-text-secondary hover:text-text-primary transition-colors font-body-md text-body-md">Discard</button>
+<button class="px-5 py-2 bg-primary text-on-primary rounded-md hover:opacity-90 transition-opacity font-body-md text-body-md font-medium shadow-[0_0_12px_rgba(206,189,255,0.2)]">Save Changes</button>
+</div>
+</div>
+</div>
+</div>
+</main>
+</body></html>

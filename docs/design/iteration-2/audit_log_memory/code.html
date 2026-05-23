@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>memory - Audit Log</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "on-error": "#690005",
+                        "surface-container-low": "#1d1a24",
+                        "surface-variant": "#36333d",
+                        "on-tertiary": "#4b2800",
+                        "text-primary": "#ededed",
+                        "lesson-amber": "#fbbf24",
+                        "surface-dim": "#14121b",
+                        "primary-container": "#9c79ff",
+                        "on-secondary": "#002b73",
+                        "on-tertiary-container": "#412200",
+                        "session-zinc": "#52525b",
+                        "on-error-container": "#ffdad6",
+                        "surface-tint": "#cebdff",
+                        "secondary-container": "#004dbf",
+                        "on-tertiary-fixed": "#2d1600",
+                        "on-secondary-fixed": "#001848",
+                        "tool-emerald": "#34d399",
+                        "project-blue": "#5b8bff",
+                        "primary-fixed-dim": "#cebdff",
+                        "tertiary": "#ffb873",
+                        "outline": "#948ea0",
+                        "secondary-fixed": "#dae2ff",
+                        "secondary": "#b2c5ff",
+                        "text-muted": "rgba(237,237,237,0.45)",
+                        "inverse-on-surface": "#322f39",
+                        "surface-container": "#211e28",
+                        "inverse-surface": "#e7e0ed",
+                        "inverse-primary": "#6a3add",
+                        "on-secondary-container": "#b7c8ff",
+                        "error-container": "#93000a",
+                        "on-tertiary-fixed-variant": "#6a3b00",
+                        "border-emphasis": "rgba(255,255,255,0.12)",
+                        "on-primary-fixed-variant": "#5212c4",
+                        "surface-bright": "#3b3842",
+                        "primary": "#cebdff",
+                        "error": "#ffb4ab",
+                        "tertiary-container": "#d07d1b",
+                        "primary-fixed": "#e8ddff",
+                        "reference-cyan": "#22d3ee",
+                        "on-secondary-fixed-variant": "#0040a2",
+                        "tertiary-fixed-dim": "#ffb873",
+                        "background": "#14121b",
+                        "on-primary-container": "#310082",
+                        "on-primary-fixed": "#21005d",
+                        "on-surface": "#e7e0ed",
+                        "surface": "#14121b",
+                        "decision-purple": "#8b5fff",
+                        "surface-container-highest": "#36333d",
+                        "outline-variant": "#494455",
+                        "tertiary-fixed": "#ffdcbf",
+                        "surface-container-high": "#2b2832",
+                        "on-background": "#e7e0ed",
+                        "secondary-fixed-dim": "#b2c5ff",
+                        "surface-container-lowest": "#0f0d16",
+                        "on-primary": "#390093",
+                        "text-secondary": "rgba(237,237,237,0.7)",
+                        "person-pink": "#f472b6",
+                        "border-subtle": "rgba(255,255,255,0.06)",
+                        "on-surface-variant": "#cbc3d7",
+                        "crystal-gold": "#fcd34d"
+                    },
+                    borderRadius: {
+                        DEFAULT: "0.25rem",
+                        lg: "0.5rem",
+                        xl: "0.75rem",
+                        full: "9999px"
+                    },
+                    spacing: {
+                        "container-max": "1200px",
+                        "sidebar-width": "220px",
+                        "gutter": "24px",
+                        "inline-gap": "8px",
+                        "stack-gap": "12px"
+                    },
+                    fontFamily: {
+                        "body-sm": ["Inter"],
+                        "mono-base": ["JetBrains Mono"],
+                        "body-lg": ["Inter"],
+                        "headline-sm": ["Inter"],
+                        "body-md": ["Inter"],
+                        "label-caps": ["Inter"],
+                        "headline-lg": ["Inter"],
+                        "headline-md": ["Inter"]
+                    },
+                    fontSize: {
+                        "body-sm": ["13px", { lineHeight: "18px", fontWeight: "400" }],
+                        "mono-base": ["13px", { lineHeight: "20px", fontWeight: "400" }],
+                        "body-lg": ["16px", { lineHeight: "24px", fontWeight: "400" }],
+                        "headline-sm": ["16px", { lineHeight: "24px", letterSpacing: "-0.01em", fontWeight: "600" }],
+                        "body-md": ["14px", { lineHeight: "20px", fontWeight: "400" }],
+                        "label-caps": ["11px", { lineHeight: "16px", letterSpacing: "0.05em", fontWeight: "600" }],
+                        "headline-lg": ["24px", { lineHeight: "32px", letterSpacing: "-0.02em", fontWeight: "600" }],
+                        "headline-md": ["20px", { lineHeight: "28px", letterSpacing: "-0.02em", fontWeight: "600" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+    </style>
+</head>
+<body class="bg-background text-text-primary min-h-screen overflow-x-hidden flex selection:bg-primary-container selection:text-on-primary-container">
+<!-- SideNavBar -->
+<nav class="fixed left-0 top-0 h-full w-[220px] bg-surface-container-low border-r border-border-subtle flex flex-col py-gutter px-3 z-50 transition-all duration-300">
+<!-- Header -->
+<div class="flex items-center gap-3 px-3 mb-8">
+<div class="w-8 h-8 rounded-lg bg-surface-container-high border border-border-subtle flex items-center justify-center overflow-hidden flex-shrink-0">
+<span class="material-symbols-outlined text-primary text-[20px]" data-icon="memory">memory</span>
+</div>
+<div class="flex flex-col">
+<span class="font-headline-md text-headline-md font-bold tracking-tight text-primary">memory</span>
+<span class="font-body-sm text-body-sm text-text-muted">v2.4.0-stable</span>
+</div>
+</div>
+<!-- Navigation Tabs -->
+<div class="flex flex-col gap-1 flex-1 overflow-y-auto pr-1">
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg group" href="#">
+<span class="material-symbols-outlined text-[18px]" data-icon="dashboard">dashboard</span>
+<span class="font-body-md text-body-md">Overview</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg group" href="#">
+<span class="material-symbols-outlined text-[18px]" data-icon="search">search</span>
+<span class="font-body-md text-body-md">Search</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg group" href="#">
+<span class="material-symbols-outlined text-[18px]" data-icon="menu_book">menu_book</span>
+<span class="font-body-md text-body-md">Wiki</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg group" href="#">
+<span class="material-symbols-outlined text-[18px]" data-icon="article">article</span>
+<span class="font-body-md text-body-md">Raw</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg group" href="#">
+<span class="material-symbols-outlined text-[18px]" data-icon="hub">hub</span>
+<span class="font-body-md text-body-md">Graph</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg group" href="#">
+<span class="material-symbols-outlined text-[18px]" data-icon="timeline">timeline</span>
+<span class="font-body-md text-body-md">Timeline</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg group" href="#">
+<span class="material-symbols-outlined text-[18px]" data-icon="pulse">pulse_alert</span>
+<span class="font-body-md text-body-md">Activity</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg group" href="#">
+<span class="material-symbols-outlined text-[18px]" data-icon="layers">layers</span>
+<span class="font-body-md text-body-md">Sessions</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg group" href="#">
+<span class="material-symbols-outlined text-[18px]" data-icon="diamond">diamond</span>
+<span class="font-body-md text-body-md">Crystals</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-primary bg-surface-container-highest rounded-lg font-bold scale-[0.98] transition-transform" href="#">
+<span class="material-symbols-outlined text-[18px]" data-icon="policy">policy</span>
+<span class="font-body-md text-body-md">Audit</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg group" href="#">
+<span class="material-symbols-outlined text-[18px]" data-icon="settings">settings</span>
+<span class="font-body-md text-body-md">Settings</span>
+</a>
+</div>
+<!-- Footer -->
+<div class="mt-auto pt-4 border-t border-border-subtle flex flex-col gap-2">
+<div class="flex items-center justify-between px-3 py-2 text-text-secondary text-body-sm font-body-sm">
+<div class="flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-tool-emerald shadow-[0_0_8px_rgba(52,211,153,0.6)]"></span>
+<span>Syncing...</span>
+</div>
+</div>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg group" href="#">
+<span class="material-symbols-outlined text-[18px]" data-icon="cloud_done">cloud_done</span>
+<span class="font-body-md text-body-md">Status</span>
+</a>
+</div>
+</nav>
+<!-- TopNavBar -->
+<header class="fixed top-0 right-0 w-[calc(100%-220px)] h-[48px] bg-surface/80 backdrop-blur-xl border-b border-border-subtle flex justify-between items-center px-gutter z-40 transition-all duration-300">
+<!-- Search Command Bar (mock) -->
+<div class="flex items-center bg-surface-container border border-border-subtle rounded-full px-3 py-1.5 w-64 max-w-md group hover:border-outline transition-colors cursor-text">
+<span class="material-symbols-outlined text-text-muted text-[16px] mr-2" data-icon="search">search</span>
+<span class="font-body-sm text-body-sm text-text-muted flex-1">Search or jump to...</span>
+<span class="font-mono-base text-mono-base text-text-muted text-[10px] border border-border-subtle rounded px-1.5 bg-surface-container-low">⌘K</span>
+</div>
+<!-- Trailing Actions -->
+<div class="flex items-center gap-4">
+<button class="text-text-secondary hover:text-text-primary transition-colors flex items-center justify-center w-8 h-8 rounded-full hover:bg-surface-variant">
+<span class="material-symbols-outlined text-[20px]" data-icon="notifications">notifications</span>
+</button>
+<div class="w-8 h-8 rounded-full bg-surface-container-high border border-border-subtle overflow-hidden cursor-pointer hover:border-outline transition-colors">
+<img alt="User profile" class="w-full h-full object-cover" data-alt="A small circular avatar showing a highly professional, dramatic, low-key lighting portrait of an individual against a dark background, fitting a sleek minimalist software interface aesthetic." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBi7smDDecHh5MTPMi72rSPgPld8IVYypzxHKKpLul9emoQeZYXVoaEazY75dFBS7tK8zxUjKmJntatLcL0y55p5x7KWnm6w1wXPU2UzuTvcwxHpVKIWc6VEanJS21Je5nyHtColrno33Ybixgl9GYed4HQeFfpZXwG789Hw8YtJK0C7q0L-ISrHX8C9FnFEsV2AvywuzUI13NTPVwMWMKe-uKocxgxoDHGNyRwAw3dgfbYOhZzejqa_LAIpFsnKJfOQtPGjwhPUKzJ"/>
+</div>
+</div>
+</header>
+<!-- Main View Canvas -->
+<main class="ml-[220px] mt-[48px] w-[calc(100%-220px)] min-h-[calc(100vh-48px)] bg-background flex justify-center pb-12 pt-8">
+<div class="w-full max-w-container-max px-gutter flex flex-col gap-6">
+<!-- Page Header -->
+<div class="flex items-end justify-between border-b border-border-subtle pb-4">
+<div>
+<h1 class="font-headline-lg text-headline-lg text-text-primary flex items-center gap-3">
+<span class="material-symbols-outlined text-primary text-[28px]" data-icon="policy">policy</span>
+                        Unified Audit Log
+                    </h1>
+<p class="font-body-md text-body-md text-text-secondary mt-1">Real-time telemetry, synchronization events, and system errors.</p>
+</div>
+<div class="flex gap-2">
+<button class="px-4 py-2 bg-surface-container-high border border-border-subtle rounded-lg font-body-sm text-body-sm text-text-primary hover:bg-surface-variant hover:border-outline transition-all flex items-center gap-2 shadow-sm">
+<span class="material-symbols-outlined text-[16px]" data-icon="download">download</span>
+                        Export
+                    </button>
+<button class="px-4 py-2 bg-primary text-on-primary font-headline-sm text-headline-sm rounded-lg hover:brightness-110 transition-all flex items-center gap-2 shadow-[0_0_15px_rgba(206,189,255,0.15)]">
+<span class="material-symbols-outlined text-[16px]" data-icon="play_arrow">play_arrow</span>
+                        Live Stream
+                    </button>
+</div>
+</div>
+<!-- Audit Log Terminal/Card -->
+<div class="bg-surface-container-low border border-border-subtle rounded-xl shadow-lg overflow-hidden flex flex-col flex-1 min-h-[600px] relative">
+<!-- Filters Bar -->
+<div class="px-4 py-3 bg-surface-container-highest/50 border-b border-border-subtle flex items-center justify-between backdrop-blur-md sticky top-0 z-10">
+<div class="flex items-center gap-4">
+<div class="flex items-center gap-2">
+<span class="font-label-caps text-label-caps text-text-muted">SOURCE</span>
+<div class="flex bg-surface-container border border-border-subtle rounded-md overflow-hidden font-body-sm text-body-sm p-0.5">
+<button class="px-3 py-1 rounded bg-surface-variant text-text-primary shadow-sm">All</button>
+<button class="px-3 py-1 rounded text-text-secondary hover:text-text-primary hover:bg-surface-variant/50 transition-colors">Git</button>
+<button class="px-3 py-1 rounded text-text-secondary hover:text-text-primary hover:bg-surface-variant/50 transition-colors">Sync</button>
+<button class="px-3 py-1 rounded text-text-secondary hover:text-text-primary hover:bg-surface-variant/50 transition-colors">Compile</button>
+</div>
+</div>
+<div class="w-px h-6 bg-border-subtle"></div>
+<div class="flex items-center gap-2">
+<span class="font-label-caps text-label-caps text-text-muted">LEVEL</span>
+<div class="flex gap-1 font-body-sm text-body-sm">
+<button class="px-2 py-1 rounded border border-border-subtle bg-surface-container text-text-secondary hover:border-outline hover:text-text-primary transition-colors flex items-center gap-1">
+<span class="w-2 h-2 rounded-full bg-text-muted"></span> All
+                                </button>
+<button class="px-2 py-1 rounded border border-border-subtle bg-surface-container text-text-secondary hover:border-outline hover:text-text-primary transition-colors flex items-center gap-1">
+<span class="w-2 h-2 rounded-full bg-tool-emerald"></span> Info
+                                </button>
+<button class="px-2 py-1 rounded border border-border-subtle bg-surface-container text-text-secondary hover:border-outline hover:text-text-primary transition-colors flex items-center gap-1">
+<span class="w-2 h-2 rounded-full bg-lesson-amber"></span> Warn
+                                </button>
+<button class="px-2 py-1 rounded border border-border-subtle bg-surface-container text-text-secondary hover:border-outline hover:text-text-primary transition-colors flex items-center gap-1">
+<span class="w-2 h-2 rounded-full bg-error"></span> Error
+                                </button>
+</div>
+</div>
+</div>
+<div class="flex items-center gap-2 text-text-muted font-body-sm text-body-sm">
+<span class="material-symbols-outlined text-[16px] animate-pulse" data-icon="radio_button_checked">radio_button_checked</span>
+<span>Watching 4 streams</span>
+</div>
+</div>
+<!-- Log Stream -->
+<div class="flex-1 overflow-y-auto p-4 flex flex-col gap-1 font-mono-base text-mono-base bg-[#0f0d16]/80" style="background-image: radial-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px); background-size: 20px 20px;">
+<!-- Log Item : Info -->
+<div class="group flex items-start gap-4 p-2 rounded hover:bg-surface-variant/40 transition-colors border border-transparent hover:border-border-subtle">
+<div class="w-2 h-2 mt-1.5 rounded-full bg-tool-emerald shadow-[0_0_8px_rgba(52,211,153,0.4)] flex-shrink-0"></div>
+<div class="w-40 flex-shrink-0 text-text-muted opacity-80 group-hover:opacity-100 transition-opacity">2023-10-27 14:32:01.042</div>
+<div class="w-24 flex-shrink-0">
+<span class="px-2 py-0.5 rounded border border-border-subtle bg-surface-container text-text-secondary font-label-caps text-label-caps tracking-widest">GIT</span>
+</div>
+<div class="flex-grow text-text-secondary group-hover:text-text-primary transition-colors">
+                            Commit 'feat: update knowledge graph schema' pushed to origin/main successfully.
+                        </div>
+</div>
+<!-- Log Item : Compile Success -->
+<div class="group flex items-start gap-4 p-2 rounded hover:bg-surface-variant/40 transition-colors border border-transparent hover:border-border-subtle">
+<div class="w-2 h-2 mt-1.5 rounded-full bg-tool-emerald shadow-[0_0_8px_rgba(52,211,153,0.4)] flex-shrink-0"></div>
+<div class="w-40 flex-shrink-0 text-text-muted opacity-80 group-hover:opacity-100 transition-opacity">2023-10-27 14:32:05.118</div>
+<div class="w-24 flex-shrink-0">
+<span class="px-2 py-0.5 rounded border border-border-subtle bg-surface-container text-text-secondary font-label-caps text-label-caps tracking-widest">COMPILE</span>
+</div>
+<div class="flex-grow text-text-secondary group-hover:text-text-primary transition-colors">
+                            Built index.md in 42ms. Module graph fully resolved.
+                        </div>
+</div>
+<!-- Log Item : Sync Warning -->
+<div class="group flex items-start gap-4 p-2 rounded hover:bg-surface-variant/40 transition-colors border border-transparent hover:border-lesson-amber/20 bg-lesson-amber/5">
+<div class="w-2 h-2 mt-1.5 rounded-full bg-lesson-amber shadow-[0_0_8px_rgba(251,191,36,0.6)] flex-shrink-0"></div>
+<div class="w-40 flex-shrink-0 text-text-muted opacity-80 group-hover:opacity-100 transition-opacity">2023-10-27 14:35:12.884</div>
+<div class="w-24 flex-shrink-0">
+<span class="px-2 py-0.5 rounded border border-lesson-amber/30 bg-surface-container text-lesson-amber font-label-caps text-label-caps tracking-widest">SYNC</span>
+</div>
+<div class="flex-grow text-lesson-amber/80 group-hover:text-lesson-amber transition-colors">
+                            High latency detected on WebSocket connection (450ms). Retrying payload chunk #4.
+                        </div>
+</div>
+<!-- Log Item : Error -->
+<div class="group flex items-start gap-4 p-2 rounded hover:bg-surface-variant/40 transition-colors border border-transparent hover:border-error/30 bg-error/5">
+<div class="w-2 h-2 mt-1.5 rounded-full bg-error shadow-[0_0_8px_rgba(255,180,171,0.8)] flex-shrink-0"></div>
+<div class="w-40 flex-shrink-0 text-text-muted opacity-80 group-hover:opacity-100 transition-opacity">2023-10-27 14:35:15.002</div>
+<div class="w-24 flex-shrink-0">
+<span class="px-2 py-0.5 rounded border border-error/30 bg-surface-container text-error font-label-caps text-label-caps tracking-widest">SYNC</span>
+</div>
+<div class="flex-grow text-error/90 transition-colors flex flex-col gap-2">
+<div>Connection dropped unexpectedly. Code: 1006. Reason: Abnormal Closure.</div>
+<div class="bg-surface-container-low border border-error/20 rounded p-2 text-xs text-error/70 overflow-x-auto whitespace-pre">
+Error: WebSocket closed before handshake completed
+    at Writable.write (node:internal/streams/writable:336:5)
+    at Socket.ondata (node:internal/js/streams:241:20)
+    at emitOne (node:events:328:20)
+                            </div>
+</div>
+</div>
+<!-- Log Item : Info -->
+<div class="group flex items-start gap-4 p-2 rounded hover:bg-surface-variant/40 transition-colors border border-transparent hover:border-border-subtle">
+<div class="w-2 h-2 mt-1.5 rounded-full bg-tool-emerald shadow-[0_0_8px_rgba(52,211,153,0.4)] flex-shrink-0"></div>
+<div class="w-40 flex-shrink-0 text-text-muted opacity-80 group-hover:opacity-100 transition-opacity">2023-10-27 14:35:18.420</div>
+<div class="w-24 flex-shrink-0">
+<span class="px-2 py-0.5 rounded border border-border-subtle bg-surface-container text-text-secondary font-label-caps text-label-caps tracking-widest">SYNC</span>
+</div>
+<div class="flex-grow text-text-secondary group-hover:text-text-primary transition-colors">
+                            Connection re-established. Resume successful.
+                        </div>
+</div>
+<!-- Log Item : Compile Warning -->
+<div class="group flex items-start gap-4 p-2 rounded hover:bg-surface-variant/40 transition-colors border border-transparent hover:border-lesson-amber/20 bg-lesson-amber/5">
+<div class="w-2 h-2 mt-1.5 rounded-full bg-lesson-amber shadow-[0_0_8px_rgba(251,191,36,0.6)] flex-shrink-0"></div>
+<div class="w-40 flex-shrink-0 text-text-muted opacity-80 group-hover:opacity-100 transition-opacity">2023-10-27 14:40:01.100</div>
+<div class="w-24 flex-shrink-0">
+<span class="px-2 py-0.5 rounded border border-lesson-amber/30 bg-surface-container text-lesson-amber font-label-caps text-label-caps tracking-widest">COMPILE</span>
+</div>
+<div class="flex-grow text-lesson-amber/80 group-hover:text-lesson-amber transition-colors">
+                            Deprecation notice: 'old_parser_engine' in modules/markdown will be removed in v3.0.
+                        </div>
+</div>
+<!-- Spacer for scrolling -->
+<div class="h-8"></div>
+</div>
+<!-- Bottom fade out effect -->
+<div class="absolute bottom-0 left-0 w-full h-12 bg-gradient-to-t from-surface-container-low to-transparent pointer-events-none"></div>
+</div>
+</div>
+</main>
+</body></html>

@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Wiki - Decisions - Voyage AI</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&amp;family=JetBrains+Mono:wght@400&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "on-error": "#690005",
+                    "surface-container-low": "#1d1a24",
+                    "surface-variant": "#36333d",
+                    "on-tertiary": "#4b2800",
+                    "text-primary": "#ededed",
+                    "lesson-amber": "#fbbf24",
+                    "surface-dim": "#14121b",
+                    "primary-container": "#9c79ff",
+                    "on-secondary": "#002b73",
+                    "on-tertiary-container": "#412200",
+                    "session-zinc": "#52525b",
+                    "on-error-container": "#ffdad6",
+                    "surface-tint": "#cebdff",
+                    "secondary-container": "#004dbf",
+                    "on-tertiary-fixed": "#2d1600",
+                    "on-secondary-fixed": "#001848",
+                    "tool-emerald": "#34d399",
+                    "project-blue": "#5b8bff",
+                    "primary-fixed-dim": "#cebdff",
+                    "tertiary": "#ffb873",
+                    "outline": "#948ea0",
+                    "secondary-fixed": "#dae2ff",
+                    "secondary": "#b2c5ff",
+                    "text-muted": "rgba(237,237,237,0.45)",
+                    "inverse-on-surface": "#322f39",
+                    "surface-container": "#211e28",
+                    "inverse-surface": "#e7e0ed",
+                    "inverse-primary": "#6a3add",
+                    "on-secondary-container": "#b7c8ff",
+                    "error-container": "#93000a",
+                    "on-tertiary-fixed-variant": "#6a3b00",
+                    "border-emphasis": "rgba(255,255,255,0.12)",
+                    "on-primary-fixed-variant": "#5212c4",
+                    "surface-bright": "#3b3842",
+                    "primary": "#cebdff",
+                    "error": "#ffb4ab",
+                    "tertiary-container": "#d07d1b",
+                    "primary-fixed": "#e8ddff",
+                    "reference-cyan": "#22d3ee",
+                    "on-secondary-fixed-variant": "#0040a2",
+                    "tertiary-fixed-dim": "#ffb873",
+                    "background": "#14121b",
+                    "on-primary-container": "#310082",
+                    "on-primary-fixed": "#21005d",
+                    "on-surface": "#e7e0ed",
+                    "surface": "#14121b",
+                    "decision-purple": "#8b5fff",
+                    "surface-container-highest": "#36333d",
+                    "outline-variant": "#494455",
+                    "tertiary-fixed": "#ffdcbf",
+                    "surface-container-high": "#2b2832",
+                    "on-background": "#e7e0ed",
+                    "secondary-fixed-dim": "#b2c5ff",
+                    "surface-container-lowest": "#0f0d16",
+                    "on-primary": "#390093",
+                    "text-secondary": "rgba(237,237,237,0.7)",
+                    "person-pink": "#f472b6",
+                    "border-subtle": "rgba(255,255,255,0.06)",
+                    "on-surface-variant": "#cbc3d7",
+                    "crystal-gold": "#fcd34d"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.25rem",
+                    "lg": "0.5rem",
+                    "xl": "0.75rem",
+                    "full": "9999px"
+            },
+            "spacing": {
+                    "container-max": "1200px",
+                    "sidebar-width": "220px",
+                    "gutter": "24px",
+                    "inline-gap": "8px",
+                    "stack-gap": "12px"
+            },
+            "fontFamily": {
+                    "body-sm": ["Inter"],
+                    "mono-base": ["JetBrains Mono"],
+                    "body-lg": ["Inter"],
+                    "headline-sm": ["Inter"],
+                    "body-md": ["Inter"],
+                    "label-caps": ["Inter"],
+                    "headline-lg": ["Inter"],
+                    "headline-md": ["Inter"]
+            },
+            "fontSize": {
+                    "body-sm": ["13px", {"lineHeight": "18px", "fontWeight": "400"}],
+                    "mono-base": ["13px", {"lineHeight": "20px", "fontWeight": "400"}],
+                    "body-lg": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+                    "headline-sm": ["16px", {"lineHeight": "24px", "letterSpacing": "-0.01em", "fontWeight": "600"}],
+                    "body-md": ["14px", {"lineHeight": "20px", "fontWeight": "400"}],
+                    "label-caps": ["11px", {"lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "600"}],
+                    "headline-lg": ["24px", {"lineHeight": "32px", "letterSpacing": "-0.02em", "fontWeight": "600"}],
+                    "headline-md": ["20px", {"lineHeight": "28px", "letterSpacing": "-0.02em", "fontWeight": "600"}]
+            }
+          }
+        }
+      }
+    </script>
+<style>
+        .bloom-effect {
+            box-shadow: 0 0 8px 1px var(--bloom-color, currentColor);
+        }
+        .prose pre {
+            background-color: theme('colors.surface-container-high');
+            border: 1px solid theme('colors.border-subtle');
+            border-radius: theme('borderRadius.DEFAULT');
+            padding: 1rem;
+            overflow-x: auto;
+        }
+        .prose code {
+            font-family: theme('fontFamily.mono-base');
+            font-size: 13px;
+            color: theme('colors.text-primary');
+        }
+        .prose p code {
+            background-color: theme('colors.surface-container-high');
+            padding: 2px 4px;
+            border-radius: 2px;
+            border: 1px solid theme('colors.border-subtle');
+        }
+        .prose a {
+            color: theme('colors.primary');
+            text-decoration: none;
+            border-bottom: 1px dotted theme('colors.primary');
+            transition: all 0.2s ease;
+        }
+        .prose a:hover {
+            border-bottom-style: solid;
+        }
+        .prose h2 {
+            font-family: theme('fontFamily.headline-md');
+            font-size: 20px;
+            font-weight: 600;
+            color: theme('colors.text-primary');
+            margin-top: 2rem;
+            margin-bottom: 1rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 1px solid theme('colors.border-subtle');
+        }
+        .prose p {
+            margin-bottom: 1rem;
+            line-height: 1.6;
+        }
+        .prose ul {
+            list-style-type: disc;
+            padding-left: 1.5rem;
+            margin-bottom: 1rem;
+        }
+        .prose li {
+            margin-bottom: 0.25rem;
+        }
+    </style>
+</head>
+<body class="bg-background text-text-primary font-body-md h-screen overflow-hidden flex">
+<!-- SideNavBar -->
+<nav class="hidden md:flex fixed left-0 top-0 h-full w-[220px] bg-surface-container-low border-r border-border-subtle flex-col py-gutter px-3 z-50">
+<div class="mb-8 px-3 flex items-center gap-3">
+<div class="w-8 h-8 rounded-full bg-primary-container flex items-center justify-center text-on-primary-container font-bold shadow-sm">
+                M
+            </div>
+<div>
+<div class="font-headline-md text-headline-md font-bold tracking-tight text-primary">memory</div>
+<div class="font-body-sm text-body-sm text-text-muted">v2.4.0-stable</div>
+</div>
+</div>
+<div class="flex-1 flex flex-col gap-1 overflow-y-auto">
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">dashboard</span>
+<span class="font-body-md">Overview</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">search</span>
+<span class="font-body-md">Search</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-primary bg-surface-container-highest rounded-lg font-bold" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">menu_book</span>
+<span class="font-body-md">Wiki</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">article</span>
+<span class="font-body-md">Raw</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">hub</span>
+<span class="font-body-md">Graph</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">timeline</span>
+<span class="font-body-md">Timeline</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">pulse_alert</span>
+<span class="font-body-md">Activity</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">layers</span>
+<span class="font-body-md">Sessions</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">diamond</span>
+<span class="font-body-md">Crystals</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">policy</span>
+<span class="font-body-md">Audit</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">settings</span>
+<span class="font-body-md">Settings</span>
+</a>
+</div>
+<div class="mt-auto pt-4 border-t border-border-subtle">
+<div class="px-3 py-2 mb-2">
+<div class="font-body-sm text-body-sm text-text-muted">Syncing...</div>
+</div>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">cloud_done</span>
+<span class="font-body-md">Status</span>
+</a>
+</div>
+</nav>
+<!-- TopNavBar -->
+<header class="hidden md:flex fixed top-0 right-0 w-[calc(100%-220px)] h-[48px] bg-surface/80 backdrop-blur-xl justify-between items-center px-gutter ml-[220px] z-40 border-b border-border-subtle">
+<div class="flex-1"></div>
+<div class="flex-1 flex justify-center">
+<div class="flex items-center gap-2 bg-surface-container-high border border-border-subtle rounded-full px-4 py-1.5 w-64">
+<span class="material-symbols-outlined text-text-muted text-[18px]">search</span>
+<input class="bg-transparent border-none outline-none text-body-sm text-text-primary w-full placeholder:text-text-muted focus:ring-0 p-0" placeholder="Search..." type="text"/>
+<span class="font-mono-base text-mono-base text-text-muted border border-border-subtle rounded px-1.5">⌘K</span>
+</div>
+</div>
+<div class="flex-1 flex justify-end items-center gap-4">
+<button class="text-text-muted hover:text-text-primary cursor-pointer transition-colors">
+<span class="material-symbols-outlined">notifications</span>
+</button>
+<div class="w-7 h-7 rounded-full bg-surface-variant overflow-hidden border border-border-subtle">
+<img alt="User profile" class="w-full h-full object-cover opacity-80 hover:opacity-100 transition-opacity cursor-pointer" data-alt="A small, circular avatar portrait of a user. The image has a slight semi-transparent fade typical of dark mode interfaces, sitting against a highly technical dark gray backdrop. Soft, diffuse lighting illuminates the avatar, matching a sophisticated, minimalist developer tool aesthetic." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBKjjSf12en-COoxLJIh2GSInFaxJ441Iai7_JpcapflZwSH0UqDN67thc6r4z3vAPT4Zpf1Im-_vJUtBGxjc0Vv2CjVLEUh3Ub-b66aPKclVn5y71JveI_v9a8Xr7xkl5dSHqhFVCrUVmtBr9MnE69yAXzC1YaeU8h0v07pIbfxfURehckhQqVT-vc6jcBPU8PacEsO3kSccU7WzdoZWIELhmR8U16T1epk4OO5MxOUxQZRSdrU0RYEQNnQgOnpj8hQWseyqg8O1O-"/>
+</div>
+</div>
+</header>
+<!-- Main Content Canvas -->
+<main class="flex-1 flex md:ml-[220px] mt-[48px] h-[calc(100vh-48px)] overflow-hidden relative">
+<!-- Center Reading Column -->
+<div class="flex-1 overflow-y-auto w-full h-full custom-scrollbar">
+<div class="max-w-[760px] mx-auto px-6 py-8 md:px-10 md:py-12 pb-32">
+<!-- Breadcrumb & Badge -->
+<div class="flex items-center justify-between mb-6">
+<div class="flex items-center gap-2 font-body-sm text-body-sm text-text-muted">
+<a class="hover:text-text-primary transition-colors" href="#">Wiki</a>
+<span class="material-symbols-outlined text-[14px]">chevron_right</span>
+<a class="hover:text-text-primary transition-colors" href="#">Decisions</a>
+<span class="material-symbols-outlined text-[14px]">chevron_right</span>
+<span class="text-text-primary">Voyage AI</span>
+</div>
+<div class="flex items-center gap-1.5 px-2.5 py-1 bg-surface-container-high border border-border-subtle rounded-full" style="--bloom-color: theme('colors.decision-purple')">
+<div class="w-1.5 h-1.5 rounded-full bg-decision-purple bloom-effect"></div>
+<span class="font-label-caps text-label-caps text-text-secondary uppercase tracking-wider">Decision</span>
+</div>
+</div>
+<!-- Title & Metadata -->
+<h1 class="font-headline-lg text-headline-lg font-bold text-text-primary mb-6">Evaluating Voyage AI for Dense Retrieval</h1>
+<div class="flex flex-wrap items-center gap-y-3 gap-x-6 py-4 border-y border-border-subtle mb-10">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-text-muted text-[16px]">calendar_today</span>
+<span class="font-body-sm text-body-sm text-text-secondary">Created: <span class="text-text-primary">Oct 12, 2023</span></span>
+</div>
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-text-muted text-[16px]">update</span>
+<span class="font-body-sm text-body-sm text-text-secondary">Updated: <span class="text-text-primary">2d ago</span></span>
+</div>
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-text-muted text-[16px]">verified</span>
+<span class="font-body-sm text-body-sm text-text-secondary">Confidence: <span class="text-tool-emerald">High</span></span>
+</div>
+<div class="flex gap-2 ml-auto">
+<span class="px-2 py-0.5 bg-surface-container border border-border-subtle rounded text-body-sm font-body-sm text-text-secondary">#embeddings</span>
+<span class="px-2 py-0.5 bg-surface-container border border-border-subtle rounded text-body-sm font-body-sm text-text-secondary">#llm-ops</span>
+</div>
+</div>
+<!-- Markdown Body -->
+<div class="prose max-w-none text-text-secondary font-body-lg text-body-lg">
+<p>After testing multiple embedding providers (OpenAI, Cohere, Pinecone's proprietary), we are standardizing on <a href="#">Voyage AI</a> for our dense retrieval pipelines moving forward.</p>
+<h2>Context</h2>
+<p>Our memory system requires highly accurate semantic search over technical documentation, code snippets, and unstructured personal notes. Traditional BM25 lexical search falls short on conceptual queries, while existing OpenAI <code>text-embedding-ada-002</code> models struggle with highly domain-specific technical jargon without fine-tuning.</p>
+<h2>Evaluation Criteria</h2>
+<ul>
+<li><strong>Retrieval Accuracy (NDCG@10):</strong> Must outperform baseline models on our internal eval dataset.</li>
+<li><strong>Latency:</strong> p95 latency under 150ms for embedding generation.</li>
+<li><strong>Context Window:</strong> Needs to handle chunk sizes up to 4096 tokens efficiently.</li>
+</ul>
+<h2>Implementation Detail</h2>
+<p>We will be integrating the <code>voyage-2</code> model. The client setup is straightforward via their Python SDK:</p>
+<pre><code>import voyageai
+
+vo = voyageai.Client(api_key="VOYAGE_API_KEY")
+
+# Embed a single technical query
+query = "How to configure Tailwind with Vite?"
+query_embedding = vo.embed(
+    [query], 
+    model="voyage-2", 
+    input_type="query"
+).embeddings[0]
+
+print(f"Embedding dimension: {len(query_embedding)}") # 1024</code></pre>
+<p>Note the use of <code>input_type="query"</code>. For indexing documents, we must ensure we use <code>input_type="document"</code> to maintain optimal vector space separation.</p>
+<h2>Action Items</h2>
+<ul>
+<li>Update the <a href="#">Ingestion Pipeline</a> to swap out the OpenAI embedder.</li>
+<li>Run a backfill script over the existing <code>Notes</code> collection in Qdrant.</li>
+<li>Monitor the latency dashboard post-deployment.</li>
+</ul>
+</div>
+<!-- Bottom Section: Relations -->
+<div class="mt-16 border-t border-border-subtle pt-8">
+<!-- Outbound -->
+<div class="mb-6">
+<button class="flex items-center gap-2 w-full text-left font-headline-sm text-headline-sm text-text-primary hover:text-primary transition-colors group">
+<span class="material-symbols-outlined text-[20px] transition-transform group-hover:rotate-90">chevron_right</span>
+                            Relations (outbound)
+                            <span class="ml-2 font-mono-base text-[11px] px-1.5 py-0.5 bg-surface-container rounded text-text-muted">3</span>
+</button>
+</div>
+<!-- Inbound -->
+<div>
+<button class="flex items-center gap-2 w-full text-left font-headline-sm text-headline-sm text-text-primary hover:text-primary transition-colors group">
+<span class="material-symbols-outlined text-[20px] transform rotate-90">chevron_right</span>
+                            Inbound references
+                            <span class="ml-2 font-mono-base text-[11px] px-1.5 py-0.5 bg-surface-container rounded text-text-muted">2</span>
+</button>
+<div class="mt-3 pl-8 flex flex-col gap-2">
+<a class="flex items-center gap-3 p-3 bg-surface-container-low border border-border-subtle rounded-lg hover:border-primary/50 transition-colors" href="#">
+<div class="w-1.5 h-1.5 rounded-full bg-project-blue bloom-effect" style="--bloom-color: theme('colors.project-blue')"></div>
+<span class="font-body-sm text-body-sm text-text-primary">Q4 Architecture Roadmap</span>
+</a>
+<a class="flex items-center gap-3 p-3 bg-surface-container-low border border-border-subtle rounded-lg hover:border-primary/50 transition-colors" href="#">
+<div class="w-1.5 h-1.5 rounded-full bg-tertiary-container bloom-effect" style="--bloom-color: theme('colors.tertiary-container')"></div>
+<span class="font-body-sm text-body-sm text-text-primary">Vector DB Migration Log</span>
+</a>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Right Rail (Sticky) -->
+<div class="hidden xl:flex w-[280px] h-full border-l border-border-subtle bg-surface-container-lowest flex-col p-6 sticky top-0 overflow-y-auto">
+<button class="w-full mb-8 py-2 px-4 bg-surface-container-high border border-border-subtle rounded-lg font-body-sm text-body-sm text-text-primary hover:bg-surface-variant hover:border-primary/50 transition-all flex items-center justify-center gap-2 group relative overflow-hidden">
+<span class="material-symbols-outlined text-[18px]">edit_document</span>
+                Edit on disk
+                <div class="absolute inset-0 bg-primary opacity-0 group-hover:opacity-5 transition-opacity"></div>
+</button>
+<div class="mb-8">
+<h3 class="font-label-caps text-label-caps text-text-secondary uppercase tracking-wider mb-4">Table of Contents</h3>
+<nav class="flex flex-col gap-2 font-body-sm text-body-sm border-l-2 border-border-subtle pl-3">
+<a class="text-text-primary font-medium hover:text-primary transition-colors" href="#">Context</a>
+<a class="text-text-secondary hover:text-primary transition-colors" href="#">Evaluation Criteria</a>
+<a class="text-text-secondary hover:text-primary transition-colors" href="#">Implementation Detail</a>
+<a class="text-text-secondary hover:text-primary transition-colors" href="#">Action Items</a>
+</nav>
+</div>
+<div>
+<h3 class="font-label-caps text-label-caps text-text-secondary uppercase tracking-wider mb-4">Related Suggestions</h3>
+<div class="flex flex-col gap-3">
+<div class="p-3 bg-surface-container border border-border-subtle rounded-lg cursor-pointer hover:border-primary/30 transition-colors">
+<div class="flex items-center gap-2 mb-1">
+<span class="material-symbols-outlined text-[14px] text-text-muted">link</span>
+<span class="font-body-sm text-body-sm font-medium text-text-primary">Qdrant Indexing</span>
+</div>
+<p class="font-body-sm text-[12px] text-text-secondary line-clamp-2">Overview of HNSW index parameters used for current embeddings.</p>
+</div>
+<div class="p-3 bg-surface-container border border-border-subtle rounded-lg cursor-pointer hover:border-primary/30 transition-colors">
+<div class="flex items-center gap-2 mb-1">
+<span class="material-symbols-outlined text-[14px] text-text-muted">link</span>
+<span class="font-body-sm text-body-sm font-medium text-text-primary">Chunking Strategies</span>
+</div>
+<p class="font-body-sm text-[12px] text-text-secondary line-clamp-2">Analysis of overlapping vs semantic chunking for long-form text.</p>
+</div>
+</div>
+</div>
+</div>
+</main>
+<!-- Custom Scrollbar Style for the web view -->
+<style>
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 8px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background-color: theme('colors.surface-variant');
+            border-radius: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background-color: theme('colors.outline-variant');
+        }
+    </style>
+</body></html>

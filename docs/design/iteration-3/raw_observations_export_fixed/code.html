@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Raw Observations - Memory</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&amp;family=JetBrains+Mono:wght@400&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "surface": "#14121b",
+                        "surface-container-high": "#2b2832",
+                        "on-secondary-container": "#b7c8ff",
+                        "outline-variant": "#494455",
+                        "on-background": "#e7e0ed",
+                        "secondary-fixed": "#dae2ff",
+                        "inverse-surface": "#e7e0ed",
+                        "surface-tint": "#cebdff",
+                        "on-surface": "#e7e0ed",
+                        "error-container": "#93000a",
+                        "person-pink": "#f472b6",
+                        "decision-purple": "#8b5fff",
+                        "surface-container-lowest": "#0f0d16",
+                        "secondary-fixed-dim": "#b2c5ff",
+                        "surface-variant": "#36333d",
+                        "surface-dim": "#14121b",
+                        "error": "#ffb4ab",
+                        "on-surface-variant": "#cbc3d7",
+                        "inverse-on-surface": "#322f39",
+                        "primary-fixed-dim": "#cebdff",
+                        "tertiary-fixed": "#ffdcbf",
+                        "on-error": "#690005",
+                        "surface-bright": "#3b3842",
+                        "on-tertiary-fixed-variant": "#6a3b00",
+                        "text-secondary": "rgba(237,237,237,0.7)",
+                        "tertiary-fixed-dim": "#ffb873",
+                        "background": "#14121b",
+                        "crystal-gold": "#fcd34d",
+                        "text-primary": "#ededed",
+                        "lesson-amber": "#fbbf24",
+                        "primary": "#cebdff",
+                        "on-secondary": "#002b73",
+                        "on-secondary-fixed": "#001848",
+                        "tertiary": "#ffb873",
+                        "on-error-container": "#ffdad6",
+                        "on-primary": "#390093",
+                        "tool-emerald": "#34d399",
+                        "primary-fixed": "#e8ddff",
+                        "on-primary-fixed": "#21005d",
+                        "on-tertiary-fixed": "#2d1600",
+                        "reference-cyan": "#22d3ee",
+                        "primary-container": "#9c79ff",
+                        "secondary": "#b2c5ff",
+                        "outline": "#948ea0",
+                        "on-primary-fixed-variant": "#5212c4",
+                        "border-emphasis": "rgba(255,255,255,0.12)",
+                        "on-secondary-fixed-variant": "#0040a2",
+                        "inverse-primary": "#6a3add",
+                        "on-primary-container": "#310082",
+                        "secondary-container": "#004dbf",
+                        "project-blue": "#5b8bff",
+                        "surface-container-highest": "#36333d",
+                        "tertiary-container": "#d07d1b",
+                        "on-tertiary-container": "#412200",
+                        "text-muted": "rgba(237,237,237,0.45)",
+                        "surface-container": "#211e28",
+                        "border-subtle": "rgba(255,255,255,0.06)",
+                        "surface-container-low": "#1d1a24",
+                        "on-tertiary": "#4b2800",
+                        "session-zinc": "#52525b"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "sidebar-width": "220px",
+                        "stack-gap": "12px",
+                        "container-max": "1200px",
+                        "gutter": "24px",
+                        "inline-gap": "8px"
+                    },
+                    "fontFamily": {
+                        "label-caps": ["Inter"],
+                        "headline-lg": ["Inter"],
+                        "body-lg": ["Inter"],
+                        "mono-base": ["JetBrains Mono"],
+                        "body-md": ["Inter"],
+                        "headline-md": ["Inter"],
+                        "headline-sm": ["Inter"],
+                        "body-sm": ["Inter"]
+                    },
+                    "fontSize": {
+                        "label-caps": ["11px", { "lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "600" }],
+                        "headline-lg": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.02em", "fontWeight": "600" }],
+                        "body-lg": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                        "mono-base": ["13px", { "lineHeight": "20px", "fontWeight": "400" }],
+                        "body-md": ["14px", { "lineHeight": "20px", "fontWeight": "400" }],
+                        "headline-md": ["20px", { "lineHeight": "28px", "letterSpacing": "-0.02em", "fontWeight": "600" }],
+                        "headline-sm": ["16px", { "lineHeight": "24px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+                        "body-sm": ["13px", { "lineHeight": "18px", "fontWeight": "400" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>body { background-color: #14121b; color: #e7e0ed; }
+.glass-panel { background: #211e28; border: 1px solid rgba(255, 255, 255, 0.06); }
+.session-row { transition: all 0.2s ease; }
+.session-row:hover { background-color: #2b2832; }
+.expanded-content { display: none; }
+.session-row.expanded .expanded-content { display: block; }
+.session-row.expanded { background-color: #211e28; border: 1px solid rgba(255, 255, 255, 0.12); }
+.gradient-active { background-color: rgba(206, 189, 255, 0.1); border-left: 2px solid #cebdff; }</style>
+</head>
+<body class="font-body-md antialiased min-h-screen flex">
+<!-- SideNavBar -->
+<nav class="fixed left-0 top-0 h-full w-[220px] bg-surface-container-low border-r border-border-subtle flex flex-col py-gutter px-3 z-50 md:flex hidden" style="width: 220px;">
+<div class="mb-8 px-3">
+<h1 class="font-headline-md text-headline-md font-bold tracking-tight text-primary">memory</h1>
+<p class="font-body-sm text-body-sm text-text-secondary">v2.4.0-stable</p>
+</div>
+<div class="flex-1 overflow-y-auto space-y-1">
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined text-[18px]">dashboard</span>
+<span>Overview</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined text-[18px]">search</span>
+<span>Search</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined text-[18px]">menu_book</span>
+<span>Wiki</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-primary bg-surface-container-highest rounded-lg font-bold gradient-active" href="#">
+<span class="material-symbols-outlined text-[18px]">article</span>
+<span>Raw</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined text-[18px]">hub</span>
+<span>Graph</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined text-[18px]">timeline</span>
+<span>Timeline</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined text-[18px]">pulse_alert</span>
+<span>Activity</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined text-[18px]">layers</span>
+<span>Sessions</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined text-[18px]">diamond</span>
+<span>Crystals</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined text-[18px]">policy</span>
+<span>Audit</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined text-[18px]">settings</span>
+<span>Settings</span>
+</a>
+</div>
+<div class="mt-auto pt-4 border-t border-border-subtle space-y-1">
+<div class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary text-sm">
+<span class="material-symbols-outlined text-[16px] text-primary">sync</span>
+<span>Syncing...</span>
+</div>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined text-[18px]">cloud_done</span>
+<span>Status</span>
+</a>
+</div>
+</nav>
+<!-- TopNavBar -->
+<header class="fixed top-0 right-0 w-full md:w-[calc(100%-220px)] h-[48px] bg-surface/80 backdrop-blur-xl border-b border-border-subtle flex justify-between items-center px-gutter z-40 bg-surface" style="width: calc(100% - 220px);">
+<div class="flex items-center gap-4 w-full max-w-md hidden md:flex">
+<div class="relative w-full">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-text-muted text-[18px]">search</span>
+<input class="w-full bg-surface-container-high border border-border-subtle rounded-full py-1.5 pl-9 pr-4 font-mono-base text-mono-base text-text-primary focus:outline-none focus:border-primary transition-colors" placeholder="Search raw logs... ⌘K" type="text"/>
+</div>
+</div>
+<div class="flex items-center gap-4 ml-auto">
+<button class="text-text-muted hover:text-text-primary transition-colors">
+<span class="material-symbols-outlined">notifications</span>
+</button>
+<div class="w-6 h-6 rounded-full bg-surface-variant border border-border-subtle overflow-hidden">
+<img alt="User profile" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuArCORdqXINovdrw1worgYaMt7LeJyNWk0biNCQuZm8NFtggh8LTKaaLrwwCtAltrbSN01cAhb_A5OraqO_MV3nLecDjMv_WrPbBfpTjmyVsKBz3Brg89kJASq0EgCykKKl9sqrqG2duUTEdEr7QkWtb5V6icv78ddwQtKhDrmfUn9zKk_P9WW9PVC7xQnbe00L15rikPYSznUx1mXmoLXBNdYUw1D4vqWzZCGhB6cJcmXldzI5Aa7yIpOQPkLXhCez0CANrngCVgv5"/>
+</div>
+</div>
+</header>
+<!-- Main Content -->
+<main class="ml-0 md:ml-[220px] mt-[48px] p-gutter flex-1 flex flex-col lg:flex-row gap-gutter w-full max-w-container-max mx-auto h-[calc(100vh-48px)] overflow-hidden" style="margin-left: 220px; height: calc(100vh - 48px);">
+<!-- Left Column: Observations List -->
+<div class="flex-1 flex flex-col overflow-hidden">
+<!-- Filters -->
+<div class="mb-4 flex flex-wrap gap-2 items-center text-sm">
+<button class="glass-panel px-3 py-1.5 rounded-lg flex items-center gap-2 hover:border-border-emphasis text-text-secondary">
+<span class="material-symbols-outlined text-[16px]">filter_list</span>
+                    Tool: All
+                </button>
+<button class="glass-panel px-3 py-1.5 rounded-lg flex items-center gap-2 hover:border-border-emphasis text-text-secondary">
+<span class="material-symbols-outlined text-[16px]">calendar_today</span>
+                    Last 7 Days
+                </button>
+<button class="glass-panel px-3 py-1.5 rounded-lg flex items-center gap-2 hover:border-border-emphasis text-text-secondary">
+<span class="material-symbols-outlined text-[16px]">data_usage</span>
+                    Size: Any
+                </button>
+<label class="glass-panel px-3 py-1.5 rounded-lg flex items-center gap-2 cursor-pointer hover:border-border-emphasis text-text-secondary">
+<input class="rounded border-border-subtle bg-surface text-primary focus:ring-primary focus:ring-offset-surface" type="checkbox"/>
+                    Has Curation
+                </label>
+</div>
+<!-- List -->
+<div class="flex-1 overflow-y-auto pr-2 space-y-6">
+<!-- Date Group: Today -->
+<div>
+<h3 class="font-label-caps text-label-caps text-text-muted mb-3 tracking-widest uppercase">Today</h3>
+<div class="space-y-2">
+<!-- Row 1 -->
+<div class="session-row glass-panel rounded-xl p-3 cursor-pointer border border-border-subtle" onclick="this.classList.toggle('expanded')">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded-lg bg-tool-emerald/10 flex items-center justify-center shrink-0 bg-surface-container-high">
+<span class="material-symbols-outlined text-tool-emerald text-[18px]">terminal</span>
+</div>
+<div class="flex-1 min-w-0">
+<div class="flex items-center gap-2 mb-1">
+<span class="font-mono-base text-mono-base text-text-primary truncate">claude-code-019e4bf7…7c486</span>
+<span class="text-xs text-text-muted px-2 py-0.5 rounded-full bg-surface-container-high border border-border-subtle shrink-0">14k tokens</span>
+<span class="text-xs text-text-muted px-2 py-0.5 rounded-full bg-surface-container-high border border-border-subtle shrink-0">42m</span>
+<span class="text-xs text-text-muted px-2 py-0.5 rounded-full bg-surface-container-high border border-border-subtle shrink-0">2.3MB</span>
+<span class="text-xs text-primary px-2 py-0.5 rounded-full bg-primary/10 border border-primary/20 shrink-0 ml-auto">▸ 5 derived</span>
+</div>
+<p class="font-body-sm text-body-sm text-text-muted italic truncate">"I want a memory system that operates entirely locally..."</p>
+</div>
+</div>
+<!-- Expanded Content -->
+<div class="expanded-content mt-4 pt-4 border-t border-border-subtle">
+<div class="bg-surface-container-low rounded-lg p-3 font-mono-base text-[12px] text-text-secondary overflow-x-auto border border-border-subtle mb-3">
+<pre><code>[2024-03-24T14:32:01Z] System initialized.
+[2024-03-24T14:32:05Z] User: "I want a memory system that operates entirely locally..."
+[2024-03-24T14:32:06Z] Agent: Analyzing requirements.
+[2024-03-24T14:32:08Z] Tool[search_local]: Querying local context vectors...
+[2024-03-24T14:32:09Z] Result: Found 3 relevant architecture docs.
+[2024-03-24T14:32:15Z] Agent: "Based on your previous notes, you prefer SQLite for local storage..."
+[2024-03-24T14:32:20Z] User: "Yes, use SQLite and raw file text."
+[2024-03-24T14:32:25Z] Tool[write_file]: Creating schema.sql
+... (Session continues for 42 minutes)
+</code></pre>
+</div>
+<button class="w-full py-2 bg-primary text-on-primary font-body-sm font-semibold rounded-lg hover:bg-primary-fixed transition-colors">Open Full Session</button>
+</div>
+</div>
+<!-- Row 2 -->
+<div class="session-row glass-panel rounded-xl p-3 cursor-pointer border border-border-subtle" onclick="this.classList.toggle('expanded')">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded-lg bg-project-blue/10 flex items-center justify-center shrink-0 bg-surface-container-high">
+<span class="material-symbols-outlined text-project-blue text-[18px]">code</span>
+</div>
+<div class="flex-1 min-w-0">
+<div class="flex items-center gap-2 mb-1">
+<span class="font-mono-base text-mono-base text-text-primary truncate">codex-019e4f6c…3b21a</span>
+<span class="text-xs text-text-muted px-2 py-0.5 rounded-full bg-surface-container-high border border-border-subtle shrink-0">8.7k tokens</span>
+<span class="text-xs text-text-muted px-2 py-0.5 rounded-full bg-surface-container-high border border-border-subtle shrink-0">28m</span>
+<span class="text-xs text-text-muted px-2 py-0.5 rounded-full bg-surface-container-high border border-border-subtle shrink-0">1.4MB</span>
+<span class="text-xs text-primary px-2 py-0.5 rounded-full bg-primary/10 border border-primary/20 shrink-0 ml-auto">▸ 2 derived</span>
+</div>
+<p class="font-body-sm text-body-sm text-text-muted italic truncate">"Implement Phase 3 Slice 12 integration..."</p>
+</div>
+</div>
+<!-- Expanded Content -->
+<div class="expanded-content mt-4 pt-4 border-t border-border-subtle">
+<div class="bg-surface-container-low rounded-lg p-3 font-mono-base text-[12px] text-text-secondary overflow-x-auto border border-border-subtle mb-3">
+<pre><code>[2024-03-24T10:15:00Z] Starting implementation...</code></pre>
+</div>
+<button class="w-full py-2 bg-primary text-on-primary font-body-sm font-semibold rounded-lg hover:bg-primary-fixed transition-colors">Open Full Session</button>
+</div>
+</div>
+</div>
+</div>
+<!-- Date Group: Yesterday -->
+<div>
+<h3 class="font-label-caps text-label-caps text-text-muted mb-3 tracking-widest uppercase">Yesterday</h3>
+<div class="space-y-2">
+<!-- Row 3 -->
+<div class="session-row glass-panel rounded-xl p-3 cursor-pointer border border-border-subtle" onclick="this.classList.toggle('expanded')">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded-lg bg-surface-variant flex items-center justify-center shrink-0 border border-border-subtle">
+<span class="material-symbols-outlined text-text-secondary text-[18px]">edit_note</span>
+</div>
+<div class="flex-1 min-w-0">
+<div class="flex items-center gap-2 mb-1">
+<span class="font-mono-base text-mono-base text-text-primary truncate">manual-mcp-1779378835136</span>
+<span class="text-xs text-text-muted px-2 py-0.5 rounded-full bg-surface-container-high border border-border-subtle shrink-0">312 tokens</span>
+<span class="text-xs text-text-muted px-2 py-0.5 rounded-full bg-surface-container-high border border-border-subtle shrink-0">1m</span>
+<span class="text-xs text-text-muted px-2 py-0.5 rounded-full bg-surface-container-high border border-border-subtle shrink-0">16KB</span>
+</div>
+<p class="font-body-sm text-body-sm text-text-muted italic truncate">"Use memory log_observation to record meeting notes..."</p>
+</div>
+</div>
+<!-- Expanded Content -->
+<div class="expanded-content mt-4 pt-4 border-t border-border-subtle">
+<div class="bg-surface-container-low rounded-lg p-3 font-mono-base text-[12px] text-text-secondary overflow-x-auto border border-border-subtle mb-3">
+<pre><code>[2024-03-23T16:00:00Z] Manual entry recorded.</code></pre>
+</div>
+<button class="w-full py-2 bg-primary text-on-primary font-body-sm font-semibold rounded-lg hover:bg-primary-fixed transition-colors">Open Full Session</button>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Right Rail: Explainer Card -->
+<div class="hidden lg:block w-[300px] shrink-0">
+<div class="glass-panel rounded-xl p-5 border border-border-subtle sticky top-0">
+<div class="flex items-center gap-2 mb-4">
+<span class="material-symbols-outlined text-primary">info</span>
+<h2 class="font-headline-sm text-headline-sm text-text-primary">About Raw Observations</h2>
+</div>
+<div class="space-y-4 font-body-sm text-body-sm text-text-secondary">
+<p>
+                        This view shows raw, unprocessed session transcripts captured directly from agent tools.
+                    </p>
+<p>
+                        These logs form the foundation of your memory system. Background processes asynchronously parse these raw interactions to extract entities, decisions, and concepts (the "▸ derived" count).
+                    </p>
+<div class="p-3 bg-surface-container-low rounded-lg border border-border-subtle">
+<h4 class="font-semibold text-text-primary mb-1">Storage Note</h4>
+<p class="text-xs">Raw logs are kept indefinitely as immutable append-only files unless manually purged.</p>
+</div>
+</div>
+</div>
+</div>
+</main>
+</body></html>

@@ -1,0 +1,665 @@
+<html class="dark" lang="en"><head></head><body class="bg-background text-text-primary min-h-screen overflow-hidden flex font-body-sm selection:bg-primary-container selection:text-on-primary-container">
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Graph - Constellation</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "surface-container-high": "#2b2832",
+                        "inverse-on-surface": "#322f39",
+                        "on-surface": "#e7e0ed",
+                        "on-tertiary": "#4b2800",
+                        "tool-emerald": "#34d399",
+                        "surface-tint": "#cebdff",
+                        "secondary-fixed-dim": "#b2c5ff",
+                        "inverse-surface": "#e7e0ed",
+                        "surface-variant": "#36333d",
+                        "outline-variant": "#494455",
+                        "on-secondary-fixed": "#001848",
+                        "text-muted": "rgba(237,237,237,0.45)",
+                        "outline": "#948ea0",
+                        "on-primary": "#390093",
+                        "tertiary-fixed": "#ffdcbf",
+                        "on-background": "#e7e0ed",
+                        "on-surface-variant": "#cbc3d7",
+                        "inverse-primary": "#6a3add",
+                        "on-secondary-container": "#b7c8ff",
+                        "surface-container-lowest": "#0f0d16",
+                        "border-subtle": "rgba(255,255,255,0.06)",
+                        "border-emphasis": "rgba(255,255,255,0.12)",
+                        "error-container": "#93000a",
+                        "on-error": "#690005",
+                        "surface-bright": "#3b3842",
+                        "on-primary-container": "#310082",
+                        "on-primary-fixed": "#21005d",
+                        "on-tertiary-fixed-variant": "#6a3b00",
+                        "session-zinc": "#52525b",
+                        "on-error-container": "#ffdad6",
+                        "on-tertiary-container": "#412200",
+                        "surface-container-highest": "#36333d",
+                        "tertiary-container": "#d07d1b",
+                        "decision-purple": "#8b5fff",
+                        "surface": "#14121b",
+                        "tertiary-fixed-dim": "#ffb873",
+                        "reference-cyan": "#22d3ee",
+                        "tertiary": "#ffb873",
+                        "on-secondary-fixed-variant": "#0040a2",
+                        "primary-fixed-dim": "#cebdff",
+                        "lesson-amber": "#fbbf24",
+                        "background": "#14121b",
+                        "secondary-container": "#004dbf",
+                        "project-blue": "#5b8bff",
+                        "error": "#ffb4ab",
+                        "text-primary": "#ededed",
+                        "primary-container": "#9c79ff",
+                        "secondary-fixed": "#dae2ff",
+                        "surface-container-low": "#1d1a24",
+                        "on-tertiary-fixed": "#2d1600",
+                        "surface-container": "#211e28",
+                        "person-pink": "#f472b6",
+                        "primary": "#cebdff",
+                        "text-secondary": "rgba(237,237,237,0.7)",
+                        "primary-fixed": "#e8ddff",
+                        "on-primary-fixed-variant": "#5212c4",
+                        "secondary": "#b2c5ff",
+                        "surface-dim": "#14121b",
+                        "on-secondary": "#002b73",
+                        "crystal-gold": "#fcd34d"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "gutter": "24px",
+                        "stack-gap": "12px",
+                        "inline-gap": "8px",
+                        "container-max": "1200px",
+                        "sidebar-width": "220px"
+                    },
+                    "fontFamily": {
+                        "headline-md": ["Inter"],
+                        "body-lg": ["Inter"],
+                        "mono-base": ["JetBrains Mono"],
+                        "headline-sm": ["Inter"],
+                        "headline-lg": ["Inter"],
+                        "body-sm": ["Inter"],
+                        "body-md": ["Inter"],
+                        "label-caps": ["Inter"]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        /* Enhanced Deep Space Environment */
+        .graph-bg {
+            background: radial-gradient(circle at center, #1b1525 0%, #0a0810 100%);
+        }
+        
+        .data-pillar-grid {
+            background-image: 
+                linear-gradient(to right, rgba(100, 150, 255, 0.05) 2px, transparent 2px),
+                linear-gradient(to bottom, rgba(100, 150, 255, 0.05) 2px, transparent 2px);
+            background-size: 80px 80px;
+            transform: perspective(1000px) rotateX(75deg) translateY(300px) translateZ(-300px);
+            transform-origin: center bottom;
+            opacity: 0.6;
+        }
+
+        /* Ambient Dust for Raw Sessions */
+        .dust-particle {
+            position: absolute;
+            width: 3px;
+            height: 3px;
+            background: rgba(255,255,255,0.4);
+            border-radius: 50%;
+            filter: blur(1px);
+            animation: float-dust 10s infinite alternate ease-in-out;
+        }
+        @keyframes float-dust {
+            0% { transform: translate(0, 0); opacity: 0.2; }
+            100% { transform: translate(20px, -20px); opacity: 0.6; }
+        }
+
+        /* 3D Node Foundations */
+        .graph-perspective {
+            perspective: 1500px;
+            transform-style: preserve-3d;
+        }
+        .graph-node-wrapper {
+            transition: transform 1.5s cubic-bezier(0.2, 0.8, 0.2, 1);
+            transform-style: preserve-3d;
+        }
+        .graph-node {
+            transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275), box-shadow 0.4s;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            transform-style: preserve-3d;
+            box-shadow: inset -5px -5px 10px rgba(0,0,0,0.4), inset 5px 5px 10px rgba(255,255,255,0.3);
+        }
+        .graph-node:hover {
+            transform: scale(1.3) translateZ(50px);
+            z-index: 100 !important;
+        }
+
+        /* Recency / Bloom Effects */
+        .bloom-recent {
+            box-shadow: 0 0 40px 15px currentColor, inset 0 0 20px currentColor;
+            animation: pulse-bloom-intense 2s infinite alternate;
+        }
+        .bloom-standard {
+            box-shadow: 0 0 20px 5px currentColor, inset 0 0 10px currentColor;
+            animation: pulse-bloom 4s infinite alternate;
+        }
+        @keyframes pulse-bloom-intense {
+            from { opacity: 0.8; transform: scale(0.95); }
+            to { opacity: 1; transform: scale(1.05); }
+        }
+        @keyframes pulse-bloom {
+            from { opacity: 0.6; }
+            to { opacity: 0.9; }
+        }
+
+        /* Orbital Comet Trail (Recency <24h) */
+        .comet-orbit {
+            position: absolute;
+            width: 160%;
+            height: 160%;
+            border-radius: 50%;
+            border: 1px solid transparent;
+            border-top-color: currentColor;
+            animation: orbit-spin 3s linear infinite;
+            opacity: 0.6;
+            filter: drop-shadow(0 0 5px currentColor);
+        }
+        @keyframes orbit-spin {
+            0% { transform: rotate(0deg) rotateX(60deg); }
+            100% { transform: rotate(360deg) rotateX(60deg); }
+        }
+
+        /* Confidence Encodings */
+        .confidence-high {
+            border: 2px solid rgba(255,255,255,0.5);
+        }
+        .confidence-low {
+            border: 1px dashed currentColor;
+            filter: blur(1px);
+            animation: waver 2s infinite alternate;
+            background: transparent;
+        }
+        @keyframes waver {
+            0% { transform: skewX(-2deg) skewY(-2deg); opacity: 0.6; }
+            100% { transform: skewX(2deg) skewY(2deg); opacity: 0.9; }
+        }
+
+        /* Status Encodings */
+        .status-active { opacity: 1; }
+        .status-superseded { opacity: 0.5; transform: scale(0.7); }
+        .status-archived { opacity: 0.3; filter: grayscale(80%) blur(2px); }
+        .status-orphan { transform: translate(90vw, 10vh) scale(0.5); opacity: 0.4; }
+
+        /* Edge Particle Flows */
+        .edge-path {
+            fill: none;
+            stroke-width: 2;
+            opacity: 0.4;
+        }
+        .flow-uses { stroke: #22d3ee; stroke-dasharray: 4 12; animation: flow-anim 1s linear infinite; }
+        .flow-depends { stroke: #34d399; stroke-dasharray: 8 8; animation: flow-anim 2s linear infinite reverse; }
+        .flow-supersedes { stroke: #fbbf24; stroke-width: 3; opacity: 0.7; marker-end: url(#arrow-amber); }
+        .flow-contradicts { stroke: #ffb4ab; stroke-dasharray: 2 4; animation: pulse-red 1s infinite alternate; }
+        .flow-background { stroke: rgba(255,255,255,0.1); stroke-width: 1; }
+        .flow-fixed-by { stroke: #ffffff; stroke-width: 2; opacity: 0.8; stroke-dasharray: 10 5; }
+
+        @keyframes flow-anim { to { stroke-dashoffset: -20; } }
+        @keyframes pulse-red { from { opacity: 0.2; stroke-width: 2; } to { opacity: 0.8; stroke-width: 4; } }
+
+        /* Timeline Scrubber */
+        .timeline-scrubber {
+            background: linear-gradient(to right, rgba(255,255,255,0.1), rgba(255,255,255,0.3) 50%, rgba(255,255,255,0.1));
+            height: 4px;
+            border-radius: 2px;
+            position: relative;
+        }
+        .timeline-handle {
+            position: absolute;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            width: 12px;
+            height: 12px;
+            background: #cebdff;
+            border-radius: 50%;
+            box-shadow: 0 0 10px #cebdff;
+            cursor: ew-resize;
+        }
+    </style>
+<!-- SideNavBar (Shared Component) -->
+<nav class="fixed left-0 top-0 h-full w-[220px] bg-surface-container-low dark:bg-surface-container-low border-r border-border-subtle z-50 flex flex-col py-gutter px-3">
+<!-- Header -->
+<div class="flex items-center gap-3 px-3 mb-8">
+<div class="w-8 h-8 rounded-lg bg-surface-variant flex items-center justify-center overflow-hidden border border-border-subtle">
+<img alt="Memory App Logo" class="w-full h-full object-cover" data-alt="A highly stylized, minimalist abstract 3D geometric shape representing an app icon. The geometry features soft rounded edges and a vibrant gradient transitioning from deep purple to soft pink, set against a dark grey background. The lighting is bright and studio-like, emphasizing the smooth, modern contours." src="https://lh3.googleusercontent.com/aida-public/AB6AXuB7vteocPb0Qf8UnipdnlbiOVxalWIJinh0kybrAXDwH9fgL4EMjkuA2w77ziAWjBC7XeIfq8zy1_dimYxGFzRnkT1_q7LOcnvmJ_F7QMuUQ_gh8IXRmRa77G4fIMhrg_4tRzcaw3ZBYtrBtSDr1S6RFLmKxWav-eO27Kbd9CVFq86TWncRY_E2qcWxShgNHkqttCHaNBnHo-EWUP2ax6U5MPbxVSlNJnaVhcL1psSdEiZmq0iv72vbKvpuNe6bCZPvX4oVaHq6Iekl"/>
+</div>
+<div class="flex flex-col">
+<span class="font-headline-md text-headline-md font-bold tracking-tight text-primary dark:text-primary">memory</span>
+<span class="font-mono-base text-mono-base text-text-secondary text-[10px]">v2.4.0-stable</span>
+</div>
+</div>
+<!-- Navigation Links -->
+<div class="flex flex-col gap-1 flex-1">
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">dashboard</span>
+<span class="font-body-md text-body-md">Overview</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">search</span>
+<span class="font-body-md text-body-md">Search</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">menu_book</span>
+<span class="font-body-md text-body-md">Wiki</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">article</span>
+<span class="font-body-md text-body-md">Raw</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-primary bg-surface-container-highest rounded-lg font-bold scale-[0.98] transition-transform" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">hub</span>
+<span class="font-body-md text-body-md">Graph</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">timeline</span>
+<span class="font-body-md text-body-md">Timeline</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">pulse_alert</span>
+<span class="font-body-md text-body-md">Activity</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">layers</span>
+<span class="font-body-md text-body-md">Sessions</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">diamond</span>
+<span class="font-body-md text-body-md">Crystals</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">policy</span>
+<span class="font-body-md text-body-md">Audit</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">settings</span>
+<span class="font-body-md text-body-md">Settings</span>
+</a>
+</div>
+<!-- Footer -->
+<div class="mt-auto pt-4 border-t border-border-subtle">
+<div class="flex items-center gap-2 px-3 py-2">
+<span class="w-2 h-2 rounded-full bg-tool-emerald"></span>
+<span class="font-mono-base text-mono-base text-text-secondary text-[11px]">Syncing...</span>
+</div>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg mt-1" href="#">
+<span class="material-symbols-outlined text-[18px]" style="font-variation-settings: 'FILL' 0;">cloud_done</span>
+<span class="font-body-md text-body-md">Status</span>
+</a>
+</div>
+</nav>
+<!-- TopNavBar (Shared Component) -->
+<header class="fixed top-0 right-0 w-[calc(100%-220px)] h-[48px] bg-surface/80 dark:bg-surface/80 backdrop-blur-xl border-b border-border-subtle z-40 flex justify-between items-center px-gutter">
+<div class="flex items-center gap-2">
+<!-- Breadcrumbs / Context -->
+<span class="font-mono-base text-mono-base text-text-muted">workspace</span>
+<span class="material-symbols-outlined text-text-muted text-[14px]">chevron_right</span>
+<span class="font-mono-base text-mono-base text-text-primary font-medium">graph</span>
+</div>
+<!-- Global Search (Command Bar style) -->
+<div class="absolute left-1/2 -translate-x-1/2 top-1/2 -translate-y-1/2 w-full max-w-md hidden md:flex">
+<div class="relative w-full flex items-center">
+<span class="material-symbols-outlined absolute left-3 text-text-muted text-[18px]">search</span>
+<input class="w-full bg-surface-container border border-border-subtle rounded-full py-1.5 pl-9 pr-12 font-body-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-border-emphasis focus:ring-1 focus:ring-border-emphasis transition-all shadow-sm" placeholder="Search memory..." type="text"/>
+<div class="absolute right-3 flex items-center gap-1">
+<kbd class="font-mono-base text-[10px] text-text-muted bg-surface-variant px-1.5 py-0.5 rounded border border-border-subtle">⌘K</kbd>
+</div>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<button class="text-text-muted hover:text-text-primary transition-colors">
+<span class="material-symbols-outlined">notifications</span>
+</button>
+<div class="w-6 h-6 rounded-full overflow-hidden border border-border-subtle cursor-pointer hover:opacity-80 transition-opacity">
+<img alt="User profile" class="w-full h-full object-cover" data-alt="A close up portrait photo of a young professional woman looking forward with a neutral, calm expression. The background is slightly blurred with dark cool tones. The lighting is soft and even, highlighting her features subtly." src="https://lh3.googleusercontent.com/aida-public/AB6AXuC7vcNUjTO1TCHVf7dqpsAZqq9SqNiUZpVKaIksNsv2MPZFs3MQrCY3aE8SE8ovaQYKRTvUDczofCmUf5DiKK-w6pnd3dw2v3Lj94ASGljsZdHNvFL18xQreJcaVwBF0SHY-mXJqWAGIau6B6rFb4gOtFm0M3n1brUE2jGAaC0ndp_9_bEw5hkwcZhCDqpcVCeaLRcAH9cZTLBnrjUD9eODgDIFff2aGdkbeK-OF1YYfg8HO8y6wEcyEGIwu4QYLewaj6TE2LUgePdP"/>
+</div>
+</div>
+</header>
+<!-- Main Content Canvas (Graph Environment) -->
+<main class="ml-[220px] pt-[48px] w-full h-screen relative graph-bg">
+<!-- Environment Grid & Stars -->
+<div class="absolute inset-0 data-pillar-grid pointer-events-none z-0"></div>
+<div class="absolute inset-0 pointer-events-none z-0 overflow-hidden" id="starfield">
+<!-- Stars will be injected via JS -->
+</div>
+<div class="absolute inset-0 pointer-events-none z-0 overflow-hidden" id="dust-cloud">
+<!-- Raw Session Dust particles injected via JS -->
+</div>
+<!-- SVG Defs for Edges -->
+<svg class="absolute w-0 h-0">
+<defs>
+<marker id="arrow-amber" markerheight="6" markerunits="strokeWidth" markerwidth="6" orient="auto" refx="5" refy="3">
+<path d="M0,0 L0,6 L6,3 z" fill="#fbbf24"></path>
+</marker>
+</defs>
+</svg>
+<!-- Top Left HUD: Controls -->
+<div class="absolute top-6 left-6 z-30 flex flex-col gap-3">
+<!-- Simulation Mode Selector -->
+<div class="bg-surface-container-high/60 backdrop-blur-md border border-border-subtle rounded-lg p-1 flex shadow-lg flex-wrap gap-1 w-fit">
+<button class="px-2.5 py-1.5 rounded-md text-text-secondary hover:text-text-primary font-body-sm font-medium hover:bg-surface-container transition-colors text-[12px]" id="mode-force">Force</button>
+<button class="px-2.5 py-1.5 rounded-md text-text-secondary hover:text-text-primary font-body-sm font-medium hover:bg-surface-container transition-colors text-[12px]" id="mode-orbital">Orbital</button>
+<button class="px-2.5 py-1.5 rounded-md text-text-secondary hover:text-text-primary font-body-sm font-medium hover:bg-surface-container transition-colors text-[12px]" id="mode-clustered">Clustered</button>
+<button class="px-2.5 py-1.5 rounded-md text-text-secondary hover:text-text-primary font-body-sm font-medium hover:bg-surface-container transition-colors text-[12px]" id="mode-timeline">Timeline-Flow</button>
+<button class="px-2.5 py-1.5 rounded-md bg-surface-variant text-text-primary font-body-sm font-medium shadow-sm border border-border-subtle text-[12px]" id="mode-constellation">Constellation</button>
+</div>
+<!-- Focus Mode Toggle & Filters -->
+<div class="bg-surface-container-high/60 backdrop-blur-md border border-border-subtle rounded-lg p-3 w-72 shadow-lg flex flex-col gap-3">
+<div class="flex items-center justify-between pb-2 border-b border-border-subtle">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-[16px] text-text-muted">center_focus_strong</span>
+<span class="font-label-caps text-label-caps text-text-primary uppercase">Focus Mode</span>
+</div>
+<button class="w-8 h-4 bg-primary/30 rounded-full relative flex items-center transition-colors">
+<span class="w-3 h-3 bg-primary rounded-full absolute left-4 shadow-sm"></span>
+</button>
+</div>
+<span class="text-[10px] text-text-muted -mt-2">Showing 2-hop neighborhood</span>
+<div class="flex items-center justify-between mt-1">
+<span class="font-label-caps text-label-caps text-text-secondary uppercase">Entity Filters</span>
+<span class="material-symbols-outlined text-text-muted text-[16px] cursor-pointer hover:text-text-primary">filter_list</span>
+</div>
+<div class="flex flex-wrap gap-2">
+<button class="flex items-center gap-1.5 px-2 py-1 bg-surface-variant border border-border-subtle rounded-md hover:border-project-blue/50 transition-colors">
+<div class="w-2 h-2 rounded-full bg-[#5b8bff]" style="box-shadow: 0 0 8px rgba(91,139,255,0.8);"></div>
+<span class="font-mono-base text-[11px] text-text-secondary">Project</span>
+</button>
+<button class="flex items-center gap-1.5 px-2 py-1 bg-surface-variant border border-border-subtle rounded-md hover:border-person-pink/50 transition-colors">
+<div class="w-2 h-2 rounded-full bg-[#f472b6]" style="box-shadow: 0 0 8px rgba(244,114,182,0.8);"></div>
+<span class="font-mono-base text-[11px] text-text-secondary">Person</span>
+</button>
+<button class="flex items-center gap-1.5 px-2 py-1 bg-surface-variant border border-border-subtle rounded-md hover:border-lesson-amber/50 transition-colors">
+<div class="w-2 h-2 rounded-full bg-[#fbbf24]" style="box-shadow: 0 0 8px rgba(251,191,36,0.8);"></div>
+<span class="font-mono-base text-[11px] text-text-secondary">Lesson</span>
+</button>
+<button class="flex items-center gap-1.5 px-2 py-1 bg-surface-variant border border-border-subtle rounded-md hover:border-[#8b5fff]/50 transition-colors">
+<div class="w-2 h-2 rounded-full bg-[#8b5fff]" style="box-shadow: 0 0 8px rgba(139,95,255,0.8);"></div>
+<span class="font-mono-base text-[11px] text-text-secondary">Decision</span>
+</button>
+<button class="flex items-center gap-1.5 px-2 py-1 bg-surface-variant border border-border-subtle rounded-md hover:border-[#22d3ee]/50 transition-colors">
+<div class="w-2 h-2 rounded-full bg-[#22d3ee]" style="box-shadow: 0 0 8px rgba(34,211,238,0.8);"></div>
+<span class="font-mono-base text-[11px] text-text-secondary">Reference</span>
+</button>
+<button class="flex items-center gap-1.5 px-2 py-1 bg-surface-variant border border-border-subtle rounded-md hover:border-[#34d399]/50 transition-colors">
+<div class="w-2 h-2 rounded-full bg-[#34d399]" style="box-shadow: 0 0 8px rgba(52,211,153,0.8);"></div>
+<span class="font-mono-base text-[11px] text-text-secondary">Tool</span>
+</button>
+<button class="flex items-center gap-1.5 px-2 py-1 bg-surface-variant border border-border-subtle rounded-md hover:border-[#fcd34d]/50 transition-colors">
+<div class="w-2 h-2 rounded-full bg-[#fcd34d]" style="box-shadow: 0 0 8px rgba(252,211,77,0.8);"></div>
+<span class="font-mono-base text-[11px] text-text-secondary">Crystal</span>
+</button>
+</div>
+</div>
+</div>
+<!-- 3D Canvas Area for Nodes and Edges -->
+<div class="absolute inset-0 z-10 overflow-hidden pointer-events-none graph-perspective" id="graph-container">
+<svg class="absolute inset-0 w-full h-full pointer-events-none z-10" id="edges-svg">
+<!-- Cyan flow for 'uses' -->
+<path class="edge-path flow-uses" d="M 50vw 50vh Q 40vw 45vh 30vw 40vh"></path>
+<!-- Emerald flow for 'depends_on' -->
+<path class="edge-path flow-depends" d="M 50vw 50vh Q 55vw 35vh 65vw 30vh"></path>
+<!-- Amber arrow for 'supersedes' -->
+<path class="edge-path flow-supersedes" d="M 50vw 50vh L 70vw 60vh"></path>
+<!-- High contrast fixed_by path -->
+<path class="edge-path flow-fixed-by" d="M 50vw 50vh L 40vw 60vh"></path>
+<!-- Red contradicting flow -->
+<path class="edge-path flow-contradicts" d="M 65vw 30vh L 70vw 20vh"></path>
+<!-- Faint linked background -->
+<path class="edge-path flow-background" d="M 65vw 30vh L 30vw 40vh"></path>
+<path class="edge-path flow-background" d="M 50vw 50vh L 25vw 25vh"></path>
+<path class="edge-path flow-background" d="M 50vw 50vh L 75vw 75vh"></path>
+</svg>
+<!-- Nodes -->
+<!-- Core Node: Large (High Inbound), Project (Blue), Recent <24h (Comet + Full Bloom), High Confidence (Solid) -->
+<div class="graph-node-wrapper absolute top-0 left-0 pointer-events-auto z-20" id="node-wrapper-core" style="transform: translate(50vw, 50vh) translateZ(0px);">
+<div class="graph-node w-20 h-20 -ml-10 -mt-10 bg-[#5b8bff] text-[#5b8bff] bloom-recent confidence-high status-active cursor-pointer" ondblclick="openDetailPanel('core')">
+<div class="comet-orbit"></div>
+<span class="material-symbols-outlined text-white text-[28px] drop-shadow-md">dataset</span>
+<div class="absolute top-full mt-4 left-1/2 -translate-x-1/2 bg-surface-container/80 backdrop-blur border border-border-subtle px-2 py-1 rounded font-mono-base text-[12px] whitespace-nowrap text-text-primary pointer-events-none">
+                    Core V2
+                </div>
+</div>
+</div>
+<!-- Connected Node 1: Person (Pink), Recent <7d (Standard Bloom), Low Confidence (Blurry Draft) -->
+<div class="graph-node-wrapper absolute top-0 left-0 pointer-events-auto z-20" id="node-wrapper-alice" style="transform: translate(65vw, 30vh) translateZ(40px);">
+<div class="graph-node w-12 h-12 -ml-6 -mt-6 bg-transparent text-[#f472b6] bloom-standard confidence-low status-active cursor-pointer" ondblclick="openDetailPanel('alice')">
+<div class="absolute inset-0 bg-[#f472b6] opacity-30 rounded-full"></div>
+<div class="absolute top-full mt-2 left-1/2 -translate-x-1/2 bg-surface-container/80 backdrop-blur border border-border-subtle px-2 py-1 rounded font-mono-base text-[10px] whitespace-nowrap text-text-secondary pointer-events-none">
+                    Alice L.
+                </div>
+</div>
+</div>
+<!-- Connected Node 2: Lesson (Amber), Standard (<30d), Superseded (50% opacity, smaller) -->
+<div class="graph-node-wrapper absolute top-0 left-0 pointer-events-auto z-20" id="node-wrapper-api" style="transform: translate(70vw, 60vh) translateZ(-30px);">
+<div class="graph-node w-8 h-8 -ml-4 -mt-4 bg-[#fbbf24] text-[#fbbf24] bloom-standard confidence-high status-superseded cursor-pointer" ondblclick="openDetailPanel('api')">
+<div class="absolute top-full mt-2 left-1/2 -translate-x-1/2 bg-surface-container/80 backdrop-blur border border-border-subtle px-2 py-1 rounded font-mono-base text-[10px] whitespace-nowrap text-text-secondary pointer-events-none">
+                    API Perf v1
+                </div>
+</div>
+</div>
+<!-- Connected Node 3: Tool (Emerald), Standard, Active -->
+<div class="graph-node-wrapper absolute top-0 left-0 pointer-events-auto z-20" id="node-wrapper-tool" style="transform: translate(30vw, 40vh) translateZ(20px);">
+<div class="graph-node w-10 h-10 -ml-5 -mt-5 bg-[#34d399] text-[#34d399] bloom-standard confidence-high status-active cursor-pointer">
+<div class="absolute top-full mt-2 left-1/2 -translate-x-1/2 bg-surface-container/80 backdrop-blur border border-border-subtle px-2 py-1 rounded font-mono-base text-[10px] whitespace-nowrap text-text-secondary pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity">
+                    Load Tester
+                </div>
+</div>
+</div>
+<!-- Connected Node 4: Decision (Violet), Pivot point -->
+<div class="graph-node-wrapper absolute top-0 left-0 pointer-events-auto z-20" id="node-wrapper-decision" style="transform: translate(40vw, 60vh) translateZ(10px);">
+<div class="graph-node w-14 h-14 -ml-7 -mt-7 bg-[#8b5fff] text-[#8b5fff] bloom-standard confidence-high status-active cursor-pointer">
+<span class="material-symbols-outlined text-white text-[20px] drop-shadow-md">call_split</span>
+<div class="absolute top-full mt-2 left-1/2 -translate-x-1/2 bg-surface-container/80 backdrop-blur border border-border-subtle px-2 py-1 rounded font-mono-base text-[10px] whitespace-nowrap text-text-secondary pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity">
+                    Architecture Pivot
+                </div>
+</div>
+</div>
+<!-- Connected Node 5: Reference (Teal), Peripheral -->
+<div class="graph-node-wrapper absolute top-0 left-0 pointer-events-auto z-20" id="node-wrapper-reference" style="transform: translate(25vw, 25vh) translateZ(-50px);">
+<div class="graph-node w-8 h-8 -ml-4 -mt-4 bg-[#22d3ee] text-[#22d3ee] bloom-standard confidence-high status-archived cursor-pointer">
+<div class="absolute top-full mt-2 left-1/2 -translate-x-1/2 bg-surface-container/80 backdrop-blur border border-border-subtle px-2 py-1 rounded font-mono-base text-[10px] whitespace-nowrap text-text-secondary pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity">
+                    Legacy Docs
+                </div>
+</div>
+</div>
+<!-- Connected Node 6: Crystal (Gold), High density glow -->
+<div class="graph-node-wrapper absolute top-0 left-0 pointer-events-auto z-20" id="node-wrapper-crystal" style="transform: translate(75vw, 75vh) translateZ(80px);">
+<div class="graph-node w-12 h-12 -ml-6 -mt-6 bg-[#fcd34d] text-[#fcd34d] bloom-recent confidence-high status-active cursor-pointer">
+<span class="material-symbols-outlined text-white text-[20px] drop-shadow-md">diamond</span>
+<div class="absolute top-full mt-2 left-1/2 -translate-x-1/2 bg-surface-container/80 backdrop-blur border border-border-subtle px-2 py-1 rounded font-mono-base text-[10px] whitespace-nowrap text-text-secondary pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity">
+                    Core Insight
+                </div>
+</div>
+</div>
+<!-- Orphan Node: Reverse gravity pull -->
+<div class="graph-node-wrapper absolute top-0 left-0 pointer-events-auto z-20 status-orphan" id="node-wrapper-orphan">
+<div class="graph-node w-10 h-10 -ml-5 -mt-5 bg-transparent text-[#948ea0] bloom-standard confidence-low cursor-pointer">
+<div class="absolute inset-0 bg-[#948ea0] opacity-30 rounded-full"></div>
+<div class="absolute top-full mt-2 left-1/2 -translate-x-1/2 bg-surface-container/80 backdrop-blur border border-border-subtle px-2 py-1 rounded font-mono-base text-[10px] whitespace-nowrap text-text-secondary pointer-events-none">
+                    Orphaned Idea
+                </div>
+</div>
+</div>
+</div>
+<!-- Bottom Telemetry HUD & Timeline Scrubber (Hidden unless in Timeline Mode, but shown here for layout) -->
+<div class="absolute bottom-6 w-full flex flex-col items-center gap-4 z-30 pointer-events-none">
+<!-- Timeline Scrubber (Conditional UI) -->
+<div class="w-1/2 max-w-2xl bg-surface-container-high/60 backdrop-blur-md border border-border-subtle rounded-lg p-3 flex flex-col gap-2 pointer-events-auto shadow-lg hidden" id="timeline-ui">
+<div class="flex justify-between text-[10px] font-mono-base text-text-muted">
+<span>Jan 2023</span>
+<span>Oct 2023</span>
+</div>
+<div class="timeline-scrubber w-full">
+<div class="timeline-handle" style="left: 75%;"></div>
+</div>
+</div>
+<div class="bg-surface-container-lowest/80 backdrop-blur-md border border-border-subtle rounded-full px-4 py-1.5 flex items-center gap-4 shadow-lg pointer-events-auto">
+<div class="flex items-center gap-1.5">
+<span class="w-1.5 h-1.5 rounded-full bg-primary animate-pulse"></span>
+<span class="font-mono-base text-[11px] text-text-secondary uppercase tracking-wider">Simulating Constellation</span>
+</div>
+<div class="w-px h-3 bg-border-subtle"></div>
+<span class="font-mono-base text-[11px] text-text-primary">423 nodes</span>
+<div class="w-px h-3 bg-border-subtle"></div>
+<span class="font-mono-base text-[11px] text-text-primary">1.2k edges</span>
+<div class="w-px h-3 bg-border-subtle"></div>
+<span class="font-mono-base text-[11px] text-text-muted" id="force-telemetry">Energy: 0.94</span>
+</div>
+</div>
+<!-- Right Side Panel (Slide-in Detail) - Integrated for Double Click -->
+<div class="absolute top-6 right-6 bottom-6 w-80 bg-surface-container-high/90 backdrop-blur-xl border border-border-subtle rounded-xl shadow-2xl z-40 flex flex-col overflow-hidden pointer-events-auto transition-transform duration-300 translate-x-0" id="detail-panel">
+<!-- Header -->
+<div class="p-4 border-b border-border-subtle flex items-start justify-between bg-surface-variant/30">
+<div class="flex flex-col gap-1">
+<div class="flex items-center gap-2">
+<div class="w-2.5 h-2.5 rounded-full bg-[#5b8bff]" style="box-shadow: 0 0 8px rgba(91,139,255,0.8);"></div>
+<span class="font-label-caps text-label-caps text-[#5b8bff]">Project Entity</span>
+</div>
+<h2 class="font-headline-md text-headline-md text-text-primary">Core V2 Architecture</h2>
+</div>
+<button class="text-text-muted hover:text-text-primary transition-colors" onclick="document.getElementById('detail-panel').classList.add('translate-x-[120%]')">
+<span class="material-symbols-outlined text-[18px]">close</span>
+</button>
+</div>
+<!-- Scrollable Content -->
+<div class="flex-1 overflow-y-auto p-4 flex flex-col gap-6">
+<!-- Meta -->
+<div class="flex flex-col gap-3">
+<div class="flex justify-between items-center py-1 border-b border-border-subtle border-dashed">
+<span class="font-mono-base text-[11px] text-text-muted">ID</span>
+<span class="font-mono-base text-[11px] text-text-primary">PRJ-0822</span>
+</div>
+<div class="flex justify-between items-center py-1 border-b border-border-subtle border-dashed">
+<span class="font-mono-base text-[11px] text-text-muted">Degree</span>
+<span class="font-mono-base text-[11px] text-text-primary">42 inbound / 12 outbound</span>
+</div>
+<div class="flex justify-between items-center py-1 border-b border-border-subtle border-dashed">
+<span class="font-mono-base text-[11px] text-text-muted">Updated</span>
+<span class="font-mono-base text-[11px] text-tool-emerald">2 hours ago</span>
+</div>
+</div>
+<!-- Abstract / Notes -->
+<div class="flex flex-col gap-2">
+<h3 class="font-label-caps text-label-caps text-text-secondary">Summary</h3>
+<p class="font-body-sm text-body-sm text-text-secondary leading-relaxed">
+                        Complete rebuild of the central nervous system handling real-time graph state. Targets massive latency reduction for concurrent node updates.
+                    </p>
+</div>
+<!-- Connections -->
+<div class="flex flex-col gap-2">
+<h3 class="font-label-caps text-label-caps text-text-secondary mb-1">Strong Connections</h3>
+<div class="flex items-center gap-3 p-2 rounded-lg bg-surface-container border border-border-subtle hover:bg-surface-variant transition-colors cursor-pointer group">
+<div class="w-6 h-6 rounded-full bg-person-pink/20 flex items-center justify-center group-hover:bg-person-pink/30 transition-colors border border-[#f472b6]">
+<span class="material-symbols-outlined text-person-pink text-[14px]">person</span>
+</div>
+<div class="flex flex-col">
+<span class="font-body-sm text-[13px] text-text-primary">Alice L.</span>
+<span class="font-mono-base text-[10px] text-text-muted">Lead Architect</span>
+</div>
+</div>
+<div class="flex items-center gap-3 p-2 rounded-lg bg-surface-container border border-border-subtle hover:bg-surface-variant transition-colors cursor-pointer group">
+<div class="w-6 h-6 rounded-full bg-lesson-amber/20 flex items-center justify-center group-hover:bg-lesson-amber/30 transition-colors opacity-50">
+<span class="material-symbols-outlined text-lesson-amber text-[14px]">lightbulb</span>
+</div>
+<div class="flex flex-col opacity-50">
+<span class="font-body-sm text-[13px] text-text-primary line-through">API Perf v1</span>
+<span class="font-mono-base text-[10px] text-text-muted">Superseded</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Footer Action -->
+<div class="p-4 border-t border-border-subtle bg-surface-container-lowest">
+<button class="w-full flex items-center justify-center gap-2 py-2 bg-surface-variant border border-border-subtle rounded-md text-text-primary hover:border-primary/50 transition-colors group">
+<span class="material-symbols-outlined text-[16px] group-hover:text-primary transition-colors">open_in_new</span>
+<span class="font-body-sm text-[13px] font-medium">Open Full Record</span>
+</button>
+</div>
+</div>
+</main>
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+        // --- Ambient Starfield ---
+        const starfield = document.getElementById('starfield');
+        for (let i = 0; i < 150; i++) {
+            const star = document.createElement('div');
+            star.style.position = 'absolute';
+            star.style.background = 'white';
+            star.style.borderRadius = '50%';
+            const size = Math.random() * 2;
+            star.style.width = `${size}px`;
+            star.style.height = `${size}px`;
+            star.style.left = `${Math.random() * 100}%`;
+            star.style.top = `${Math.random() * 100}%`;
+            star.style.opacity = Math.random() * 0.5 + 0.1;
+            starfield.appendChild(star);
+        }
+
+        // --- Ambient Dust (Raw Sessions) ---
+        const dustCloud = document.getElementById('dust-cloud');
+        for (let i = 0; i < 50; i++) {
+            const dust = document.createElement('div');
+            dust.className = 'dust-particle';
+            dust.style.left = `${Math.random() * 100}%`;
+            dust.style.top = `${Math.random() * 100}%`;
+            dust.style.animationDelay = `${Math.random() * 10}s`;
+            dustCloud.appendChild(dust);
+        }
+
+        // Mode Switching Logic for UI
+        const modes = ['force', 'orbital', 'clustered', 'timeline', 'constellation'];
+        modes.forEach(mode => {
+            document.getElementById(`mode-${mode}`).addEventListener('click', (e) => {
+                // Reset all
+                modes.forEach(m => {
+                    const btn = document.getElementById(`mode-${m}`);
+                    btn.className = "px-2.5 py-1.5 rounded-md text-text-secondary hover:text-text-primary font-body-sm font-medium hover:bg-surface-container transition-colors text-[12px]";
+                });
+                // Set active
+                e.target.className = "px-2.5 py-1.5 rounded-md bg-surface-variant text-text-primary font-body-sm font-medium shadow-sm border border-border-subtle text-[12px]";
+                
+                // Toggle Timeline UI
+                const tlUI = document.getElementById('timeline-ui');
+                if(mode === 'timeline') {
+                    tlUI.classList.remove('hidden');
+                } else {
+                    tlUI.classList.add('hidden');
+                }
+            });
+        });
+    });
+
+    function openDetailPanel(nodeId) {
+        const panel = document.getElementById('detail-panel');
+        panel.classList.remove('translate-x-[120%]');
+        // In a real app, populate data based on nodeId
+    }
+</script></body></html>

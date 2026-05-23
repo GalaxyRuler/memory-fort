@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Mobile Search - Memory</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&amp;family=JetBrains+Mono:wght@400&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "surface": "#14121b",
+                        "surface-container-high": "#2b2832",
+                        "on-secondary-container": "#b7c8ff",
+                        "outline-variant": "#494455",
+                        "on-background": "#e7e0ed",
+                        "secondary-fixed": "#dae2ff",
+                        "inverse-surface": "#e7e0ed",
+                        "surface-tint": "#cebdff",
+                        "on-surface": "#e7e0ed",
+                        "error-container": "#93000a",
+                        "person-pink": "#f472b6",
+                        "decision-purple": "#8b5fff",
+                        "surface-container-lowest": "#0f0d16",
+                        "secondary-fixed-dim": "#b2c5ff",
+                        "surface-variant": "#36333d",
+                        "surface-dim": "#14121b",
+                        "error": "#ffb4ab",
+                        "on-surface-variant": "#cbc3d7",
+                        "inverse-on-surface": "#322f39",
+                        "primary-fixed-dim": "#cebdff",
+                        "tertiary-fixed": "#ffdcbf",
+                        "on-error": "#690005",
+                        "surface-bright": "#3b3842",
+                        "on-tertiary-fixed-variant": "#6a3b00",
+                        "text-secondary": "rgba(237,237,237,0.7)",
+                        "tertiary-fixed-dim": "#ffb873",
+                        "background": "#14121b",
+                        "crystal-gold": "#fcd34d",
+                        "text-primary": "#ededed",
+                        "lesson-amber": "#fbbf24",
+                        "primary": "#cebdff",
+                        "on-secondary": "#002b73",
+                        "on-secondary-fixed": "#001848",
+                        "tertiary": "#ffb873",
+                        "on-error-container": "#ffdad6",
+                        "on-primary": "#390093",
+                        "tool-emerald": "#34d399",
+                        "primary-fixed": "#e8ddff",
+                        "on-primary-fixed": "#21005d",
+                        "on-tertiary-fixed": "#2d1600",
+                        "reference-cyan": "#22d3ee",
+                        "primary-container": "#9c79ff",
+                        "secondary": "#b2c5ff",
+                        "outline": "#948ea0",
+                        "on-primary-fixed-variant": "#5212c4",
+                        "border-emphasis": "rgba(255,255,255,0.12)",
+                        "on-secondary-fixed-variant": "#0040a2",
+                        "inverse-primary": "#6a3add",
+                        "on-primary-container": "#310082",
+                        "secondary-container": "#004dbf",
+                        "project-blue": "#5b8bff",
+                        "surface-container-highest": "#36333d",
+                        "tertiary-container": "#d07d1b",
+                        "on-tertiary-container": "#412200",
+                        "text-muted": "rgba(237,237,237,0.45)",
+                        "surface-container": "#211e28",
+                        "border-subtle": "rgba(255,255,255,0.06)",
+                        "surface-container-low": "#1d1a24",
+                        "on-tertiary": "#4b2800",
+                        "session-zinc": "#52525b"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "sidebar-width": "220px",
+                        "stack-gap": "12px",
+                        "container-max": "1200px",
+                        "gutter": "24px",
+                        "inline-gap": "8px"
+                    },
+                    "fontFamily": {
+                        "label-caps": ["Inter"],
+                        "headline-lg": ["Inter"],
+                        "body-lg": ["Inter"],
+                        "mono-base": ["JetBrains Mono"],
+                        "body-md": ["Inter"],
+                        "headline-md": ["Inter"],
+                        "headline-sm": ["Inter"],
+                        "body-sm": ["Inter"]
+                    },
+                    "fontSize": {
+                        "label-caps": ["11px", { "lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "600" }],
+                        "headline-lg": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.02em", "fontWeight": "600" }],
+                        "body-lg": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                        "mono-base": ["13px", { "lineHeight": "20px", "fontWeight": "400" }],
+                        "body-md": ["14px", { "lineHeight": "20px", "fontWeight": "400" }],
+                        "headline-md": ["20px", { "lineHeight": "28px", "letterSpacing": "-0.02em", "fontWeight": "600" }],
+                        "headline-sm": ["16px", { "lineHeight": "24px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+                        "body-sm": ["13px", { "lineHeight": "18px", "fontWeight": "400" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        /* Custom Scrollbar for chips */
+        .hide-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .hide-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-surface text-text-primary font-body-md min-h-screen flex flex-col md:flex-row">
+<!-- Top Navigation (Mobile Only for Search Focus) -->
+<header class="md:hidden sticky top-0 z-50 bg-surface/80 backdrop-blur-xl border-b border-border-subtle p-4 pb-2">
+<div class="flex items-center gap-3">
+<button class="text-text-secondary hover:text-text-primary transition-colors">
+<span class="material-symbols-outlined" data-icon="arrow_back">arrow_back</span>
+</button>
+<div class="flex-1 relative">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" data-icon="search">search</span>
+<input autofocus="" class="w-full bg-surface-container-low border border-border-subtle rounded-full py-2 pl-10 pr-4 text-body-sm text-text-primary focus:outline-none focus:border-border-emphasis focus:ring-1 focus:ring-primary/20 transition-all font-body-sm placeholder:text-text-muted" placeholder="Search memory..." type="text"/>
+</div>
+<button class="text-text-secondary hover:text-text-primary transition-colors flex items-center justify-center bg-surface-container-low p-2 rounded-full border border-border-subtle" id="filter-btn">
+<span class="material-symbols-outlined" data-icon="tune">tune</span>
+</button>
+</div>
+<!-- Filter Chips (Scrollable) -->
+<div class="flex gap-2 overflow-x-auto hide-scrollbar mt-4 pb-2">
+<button class="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary/10 text-primary border border-primary/20 font-label-caps whitespace-nowrap">
+<span class="material-symbols-outlined text-[14px]" data-icon="hub">hub</span>
+                All Entities
+            </button>
+<button class="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface-container-low text-text-secondary border border-border-subtle hover:bg-surface-variant transition-colors font-label-caps whitespace-nowrap">
+<span class="w-2 h-2 rounded-full bg-project-blue shadow-[0_0_4px_rgba(91,139,255,0.6)]"></span>
+                Projects
+            </button>
+<button class="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface-container-low text-text-secondary border border-border-subtle hover:bg-surface-variant transition-colors font-label-caps whitespace-nowrap">
+<span class="w-2 h-2 rounded-full bg-person-pink shadow-[0_0_4px_rgba(244,114,182,0.6)]"></span>
+                People
+            </button>
+<button class="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface-container-low text-text-secondary border border-border-subtle hover:bg-surface-variant transition-colors font-label-caps whitespace-nowrap">
+<span class="w-2 h-2 rounded-full bg-crystal-gold shadow-[0_0_4px_rgba(252,211,77,0.6)]"></span>
+                Crystals
+            </button>
+</div>
+</header>
+<!-- Main Content Area -->
+<main class="flex-1 overflow-y-auto p-4 pb-24 md:p-gutter md:ml-[220px]">
+<!-- Search Results Grid -->
+<div class="flex flex-col gap-3">
+<h2 class="font-label-caps text-text-secondary mb-1">Recent Results</h2>
+<!-- Result Card 1 -->
+<div class="bg-surface-container-low border border-border-subtle rounded-lg p-4 hover:bg-surface-variant transition-colors cursor-pointer group relative overflow-hidden">
+<div class="absolute inset-y-0 left-0 w-1 bg-project-blue opacity-50 group-hover:opacity-100 transition-opacity"></div>
+<div class="flex justify-between items-start mb-2 pl-2">
+<div class="flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-project-blue shadow-[0_0_4px_rgba(91,139,255,0.6)]"></span>
+<span class="font-label-caps text-text-secondary">PROJECT</span>
+</div>
+<span class="font-body-sm text-text-muted">2h ago</span>
+</div>
+<h3 class="font-headline-sm text-text-primary mb-1 pl-2">Redesign Core Architecture</h3>
+<p class="font-body-sm text-text-secondary line-clamp-2 pl-2">Discussion on moving from monolithic to microservices. Highlighted performance bottlenecks in the current routing module.</p>
+<div class="flex gap-2 mt-3 pl-2">
+<span class="px-2 py-0.5 rounded bg-surface border border-border-subtle font-mono-base text-text-muted text-[11px]">#arch</span>
+<span class="px-2 py-0.5 rounded bg-surface border border-border-subtle font-mono-base text-text-muted text-[11px]">#q3</span>
+</div>
+</div>
+<!-- Result Card 2 -->
+<div class="bg-surface-container-low border border-border-subtle rounded-lg p-4 hover:bg-surface-variant transition-colors cursor-pointer group relative overflow-hidden">
+<div class="absolute inset-y-0 left-0 w-1 bg-person-pink opacity-50 group-hover:opacity-100 transition-opacity"></div>
+<div class="flex justify-between items-start mb-2 pl-2">
+<div class="flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-person-pink shadow-[0_0_4px_rgba(244,114,182,0.6)]"></span>
+<span class="font-label-caps text-text-secondary">PERSON</span>
+</div>
+<span class="font-body-sm text-text-muted">Yesterday</span>
+</div>
+<div class="flex items-center gap-3 pl-2">
+<div class="w-8 h-8 rounded-full bg-surface-container-highest border border-border-subtle flex items-center justify-center overflow-hidden">
+<span class="material-symbols-outlined text-text-secondary text-[16px]" data-icon="person">person</span>
+</div>
+<div>
+<h3 class="font-headline-sm text-text-primary">Sarah Jenkins</h3>
+<p class="font-body-sm text-text-secondary">Lead Engineer, Platform Team</p>
+</div>
+</div>
+</div>
+<!-- Result Card 3 -->
+<div class="bg-surface-container-low border border-border-subtle rounded-lg p-4 hover:bg-surface-variant transition-colors cursor-pointer group relative overflow-hidden">
+<div class="absolute inset-y-0 left-0 w-1 bg-crystal-gold opacity-50 group-hover:opacity-100 transition-opacity"></div>
+<div class="flex justify-between items-start mb-2 pl-2">
+<div class="flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-crystal-gold shadow-[0_0_4px_rgba(252,211,77,0.6)]"></span>
+<span class="font-label-caps text-text-secondary">CRYSTAL</span>
+</div>
+<span class="font-body-sm text-text-muted">Oct 12</span>
+</div>
+<h3 class="font-headline-sm text-text-primary mb-1 pl-2">GraphQL vs REST for Internal APIs</h3>
+<p class="font-body-sm text-text-secondary line-clamp-2 pl-2">Synthesized notes from the engineering all-hands. Decision leans towards GraphQL for the new mobile client endpoints to reduce over-fetching.</p>
+</div>
+<div class="bg-surface-container-low border border-border-subtle rounded-lg p-4 hover:bg-surface-variant transition-colors cursor-pointer group relative overflow-hidden">
+<div class="absolute inset-y-0 left-0 w-1 bg-decision-purple opacity-50 group-hover:opacity-100 transition-opacity"></div>
+<div class="flex justify-between items-start mb-2 pl-2">
+<div class="flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-decision-purple shadow-[0_0_4px_rgba(139,95,255,0.6)]"></span>
+<span class="font-label-caps text-text-secondary">DECISION</span>
+</div>
+<span class="font-body-sm text-text-muted">Oct 10</span>
+</div>
+<h3 class="font-headline-sm text-text-primary mb-1 pl-2">Deprecate Legacy Auth Service</h3>
+<p class="font-body-sm text-text-secondary line-clamp-1 pl-2">Approved by security team. Sunset date set for end of Q4.</p>
+</div>
+</div>
+</main>
+<!-- Bottom Navigation (Mobile Only) -->
+<nav class="md:hidden fixed bottom-0 left-0 w-full bg-surface-container-low/90 backdrop-blur-md border-t border-border-subtle pb-safe px-2 py-2 flex justify-around items-center z-50">
+<a class="flex flex-col items-center p-2 text-text-secondary hover:text-text-primary transition-colors group" href="#">
+<span class="material-symbols-outlined text-[24px] group-hover:scale-110 transition-transform" data-icon="dashboard">dashboard</span>
+<span class="font-label-caps text-[9px] mt-1">Home</span>
+</a>
+<a class="flex flex-col items-center p-2 text-primary group" href="#">
+<div class="relative">
+<span class="material-symbols-outlined text-[24px] group-hover:scale-110 transition-transform" data-icon="search" data-weight="fill">search</span>
+<div class="absolute -bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-primary shadow-[0_0_4px_rgba(206,189,255,0.8)]"></div>
+</div>
+<span class="font-label-caps text-[9px] mt-1 text-primary font-bold">Search</span>
+</a>
+<a class="flex flex-col items-center p-2 text-text-secondary hover:text-text-primary transition-colors group" href="#">
+<span class="material-symbols-outlined text-[24px] group-hover:scale-110 transition-transform" data-icon="add_circle">add_circle</span>
+<span class="font-label-caps text-[9px] mt-1">Capture</span>
+</a>
+<a class="flex flex-col items-center p-2 text-text-secondary hover:text-text-primary transition-colors group" href="#">
+<span class="material-symbols-outlined text-[24px] group-hover:scale-110 transition-transform" data-icon="hub">hub</span>
+<span class="font-label-caps text-[9px] mt-1">Graph</span>
+</a>
+</nav>
+<!-- Advanced Filters Bottom Sheet (Hidden by default) -->
+<div class="fixed inset-0 z-[60] bg-black/60 backdrop-blur-sm hidden flex-col justify-end opacity-0 transition-opacity duration-300" id="filter-sheet">
+<div class="bg-surface-container-low rounded-t-xl border-t border-border-subtle w-full max-h-[707px] overflow-y-auto transform translate-y-full transition-transform duration-300" id="filter-sheet-content">
+<div class="sticky top-0 bg-surface-container-low p-4 border-b border-border-subtle flex justify-between items-center z-10">
+<h3 class="font-headline-sm text-text-primary">Advanced Filters</h3>
+<button class="text-text-secondary hover:text-text-primary" id="close-filter-btn">
+<span class="material-symbols-outlined" data-icon="close">close</span>
+</button>
+</div>
+<div class="p-4 space-y-6">
+<!-- Date Range -->
+<div>
+<h4 class="font-label-caps text-text-secondary mb-3">Timeframe</h4>
+<div class="grid grid-cols-2 gap-2">
+<button class="bg-surface-variant text-text-primary border border-border-subtle rounded-md py-2 font-body-sm hover:bg-surface-bright transition-colors">Past 24h</button>
+<button class="bg-surface text-text-secondary border border-border-subtle rounded-md py-2 font-body-sm hover:bg-surface-variant transition-colors">Past Week</button>
+<button class="bg-surface text-text-secondary border border-border-subtle rounded-md py-2 font-body-sm hover:bg-surface-variant transition-colors">Past Month</button>
+<button class="bg-surface text-text-secondary border border-border-subtle rounded-md py-2 font-body-sm hover:bg-surface-variant transition-colors">Custom Range</button>
+</div>
+</div>
+<!-- Entity Types -->
+<div>
+<h4 class="font-label-caps text-text-secondary mb-3">Include Types</h4>
+<div class="space-y-2">
+<label class="flex items-center gap-3 p-2 rounded hover:bg-surface-variant transition-colors cursor-pointer">
+<input checked="" class="rounded border-outline-variant bg-surface text-primary focus:ring-primary focus:ring-offset-surface" type="checkbox"/>
+<span class="w-2 h-2 rounded-full bg-project-blue"></span>
+<span class="font-body-sm text-text-primary">Projects</span>
+</label>
+<label class="flex items-center gap-3 p-2 rounded hover:bg-surface-variant transition-colors cursor-pointer">
+<input checked="" class="rounded border-outline-variant bg-surface text-primary focus:ring-primary focus:ring-offset-surface" type="checkbox"/>
+<span class="w-2 h-2 rounded-full bg-person-pink"></span>
+<span class="font-body-sm text-text-primary">People</span>
+</label>
+<label class="flex items-center gap-3 p-2 rounded hover:bg-surface-variant transition-colors cursor-pointer">
+<input checked="" class="rounded border-outline-variant bg-surface text-primary focus:ring-primary focus:ring-offset-surface" type="checkbox"/>
+<span class="w-2 h-2 rounded-full bg-crystal-gold"></span>
+<span class="font-body-sm text-text-primary">Crystals</span>
+</label>
+</div>
+</div>
+</div>
+<div class="p-4 border-t border-border-subtle bg-surface-container-low sticky bottom-0">
+<button class="w-full bg-primary text-on-primary font-headline-sm py-3 rounded-lg hover:bg-primary-fixed transition-colors">
+                    Apply Filters
+                </button>
+</div>
+</div>
+</div>
+<script>
+        // Simple JS for Bottom Sheet Toggle
+        const filterBtn = document.getElementById('filter-btn');
+        const closeBtn = document.getElementById('close-filter-btn');
+        const filterSheet = document.getElementById('filter-sheet');
+        const filterSheetContent = document.getElementById('filter-sheet-content');
+
+        function openSheet() {
+            filterSheet.classList.remove('hidden');
+            // Small delay to allow display:block to apply before animating opacity/transform
+            setTimeout(() => {
+                filterSheet.classList.remove('opacity-0');
+                filterSheetContent.classList.remove('translate-y-full');
+            }, 10);
+        }
+
+        function closeSheet() {
+            filterSheet.classList.add('opacity-0');
+            filterSheetContent.classList.add('translate-y-full');
+            setTimeout(() => {
+                filterSheet.classList.add('hidden');
+            }, 300); // match transition duration
+        }
+
+        filterBtn.addEventListener('click', openSheet);
+        closeBtn.addEventListener('click', closeSheet);
+        
+        // Close on clicking backdrop
+        filterSheet.addEventListener('click', (e) => {
+            if(e.target === filterSheet) {
+                closeSheet();
+            }
+        });
+    </script>
+</body></html>

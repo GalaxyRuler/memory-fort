@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Raw Sessions - Mobile</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&amp;family=JetBrains+Mono:wght@400&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "surface": "#14121b",
+                    "surface-container-high": "#2b2832",
+                    "on-secondary-container": "#b7c8ff",
+                    "outline-variant": "#494455",
+                    "on-background": "#e7e0ed",
+                    "secondary-fixed": "#dae2ff",
+                    "inverse-surface": "#e7e0ed",
+                    "surface-tint": "#cebdff",
+                    "on-surface": "#e7e0ed",
+                    "error-container": "#93000a",
+                    "person-pink": "#f472b6",
+                    "decision-purple": "#8b5fff",
+                    "surface-container-lowest": "#0f0d16",
+                    "secondary-fixed-dim": "#b2c5ff",
+                    "surface-variant": "#36333d",
+                    "surface-dim": "#14121b",
+                    "error": "#ffb4ab",
+                    "on-surface-variant": "#cbc3d7",
+                    "inverse-on-surface": "#322f39",
+                    "primary-fixed-dim": "#cebdff",
+                    "tertiary-fixed": "#ffdcbf",
+                    "on-error": "#690005",
+                    "surface-bright": "#3b3842",
+                    "on-tertiary-fixed-variant": "#6a3b00",
+                    "text-secondary": "rgba(237,237,237,0.7)",
+                    "tertiary-fixed-dim": "#ffb873",
+                    "background": "#14121b",
+                    "crystal-gold": "#fcd34d",
+                    "text-primary": "#ededed",
+                    "lesson-amber": "#fbbf24",
+                    "primary": "#cebdff",
+                    "on-secondary": "#002b73",
+                    "on-secondary-fixed": "#001848",
+                    "tertiary": "#ffb873",
+                    "on-error-container": "#ffdad6",
+                    "on-primary": "#390093",
+                    "tool-emerald": "#34d399",
+                    "primary-fixed": "#e8ddff",
+                    "on-primary-fixed": "#21005d",
+                    "on-tertiary-fixed": "#2d1600",
+                    "reference-cyan": "#22d3ee",
+                    "primary-container": "#9c79ff",
+                    "secondary": "#b2c5ff",
+                    "outline": "#948ea0",
+                    "on-primary-fixed-variant": "#5212c4",
+                    "border-emphasis": "rgba(255,255,255,0.12)",
+                    "on-secondary-fixed-variant": "#0040a2",
+                    "inverse-primary": "#6a3add",
+                    "on-primary-container": "#310082",
+                    "secondary-container": "#004dbf",
+                    "project-blue": "#5b8bff",
+                    "surface-container-highest": "#36333d",
+                    "tertiary-container": "#d07d1b",
+                    "on-tertiary-container": "#412200",
+                    "text-muted": "rgba(237,237,237,0.45)",
+                    "surface-container": "#211e28",
+                    "border-subtle": "rgba(255,255,255,0.06)",
+                    "surface-container-low": "#1d1a24",
+                    "on-tertiary": "#4b2800",
+                    "session-zinc": "#52525b"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.25rem",
+                    "lg": "0.5rem",
+                    "xl": "0.75rem",
+                    "full": "9999px"
+            },
+            "spacing": {
+                    "sidebar-width": "220px",
+                    "stack-gap": "12px",
+                    "container-max": "1200px",
+                    "gutter": "24px",
+                    "inline-gap": "8px"
+            },
+            "fontFamily": {
+                    "label-caps": ["Inter"],
+                    "headline-lg": ["Inter"],
+                    "body-lg": ["Inter"],
+                    "mono-base": ["JetBrains Mono"],
+                    "body-md": ["Inter"],
+                    "headline-md": ["Inter"],
+                    "headline-sm": ["Inter"],
+                    "body-sm": ["Inter"]
+            },
+            "fontSize": {
+                    "label-caps": ["11px", {"lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "600"}],
+                    "headline-lg": ["24px", {"lineHeight": "32px", "letterSpacing": "-0.02em", "fontWeight": "600"}],
+                    "body-lg": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+                    "mono-base": ["13px", {"lineHeight": "20px", "fontWeight": "400"}],
+                    "body-md": ["14px", {"lineHeight": "20px", "fontWeight": "400"}],
+                    "headline-md": ["20px", {"lineHeight": "28px", "letterSpacing": "-0.02em", "fontWeight": "600"}],
+                    "headline-sm": ["16px", {"lineHeight": "24px", "letterSpacing": "-0.01em", "fontWeight": "600"}],
+                    "body-sm": ["13px", {"lineHeight": "18px", "fontWeight": "400"}]
+            }
+          }
+        }
+      }
+    </script>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-surface text-text-primary antialiased min-h-screen flex flex-col font-body-md relative overflow-x-hidden pb-[80px]">
+<!-- Mobile Top App Bar -->
+<header class="sticky top-0 z-40 bg-surface/80 backdrop-blur-xl border-b border-border-subtle px-4 h-14 flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-text-secondary" data-icon="layers">layers</span>
+<h1 class="font-headline-md text-headline-md text-text-primary tracking-tight font-bold">Sessions</h1>
+</div>
+<button class="w-8 h-8 flex items-center justify-center rounded-full bg-surface-container-highest text-text-primary" onclick="document.getElementById('filter-sheet').classList.toggle('translate-y-full')">
+<span class="material-symbols-outlined" data-icon="tune">tune</span>
+</button>
+</header>
+<!-- Main Content -->
+<main class="flex-1 p-4 flex flex-col gap-3">
+<!-- Search Bar -->
+<div class="relative w-full rounded-full bg-surface-container-low border border-border-subtle overflow-hidden">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-text-muted text-sm" data-icon="search">search</span>
+<input class="w-full bg-transparent text-text-primary font-body-sm text-body-sm pl-10 pr-4 py-2 focus:outline-none focus:border-border-emphasis transition-colors placeholder-text-muted" placeholder="Search sessions..." type="text"/>
+</div>
+<!-- Session List -->
+<div class="flex flex-col gap-2 mt-2">
+<!-- Session Item 1 -->
+<article class="p-4 rounded-lg bg-surface-container border border-border-subtle flex flex-col gap-2 active:scale-[0.98] transition-transform">
+<div class="flex justify-between items-start">
+<div class="flex items-center gap-2">
+<div class="w-2 h-2 rounded-full bg-session-zinc shadow-[0_0_8px_rgba(82,82,91,0.5)]"></div>
+<span class="font-mono-base text-mono-base text-text-secondary">SES-20231024-01</span>
+</div>
+<span class="font-label-caps text-label-caps text-text-muted">45 MIN</span>
+</div>
+<h3 class="font-headline-sm text-headline-sm text-text-primary">Deep Work: Algorithm Optimization</h3>
+<p class="font-body-sm text-body-sm text-text-secondary line-clamp-2">Focused session on reducing time complexity for the main graph traversal loop. Managed to drop it from O(n^2) to O(n log n) by implementing a priority queue.</p>
+<div class="flex flex-wrap gap-2 mt-1">
+<span class="px-2 py-0.5 rounded bg-surface-container-highest text-text-secondary font-label-caps text-label-caps border border-border-subtle flex items-center gap-1">
+<div class="w-1.5 h-1.5 rounded-full bg-project-blue"></div>
+                        Core Engine
+                    </span>
+<span class="px-2 py-0.5 rounded bg-surface-container-highest text-text-secondary font-label-caps text-label-caps border border-border-subtle flex items-center gap-1">
+<div class="w-1.5 h-1.5 rounded-full bg-decision-purple"></div>
+                        Optimization
+                    </span>
+</div>
+</article>
+<!-- Session Item 2 -->
+<article class="p-4 rounded-lg bg-surface-container border border-border-subtle flex flex-col gap-2 active:scale-[0.98] transition-transform">
+<div class="flex justify-between items-start">
+<div class="flex items-center gap-2">
+<div class="w-2 h-2 rounded-full bg-session-zinc shadow-[0_0_8px_rgba(82,82,91,0.5)]"></div>
+<span class="font-mono-base text-mono-base text-text-secondary">SES-20231023-04</span>
+</div>
+<span class="font-label-caps text-label-caps text-text-muted">120 MIN</span>
+</div>
+<h3 class="font-headline-sm text-headline-sm text-text-primary">Design System Review &amp; Audit</h3>
+<p class="font-body-sm text-body-sm text-text-secondary line-clamp-2">Comprehensive review of the new typography scale. Noticed some inconsistencies in the mobile baseline alignment. Needs a follow-up with the UI team.</p>
+<div class="flex flex-wrap gap-2 mt-1">
+<span class="px-2 py-0.5 rounded bg-surface-container-highest text-text-secondary font-label-caps text-label-caps border border-border-subtle flex items-center gap-1">
+<div class="w-1.5 h-1.5 rounded-full bg-tool-emerald"></div>
+                        Figma
+                    </span>
+<span class="px-2 py-0.5 rounded bg-surface-container-highest text-text-secondary font-label-caps text-label-caps border border-border-subtle flex items-center gap-1">
+<div class="w-1.5 h-1.5 rounded-full bg-crystal-gold"></div>
+                        UI/UX
+                    </span>
+</div>
+</article>
+<!-- Session Item 3 -->
+<article class="p-4 rounded-lg bg-surface-container border border-border-subtle flex flex-col gap-2 active:scale-[0.98] transition-transform">
+<div class="flex justify-between items-start">
+<div class="flex items-center gap-2">
+<div class="w-2 h-2 rounded-full bg-session-zinc shadow-[0_0_8px_rgba(82,82,91,0.5)]"></div>
+<span class="font-mono-base text-mono-base text-text-secondary">SES-20231023-02</span>
+</div>
+<span class="font-label-caps text-label-caps text-text-muted">30 MIN</span>
+</div>
+<h3 class="font-headline-sm text-headline-sm text-text-primary">Daily Standup &amp; Planning</h3>
+<p class="font-body-sm text-body-sm text-text-secondary line-clamp-2">Quick sync on blockers. Set priorities for the week focusing on stability improvements over new features.</p>
+<div class="flex flex-wrap gap-2 mt-1">
+<span class="px-2 py-0.5 rounded bg-surface-container-highest text-text-secondary font-label-caps text-label-caps border border-border-subtle flex items-center gap-1">
+<div class="w-1.5 h-1.5 rounded-full bg-person-pink"></div>
+                        Team
+                    </span>
+</div>
+</article>
+<!-- End of list marker -->
+<div class="text-center py-6 text-text-muted font-body-sm text-body-sm">
+                End of recent sessions
+            </div>
+</div>
+</main>
+<!-- Filter Bottom Sheet -->
+<div class="fixed inset-x-0 bottom-0 z-50 bg-surface-container-high rounded-t-xl border-t border-border-subtle transform translate-y-full transition-transform duration-300 ease-in-out pb-[env(safe-area-inset-bottom)] shadow-[0_-10px_40px_rgba(0,0,0,0.5)]" id="filter-sheet">
+<div class="w-full flex justify-center pt-3 pb-1">
+<div class="w-12 h-1.5 bg-surface-variant rounded-full"></div>
+</div>
+<div class="p-4 flex flex-col gap-4">
+<div class="flex justify-between items-center">
+<h2 class="font-headline-sm text-headline-sm text-text-primary">Filter Sessions</h2>
+<button class="text-text-secondary hover:text-text-primary" onclick="document.getElementById('filter-sheet').classList.add('translate-y-full')">
+<span class="material-symbols-outlined" data-icon="close">close</span>
+</button>
+</div>
+<div class="flex flex-col gap-3">
+<label class="font-label-caps text-label-caps text-text-muted">DURATION</label>
+<div class="flex gap-2">
+<button class="flex-1 py-2 px-3 rounded-md bg-surface-variant text-text-primary font-body-sm text-body-sm border border-border-subtle text-center">Short (&lt; 30m)</button>
+<button class="flex-1 py-2 px-3 rounded-md bg-surface-variant text-text-primary font-body-sm text-body-sm border border-border-subtle text-center">Medium</button>
+<button class="flex-1 py-2 px-3 rounded-md bg-primary/20 text-primary font-body-sm text-body-sm border border-primary/30 text-center">Long (&gt; 1h)</button>
+</div>
+</div>
+<div class="flex flex-col gap-3">
+<label class="font-label-caps text-label-caps text-text-muted">TAGS</label>
+<div class="flex flex-wrap gap-2">
+<span class="px-3 py-1.5 rounded-full bg-surface-variant text-text-secondary font-body-sm text-body-sm border border-border-subtle">Core Engine</span>
+<span class="px-3 py-1.5 rounded-full bg-surface-variant text-text-secondary font-body-sm text-body-sm border border-border-subtle">UI/UX</span>
+<span class="px-3 py-1.5 rounded-full bg-primary/20 text-primary font-body-sm text-body-sm border border-primary/30">Optimization</span>
+<span class="px-3 py-1.5 rounded-full bg-surface-variant text-text-secondary font-body-sm text-body-sm border border-border-subtle">Team</span>
+</div>
+</div>
+<button class="w-full py-3 mt-4 rounded-lg bg-primary text-on-primary font-headline-sm text-headline-sm font-bold active:opacity-80 transition-opacity" onclick="document.getElementById('filter-sheet').classList.add('translate-y-full')">
+                Apply Filters
+            </button>
+</div>
+</div>
+<!-- Mobile Bottom Nav Shell -->
+<nav class="fixed bottom-0 left-0 w-full bg-surface-container-low border-t border-border-subtle h-[64px] flex items-center justify-around px-2 z-40 pb-[env(safe-area-inset-bottom)] md:hidden">
+<a class="flex flex-col items-center gap-1 p-2 text-text-secondary hover:text-text-primary" href="#">
+<span class="material-symbols-outlined" data-icon="dashboard">dashboard</span>
+<span class="font-label-caps text-label-caps text-[10px]">Overview</span>
+</a>
+<a class="flex flex-col items-center gap-1 p-2 text-text-secondary hover:text-text-primary" href="#">
+<span class="material-symbols-outlined" data-icon="search">search</span>
+<span class="font-label-caps text-label-caps text-[10px]">Search</span>
+</a>
+<a class="flex flex-col items-center gap-1 p-2 text-primary" href="#">
+<span class="material-symbols-outlined" data-icon="layers" data-weight="fill" style="font-variation-settings: 'FILL' 1;">layers</span>
+<span class="font-label-caps text-label-caps text-[10px] font-bold">Sessions</span>
+</a>
+<a class="flex flex-col items-center gap-1 p-2 text-text-secondary hover:text-text-primary" href="#">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+<span class="font-label-caps text-label-caps text-[10px]">Settings</span>
+</a>
+</nav>
+</body></html>

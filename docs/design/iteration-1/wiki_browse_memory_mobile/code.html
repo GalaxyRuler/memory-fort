@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Memory - Wiki Browse (Mobile)</title>
+<!-- Fonts & Icons -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&amp;family=JetBrains+Mono:wght@400&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<!-- Tailwind Config -->
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "surface": "#14121b",
+                    "surface-container-high": "#2b2832",
+                    "on-secondary-container": "#b7c8ff",
+                    "outline-variant": "#494455",
+                    "on-background": "#e7e0ed",
+                    "secondary-fixed": "#dae2ff",
+                    "inverse-surface": "#e7e0ed",
+                    "surface-tint": "#cebdff",
+                    "on-surface": "#e7e0ed",
+                    "error-container": "#93000a",
+                    "person-pink": "#f472b6",
+                    "decision-purple": "#8b5fff",
+                    "surface-container-lowest": "#0f0d16",
+                    "secondary-fixed-dim": "#b2c5ff",
+                    "surface-variant": "#36333d",
+                    "surface-dim": "#14121b",
+                    "error": "#ffb4ab",
+                    "on-surface-variant": "#cbc3d7",
+                    "inverse-on-surface": "#322f39",
+                    "primary-fixed-dim": "#cebdff",
+                    "tertiary-fixed": "#ffdcbf",
+                    "on-error": "#690005",
+                    "surface-bright": "#3b3842",
+                    "on-tertiary-fixed-variant": "#6a3b00",
+                    "text-secondary": "rgba(237,237,237,0.7)",
+                    "tertiary-fixed-dim": "#ffb873",
+                    "background": "#14121b",
+                    "crystal-gold": "#fcd34d",
+                    "text-primary": "#ededed",
+                    "lesson-amber": "#fbbf24",
+                    "primary": "#cebdff",
+                    "on-secondary": "#002b73",
+                    "on-secondary-fixed": "#001848",
+                    "tertiary": "#ffb873",
+                    "on-error-container": "#ffdad6",
+                    "on-primary": "#390093",
+                    "tool-emerald": "#34d399",
+                    "primary-fixed": "#e8ddff",
+                    "on-primary-fixed": "#21005d",
+                    "on-tertiary-fixed": "#2d1600",
+                    "reference-cyan": "#22d3ee",
+                    "primary-container": "#9c79ff",
+                    "secondary": "#b2c5ff",
+                    "outline": "#948ea0",
+                    "on-primary-fixed-variant": "#5212c4",
+                    "border-emphasis": "rgba(255,255,255,0.12)",
+                    "on-secondary-fixed-variant": "#0040a2",
+                    "inverse-primary": "#6a3add",
+                    "on-primary-container": "#310082",
+                    "secondary-container": "#004dbf",
+                    "project-blue": "#5b8bff",
+                    "surface-container-highest": "#36333d",
+                    "tertiary-container": "#d07d1b",
+                    "on-tertiary-container": "#412200",
+                    "text-muted": "rgba(237,237,237,0.45)",
+                    "surface-container": "#211e28",
+                    "border-subtle": "rgba(255,255,255,0.06)",
+                    "surface-container-low": "#1d1a24",
+                    "on-tertiary": "#4b2800",
+                    "session-zinc": "#52525b"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.25rem",
+                    "lg": "0.5rem",
+                    "xl": "0.75rem",
+                    "full": "9999px"
+            },
+            "spacing": {
+                    "sidebar-width": "220px",
+                    "stack-gap": "12px",
+                    "container-max": "1200px",
+                    "gutter": "24px",
+                    "inline-gap": "8px"
+            },
+            "fontFamily": {
+                    "label-caps": ["Inter"],
+                    "headline-lg": ["Inter"],
+                    "body-lg": ["Inter"],
+                    "mono-base": ["JetBrains Mono"],
+                    "body-md": ["Inter"],
+                    "headline-md": ["Inter"],
+                    "headline-sm": ["Inter"],
+                    "body-sm": ["Inter"]
+            },
+            "fontSize": {
+                    "label-caps": ["11px", { "lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "600" }],
+                    "headline-lg": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.02em", "fontWeight": "600" }],
+                    "body-lg": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                    "mono-base": ["13px", { "lineHeight": "20px", "fontWeight": "400" }],
+                    "body-md": ["14px", { "lineHeight": "20px", "fontWeight": "400" }],
+                    "headline-md": ["20px", { "lineHeight": "28px", "letterSpacing": "-0.02em", "fontWeight": "600" }],
+                    "headline-sm": ["16px", { "lineHeight": "24px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+                    "body-sm": ["13px", { "lineHeight": "18px", "fontWeight": "400" }]
+            }
+          }
+        }
+      }
+    </script>
+<style>
+        /* Base styles from JSON injection */
+        body {
+            background-color: #14121b; /* fallback */
+            color: #ededed;
+        }
+        /* Custom scrollbar for webkit */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(255,255,255,0.1);
+            border-radius: 4px;
+        }
+        /* Emissive Glow Utility */
+        .glow-node-cyan { box-shadow: 0 0 12px 2px rgba(34, 211, 238, 0.2); }
+        .glow-node-purple { box-shadow: 0 0 12px 2px rgba(139, 95, 255, 0.2); }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-background text-on-background font-body-md antialiased overflow-x-hidden w-full h-full min-h-screen flex flex-col relative">
+<!-- OVERLAY FOR DRAWER -->
+<div class="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 hidden transition-opacity duration-300 opacity-0" id="drawer-overlay" onclick="toggleDrawer()"></div>
+<!-- LEFT CATEGORY DRAWER (Mobile adaptation of SideNavBar) -->
+<aside class="fixed inset-y-0 left-0 w-[260px] bg-surface-container-low border-r border-border-subtle z-50 transform -translate-x-full transition-transform duration-300 ease-out flex flex-col h-full py-gutter px-3" id="category-drawer">
+<!-- Drawer Header -->
+<div class="flex items-center gap-3 mb-8 px-2">
+<div class="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center border border-primary/30">
+<span class="material-symbols-outlined text-primary text-sm">memory</span>
+</div>
+<div>
+<h2 class="font-headline-md text-headline-md font-bold tracking-tight text-primary">memory</h2>
+<p class="font-mono-base text-mono-base text-text-muted text-[10px]">v2.4.0-stable</p>
+</div>
+</div>
+<!-- Drawer Navigation Categories -->
+<nav class="flex-1 overflow-y-auto flex flex-col gap-1">
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined text-lg">dashboard</span>
+<span class="font-body-md text-body-md">Overview</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined text-lg">search</span>
+<span class="font-body-md text-body-md">Search</span>
+</a>
+<!-- ACTIVE CATEGORY -->
+<a class="flex items-center gap-inline-gap px-3 py-2 text-primary bg-surface-container-highest rounded-lg font-bold scale-[0.98] transition-transform shadow-[0_0_15px_rgba(206,189,255,0.05)] border border-border-emphasis" href="#">
+<span class="material-symbols-outlined text-lg" style="font-variation-settings: 'FILL' 1;">menu_book</span>
+<span class="font-body-md text-body-md">Wiki</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined text-lg">article</span>
+<span class="font-body-md text-body-md">Raw</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined text-lg">hub</span>
+<span class="font-body-md text-body-md">Graph</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined text-lg">timeline</span>
+<span class="font-body-md text-body-md">Timeline</span>
+</a>
+<div class="h-px bg-border-subtle my-2 mx-2"></div>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined text-lg">settings</span>
+<span class="font-body-md text-body-md">Settings</span>
+</a>
+</nav>
+<!-- Drawer Footer -->
+<div class="mt-auto pt-4 border-t border-border-subtle">
+<div class="flex items-center gap-2 px-3 py-2 text-text-muted">
+<span class="material-symbols-outlined text-sm">cloud_done</span>
+<span class="font-mono-base text-mono-base text-[11px]">Syncing...</span>
+</div>
+</div>
+</aside>
+<!-- TOP APP BAR (Mobile Reflow) -->
+<header class="fixed top-0 left-0 right-0 h-[56px] bg-surface/80 backdrop-blur-xl border-b border-border-subtle z-30 flex justify-between items-center px-4 w-full">
+<!-- Menu Toggle -->
+<button class="p-2 -ml-2 text-text-secondary hover:text-text-primary transition-colors focus:outline-none rounded-full hover:bg-surface-variant active:opacity-80" onclick="toggleDrawer()">
+<span class="material-symbols-outlined">menu</span>
+</button>
+<!-- Context Title -->
+<div class="flex-1 flex justify-center items-center">
+<span class="font-headline-sm text-headline-sm text-text-primary flex items-center gap-2">
+<span class="material-symbols-outlined text-sm text-primary" style="font-variation-settings: 'FILL' 1;">menu_book</span>
+                Wiki
+            </span>
+</div>
+<!-- Sort Dropdown Action -->
+<div class="relative">
+<button class="p-2 -mr-2 text-text-secondary hover:text-text-primary transition-colors focus:outline-none rounded-full hover:bg-surface-variant active:opacity-80 flex items-center" id="sortBtn" onclick="toggleSortMenu()">
+<span class="material-symbols-outlined text-[20px]">sort</span>
+</button>
+<!-- Sort Menu Popup -->
+<div class="hidden absolute right-0 top-full mt-2 w-48 bg-surface-container-high border border-border-subtle rounded-lg shadow-2xl overflow-hidden py-1 z-50" id="sortMenu">
+<div class="px-3 py-2 text-[10px] font-label-caps text-text-muted uppercase tracking-wider border-b border-border-subtle/50 mb-1">Sort By</div>
+<button class="w-full text-left px-3 py-2 font-body-sm text-body-sm text-text-primary bg-surface-variant/50 flex items-center gap-2">
+<span class="material-symbols-outlined text-sm">schedule</span> Recently Updated
+                </button>
+<button class="w-full text-left px-3 py-2 font-body-sm text-body-sm text-text-secondary hover:bg-surface-variant/30 flex items-center gap-2">
+<span class="material-symbols-outlined text-sm">sort_by_alpha</span> Alphabetical
+                </button>
+<button class="w-full text-left px-3 py-2 font-body-sm text-body-sm text-text-secondary hover:bg-surface-variant/30 flex items-center gap-2">
+<span class="material-symbols-outlined text-sm">history_edu</span> Creation Date
+                </button>
+</div>
+</div>
+</header>
+<!-- MAIN CONTENT (Canvas) -->
+<main class="flex-1 pt-[72px] pb-[88px] px-4 max-w-[600px] mx-auto w-full flex flex-col gap-stack-gap">
+<!-- Search Command Bar (Mobile style) -->
+<div class="relative w-full mb-2">
+<div class="absolute inset-y-0 left-3 flex items-center pointer-events-none">
+<span class="material-symbols-outlined text-text-muted text-lg">search</span>
+</div>
+<input class="w-full h-10 pl-10 pr-4 bg-surface-container-low border border-border-subtle rounded-full font-body-sm text-body-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-border-emphasis focus:ring-1 focus:ring-primary/30 transition-all shadow-inner" placeholder="Search knowledge base..." type="text"/>
+<div class="absolute inset-y-0 right-3 flex items-center pointer-events-none">
+<span class="font-mono-base text-[10px] text-text-muted border border-border-subtle rounded px-1.5 py-0.5">⌘K</span>
+</div>
+</div>
+<!-- Single Column Card Grid -->
+<div class="flex flex-col gap-4 w-full pb-4">
+<!-- Card 1: Technical Note -->
+<article class="group relative bg-surface-container-lowest border border-border-subtle rounded-xl p-5 flex flex-col gap-3 overflow-hidden transition-all duration-300">
+<!-- Hover Glow Effect -->
+<div class="absolute inset-0 bg-gradient-to-br from-reference-cyan/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none"></div>
+<div class="flex justify-between items-start z-10">
+<div class="flex items-center gap-2">
+<div class="w-2 h-2 rounded-full bg-reference-cyan glow-node-cyan"></div>
+<span class="font-label-caps text-label-caps text-reference-cyan uppercase">Architecture</span>
+</div>
+<span class="font-mono-base text-[10px] text-text-muted">2h ago</span>
+</div>
+<div class="z-10">
+<h3 class="font-headline-sm text-headline-sm text-text-primary mb-1">State Management Protocols v2</h3>
+<p class="font-body-sm text-body-sm text-text-secondary line-clamp-2 leading-relaxed">
+                        Refactoring the centralized store to use atom-based local state resolving deeply nested reactivity issues across the main rendering tree.
+                    </p>
+</div>
+<div class="flex flex-wrap gap-2 mt-1 z-10">
+<span class="px-2 py-0.5 rounded border border-border-subtle bg-surface-container-low font-mono-base text-[11px] text-text-secondary">#frontend</span>
+<span class="px-2 py-0.5 rounded border border-border-subtle bg-surface-container-low font-mono-base text-[11px] text-text-secondary">#reactivity</span>
+</div>
+</article>
+<!-- Card 2: Strategic Decision -->
+<article class="group relative bg-surface-container-lowest border border-border-subtle rounded-xl p-5 flex flex-col gap-3 overflow-hidden transition-all duration-300">
+<div class="absolute inset-0 bg-gradient-to-br from-decision-purple/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none"></div>
+<div class="flex justify-between items-start z-10">
+<div class="flex items-center gap-2">
+<div class="w-2 h-2 rounded-full bg-decision-purple glow-node-purple"></div>
+<span class="font-label-caps text-label-caps text-decision-purple uppercase">Strategy</span>
+</div>
+<span class="font-mono-base text-[10px] text-text-muted">Yesterday</span>
+</div>
+<div class="z-10">
+<h3 class="font-headline-sm text-headline-sm text-text-primary mb-1">Migrating Core to Rust Engine</h3>
+<p class="font-body-sm text-body-sm text-text-secondary line-clamp-2 leading-relaxed">
+                        Evaluated performance metrics. Decision made to rewrite the parser layer to achieve consistent sub-10ms response times for large graph queries.
+                    </p>
+</div>
+<div class="flex flex-wrap gap-2 mt-1 z-10">
+<span class="px-2 py-0.5 rounded border border-border-subtle bg-surface-container-low font-mono-base text-[11px] text-text-secondary">#backend</span>
+<span class="px-2 py-0.5 rounded border border-border-subtle bg-surface-container-low font-mono-base text-[11px] text-text-secondary">#performance</span>
+</div>
+</article>
+<!-- Card 3: Research Note -->
+<article class="group relative bg-surface-container-lowest border border-border-subtle rounded-xl p-5 flex flex-col gap-3 overflow-hidden transition-all duration-300">
+<div class="absolute inset-0 bg-gradient-to-br from-tool-emerald/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none"></div>
+<div class="flex justify-between items-start z-10">
+<div class="flex items-center gap-2">
+<div class="w-2 h-2 rounded-full bg-tool-emerald shadow-[0_0_8px_rgba(52,211,153,0.4)]"></div>
+<span class="font-label-caps text-label-caps text-tool-emerald uppercase">Research</span>
+</div>
+<span class="font-mono-base text-[10px] text-text-muted">Oct 24</span>
+</div>
+<div class="z-10">
+<h3 class="font-headline-sm text-headline-sm text-text-primary mb-1">Local LLM Inference Benchmarks</h3>
+<p class="font-body-sm text-body-sm text-text-secondary line-clamp-2 leading-relaxed">
+                        Comparing quantization methods (GGUF vs AWQ) on Apple Silicon. Noted significant memory savings with minimal perplexity degradation.
+                    </p>
+</div>
+<div class="flex flex-wrap gap-2 mt-1 z-10">
+<span class="px-2 py-0.5 rounded border border-border-subtle bg-surface-container-low font-mono-base text-[11px] text-text-secondary">#ai</span>
+<span class="px-2 py-0.5 rounded border border-border-subtle bg-surface-container-low font-mono-base text-[11px] text-text-secondary">#hardware</span>
+</div>
+</article>
+<!-- Card 4: Meeting Notes -->
+<article class="group relative bg-surface-container-lowest border border-border-subtle rounded-xl p-5 flex flex-col gap-3 overflow-hidden transition-all duration-300">
+<div class="absolute inset-0 bg-gradient-to-br from-person-pink/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none"></div>
+<div class="flex justify-between items-start z-10">
+<div class="flex items-center gap-2">
+<div class="w-2 h-2 rounded-full bg-person-pink shadow-[0_0_8px_rgba(244,114,182,0.4)]"></div>
+<span class="font-label-caps text-label-caps text-person-pink uppercase">Meeting</span>
+</div>
+<span class="font-mono-base text-[10px] text-text-muted">Oct 21</span>
+</div>
+<div class="z-10">
+<h3 class="font-headline-sm text-headline-sm text-text-primary mb-1">Q4 Roadmap Alignment</h3>
+<p class="font-body-sm text-body-sm text-text-secondary line-clamp-2 leading-relaxed">
+                        Sync with design team on the new visual language tokens. Agreed to deprecate legacy components by end of sprint 42.
+                    </p>
+</div>
+</article>
+<!-- End of List indicator -->
+<div class="flex justify-center py-6">
+<div class="w-1 h-1 bg-border-subtle rounded-full"></div>
+</div>
+</div>
+</main>
+<!-- PERSISTENT BOTTOM NAVIGATION (Mobile specific abstraction from JSON) -->
+<nav class="fixed bottom-0 w-full h-[64px] bg-surface/90 backdrop-blur-xl border-t border-border-subtle z-30 pb-safe">
+<div class="flex justify-around items-center h-full px-2 max-w-[600px] mx-auto">
+<!-- Inactive Tab -->
+<a class="flex flex-col items-center justify-center w-16 h-full gap-1 text-text-muted hover:text-text-primary transition-colors" href="#">
+<span class="material-symbols-outlined text-[24px]">dashboard</span>
+<span class="font-mono-base text-[10px]">Home</span>
+</a>
+<!-- Inactive Tab -->
+<a class="flex flex-col items-center justify-center w-16 h-full gap-1 text-text-muted hover:text-text-primary transition-colors" href="#">
+<span class="material-symbols-outlined text-[24px]">search</span>
+<span class="font-mono-base text-[10px]">Search</span>
+</a>
+<!-- ACTIVE TAB (Wiki) -->
+<a class="flex flex-col items-center justify-center w-16 h-full gap-1 text-primary relative" href="#">
+<!-- Active Indicator Pill -->
+<div class="absolute -top-3 w-8 h-1 bg-primary rounded-b-md shadow-[0_2px_8px_rgba(206,189,255,0.6)]"></div>
+<span class="material-symbols-outlined text-[24px]" style="font-variation-settings: 'FILL' 1;">menu_book</span>
+<span class="font-mono-base text-[10px] font-bold">Wiki</span>
+</a>
+<!-- Inactive Tab -->
+<a class="flex flex-col items-center justify-center w-16 h-full gap-1 text-text-muted hover:text-text-primary transition-colors" href="#">
+<span class="material-symbols-outlined text-[24px]">pulse_alert</span>
+<span class="font-mono-base text-[10px]">Activity</span>
+</a>
+<!-- Inactive Tab -->
+<a class="flex flex-col items-center justify-center w-16 h-full gap-1 text-text-muted hover:text-text-primary transition-colors" href="#">
+<span class="material-symbols-outlined text-[24px]">settings</span>
+<span class="font-mono-base text-[10px]">Settings</span>
+</a>
+</div>
+</nav>
+<!-- Lightweight Interaction Scripts -->
+<script>
+        const drawer = document.getElementById('category-drawer');
+        const overlay = document.getElementById('drawer-overlay');
+        const sortMenu = document.getElementById('sortMenu');
+        
+        let isDrawerOpen = false;
+
+        function toggleDrawer() {
+            isDrawerOpen = !isDrawerOpen;
+            if (isDrawerOpen) {
+                drawer.classList.remove('-translate-x-full');
+                overlay.classList.remove('hidden');
+                // Small delay to allow display block to apply before opacity transition
+                setTimeout(() => {
+                    overlay.classList.remove('opacity-0');
+                    overlay.classList.add('opacity-100');
+                }, 10);
+                document.body.style.overflow = 'hidden'; // Prevent background scrolling
+            } else {
+                drawer.classList.add('-translate-x-full');
+                overlay.classList.remove('opacity-100');
+                overlay.classList.add('opacity-0');
+                setTimeout(() => {
+                    overlay.classList.add('hidden');
+                }, 300); // Wait for transition
+                document.body.style.overflow = '';
+            }
+        }
+
+        function toggleSortMenu() {
+            sortMenu.classList.toggle('hidden');
+        }
+
+        // Close sort menu when clicking outside
+        document.addEventListener('click', function(event) {
+            const sortBtn = document.getElementById('sortBtn');
+            if (sortMenu && sortBtn && !sortBtn.contains(event.target) && !sortMenu.contains(event.target)) {
+                sortMenu.classList.add('hidden');
+            }
+        });
+    </script>
+</body></html>

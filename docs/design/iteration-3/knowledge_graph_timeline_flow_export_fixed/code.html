@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Memory - Timeline Flow</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&amp;family=JetBrains+Mono:wght@400&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "surface": "#14121b",
+                        "surface-container-high": "#2b2832",
+                        "on-secondary-container": "#b7c8ff",
+                        "outline-variant": "#494455",
+                        "on-background": "#e7e0ed",
+                        "secondary-fixed": "#dae2ff",
+                        "inverse-surface": "#e7e0ed",
+                        "surface-tint": "#cebdff",
+                        "on-surface": "#e7e0ed",
+                        "error-container": "#93000a",
+                        "person-pink": "#f472b6",
+                        "decision-purple": "#8b5fff",
+                        "surface-container-lowest": "#0f0d16",
+                        "secondary-fixed-dim": "#b2c5ff",
+                        "surface-variant": "#36333d",
+                        "surface-dim": "#14121b",
+                        "error": "#ffb4ab",
+                        "on-surface-variant": "#cbc3d7",
+                        "inverse-on-surface": "#322f39",
+                        "primary-fixed-dim": "#cebdff",
+                        "tertiary-fixed": "#ffdcbf",
+                        "on-error": "#690005",
+                        "surface-bright": "#3b3842",
+                        "on-tertiary-fixed-variant": "#6a3b00",
+                        "text-secondary": "rgba(237,237,237,0.7)",
+                        "tertiary-fixed-dim": "#ffb873",
+                        "background": "#14121b",
+                        "crystal-gold": "#fcd34d",
+                        "text-primary": "#ededed",
+                        "lesson-amber": "#fbbf24",
+                        "primary": "#cebdff",
+                        "on-secondary": "#002b73",
+                        "on-secondary-fixed": "#001848",
+                        "tertiary": "#ffb873",
+                        "on-error-container": "#ffdad6",
+                        "on-primary": "#390093",
+                        "tool-emerald": "#34d399",
+                        "primary-fixed": "#e8ddff",
+                        "on-primary-fixed": "#21005d",
+                        "on-tertiary-fixed": "#2d1600",
+                        "reference-cyan": "#22d3ee",
+                        "primary-container": "#9c79ff",
+                        "secondary": "#b2c5ff",
+                        "outline": "#948ea0",
+                        "on-primary-fixed-variant": "#5212c4",
+                        "border-emphasis": "rgba(255,255,255,0.12)",
+                        "on-secondary-fixed-variant": "#0040a2",
+                        "inverse-primary": "#6a3add",
+                        "on-primary-container": "#310082",
+                        "secondary-container": "#004dbf",
+                        "project-blue": "#5b8bff",
+                        "surface-container-highest": "#36333d",
+                        "tertiary-container": "#d07d1b",
+                        "on-tertiary-container": "#412200",
+                        "text-muted": "rgba(237,237,237,0.45)",
+                        "surface-container": "#211e28",
+                        "border-subtle": "rgba(255,255,255,0.06)",
+                        "surface-container-low": "#1d1a24",
+                        "on-tertiary": "#4b2800",
+                        "session-zinc": "#52525b"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "sidebar-width": "220px",
+                        "stack-gap": "12px",
+                        "container-max": "1200px",
+                        "gutter": "24px",
+                        "inline-gap": "8px"
+                    },
+                    "fontFamily": {
+                        "label-caps": ["Inter"],
+                        "headline-lg": ["Inter"],
+                        "body-lg": ["Inter"],
+                        "mono-base": ["JetBrains Mono"],
+                        "body-md": ["Inter"],
+                        "headline-md": ["Inter"],
+                        "headline-sm": ["Inter"],
+                        "body-sm": ["Inter"]
+                    },
+                    "fontSize": {
+                        "label-caps": ["11px", { "lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "600" }],
+                        "headline-lg": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.02em", "fontWeight": "600" }],
+                        "body-lg": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                        "mono-base": ["13px", { "lineHeight": "20px", "fontWeight": "400" }],
+                        "body-md": ["14px", { "lineHeight": "20px", "fontWeight": "400" }],
+                        "headline-md": ["20px", { "lineHeight": "28px", "letterSpacing": "-0.02em", "fontWeight": "600" }],
+                        "headline-sm": ["16px", { "lineHeight": "24px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+                        "body-sm": ["13px", { "lineHeight": "18px", "fontWeight": "400" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        body {
+            background-color: #14121b;
+            color: #ededed;
+        }
+        
+        .emissive-bloom {
+            box-shadow: 0 0 6px var(--glow-color, rgba(206, 189, 255, 0.4));
+        }
+
+        .perspective-container {
+            perspective: 1200px;
+            perspective-origin: 50% 100%;
+        }
+
+        .timeline-plane {
+            transform: rotateX(60deg) translateY(100px) translateZ(-200px);
+            transform-style: preserve-3d;
+        }
+
+        .node-layer {
+            transform-style: preserve-3d;
+        }
+
+        .node-front {
+            transform: translateZ(200px) scale(1.2);
+            filter: brightness(1.2);
+        }
+
+        .node-mid {
+            transform: translateZ(50px) scale(0.9);
+            filter: brightness(0.9);
+            opacity: 0.85;
+        }
+
+        .node-back {
+            transform: translateZ(-150px) scale(0.6);
+            filter: brightness(0.6) blur(1px);
+            opacity: 0.5;
+        }
+
+        .node-haze {
+            transform: translateZ(-300px) scale(0.4);
+            filter: brightness(0.4) blur(2px);
+            opacity: 0.3;
+        }
+
+        .burst-trail {
+            background: linear-gradient(to top, rgba(206, 189, 255, 0), rgba(206, 189, 255, 0.8));
+            filter: blur(2px);
+            transform-origin: bottom center;
+            animation: burstRise 2s ease-out infinite;
+        }
+
+        @keyframes burstRise {
+            0% { transform: scaleY(0.1) translateY(0); opacity: 0; }
+            50% { opacity: 0.8; }
+            100% { transform: scaleY(1.5) translateY(-20px); opacity: 0; }
+        }
+
+        .node-item {
+            transform: rotateX(-60deg);
+        }
+
+        .grid-lines {
+            background-image: 
+                linear-gradient(to right, rgba(255,255,255,0.03) 1px, transparent 1px),
+                linear-gradient(to bottom, rgba(255,255,255,0.03) 1px, transparent 1px);
+            background-size: 50px 50px;
+        }
+    </style>
+</head>
+<body class="antialiased overflow-hidden selection:bg-primary-container selection:text-on-primary-container">
+<!-- TopNavBar -->
+<nav class="fixed top-0 right-0 w-[calc(100%-220px)] h-[48px] bg-surface/80 dark:bg-surface/80 text-text-primary font-body-sm text-body-sm border-b border-border-subtle flex justify-between items-center px-gutter ml-[220px] z-40 backdrop-blur-[8px]">
+<div class="flex items-center">
+<!-- Hidden brand logo as per JSON -->
+<span class="hidden">memory</span>
+<!-- Contextual HUD -->
+<div class="flex items-center gap-2 bg-surface-container-highest px-3 py-1 rounded-full border border-border-subtle ml-4">
+<span class="material-symbols-outlined text-[16px] text-primary" data-weight="fill" style="font-variation-settings: 'FILL' 1;">timeline</span>
+<span class="font-mono-base text-mono-base text-primary">TIMELINE-FLOW</span>
+<span class="w-1.5 h-1.5 rounded-full bg-tool-emerald animate-pulse ml-2 emissive-bloom" style="--glow-color: var(--tool-emerald)"></span>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<!-- Search Bar (on_right) -->
+<div class="relative group cursor-pointer hover:text-text-primary opacity-80">
+<div class="flex items-center gap-2 bg-surface-container-lowest border border-border-subtle rounded-full px-3 py-1.5 hover:border-emphasis transition-colors">
+<span class="material-symbols-outlined text-[16px] text-text-muted group-hover:text-text-primary">search</span>
+<span class="font-body-sm text-body-sm text-text-muted group-hover:text-text-primary">Search timeline...</span>
+<span class="font-mono-base text-mono-base text-text-muted ml-4 bg-surface-container px-1.5 rounded border border-border-subtle">⌘K</span>
+</div>
+</div>
+<div class="flex items-center gap-3">
+<span class="material-symbols-outlined text-text-muted hover:text-text-primary cursor-pointer transition-colors" data-icon="notifications">notifications</span>
+<div class="w-7 h-7 rounded-full bg-surface-container-highest border border-border-subtle overflow-hidden relative">
+<!-- DataStore placeholder for user avatar -->
+<img alt="User profile" class="w-full h-full object-cover opacity-80 hover:opacity-100 transition-opacity" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBu1CkTCJ4OU-owiHqAxW6_-wkhWnPBZdiBjvG7geEzgP-bhKYiBhmE31ki3Ifgz2QPQAVQRwp0w_MAa9t9JGq8NJiFhfFpQ0A_7zu6V1O-qLAEO3jGD43jqesCQZKTFC_1N4C7SsS94s5HhcrHCFg1Vr5dLsj5rWibrLCSLBJEfQZRXaKXePD6B873EaucxUSfBYqXEi12gil-KMR6cG2t490V12Cl0AK1XS8ZtoUq25Sg-UvcS1ijIBn1MyoYkF6TXFc-CjOQVxl_"/>
+</div>
+</div>
+</div>
+</nav>
+<!-- SideNavBar -->
+<aside class="fixed left-0 top-0 h-full w-[220px] bg-surface-container-low dark:bg-surface-container-low text-primary dark:text-primary font-body-md text-body-md border-r border-border-subtle flex flex-col py-gutter px-3 z-50">
+<div class="flex items-center gap-3 mb-8 px-2">
+<div class="w-8 h-8 rounded bg-primary-container/20 border border-primary/30 flex items-center justify-center emissive-bloom" style="--glow-color: rgba(206, 189, 255, 0.2)">
+<span class="font-headline-md text-headline-md font-bold tracking-tight text-primary dark:text-primary">m</span>
+</div>
+<div>
+<div class="font-headline-md text-headline-md font-bold tracking-tight text-primary dark:text-primary">memory</div>
+<div class="font-mono-base text-label-caps text-text-muted">v2.4.0-stable</div>
+</div>
+</div>
+<nav class="flex-1 flex flex-col gap-1">
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined text-[20px]" data-icon="dashboard">dashboard</span>
+<span class="">Overview</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined text-[20px]" data-icon="search">search</span>
+<span class="">Search</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined text-[20px]" data-icon="menu_book">menu_book</span>
+<span class="">Wiki</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined text-[20px]" data-icon="article">article</span>
+<span class="">Raw</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined text-[20px]" data-icon="hub">hub</span>
+<span class="">Graph</span>
+</a>
+<!-- ACTIVE TAB -->
+<a class="flex items-center gap-inline-gap px-3 py-2 text-primary bg-surface-container-highest rounded-lg font-bold scale-[0.98] transition-transform" href="#">
+<span class="material-symbols-outlined text-[20px]" data-icon="timeline">timeline</span>
+<span class="">Timeline</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined text-[20px]" data-icon="pulse">pulse_alert</span>
+<span class="">Activity</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined text-[20px]" data-icon="layers">layers</span>
+<span class="">Sessions</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined text-[20px]" data-icon="diamond">diamond</span>
+<span class="">Crystals</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined text-[20px]" data-icon="policy">policy</span>
+<span class="">Audit</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg mt-auto" href="#">
+<span class="material-symbols-outlined text-[20px]" data-icon="settings">settings</span>
+<span class="">Settings</span>
+</a>
+</nav>
+<div class="mt-4 pt-4 border-t border-border-subtle">
+<div class="flex items-center justify-between px-3 py-2 text-text-secondary text-label-caps font-label-caps">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-[16px]" data-icon="cloud_done">cloud_done</span>
+<span class="">Status</span>
+</div>
+<span class="text-text-muted">Syncing...</span>
+</div>
+</div>
+</aside>
+<!-- Main Canvas: Timeline Perspective -->
+<main class="ml-[220px] mt-[48px] h-[calc(100vh-48px)] relative bg-surface overflow-hidden perspective-container">
+<!-- Telemetry overlay -->
+<div class="absolute top-4 right-4 font-mono-base text-[10px] text-tool-emerald bg-surface-container/50 px-2 py-1 rounded border border-border-subtle z-50 backdrop-blur flex items-center gap-1.5">
+<div class="w-1.5 h-1.5 rounded-full bg-tool-emerald animate-pulse"></div>
+    60 FPS // TELEMETRY OK
+</div>
+<!-- Deep Space Background Fade -->
+<div class="absolute inset-0 bg-gradient-to-b from-surface-container-lowest via-surface to-surface-container pointer-events-none z-0"></div>
+<!-- 3D Timeline Plane -->
+<div class="absolute inset-0 flex items-center justify-center z-10 timeline-plane">
+<!-- Grid Floor -->
+<div class="absolute inset-[-1000px] grid-lines opacity-20"></div>
+<!-- Central Time Axis -->
+<div class="absolute top-[-1000px] bottom-[-1000px] w-1 bg-gradient-to-b from-transparent via-primary/30 to-primary/80 left-1/2 transform -translate-x-1/2 emissive-bloom" style="--glow-color: rgba(206, 189, 255, 0.3)"></div>
+<!-- Nodes Container -->
+<div class="relative w-full h-full node-layer">
+<!-- HAZE LAYER (Last week) -->
+<div class="absolute top-[-600px] left-1/2 w-full max-w-[800px] transform -translate-x-1/2 h-[400px] node-haze">
+<!-- Marker -->
+<div class="absolute right-full mr-12 top-1/2 text-right node-item">
+<div class="font-mono-base text-mono-base text-text-muted">Last week</div>
+<div class="w-12 h-[1px] bg-border-subtle absolute right-[-50px] top-1/2"></div>
+</div>
+<!-- Nodes (~15 items) -->
+<div class="absolute top-[10%] left-[30%] w-6 h-6 rounded-full bg-project-blue/40 border border-project-blue/60 node-item"></div>
+<div class="absolute top-[40%] left-[60%] w-5 h-5 rounded-full bg-tertiary-container/40 border border-tertiary-container/60 node-item"></div>
+<div class="absolute top-[70%] left-[45%] w-7 h-7 rounded-full bg-primary/40 border border-primary/60 node-item"></div>
+<div class="absolute top-[15%] left-[80%] w-4 h-4 rounded-full bg-primary/30 border border-primary/50 node-item"></div>
+<div class="absolute top-[25%] left-[20%] w-4 h-4 rounded-full bg-decision-purple/30 border border-decision-purple/50 node-item"></div>
+<div class="absolute top-[55%] left-[70%] w-5 h-5 rounded-full bg-primary/40 border border-primary/60 node-item"></div>
+<div class="absolute top-[85%] left-[35%] w-4 h-4 rounded-full bg-lesson-amber/30 border border-lesson-amber/50 node-item"></div>
+<div class="absolute top-[35%] left-[15%] w-6 h-6 rounded-full bg-project-blue/40 border border-project-blue/60 node-item"></div>
+<div class="absolute top-[75%] left-[85%] w-4 h-4 rounded-full bg-primary/30 border border-primary/50 node-item"></div>
+<div class="absolute top-[5%] left-[50%] w-5 h-5 rounded-full bg-person-pink/30 border border-person-pink/50 node-item"></div>
+<div class="absolute top-[95%] left-[65%] w-6 h-6 rounded-full bg-primary/40 border border-primary/60 node-item"></div>
+<div class="absolute top-[45%] left-[40%] w-4 h-4 rounded-full bg-tool-emerald/30 border border-tool-emerald/50 node-item"></div>
+<div class="absolute top-[65%] left-[25%] w-5 h-5 rounded-full bg-primary/30 border border-primary/50 node-item"></div>
+<div class="absolute top-[80%] left-[10%] w-4 h-4 rounded-full bg-tertiary-container/30 border border-tertiary-container/50 node-item"></div>
+<div class="absolute top-[20%] left-[90%] w-5 h-5 rounded-full bg-primary/40 border border-primary/60 node-item"></div>
+</div>
+<!-- BACK LAYER (3 days ago) -->
+<div class="absolute top-[-200px] left-1/2 w-full max-w-[800px] transform -translate-x-1/2 h-[400px] node-back">
+<!-- Marker -->
+<div class="absolute right-full mr-12 top-1/2 text-right node-item">
+<div class="font-mono-base text-mono-base text-text-secondary">3 days ago</div>
+<div class="w-12 h-[1px] bg-border-subtle absolute right-[-50px] top-1/2"></div>
+</div>
+<!-- Nodes (~15 items) -->
+<div class="absolute top-[20%] left-[25%] node-item flex flex-col items-center">
+<div class="w-8 h-8 rounded-full bg-person-pink/60 border border-person-pink flex items-center justify-center emissive-bloom" style="--glow-color: rgba(244, 114, 182, 0.4)">
+<span class="material-symbols-outlined text-[16px] text-surface">person</span>
+</div>
+</div>
+<div class="absolute top-[60%] left-[75%] node-item flex flex-col items-center">
+<div class="w-6 h-6 rounded-full bg-reference-cyan/60 border border-reference-cyan flex items-center justify-center emissive-bloom" style="--glow-color: rgba(34, 211, 238, 0.4)">
+<span class="material-symbols-outlined text-[14px] text-surface">link</span>
+</div>
+</div>
+<div class="absolute top-[10%] left-[40%] w-5 h-5 rounded-full bg-primary/50 border border-primary/70 node-item"></div>
+<div class="absolute top-[30%] left-[60%] w-6 h-6 rounded-full bg-decision-purple/50 border border-decision-purple/70 node-item"></div>
+<div class="absolute top-[50%] left-[20%] w-4 h-4 rounded-full bg-project-blue/50 border border-project-blue/70 node-item"></div>
+<div class="absolute top-[70%] left-[85%] w-7 h-7 rounded-full bg-primary/60 border border-primary/80 node-item"></div>
+<div class="absolute top-[85%] left-[45%] w-5 h-5 rounded-full bg-tertiary-container/50 border border-tertiary-container/70 node-item"></div>
+<div class="absolute top-[40%] left-[80%] w-4 h-4 rounded-full bg-lesson-amber/50 border border-lesson-amber/70 node-item"></div>
+<div class="absolute top-[15%] left-[70%] w-6 h-6 rounded-full bg-primary/50 border border-primary/70 node-item"></div>
+<div class="absolute top-[75%] left-[30%] w-5 h-5 rounded-full bg-tool-emerald/50 border border-tool-emerald/70 node-item"></div>
+<div class="absolute top-[90%] left-[65%] w-4 h-4 rounded-full bg-primary/50 border border-primary/70 node-item"></div>
+<div class="absolute top-[25%] left-[10%] w-7 h-7 rounded-full bg-project-blue/60 border border-project-blue/80 node-item"></div>
+<div class="absolute top-[55%] left-[50%] w-4 h-4 rounded-full bg-primary/50 border border-primary/70 node-item"></div>
+<div class="absolute top-[80%] left-[15%] w-6 h-6 rounded-full bg-person-pink/50 border border-person-pink/70 node-item"></div>
+<div class="absolute top-[5%] left-[90%] w-5 h-5 rounded-full bg-primary/60 border border-primary/80 node-item"></div>
+<!-- Connection line example -->
+<svg class="absolute inset-0 w-full h-full pointer-events-none" style="transform: rotateX(-60deg)">
+<line stroke="rgba(255,255,255,0.1)" stroke-dasharray="4 4" stroke-width="2" x1="25%" x2="45%" y1="20%" y2="70%"></line>
+<line stroke="rgba(255,255,255,0.1)" stroke-dasharray="4 4" stroke-width="2" x1="75%" x2="60%" y1="60%" y2="30%"></line>
+</svg>
+</div>
+<!-- MID LAYER (Yesterday) -->
+<div class="absolute top-[200px] left-1/2 w-full max-w-[1000px] transform -translate-x-1/2 h-[400px] node-mid">
+<!-- Marker -->
+<div class="absolute left-full ml-12 top-1/2 text-left node-item">
+<div class="font-mono-base text-mono-base text-text-primary">Yesterday</div>
+<div class="w-12 h-[1px] bg-border-subtle absolute left-[-50px] top-1/2"></div>
+</div>
+<!-- Nodes (~10 items) -->
+<div class="absolute top-[30%] left-[65%] node-item flex flex-col items-center group cursor-pointer">
+<div class="w-10 h-10 rounded-full bg-decision-purple border-2 border-primary-fixed flex items-center justify-center emissive-bloom transition-transform group-hover:scale-110" style="--glow-color: rgba(139, 95, 255, 0.6)">
+<span class="material-symbols-outlined text-[20px] text-white">lightbulb</span>
+</div>
+<div class="mt-2 bg-surface-container px-2 py-1 rounded border border-border-subtle text-label-caps font-label-caps text-text-secondary opacity-0 group-hover:opacity-100 transition-opacity">Architecture Decision</div>
+</div>
+<div class="absolute top-[80%] left-[35%] node-item flex flex-col items-center group cursor-pointer">
+<div class="w-8 h-8 rounded-full bg-crystal-gold border border-lesson-amber flex items-center justify-center emissive-bloom transition-transform group-hover:scale-110" style="--glow-color: rgba(252, 211, 77, 0.5)">
+<span class="material-symbols-outlined text-[16px] text-surface-container-lowest" data-weight="fill">diamond</span>
+</div>
+</div>
+<div class="absolute top-[15%] left-[25%] w-6 h-6 rounded-full bg-project-blue/70 border border-project-blue/90 node-item"></div>
+<div class="absolute top-[50%] left-[80%] w-5 h-5 rounded-full bg-primary/70 border border-primary/90 node-item"></div>
+<div class="absolute top-[70%] left-[15%] w-7 h-7 rounded-full bg-tertiary-container/70 border border-tertiary-container/90 node-item"></div>
+<div class="absolute top-[20%] left-[85%] w-4 h-4 rounded-full bg-person-pink/70 border border-person-pink/90 node-item"></div>
+<div class="absolute top-[60%] left-[45%] w-6 h-6 rounded-full bg-tool-emerald/70 border border-tool-emerald/90 node-item"></div>
+<div class="absolute top-[90%] left-[60%] w-5 h-5 rounded-full bg-primary/80 border border-primary/100 node-item"></div>
+<div class="absolute top-[10%] left-[50%] w-8 h-8 rounded-full bg-decision-purple/60 border border-decision-purple/80 node-item flex items-center justify-center">
+<span class="material-symbols-outlined text-[14px] text-white/80">commit</span>
+</div>
+<div class="absolute top-[40%] left-[10%] w-5 h-5 rounded-full bg-lesson-amber/70 border border-lesson-amber/90 node-item"></div>
+</div>
+<!-- FRONT LAYER (Today / Active) -->
+<div class="absolute top-[600px] left-1/2 w-full max-w-[1200px] transform -translate-x-1/2 h-[400px] node-front">
+<!-- Marker -->
+<div class="absolute right-full mr-16 top-[40%] text-right node-item">
+<div class="font-headline-sm text-headline-sm text-primary font-bold">Today</div>
+<div class="font-mono-base text-label-caps text-text-muted mt-1">14 active nodes</div>
+<div class="w-16 h-[2px] bg-primary/50 absolute right-[-66px] top-[12px] emissive-bloom" style="--glow-color: rgba(206, 189, 255, 0.5)"></div>
+</div>
+<!-- Newly Spawned Node (Burst Trail) -->
+<div class="absolute top-[20%] left-[40%] node-item flex flex-col items-center group cursor-pointer z-50">
+<div class="absolute bottom-full w-4 h-32 burst-trail"></div>
+<div class="w-14 h-14 rounded-full bg-surface-container-highest border-2 border-tool-emerald flex items-center justify-center emissive-bloom shadow-[0_0_20px_rgba(52,211,153,0.4)] transition-all hover:border-white" style="--glow-color: rgba(52, 211, 153, 0.8)">
+<span class="material-symbols-outlined text-[24px] text-tool-emerald">edit_document</span>
+</div>
+<div class="mt-3 bg-surface-container-high px-3 py-1.5 rounded-lg border border-border-emphasis text-body-sm font-body-sm text-text-primary shadow-lg backdrop-blur-[4px]">
+                            Drafting UI Protocol
+                        </div>
+</div>
+<!-- Front Nodes (~10 items) -->
+<div class="absolute top-[60%] left-[55%] node-item flex flex-col items-center group cursor-pointer z-40">
+<div class="w-12 h-12 rounded-full bg-surface-container border border-project-blue flex items-center justify-center emissive-bloom transition-transform hover:scale-105" style="--glow-color: rgba(91, 139, 255, 0.5)">
+<span class="material-symbols-outlined text-[20px] text-project-blue">folder_open</span>
+</div>
+<div class="mt-2 text-label-caps font-label-caps text-text-secondary bg-surface/50 px-2 py-1 rounded">Project Alpha</div>
+</div>
+<div class="absolute top-[30%] left-[75%] node-item flex flex-col items-center group cursor-pointer z-40">
+<div class="w-10 h-10 rounded-full bg-surface-container border border-person-pink flex items-center justify-center emissive-bloom transition-transform hover:scale-105" style="--glow-color: rgba(244, 114, 182, 0.5)">
+<span class="material-symbols-outlined text-[18px] text-person-pink">chat</span>
+</div>
+</div>
+<div class="absolute top-[75%] left-[25%] node-item flex flex-col items-center group cursor-pointer z-40">
+<div class="w-9 h-9 rounded-full bg-surface-container border border-lesson-amber flex items-center justify-center emissive-bloom transition-transform hover:scale-105" style="--glow-color: rgba(251, 191, 36, 0.5)">
+<span class="material-symbols-outlined text-[16px] text-lesson-amber">star</span>
+</div>
+</div>
+<div class="absolute top-[10%] left-[20%] w-7 h-7 rounded-full bg-primary/90 border border-primary node-item"></div>
+<div class="absolute top-[45%] left-[15%] w-6 h-6 rounded-full bg-decision-purple/90 border border-decision-purple node-item"></div>
+<div class="absolute top-[85%] left-[45%] w-8 h-8 rounded-full bg-tertiary-container/90 border border-tertiary-container node-item"></div>
+<div class="absolute top-[15%] left-[85%] w-5 h-5 rounded-full bg-project-blue/90 border border-project-blue node-item"></div>
+<div class="absolute top-[50%] left-[90%] w-7 h-7 rounded-full bg-tool-emerald/90 border border-tool-emerald node-item"></div>
+<div class="absolute top-[80%] left-[80%] w-6 h-6 rounded-full bg-primary/90 border border-primary node-item"></div>
+<div class="absolute top-[90%] left-[10%] w-5 h-5 rounded-full bg-person-pink/90 border border-person-pink node-item"></div>
+</div>
+</div>
+</div>
+<!-- Timeline Scrubber (Bottom Anchor) -->
+<div class="absolute bottom-0 left-0 w-full h-[80px] bg-gradient-to-t from-surface-container-lowest to-transparent flex items-end justify-center pb-6 z-30">
+<div class="w-3/4 max-w-[800px] relative">
+<!-- Track -->
+<div class="h-1 w-full bg-surface-variant rounded-full relative overflow-hidden">
+<div class="absolute top-0 right-0 h-full w-[10%] bg-gradient-to-r from-transparent to-primary/50"></div>
+</div>
+<!-- Markers -->
+<div class="absolute top-[-10px] w-full flex justify-between px-2">
+<div class="flex flex-col items-center">
+<div class="w-1 h-3 bg-border-subtle mb-1"></div>
+<span class="font-mono-base text-label-caps text-text-muted">Mar</span>
+</div>
+<div class="flex flex-col items-center">
+<div class="w-1 h-3 bg-border-subtle mb-1"></div>
+<span class="font-mono-base text-label-caps text-text-muted">Apr</span>
+</div>
+<div class="flex flex-col items-center">
+<div class="w-1 h-3 bg-border-subtle mb-1"></div>
+<span class="font-mono-base text-label-caps text-text-muted">May</span>
+</div>
+<!-- Active Playhead -->
+<div class="flex flex-col items-center absolute right-[5%] top-[-4px] transform translate-x-1/2 cursor-grab">
+<div class="w-4 h-4 rounded-full bg-primary border-2 border-surface flex items-center justify-center shadow-[0_0_10px_rgba(206,189,255,0.6)]">
+<div class="w-1 h-1 bg-surface rounded-full"></div>
+</div>
+<div class="w-[2px] h-4 bg-primary/50 mb-1"></div>
+<span class="font-mono-base text-label-caps text-primary font-bold">Today</span>
+</div>
+</div>
+</div>
+</div>
+</main>
+</body></html>

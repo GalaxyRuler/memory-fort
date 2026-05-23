@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>memory - Search</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              "colors": {
+                      "on-error": "#690005",
+                      "surface-container-low": "#1d1a24",
+                      "surface-variant": "#36333d",
+                      "on-tertiary": "#4b2800",
+                      "text-primary": "#ededed",
+                      "lesson-amber": "#fbbf24",
+                      "surface-dim": "#14121b",
+                      "primary-container": "#9c79ff",
+                      "on-secondary": "#002b73",
+                      "on-tertiary-container": "#412200",
+                      "session-zinc": "#52525b",
+                      "on-error-container": "#ffdad6",
+                      "surface-tint": "#cebdff",
+                      "secondary-container": "#004dbf",
+                      "on-tertiary-fixed": "#2d1600",
+                      "on-secondary-fixed": "#001848",
+                      "tool-emerald": "#34d399",
+                      "project-blue": "#5b8bff",
+                      "primary-fixed-dim": "#cebdff",
+                      "tertiary": "#ffb873",
+                      "outline": "#948ea0",
+                      "secondary-fixed": "#dae2ff",
+                      "secondary": "#b2c5ff",
+                      "text-muted": "rgba(237,237,237,0.45)",
+                      "inverse-on-surface": "#322f39",
+                      "surface-container": "#211e28",
+                      "inverse-surface": "#e7e0ed",
+                      "inverse-primary": "#6a3add",
+                      "on-secondary-container": "#b7c8ff",
+                      "error-container": "#93000a",
+                      "on-tertiary-fixed-variant": "#6a3b00",
+                      "border-emphasis": "rgba(255,255,255,0.12)",
+                      "on-primary-fixed-variant": "#5212c4",
+                      "surface-bright": "#3b3842",
+                      "primary": "#cebdff",
+                      "error": "#ffb4ab",
+                      "tertiary-container": "#d07d1b",
+                      "primary-fixed": "#e8ddff",
+                      "reference-cyan": "#22d3ee",
+                      "on-secondary-fixed-variant": "#0040a2",
+                      "tertiary-fixed-dim": "#ffb873",
+                      "background": "#14121b",
+                      "on-primary-container": "#310082",
+                      "on-primary-fixed": "#21005d",
+                      "on-surface": "#e7e0ed",
+                      "surface": "#14121b",
+                      "decision-purple": "#8b5fff",
+                      "surface-container-highest": "#36333d",
+                      "outline-variant": "#494455",
+                      "tertiary-fixed": "#ffdcbf",
+                      "surface-container-high": "#2b2832",
+                      "on-background": "#e7e0ed",
+                      "secondary-fixed-dim": "#b2c5ff",
+                      "surface-container-lowest": "#0f0d16",
+                      "on-primary": "#390093",
+                      "text-secondary": "rgba(237,237,237,0.7)",
+                      "person-pink": "#f472b6",
+                      "border-subtle": "rgba(255,255,255,0.06)",
+                      "on-surface-variant": "#cbc3d7",
+                      "crystal-gold": "#fcd34d"
+              },
+              "borderRadius": {
+                      "DEFAULT": "0.25rem",
+                      "lg": "0.5rem",
+                      "xl": "0.75rem",
+                      "full": "9999px"
+              },
+              "spacing": {
+                      "container-max": "1200px",
+                      "sidebar-width": "220px",
+                      "gutter": "24px",
+                      "inline-gap": "8px",
+                      "stack-gap": "12px"
+              },
+              "fontFamily": {
+                      "body-sm": [
+                              "Inter"
+                      ],
+                      "mono-base": [
+                              "JetBrains Mono"
+                      ],
+                      "body-lg": [
+                              "Inter"
+                      ],
+                      "headline-sm": [
+                              "Inter"
+                      ],
+                      "body-md": [
+                              "Inter"
+                      ],
+                      "label-caps": [
+                              "Inter"
+                      ],
+                      "headline-lg": [
+                              "Inter"
+                      ],
+                      "headline-md": [
+                              "Inter"
+                      ]
+              },
+              "fontSize": {
+                      "body-sm": [
+                              "13px",
+                              {
+                                      "lineHeight": "18px",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "mono-base": [
+                              "13px",
+                              {
+                                      "lineHeight": "20px",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "body-lg": [
+                              "16px",
+                              {
+                                      "lineHeight": "24px",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "headline-sm": [
+                              "16px",
+                              {
+                                      "lineHeight": "24px",
+                                      "letterSpacing": "-0.01em",
+                                      "fontWeight": "600"
+                              }
+                      ],
+                      "body-md": [
+                              "14px",
+                              {
+                                      "lineHeight": "20px",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "label-caps": [
+                              "11px",
+                              {
+                                      "lineHeight": "16px",
+                                      "letterSpacing": "0.05em",
+                                      "fontWeight": "600"
+                              }
+                      ],
+                      "headline-lg": [
+                              "24px",
+                              {
+                                      "lineHeight": "32px",
+                                      "letterSpacing": "-0.02em",
+                                      "fontWeight": "600"
+                              }
+                      ],
+                      "headline-md": [
+                              "20px",
+                              {
+                                      "lineHeight": "28px",
+                                      "letterSpacing": "-0.02em",
+                                      "fontWeight": "600"
+                              }
+                      ]
+              }
+      },
+          },
+        }
+      </script>
+<style>
+        body {
+            background-color: theme('colors.background');
+            color: theme('colors.text-primary');
+        }
+        
+        .emissive-dot-blue {
+            box-shadow: 0 0 4px theme('colors.project-blue');
+        }
+        .emissive-dot-green {
+            box-shadow: 0 0 4px theme('colors.tool-emerald');
+        }
+        .emissive-dot-pink {
+            box-shadow: 0 0 4px theme('colors.person-pink');
+        }
+        
+        /* Custom scrollbar for webkit */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: theme('colors.surface-variant');
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: theme('colors.outline-variant');
+        }
+    </style>
+</head>
+<body class="font-body-md text-body-md antialiased h-screen overflow-hidden flex">
+<!-- SideNavBar (Shared Component) -->
+<nav class="hidden md:flex flex-col h-full py-gutter px-3 fixed left-0 top-0 w-[220px] bg-surface-container-low border-r border-border-subtle z-50">
+<!-- Brand/Header -->
+<div class="flex items-center gap-inline-gap mb-8 px-3">
+<div class="w-8 h-8 rounded-lg bg-surface-variant flex items-center justify-center overflow-hidden border border-border-subtle">
+<span class="material-symbols-outlined text-primary" style="font-variation-settings: 'FILL' 1;">hub</span>
+</div>
+<div>
+<h1 class="font-headline-md text-headline-md font-bold tracking-tight text-primary">memory</h1>
+<p class="font-body-sm text-body-sm text-text-muted">v2.4.0-stable</p>
+</div>
+</div>
+<!-- Navigation Tabs -->
+<div class="flex-1 overflow-y-auto space-y-1">
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined text-[18px]">dashboard</span>
+                Overview
+            </a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-primary bg-surface-container-highest rounded-lg font-bold transition-transform scale-[0.98]" href="#">
+<span class="material-symbols-outlined text-[18px]">search</span>
+                Search
+            </a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined text-[18px]">menu_book</span>
+                Wiki
+            </a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined text-[18px]">article</span>
+                Raw
+            </a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined text-[18px]">hub</span>
+                Graph
+            </a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined text-[18px]">timeline</span>
+                Timeline
+            </a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined text-[18px]">pulse_alert</span>
+                Activity
+            </a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined text-[18px]">layers</span>
+                Sessions
+            </a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined text-[18px]">diamond</span>
+                Crystals
+            </a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined text-[18px]">policy</span>
+                Audit
+            </a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined text-[18px]">settings</span>
+                Settings
+            </a>
+</div>
+<!-- Footer -->
+<div class="mt-auto pt-4 border-t border-border-subtle">
+<button class="w-full flex items-center justify-between px-3 py-2 bg-surface-container-highest border border-border-subtle rounded-lg text-text-primary font-body-sm text-body-sm hover:border-outline-variant transition-colors">
+<span class="flex items-center gap-2">
+<div class="w-2 h-2 rounded-full bg-tool-emerald emissive-dot-green"></div>
+                    Syncing...
+                </span>
+<span class="material-symbols-outlined text-[16px] text-text-secondary">sync</span>
+</button>
+<div class="mt-4">
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary transition-colors duration-200 rounded-lg font-body-sm text-body-sm" href="#">
+<span class="material-symbols-outlined text-[16px]">cloud_done</span>
+                    Status
+                </a>
+</div>
+</div>
+</nav>
+<!-- Main Content Area -->
+<main class="flex-1 md:ml-[220px] h-full flex flex-col relative bg-surface">
+<!-- TopNavBar (Shared Component) -->
+<header class="flex justify-between items-center px-gutter w-full h-[48px] bg-surface/80 backdrop-blur-xl border-b border-border-subtle z-40 sticky top-0">
+<div class="flex items-center gap-4">
+<!-- Mobile Menu Toggle (hidden on desktop) -->
+<button class="md:hidden text-text-secondary hover:text-text-primary">
+<span class="material-symbols-outlined">menu</span>
+</button>
+<!-- Search context info -->
+<div class="hidden md:flex items-center gap-2 text-text-muted font-body-sm text-body-sm">
+<span>Search</span>
+<span class="material-symbols-outlined text-[14px]">chevron_right</span>
+<span class="text-text-secondary">Query Results</span>
+</div>
+</div>
+<!-- Trailing Actions -->
+<div class="flex items-center gap-4">
+<button class="text-text-muted hover:text-text-primary transition-colors cursor-pointer">
+<span class="material-symbols-outlined text-[20px]">notifications</span>
+</button>
+<div class="w-6 h-6 rounded-full bg-surface-variant overflow-hidden border border-border-subtle">
+<!-- Placeholder profile image -->
+<img alt="User profile" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCfviprXtlPingji4GH_HhSCCV4pvnJcsuZacG_98I8pxL-ZMxzGJCxj3uKCidgSu15WrSVnDEJw8qrbwt1FIbKkv4tptmh-F7tU76IR5z_qd2WQodbqcJdS9JfDol6mMFqTys8TR_qasy6Dg-L-Q8UQZvefiq72vl5s3oEzD4jmmiH7gP1Dp97FOGSr3gRB8NRoL81ZF4ij8XdB-TsEandBGndxLKiLvxpAG_Ar6QoVISU0QQQEfpsMo0IT2VCuTMQ_zEKhWtHnxL-"/>
+</div>
+</div>
+</header>
+<!-- Search Interface Layout -->
+<div class="flex-1 flex overflow-hidden">
+<!-- Left Rail: Filters -->
+<aside class="w-[240px] border-r border-border-subtle bg-surface-dim overflow-y-auto hidden lg:block p-gutter flex-shrink-0">
+<div class="space-y-8">
+<!-- Filter Group: Entity Type -->
+<div>
+<h3 class="font-label-caps text-label-caps text-text-muted uppercase mb-4 tracking-wider">Entity Types</h3>
+<div class="space-y-2">
+<label class="flex items-center justify-between group cursor-pointer">
+<div class="flex items-center gap-2">
+<input checked="" class="form-checkbox h-4 w-4 rounded bg-surface border-border-subtle text-primary focus:ring-primary focus:ring-offset-surface" type="checkbox"/>
+<span class="flex items-center gap-2 font-body-sm text-body-sm text-text-secondary group-hover:text-text-primary transition-colors">
+<div class="w-1.5 h-1.5 rounded-full bg-project-blue emissive-dot-blue"></div>
+                                        Projects
+                                    </span>
+</div>
+<span class="font-mono-base text-mono-base text-text-muted text-[11px]">24</span>
+</label>
+<label class="flex items-center justify-between group cursor-pointer">
+<div class="flex items-center gap-2">
+<input checked="" class="form-checkbox h-4 w-4 rounded bg-surface border-border-subtle text-primary focus:ring-primary focus:ring-offset-surface" type="checkbox"/>
+<span class="flex items-center gap-2 font-body-sm text-body-sm text-text-secondary group-hover:text-text-primary transition-colors">
+<div class="w-1.5 h-1.5 rounded-full bg-tool-emerald emissive-dot-green"></div>
+                                        Snippets
+                                    </span>
+</div>
+<span class="font-mono-base text-mono-base text-text-muted text-[11px]">156</span>
+</label>
+<label class="flex items-center justify-between group cursor-pointer">
+<div class="flex items-center gap-2">
+<input class="form-checkbox h-4 w-4 rounded bg-surface border-border-subtle text-primary focus:ring-primary focus:ring-offset-surface" type="checkbox"/>
+<span class="flex items-center gap-2 font-body-sm text-body-sm text-text-secondary group-hover:text-text-primary transition-colors">
+<div class="w-1.5 h-1.5 rounded-full bg-person-pink emissive-dot-pink"></div>
+                                        People
+                                    </span>
+</div>
+<span class="font-mono-base text-mono-base text-text-muted text-[11px]">8</span>
+</label>
+<label class="flex items-center justify-between group cursor-pointer">
+<div class="flex items-center gap-2">
+<input checked="" class="form-checkbox h-4 w-4 rounded bg-surface border-border-subtle text-primary focus:ring-primary focus:ring-offset-surface" type="checkbox"/>
+<span class="flex items-center gap-2 font-body-sm text-body-sm text-text-secondary group-hover:text-text-primary transition-colors">
+<div class="w-1.5 h-1.5 rounded-full bg-text-secondary"></div>
+                                        Wiki
+                                    </span>
+</div>
+<span class="font-mono-base text-mono-base text-text-muted text-[11px]">89</span>
+</label>
+</div>
+</div>
+<!-- Filter Group: Date Range -->
+<div>
+<h3 class="font-label-caps text-label-caps text-text-muted uppercase mb-4 tracking-wider">Timeframe</h3>
+<div class="space-y-4">
+<select class="w-full bg-surface-variant border border-border-subtle rounded-lg px-3 py-2 font-body-sm text-body-sm text-text-primary focus:border-border-emphasis focus:ring-0 outline-none transition-colors appearance-none">
+<option>Last 30 Days</option>
+<option>Last 7 Days</option>
+<option>Last 24 Hours</option>
+<option>All Time</option>
+<option>Custom Range...</option>
+</select>
+<!-- Visual timeline slider mockup -->
+<div class="px-1 pt-2">
+<div class="h-1 bg-surface-container-high rounded-full relative">
+<div class="absolute left-[20%] right-[10%] h-full bg-primary/40 rounded-full"></div>
+<div class="absolute left-[20%] top-1/2 -translate-y-1/2 -translate-x-1/2 w-3 h-3 bg-primary rounded-full shadow-[0_0_8px_rgba(206,189,255,0.5)] cursor-pointer"></div>
+<div class="absolute right-[10%] top-1/2 -translate-y-1/2 translate-x-1/2 w-3 h-3 bg-primary rounded-full shadow-[0_0_8px_rgba(206,189,255,0.5)] cursor-pointer"></div>
+</div>
+<div class="flex justify-between mt-2 font-mono-base text-[10px] text-text-muted">
+<span>Oct 12</span>
+<span>Nov 11</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+</aside>
+<!-- Main Search Canvas -->
+<div class="flex-1 flex flex-col h-full bg-surface relative overflow-hidden">
+<!-- Search Input Header -->
+<div class="px-gutter pt-8 pb-6 border-b border-border-subtle bg-surface/50 backdrop-blur-md z-10 shrink-0">
+<div class="max-w-[800px] mx-auto relative">
+<span class="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-[24px] text-text-secondary">search</span>
+<input class="w-full bg-surface-container border border-border-subtle rounded-xl py-4 pl-12 pr-16 font-mono-base text-mono-base text-text-primary placeholder:text-text-muted focus:border-primary/50 focus:ring-0 outline-none transition-all shadow-[0_4px_24px_rgba(0,0,0,0.2)] focus:shadow-[0_4px_32px_rgba(206,189,255,0.08)]" placeholder="Search memory... (⌘K)" type="text" value="implement graph traversal algorithm"/>
+<div class="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-2">
+<span class="px-1.5 py-0.5 rounded bg-surface-variant border border-border-subtle font-mono-base text-[10px] text-text-muted">⌘</span>
+<span class="px-1.5 py-0.5 rounded bg-surface-variant border border-border-subtle font-mono-base text-[10px] text-text-muted">K</span>
+</div>
+</div>
+<!-- Search Meta -->
+<div class="max-w-[800px] mx-auto mt-4 flex items-center justify-between font-body-sm text-body-sm text-text-muted">
+<div>Found 12 results in 42ms</div>
+<div class="flex items-center gap-4">
+<span class="flex items-center gap-1 cursor-pointer hover:text-text-primary"><span class="material-symbols-outlined text-[16px]">sort</span> Relevance</span>
+<span class="flex items-center gap-1 cursor-pointer hover:text-text-primary"><span class="material-symbols-outlined text-[16px]">view_list</span> List</span>
+</div>
+</div>
+</div>
+<!-- Results List -->
+<div class="flex-1 overflow-y-auto px-gutter py-6">
+<div class="max-w-[800px] mx-auto space-y-4">
+<!-- Result Item 1 -->
+<div class="group bg-surface-container-low border border-border-subtle hover:border-border-emphasis rounded-xl p-5 transition-all relative overflow-hidden">
+<!-- Hover Glow Effect -->
+<div class="absolute inset-0 bg-gradient-to-r from-primary/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"></div>
+<div class="flex items-start justify-between gap-4 relative z-10">
+<div class="flex-1 min-w-0">
+<!-- Result Header -->
+<div class="flex items-center gap-2 mb-1">
+<div class="w-1.5 h-1.5 rounded-full bg-project-blue emissive-dot-blue"></div>
+<h3 class="font-headline-sm text-headline-sm text-text-primary truncate">Graph Pathfinding Module</h3>
+</div>
+<!-- Mono Path -->
+<div class="font-mono-base text-[11px] text-text-muted mb-3 flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px]">folder</span>
+                                        src/core/graph/traversal.ts
+                                    </div>
+<!-- Highlighted Snippet -->
+<p class="font-body-md text-body-md text-text-secondary leading-relaxed line-clamp-2">
+                                        The <span class="bg-primary/20 text-primary-fixed rounded px-1 -mx-1">graph traversal algorithm</span> relies on a modified A* search to navigate through connected semantic nodes. We need to <span class="bg-primary/20 text-primary-fixed rounded px-1 -mx-1">implement</span> proper heuristic scoring for entity relevance...
+                                    </p>
+</div>
+<!-- Actions & Score -->
+<div class="flex flex-col items-end gap-3 shrink-0">
+<div class="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+<button class="p-1.5 rounded-md hover:bg-surface-variant text-text-secondary hover:text-text-primary transition-colors border border-transparent hover:border-border-subtle" title="Copy Path">
+<span class="material-symbols-outlined text-[16px]">content_copy</span>
+</button>
+<button class="p-1.5 rounded-md hover:bg-surface-variant text-text-secondary hover:text-text-primary transition-colors border border-transparent hover:border-border-subtle" title="Open in Editor">
+<span class="material-symbols-outlined text-[16px]">open_in_new</span>
+</button>
+</div>
+<!-- Score Breakdown Bar -->
+<div class="w-24 mt-auto">
+<div class="flex justify-between font-mono-base text-[9px] text-text-muted mb-1 uppercase tracking-wider">
+<span>Score</span>
+<span>0.92</span>
+</div>
+<div class="h-1.5 w-full bg-surface-variant rounded-full flex overflow-hidden">
+<div class="h-full bg-primary" style="width: 45%" title="Vector: 45%"></div>
+<div class="h-full bg-project-blue" style="width: 25%" title="BM25: 25%"></div>
+<div class="h-full bg-tool-emerald" style="width: 15%" title="Exact: 15%"></div>
+<div class="h-full bg-tertiary" style="width: 15%" title="Graph: 15%"></div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Result Item 2 -->
+<div class="group bg-surface-container-low border border-border-subtle hover:border-border-emphasis rounded-xl p-5 transition-all relative overflow-hidden">
+<div class="absolute inset-0 bg-gradient-to-r from-primary/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"></div>
+<div class="flex items-start justify-between gap-4 relative z-10">
+<div class="flex-1 min-w-0">
+<div class="flex items-center gap-2 mb-1">
+<div class="w-1.5 h-1.5 rounded-full bg-tool-emerald emissive-dot-green"></div>
+<h3 class="font-headline-sm text-headline-sm text-text-primary truncate">Optimizing Node Connections</h3>
+</div>
+<div class="font-mono-base text-[11px] text-text-muted mb-3 flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px]">article</span>
+                                        wiki/architecture/graph-design.md
+                                    </div>
+<p class="font-body-md text-body-md text-text-secondary leading-relaxed line-clamp-2">
+                                        Notes on how to structure the database for efficient <span class="bg-primary/20 text-primary-fixed rounded px-1 -mx-1">graph traversal</span>. The current <span class="bg-primary/20 text-primary-fixed rounded px-1 -mx-1">algorithm</span> is O(V+E) but performance degrades with deep hierarchical queries. Suggest looking into Neo4j integration...
+                                    </p>
+</div>
+<div class="flex flex-col items-end gap-3 shrink-0">
+<div class="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+<button class="p-1.5 rounded-md hover:bg-surface-variant text-text-secondary hover:text-text-primary transition-colors border border-transparent hover:border-border-subtle">
+<span class="material-symbols-outlined text-[16px]">content_copy</span>
+</button>
+<button class="p-1.5 rounded-md hover:bg-surface-variant text-text-secondary hover:text-text-primary transition-colors border border-transparent hover:border-border-subtle">
+<span class="material-symbols-outlined text-[16px]">open_in_new</span>
+</button>
+</div>
+<div class="w-24 mt-auto">
+<div class="flex justify-between font-mono-base text-[9px] text-text-muted mb-1 uppercase tracking-wider">
+<span>Score</span>
+<span>0.78</span>
+</div>
+<div class="h-1.5 w-full bg-surface-variant rounded-full flex overflow-hidden">
+<div class="h-full bg-primary" style="width: 30%" title="Vector: 30%"></div>
+<div class="h-full bg-project-blue" style="width: 40%" title="BM25: 40%"></div>
+<div class="h-full bg-tool-emerald" style="width: 0%" title="Exact: 0%"></div>
+<div class="h-full bg-tertiary" style="width: 30%" title="Graph: 30%"></div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</div>
+</main>
+</body></html>

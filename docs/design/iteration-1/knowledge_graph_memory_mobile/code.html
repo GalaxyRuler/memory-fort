@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Memory - Graph View</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&amp;family=JetBrains+Mono:wght@400&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              "colors": {
+                      "surface": "#14121b",
+                      "surface-container-high": "#2b2832",
+                      "on-secondary-container": "#b7c8ff",
+                      "outline-variant": "#494455",
+                      "on-background": "#e7e0ed",
+                      "secondary-fixed": "#dae2ff",
+                      "inverse-surface": "#e7e0ed",
+                      "surface-tint": "#cebdff",
+                      "on-surface": "#e7e0ed",
+                      "error-container": "#93000a",
+                      "person-pink": "#f472b6",
+                      "decision-purple": "#8b5fff",
+                      "surface-container-lowest": "#0f0d16",
+                      "secondary-fixed-dim": "#b2c5ff",
+                      "surface-variant": "#36333d",
+                      "surface-dim": "#14121b",
+                      "error": "#ffb4ab",
+                      "on-surface-variant": "#cbc3d7",
+                      "inverse-on-surface": "#322f39",
+                      "primary-fixed-dim": "#cebdff",
+                      "tertiary-fixed": "#ffdcbf",
+                      "on-error": "#690005",
+                      "surface-bright": "#3b3842",
+                      "on-tertiary-fixed-variant": "#6a3b00",
+                      "text-secondary": "rgba(237,237,237,0.7)",
+                      "tertiary-fixed-dim": "#ffb873",
+                      "background": "#14121b",
+                      "crystal-gold": "#fcd34d",
+                      "text-primary": "#ededed",
+                      "lesson-amber": "#fbbf24",
+                      "primary": "#cebdff",
+                      "on-secondary": "#002b73",
+                      "on-secondary-fixed": "#001848",
+                      "tertiary": "#ffb873",
+                      "on-error-container": "#ffdad6",
+                      "on-primary": "#390093",
+                      "tool-emerald": "#34d399",
+                      "primary-fixed": "#e8ddff",
+                      "on-primary-fixed": "#21005d",
+                      "on-tertiary-fixed": "#2d1600",
+                      "reference-cyan": "#22d3ee",
+                      "primary-container": "#9c79ff",
+                      "secondary": "#b2c5ff",
+                      "outline": "#948ea0",
+                      "on-primary-fixed-variant": "#5212c4",
+                      "border-emphasis": "rgba(255,255,255,0.12)",
+                      "on-secondary-fixed-variant": "#0040a2",
+                      "inverse-primary": "#6a3add",
+                      "on-primary-container": "#310082",
+                      "secondary-container": "#004dbf",
+                      "project-blue": "#5b8bff",
+                      "surface-container-highest": "#36333d",
+                      "tertiary-container": "#d07d1b",
+                      "on-tertiary-container": "#412200",
+                      "text-muted": "rgba(237,237,237,0.45)",
+                      "surface-container": "#211e28",
+                      "border-subtle": "rgba(255,255,255,0.06)",
+                      "surface-container-low": "#1d1a24",
+                      "on-tertiary": "#4b2800",
+                      "session-zinc": "#52525b"
+              },
+              "borderRadius": {
+                      "DEFAULT": "0.25rem",
+                      "lg": "0.5rem",
+                      "xl": "0.75rem",
+                      "full": "9999px"
+              },
+              "spacing": {
+                      "sidebar-width": "220px",
+                      "stack-gap": "12px",
+                      "container-max": "1200px",
+                      "gutter": "24px",
+                      "inline-gap": "8px"
+              },
+              "fontFamily": {
+                      "label-caps": [
+                              "Inter"
+                      ],
+                      "headline-lg": [
+                              "Inter"
+                      ],
+                      "body-lg": [
+                              "Inter"
+                      ],
+                      "mono-base": [
+                              "JetBrains Mono"
+                      ],
+                      "body-md": [
+                              "Inter"
+                      ],
+                      "headline-md": [
+                              "Inter"
+                      ],
+                      "headline-sm": [
+                              "Inter"
+                      ],
+                      "body-sm": [
+                              "Inter"
+                      ]
+              },
+              "fontSize": {
+                      "label-caps": [
+                              "11px",
+                              {
+                                      "lineHeight": "16px",
+                                      "letterSpacing": "0.05em",
+                                      "fontWeight": "600"
+                              }
+                      ],
+                      "headline-lg": [
+                              "24px",
+                              {
+                                      "lineHeight": "32px",
+                                      "letterSpacing": "-0.02em",
+                                      "fontWeight": "600"
+                              }
+                      ],
+                      "body-lg": [
+                              "16px",
+                              {
+                                      "lineHeight": "24px",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "mono-base": [
+                              "13px",
+                              {
+                                      "lineHeight": "20px",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "body-md": [
+                              "14px",
+                              {
+                                      "lineHeight": "20px",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "headline-md": [
+                              "20px",
+                              {
+                                      "lineHeight": "28px",
+                                      "letterSpacing": "-0.02em",
+                                      "fontWeight": "600"
+                              }
+                      ],
+                      "headline-sm": [
+                              "16px",
+                              {
+                                      "lineHeight": "24px",
+                                      "letterSpacing": "-0.01em",
+                                      "fontWeight": "600"
+                              }
+                      ],
+                      "body-sm": [
+                              "13px",
+                              {
+                                      "lineHeight": "18px",
+                                      "fontWeight": "400"
+                              }
+                      ]
+              }
+      },
+          },
+        }
+      </script>
+<style>
+        .bloom-primary { box-shadow: 0 0 12px 2px rgba(206, 189, 255, 0.3); }
+        .bloom-project { box-shadow: 0 0 12px 2px rgba(91, 139, 255, 0.3); }
+        .bloom-person { box-shadow: 0 0 12px 2px rgba(244, 114, 182, 0.3); }
+        .bloom-reference { box-shadow: 0 0 12px 2px rgba(34, 211, 238, 0.3); }
+        
+        .edge-line { stroke: rgba(255, 255, 255, 0.1); stroke-width: 1.5; fill: none; }
+        .edge-active { stroke: rgba(206, 189, 255, 0.4); }
+
+        /* Hide scrollbar for mode scroller */
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+
+        /* Bottom Sheet Transition */
+        #bottom-sheet {
+            transform: translateY(100%);
+            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        #bottom-sheet.open {
+            transform: translateY(0);
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="bg-surface text-text-primary antialiased h-screen w-screen overflow-hidden flex flex-col font-body-md">
+<!-- Top App Bar (Mobile Context, Search/Filter instead of Nav) -->
+<header class="fixed top-0 left-0 w-full h-[56px] bg-surface/80 backdrop-blur-xl z-40 border-b border-border-subtle flex items-center justify-between px-4">
+<div class="flex items-center gap-2">
+<span class="font-headline-md text-headline-md font-bold tracking-tight text-primary">memory</span>
+<span class="font-label-caps text-label-caps text-text-muted mt-1">GRAPH</span>
+</div>
+<div class="flex items-center gap-3">
+<button class="text-text-secondary hover:text-text-primary transition-colors">
+<span class="material-symbols-outlined">filter_list</span>
+</button>
+<button class="w-8 h-8 rounded-full bg-surface-container-high border border-border-subtle flex items-center justify-center text-text-secondary overflow-hidden">
+<img alt="User avatar" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBCJ08iTlFSYQrHA2ECg7Kl9K4wCAyEy7XwOXUbGJbjEQZ_xpH2L_ZlzsSunzHngmZ7O_cuVa9zWokFO0bXjSG4h0HRBP6zRDz-dokwYcokHNwhNJxC2gsJKodqvzr6tqLeYC1gZWl3VXKnx2wJGfmWgXyLc1_NG8ATBstvRKqdI5piXsNHuaP3J1uNfd1M1XbrlC9Prwukysq-m4Ek5174tU8QNyopaMR-nWeAKJujzePOrkXHudSZSNMzWfiDo2SgQE9icROMih-g"/>
+</button>
+</div>
+</header>
+<!-- Mode Scroller -->
+<div class="fixed top-[56px] left-0 w-full z-30 bg-surface/60 backdrop-blur-md border-b border-border-subtle py-2">
+<div class="flex gap-2 overflow-x-auto no-scrollbar px-4 pb-1">
+<button class="px-4 py-1.5 bg-primary/20 text-primary border border-primary/30 rounded-full font-body-sm text-body-sm whitespace-nowrap flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[16px]">hub</span>
+                Global Network
+            </button>
+<button class="px-4 py-1.5 bg-surface-container text-text-secondary border border-border-subtle hover:bg-surface-variant rounded-full font-body-sm text-body-sm whitespace-nowrap flex items-center gap-1.5 transition-colors">
+<span class="material-symbols-outlined text-[16px]">account_tree</span>
+                Project Heirarchy
+            </button>
+<button class="px-4 py-1.5 bg-surface-container text-text-secondary border border-border-subtle hover:bg-surface-variant rounded-full font-body-sm text-body-sm whitespace-nowrap flex items-center gap-1.5 transition-colors">
+<span class="material-symbols-outlined text-[16px]">group_work</span>
+                Social Clusters
+            </button>
+<button class="px-4 py-1.5 bg-surface-container text-text-secondary border border-border-subtle hover:bg-surface-variant rounded-full font-body-sm text-body-sm whitespace-nowrap flex items-center gap-1.5 transition-colors">
+<span class="material-symbols-outlined text-[16px]">history</span>
+                Timeline Sequence
+            </button>
+</div>
+</div>
+<!-- Canvas Area -->
+<main class="flex-1 w-full h-full relative overflow-hidden mt-[100px] mb-[64px]" id="graph-container">
+<!-- Draggable Canvas -->
+<div class="absolute inset-0 w-[200vw] h-[1768px] -left-[50vw] -top-[442px] cursor-grab active:cursor-grabbing" id="graph-canvas">
+<!-- SVG Edges -->
+<svg class="absolute inset-0 w-full h-full pointer-events-none" style="z-index: 1;">
+<path class="edge-line edge-active" d="M 45% 45% Q 50% 40% 55% 48%"></path>
+<path class="edge-line" d="M 45% 45% L 35% 55%"></path>
+<path class="edge-line" d="M 55% 48% L 65% 40%"></path>
+<path class="edge-line" d="M 45% 45% L 40% 30%"></path>
+<path class="edge-line" d="M 35% 55% L 25% 50%"></path>
+</svg>
+<!-- Nodes -->
+<!-- Central Node -->
+<div class="absolute left-[45%] top-[45%] -translate-x-1/2 -translate-y-1/2 z-10 flex flex-col items-center gap-1 group node-trigger">
+<div class="w-4 h-4 rounded-full bg-primary bloom-primary transition-transform group-active:scale-90"></div>
+<span class="font-mono-base text-mono-base text-primary bg-surface/80 px-2 py-0.5 rounded border border-border-subtle backdrop-blur-sm">System_Architecture</span>
+</div>
+<!-- Project Node -->
+<div class="absolute left-[55%] top-[48%] -translate-x-1/2 -translate-y-1/2 z-10 flex flex-col items-center gap-1 group node-trigger">
+<div class="w-3 h-3 rounded-full bg-project-blue bloom-project transition-transform group-active:scale-90"></div>
+<span class="font-body-sm text-body-sm text-text-secondary bg-surface/80 px-1.5 py-0.5 rounded border border-border-subtle backdrop-blur-sm opacity-80 group-hover:opacity-100">v2.4 Migration</span>
+</div>
+<!-- Person Node -->
+<div class="absolute left-[35%] top-[55%] -translate-x-1/2 -translate-y-1/2 z-10 flex flex-col items-center gap-1 group node-trigger">
+<div class="w-3 h-3 rounded-full bg-person-pink bloom-person transition-transform group-active:scale-90"></div>
+<span class="font-body-sm text-body-sm text-text-secondary bg-surface/80 px-1.5 py-0.5 rounded border border-border-subtle backdrop-blur-sm opacity-80 group-hover:opacity-100">Alex_Dev</span>
+</div>
+<!-- Reference Node -->
+<div class="absolute left-[65%] top-[40%] -translate-x-1/2 -translate-y-1/2 z-10 flex flex-col items-center gap-1 group node-trigger">
+<div class="w-2.5 h-2.5 rounded-full bg-reference-cyan bloom-reference transition-transform group-active:scale-90"></div>
+<span class="font-body-sm text-body-sm text-text-secondary bg-surface/80 px-1.5 py-0.5 rounded border border-border-subtle backdrop-blur-sm opacity-60">API_Docs</span>
+</div>
+<!-- Generic Node -->
+<div class="absolute left-[40%] top-[30%] -translate-x-1/2 -translate-y-1/2 z-10 flex flex-col items-center gap-1 group node-trigger">
+<div class="w-2.5 h-2.5 rounded-full bg-outline-variant transition-transform group-active:scale-90"></div>
+<span class="font-body-sm text-body-sm text-text-muted bg-surface/80 px-1.5 py-0.5 rounded border border-border-subtle backdrop-blur-sm opacity-60">Legacy_DB</span>
+</div>
+<!-- Generic Node 2 -->
+<div class="absolute left-[25%] top-[50%] -translate-x-1/2 -translate-y-1/2 z-10 flex flex-col items-center gap-1 group node-trigger">
+<div class="w-2.5 h-2.5 rounded-full bg-outline-variant transition-transform group-active:scale-90"></div>
+<span class="font-body-sm text-body-sm text-text-muted bg-surface/80 px-1.5 py-0.5 rounded border border-border-subtle backdrop-blur-sm opacity-60">Meeting_Notes</span>
+</div>
+</div>
+<!-- Canvas Controls (Zoom/Center) -->
+<div class="absolute bottom-4 right-4 flex flex-col gap-2 z-20">
+<button class="w-10 h-10 bg-surface-container border border-border-subtle rounded-full flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors shadow-lg">
+<span class="material-symbols-outlined text-[20px]">add</span>
+</button>
+<button class="w-10 h-10 bg-surface-container border border-border-subtle rounded-full flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors shadow-lg">
+<span class="material-symbols-outlined text-[20px]">remove</span>
+</button>
+<button class="w-10 h-10 bg-surface-container border border-border-subtle rounded-full flex items-center justify-center text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors shadow-lg mt-2">
+<span class="material-symbols-outlined text-[20px]">my_location</span>
+</button>
+</div>
+</main>
+<!-- Bottom Sheet Detail Panel (Hidden by default) -->
+<div class="fixed bottom-[64px] left-0 w-full bg-surface-container-high border-t border-border-subtle rounded-t-xl z-40 shadow-2xl flex flex-col max-h-[530px]" id="bottom-sheet">
+<!-- Drag Handle / Header -->
+<div class="w-full flex justify-center pt-3 pb-1" id="sheet-handle">
+<div class="w-12 h-1.5 bg-outline-variant rounded-full"></div>
+</div>
+<div class="p-4 flex-1 overflow-y-auto">
+<div class="flex items-start justify-between mb-4">
+<div>
+<div class="flex items-center gap-2 mb-1">
+<div class="w-2.5 h-2.5 rounded-full bg-primary bloom-primary"></div>
+<span class="font-label-caps text-label-caps text-primary tracking-wider">CORE SYSTEM</span>
+</div>
+<h2 class="font-headline-lg-mobile text-headline-lg-mobile font-bold text-text-primary">System_Architecture</h2>
+</div>
+<button class="text-text-secondary hover:text-text-primary" id="close-sheet">
+<span class="material-symbols-outlined">close</span>
+</button>
+</div>
+<p class="font-body-md text-body-md text-text-secondary mb-6 leading-relaxed">
+                Central hub for the v2.4 redesign. Outlines the primary data flow between the memory store and the graph visualization engine.
+            </p>
+<h3 class="font-headline-sm text-headline-sm font-semibold text-text-primary mb-3">Connections (4)</h3>
+<div class="flex flex-col gap-2">
+<!-- Connection Item -->
+<div class="flex items-center justify-between p-3 rounded-lg bg-surface border border-border-subtle hover:border-outline-variant transition-colors cursor-pointer">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded-full bg-project-blue/10 flex items-center justify-center border border-project-blue/20">
+<span class="material-symbols-outlined text-project-blue text-[18px]">account_tree</span>
+</div>
+<div>
+<div class="font-body-md text-body-md text-text-primary">v2.4 Migration</div>
+<div class="font-body-sm text-body-sm text-text-muted">Parent Project</div>
+</div>
+</div>
+<span class="material-symbols-outlined text-text-muted text-[20px]">chevron_right</span>
+</div>
+<!-- Connection Item -->
+<div class="flex items-center justify-between p-3 rounded-lg bg-surface border border-border-subtle hover:border-outline-variant transition-colors cursor-pointer">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded-full bg-person-pink/10 flex items-center justify-center border border-person-pink/20">
+<span class="material-symbols-outlined text-person-pink text-[18px]">person</span>
+</div>
+<div>
+<div class="font-body-md text-body-md text-text-primary">Alex_Dev</div>
+<div class="font-body-sm text-body-sm text-text-muted">Maintained By</div>
+</div>
+</div>
+<span class="material-symbols-outlined text-text-muted text-[20px]">chevron_right</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Bottom Navigation Bar (Mobile context, active tab Graph) -->
+<nav class="fixed bottom-0 left-0 w-full h-[64px] bg-surface-container-low border-t border-border-subtle z-50 flex justify-around items-center px-2 pb-safe">
+<!-- Overview (Inactive) -->
+<a class="flex flex-col items-center gap-1 p-2 text-text-secondary hover:text-text-primary transition-colors min-w-[64px]" href="#">
+<span class="material-symbols-outlined">dashboard</span>
+<span class="font-label-caps text-[10px]">OVERVIEW</span>
+</a>
+<!-- Search (Inactive) -->
+<a class="flex flex-col items-center gap-1 p-2 text-text-secondary hover:text-text-primary transition-colors min-w-[64px]" href="#">
+<span class="material-symbols-outlined">search</span>
+<span class="font-label-caps text-[10px]">SEARCH</span>
+</a>
+<!-- Graph (Active) -->
+<a class="flex flex-col items-center gap-1 p-2 text-primary transition-colors min-w-[64px]" href="#">
+<div class="px-4 py-0.5 bg-primary-container rounded-full mb-0.5">
+<span class="material-symbols-outlined text-on-primary-container" style="font-variation-settings: 'FILL' 1;">hub</span>
+</div>
+<span class="font-label-caps text-[10px] font-bold">GRAPH</span>
+</a>
+<!-- Activity (Inactive) -->
+<a class="flex flex-col items-center gap-1 p-2 text-text-secondary hover:text-text-primary transition-colors min-w-[64px]" href="#">
+<span class="material-symbols-outlined">pulse_alert</span>
+<span class="font-label-caps text-[10px]">ACTIVITY</span>
+</a>
+</nav>
+<script>
+        // Simple Interaction Logic
+        const nodes = document.querySelectorAll('.node-trigger');
+        const bottomSheet = document.getElementById('bottom-sheet');
+        const closeSheetBtn = document.getElementById('close-sheet');
+        const sheetHandle = document.getElementById('sheet-handle');
+
+        // Open sheet on node tap
+        nodes.forEach(node => {
+            node.addEventListener('click', (e) => {
+                e.stopPropagation(); // Prevent closing immediately
+                bottomSheet.classList.add('open');
+            });
+        });
+
+        // Close sheet logic
+        const closeSheet = () => {
+            bottomSheet.classList.remove('open');
+        };
+
+        closeSheetBtn.addEventListener('click', closeSheet);
+        sheetHandle.addEventListener('click', closeSheet); // Tap handle to close
+
+        // Close when clicking outside the sheet (on the canvas)
+        document.getElementById('graph-container').addEventListener('click', (e) => {
+             if(bottomSheet.classList.contains('open') && !bottomSheet.contains(e.target)) {
+                 closeSheet();
+             }
+        });
+
+        // Basic Canvas Dragging (Simplified for demonstration)
+        const canvas = document.getElementById('graph-canvas');
+        let isDragging = false;
+        let startX, startY, initialLeft, initialTop;
+
+        canvas.addEventListener('mousedown', (e) => {
+            isDragging = true;
+            startX = e.clientX;
+            startY = e.clientY;
+            
+            // Get current transform or default to 0
+            const style = window.getComputedStyle(canvas);
+            const matrix = new DOMMatrix(style.transform);
+            initialLeft = matrix.m41;
+            initialTop = matrix.m42;
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (!isDragging) return;
+            const dx = e.clientX - startX;
+            const dy = e.clientY - startY;
+            canvas.style.transform = `translate(${initialLeft + dx}px, ${initialTop + dy}px)`;
+        });
+
+        document.addEventListener('mouseup', () => {
+            isDragging = false;
+        });
+        
+        // Touch support for dragging
+        canvas.addEventListener('touchstart', (e) => {
+            isDragging = true;
+            startX = e.touches[0].clientX;
+            startY = e.touches[0].clientY;
+            
+            const style = window.getComputedStyle(canvas);
+            const matrix = new DOMMatrix(style.transform);
+            initialLeft = matrix.m41;
+            initialTop = matrix.m42;
+        });
+        
+        document.addEventListener('touchmove', (e) => {
+            if (!isDragging) return;
+            const dx = e.touches[0].clientX - startX;
+            const dy = e.touches[0].clientY - startY;
+            canvas.style.transform = `translate(${initialLeft + dx}px, ${initialTop + dy}px)`;
+        });
+        
+        document.addEventListener('touchend', () => {
+            isDragging = false;
+        });
+
+    </script>
+</body></html>

@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Memory App - Graph Mode</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&amp;family=JetBrains+Mono:wght@400&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                            "surface": "#14121b",
+                            "surface-container-high": "#2b2832",
+                            "on-secondary-container": "#b7c8ff",
+                            "outline-variant": "#494455",
+                            "on-background": "#e7e0ed",
+                            "secondary-fixed": "#dae2ff",
+                            "inverse-surface": "#e7e0ed",
+                            "surface-tint": "#cebdff",
+                            "on-surface": "#e7e0ed",
+                            "error-container": "#93000a",
+                            "person-pink": "#f472b6",
+                            "decision-purple": "#8b5fff",
+                            "surface-container-lowest": "#0f0d16",
+                            "secondary-fixed-dim": "#b2c5ff",
+                            "surface-variant": "#36333d",
+                            "surface-dim": "#14121b",
+                            "error": "#ffb4ab",
+                            "on-surface-variant": "#cbc3d7",
+                            "inverse-on-surface": "#322f39",
+                            "primary-fixed-dim": "#cebdff",
+                            "tertiary-fixed": "#ffdcbf",
+                            "on-error": "#690005",
+                            "surface-bright": "#3b3842",
+                            "on-tertiary-fixed-variant": "#6a3b00",
+                            "text-secondary": "rgba(237,237,237,0.7)",
+                            "tertiary-fixed-dim": "#ffb873",
+                            "background": "#14121b",
+                            "crystal-gold": "#fcd34d",
+                            "text-primary": "#ededed",
+                            "lesson-amber": "#fbbf24",
+                            "primary": "#cebdff",
+                            "on-secondary": "#002b73",
+                            "on-secondary-fixed": "#001848",
+                            "tertiary": "#ffb873",
+                            "on-error-container": "#ffdad6",
+                            "on-primary": "#390093",
+                            "tool-emerald": "#34d399",
+                            "primary-fixed": "#e8ddff",
+                            "on-primary-fixed": "#21005d",
+                            "on-tertiary-fixed": "#2d1600",
+                            "reference-cyan": "#22d3ee",
+                            "primary-container": "#9c79ff",
+                            "secondary": "#b2c5ff",
+                            "outline": "#948ea0",
+                            "on-primary-fixed-variant": "#5212c4",
+                            "border-emphasis": "rgba(255,255,255,0.12)",
+                            "on-secondary-fixed-variant": "#0040a2",
+                            "inverse-primary": "#6a3add",
+                            "on-primary-container": "#310082",
+                            "secondary-container": "#004dbf",
+                            "project-blue": "#5b8bff",
+                            "surface-container-highest": "#36333d",
+                            "tertiary-container": "#d07d1b",
+                            "on-tertiary-container": "#412200",
+                            "text-muted": "rgba(237,237,237,0.45)",
+                            "surface-container": "#211e28",
+                            "border-subtle": "rgba(255,255,255,0.06)",
+                            "surface-container-low": "#1d1a24",
+                            "on-tertiary": "#4b2800",
+                            "session-zinc": "#52525b"
+                    },
+                    "borderRadius": {
+                            "DEFAULT": "0.25rem",
+                            "lg": "0.5rem",
+                            "xl": "0.75rem",
+                            "full": "9999px"
+                    },
+                    "spacing": {
+                            "sidebar-width": "220px",
+                            "stack-gap": "12px",
+                            "container-max": "1200px",
+                            "gutter": "24px",
+                            "inline-gap": "8px"
+                    },
+                    "fontFamily": {
+                            "label-caps": ["Inter"],
+                            "headline-lg": ["Inter"],
+                            "body-lg": ["Inter"],
+                            "mono-base": ["JetBrains Mono"],
+                            "body-md": ["Inter"],
+                            "headline-md": ["Inter"],
+                            "headline-sm": ["Inter"],
+                            "body-sm": ["Inter"]
+                    },
+                    "fontSize": {
+                            "label-caps": ["11px", {"lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "600"}],
+                            "headline-lg": ["24px", {"lineHeight": "32px", "letterSpacing": "-0.02em", "fontWeight": "600"}],
+                            "body-lg": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+                            "mono-base": ["13px", {"lineHeight": "20px", "fontWeight": "400"}],
+                            "body-md": ["14px", {"lineHeight": "20px", "fontWeight": "400"}],
+                            "headline-md": ["20px", {"lineHeight": "28px", "letterSpacing": "-0.02em", "fontWeight": "600"}],
+                            "headline-sm": ["16px", {"lineHeight": "24px", "letterSpacing": "-0.01em", "fontWeight": "600"}],
+                            "body-sm": ["13px", {"lineHeight": "18px", "fontWeight": "400"}]
+                    }
+                }
+            }
+        }
+    </script>
+<style>body {
+            background-color: #14121b;
+            color: #ededed;
+            margin: 0;
+            overflow: hidden;
+        }
+        
+        .bg-space {
+            background: #14121b;
+            position: absolute;
+            inset: 0;
+            z-index: -3;
+        }
+        .hex-grid {
+            background-image: url("data:image/svg+xml,%3Csvg width='60' height='104' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M30 104L0 87L0 52L30 35L60 52L60 87Z' stroke='rgba(255,255,255,0.03)' stroke-width='1' fill='none'/%3E%3C/svg%3E");
+            position: absolute;
+            inset: 0;
+            z-index: -2;
+            transform: perspective(1000px) rotateX(60deg) scale(2);
+            transform-origin: bottom center;
+            opacity: 0.4;
+        }
+        .starfield {
+            position: absolute;
+            inset: 0;
+            z-index: -1;
+            background-image: radial-gradient(1px 1px at 20px 30px, #ffffff, transparent);
+            background-repeat: repeat;
+            background-size: 200px 200px;
+            opacity: 0.3;
+            animation: drift 100s linear infinite;
+        }
+
+        @keyframes drift {
+            from { background-position: 0 0; }
+            to { background-position: -1000px 500px; }
+        }
+
+        .node {
+            position: absolute;
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            transition: all 0.3s ease;
+            cursor: pointer;
+            box-shadow: 0 0 8px currentColor;
+        }
+        .node.dimmed {
+            opacity: 0.3;
+            box-shadow: none;
+        }
+        .node.selected {
+            animation: pulse-ring 2s infinite;
+            z-index: 10;
+        }
+        
+        @keyframes pulse-ring {
+            0% { box-shadow: 0 0 0 0 rgba(139, 95, 255, 0.4); }
+            70% { box-shadow: 0 0 0 12px rgba(139, 95, 255, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(139, 95, 255, 0); }
+        }
+
+        .edge {
+            position: absolute;
+            transform-origin: left center;
+            height: 1px;
+            background: rgba(255,255,255,0.1);
+            z-index: 0;
+            pointer-events: none;
+        }
+        .edge.dimmed {
+            opacity: 0.1;
+        }
+
+        .particle {
+            position: absolute;
+            width: 3px;
+            height: 3px;
+            background-color: #cebdff;
+            border-radius: 50%;
+            top: -1px;
+            box-shadow: 0 0 3px #cebdff;
+            animation: flow 2s linear infinite;
+        }
+
+        @keyframes flow {
+            from { left: 0; opacity: 0; }
+            10% { opacity: 1; }
+            90% { opacity: 1; }
+            to { left: 100%; opacity: 0; }
+        }
+
+        .glass-panel {
+            background: rgba(43, 40, 50, 0.7);
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(255,255,255,0.06);
+        }
+        
+        .top-nav-blur {
+            background: rgba(20, 18, 27, 0.9);
+            backdrop-filter: blur(8px);
+        }</style>
+</head>
+<body class="antialiased font-body-lg flex h-screen w-full relative">
+<!-- Background Layers -->
+<div class="bg-space"></div>
+<div class="starfield"></div>
+<div class="hex-grid"></div>
+<!-- Graph Canvas Container -->
+<div class="absolute inset-0 w-full h-full overflow-hidden" id="graph-container" style="margin-left: var(--sidebar-width); width: calc(100% - var(--sidebar-width)); margin-top: 48px;">
+<!-- Javascript will inject nodes and edges here -->
+<div class="edge" style="width: 333.002px; left: 512px; top: 512px; transform: rotate(145.051deg);"><div class="particle" style="animation-delay: 1.60342s; animation-duration: 1.87073s;"></div><div class="particle" style="animation-delay: 0.278516s; animation-duration: 2.19221s;"></div><div class="particle" style="animation-delay: 1.99965s; animation-duration: 1.53025s;"></div></div><div class="edge" style="width: 249.856px; left: 512px; top: 512px; transform: rotate(-87.4664deg);"><div class="particle" style="animation-delay: 0.824915s; animation-duration: 1.96749s;"></div><div class="particle" style="animation-delay: 1.01855s; animation-duration: 2.09028s;"></div><div class="particle" style="animation-delay: 0.897788s; animation-duration: 2.18028s;"></div><div class="particle" style="animation-delay: 0.323148s; animation-duration: 1.96682s;"></div></div><div class="edge" style="width: 271.465px; left: 512px; top: 512px; transform: rotate(-1.45054deg);"><div class="particle" style="animation-delay: 1.87111s; animation-duration: 1.85975s;"></div><div class="particle" style="animation-delay: 1.7188s; animation-duration: 1.90972s;"></div></div><div class="edge" style="width: 275.481px; left: 512px; top: 512px; transform: rotate(-154.456deg);"><div class="particle" style="animation-delay: 1.29226s; animation-duration: 1.56362s;"></div><div class="particle" style="animation-delay: 1.28304s; animation-duration: 2.13991s;"></div><div class="particle" style="animation-delay: 1.75427s; animation-duration: 1.77398s;"></div><div class="particle" style="animation-delay: 1.01667s; animation-duration: 2.417s;"></div></div><div class="edge" style="width: 356.078px; left: 512px; top: 512px; transform: rotate(-171.37deg);"><div class="particle" style="animation-delay: 1.59406s; animation-duration: 1.93686s;"></div><div class="particle" style="animation-delay: 0.803257s; animation-duration: 1.98968s;"></div><div class="particle" style="animation-delay: 0.904027s; animation-duration: 1.59304s;"></div><div class="particle" style="animation-delay: 1.00014s; animation-duration: 1.98988s;"></div></div><div class="edge dimmed" style="width: 395.8px; left: 408.124px; top: 553.395px; transform: rotate(-80.1238deg);"></div><div class="edge dimmed" style="width: 638.625px; left: 177.563px; top: 799.497px; transform: rotate(-57.2499deg);"></div><div class="edge dimmed" style="width: 307.813px; left: 830.717px; top: 232.601px; transform: rotate(29.8947deg);"></div><div class="edge dimmed" style="width: 359.787px; left: 463.592px; top: 918.58px; transform: rotate(-17.2929deg);"></div><div class="edge dimmed" style="width: 332.425px; left: 459.245px; top: 652.6px; transform: rotate(-39.6125deg);"></div><div class="edge dimmed" style="width: 787.21px; left: 476.012px; top: 163.461px; transform: rotate(30.937deg);"></div><div class="edge dimmed" style="width: 415.192px; left: 858.494px; top: 273.728px; transform: rotate(45.1658deg);"></div><div class="edge dimmed" style="width: 429.92px; left: 459.245px; top: 652.6px; transform: rotate(7.79968deg);"></div><div class="edge dimmed" style="width: 271.161px; left: 463.592px; top: 918.58px; transform: rotate(-112.979deg);"></div><div class="edge dimmed" style="width: 363.322px; left: 459.245px; top: 652.6px; transform: rotate(-33.4245deg);"></div><div class="edge dimmed" style="width: 504.24px; left: 767.16px; top: 674.84px; transform: rotate(-141.558deg);"></div><div class="edge dimmed" style="width: 355.248px; left: 923.896px; top: 357.812px; transform: rotate(96.2554deg);"></div><div class="edge dimmed" style="width: 343.696px; left: 1059.28px; top: 578.097px; transform: rotate(137.197deg);"></div><div class="edge dimmed" style="width: 504.24px; left: 767.16px; top: 674.84px; transform: rotate(-141.558deg);"></div><div class="edge dimmed" style="width: 811.596px; left: 1069.25px; top: 378.332px; transform: rotate(138.267deg);"></div><div class="edge dimmed" style="width: 491.5px; left: 1072.53px; top: 302.312px; transform: rotate(100.545deg);"></div><div class="edge dimmed" style="width: 433.546px; left: 1059.28px; top: 578.097px; transform: rotate(-148.01deg);"></div><div class="edge dimmed" style="width: 368.121px; left: 177.563px; top: 799.497px; transform: rotate(-54.0243deg);"></div><div class="edge dimmed" style="width: 481.178px; left: 621.022px; top: 452.59px; transform: rotate(-7.9526deg);"></div><div class="edge dimmed" style="width: 646.188px; left: 885.188px; top: 710.945px; transform: rotate(-179.274deg);"></div><div class="edge dimmed" style="width: 703.93px; left: 463.592px; top: 918.58px; transform: rotate(-33.9907deg);"></div><div class="edge dimmed" style="width: 111.408px; left: 920.9px; top: 656.311px; transform: rotate(-160.719deg);"></div><div class="edge dimmed" style="width: 548.099px; left: 490.644px; top: 823.683px; transform: rotate(6.05347deg);"></div><div class="edge dimmed" style="width: 337.002px; left: 357.731px; top: 668.936px; transform: rotate(-10.0253deg);"></div><div class="edge dimmed" style="width: 229.425px; left: 523.045px; top: 262.389px; transform: rotate(49.72deg);"></div><div class="edge dimmed" style="width: 207.046px; left: 286.598px; top: 172.83px; transform: rotate(65.5727deg);"></div><div class="edge dimmed" style="width: 621.857px; left: 372.22px; top: 361.343px; transform: rotate(-4.27953deg);"></div><div class="edge dimmed" style="width: 950.722px; left: 286.598px; top: 172.83px; transform: rotate(24.5711deg);"></div><div class="edge dimmed" style="width: 703.537px; left: 1048.36px; top: 845.055px; transform: rotate(-155.508deg);"></div><div class="edge dimmed" style="width: 352.466px; left: 357.784px; top: 496.589px; transform: rotate(120.751deg);"></div><div class="edge dimmed" style="width: 905.676px; left: 1048.36px; top: 845.055px; transform: rotate(-150.073deg);"></div><div class="edge dimmed" style="width: 164.577px; left: 459.245px; top: 652.6px; transform: rotate(-113.427deg);"></div><div class="edge dimmed" style="width: 472.684px; left: 981.218px; top: 176.751px; transform: rotate(110.492deg);"></div><div class="edge dimmed" style="width: 838.229px; left: 1047.24px; top: 525.042px; transform: rotate(-155.154deg);"></div><div class="edge dimmed" style="width: 343.696px; left: 1059.28px; top: 578.097px; transform: rotate(137.197deg);"></div><div class="edge dimmed" style="width: 504.269px; left: 1069.25px; top: 378.332px; transform: rotate(93.8161deg);"></div><div class="edge" style="width: 358.97px; left: 512px; top: 512px; transform: rotate(-65.7169deg);"><div class="particle" style="animation-delay: 1.53077s; animation-duration: 2.10621s;"></div><div class="particle" style="animation-delay: 1.71922s; animation-duration: 1.95843s;"></div></div><div class="edge dimmed" style="width: 191.827px; left: 815.741px; top: 619.523px; transform: rotate(-71.7994deg);"></div><div class="edge dimmed" style="width: 691.383px; left: 476.012px; top: 163.461px; transform: rotate(84.2045deg);"></div><div class="edge dimmed" style="width: 169.076px; left: 992.343px; top: 314.938px; transform: rotate(133.641deg);"></div><div class="edge dimmed" style="width: 713.143px; left: 885.188px; top: 710.945px; transform: rotate(172.867deg);"></div><div class="edge dimmed" style="width: 781.296px; left: 490.644px; top: 823.683px; transform: rotate(-41.8602deg);"></div><div class="edge dimmed" style="width: 140.895px; left: 783.378px; top: 505.128px; transform: rotate(131.734deg);"></div><div class="edge dimmed" style="width: 453.886px; left: 762.478px; top: 452.468px; transform: rotate(118.511deg);"></div><div class="edge dimmed" style="width: 508.918px; left: 659.625px; top: 184.79px; transform: rotate(113.187deg);"></div><div class="edge dimmed" style="width: 254.053px; left: 689.587px; top: 610.27px; transform: rotate(-42.9115deg);"></div><div class="edge dimmed" style="width: 435.414px; left: 767.16px; top: 674.84px; transform: rotate(157.877deg);"></div><div class="edge dimmed" style="width: 266.015px; left: 459.245px; top: 652.6px; transform: rotate(89.0638deg);"></div><div class="edge dimmed" style="width: 670.448px; left: 286.598px; top: 172.83px; transform: rotate(83.3875deg);"></div><div class="edge dimmed" style="width: 237.107px; left: 914.91px; top: 587.482px; transform: rotate(-4.67391deg);"></div><div class="edge dimmed" style="width: 410.334px; left: 490.644px; top: 823.683px; transform: rotate(-15.9469deg);"></div><div class="edge dimmed" style="width: 660.204px; left: 1097.57px; top: 386.017px; transform: rotate(-160.3deg);"></div><div class="edge dimmed" style="width: 352.466px; left: 357.784px; top: 496.589px; transform: rotate(120.751deg);"></div><div class="edge dimmed" style="width: 126.989px; left: 914.91px; top: 587.482px; transform: rotate(103.536deg);"></div><div class="edge dimmed" style="width: 482.955px; left: 459.245px; top: 652.6px; transform: rotate(-96.6436deg);"></div><div class="edge dimmed" style="width: 505.691px; left: 671.374px; top: 437.416px; transform: rotate(127.461deg);"></div><div class="edge dimmed" style="width: 322.299px; left: 1059.28px; top: 578.097px; transform: rotate(-157.059deg);"></div><div class="edge dimmed" style="width: 243.546px; left: 1048.36px; top: 845.055px; transform: rotate(-172.112deg);"></div><div class="edge dimmed" style="width: 363.322px; left: 459.245px; top: 652.6px; transform: rotate(-33.4245deg);"></div><div class="edge dimmed" style="width: 189.645px; left: 286.598px; top: 172.83px; transform: rotate(-2.83166deg);"></div><div class="edge dimmed" style="width: 538.138px; left: 545.826px; top: 851.31px; transform: rotate(-121.65deg);"></div><div class="edge dimmed" style="width: 215.849px; left: 408.124px; top: 553.395px; transform: rotate(-132.088deg);"></div><div class="edge dimmed" style="width: 830.423px; left: 1048.36px; top: 845.055px; transform: rotate(-149.168deg);"></div><div class="edge dimmed" style="width: 605.86px; left: 992.343px; top: 314.938px; transform: rotate(-166.44deg);"></div><div class="edge dimmed" style="width: 646.508px; left: 177.563px; top: 799.497px; transform: rotate(-33.7146deg);"></div><div class="edge dimmed" style="width: 625.161px; left: 783.378px; top: 505.128px; transform: rotate(-175.729deg);"></div><div class="edge dimmed" style="width: 536.826px; left: 858.494px; top: 273.728px; transform: rotate(98.2069deg);"></div><div class="edge dimmed" style="width: 327.248px; left: 393.813px; top: 501.589px; transform: rotate(-10.7324deg);"></div><div class="edge dimmed" style="width: 759.524px; left: 463.592px; top: 918.58px; transform: rotate(-75.0426deg);"></div><div class="edge dimmed" style="width: 402.237px; left: 1069.25px; top: 378.332px; transform: rotate(171.553deg);"></div><div class="edge dimmed" style="width: 707.41px; left: 357.731px; top: 668.936px; transform: rotate(-7.37778deg);"></div><div class="edge dimmed" style="width: 474.17px; left: 357.784px; top: 496.589px; transform: rotate(15.0263deg);"></div><div class="edge dimmed" style="width: 693.217px; left: 403.371px; top: 172.888px; transform: rotate(78.1413deg);"></div><div class="edge dimmed" style="width: 323.367px; left: 621.022px; top: 452.59px; transform: rotate(24.6548deg);"></div><div class="edge dimmed" style="width: 550.938px; left: 523.045px; top: 262.389px; transform: rotate(4.15551deg);"></div><div class="edge dimmed" style="width: 662.097px; left: 781.863px; top: 805.056px; transform: rotate(-141.535deg);"></div><div class="edge dimmed" style="width: 316.701px; left: 807.116px; top: 811.631px; transform: rotate(177.819deg);"></div><div class="edge dimmed" style="width: 843.051px; left: 372.22px; top: 361.343px; transform: rotate(38.0955deg);"></div><div class="edge dimmed" style="width: 796.53px; left: 1072.53px; top: 302.312px; transform: rotate(-170.645deg);"></div><div class="node selected" style="width: 24px; height: 24px; left: 512px; top: 512px; background-color: rgb(139, 95, 255); color: rgb(139, 95, 255);"></div><div class="node" style="width: 31.6687px; height: 31.6687px; left: 239.051px; top: 702.759px; background-color: rgb(139, 95, 255); color: rgb(139, 95, 255);"></div><div class="node" style="width: 33.9986px; height: 33.9986px; left: 523.045px; top: 262.389px; background-color: rgb(139, 95, 255); color: rgb(139, 95, 255);"></div><div class="node" style="width: 31.6687px; height: 31.6687px; left: 783.378px; top: 505.128px; background-color: rgb(252, 211, 77); color: rgb(252, 211, 77);"></div><div class="node" style="width: 31.6687px; height: 31.6687px; left: 263.446px; top: 393.211px; background-color: rgb(91, 139, 255); color: rgb(91, 139, 255);"></div><div class="node" style="width: 28.7747px; height: 28.7747px; left: 159.953px; top: 458.571px; background-color: rgb(91, 139, 255); color: rgb(91, 139, 255);"></div><div class="node dimmed" style="width: 34.6845px; height: 34.6845px; left: 372.22px; top: 361.343px; background-color: rgb(139, 95, 255); color: rgb(139, 95, 255);"></div><div class="node dimmed" style="width: 30.7794px; height: 30.7794px; left: 781.863px; top: 805.056px; background-color: rgb(252, 211, 77); color: rgb(252, 211, 77);"></div><div class="node dimmed" style="width: 33.2711px; height: 33.2711px; left: 403.371px; top: 172.888px; background-color: rgb(244, 114, 182); color: rgb(244, 114, 182);"></div><div class="node dimmed" style="width: 16.6355px; height: 16.6355px; left: 992.343px; top: 314.938px; background-color: rgb(251, 191, 36); color: rgb(251, 191, 36);"></div><div class="node dimmed" style="width: 23.3509px; height: 23.3509px; left: 1048.36px; top: 845.055px; background-color: rgb(244, 114, 182); color: rgb(244, 114, 182);"></div><div class="node dimmed" style="width: 27.631px; height: 27.631px; left: 830.717px; top: 232.601px; background-color: rgb(34, 211, 238); color: rgb(34, 211, 238);"></div><div class="node dimmed" style="width: 33.9986px; height: 33.9986px; left: 545.826px; top: 851.31px; background-color: rgb(91, 139, 255); color: rgb(91, 139, 255);"></div><div class="node dimmed" style="width: 13.1833px; height: 13.1833px; left: 691.575px; top: 348.419px; background-color: rgb(91, 139, 255); color: rgb(91, 139, 255);"></div><div class="node dimmed" style="width: 27.631px; height: 27.631px; left: 476.012px; top: 163.461px; background-color: rgb(34, 211, 238); color: rgb(34, 211, 238);"></div><div class="node dimmed" style="width: 28.7747px; height: 28.7747px; left: 490.644px; top: 823.683px; background-color: rgb(252, 211, 77); color: rgb(252, 211, 77);"></div><div class="node dimmed" style="width: 19.3133px; height: 19.3133px; left: 981.218px; top: 176.751px; background-color: rgb(252, 211, 77); color: rgb(252, 211, 77);"></div><div class="node dimmed" style="width: 32.4966px; height: 32.4966px; left: 459.245px; top: 652.6px; background-color: rgb(52, 211, 153); color: rgb(52, 211, 153);"></div><div class="node dimmed" style="width: 33.9986px; height: 33.9986px; left: 1069.25px; top: 378.332px; background-color: rgb(244, 114, 182); color: rgb(244, 114, 182);"></div><div class="node dimmed" style="width: 30.7794px; height: 30.7794px; left: 875.657px; top: 437.294px; background-color: rgb(139, 95, 255); color: rgb(139, 95, 255);"></div><div class="node dimmed" style="width: 30.7794px; height: 30.7794px; left: 715.337px; top: 440.648px; background-color: rgb(244, 114, 182); color: rgb(244, 114, 182);"></div><div class="node dimmed" style="width: 23.3509px; height: 23.3509px; left: 357.731px; top: 668.936px; background-color: rgb(252, 211, 77); color: rgb(252, 211, 77);"></div><div class="node dimmed" style="width: 8px; height: 8px; left: 1097.57px; top: 386.017px; background-color: rgb(139, 95, 255); color: rgb(139, 95, 255);"></div><div class="node dimmed" style="width: 29.8189px; height: 29.8189px; left: 286.598px; top: 172.83px; background-color: rgb(139, 95, 255); color: rgb(139, 95, 255);"></div><div class="node dimmed" style="width: 16.6355px; height: 16.6355px; left: 982.584px; top: 785.51px; background-color: rgb(244, 114, 182); color: rgb(244, 114, 182);"></div><div class="node dimmed" style="width: 8px; height: 8px; left: 858.494px; top: 273.728px; background-color: rgb(251, 191, 36); color: rgb(251, 191, 36);"></div><div class="node dimmed" style="width: 32.4966px; height: 32.4966px; left: 363.803px; top: 838.818px; background-color: rgb(244, 114, 182); color: rgb(244, 114, 182);"></div><div class="node dimmed" style="width: 31.6687px; height: 31.6687px; left: 1059.28px; top: 578.097px; background-color: rgb(34, 211, 238); color: rgb(34, 211, 238);"></div><div class="node dimmed" style="width: 30.7794px; height: 30.7794px; left: 1072.53px; top: 302.312px; background-color: rgb(244, 114, 182); color: rgb(244, 114, 182);"></div><div class="node dimmed" style="width: 16.6355px; height: 16.6355px; left: 177.563px; top: 799.497px; background-color: rgb(251, 191, 36); color: rgb(251, 191, 36);"></div><div class="node dimmed" style="width: 33.9986px; height: 33.9986px; left: 807.116px; top: 811.631px; background-color: rgb(52, 211, 153); color: rgb(52, 211, 153);"></div><div class="node dimmed" style="width: 8px; height: 8px; left: 920.9px; top: 656.311px; background-color: rgb(244, 114, 182); color: rgb(244, 114, 182);"></div><div class="node dimmed" style="width: 24.9533px; height: 24.9533px; left: 393.813px; top: 501.589px; background-color: rgb(52, 211, 153); color: rgb(52, 211, 153);"></div><div class="node dimmed" style="width: 13.1833px; height: 13.1833px; left: 1047.24px; top: 525.042px; background-color: rgb(139, 95, 255); color: rgb(139, 95, 255);"></div><div class="node dimmed" style="width: 13.1833px; height: 13.1833px; left: 923.896px; top: 357.812px; background-color: rgb(244, 114, 182); color: rgb(244, 114, 182);"></div><div class="node dimmed" style="width: 35.9488px; height: 35.9488px; left: 689.587px; top: 610.27px; background-color: rgb(244, 114, 182); color: rgb(244, 114, 182);"></div><div class="node dimmed" style="width: 31.6687px; height: 31.6687px; left: 1151.23px; top: 568.162px; background-color: rgb(244, 114, 182); color: rgb(244, 114, 182);"></div><div class="node dimmed" style="width: 28.7747px; height: 28.7747px; left: 335.297px; top: 419.441px; background-color: rgb(139, 95, 255); color: rgb(139, 95, 255);"></div><div class="node dimmed" style="width: 16.6355px; height: 16.6355px; left: 621.022px; top: 452.59px; background-color: rgb(244, 114, 182); color: rgb(244, 114, 182);"></div><div class="node dimmed" style="width: 33.2711px; height: 33.2711px; left: 767.16px; top: 674.84px; background-color: rgb(91, 139, 255); color: rgb(91, 139, 255);"></div><div class="node dimmed" style="width: 13.1833px; height: 13.1833px; left: 408.124px; top: 553.395px; background-color: rgb(252, 211, 77); color: rgb(252, 211, 77);"></div><div class="node dimmed" style="width: 32.4966px; height: 32.4966px; left: 762.478px; top: 452.468px; background-color: rgb(34, 211, 238); color: rgb(34, 211, 238);"></div><div class="node dimmed" style="width: 34.6845px; height: 34.6845px; left: 463.592px; top: 918.58px; background-color: rgb(244, 114, 182); color: rgb(244, 114, 182);"></div><div class="node dimmed" style="width: 26.3667px; height: 26.3667px; left: 914.91px; top: 587.482px; background-color: rgb(34, 211, 238); color: rgb(34, 211, 238);"></div><div class="node dimmed" style="width: 28.7747px; height: 28.7747px; left: 671.374px; top: 437.416px; background-color: rgb(34, 211, 238); color: rgb(34, 211, 238);"></div><div class="node dimmed" style="width: 13.1833px; height: 13.1833px; left: 357.784px; top: 496.589px; background-color: rgb(252, 211, 77); color: rgb(252, 211, 77);"></div><div class="node dimmed" style="width: 21.5011px; height: 21.5011px; left: 659.625px; top: 184.79px; background-color: rgb(91, 139, 255); color: rgb(91, 139, 255);"></div><div class="node dimmed" style="width: 32.4966px; height: 32.4966px; left: 885.188px; top: 710.945px; background-color: rgb(91, 139, 255); color: rgb(91, 139, 255);"></div><div class="node dimmed" style="width: 33.9986px; height: 33.9986px; left: 1035.69px; top: 881.483px; background-color: rgb(34, 211, 238); color: rgb(34, 211, 238);"></div><div class="node dimmed" style="width: 27.631px; height: 27.631px; left: 815.741px; top: 619.523px; background-color: rgb(139, 95, 255); color: rgb(139, 95, 255);"></div></div>
+<!-- Navigation / Layout Structure -->
+<!-- SideNavBar Component -->
+<nav class="fixed left-0 top-0 h-full w-[220px] bg-surface-container-low border-r border-border-subtle flex flex-col py-gutter px-3 z-50">
+<!-- Brand/Header -->
+<div class="flex items-center gap-3 mb-8 px-2">
+<div class="w-8 h-8 rounded-lg bg-primary-container flex items-center justify-center text-on-primary-container font-bold text-lg">m</div>
+<div>
+<h1 class="font-headline-md text-headline-md font-bold tracking-tight text-primary">memory</h1>
+<p class="font-label-caps text-label-caps text-text-muted">v2.4.0-stable</p>
+</div>
+</div>
+<!-- Navigation Tabs -->
+<ul class="flex flex-col gap-1 flex-1 font-body-md text-body-md">
+<li class="">
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">dashboard</span>
+                    Overview
+                </a>
+</li>
+<li class="">
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">search</span>
+                    Search
+                </a>
+</li>
+<li class="">
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">menu_book</span>
+                    Wiki
+                </a>
+</li>
+<li class="">
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">article</span>
+                    Raw
+                </a>
+</li>
+<li class="">
+<!-- Active Tab: Graph -->
+<a class="flex items-center gap-inline-gap px-3 py-2 text-primary bg-surface-container-highest rounded-lg font-bold transition-transform scale-[0.98]" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">hub</span>
+                    Graph
+                </a>
+</li>
+<li class="">
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">timeline</span>
+                    Timeline
+                </a>
+</li>
+<li class="">
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">pulse_alert</span>
+                    Activity
+                </a>
+</li>
+<li class="">
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">layers</span>
+                    Sessions
+                </a>
+</li>
+<li class="">
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">diamond</span>
+                    Crystals
+                </a>
+</li>
+<li class="">
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">policy</span>
+                    Audit
+                </a>
+</li>
+<li class="mt-auto">
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">settings</span>
+                    Settings
+                </a>
+</li>
+</ul>
+<!-- Footer -->
+<div class="mt-4 pt-4 border-t border-border-subtle flex items-center justify-between px-2 text-text-secondary font-body-sm text-body-sm">
+<span class="flex items-center gap-2">
+<span class="material-symbols-outlined text-tool-emerald" style="font-variation-settings: 'FILL' 1; font-size: 16px;">cloud_done</span>
+                Status
+            </span>
+<span class="text-text-muted text-xs">Syncing...</span>
+</div>
+</nav>
+<!-- TopNavBar Component -->
+<header class="fixed top-0 right-0 w-[calc(100%-220px)] h-[48px] top-nav-blur border-b border-border-subtle flex justify-between items-center px-gutter ml-[220px] z-40 font-body-sm text-body-sm">
+<div class="flex items-center gap-4 flex-1">
+<!-- Command Bar (⌘K) -->
+<div class="flex items-center bg-surface-container border border-border-subtle rounded-full px-3 py-1.5 w-64 text-text-muted hover:border-emphasis transition-colors cursor-text">
+<span class="material-symbols-outlined text-[16px] mr-2">search</span>
+<span class="flex-1">Search or jump to...</span>
+<kbd class="font-mono-base text-mono-base text-text-secondary bg-surface-variant px-1.5 rounded">⌘K</kbd>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<button class="text-text-muted hover:text-text-primary cursor-pointer transition-colors opacity-80 hover:opacity-100 flex items-center">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">notifications</span>
+</button>
+<div class="w-7 h-7 rounded-full bg-surface-variant border border-border-subtle overflow-hidden flex items-center justify-center">
+<img alt="User profile" class="w-full h-full object-cover" data-alt="A small, circular avatar image of a person's face, used for a user profile icon in a minimalist digital interface." src="https://lh3.googleusercontent.com/aida-public/AB6AXuA43iuqr-7JO_MIVKI07dhzuyrhJn1v5xY5F5O_Sd6IVLUJR6I2Rv0K7SGihrLvc5E-7T9bKXw_8e0W0IyZtY_ZaU9XORxuler9aQXoQQo46poGLmzME5wwHFzV4msp-Ub6YFhQK1Yzn61jdvWtx4fMX9I0qWbjeUcXfD_F9UDKltpc0ttRryeGUaUOkg2K8gqjE8LbbF2oel_IqCHirTk81ZdJstiX4moRHWNGQfrwshkG48egyIuiop955JmHYbLVjTC7lvX8_TBy"/>
+</div>
+</div>
+</header>
+<!-- HUD Elements Overlay -->
+<div class="absolute inset-0 pointer-events-none" style="margin-left: 220px; margin-top: 48px;">
+<!-- Top Left HUD -->
+<div class="absolute top-4 left-4 flex flex-col gap-3 pointer-events-auto">
+<div class="glass-panel rounded-lg p-2 flex items-center gap-3">
+<div class="flex items-center gap-2 px-2 py-1 bg-surface-container-highest rounded border border-border-subtle">
+<span class="w-2 h-2 rounded-full bg-reference-cyan animate-pulse"></span>
+<span class="font-mono-base text-mono-base text-text-primary">FORCE MODE</span>
+</div>
+<div class="h-4 w-px bg-border-subtle"></div>
+<button class="p-1 rounded text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors flex items-center">
+<span class="material-symbols-outlined text-[18px]">filter_list</span>
+</button>
+<button class="p-1 rounded text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors flex items-center">
+<span class="material-symbols-outlined text-[18px]">center_focus_strong</span>
+</button>
+</div>
+</div>
+<!-- Right Side Detail Panel -->
+<div class="absolute top-4 right-4 w-80 glass-panel rounded-xl flex flex-col pointer-events-auto overflow-hidden shadow-2xl shadow-black">
+<!-- Header -->
+<div class="p-4 border-b border-border-subtle bg-surface/50 flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="w-3 h-3 rounded-full bg-decision-purple shadow-[0_0_8px_theme('colors.decision-purple')]"></span>
+<h3 class="font-headline-sm text-headline-sm text-text-primary">Project Apollo Redesign</h3>
+</div>
+<button class="text-text-muted hover:text-text-primary">
+<span class="material-symbols-outlined text-[18px]">close</span>
+</button>
+</div>
+<!-- Content -->
+<div class="p-4 flex flex-col gap-4 font-body-sm text-body-sm">
+<!-- Metadata Grid -->
+<div class="grid grid-cols-2 gap-4">
+<div class="flex flex-col gap-1">
+<span class="font-label-caps text-label-caps text-text-muted uppercase">Entity Type</span>
+<span class="text-text-secondary">Initiative</span>
+</div>
+<div class="flex flex-col gap-1">
+<span class="font-label-caps text-label-caps text-text-muted uppercase">Connectivity</span>
+<span class="text-text-secondary">Hub (24 edges)</span>
+</div>
+<div class="flex flex-col gap-1">
+<span class="font-label-caps text-label-caps text-text-muted uppercase">Created</span>
+<span class="font-mono-base text-mono-base text-text-secondary">2023-10-24</span>
+</div>
+<div class="flex flex-col gap-1">
+<span class="font-label-caps text-label-caps text-text-muted uppercase">Last Active</span>
+<span class="font-mono-base text-mono-base text-text-secondary">2 hrs ago</span>
+</div>
+</div>
+<div class="h-px w-full bg-border-subtle"></div>
+<!-- Abstract / Notes -->
+<div>
+<span class="font-label-caps text-label-caps text-text-muted uppercase mb-2 block">Abstract</span>
+<p class="text-text-secondary leading-relaxed">
+                        Major overhaul of the Apollo architecture to support real-time syncing. Connected to several key engineering decisions and the Q4 OKRs.
+                    </p>
+</div>
+<!-- Connected Nodes list -->
+<div>
+<span class="font-label-caps text-label-caps text-text-muted uppercase mb-2 block">1-Hop Connections</span>
+<div class="flex flex-col gap-2">
+<!-- Entity Chip -->
+<div class="flex items-center gap-2 p-2 rounded bg-surface border border-border-subtle hover:border-emphasis cursor-pointer transition-colors">
+<span class="w-2 h-2 rounded-full bg-person-pink shadow-[0_0_5px_theme('colors.person-pink')]"></span>
+<span class="text-text-primary truncate">Sarah Jenkins</span>
+<span class="ml-auto font-label-caps text-label-caps text-text-muted">OWNER</span>
+</div>
+<div class="flex items-center gap-2 p-2 rounded bg-surface border border-border-subtle hover:border-emphasis cursor-pointer transition-colors">
+<span class="w-2 h-2 rounded-full bg-lesson-amber shadow-[0_0_5px_theme('colors.lesson-amber')]"></span>
+<span class="text-text-primary truncate">WebSocket Stability</span>
+<span class="ml-auto font-label-caps text-label-caps text-text-muted">RISK</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Action Footer -->
+<div class="p-3 bg-surface-container-high border-t border-border-subtle flex justify-end gap-2">
+<button class="px-3 py-1.5 rounded-lg font-body-sm text-body-sm font-semibold bg-surface-variant text-text-primary border border-border-subtle hover:border-emphasis transition-all">Explore Sub-graph</button>
+<button class="px-3 py-1.5 rounded-lg font-body-sm text-body-sm font-semibold bg-primary-container text-on-primary-container hover:opacity-90 transition-opacity">Open Node</button>
+</div>
+</div>
+<!-- Bottom Telemetry -->
+<div class="absolute bottom-4 left-1/2 -translate-x-1/2 glass-panel px-4 py-2 rounded-full flex items-center gap-4 font-mono-base text-mono-base text-text-muted text-[11px]">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-[14px]">scatter_plot</span>
+<span class="">47 nodes</span>
+</div>
+<span class="text-border-subtle">•</span>
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-[14px]">route</span>
+<span class="">89 edges</span>
+</div>
+<span class="text-border-subtle">•</span>
+<span class="">force-directed</span>
+<span class="text-border-subtle">•</span>
+<span class="text-tool-emerald">60fps</span>
+</div>
+</div>
+<!-- Graph Simulation Script (Mock) -->
+<script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const container = document.getElementById('graph-container');
+            const width = container.clientWidth;
+            const height = container.clientHeight;
+            
+            const numNodes = 50;
+            const nodes = [];
+            const edges = [];
+            
+            // Entity Colors
+            const colors = [
+                '#f472b6', // person-pink
+                '#8b5fff', // decision-purple
+                '#fcd34d', // crystal-gold
+                '#fbbf24', // lesson-amber
+                '#34d399', // tool-emerald
+                '#22d3ee', // reference-cyan
+                '#5b8bff'  // project-blue
+            ];
+
+            // 1. Generate Nodes
+            for(let i=0; i<numNodes; i++) {
+                // Sized by log(inbound edges) conceptually - just randomizing for visual
+                const connections = Math.floor(Math.random() * 20) + 1;
+                const size = Math.max(8, Math.log(connections) * 12); 
+                
+                nodes.push({
+                    id: i,
+                    x: Math.random() * width * 0.8 + width * 0.1,
+                    y: Math.random() * height * 0.8 + height * 0.1,
+                    size: size,
+                    color: colors[Math.floor(Math.random() * colors.length)],
+                    isCentral: i === 0, // The selected node
+                    isNeighbor: i > 0 && i < 6 // 1-hop neighbors
+                });
+            }
+
+            // Put central node near middle
+            nodes[0].x = width * 0.4;
+            nodes[0].y = height * 0.5;
+            nodes[0].size = 24;
+            nodes[0].color = '#8b5fff'; // decision-purple
+
+            // 2. Generate Edges (Central node connects to neighbors, random others)
+            for(let i=1; i<6; i++) {
+                edges.push({ source: 0, target: i });
+            }
+            
+            // Random background edges
+            for(let i=0; i<80; i++) {
+                const s = Math.floor(Math.random() * numNodes);
+                const t = Math.floor(Math.random() * numNodes);
+                if(s !== t) edges.push({ source: s, target: t });
+            }
+
+            // 3. Render Edges (as simple divs with rotation for visual proxy)
+            edges.forEach(edge => {
+                const n1 = nodes[edge.source];
+                const n2 = nodes[edge.target];
+                
+                const dx = n2.x - n1.x;
+                const dy = n2.y - n1.y;
+                const length = Math.sqrt(dx*dx + dy*dy);
+                const angle = Math.atan2(dy, dx) * 180 / Math.PI;
+
+                const edgeEl = document.createElement('div');
+                edgeEl.className = 'edge';
+                
+                // Dimming logic: if not connected to central or neighbor
+                const isHighlightEdge = edge.source === 0 || edge.target === 0;
+                if(!isHighlightEdge) {
+                    edgeEl.classList.add('dimmed');
+                }
+
+                edgeEl.style.width = `${length}px`;
+                edgeEl.style.left = `${n1.x}px`;
+                edgeEl.style.top = `${n1.y}px`;
+                edgeEl.style.transform = `rotate(${angle}deg)`;
+
+                // Add particles to highlighted edges
+                if(isHighlightEdge) {
+                    const numParticles = Math.floor(Math.random() * 3) + 2; // 2-4 particles
+                    for(let p=0; p<numParticles; p++) {
+                        const particle = document.createElement('div');
+                        particle.className = 'particle';
+                        particle.style.animationDelay = `${Math.random() * 2}s`;
+                        particle.style.animationDuration = `${1.5 + Math.random()}s`;
+                        edgeEl.appendChild(particle);
+                    }
+                }
+
+                container.appendChild(edgeEl);
+            });
+
+            // 4. Render Nodes
+            nodes.forEach(node => {
+                const el = document.createElement('div');
+                el.className = 'node';
+                el.style.width = `${node.size}px`;
+                el.style.height = `${node.size}px`;
+                el.style.left = `${node.x}px`;
+                el.style.top = `${node.y}px`;
+                el.style.backgroundColor = node.color;
+                el.style.color = node.color; // for box-shadow currentColor
+
+                if(node.isCentral) {
+                    el.classList.add('selected');
+                } else if(!node.isNeighbor) {
+                    el.classList.add('dimmed');
+                }
+
+                container.appendChild(el);
+            });
+        });
+    </script>
+</body></html>

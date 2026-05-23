@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Memory - Graph Constellation</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&amp;family=JetBrains+Mono:wght@400&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              "colors": {
+                      "surface": "#14121b",
+                      "surface-container-high": "#2b2832",
+                      "on-secondary-container": "#b7c8ff",
+                      "outline-variant": "#494455",
+                      "on-background": "#e7e0ed",
+                      "secondary-fixed": "#dae2ff",
+                      "inverse-surface": "#e7e0ed",
+                      "surface-tint": "#cebdff",
+                      "on-surface": "#e7e0ed",
+                      "error-container": "#93000a",
+                      "person-pink": "#f472b6",
+                      "decision-purple": "#8b5fff",
+                      "surface-container-lowest": "#0f0d16",
+                      "secondary-fixed-dim": "#b2c5ff",
+                      "surface-variant": "#36333d",
+                      "surface-dim": "#14121b",
+                      "error": "#ffb4ab",
+                      "on-surface-variant": "#cbc3d7",
+                      "inverse-on-surface": "#322f39",
+                      "primary-fixed-dim": "#cebdff",
+                      "tertiary-fixed": "#ffdcbf",
+                      "on-error": "#690005",
+                      "surface-bright": "#3b3842",
+                      "on-tertiary-fixed-variant": "#6a3b00",
+                      "text-secondary": "rgba(237,237,237,0.7)",
+                      "tertiary-fixed-dim": "#ffb873",
+                      "background": "#14121b",
+                      "crystal-gold": "#fcd34d",
+                      "text-primary": "#ededed",
+                      "lesson-amber": "#fbbf24",
+                      "primary": "#cebdff",
+                      "on-secondary": "#002b73",
+                      "on-secondary-fixed": "#001848",
+                      "tertiary": "#ffb873",
+                      "on-error-container": "#ffdad6",
+                      "on-primary": "#390093",
+                      "tool-emerald": "#34d399",
+                      "primary-fixed": "#e8ddff",
+                      "on-primary-fixed": "#21005d",
+                      "on-tertiary-fixed": "#2d1600",
+                      "reference-cyan": "#22d3ee",
+                      "primary-container": "#9c79ff",
+                      "secondary": "#b2c5ff",
+                      "outline": "#948ea0",
+                      "on-primary-fixed-variant": "#5212c4",
+                      "border-emphasis": "rgba(255,255,255,0.12)",
+                      "on-secondary-fixed-variant": "#0040a2",
+                      "inverse-primary": "#6a3add",
+                      "on-primary-container": "#310082",
+                      "secondary-container": "#004dbf",
+                      "project-blue": "#5b8bff",
+                      "surface-container-highest": "#36333d",
+                      "tertiary-container": "#d07d1b",
+                      "on-tertiary-container": "#412200",
+                      "text-muted": "rgba(237,237,237,0.45)",
+                      "surface-container": "#211e28",
+                      "border-subtle": "rgba(255,255,255,0.06)",
+                      "surface-container-low": "#1d1a24",
+                      "on-tertiary": "#4b2800",
+                      "session-zinc": "#52525b"
+              },
+              "borderRadius": {
+                      "DEFAULT": "0.25rem",
+                      "lg": "0.5rem",
+                      "xl": "0.75rem",
+                      "full": "9999px"
+              },
+              "spacing": {
+                      "sidebar-width": "220px",
+                      "stack-gap": "12px",
+                      "container-max": "1200px",
+                      "gutter": "24px",
+                      "inline-gap": "8px"
+              },
+              "fontFamily": {
+                      "label-caps": [
+                              "Inter"
+                      ],
+                      "headline-lg": [
+                              "Inter"
+                      ],
+                      "body-lg": [
+                              "Inter"
+                      ],
+                      "mono-base": [
+                              "JetBrains Mono"
+                      ],
+                      "body-md": [
+                              "Inter"
+                      ],
+                      "headline-md": [
+                              "Inter"
+                      ],
+                      "headline-sm": [
+                              "Inter"
+                      ],
+                      "body-sm": [
+                              "Inter"
+                      ]
+              },
+              "fontSize": {
+                      "label-caps": [
+                              "11px",
+                              {
+                                      "lineHeight": "16px",
+                                      "letterSpacing": "0.05em",
+                                      "fontWeight": "600"
+                              }
+                      ],
+                      "headline-lg": [
+                              "24px",
+                              {
+                                      "lineHeight": "32px",
+                                      "letterSpacing": "-0.02em",
+                                      "fontWeight": "600"
+                              }
+                      ],
+                      "body-lg": [
+                              "16px",
+                              {
+                                      "lineHeight": "24px",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "mono-base": [
+                              "13px",
+                              {
+                                      "lineHeight": "20px",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "body-md": [
+                              "14px",
+                              {
+                                      "lineHeight": "20px",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "headline-md": [
+                              "20px",
+                              {
+                                      "lineHeight": "28px",
+                                      "letterSpacing": "-0.02em",
+                                      "fontWeight": "600"
+                              }
+                      ],
+                      "headline-sm": [
+                              "16px",
+                              {
+                                      "lineHeight": "24px",
+                                      "letterSpacing": "-0.01em",
+                                      "fontWeight": "600"
+                              }
+                      ],
+                      "body-sm": [
+                              "13px",
+                              {
+                                      "lineHeight": "18px",
+                                      "fontWeight": "400"
+                              }
+                      ]
+              }
+      },
+          },
+        }
+    </script>
+<style>
+        body {
+            background-color: theme('colors.surface');
+            color: theme('colors.text-primary');
+            margin: 0;
+            overflow: hidden; /* Prevent scrolling for the full-screen canvas */
+        }
+        
+        .node-glow {
+            box-shadow: 0 0 6px 1px currentColor;
+        }
+
+        /* Deep night sky gradient */
+        .star-map-bg {
+            background: radial-gradient(ellipse at center, #1a1525 0%, #0a080f 100%);
+        }
+
+        /* Faint connecting lines */
+        .constellation-edge {
+            position: absolute;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, rgba(237,237,237,0.15), transparent);
+            transform-origin: 0 50%;
+            pointer-events: none;
+        }
+
+        /* Ensure crisp text */
+        .text-crisp {
+            text-shadow: none !important;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+
+        /* Minimal glass-blur HUD */
+        .backdrop-blur-capped {
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+        }
+</style>
+</head>
+<body class="star-map-bg text-body-md font-body-md antialiased selection:bg-primary-container selection:text-on-primary-container text-crisp">
+<!-- TopNavBar -->
+<nav class="fixed top-0 right-0 w-full md:w-[calc(100%-220px)] h-[48px] bg-surface/40 dark:bg-surface/40 border-b border-border-subtle flex justify-between items-center px-gutter ml-[220px] z-40 backdrop-blur-capped">
+<!-- Brand/Breadcrumbs -->
+<div class="flex items-center gap-inline-gap">
+<span class="text-text-muted font-body-sm text-body-sm">Graph</span>
+<span class="text-border-subtle material-symbols-outlined text-[14px]">chevron_right</span>
+<span class="text-text-primary font-bold font-body-sm text-body-sm">Constellation View</span>
+</div>
+<!-- Right Actions -->
+<div class="flex items-center gap-stack-gap">
+<!-- Command Bar -->
+<div class="hidden sm:flex items-center gap-2 bg-surface-container-high/50 border border-border-subtle rounded-full px-3 py-1 hover:border-border-emphasis transition-colors cursor-pointer">
+<span class="material-symbols-outlined text-[16px] text-text-secondary">search</span>
+<span class="text-text-secondary font-body-sm text-body-sm">Find node...</span>
+<span class="bg-surface-variant/50 text-text-muted font-mono-base text-[10px] px-1.5 py-0.5 rounded">⌘K</span>
+</div>
+<!-- Actions -->
+<button class="text-text-muted hover:text-text-primary transition-colors cursor-pointer opacity-80 hover:opacity-100 flex items-center justify-center p-1 rounded hover:bg-surface-variant/50">
+<span class="material-symbols-outlined text-[20px]">notifications</span>
+</button>
+<div class="w-7 h-7 rounded-full bg-surface-container-highest border border-border-subtle overflow-hidden ml-2 cursor-pointer">
+<img alt="User profile" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuC0kDpcg8_AOpGz0Qe7I_PWNc0oFp-m1tEKJgbaVvtrc7r_iw3gln57AR8-OUhcZsCfSN28cZEuk33y3pIjsNEVHKvpBtyvchNPQIOWp48LD4R7_b6rh3f0mQu2eb9ZjIDVX0_0iNHLDulo68sayMsUEB7UvHrv10p9FDQvo_99e-lQCqOe01PI0q6QDS_LqDYVg1-xLKpfI71PmQIQdCu1LXBgGzx96DllGyyUzjvzEl0Mig2uzouTlxuBf2UzenJCJmnsvjSwiUw5"/>
+</div>
+</div>
+</nav>
+<!-- SideNavBar -->
+<aside class="fixed left-0 top-0 h-full w-[220px] bg-surface-container-low/80 dark:bg-surface-container-low/80 backdrop-blur-capped border-r border-border-subtle hidden md:flex flex-col py-gutter px-3 z-50">
+<!-- Header -->
+<div class="flex items-center gap-3 px-3 mb-8">
+<div class="w-8 h-8 rounded bg-primary-container/80 flex items-center justify-center text-on-primary-container">
+<span class="material-symbols-outlined text-[20px]" data-icon="memory">memory</span>
+</div>
+<div>
+<h1 class="font-headline-md text-headline-md font-bold tracking-tight text-primary dark:text-primary leading-none">memory</h1>
+<span class="text-[10px] text-text-muted font-mono-base">v2.4.0-stable</span>
+</div>
+</div>
+<!-- Navigation Tabs -->
+<nav class="flex flex-col gap-1 flex-1">
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant/50 transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined text-[18px]">dashboard</span>
+<span class="font-body-md text-body-md">Overview</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant/50 transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined text-[18px]">search</span>
+<span class="font-body-md text-body-md">Search</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant/50 transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined text-[18px]">menu_book</span>
+<span class="font-body-md text-body-md">Wiki</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant/50 transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined text-[18px]">article</span>
+<span class="font-body-md text-body-md">Raw</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-primary bg-surface-container-highest/50 rounded-lg font-bold hover:bg-surface-variant/80 transition-colors duration-200 active:scale-[0.98]" href="#">
+<span class="material-symbols-outlined text-[18px]">hub</span>
+<span class="font-body-md text-body-md">Graph</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant/50 transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined text-[18px]">timeline</span>
+<span class="font-body-md text-body-md">Timeline</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant/50 transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined text-[18px]">pulse_alert</span>
+<span class="font-body-md text-body-md">Activity</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant/50 transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined text-[18px]">layers</span>
+<span class="font-body-md text-body-md">Sessions</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant/50 transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined text-[18px]">diamond</span>
+<span class="font-body-md text-body-md">Crystals</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant/50 transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined text-[18px]">policy</span>
+<span class="font-body-md text-body-md">Audit</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant/50 transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined text-[18px]">settings</span>
+<span class="font-body-md text-body-md">Settings</span>
+</a>
+</nav>
+<!-- Footer -->
+<div class="mt-auto pt-4 border-t border-border-subtle">
+<div class="flex items-center justify-between px-3 py-2 text-text-secondary">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-[16px]">cloud_done</span>
+<span class="font-body-sm text-body-sm text-text-muted">Syncing...</span>
+</div>
+<div class="w-1.5 h-1.5 rounded-full bg-tool-emerald"></div>
+</div>
+</div>
+</aside>
+<!-- Main Canvas Area -->
+<main class="md:ml-[220px] pt-[48px] h-screen w-full relative">
+<!-- Graph HUD -->
+<div class="absolute bottom-6 left-6 z-10 flex gap-4">
+<div class="bg-surface-container-highest/40 border border-border-subtle rounded-lg p-3 flex flex-col gap-1 backdrop-blur-capped shadow-lg">
+<div class="font-label-caps text-label-caps text-text-muted uppercase tracking-widest">Telemetry</div>
+<div class="font-mono-base text-mono-base text-text-primary">164 nodes · 218 edges</div>
+<div class="font-mono-base text-[11px] text-text-secondary flex items-center gap-2 mt-1">
+<span class="w-2 h-2 rounded-full bg-reference-cyan"></span>
+                     constellation · 60fps
+                 </div>
+</div>
+</div>
+<div class="absolute bottom-6 right-6 md:right-12 z-10 flex gap-2">
+<button class="w-10 h-10 rounded-full bg-surface-container-highest/40 border border-border-subtle text-text-secondary hover:text-text-primary hover:border-border-emphasis flex items-center justify-center transition-all cursor-pointer shadow-lg backdrop-blur-capped">
+<span class="material-symbols-outlined text-[20px]">zoom_in</span>
+</button>
+<button class="w-10 h-10 rounded-full bg-surface-container-highest/40 border border-border-subtle text-text-secondary hover:text-text-primary hover:border-border-emphasis flex items-center justify-center transition-all cursor-pointer shadow-lg backdrop-blur-capped">
+<span class="material-symbols-outlined text-[20px]">zoom_out</span>
+</button>
+<button class="w-10 h-10 rounded-full bg-surface-container-highest/40 border border-border-subtle text-text-secondary hover:text-text-primary hover:border-border-emphasis flex items-center justify-center transition-all cursor-pointer shadow-lg backdrop-blur-capped">
+<span class="material-symbols-outlined text-[20px]">my_location</span>
+</button>
+</div>
+<!-- The "Canvas" - simulated star map -->
+<div class="w-full h-full relative overflow-hidden" id="graph-container">
+<!-- Constellation Label Overlay -->
+<div class="absolute top-[30%] left-[35%] text-text-muted/10 font-headline-lg text-[80px] font-bold tracking-tighter select-none pointer-events-none transform -rotate-12 mix-blend-screen">
+                PROJECT_AETHER
+            </div>
+<div class="absolute top-[55%] left-[25%] text-text-muted/10 font-headline-lg text-[64px] font-bold tracking-tighter select-none pointer-events-none transform rotate-6 mix-blend-screen">
+                USER_RESEARCH
+            </div>
+<!-- Edges (Simulated Constellation Shapes) -->
+<!-- Project Aether Cluster -->
+<div class="constellation-edge" style="width: 150px; top: 40%; left: 30%; transform: rotate(15deg);"></div>
+<div class="constellation-edge" style="width: 200px; top: 43%; left: 40%; transform: rotate(-25deg);"></div>
+<div class="constellation-edge" style="width: 120px; top: 35%; left: 55%; transform: rotate(45deg);"></div>
+<div class="constellation-edge" style="width: 180px; top: 45%; left: 60%; transform: rotate(-10deg);"></div>
+<div class="constellation-edge" style="width: 90px; top: 35%; left: 55%; transform: rotate(-60deg);"></div>
+<div class="constellation-edge" style="width: 140px; top: 40%; left: 30%; transform: rotate(-45deg);"></div>
+<!-- User Research Cluster -->
+<div class="constellation-edge" style="width: 250px; top: 60%; left: 25%; transform: rotate(5deg);"></div>
+<div class="constellation-edge" style="width: 140px; top: 62%; left: 45%; transform: rotate(-30deg);"></div>
+<div class="constellation-edge" style="width: 90px; top: 55%; left: 55%; transform: rotate(70deg);"></div>
+<div class="constellation-edge" style="width: 160px; top: 60%; left: 25%; transform: rotate(45deg);"></div>
+<div class="constellation-edge" style="width: 110px; top: 62%; left: 45%; transform: rotate(15deg);"></div>
+<!-- Cross-Cluster Edges -->
+<div class="constellation-edge opacity-50" style="width: 300px; top: 45%; left: 60%; transform: rotate(115deg);"></div>
+<div class="constellation-edge opacity-30" style="width: 400px; top: 43%; left: 40%; transform: rotate(65deg);"></div>
+<!-- Glowing Nodes (Key Entities) -->
+<!-- Cluster 1: Aether -->
+<div class="absolute top-[40%] left-[30%] w-1.5 h-1.5 bg-decision-purple rounded-full node-glow text-decision-purple cursor-pointer group">
+<div class="absolute top-3 left-1/2 transform -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity bg-surface-container px-2 py-1 rounded text-[10px] font-mono-base text-text-primary whitespace-nowrap border border-border-subtle z-20">System Architecture</div>
+</div>
+<div class="absolute top-[43%] left-[40%] w-2 h-2 bg-primary rounded-full node-glow text-primary cursor-pointer group z-10">
+<div class="absolute top-3 left-1/2 transform -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity bg-surface-container px-2 py-1 rounded text-[10px] font-mono-base text-text-primary whitespace-nowrap border border-border-subtle z-20">Core API v2</div>
+</div>
+<div class="absolute top-[35%] left-[55%] w-1.5 h-1.5 bg-tool-emerald rounded-full node-glow text-tool-emerald cursor-pointer group">
+<div class="absolute top-3 left-1/2 transform -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity bg-surface-container px-2 py-1 rounded text-[10px] font-mono-base text-text-primary whitespace-nowrap border border-border-subtle z-20">DB Schema</div>
+</div>
+<div class="absolute top-[45%] left-[60%] w-1.5 h-1.5 bg-crystal-gold rounded-full node-glow text-crystal-gold cursor-pointer group">
+<div class="absolute top-3 left-1/2 transform -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity bg-surface-container px-2 py-1 rounded text-[10px] font-mono-base text-text-primary whitespace-nowrap border border-border-subtle z-20">Auth Flow</div>
+</div>
+<div class="absolute top-[28%] left-[51%] w-1 h-1 bg-primary-fixed-dim rounded-full node-glow text-primary-fixed-dim cursor-pointer group">
+<div class="absolute top-3 left-1/2 transform -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity bg-surface-container px-2 py-1 rounded text-[10px] font-mono-base text-text-primary whitespace-nowrap border border-border-subtle z-20">Rate Limiter</div>
+</div>
+<div class="absolute top-[32%] left-[25%] w-1.5 h-1.5 bg-project-blue rounded-full node-glow text-project-blue cursor-pointer group">
+<div class="absolute top-3 left-1/2 transform -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity bg-surface-container px-2 py-1 rounded text-[10px] font-mono-base text-text-primary whitespace-nowrap border border-border-subtle z-20">VPC Setup</div>
+</div>
+<!-- Cluster 2: Research -->
+<div class="absolute top-[60%] left-[25%] w-2 h-2 bg-reference-cyan rounded-full node-glow text-reference-cyan cursor-pointer group z-10">
+<div class="absolute top-3 left-1/2 transform -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity bg-surface-container px-2 py-1 rounded text-[10px] font-mono-base text-text-primary whitespace-nowrap border border-border-subtle z-20">Interview Notes</div>
+</div>
+<div class="absolute top-[62%] left-[45%] w-1.5 h-1.5 bg-person-pink rounded-full node-glow text-person-pink cursor-pointer group">
+<div class="absolute top-3 left-1/2 transform -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity bg-surface-container px-2 py-1 rounded text-[10px] font-mono-base text-text-primary whitespace-nowrap border border-border-subtle z-20">User Persona: Dev</div>
+</div>
+<div class="absolute top-[55%] left-[55%] w-1.5 h-1.5 bg-lesson-amber rounded-full node-glow text-lesson-amber cursor-pointer group">
+<div class="absolute top-3 left-1/2 transform -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity bg-surface-container px-2 py-1 rounded text-[10px] font-mono-base text-text-primary whitespace-nowrap border border-border-subtle z-20">Pain Point: Latency</div>
+</div>
+<div class="absolute top-[72%] left-[32%] w-1 h-1 bg-tertiary rounded-full node-glow text-tertiary cursor-pointer group">
+<div class="absolute top-3 left-1/2 transform -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity bg-surface-container px-2 py-1 rounded text-[10px] font-mono-base text-text-primary whitespace-nowrap border border-border-subtle z-20">Survey Results</div>
+</div>
+<div class="absolute top-[65%] left-[52%] w-1 h-1 bg-secondary rounded-full node-glow text-secondary cursor-pointer group">
+<div class="absolute top-3 left-1/2 transform -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity bg-surface-container px-2 py-1 rounded text-[10px] font-mono-base text-text-primary whitespace-nowrap border border-border-subtle z-20">Feature Requests</div>
+</div>
+</div>
+</main>
+<script>
+        // Generate ambient starfield for density
+        const container = document.getElementById('graph-container');
+        
+        // Add ~120 scattered tiny glowing points
+        for(let i = 0; i < 120; i++) {
+            const star = document.createElement('div');
+            // Mix of tiny dots and slightly larger glowing ones
+            const isGlowing = Math.random() > 0.8;
+            const size = isGlowing ? (Math.random() * 1.5 + 1) : (Math.random() * 1 + 0.5);
+            
+            star.className = `absolute rounded-full bg-text-secondary ${isGlowing ? 'node-glow' : ''}`;
+            star.style.width = `${size}px`;
+            star.style.height = `${size}px`;
+            star.style.top = `${Math.random() * 100}%`;
+            star.style.left = `${Math.random() * 100}%`;
+            
+            // Varying opacity
+            star.style.opacity = Math.random() * 0.4 + 0.1;
+            
+            // Subtle color tinting for some stars
+            if (isGlowing && Math.random() > 0.5) {
+                const colors = ['#cebdff', '#b2c5ff', '#ffb873', '#22d3ee'];
+                star.style.backgroundColor = colors[Math.floor(Math.random() * colors.length)];
+                star.style.color = star.style.backgroundColor; // For the glow
+            }
+            
+            // Add slight parallax class
+            star.classList.add('star-parallax');
+            container.appendChild(star);
+        }
+
+        // Add subtle parallax/drift to nodes and stars
+        let mouseX = 0;
+        let mouseY = 0;
+
+        container.addEventListener('mousemove', (e) => {
+            mouseX = (e.clientX / window.innerWidth) - 0.5;
+            mouseY = (e.clientY / window.innerHeight) - 0.5;
+
+            // Shift main groups
+            const groups = document.querySelectorAll('.group');
+            groups.forEach(node => {
+                const shiftX = mouseX * 15;
+                const shiftY = mouseY * 15;
+                node.style.transform = `translate(${shiftX}px, ${shiftY}px)`;
+            });
+            
+            // Shift edges slightly less
+            const edges = document.querySelectorAll('.constellation-edge');
+            edges.forEach(edge => {
+                const shiftX = mouseX * 8;
+                const shiftY = mouseY * 8;
+                // Preserve the original rotation
+                const currentTransform = edge.style.transform;
+                if(currentTransform.includes('rotate')) {
+                    const rotate = currentTransform.match(/rotate\([^)]+\)/)[0];
+                    edge.style.transform = `${rotate} translate(${shiftX}px, ${shiftY}px)`;
+                } else {
+                    edge.style.transform = `translate(${shiftX}px, ${shiftY}px)`;
+                }
+            });
+            
+            // Shift ambient stars based on size (simulated depth)
+            const stars = document.querySelectorAll('.star-parallax');
+            stars.forEach(star => {
+                const size = parseFloat(star.style.width);
+                const depthFactor = size * 5;
+                const shiftX = mouseX * depthFactor;
+                const shiftY = mouseY * depthFactor;
+                star.style.transform = `translate(${shiftX}px, ${shiftY}px)`;
+            });
+        });
+    </script>
+</body></html>

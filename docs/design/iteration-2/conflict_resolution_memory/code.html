@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Conflict Resolution HUD - Memory</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&amp;family=JetBrains+Mono:wght@400&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "primary-fixed": "#e8ddff",
+                        "error": "#ffb4ab",
+                        "person-pink": "#f472b6",
+                        "surface-tint": "#cebdff",
+                        "on-secondary-fixed-variant": "#0040a2",
+                        "tertiary-container": "#d07d1b",
+                        "surface": "#14121b",
+                        "on-secondary-container": "#b7c8ff",
+                        "on-tertiary-fixed": "#2d1600",
+                        "surface-container-high": "#2b2832",
+                        "tertiary-fixed-dim": "#ffb873",
+                        "on-primary-container": "#310082",
+                        "on-secondary-fixed": "#001848",
+                        "on-error-container": "#ffdad6",
+                        "on-primary": "#390093",
+                        "on-primary-fixed-variant": "#5212c4",
+                        "inverse-on-surface": "#322f39",
+                        "surface-variant": "#36333d",
+                        "surface-bright": "#3b3842",
+                        "inverse-primary": "#6a3add",
+                        "on-background": "#e7e0ed",
+                        "surface-container-lowest": "#0f0d16",
+                        "inverse-surface": "#e7e0ed",
+                        "primary": "#cebdff",
+                        "on-surface-variant": "#cbc3d7",
+                        "secondary": "#b2c5ff",
+                        "tertiary-fixed": "#ffdcbf",
+                        "on-tertiary-container": "#412200",
+                        "border-subtle": "rgba(255,255,255,0.06)",
+                        "border-emphasis": "rgba(255,255,255,0.12)",
+                        "on-surface": "#e7e0ed",
+                        "tool-emerald": "#34d399",
+                        "text-secondary": "rgba(237,237,237,0.7)",
+                        "secondary-fixed-dim": "#b2c5ff",
+                        "surface-container": "#211e28",
+                        "decision-purple": "#8b5fff",
+                        "secondary-fixed": "#dae2ff",
+                        "primary-container": "#9c79ff",
+                        "on-primary-fixed": "#21005d",
+                        "surface-container-highest": "#36333d",
+                        "on-tertiary-fixed-variant": "#6a3b00",
+                        "on-error": "#690005",
+                        "session-zinc": "#52525b",
+                        "outline": "#948ea0",
+                        "surface-dim": "#14121b",
+                        "on-tertiary": "#4b2800",
+                        "crystal-gold": "#fcd34d",
+                        "lesson-amber": "#fbbf24",
+                        "surface-container-low": "#1d1a24",
+                        "project-blue": "#5b8bff",
+                        "text-primary": "#ededed",
+                        "tertiary": "#ffb873",
+                        "secondary-container": "#004dbf",
+                        "background": "#14121b",
+                        "text-muted": "rgba(237,237,237,0.45)",
+                        "error-container": "#93000a",
+                        "reference-cyan": "#22d3ee",
+                        "outline-variant": "#494455",
+                        "primary-fixed-dim": "#cebdff",
+                        "on-secondary": "#002b73"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "container-max": "1200px",
+                        "gutter": "24px",
+                        "inline-gap": "8px",
+                        "sidebar-width": "220px",
+                        "stack-gap": "12px"
+                    },
+                    "fontFamily": {
+                        "headline-lg": ["Inter"],
+                        "headline-sm": ["Inter"],
+                        "body-lg": ["Inter"],
+                        "mono-base": ["JetBrains Mono"],
+                        "headline-md": ["Inter"],
+                        "label-caps": ["Inter"],
+                        "body-sm": ["Inter"],
+                        "body-md": ["Inter"]
+                    },
+                    "fontSize": {
+                        "headline-lg": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.02em", "fontWeight": "600" }],
+                        "headline-sm": ["16px", { "lineHeight": "24px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+                        "body-lg": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                        "mono-base": ["13px", { "lineHeight": "20px", "fontWeight": "400" }],
+                        "headline-md": ["20px", { "lineHeight": "28px", "letterSpacing": "-0.02em", "fontWeight": "600" }],
+                        "label-caps": ["11px", { "lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "600" }],
+                        "body-sm": ["13px", { "lineHeight": "18px", "fontWeight": "400" }],
+                        "body-md": ["14px", { "lineHeight": "20px", "fontWeight": "400" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        body { background-color: #14121b; color: #ededed; }
+        .glass-panel { background: rgba(33, 30, 40, 0.6); backdrop-filter: blur(20px); border: 1px solid rgba(255, 255, 255, 0.06); }
+        .pulse-red { animation: pulse-red 2s infinite; }
+        @keyframes pulse-red {
+            0% { box-shadow: 0 0 0 0 rgba(255, 180, 171, 0.4); }
+            70% { box-shadow: 0 0 0 10px rgba(255, 180, 171, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(255, 180, 171, 0); }
+        }
+        .graph-bg {
+            background-image: 
+                radial-gradient(circle at 30% 50%, rgba(139, 95, 255, 0.05) 0%, transparent 40%),
+                radial-gradient(circle at 70% 50%, rgba(251, 191, 36, 0.05) 0%, transparent 40%);
+        }
+        .bloom-purple { box-shadow: 0 0 12px 2px rgba(139, 95, 255, 0.3); }
+        .bloom-amber { box-shadow: 0 0 12px 2px rgba(251, 191, 36, 0.3); }
+    </style>
+</head>
+<body class="h-screen w-screen overflow-hidden flex font-body-md text-body-md bg-background relative graph-bg">
+<!-- Background Graph Representation -->
+<div class="absolute inset-0 z-0 pointer-events-none flex items-center justify-center opacity-30">
+<svg height="100%" preserveaspectratio="xMidYMid slice" viewbox="0 0 1000 600" width="100%">
+<line class="opacity-50 pulse-red" stroke="#ffb4ab" stroke-dasharray="8 4" stroke-width="2" x1="300" x2="700" y1="300" y2="300"></line>
+<circle class="bloom-purple" cx="300" cy="300" fill="#8b5fff" r="8"></circle>
+<circle class="bloom-amber" cx="700" cy="300" fill="#fbbf24" r="8"></circle>
+<text class="opacity-70" fill="#ffb4ab" font-family="JetBrains Mono" font-size="12" text-anchor="middle" x="500" y="280">contradicts</text>
+</svg>
+</div>
+<!-- SideNavBar (Suppressed for focused journey, but keeping minimal structural spacing if needed, typically hidden in HUDs) -->
+<!-- Main Content Canvas -->
+<div class="flex-1 flex flex-col h-full z-10 relative">
+<!-- TopAppBar (Minimal for HUD) -->
+<header class="flex justify-between items-center px-gutter h-[48px] bg-surface/80 backdrop-blur-xl border-b border-border-subtle shrink-0">
+<div class="flex items-center gap-inline-gap">
+<span class="material-symbols-outlined text-text-secondary" data-icon="policy">policy</span>
+<span class="font-headline-sm text-headline-sm text-text-primary">Conflict Resolution</span>
+<span class="px-2 py-0.5 rounded-full bg-error/10 text-error font-mono-base text-mono-base text-[10px] ml-2">1 ACTIVE</span>
+</div>
+<div class="flex items-center gap-inline-gap">
+<button class="text-text-secondary hover:text-text-primary transition-colors">
+<span class="material-symbols-outlined text-[18px]" data-icon="close">close</span>
+</button>
+</div>
+</header>
+<!-- Split Screen Workspace -->
+<main class="flex-1 overflow-hidden p-gutter flex gap-gutter items-stretch">
+<!-- Left Panel: Old Decision -->
+<div class="flex-1 glass-panel rounded-xl flex flex-col overflow-hidden">
+<div class="p-4 border-b border-border-subtle bg-surface-container-low flex justify-between items-center">
+<div class="flex items-center gap-2">
+<div class="w-2 h-2 rounded-full bg-decision-purple bloom-purple"></div>
+<span class="font-label-caps text-label-caps text-text-secondary uppercase tracking-wider">Decision</span>
+<span class="font-mono-base text-mono-base text-text-muted">#D-482</span>
+</div>
+<span class="font-mono-base text-mono-base text-text-muted">Oct 12, 2023</span>
+</div>
+<div class="p-6 overflow-y-auto font-body-lg text-body-lg text-text-secondary space-y-4">
+<h2 class="font-headline-md text-headline-md text-text-primary">Database Migration Strategy</h2>
+<p>After reviewing the requirements, we have finalized the approach for the upcoming Q4 migration.</p>
+<div class="p-3 bg-error/5 border border-error/20 rounded-lg relative">
+<div class="absolute -left-1.5 top-1/2 -translate-y-1/2 w-1 h-8 bg-error rounded-full"></div>
+<p class="text-text-primary"><strong class="text-error font-bold">Rule:</strong> All legacy user data must be migrated to the new PostgreSQL cluster <span class="bg-error/20 px-1 rounded">synchronously</span> during the maintenance window to ensure data consistency.</p>
+</div>
+<p>This approach guarantees zero data drift between the old and new systems.</p>
+</div>
+</div>
+<!-- Center Panel: Resolution Tools -->
+<div class="w-[280px] shrink-0 flex flex-col justify-center gap-4 z-20">
+<div class="glass-panel rounded-xl p-4 flex flex-col items-center text-center gap-4 shadow-lg">
+<div class="w-10 h-10 rounded-full bg-error/10 flex items-center justify-center pulse-red">
+<span class="material-symbols-outlined text-error" data-icon="warning">warning</span>
+</div>
+<div>
+<h3 class="font-headline-sm text-headline-sm text-text-primary">Direct Contradiction</h3>
+<p class="font-body-sm text-body-sm text-text-muted mt-1">Migration execution methodology conflicts.</p>
+</div>
+<div class="w-full h-px bg-border-subtle my-2"></div>
+<div class="flex flex-col w-full gap-2">
+<button class="w-full py-2 px-4 rounded-lg bg-surface-container-highest hover:bg-surface-variant border border-border-subtle text-text-primary font-body-sm text-body-sm flex items-center justify-center gap-2 transition-all">
+<span class="material-symbols-outlined text-[16px]" data-icon="call_merge">call_merge</span>
+                            Merge (Draft New)
+                        </button>
+<button class="w-full py-2 px-4 rounded-lg bg-error/10 hover:bg-error/20 border border-error/20 text-error font-body-sm text-body-sm flex items-center justify-center gap-2 transition-all">
+<span class="material-symbols-outlined text-[16px]" data-icon="archive">archive</span>
+                            Deprecate Old
+                        </button>
+<button class="w-full py-2 px-4 rounded-lg bg-surface-container hover:bg-surface-variant border border-border-subtle text-text-secondary font-body-sm text-body-sm flex items-center justify-center gap-2 transition-all">
+<span class="material-symbols-outlined text-[16px]" data-icon="alt_route">alt_route</span>
+                            Keep as Alternatives
+                        </button>
+</div>
+</div>
+</div>
+<!-- Right Panel: Newer Lesson -->
+<div class="flex-1 glass-panel rounded-xl flex flex-col overflow-hidden">
+<div class="p-4 border-b border-border-subtle bg-surface-container-low flex justify-between items-center">
+<div class="flex items-center gap-2">
+<div class="w-2 h-2 rounded-full bg-lesson-amber bloom-amber"></div>
+<span class="font-label-caps text-label-caps text-text-secondary uppercase tracking-wider">Lesson</span>
+<span class="font-mono-base text-mono-base text-text-muted">#L-912</span>
+</div>
+<span class="font-mono-base text-mono-base text-text-muted">Nov 05, 2023</span>
+</div>
+<div class="p-6 overflow-y-auto font-body-lg text-body-lg text-text-secondary space-y-4">
+<h2 class="font-headline-md text-headline-md text-text-primary">Post-Mortem: Q4 Migration Outage</h2>
+<p>The recent migration attempt resulted in significant downtime exceeding our SLA.</p>
+<div class="p-3 bg-error/5 border border-error/20 rounded-lg relative">
+<div class="absolute -right-1.5 top-1/2 -translate-y-1/2 w-1 h-8 bg-error rounded-full"></div>
+<p class="text-text-primary"><strong class="text-error font-bold">Finding:</strong> Attempting to migrate all legacy data <span class="bg-error/20 px-1 rounded">synchronously</span> caused massive transaction locks. Future migrations of this scale must utilize an <span class="text-tool-emerald">asynchronous, dual-write</span> strategy.</p>
+</div>
+<p>We learned that prioritizing strict consistency over availability in this context was a critical error.</p>
+</div>
+</div>
+</main>
+</div>
+</body></html>

@@ -1,0 +1,553 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>memory - Knowledge Graph Orbital View</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&amp;family=JetBrains+Mono:wght@400&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "surface-container-high": "#2b2832",
+                        "inverse-on-surface": "#322f39",
+                        "on-surface": "#e7e0ed",
+                        "on-tertiary": "#4b2800",
+                        "tool-emerald": "#34d399",
+                        "surface-tint": "#cebdff",
+                        "secondary-fixed-dim": "#b2c5ff",
+                        "inverse-surface": "#e7e0ed",
+                        "surface-variant": "#36333d",
+                        "outline-variant": "#494455",
+                        "on-secondary-fixed": "#001848",
+                        "text-muted": "rgba(237,237,237,0.45)",
+                        "outline": "#948ea0",
+                        "on-primary": "#390093",
+                        "tertiary-fixed": "#ffdcbf",
+                        "on-background": "#e7e0ed",
+                        "on-surface-variant": "#cbc3d7",
+                        "inverse-primary": "#6a3add",
+                        "on-secondary-container": "#b7c8ff",
+                        "surface-container-lowest": "#0f0d16",
+                        "border-subtle": "rgba(255,255,255,0.06)",
+                        "border-emphasis": "rgba(255,255,255,0.12)",
+                        "error-container": "#93000a",
+                        "on-error": "#690005",
+                        "surface-bright": "#3b3842",
+                        "on-primary-container": "#310082",
+                        "on-primary-fixed": "#21005d",
+                        "on-tertiary-fixed-variant": "#6a3b00",
+                        "session-zinc": "#52525b",
+                        "on-error-container": "#ffdad6",
+                        "on-tertiary-container": "#412200",
+                        "surface-container-highest": "#36333d",
+                        "tertiary-container": "#d07d1b",
+                        "decision-purple": "#8b5fff",
+                        "surface": "#14121b",
+                        "tertiary-fixed-dim": "#ffb873",
+                        "reference-cyan": "#22d3ee",
+                        "tertiary": "#ffb873",
+                        "on-secondary-fixed-variant": "#0040a2",
+                        "primary-fixed-dim": "#cebdff",
+                        "lesson-amber": "#fbbf24",
+                        "background": "#14121b",
+                        "secondary-container": "#004dbf",
+                        "project-blue": "#5b8bff",
+                        "error": "#ffb4ab",
+                        "text-primary": "#ededed",
+                        "primary-container": "#9c79ff",
+                        "secondary-fixed": "#dae2ff",
+                        "surface-container-low": "#1d1a24",
+                        "on-tertiary-fixed": "#2d1600",
+                        "surface-container": "#211e28",
+                        "person-pink": "#f472b6",
+                        "primary": "#cebdff",
+                        "text-secondary": "rgba(237,237,237,0.7)",
+                        "primary-fixed": "#e8ddff",
+                        "on-primary-fixed-variant": "#5212c4",
+                        "secondary": "#b2c5ff",
+                        "surface-dim": "#14121b",
+                        "on-secondary": "#002b73",
+                        "crystal-gold": "#fcd34d"
+                    },
+                    borderRadius: {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    spacing: {
+                        "inline-gap": "8px",
+                        "container-max": "1200px",
+                        "sidebar-width": "220px",
+                        "gutter": "24px",
+                        "stack-gap": "12px"
+                    },
+                    fontFamily: {
+                        "headline-md": ["Inter"],
+                        "body-lg": ["Inter"],
+                        "mono-base": ["JetBrains Mono"],
+                        "headline-sm": ["Inter"],
+                        "headline-lg": ["Inter"],
+                        "label-caps": ["Inter"],
+                        "body-sm": ["Inter"],
+                        "body-md": ["Inter"]
+                    },
+                    fontSize: {
+                        "headline-md": ["20px", { lineHeight: "28px", letterSpacing: "-0.02em", fontWeight: "600" }],
+                        "body-lg": ["16px", { lineHeight: "24px", fontWeight: "400" }],
+                        "mono-base": ["13px", { lineHeight: "20px", fontWeight: "400" }],
+                        "headline-sm": ["16px", { lineHeight: "24px", letterSpacing: "-0.01em", fontWeight: "600" }],
+                        "headline-lg": ["24px", { lineHeight: "32px", letterSpacing: "-0.02em", fontWeight: "600" }],
+                        "label-caps": ["11px", { lineHeight: "16px", letterSpacing: "0.05em", fontWeight: "600" }],
+                        "body-sm": ["13px", { lineHeight: "18px", fontWeight: "400" }],
+                        "body-md": ["14px", { lineHeight: "20px", fontWeight: "400" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        body { background-color: #14121b; color: #ededed; }
+        
+        /* Starfield background CSS */
+        .starfield {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            z-index: -1;
+            background: radial-gradient(circle at center, #1d1a24 0%, #0f0d16 100%);
+            overflow: hidden;
+        }
+        .star {
+            position: absolute;
+            background-color: white;
+            border-radius: 50%;
+            opacity: 0;
+            animation: twinkle var(--duration) ease-in-out infinite;
+            animation-delay: var(--delay);
+        }
+        @keyframes twinkle {
+            0%, 100% { opacity: 0; transform: scale(0.5); }
+            50% { opacity: var(--max-opacity); transform: scale(1); }
+        }
+
+        /* Ambient Glow & Volumetric Light Cone */
+        .ambient-glow {
+            position: fixed;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            width: 800px; height: 800px;
+            background: radial-gradient(circle, rgba(139, 95, 255, 0.05) 0%, rgba(20, 18, 27, 0) 70%);
+            z-index: -1;
+            pointer-events: none;
+        }
+        
+        .light-cone {
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            width: 800px; height: 800px;
+            background: radial-gradient(circle, rgba(139, 95, 255, 0.25) 0%, rgba(139, 95, 255, 0.08) 25%, transparent 60%);
+            z-index: 5;
+            pointer-events: none;
+            mix-blend-mode: screen;
+        }
+
+        /* Node Animations */
+        @keyframes orbit {
+            from { transform: rotate(0deg) translateX(var(--radius)) rotate(0deg); }
+            to { transform: rotate(360deg) translateX(var(--radius)) rotate(-360deg); }
+        }
+        
+        .node-shell {
+            position: absolute;
+            top: 50%; left: 50%;
+            border-radius: 50%;
+            border: 1px dashed rgba(255, 255, 255, 0.15);
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        .orbital-node {
+            position: absolute;
+            top: 50%; left: 50%;
+            margin-top: -6px; margin-left: -6px;
+            width: 12px; height: 12px;
+            border-radius: 50%;
+            animation: orbit var(--speed) linear infinite;
+            transform-origin: center center;
+            cursor: pointer;
+            pointer-events: auto;
+            transition: transform 0.2s, box-shadow 0.2s;
+            box-shadow: 0 0 12px currentColor;
+        }
+        
+        .orbital-node:hover {
+            transform: scale(1.5) !important;
+            z-index: 30;
+        }
+
+        .node-label {
+            position: absolute;
+            top: 100%; left: 50%;
+            transform: translateX(-50%);
+            margin-top: 4px;
+            white-space: nowrap;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 10px;
+            color: rgba(237, 237, 237, 0.7);
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.2s;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.8);
+        }
+
+        .orbital-node:hover .node-label { opacity: 1; }
+
+        .focal-node {
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            width: 48px; height: 48px;
+            border-radius: 50%;
+            background-color: #8b5fff;
+            box-shadow: 0 0 40px rgba(139, 95, 255, 0.8), inset 0 0 15px rgba(255, 255, 255, 0.6);
+            cursor: pointer;
+            z-index: 20;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .focal-node::after {
+            content: '';
+            position: absolute;
+            top: -12px; left: -12px; right: -12px; bottom: -12px;
+            border-radius: 50%;
+            border: 1px solid rgba(139, 95, 255, 0.4);
+            animation: pulse-ring 2.5s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+        }
+
+        @keyframes pulse-ring {
+            0% { transform: scale(0.8); opacity: 0.6; }
+            100% { transform: scale(1.6); opacity: 0; }
+        }
+
+        /* Tonal Overlays */
+        .glass-panel {
+            background: rgba(33, 30, 40, 0.6);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.1); border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.2); }
+    </style>
+</head>
+<body class="font-body-md text-body-md overflow-hidden antialiased selection:bg-decision-purple selection:text-white">
+<!-- Deep Space Background -->
+<div class="starfield" id="starfield"></div>
+<div class="ambient-glow"></div>
+<!-- SideNavBar (Shared Component) -->
+<nav class="fixed left-0 top-0 h-full w-[220px] bg-surface-container-low dark:bg-surface-container-low border-r border-border-subtle flex flex-col py-gutter px-3 z-50">
+<div class="mb-8 px-3">
+<h1 class="font-headline-md text-headline-md font-bold tracking-tight text-primary dark:text-primary">memory</h1>
+<p class="font-mono-base text-mono-base text-text-muted mt-1">v2.4.0-stable</p>
+</div>
+<div class="flex-1 space-y-1 overflow-y-auto">
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">dashboard</span>
+<span>Overview</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">search</span>
+<span>Search</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">menu_book</span>
+<span>Wiki</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">article</span>
+<span>Raw</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-primary bg-surface-container-highest rounded-lg font-bold scale-[0.98] transition-transform" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">hub</span>
+<span>Graph</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">timeline</span>
+<span>Timeline</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">pulse_alert</span>
+<span>Activity</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">layers</span>
+<span>Sessions</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">diamond</span>
+<span>Crystals</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">policy</span>
+<span>Audit</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">settings</span>
+<span>Settings</span>
+</a>
+</div>
+<div class="mt-auto pt-4 border-t border-border-subtle">
+<button class="w-full flex items-center justify-center gap-2 py-2 px-3 bg-surface-variant hover:bg-surface-bright border border-border-subtle rounded-lg text-text-secondary hover:text-text-primary transition-colors text-sm font-medium mb-4">
+<span class="material-symbols-outlined text-[16px]">sync</span>
+                Syncing...
+            </button>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 0;">cloud_done</span>
+<span>Status</span>
+</a>
+</div>
+</nav>
+<!-- TopNavBar (Shared Component) -->
+<header class="fixed top-0 right-0 w-[calc(100%-220px)] h-[48px] bg-surface/80 dark:bg-surface/80 backdrop-blur-xl border-b border-border-subtle flex justify-between items-center px-gutter ml-[220px] z-40">
+<div class="flex-1"></div>
+<!-- Command Bar (⌘K) -->
+<button class="flex items-center gap-2 px-4 py-1.5 bg-surface-container-high border border-border-subtle rounded-full text-text-muted hover:text-text-primary hover:border-border-emphasis transition-all w-64 justify-between group">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-[18px]">search</span>
+<span class="font-body-sm text-body-sm">Search graph...</span>
+</div>
+<span class="font-mono-base text-[10px] bg-surface-variant px-1.5 py-0.5 rounded border border-border-subtle group-hover:border-border-emphasis">⌘K</span>
+</button>
+<div class="flex-1 flex justify-end items-center gap-4">
+<!-- Mode Selector -->
+<div class="flex bg-surface-container-high border border-border-subtle rounded-lg p-0.5 mr-4">
+<button class="px-3 py-1 rounded-md text-xs font-medium text-text-muted hover:text-text-primary transition-colors">Force</button>
+<button class="px-3 py-1 rounded-md text-xs font-medium bg-surface-bright text-primary border border-border-emphasis shadow-sm">Orbital</button>
+<button class="px-3 py-1 rounded-md text-xs font-medium text-text-muted hover:text-text-primary transition-colors">Tree</button>
+</div>
+<button class="text-text-muted hover:text-text-primary transition-colors cursor-pointer active:opacity-80">
+<span class="material-symbols-outlined">notifications</span>
+</button>
+<div class="w-7 h-7 rounded-full bg-surface-variant border border-border-subtle overflow-hidden">
+<div class="w-full h-full bg-gradient-to-tr from-decision-purple to-project-blue opacity-50"></div>
+</div>
+</div>
+</header>
+<!-- Main Content Area -->
+<main class="ml-[220px] mt-[48px] h-[calc(100vh-48px)] relative overflow-hidden">
+<!-- Graph Canvas -->
+<div class="absolute inset-0" id="graph-container">
+<!-- Volumetric Light Cone -->
+<div class="light-cone"></div>
+<!-- Telemetry HUD -->
+<div class="absolute top-6 left-6 font-mono-base text-[11px] text-text-muted flex items-center gap-2 z-30">
+<span class="w-2 h-2 rounded-full bg-decision-purple shadow-[0_0_8px_#8b5fff]"></span>
+    47 nodes · 89 edges · orbital · 60fps
+</div>
+<!-- Shells (Dashed rings) -->
+<div class="node-shell" style="width: 250px; height: 250px;"></div>
+<div class="node-shell" style="width: 450px; height: 450px;"></div>
+<div class="node-shell" style="width: 650px; height: 650px;"></div>
+<div class="node-shell" style="width: 850px; height: 850px;"></div>
+<div class="node-shell" style="width: 1050px; height: 1050px;"></div>
+<!-- Central Node -->
+<div class="focal-node">
+<span class="material-symbols-outlined text-white text-[24px]">psychology</span>
+<div class="absolute top-full mt-3 font-mono-base text-mono-base text-primary whitespace-nowrap drop-shadow-[0_0_8px_rgba(139,95,255,0.8)] font-bold">AI Engineering Ethics</div>
+</div>
+<!-- Orbital Nodes (Rendered via JS for math placement) -->
+<div class="z-20" id="orbitals"></div>
+</div>
+<!-- Right Side Panel (Details) -->
+<aside class="absolute right-6 top-6 bottom-6 w-[320px] glass-panel rounded-xl flex flex-col z-30 transform transition-transform duration-300">
+<!-- Header -->
+<div class="p-5 border-b border-border-subtle">
+<div class="flex items-center justify-between mb-3">
+<div class="flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-decision-purple shadow-[0_0_8px_#8b5fff]"></span>
+<span class="font-label-caps text-label-caps text-text-muted uppercase tracking-widest">Topic Node</span>
+</div>
+<button class="text-text-muted hover:text-text-primary">
+<span class="material-symbols-outlined text-[18px]">close_fullscreen</span>
+</button>
+</div>
+<h2 class="font-headline-lg text-headline-lg text-text-primary mb-1">AI Engineering Ethics</h2>
+<p class="font-body-sm text-body-sm text-text-secondary">Guidelines and frameworks for responsible AI development and deployment.</p>
+</div>
+<!-- Scrollable Content -->
+<div class="p-5 flex-1 overflow-y-auto space-y-6">
+<!-- Meta Info Grid -->
+<div class="grid grid-cols-2 gap-4">
+<div class="bg-surface-container-high rounded-lg p-3 border border-border-subtle">
+<div class="font-label-caps text-label-caps text-text-muted mb-1">Created</div>
+<div class="font-mono-base text-[12px] text-text-primary">2023-11-15</div>
+</div>
+<div class="bg-surface-container-high rounded-lg p-3 border border-border-subtle">
+<div class="font-label-caps text-label-caps text-text-muted mb-1">Connections</div>
+<div class="font-mono-base text-[12px] text-text-primary">89 Active</div>
+</div>
+</div>
+<!-- Attributes -->
+<div>
+<h3 class="font-headline-sm text-headline-sm text-text-primary mb-3 flex items-center gap-2">
+<span class="material-symbols-outlined text-[16px]">data_object</span>
+                        Attributes
+                    </h3>
+<div class="space-y-2">
+<div class="flex justify-between items-center py-1.5 border-b border-border-subtle/50">
+<span class="font-mono-base text-[12px] text-text-secondary">status</span>
+<span class="font-mono-base text-[12px] text-tool-emerald">active</span>
+</div>
+<div class="flex justify-between items-center py-1.5 border-b border-border-subtle/50">
+<span class="font-mono-base text-[12px] text-text-secondary">impact_score</span>
+<span class="font-mono-base text-[12px] text-text-primary">9.4</span>
+</div>
+<div class="flex justify-between items-center py-1.5 border-b border-border-subtle/50">
+<span class="font-mono-base text-[12px] text-text-secondary">domain</span>
+<span class="font-mono-base text-[12px] text-text-primary">ethics</span>
+</div>
+</div>
+</div>
+<!-- Connected Nodes -->
+<div>
+<h3 class="font-headline-sm text-headline-sm text-text-primary mb-3 flex items-center gap-2">
+<span class="material-symbols-outlined text-[16px]">link</span>
+                        Direct Links
+                    </h3>
+<div class="space-y-2">
+<div class="flex items-center gap-3 p-2 rounded bg-surface/50 border border-border-subtle hover:bg-surface-bright transition-colors cursor-pointer group">
+<div class="w-2 h-2 rounded-full bg-reference-cyan shadow-[0_0_5px_#22d3ee]"></div>
+<span class="font-body-sm text-body-sm text-text-primary group-hover:text-reference-cyan transition-colors">Bias Mitigation</span>
+</div>
+<div class="flex items-center gap-3 p-2 rounded bg-surface/50 border border-border-subtle hover:bg-surface-bright transition-colors cursor-pointer group">
+<div class="w-2 h-2 rounded-full bg-project-blue shadow-[0_0_5px_#5b8bff]"></div>
+<span class="font-body-sm text-body-sm text-text-primary group-hover:text-project-blue transition-colors">Model Transparency</span>
+</div>
+<div class="flex items-center gap-3 p-2 rounded bg-surface/50 border border-border-subtle hover:bg-surface-bright transition-colors cursor-pointer group">
+<div class="w-2 h-2 rounded-full bg-lesson-amber shadow-[0_0_5px_#fbbf24]"></div>
+<span class="font-body-sm text-body-sm text-text-primary group-hover:text-lesson-amber transition-colors">Safety Alignments</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Footer Actions -->
+<div class="p-4 border-t border-border-subtle bg-surface-container-high/50 rounded-b-xl flex gap-3">
+<button class="flex-1 bg-surface border border-border-subtle hover:border-decision-purple/50 text-text-primary font-body-sm py-2 rounded transition-all hover:shadow-[inset_0_0_10px_rgba(139,95,255,0.1)]">
+                    Inspect
+                </button>
+<button class="flex-1 bg-decision-purple text-white font-body-sm py-2 rounded hover:bg-inverse-primary transition-colors shadow-[0_0_10px_rgba(139,95,255,0.3)]">
+                    Focus Node
+                </button>
+</div>
+</aside>
+<!-- View Controls (Bottom Left) -->
+<div class="absolute bottom-6 left-6 flex gap-2 z-30">
+<button class="w-10 h-10 rounded-full glass-panel flex items-center justify-center text-text-muted hover:text-text-primary hover:border-border-emphasis transition-all">
+<span class="material-symbols-outlined text-[20px]">add</span>
+</button>
+<button class="w-10 h-10 rounded-full glass-panel flex items-center justify-center text-text-muted hover:text-text-primary hover:border-border-emphasis transition-all">
+<span class="material-symbols-outlined text-[20px]">remove</span>
+</button>
+<button class="w-10 h-10 rounded-full glass-panel flex items-center justify-center text-text-muted hover:text-text-primary hover:border-border-emphasis transition-all ml-2">
+<span class="material-symbols-outlined text-[20px]">center_focus_strong</span>
+</button>
+</div>
+</main>
+<script>
+        // Generate Starfield
+        const starfield = document.getElementById('starfield');
+        const numStars = 150;
+        for (let i = 0; i < numStars; i++) {
+            const star = document.createElement('div');
+            star.className = 'star';
+            const size = Math.random() * 2 + 0.5;
+            star.style.width = `${size}px`;
+            star.style.height = `${size}px`;
+            star.style.left = `${Math.random() * 100}%`;
+            star.style.top = `${Math.random() * 100}%`;
+            star.style.setProperty('--duration', `${Math.random() * 4 + 2}s`);
+            star.style.setProperty('--delay', `${Math.random() * 5}s`);
+            star.style.setProperty('--max-opacity', `${Math.random() * 0.7 + 0.3}`);
+            starfield.appendChild(star);
+        }
+
+        // Generate Orbital Nodes (47 nodes across 5 rings)
+        const orbitalsContainer = document.getElementById('orbitals');
+        
+        const entityColors = [
+            '#22d3ee', // reference-cyan
+            '#f472b6', // person-pink
+            '#fbbf24', // lesson-amber
+            '#5b8bff', // project-blue
+            '#34d399', // tool-emerald
+            '#fcd34d', // crystal-gold
+            '#cebdff'  // primary
+        ];
+
+        const shells = [
+            { radius: 125, count: 4, speedBase: 25 },
+            { radius: 225, count: 7, speedBase: 40 },
+            { radius: 325, count: 10, speedBase: 55 },
+            { radius: 425, count: 12, speedBase: 75 },
+            { radius: 525, count: 14, speedBase: 100 }
+        ];
+
+        shells.forEach((shell, shellIndex) => {
+            const angleStep = 360 / shell.count;
+            for (let i = 0; i < shell.count; i++) {
+                const node = document.createElement('div');
+                const color = entityColors[Math.floor(Math.random() * entityColors.length)];
+                const startAngle = i * angleStep;
+                const speed = shell.speedBase + (Math.random() * 15 - 7.5);
+                const direction = shellIndex % 2 === 0 ? 1 : -1;
+                
+                const wrapper = document.createElement('div');
+                wrapper.style.position = 'absolute';
+                wrapper.style.top = '50%';
+                wrapper.style.left = '50%';
+                wrapper.style.width = '0';
+                wrapper.style.height = '0';
+                wrapper.style.transform = `rotate(${startAngle}deg)`;
+                wrapper.style.zIndex = '20';
+                
+                node.className = 'orbital-node';
+                node.style.color = color;
+                node.style.backgroundColor = color;
+                node.style.setProperty('--radius', `${shell.radius}px`);
+                node.style.setProperty('--speed', `${speed}s`);
+                
+                if(direction === -1) {
+                    node.style.animationDirection = 'reverse';
+                }
+
+                const inner = document.createElement('div');
+                inner.style.width = '100%';
+                inner.style.height = '100%';
+                inner.style.position = 'relative';
+
+                const label = document.createElement('div');
+                label.className = 'node-label';
+                label.textContent = `node_${shellIndex}_${i}`;
+                
+                inner.appendChild(label);
+                node.appendChild(inner);
+                wrapper.appendChild(node);
+                orbitalsContainer.appendChild(wrapper);
+            }
+        });
+    </script>
+</body></html>

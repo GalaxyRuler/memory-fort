@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Memory - Crystals</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&amp;family=JetBrains+Mono:wght@400&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "on-error": "#690005",
+                        "surface-container-low": "#1d1a24",
+                        "surface-variant": "#36333d",
+                        "on-tertiary": "#4b2800",
+                        "text-primary": "#ededed",
+                        "lesson-amber": "#fbbf24",
+                        "surface-dim": "#14121b",
+                        "primary-container": "#9c79ff",
+                        "on-secondary": "#002b73",
+                        "on-tertiary-container": "#412200",
+                        "session-zinc": "#52525b",
+                        "on-error-container": "#ffdad6",
+                        "surface-tint": "#cebdff",
+                        "secondary-container": "#004dbf",
+                        "on-tertiary-fixed": "#2d1600",
+                        "on-secondary-fixed": "#001848",
+                        "tool-emerald": "#34d399",
+                        "project-blue": "#5b8bff",
+                        "primary-fixed-dim": "#cebdff",
+                        "tertiary": "#ffb873",
+                        "outline": "#948ea0",
+                        "secondary-fixed": "#dae2ff",
+                        "secondary": "#b2c5ff",
+                        "text-muted": "rgba(237,237,237,0.45)",
+                        "inverse-on-surface": "#322f39",
+                        "surface-container": "#211e28",
+                        "inverse-surface": "#e7e0ed",
+                        "inverse-primary": "#6a3add",
+                        "on-secondary-container": "#b7c8ff",
+                        "error-container": "#93000a",
+                        "on-tertiary-fixed-variant": "#6a3b00",
+                        "border-emphasis": "rgba(255,255,255,0.12)",
+                        "on-primary-fixed-variant": "#5212c4",
+                        "surface-bright": "#3b3842",
+                        "primary": "#cebdff",
+                        "error": "#ffb4ab",
+                        "tertiary-container": "#d07d1b",
+                        "primary-fixed": "#e8ddff",
+                        "reference-cyan": "#22d3ee",
+                        "on-secondary-fixed-variant": "#0040a2",
+                        "tertiary-fixed-dim": "#ffb873",
+                        "background": "#14121b",
+                        "on-primary-container": "#310082",
+                        "on-primary-fixed": "#21005d",
+                        "on-surface": "#e7e0ed",
+                        "surface": "#14121b",
+                        "decision-purple": "#8b5fff",
+                        "surface-container-highest": "#36333d",
+                        "outline-variant": "#494455",
+                        "tertiary-fixed": "#ffdcbf",
+                        "surface-container-high": "#2b2832",
+                        "on-background": "#e7e0ed",
+                        "secondary-fixed-dim": "#b2c5ff",
+                        "surface-container-lowest": "#0f0d16",
+                        "on-primary": "#390093",
+                        "text-secondary": "rgba(237,237,237,0.7)",
+                        "person-pink": "#f472b6",
+                        "border-subtle": "rgba(255,255,255,0.06)",
+                        "on-surface-variant": "#cbc3d7",
+                        "crystal-gold": "#fcd34d"
+                    },
+                    borderRadius: {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    spacing: {
+                        "container-max": "1200px",
+                        "sidebar-width": "220px",
+                        "gutter": "24px",
+                        "inline-gap": "8px",
+                        "stack-gap": "12px"
+                    },
+                    fontFamily: {
+                        "body-sm": ["Inter"],
+                        "mono-base": ["JetBrains Mono"],
+                        "body-lg": ["Inter"],
+                        "headline-sm": ["Inter"],
+                        "body-md": ["Inter"],
+                        "label-caps": ["Inter"],
+                        "headline-lg": ["Inter"],
+                        "headline-md": ["Inter"]
+                    },
+                    fontSize: {
+                        "body-sm": ["13px", { lineHeight: "18px", fontWeight: "400" }],
+                        "mono-base": ["13px", { lineHeight: "20px", fontWeight: "400" }],
+                        "body-lg": ["16px", { lineHeight: "24px", fontWeight: "400" }],
+                        "headline-sm": ["16px", { lineHeight: "24px", letterSpacing: "-0.01em", fontWeight: "600" }],
+                        "body-md": ["14px", { lineHeight: "20px", fontWeight: "400" }],
+                        "label-caps": ["11px", { lineHeight: "16px", letterSpacing: "0.05em", fontWeight: "600" }],
+                        "headline-lg": ["24px", { lineHeight: "32px", letterSpacing: "-0.02em", fontWeight: "600" }],
+                        "headline-md": ["20px", { lineHeight: "28px", letterSpacing: "-0.02em", fontWeight: "600" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        /* Custom styles for the icosahedron rotation and emissive glows */
+        @keyframes slow-spin {
+            0% { transform: rotate3d(1, 1, 1, 0deg); }
+            100% { transform: rotate3d(1, 1, 1, 360deg); }
+        }
+        .wireframe-icon {
+            animation: slow-spin 20s linear infinite;
+            transform-style: preserve-3d;
+        }
+        .emissive-dot-gold {
+            box-shadow: 0 0 8px 1px rgba(252, 211, 77, 0.4);
+        }
+        .bloom-crystal {
+            box-shadow: 0 0 120px 20px rgba(252, 211, 77, 0.05);
+        }
+        /* Hide scrollbar for clean minimal look but keep functionality */
+        ::-webkit-scrollbar {
+            width: 4px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(255,255,255,0.1);
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(255,255,255,0.2);
+        }
+    </style>
+</head>
+<body class="bg-background text-text-primary h-screen flex overflow-hidden font-body-md antialiased selection:bg-primary-container selection:text-on-primary-container">
+<!-- SideNavBar Shared Component -->
+<nav class="fixed left-0 top-0 h-full w-[220px] bg-surface-container-low dark:bg-surface-container-low border-r border-border-subtle flex flex-col py-gutter px-3 z-50">
+<!-- Header -->
+<div class="mb-8 px-3">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-primary dark:text-primary" style="font-variation-settings: 'FILL' 1;">memory</span>
+<span class="font-headline-md text-headline-md font-bold tracking-tight text-primary dark:text-primary">memory</span>
+</div>
+<div class="mt-1 text-text-secondary font-mono-base text-[10px]">v2.4.0-stable</div>
+</div>
+<!-- Navigation Links -->
+<div class="flex flex-col gap-1 flex-1">
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined text-[18px]">dashboard</span>
+<span class="font-body-sm text-body-sm">Overview</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined text-[18px]">search</span>
+<span class="font-body-sm text-body-sm">Search</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined text-[18px]">menu_book</span>
+<span class="font-body-sm text-body-sm">Wiki</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined text-[18px]">article</span>
+<span class="font-body-sm text-body-sm">Raw</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined text-[18px]">hub</span>
+<span class="font-body-sm text-body-sm">Graph</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined text-[18px]">timeline</span>
+<span class="font-body-sm text-body-sm">Timeline</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined text-[18px]">pulse_alert</span>
+<span class="font-body-sm text-body-sm">Activity</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined text-[18px]">layers</span>
+<span class="font-body-sm text-body-sm">Sessions</span>
+</a>
+<!-- Active Tab: Crystals -->
+<a class="flex items-center gap-inline-gap px-3 py-2 text-primary bg-surface-container-highest rounded-lg font-bold hover:bg-surface-variant transition-colors duration-200" href="#" style="transform: scale(0.98);">
+<span class="material-symbols-outlined text-[18px]" style="font-variation-settings: 'FILL' 1;">diamond</span>
+<span class="font-body-sm text-body-sm">Crystals</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined text-[18px]">policy</span>
+<span class="font-body-sm text-body-sm">Audit</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined text-[18px]">settings</span>
+<span class="font-body-sm text-body-sm">Settings</span>
+</a>
+</div>
+<!-- Footer / CTA -->
+<div class="mt-auto pt-4 border-t border-border-subtle flex flex-col gap-2">
+<div class="px-3 py-2 flex items-center gap-2 text-text-secondary font-mono-base text-[11px]">
+<div class="w-1.5 h-1.5 rounded-full bg-tool-emerald animate-pulse"></div>
+                Syncing...
+            </div>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined text-[18px]">cloud_done</span>
+<span class="font-body-sm text-body-sm">Status</span>
+</a>
+</div>
+</nav>
+<!-- Main Content Area -->
+<main class="flex-1 ml-[220px] flex flex-col h-full relative bg-surface">
+<!-- TopNavBar Shared Component -->
+<header class="fixed top-0 right-0 w-[calc(100%-220px)] h-[48px] bg-surface/80 dark:bg-surface/80 backdrop-blur-xl border-b border-border-subtle flex justify-between items-center px-gutter z-40">
+<!-- Left Side (Empty or Breadcrumbs usually, leaving blank as per minimalist style) -->
+<div></div>
+<!-- Right Side Actions -->
+<div class="flex items-center gap-4">
+<!-- ⌘K Search Pill -->
+<button class="flex items-center gap-2 px-3 py-1.5 rounded-full border border-border-subtle bg-surface-container/50 hover:bg-surface-container-high transition-colors text-text-secondary">
+<span class="material-symbols-outlined text-[16px]">search</span>
+<span class="font-body-sm text-body-sm">Search</span>
+<span class="font-mono-base text-[10px] bg-surface-variant px-1.5 py-0.5 rounded text-text-muted ml-2">⌘K</span>
+</button>
+<span class="material-symbols-outlined text-text-muted hover:text-text-primary cursor-pointer text-[20px] transition-colors">notifications</span>
+<div class="w-7 h-7 rounded-full bg-surface-variant border border-border-subtle flex items-center justify-center overflow-hidden cursor-pointer hover:border-text-secondary transition-colors">
+<span class="material-symbols-outlined text-[16px] text-text-secondary">person</span>
+</div>
+</div>
+</header>
+<!-- Two-Pane Layout Container -->
+<div class="flex flex-1 h-full pt-[48px]">
+<!-- LEFT PANE: Narrow List -->
+<aside class="w-[340px] flex-shrink-0 border-r border-border-subtle bg-surface-dim flex flex-col h-full">
+<!-- List Header -->
+<div class="px-6 py-4 border-b border-border-subtle flex justify-between items-center bg-surface-container-low/50">
+<h2 class="font-headline-sm text-headline-sm text-text-primary">Digests</h2>
+<button class="text-text-muted hover:text-text-primary transition-colors">
+<span class="material-symbols-outlined text-[18px]">filter_list</span>
+</button>
+</div>
+<!-- List Content -->
+<div class="flex-1 overflow-y-auto py-2">
+<!-- Card 1 (Active) -->
+<div class="px-4 py-1">
+<div class="group relative p-4 rounded-xl bg-surface-container-high border border-border-emphasis cursor-pointer flex flex-col gap-2">
+<!-- Active Indicator Glow -->
+<div class="absolute inset-0 rounded-xl shadow-[0_0_15px_rgba(252,211,77,0.1)] pointer-events-none"></div>
+<div class="absolute left-0 top-1/2 -translate-y-1/2 w-[2px] h-8 bg-crystal-gold rounded-r-full"></div>
+<div class="flex items-start gap-3 relative z-10">
+<!-- Rotating Wireframe Icon -->
+<div class="w-8 h-8 rounded bg-surface-container flex items-center justify-center border border-border-subtle flex-shrink-0">
+<svg class="w-5 h-5 text-crystal-gold wireframe-icon" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1" viewbox="0 0 24 24">
+<polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+<polyline points="2 17 12 22 22 17"></polyline>
+<polyline points="2 7 2 17"></polyline>
+<polyline points="22 7 22 17"></polyline>
+<polyline points="12 12 12 22"></polyline>
+</svg>
+</div>
+<div class="flex-1 min-w-0">
+<div class="flex justify-between items-baseline mb-1">
+<h3 class="font-headline-sm text-[14px] text-text-primary truncate">Q3 Strategy Synthesis</h3>
+</div>
+<p class="font-body-sm text-body-sm text-text-secondary line-clamp-2 leading-relaxed">
+                                        Distilled insights from 42 sessions regarding product direction and technical debt prioritization.
+                                    </p>
+</div>
+</div>
+<div class="flex justify-between items-center mt-2 pl-11 relative z-10">
+<span class="font-mono-base text-label-caps text-text-muted">OCT 01 - OCT 15</span>
+<div class="flex gap-1">
+<div class="w-1.5 h-1.5 rounded-full bg-crystal-gold emissive-dot-gold"></div>
+</div>
+</div>
+</div>
+</div>
+<!-- Card 2 (Inactive) -->
+<div class="px-4 py-1">
+<div class="group relative p-4 rounded-xl hover:bg-surface-container border border-transparent hover:border-border-subtle transition-all cursor-pointer flex flex-col gap-2">
+<div class="flex items-start gap-3">
+<div class="w-8 h-8 rounded bg-surface-container flex items-center justify-center border border-border-subtle flex-shrink-0 opacity-60 group-hover:opacity-100 transition-opacity">
+<svg class="w-5 h-5 text-text-secondary" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1" viewbox="0 0 24 24">
+<polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+<polyline points="2 17 12 22 22 17"></polyline>
+<polyline points="2 7 2 17"></polyline>
+<polyline points="22 7 22 17"></polyline>
+<polyline points="12 12 12 22"></polyline>
+</svg>
+</div>
+<div class="flex-1 min-w-0">
+<div class="flex justify-between items-baseline mb-1">
+<h3 class="font-headline-sm text-[14px] text-text-secondary group-hover:text-text-primary transition-colors truncate">Design System Evolution</h3>
+</div>
+<p class="font-body-sm text-body-sm text-text-muted line-clamp-2 leading-relaxed">
+                                        Core decisions on token architecture, typographic scales, and switching to strict dark mode.
+                                    </p>
+</div>
+</div>
+<div class="flex justify-between items-center mt-2 pl-11">
+<span class="font-mono-base text-label-caps text-text-muted opacity-50">SEP 12 - SEP 28</span>
+</div>
+</div>
+</div>
+<!-- Card 3 (Inactive) -->
+<div class="px-4 py-1">
+<div class="group relative p-4 rounded-xl hover:bg-surface-container border border-transparent hover:border-border-subtle transition-all cursor-pointer flex flex-col gap-2">
+<div class="flex items-start gap-3">
+<div class="w-8 h-8 rounded bg-surface-container flex items-center justify-center border border-border-subtle flex-shrink-0 opacity-60 group-hover:opacity-100 transition-opacity">
+<svg class="w-5 h-5 text-text-secondary" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1" viewbox="0 0 24 24">
+<polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+<polyline points="2 17 12 22 22 17"></polyline>
+<polyline points="2 7 2 17"></polyline>
+<polyline points="22 7 22 17"></polyline>
+<polyline points="12 12 12 22"></polyline>
+</svg>
+</div>
+<div class="flex-1 min-w-0">
+<div class="flex justify-between items-baseline mb-1">
+<h3 class="font-headline-sm text-[14px] text-text-secondary group-hover:text-text-primary transition-colors truncate">Backend Refactor Map</h3>
+</div>
+<p class="font-body-sm text-body-sm text-text-muted line-clamp-2 leading-relaxed">
+                                        Structural changes required for the new vector database integration and memory indexing.
+                                    </p>
+</div>
+</div>
+<div class="flex justify-between items-center mt-2 pl-11">
+<span class="font-mono-base text-label-caps text-text-muted opacity-50">AUG 01 - AUG 15</span>
+</div>
+</div>
+</div>
+</div>
+</aside>
+<!-- RIGHT PANE: Wide Detail / Reading Optimized -->
+<article class="flex-1 overflow-y-auto bg-surface relative">
+<!-- Background Bloom for atmosphere -->
+<div class="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-3xl h-[400px] bloom-crystal pointer-events-none z-0"></div>
+<div class="max-w-[800px] mx-auto px-12 py-16 relative z-10">
+<!-- Detail Header -->
+<header class="mb-12 border-b border-border-subtle pb-8">
+<div class="flex items-center gap-3 mb-6">
+<span class="font-mono-base text-label-caps text-crystal-gold border border-crystal-gold/20 bg-crystal-gold/5 px-2 py-1 rounded">CRYSTAL DIGEST</span>
+<span class="font-mono-base text-label-caps text-text-muted flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px]">calendar_month</span>
+                                OCT 01 - OCT 15, 2023
+                            </span>
+</div>
+<h1 class="font-headline-lg text-[32px] leading-tight text-text-primary mb-4 font-bold tracking-tight">Q3 Strategy Synthesis: Pivot to Local-First Vector Storage</h1>
+<p class="font-body-lg text-[18px] text-text-secondary leading-relaxed max-w-2xl">
+                            A crystallized overview of technical and product decisions extracted from 42 daily sessions, focusing on reducing latency and improving privacy through localized embedded memory.
+                        </p>
+<div class="flex items-center gap-4 mt-8 pt-6 border-t border-border-subtle/50">
+<button class="px-4 py-2 rounded border border-border-subtle bg-surface-container-high hover:bg-surface-variant text-text-primary font-body-sm transition-all flex items-center gap-2">
+<span class="material-symbols-outlined text-[16px]">share</span>
+                                Share Context
+                            </button>
+<button class="px-4 py-2 rounded border border-border-subtle bg-surface-container-high hover:bg-surface-variant text-text-primary font-body-sm transition-all flex items-center gap-2">
+<span class="material-symbols-outlined text-[16px]">open_in_new</span>
+                                Open Source Nodes
+                            </button>
+<div class="flex-1"></div>
+<span class="font-mono-base text-[12px] text-text-muted">Generated by Memory Core v2</span>
+</div>
+</header>
+<!-- Reading Content (Bento/Prose hybrid) -->
+<div class="prose prose-invert max-w-none space-y-10">
+<!-- Section 1 -->
+<section>
+<h2 class="font-headline-md text-headline-md text-text-primary mb-4 flex items-center gap-2">
+<span class="material-symbols-outlined text-crystal-gold text-[20px]">psychology</span>
+                                Core Thesis
+                            </h2>
+<p class="font-body-lg text-text-secondary leading-relaxed">
+                                The initial architecture relied heavily on cloud-based vector inference, introducing unacceptable latency spikes (avg &gt;400ms) during deep memory retrieval. The consensus across the early October deep-work sessions indicates a necessary pivot towards a local-first SQLite-VSS or DuckDB implementation.
+                            </p>
+</section>
+<!-- Bento-style Data Callouts -->
+<section class="grid grid-cols-2 gap-4 my-8">
+<div class="p-5 rounded-xl border border-border-subtle bg-surface-container-low flex flex-col gap-2">
+<span class="font-mono-base text-label-caps text-error">CRITICAL IMPEDIMENT</span>
+<span class="font-headline-sm text-text-primary">Cloud Latency Spikes</span>
+<span class="font-body-sm text-text-secondary">Retrieval times exceeding cognitive flow thresholds during complex graph traversals.</span>
+</div>
+<div class="p-5 rounded-xl border border-border-subtle bg-surface-container-low flex flex-col gap-2">
+<span class="font-mono-base text-label-caps text-tool-emerald">PROPOSED RESOLUTION</span>
+<span class="font-headline-sm text-text-primary">Local Embedded Vectors</span>
+<span class="font-body-sm text-text-secondary">Shift to on-device embeddings for immediate associative recall.</span>
+</div>
+</section>
+<!-- Section 2: Code / Technical details -->
+<section>
+<h2 class="font-headline-md text-headline-md text-text-primary mb-4">Implementation Draft</h2>
+<p class="font-body-lg text-text-secondary leading-relaxed mb-4">
+                                Abstracted from session <a class="text-primary hover:underline" href="#">#8992-alpha</a>, the revised schema flattens the node structure to prioritize rapid cosine similarity checks over exhaustive relational joins.
+                            </p>
+<!-- Minimalist Code Block -->
+<div class="rounded-lg border border-border-subtle bg-surface-container-lowest overflow-hidden">
+<div class="px-4 py-2 border-b border-border-subtle bg-surface-container-low flex justify-between items-center">
+<span class="font-mono-base text-[11px] text-text-muted">schema.ts</span>
+<span class="material-symbols-outlined text-[14px] text-text-muted cursor-pointer hover:text-text-primary">content_copy</span>
+</div>
+<pre class="p-4 overflow-x-auto"><code class="font-mono-base text-[13px] text-text-secondary leading-loose">
+<span class="text-decision-purple">export interface</span> MemoryNode {
+  <span class="text-project-blue">id</span>: string;
+  <span class="text-project-blue">content</span>: string;
+  <span class="text-project-blue">embedding</span>: Float32Array; <span class="text-text-muted">// Shifted to local bin</span>
+  <span class="text-project-blue">metadata</span>: {
+    <span class="text-tool-emerald">timestamp</span>: number;
+    <span class="text-tool-emerald">context_tags</span>: string[];
+  };
+}
+                                </code></pre>
+</div>
+</section>
+</div>
+<!-- End of content marker -->
+<div class="mt-16 flex justify-center pb-16">
+<div class="w-1 h-1 rounded-full bg-crystal-gold opacity-50"></div>
+<div class="w-1 h-1 rounded-full bg-crystal-gold mx-2 opacity-50"></div>
+<div class="w-1 h-1 rounded-full bg-crystal-gold opacity-50"></div>
+</div>
+</div>
+</article>
+</div>
+</main>
+</body></html>

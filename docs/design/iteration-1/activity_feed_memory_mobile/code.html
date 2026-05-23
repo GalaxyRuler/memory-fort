@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Activity</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&amp;family=JetBrains+Mono:wght@400&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "surface": "#14121b",
+                        "surface-container-high": "#2b2832",
+                        "on-secondary-container": "#b7c8ff",
+                        "outline-variant": "#494455",
+                        "on-background": "#e7e0ed",
+                        "secondary-fixed": "#dae2ff",
+                        "inverse-surface": "#e7e0ed",
+                        "surface-tint": "#cebdff",
+                        "on-surface": "#e7e0ed",
+                        "error-container": "#93000a",
+                        "person-pink": "#f472b6",
+                        "decision-purple": "#8b5fff",
+                        "surface-container-lowest": "#0f0d16",
+                        "secondary-fixed-dim": "#b2c5ff",
+                        "surface-variant": "#36333d",
+                        "surface-dim": "#14121b",
+                        "error": "#ffb4ab",
+                        "on-surface-variant": "#cbc3d7",
+                        "inverse-on-surface": "#322f39",
+                        "primary-fixed-dim": "#cebdff",
+                        "tertiary-fixed": "#ffdcbf",
+                        "on-error": "#690005",
+                        "surface-bright": "#3b3842",
+                        "on-tertiary-fixed-variant": "#6a3b00",
+                        "text-secondary": "rgba(237,237,237,0.7)",
+                        "tertiary-fixed-dim": "#ffb873",
+                        "background": "#14121b",
+                        "crystal-gold": "#fcd34d",
+                        "text-primary": "#ededed",
+                        "lesson-amber": "#fbbf24",
+                        "primary": "#cebdff",
+                        "on-secondary": "#002b73",
+                        "on-secondary-fixed": "#001848",
+                        "tertiary": "#ffb873",
+                        "on-error-container": "#ffdad6",
+                        "on-primary": "#390093",
+                        "tool-emerald": "#34d399",
+                        "primary-fixed": "#e8ddff",
+                        "on-primary-fixed": "#21005d",
+                        "on-tertiary-fixed": "#2d1600",
+                        "reference-cyan": "#22d3ee",
+                        "primary-container": "#9c79ff",
+                        "secondary": "#b2c5ff",
+                        "outline": "#948ea0",
+                        "on-primary-fixed-variant": "#5212c4",
+                        "border-emphasis": "rgba(255,255,255,0.12)",
+                        "on-secondary-fixed-variant": "#0040a2",
+                        "inverse-primary": "#6a3add",
+                        "on-primary-container": "#310082",
+                        "secondary-container": "#004dbf",
+                        "project-blue": "#5b8bff",
+                        "surface-container-highest": "#36333d",
+                        "tertiary-container": "#d07d1b",
+                        "on-tertiary-container": "#412200",
+                        "text-muted": "rgba(237,237,237,0.45)",
+                        "surface-container": "#211e28",
+                        "border-subtle": "rgba(255,255,255,0.06)",
+                        "surface-container-low": "#1d1a24",
+                        "on-tertiary": "#4b2800",
+                        "session-zinc": "#52525b"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "sidebar-width": "220px",
+                        "stack-gap": "12px",
+                        "container-max": "1200px",
+                        "gutter": "24px",
+                        "inline-gap": "8px"
+                    },
+                    "fontFamily": {
+                        "label-caps": ["Inter"],
+                        "headline-lg": ["Inter"],
+                        "body-lg": ["Inter"],
+                        "mono-base": ["JetBrains Mono"],
+                        "body-md": ["Inter"],
+                        "headline-md": ["Inter"],
+                        "headline-sm": ["Inter"],
+                        "body-sm": ["Inter"]
+                    },
+                    "fontSize": {
+                        "label-caps": ["11px", { "lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "600" }],
+                        "headline-lg": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.02em", "fontWeight": "600" }],
+                        "body-lg": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                        "mono-base": ["13px", { "lineHeight": "20px", "fontWeight": "400" }],
+                        "body-md": ["14px", { "lineHeight": "20px", "fontWeight": "400" }],
+                        "headline-md": ["20px", { "lineHeight": "28px", "letterSpacing": "-0.02em", "fontWeight": "600" }],
+                        "headline-sm": ["16px", { "lineHeight": "24px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+                        "body-sm": ["13px", { "lineHeight": "18px", "fontWeight": "400" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        body {
+            background-color: theme('colors.background');
+            color: theme('colors.text-primary');
+            -webkit-font-smoothing: antialiased;
+        }
+        .hide-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .hide-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="flex flex-col min-h-screen relative pb-[80px]">
+<!-- Top Navigation (Mobile) -->
+<header class="sticky top-0 z-40 bg-surface/80 backdrop-blur-xl border-b border-border-subtle w-full h-[56px] flex items-center px-4 justify-between md:hidden">
+<div class="flex items-center gap-2">
+<div class="w-8 h-8 rounded-full bg-surface-container-high flex items-center justify-center overflow-hidden">
+<img alt="User Avatar" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAjwTLiQVaE670wMCGmEn8fsYE1cmgjjWk99jZL_wD5Vu3crRi-PVY6dAWA7PWi4qUctCmGsOjhiO2t-Ex779ue_li9s20wo5uj24pVRz8CTnAL5gpbNIm5v5dr8COeWjBI-GkVbMFyBiIhNX8cgF3c5DWpqmPkChYjE3feK-WY6H76r744fDdR5VDRKrurI6Q9aJikAXxW0O8gJeiZjQDHa5onVU1lI_hUVwnyDdoinq52aFY6aFfmFqOKbRsTDJ64oDMosqrRBWsn"/>
+</div>
+<span class="font-headline-sm text-headline-sm tracking-tight font-bold text-primary">Activity</span>
+</div>
+<div class="flex items-center gap-4 text-text-secondary">
+<span class="material-symbols-outlined cursor-pointer hover:text-text-primary transition-colors">search</span>
+<span class="material-symbols-outlined cursor-pointer hover:text-text-primary transition-colors relative">
+                 notifications
+                 <span class="absolute top-0 right-0 w-2 h-2 bg-primary rounded-full"></span>
+</span>
+</div>
+</header>
+<!-- Side Nav (Desktop) -->
+<nav class="hidden md:flex flex-col fixed left-0 top-0 h-full w-[220px] bg-surface-container-low border-r border-border-subtle py-6 px-3 z-50">
+<div class="flex items-center gap-3 px-3 mb-8">
+<div class="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center">
+<span class="material-symbols-outlined text-primary text-[20px]">memory</span>
+</div>
+<div>
+<div class="font-headline-md text-headline-md font-bold tracking-tight text-primary">memory</div>
+<div class="font-mono-base text-[10px] text-text-muted">v2.4.0-stable</div>
+</div>
+</div>
+<div class="flex-1 overflow-y-auto hide-scrollbar space-y-1">
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant rounded-lg transition-colors duration-200" href="#">
+<span class="material-symbols-outlined">dashboard</span>
+<span class="font-body-md text-body-md">Overview</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant rounded-lg transition-colors duration-200" href="#">
+<span class="material-symbols-outlined">search</span>
+<span class="font-body-md text-body-md">Search</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant rounded-lg transition-colors duration-200" href="#">
+<span class="material-symbols-outlined">menu_book</span>
+<span class="font-body-md text-body-md">Wiki</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant rounded-lg transition-colors duration-200" href="#">
+<span class="material-symbols-outlined">article</span>
+<span class="font-body-md text-body-md">Raw</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant rounded-lg transition-colors duration-200" href="#">
+<span class="material-symbols-outlined">hub</span>
+<span class="font-body-md text-body-md">Graph</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant rounded-lg transition-colors duration-200" href="#">
+<span class="material-symbols-outlined">timeline</span>
+<span class="font-body-md text-body-md">Timeline</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-primary bg-surface-container-highest rounded-lg font-bold transition-colors duration-200" href="#">
+<span class="material-symbols-outlined">pulse_alert</span>
+<span class="font-body-md text-body-md">Activity</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant rounded-lg transition-colors duration-200" href="#">
+<span class="material-symbols-outlined">layers</span>
+<span class="font-body-md text-body-md">Sessions</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant rounded-lg transition-colors duration-200" href="#">
+<span class="material-symbols-outlined">diamond</span>
+<span class="font-body-md text-body-md">Crystals</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant rounded-lg transition-colors duration-200" href="#">
+<span class="material-symbols-outlined">policy</span>
+<span class="font-body-md text-body-md">Audit</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant rounded-lg transition-colors duration-200 mt-auto" href="#">
+<span class="material-symbols-outlined">settings</span>
+<span class="font-body-md text-body-md">Settings</span>
+</a>
+</div>
+<div class="mt-4 pt-4 border-t border-border-subtle">
+<div class="flex items-center gap-inline-gap px-3 py-2 text-text-muted">
+<span class="material-symbols-outlined text-[16px]">cloud_done</span>
+<span class="font-body-sm text-body-sm">Syncing...</span>
+</div>
+</div>
+</nav>
+<!-- Top Nav (Desktop) -->
+<header class="hidden md:flex fixed top-0 right-0 w-[calc(100%-220px)] h-[48px] bg-surface/80 backdrop-blur-xl border-b border-border-subtle justify-between items-center px-gutter z-40">
+<div class="flex-1"></div>
+<div class="flex items-center gap-4">
+<div class="relative w-64">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-text-muted text-[18px]">search</span>
+<input class="w-full bg-surface-container border border-border-subtle rounded-full py-1 pl-9 pr-4 font-body-sm text-body-sm text-text-primary focus:outline-none focus:border-primary/50 transition-colors placeholder:text-text-muted" placeholder="Search..." type="text"/>
+<div class="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1">
+<kbd class="font-mono-base text-[10px] text-text-muted bg-surface-variant px-1.5 py-0.5 rounded border border-border-subtle">⌘K</kbd>
+</div>
+</div>
+<span class="material-symbols-outlined text-text-muted hover:text-text-primary cursor-pointer transition-colors">notifications</span>
+<div class="w-7 h-7 rounded-full bg-surface-container-high overflow-hidden border border-border-subtle cursor-pointer hover:opacity-80 transition-opacity">
+<img alt="User Profile" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCKtbpwRX4wc2uzInT6FmaWzWe4gYo6hE2ubDdLu1BWLujb_uh3OmpZ7Ct2OL6VB4uQYLAzzbFGq1SKbtrgb5IbWS2eINkRV9R6AOVBQif3C21-qRgUZ5l6dLmmKWbI2yo8HzOqonF5TE7x68jQu6IOl8SJLZr5HGzSE3AEpu6bCPG5ciZ656KUVdCj0SfiKyIYv2qIuNZu4wKgOGaiaIa5sLlZ19SOifAtHVrZCaNGUUXW8wjb08Tt_MMAJOjnOTrVlinz07TdZsFz"/>
+</div>
+</div>
+</header>
+<!-- Main Content Canvas -->
+<main class="flex-1 md:ml-[220px] md:pt-[48px] w-full max-w-container-max mx-auto md:p-gutter">
+<!-- Filter Chips (Scrollable) -->
+<div class="sticky top-[56px] md:top-[48px] z-30 bg-background/95 backdrop-blur-md py-3 px-4 md:px-0 border-b border-border-subtle md:border-none">
+<div class="flex items-center gap-2 overflow-x-auto hide-scrollbar pb-1">
+<button class="whitespace-nowrap px-4 py-1.5 rounded-full bg-primary/10 border border-primary/30 text-primary font-body-sm text-body-sm font-medium transition-colors">
+                    All Activity
+                </button>
+<button class="whitespace-nowrap px-4 py-1.5 rounded-full bg-surface-container border border-border-subtle text-text-secondary hover:text-text-primary hover:bg-surface-variant font-body-sm text-body-sm transition-colors">
+                    Decisions
+                </button>
+<button class="whitespace-nowrap px-4 py-1.5 rounded-full bg-surface-container border border-border-subtle text-text-secondary hover:text-text-primary hover:bg-surface-variant font-body-sm text-body-sm transition-colors">
+                    Notes
+                </button>
+<button class="whitespace-nowrap px-4 py-1.5 rounded-full bg-surface-container border border-border-subtle text-text-secondary hover:text-text-primary hover:bg-surface-variant font-body-sm text-body-sm transition-colors">
+                    Code Commits
+                </button>
+<button class="whitespace-nowrap px-4 py-1.5 rounded-full bg-surface-container border border-border-subtle text-text-secondary hover:text-text-primary hover:bg-surface-variant font-body-sm text-body-sm transition-colors">
+                    Sessions
+                </button>
+</div>
+</div>
+<!-- Activity Feed -->
+<div class="flex flex-col p-4 md:p-0 gap-px bg-border-subtle">
+<!-- Event Card 1 -->
+<div class="bg-surface p-4 flex gap-4 md:rounded-lg md:border md:border-border-subtle md:mb-stack-gap group hover:bg-surface-container-lowest transition-colors">
+<div class="flex flex-col items-center pt-1">
+<div class="w-8 h-8 rounded-full bg-decision-purple/10 border border-decision-purple/30 flex items-center justify-center relative shadow-[0_0_8px_rgba(139,95,255,0.15)]">
+<span class="material-symbols-outlined text-decision-purple text-[16px]">call_split</span>
+</div>
+<div class="w-px h-full bg-border-subtle mt-2 group-last:hidden"></div>
+</div>
+<div class="flex-1 pb-4">
+<div class="flex justify-between items-start mb-1">
+<span class="font-label-caps text-label-caps text-decision-purple flex items-center gap-1">
+<span class="w-1 h-1 rounded-full bg-decision-purple shadow-[0_0_4px_rgba(139,95,255,0.8)]"></span>
+                            DECISION RECORDED
+                        </span>
+<span class="font-mono-base text-[11px] text-text-muted">10:42 AM</span>
+</div>
+<h3 class="font-headline-sm text-headline-sm text-text-primary mb-2">Migrate to Next.js App Router</h3>
+<p class="font-body-md text-body-md text-text-secondary mb-3 line-clamp-2">Evaluated performance implications and routing simplification. Decided to proceed with migration for the core dashboard module.</p>
+<div class="flex flex-wrap gap-2">
+<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-surface-variant border border-border-subtle font-mono-base text-[11px] text-text-secondary">
+<span class="material-symbols-outlined text-[12px]">sell</span> architecture
+                        </span>
+<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-surface-variant border border-border-subtle font-mono-base text-[11px] text-text-secondary">
+<span class="material-symbols-outlined text-[12px]">sell</span> frontend
+                        </span>
+</div>
+</div>
+</div>
+<!-- Event Card 2 -->
+<div class="bg-surface p-4 flex gap-4 md:rounded-lg md:border md:border-border-subtle md:mb-stack-gap group hover:bg-surface-container-lowest transition-colors">
+<div class="flex flex-col items-center pt-1">
+<div class="w-8 h-8 rounded-full bg-lesson-amber/10 border border-lesson-amber/30 flex items-center justify-center relative shadow-[0_0_8px_rgba(251,191,36,0.15)]">
+<span class="material-symbols-outlined text-lesson-amber text-[16px]">lightbulb</span>
+</div>
+<div class="w-px h-full bg-border-subtle mt-2 group-last:hidden"></div>
+</div>
+<div class="flex-1 pb-4">
+<div class="flex justify-between items-start mb-1">
+<span class="font-label-caps text-label-caps text-lesson-amber flex items-center gap-1">
+<span class="w-1 h-1 rounded-full bg-lesson-amber shadow-[0_0_4px_rgba(251,191,36,0.8)]"></span>
+                            LESSON EXTRACTED
+                        </span>
+<span class="font-mono-base text-[11px] text-text-muted">Yesterday</span>
+</div>
+<h3 class="font-headline-sm text-headline-sm text-text-primary mb-2">Post-mortem: Database Connection Timeout</h3>
+<div class="bg-surface-container-low border border-border-subtle rounded-md p-3 mb-3">
+<p class="font-body-sm text-body-sm text-text-secondary font-mono-base">Always implement exponential backoff for DB reconnections during peak load spikes. The naive retry loop exacerbated the issue.</p>
+</div>
+<div class="flex items-center gap-2">
+<span class="font-body-sm text-body-sm text-text-muted">Linked to:</span>
+<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-surface-container border border-border-subtle font-body-sm text-[12px] text-text-primary hover:bg-surface-variant cursor-pointer transition-colors">
+<span class="material-symbols-outlined text-[14px]">article</span> Incident-402
+                         </span>
+</div>
+</div>
+</div>
+<!-- Event Card 3 -->
+<div class="bg-surface p-4 flex gap-4 md:rounded-lg md:border md:border-border-subtle md:mb-stack-gap group hover:bg-surface-container-lowest transition-colors">
+<div class="flex flex-col items-center pt-1">
+<div class="w-8 h-8 rounded-full bg-reference-cyan/10 border border-reference-cyan/30 flex items-center justify-center relative shadow-[0_0_8px_rgba(34,211,238,0.15)]">
+<span class="material-symbols-outlined text-reference-cyan text-[16px]">bookmark</span>
+</div>
+<div class="w-px h-full bg-border-subtle mt-2 hidden group-last:hidden"></div>
+</div>
+<div class="flex-1">
+<div class="flex justify-between items-start mb-1">
+<span class="font-label-caps text-label-caps text-reference-cyan flex items-center gap-1">
+<span class="w-1 h-1 rounded-full bg-reference-cyan shadow-[0_0_4px_rgba(34,211,238,0.8)]"></span>
+                            REFERENCE SAVED
+                        </span>
+<span class="font-mono-base text-[11px] text-text-muted">Oct 24</span>
+</div>
+<h3 class="font-headline-sm text-headline-sm text-text-primary mb-1">Figma to React Component Generator</h3>
+<a class="font-body-sm text-body-sm text-project-blue hover:underline mb-2 block truncate" href="#">https://github.com/example/figma-react</a>
+</div>
+</div>
+</div>
+</main>
+<!-- Bottom Navigation (Mobile) -->
+<nav class="fixed bottom-0 left-0 w-full bg-surface-container-low border-t border-border-subtle flex justify-around items-center h-[64px] pb-safe z-40 md:hidden">
+<a class="flex flex-col items-center justify-center w-full h-full text-text-secondary hover:text-text-primary transition-colors" href="#">
+<span class="material-symbols-outlined text-[24px] mb-1">dashboard</span>
+<span class="font-body-sm text-[10px]">Overview</span>
+</a>
+<a class="flex flex-col items-center justify-center w-full h-full text-text-secondary hover:text-text-primary transition-colors" href="#">
+<span class="material-symbols-outlined text-[24px] mb-1">search</span>
+<span class="font-body-sm text-[10px]">Search</span>
+</a>
+<a class="flex flex-col items-center justify-center w-full h-full text-primary transition-colors relative" href="#">
+<div class="absolute inset-0 bg-primary/5 mx-auto w-12 rounded-full -z-10 h-10 top-1"></div>
+<span class="material-symbols-outlined text-[24px] mb-1" style="font-variation-settings: 'FILL' 1;">pulse_alert</span>
+<span class="font-body-sm text-[10px] font-medium">Activity</span>
+</a>
+<a class="flex flex-col items-center justify-center w-full h-full text-text-secondary hover:text-text-primary transition-colors" href="#">
+<span class="material-symbols-outlined text-[24px] mb-1">menu_book</span>
+<span class="font-body-sm text-[10px]">Wiki</span>
+</a>
+<a class="flex flex-col items-center justify-center w-full h-full text-text-secondary hover:text-text-primary transition-colors" href="#">
+<span class="material-symbols-outlined text-[24px] mb-1">settings</span>
+<span class="font-body-sm text-[10px]">Settings</span>
+</a>
+</nav>
+</body></html>

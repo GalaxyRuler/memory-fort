@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Memory App - Raw Browse</title>
+<!-- Google Fonts: Inter & JetBrains Mono -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&amp;family=JetBrains+Mono:wght@400&amp;display=swap" rel="stylesheet"/>
+<!-- Material Symbols -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<!-- Tailwind Theme Config -->
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "on-error": "#690005",
+                        "surface-container-low": "#1d1a24",
+                        "surface-variant": "#36333d",
+                        "on-tertiary": "#4b2800",
+                        "text-primary": "#ededed",
+                        "lesson-amber": "#fbbf24",
+                        "surface-dim": "#14121b",
+                        "primary-container": "#9c79ff",
+                        "on-secondary": "#002b73",
+                        "on-tertiary-container": "#412200",
+                        "session-zinc": "#52525b",
+                        "on-error-container": "#ffdad6",
+                        "surface-tint": "#cebdff",
+                        "secondary-container": "#004dbf",
+                        "on-tertiary-fixed": "#2d1600",
+                        "on-secondary-fixed": "#001848",
+                        "tool-emerald": "#34d399",
+                        "project-blue": "#5b8bff",
+                        "primary-fixed-dim": "#cebdff",
+                        "tertiary": "#ffb873",
+                        "outline": "#948ea0",
+                        "secondary-fixed": "#dae2ff",
+                        "secondary": "#b2c5ff",
+                        "text-muted": "rgba(237,237,237,0.45)",
+                        "inverse-on-surface": "#322f39",
+                        "surface-container": "#211e28",
+                        "inverse-surface": "#e7e0ed",
+                        "inverse-primary": "#6a3add",
+                        "on-secondary-container": "#b7c8ff",
+                        "error-container": "#93000a",
+                        "on-tertiary-fixed-variant": "#6a3b00",
+                        "border-emphasis": "rgba(255,255,255,0.12)",
+                        "on-primary-fixed-variant": "#5212c4",
+                        "surface-bright": "#3b3842",
+                        "primary": "#cebdff",
+                        "error": "#ffb4ab",
+                        "tertiary-container": "#d07d1b",
+                        "primary-fixed": "#e8ddff",
+                        "reference-cyan": "#22d3ee",
+                        "on-secondary-fixed-variant": "#0040a2",
+                        "tertiary-fixed-dim": "#ffb873",
+                        "background": "#14121b",
+                        "on-primary-container": "#310082",
+                        "on-primary-fixed": "#21005d",
+                        "on-surface": "#e7e0ed",
+                        "surface": "#14121b",
+                        "decision-purple": "#8b5fff",
+                        "surface-container-highest": "#36333d",
+                        "outline-variant": "#494455",
+                        "tertiary-fixed": "#ffdcbf",
+                        "surface-container-high": "#2b2832",
+                        "on-background": "#e7e0ed",
+                        "secondary-fixed-dim": "#b2c5ff",
+                        "surface-container-lowest": "#0f0d16",
+                        "on-primary": "#390093",
+                        "text-secondary": "rgba(237,237,237,0.7)",
+                        "person-pink": "#f472b6",
+                        "border-subtle": "rgba(255,255,255,0.06)",
+                        "on-surface-variant": "#cbc3d7",
+                        "crystal-gold": "#fcd34d"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "container-max": "1200px",
+                        "sidebar-width": "220px",
+                        "gutter": "24px",
+                        "inline-gap": "8px",
+                        "stack-gap": "12px"
+                    },
+                    "fontFamily": {
+                        "body-sm": ["Inter"],
+                        "mono-base": ["JetBrains Mono"],
+                        "body-lg": ["Inter"],
+                        "headline-sm": ["Inter"],
+                        "body-md": ["Inter"],
+                        "label-caps": ["Inter"],
+                        "headline-lg": ["Inter"],
+                        "headline-md": ["Inter"]
+                    },
+                    "fontSize": {
+                        "body-sm": ["13px", { "lineHeight": "18px", "fontWeight": "400" }],
+                        "mono-base": ["13px", { "lineHeight": "20px", "fontWeight": "400" }],
+                        "body-lg": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                        "headline-sm": ["16px", { "lineHeight": "24px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+                        "body-md": ["14px", { "lineHeight": "20px", "fontWeight": "400" }],
+                        "label-caps": ["11px", { "lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "600" }],
+                        "headline-lg": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.02em", "fontWeight": "600" }],
+                        "headline-md": ["20px", { "lineHeight": "28px", "letterSpacing": "-0.02em", "fontWeight": "600" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        /* Custom scrollbar for dense list view */
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(255,255,255,0.1);
+            border-radius: 9999px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(255,255,255,0.2);
+        }
+        
+        .material-symbols-outlined {
+          font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+    </style>
+</head>
+<body class="bg-background text-text-primary antialiased overflow-hidden">
+<!-- SideNavBar (from JSON) -->
+<aside class="fixed left-0 top-0 h-full w-[220px] bg-surface-container-low border-r border-border-subtle flex flex-col py-gutter px-3 z-50">
+<!-- Header -->
+<div class="flex items-center gap-inline-gap px-3 mb-8">
+<div class="w-8 h-8 rounded-md bg-surface-container-high border border-subtle flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-primary text-[18px]">memory</span>
+</div>
+<div class="flex flex-col">
+<span class="font-headline-md text-headline-md font-bold tracking-tight text-primary">memory</span>
+<span class="font-label-caps text-label-caps text-text-muted">v2.4.0-stable</span>
+</div>
+</div>
+<!-- Navigation Tabs -->
+<nav class="flex-1 flex flex-col gap-1 overflow-y-auto">
+<!-- Inactive -->
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg group" href="#">
+<span class="material-symbols-outlined text-[18px] opacity-70 group-hover:opacity-100 transition-opacity">dashboard</span>
+<span class="font-body-md text-body-md">Overview</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg group" href="#">
+<span class="material-symbols-outlined text-[18px] opacity-70 group-hover:opacity-100 transition-opacity">search</span>
+<span class="font-body-md text-body-md">Search</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg group" href="#">
+<span class="material-symbols-outlined text-[18px] opacity-70 group-hover:opacity-100 transition-opacity">menu_book</span>
+<span class="font-body-md text-body-md">Wiki</span>
+</a>
+<!-- Active Tab (Raw) -->
+<a class="flex items-center gap-inline-gap px-3 py-2 text-primary bg-surface-container-highest rounded-lg font-bold scale-[0.98] transition-transform" href="#">
+<span class="material-symbols-outlined text-[18px]" style="font-variation-settings: 'FILL' 1;">article</span>
+<span class="font-body-md text-body-md">Raw</span>
+</a>
+<!-- Inactive -->
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg group" href="#">
+<span class="material-symbols-outlined text-[18px] opacity-70 group-hover:opacity-100 transition-opacity">hub</span>
+<span class="font-body-md text-body-md">Graph</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg group" href="#">
+<span class="material-symbols-outlined text-[18px] opacity-70 group-hover:opacity-100 transition-opacity">timeline</span>
+<span class="font-body-md text-body-md">Timeline</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg group" href="#">
+<span class="material-symbols-outlined text-[18px] opacity-70 group-hover:opacity-100 transition-opacity">pulse_alert</span>
+<span class="font-body-md text-body-md">Activity</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg group" href="#">
+<span class="material-symbols-outlined text-[18px] opacity-70 group-hover:opacity-100 transition-opacity">layers</span>
+<span class="font-body-md text-body-md">Sessions</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg group" href="#">
+<span class="material-symbols-outlined text-[18px] opacity-70 group-hover:opacity-100 transition-opacity">diamond</span>
+<span class="font-body-md text-body-md">Crystals</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg group" href="#">
+<span class="material-symbols-outlined text-[18px] opacity-70 group-hover:opacity-100 transition-opacity">policy</span>
+<span class="font-body-md text-body-md">Audit</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg group" href="#">
+<span class="material-symbols-outlined text-[18px] opacity-70 group-hover:opacity-100 transition-opacity">settings</span>
+<span class="font-body-md text-body-md">Settings</span>
+</a>
+</nav>
+<!-- Footer / CTA -->
+<div class="mt-auto pt-4 border-t border-border-subtle flex flex-col gap-2">
+<div class="flex items-center justify-between px-3 py-2 bg-surface-variant/30 rounded-lg border border-subtle">
+<span class="font-label-caps text-label-caps text-text-secondary">Syncing...</span>
+<div class="w-1.5 h-1.5 rounded-full bg-primary animate-pulse"></div>
+</div>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined text-[18px]">cloud_done</span>
+<span class="font-body-md text-body-md">Status</span>
+</a>
+</div>
+</aside>
+<!-- TopNavBar (from JSON) -->
+<header class="fixed top-0 right-0 w-[calc(100%-220px)] h-[48px] bg-surface/80 backdrop-blur-xl border-b border-border-subtle flex justify-between items-center px-gutter z-40">
+<!-- Empty left side (Brand logo hidden per JSON) -->
+<div class="flex items-center gap-2">
+<!-- Command Bar Teaser -->
+<div class="hidden md:flex items-center gap-2 px-3 py-1.5 bg-surface-container border border-subtle rounded-full text-text-muted hover:text-text-primary cursor-pointer transition-colors">
+<span class="material-symbols-outlined text-[16px]">search</span>
+<span class="font-body-sm text-body-sm mr-4">Search raw logs...</span>
+<span class="font-mono-base text-mono-base text-[10px] px-1.5 py-0.5 bg-surface-variant rounded">⌘K</span>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<button class="text-text-muted hover:text-text-primary transition-colors hover:opacity-80">
+<span class="material-symbols-outlined text-[20px]">notifications</span>
+</button>
+<div class="w-7 h-7 rounded-full bg-surface-variant border border-subtle overflow-hidden cursor-pointer hover:border-text-secondary transition-colors">
+<img alt="User profile" class="w-full h-full object-cover" data-alt="A small, stylized digital avatar illustration for a user profile, featuring a generic minimalist face or abstract geometric portrait against a dark, subtle gradient background, fitting the high-tech UI theme." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBYXWZ9yEU3QrQXG3E6LlO1IBwx2vRQPoQ84o41pklM7E7dGrIepxvBM3vIisRlkIbLXP8231CkxFgX0-xEwfC0PehhvFrvRHsOBS0Eajf0HLIWYDeLSDzaRrcVuKZ6kZI2rrWPacAZe5qVn4eRVcF_ciJYdzJtVLC6ZiajtzIxhy8XQKonflJUhGqytVzUS5J6qaFVk16QBCxlK8wIhT3nq-OCkcx9fcQ8YYH2p0qkUo4YgmV48OHyqmWrB61nREze-0VstscvMGSm"/>
+</div>
+</div>
+</header>
+<!-- Main Content Area -->
+<main class="ml-[220px] mt-[48px] h-[calc(100vh-48px)] overflow-y-auto bg-background">
+<!-- Max width container for readable line lengths -->
+<div class="max-w-container-max mx-auto p-gutter flex flex-col gap-stack-gap h-full">
+<!-- Filters & Controls Header -->
+<div class="flex items-center justify-between py-2 mb-4 shrink-0 border-b border-subtle pb-4">
+<div class="flex items-center gap-inline-gap">
+<h1 class="font-headline-sm text-headline-sm text-text-primary mr-4">Raw Browse</h1>
+<!-- Tool Filter -->
+<button class="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-surface-container border border-subtle text-text-secondary hover:text-text-primary hover:border-outline transition-colors group">
+<span class="material-symbols-outlined text-[16px] group-hover:text-primary transition-colors">filter_list</span>
+<span class="font-body-sm text-body-sm">All Tools</span>
+<span class="material-symbols-outlined text-[14px]">expand_more</span>
+</button>
+<!-- Date Range Filter -->
+<button class="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-surface-container border border-subtle text-text-secondary hover:text-text-primary hover:border-outline transition-colors group">
+<span class="material-symbols-outlined text-[16px] group-hover:text-primary transition-colors">calendar_month</span>
+<span class="font-body-sm text-body-sm">Last 7 Days</span>
+<span class="material-symbols-outlined text-[14px]">expand_more</span>
+</button>
+</div>
+<!-- View Options -->
+<div class="flex items-center gap-2">
+<button class="p-1.5 rounded text-primary bg-surface-variant border border-border-emphasis">
+<span class="material-symbols-outlined text-[18px]">view_list</span>
+</button>
+<button class="p-1.5 rounded text-text-muted hover:text-text-primary hover:bg-surface-variant transition-colors">
+<span class="material-symbols-outlined text-[18px]">grid_view</span>
+</button>
+</div>
+</div>
+<!-- Dense Chronological List -->
+<div class="flex-1 flex flex-col pb-12">
+<!-- Group: Today -->
+<div class="relative">
+<div class="sticky top-0 bg-background/95 backdrop-blur-md z-10 py-2 border-b border-subtle/50 mb-1">
+<span class="font-label-caps text-label-caps text-text-muted uppercase tracking-wider">Today · Oct 24, 2023</span>
+</div>
+<!-- Row Item -->
+<div class="flex items-center gap-4 py-2.5 px-2 hover:bg-surface-variant/40 border-b border-subtle/30 cursor-pointer group transition-colors">
+<div class="shrink-0 flex items-center justify-center w-6 h-6 rounded bg-surface-container border border-subtle">
+<span class="material-symbols-outlined text-[14px] text-tool-emerald">terminal</span>
+</div>
+<div class="shrink-0 w-24">
+<span class="font-mono-base text-mono-base text-primary opacity-80 group-hover:opacity-100 transition-opacity">req_9x2f</span>
+</div>
+<div class="flex-1 min-w-0">
+<p class="font-body-sm text-body-sm text-text-secondary truncate group-hover:text-text-primary transition-colors">
+<span class="text-text-muted mr-1">GET</span> /api/v1/entities?type=thought&amp;limit=50
+                            </p>
+</div>
+<div class="shrink-0 flex items-center gap-2">
+<span class="px-2 py-0.5 rounded-full bg-surface-variant text-label-caps font-label-caps text-text-secondary border border-subtle">1.2k tok</span>
+<span class="font-mono-base text-mono-base text-text-muted w-12 text-right">45ms</span>
+</div>
+</div>
+<!-- Row Item -->
+<div class="flex items-center gap-4 py-2.5 px-2 hover:bg-surface-variant/40 border-b border-subtle/30 cursor-pointer group transition-colors">
+<div class="shrink-0 flex items-center justify-center w-6 h-6 rounded bg-surface-container border border-subtle">
+<span class="material-symbols-outlined text-[14px] text-project-blue">database</span>
+</div>
+<div class="shrink-0 w-24">
+<span class="font-mono-base text-mono-base text-primary opacity-80 group-hover:opacity-100 transition-opacity">db_op_1a</span>
+</div>
+<div class="flex-1 min-w-0">
+<p class="font-body-sm text-body-sm text-text-secondary truncate group-hover:text-text-primary transition-colors">
+<span class="text-text-muted mr-1">UPSERT</span> memory_nodes SET vectors = [0.21, -0.45...] WHERE id = 'node_77'
+                            </p>
+</div>
+<div class="shrink-0 flex items-center gap-2">
+<span class="px-2 py-0.5 rounded-full bg-surface-variant text-label-caps font-label-caps text-text-secondary border border-subtle">0 tok</span>
+<span class="font-mono-base text-mono-base text-text-muted w-12 text-right">12ms</span>
+</div>
+</div>
+<!-- Row Item -->
+<div class="flex items-center gap-4 py-2.5 px-2 hover:bg-surface-variant/40 border-b border-subtle/30 cursor-pointer group transition-colors">
+<div class="shrink-0 flex items-center justify-center w-6 h-6 rounded bg-surface-container border border-subtle">
+<span class="material-symbols-outlined text-[14px] text-lesson-amber">memory</span>
+</div>
+<div class="shrink-0 w-24">
+<span class="font-mono-base text-mono-base text-primary opacity-80 group-hover:opacity-100 transition-opacity">llm_c4d1</span>
+</div>
+<div class="flex-1 min-w-0">
+<p class="font-body-sm text-body-sm text-text-secondary truncate group-hover:text-text-primary transition-colors">
+                                Synthesizing context payload for prompt: "Summarize recent activity related to project X."
+                            </p>
+</div>
+<div class="shrink-0 flex items-center gap-2">
+<span class="px-2 py-0.5 rounded-full bg-primary/10 text-label-caps font-label-caps text-primary border border-primary/20">4.5k tok</span>
+<span class="font-mono-base text-mono-base text-text-muted w-12 text-right">1.2s</span>
+</div>
+</div>
+</div>
+<!-- Group: Yesterday -->
+<div class="relative mt-4">
+<div class="sticky top-0 bg-background/95 backdrop-blur-md z-10 py-2 border-b border-subtle/50 mb-1">
+<span class="font-label-caps text-label-caps text-text-muted uppercase tracking-wider">Yesterday · Oct 23, 2023</span>
+</div>
+<!-- Row Item -->
+<div class="flex items-center gap-4 py-2.5 px-2 hover:bg-surface-variant/40 border-b border-subtle/30 cursor-pointer group transition-colors">
+<div class="shrink-0 flex items-center justify-center w-6 h-6 rounded bg-surface-container border border-subtle">
+<span class="material-symbols-outlined text-[14px] text-tool-emerald">terminal</span>
+</div>
+<div class="shrink-0 w-24">
+<span class="font-mono-base text-mono-base text-primary opacity-80 group-hover:opacity-100 transition-opacity">req_8p1z</span>
+</div>
+<div class="flex-1 min-w-0">
+<p class="font-body-sm text-body-sm text-text-secondary truncate group-hover:text-text-primary transition-colors">
+<span class="text-text-muted mr-1">POST</span> /api/v1/ingest raw_text payload (size: 24kb)
+                            </p>
+</div>
+<div class="shrink-0 flex items-center gap-2">
+<span class="px-2 py-0.5 rounded-full bg-surface-variant text-label-caps font-label-caps text-text-secondary border border-subtle">850 tok</span>
+<span class="font-mono-base text-mono-base text-text-muted w-12 text-right">88ms</span>
+</div>
+</div>
+<!-- Row Item -->
+<div class="flex items-center gap-4 py-2.5 px-2 hover:bg-surface-variant/40 border-b border-subtle/30 cursor-pointer group transition-colors">
+<div class="shrink-0 flex items-center justify-center w-6 h-6 rounded bg-surface-container border border-subtle">
+<span class="material-symbols-outlined text-[14px] text-person-pink">group</span>
+</div>
+<div class="shrink-0 w-24">
+<span class="font-mono-base text-mono-base text-primary opacity-80 group-hover:opacity-100 transition-opacity">auth_k9m</span>
+</div>
+<div class="flex-1 min-w-0">
+<p class="font-body-sm text-body-sm text-text-secondary truncate group-hover:text-text-primary transition-colors">
+                                Session token refresh for user_id: 'usr_abc123'
+                            </p>
+</div>
+<div class="shrink-0 flex items-center gap-2">
+<span class="px-2 py-0.5 rounded-full bg-surface-variant text-label-caps font-label-caps text-text-secondary border border-subtle">--</span>
+<span class="font-mono-base text-mono-base text-text-muted w-12 text-right">4ms</span>
+</div>
+</div>
+<!-- Row Item -->
+<div class="flex items-center gap-4 py-2.5 px-2 hover:bg-surface-variant/40 border-b border-subtle/30 cursor-pointer group transition-colors">
+<div class="shrink-0 flex items-center justify-center w-6 h-6 rounded bg-surface-container border border-subtle bg-error/10 border-error/20">
+<span class="material-symbols-outlined text-[14px] text-error">warning</span>
+</div>
+<div class="shrink-0 w-24">
+<span class="font-mono-base text-mono-base text-error opacity-80 group-hover:opacity-100 transition-opacity">err_f5a2</span>
+</div>
+<div class="flex-1 min-w-0">
+<p class="font-body-sm text-body-sm text-text-secondary truncate group-hover:text-text-primary transition-colors">
+                                Rate limit exceeded on embedding endpoint. Throttling active for 60s.
+                            </p>
+</div>
+<div class="shrink-0 flex items-center gap-2">
+<span class="px-2 py-0.5 rounded-full bg-error/10 text-label-caps font-label-caps text-error border border-error/20">0 tok</span>
+<span class="font-mono-base text-mono-base text-error w-12 text-right">0ms</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+</main>
+</body></html>

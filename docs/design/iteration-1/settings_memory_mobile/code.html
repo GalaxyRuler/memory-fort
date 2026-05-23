@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Memory App - Settings</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&amp;family=JetBrains+Mono:wght@400&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "surface": "#14121b",
+                        "surface-container-high": "#2b2832",
+                        "on-secondary-container": "#b7c8ff",
+                        "outline-variant": "#494455",
+                        "on-background": "#e7e0ed",
+                        "secondary-fixed": "#dae2ff",
+                        "inverse-surface": "#e7e0ed",
+                        "surface-tint": "#cebdff",
+                        "on-surface": "#e7e0ed",
+                        "error-container": "#93000a",
+                        "person-pink": "#f472b6",
+                        "decision-purple": "#8b5fff",
+                        "surface-container-lowest": "#0f0d16",
+                        "secondary-fixed-dim": "#b2c5ff",
+                        "surface-variant": "#36333d",
+                        "surface-dim": "#14121b",
+                        "error": "#ffb4ab",
+                        "on-surface-variant": "#cbc3d7",
+                        "inverse-on-surface": "#322f39",
+                        "primary-fixed-dim": "#cebdff",
+                        "tertiary-fixed": "#ffdcbf",
+                        "on-error": "#690005",
+                        "surface-bright": "#3b3842",
+                        "on-tertiary-fixed-variant": "#6a3b00",
+                        "text-secondary": "rgba(237,237,237,0.7)",
+                        "tertiary-fixed-dim": "#ffb873",
+                        "background": "#14121b",
+                        "crystal-gold": "#fcd34d",
+                        "text-primary": "#ededed",
+                        "lesson-amber": "#fbbf24",
+                        "primary": "#cebdff",
+                        "on-secondary": "#002b73",
+                        "on-secondary-fixed": "#001848",
+                        "tertiary": "#ffb873",
+                        "on-error-container": "#ffdad6",
+                        "on-primary": "#390093",
+                        "tool-emerald": "#34d399",
+                        "primary-fixed": "#e8ddff",
+                        "on-primary-fixed": "#21005d",
+                        "on-tertiary-fixed": "#2d1600",
+                        "reference-cyan": "#22d3ee",
+                        "primary-container": "#9c79ff",
+                        "secondary": "#b2c5ff",
+                        "outline": "#948ea0",
+                        "on-primary-fixed-variant": "#5212c4",
+                        "border-emphasis": "rgba(255,255,255,0.12)",
+                        "on-secondary-fixed-variant": "#0040a2",
+                        "inverse-primary": "#6a3add",
+                        "on-primary-container": "#310082",
+                        "secondary-container": "#004dbf",
+                        "project-blue": "#5b8bff",
+                        "surface-container-highest": "#36333d",
+                        "tertiary-container": "#d07d1b",
+                        "on-tertiary-container": "#412200",
+                        "text-muted": "rgba(237,237,237,0.45)",
+                        "surface-container": "#211e28",
+                        "border-subtle": "rgba(255,255,255,0.06)",
+                        "surface-container-low": "#1d1a24",
+                        "on-tertiary": "#4b2800",
+                        "session-zinc": "#52525b"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "sidebar-width": "220px",
+                        "stack-gap": "12px",
+                        "container-max": "1200px",
+                        "gutter": "24px",
+                        "inline-gap": "8px"
+                    },
+                    "fontFamily": {
+                        "label-caps": ["Inter"],
+                        "headline-lg": ["Inter"],
+                        "body-lg": ["Inter"],
+                        "mono-base": ["JetBrains Mono"],
+                        "body-md": ["Inter"],
+                        "headline-md": ["Inter"],
+                        "headline-sm": ["Inter"],
+                        "body-sm": ["Inter"]
+                    },
+                    "fontSize": {
+                        "label-caps": ["11px", { "lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "600" }],
+                        "headline-lg": ["24px", { "lineHeight": "32px", "letterSpacing": "-0.02em", "fontWeight": "600" }],
+                        "body-lg": ["16px", { "lineHeight": "24px", "fontWeight": "400" }],
+                        "mono-base": ["13px", { "lineHeight": "20px", "fontWeight": "400" }],
+                        "body-md": ["14px", { "lineHeight": "20px", "fontWeight": "400" }],
+                        "headline-md": ["20px", { "lineHeight": "28px", "letterSpacing": "-0.02em", "fontWeight": "600" }],
+                        "headline-sm": ["16px", { "lineHeight": "24px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+                        "body-sm": ["13px", { "lineHeight": "18px", "fontWeight": "400" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        body { background-color: #14121b; color: #ededed; }
+        .material-symbols-outlined { font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
+        .material-symbols-outlined[data-weight="fill"] { font-variation-settings: 'FILL' 1; }
+        /* Custom scrollbar for webkit */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 9999px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
+        
+        /* Mobile specific bottom padding to account for navbar */
+        .mobile-content-pb { padding-bottom: calc(80px + 64px); } /* Bottom nav + Save bar */
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="font-body-md text-body-md antialiased md:flex overflow-hidden">
+<!-- DESKTOP SIDE NAV (Hidden on Mobile) -->
+<nav class="hidden md:flex bg-surface-container-low border-r border-border-subtle fixed left-0 top-0 h-full w-[220px] flex-col py-gutter px-3 z-50">
+<div class="mb-8 px-3">
+<h1 class="font-headline-md text-headline-md font-bold tracking-tight text-primary">memory</h1>
+<p class="font-mono-base text-mono-base text-text-muted mt-1">v2.4.0-stable</p>
+</div>
+<div class="flex-1 overflow-y-auto space-y-1">
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#"><span class="material-symbols-outlined text-lg" data-icon="dashboard">dashboard</span>Overview</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#"><span class="material-symbols-outlined text-lg" data-icon="search">search</span>Search</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#"><span class="material-symbols-outlined text-lg" data-icon="menu_book">menu_book</span>Wiki</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#"><span class="material-symbols-outlined text-lg" data-icon="article">article</span>Raw</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#"><span class="material-symbols-outlined text-lg" data-icon="hub">hub</span>Graph</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#"><span class="material-symbols-outlined text-lg" data-icon="timeline">timeline</span>Timeline</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#"><span class="material-symbols-outlined text-lg" data-icon="pulse">pulse_alert</span>Activity</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#"><span class="material-symbols-outlined text-lg" data-icon="layers">layers</span>Sessions</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#"><span class="material-symbols-outlined text-lg" data-icon="diamond">diamond</span>Crystals</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#"><span class="material-symbols-outlined text-lg" data-icon="policy">policy</span>Audit</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-primary bg-surface-container-highest rounded-lg font-bold" href="#"><span class="material-symbols-outlined text-lg" data-icon="settings">settings</span>Settings</a>
+</div>
+<div class="mt-auto pt-4 border-t border-border-subtle">
+<button class="w-full flex items-center justify-center gap-2 py-2 px-4 rounded-lg bg-surface-variant text-text-secondary hover:text-text-primary transition-colors duration-200 mb-4">
+<span class="font-body-sm text-body-sm">Syncing...</span>
+</button>
+<div class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary">
+<span class="material-symbols-outlined text-lg" data-icon="cloud_done">cloud_done</span>
+<span class="font-body-sm text-body-sm">Status</span>
+</div>
+</div>
+</nav>
+<!-- DESKTOP TOP NAV (Hidden on Mobile) -->
+<header class="hidden md:flex bg-surface/80 backdrop-blur-xl border-b border-border-subtle fixed top-0 right-0 w-[calc(100%-220px)] h-[48px] justify-between items-center px-gutter z-40">
+<div class="flex-1 flex items-center">
+<div class="flex items-center gap-2 bg-surface-container px-3 py-1.5 rounded-full border border-border-subtle text-text-muted hover:border-outline transition-colors cursor-pointer w-64">
+<span class="material-symbols-outlined text-sm" data-icon="search">search</span>
+<span class="font-body-sm text-body-sm flex-1">Search...</span>
+<span class="font-mono-base text-mono-base text-[10px] bg-surface-variant px-1.5 rounded">⌘K</span>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<span class="material-symbols-outlined text-text-muted hover:text-text-primary cursor-pointer transition-colors" data-icon="notifications">notifications</span>
+<div class="w-7 h-7 rounded-full bg-surface-variant border border-border-subtle overflow-hidden">
+<img alt="User profile" class="w-full h-full object-cover" data-alt="A detailed, close-up photograph of a professional user avatar. The subject is well-lit with a soft, natural daylight effect. The background is a clean, dark studio setting that matches a minimalist dark-mode UI. The mood is approachable yet highly professional and technical." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBd4TcHljaLWNlcMzirnZQ_VOdlA0o4TAj4_8zIOE9CcxtGiqc3Wj421f2cvg7Z0zQ4t6tq_socw2GsK4FbhwuyIgDxjczLsdsX25ubSptIZLUwZghrYRTTixB3sUUkMCfmg00AJpXfN_-c9ZJCgjRKArdJ-ryUPI4yXstbh-geVkmyMEsOuU11hL_PS_SxcT6Oeum4Y_P-AgtFLaVpDYcKcFRfHkc7MCS-2a4aALswiOIYmfmSA5FWcs1JcVyZxTL_54lmBkmQWU7A"/>
+</div>
+</div>
+</header>
+<!-- MAIN CONTENT AREA -->
+<main class="w-full md:ml-[220px] md:pt-[48px] h-screen overflow-y-auto relative">
+<!-- MOBILE HEADER -->
+<div class="md:hidden sticky top-0 bg-surface/80 backdrop-blur-xl border-b border-border-subtle px-4 py-3 z-40 flex items-center justify-between">
+<h1 class="font-headline-md text-headline-md font-bold text-text-primary">Settings</h1>
+<div class="w-8 h-8 rounded-full bg-surface-variant overflow-hidden">
+<img alt="User profile" class="w-full h-full object-cover" data-alt="A detailed, close-up photograph of a professional user avatar. The subject is well-lit with a soft, natural daylight effect. The background is a clean, dark studio setting that matches a minimalist dark-mode UI. The mood is approachable yet highly professional and technical." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDpCDQSg7eriL77bnloWYUO0OqKWZCHr0a32XRYqMMWv6v0gycK6HLmQFstQo-nXPgfNYgwqDzE9KlF1wElJBrBxEiy7NmEEflOHAmKFskYNO0nrSPbMNOIAxT1cVmmMxjNoHgz72kFLY88DdmzmyhitSkzK0U52jD867gCqWQ-Vt8r6WesVlgaZTTjxW3PLs6auDoHoIyQnKdYdpnOPGwyO3POesj1S9GKwySv6VOcHgA2qPId3NnxWOZr3GL9mlHKFhXG7Y03DdAb"/>
+</div>
+</div>
+<div class="max-w-[800px] mx-auto p-4 md:p-8 mobile-content-pb space-y-6">
+<div class="mb-8 hidden md:block">
+<h1 class="font-headline-lg text-headline-lg text-text-primary">Settings</h1>
+<p class="font-body-sm text-body-sm text-text-secondary mt-1">Manage your Memory system preferences and configurations.</p>
+</div>
+<!-- Profile Settings -->
+<div class="bg-surface-container-low rounded-xl border border-border-subtle overflow-hidden">
+<button class="w-full flex items-center justify-between p-4 bg-surface-container-low hover:bg-surface-variant transition-colors" onclick="toggleSection('section-profile')">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded bg-surface-variant flex items-center justify-center text-text-primary border border-border-subtle">
+<span class="material-symbols-outlined text-sm" data-icon="person">person</span>
+</div>
+<h2 class="font-headline-sm text-headline-sm text-text-primary">Profile</h2>
+</div>
+<span class="material-symbols-outlined text-text-secondary transform transition-transform" data-icon="expand_more" id="icon-profile">expand_more</span>
+</button>
+<div class="p-4 border-t border-border-subtle space-y-4" id="section-profile">
+<div class="flex items-center gap-6">
+<div class="w-16 h-16 rounded-full bg-surface-variant border border-outline-variant overflow-hidden shrink-0">
+<img alt="Avatar" class="w-full h-full object-cover" data-alt="A detailed, close-up photograph of a professional user avatar. The subject is well-lit with a soft, natural daylight effect. The background is a clean, dark studio setting that matches a minimalist dark-mode UI. The mood is approachable yet highly professional and technical." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAN9NAwokP4sfFEomzyrjqiknnBvapAsHhJiz5-rXTq2UWbO_TFvFeCHoavgwdXrbfWhqD4yn27T0xvCMF9sxR39ACuk4gRA2xs4OJR3pu9eIFh4ezQ2hqroW6Dkg7GEmnJL7hvkQVa_52p2i3CZOeCWUZ_rO_pGRSQf7Y9Ka5nmrXCjA_ocwdhWfA-2Rbwk7DR9FG2Bxgz_7v0aMUX_zvbecDZlSYhNPlHI_11Y_ECn-xFlni8aFzS6gN8HHZWREPg9nYMhauKCoFL"/>
+</div>
+<button class="px-4 py-1.5 rounded bg-surface-variant hover:bg-surface-container-highest border border-border-subtle text-text-primary font-body-sm text-body-sm transition-colors" onclick="showSaveBar()">Change Avatar</button>
+</div>
+<div class="space-y-4 pt-2">
+<div class="space-y-1.5">
+<label class="font-label-caps text-label-caps text-text-secondary block">Display Name</label>
+<input class="w-full bg-surface-dim border border-border-subtle rounded-lg px-3 py-2 text-text-primary font-body-md focus:outline-none focus:border-border-emphasis focus:ring-1 focus:ring-border-emphasis transition-all" oninput="showSaveBar()" type="text" value="System Admin"/>
+</div>
+<div class="space-y-1.5">
+<label class="font-label-caps text-label-caps text-text-secondary block">Email Address</label>
+<input class="w-full bg-surface-dim border border-border-subtle rounded-lg px-3 py-2 text-text-primary font-body-md focus:outline-none focus:border-border-emphasis focus:ring-1 focus:ring-border-emphasis transition-all" oninput="showSaveBar()" type="email" value="admin@memory.sys"/>
+</div>
+</div>
+</div>
+</div>
+<!-- Appearance -->
+<div class="bg-surface-container-low rounded-xl border border-border-subtle overflow-hidden">
+<button class="w-full flex items-center justify-between p-4 bg-surface-container-low hover:bg-surface-variant transition-colors" onclick="toggleSection('section-appearance')">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded bg-surface-variant flex items-center justify-center text-text-primary border border-border-subtle">
+<span class="material-symbols-outlined text-sm" data-icon="palette">palette</span>
+</div>
+<h2 class="font-headline-sm text-headline-sm text-text-primary">Appearance</h2>
+</div>
+<span class="material-symbols-outlined text-text-secondary transform transition-transform" data-icon="expand_more" id="icon-appearance">expand_more</span>
+</button>
+<div class="p-4 border-t border-border-subtle hidden space-y-6" id="section-appearance">
+<div class="space-y-3">
+<label class="font-label-caps text-label-caps text-text-secondary block">Theme</label>
+<div class="grid grid-cols-2 gap-3">
+<div class="border border-primary rounded-lg p-3 bg-surface-container-highest cursor-pointer flex items-center gap-2" onclick="showSaveBar()">
+<span class="material-symbols-outlined text-primary text-lg" data-icon="dark_mode" data-weight="fill">dark_mode</span>
+<span class="font-body-sm text-body-sm text-text-primary">Dark Mode</span>
+</div>
+<div class="border border-border-subtle rounded-lg p-3 bg-surface-dim cursor-pointer flex items-center gap-2 opacity-50 cursor-not-allowed">
+<span class="material-symbols-outlined text-text-secondary text-lg" data-icon="light_mode">light_mode</span>
+<span class="font-body-sm text-body-sm text-text-secondary">Light Mode (Pro)</span>
+</div>
+</div>
+</div>
+<div class="space-y-3">
+<label class="font-label-caps text-label-caps text-text-secondary block">Accent Color</label>
+<div class="flex gap-3">
+<div class="w-6 h-6 rounded-full bg-primary cursor-pointer ring-2 ring-offset-2 ring-offset-surface ring-primary" onclick="showSaveBar()"></div>
+<div class="w-6 h-6 rounded-full bg-tool-emerald cursor-pointer opacity-70 hover:opacity-100 transition-opacity" onclick="showSaveBar()"></div>
+<div class="w-6 h-6 rounded-full bg-project-blue cursor-pointer opacity-70 hover:opacity-100 transition-opacity" onclick="showSaveBar()"></div>
+<div class="w-6 h-6 rounded-full bg-person-pink cursor-pointer opacity-70 hover:opacity-100 transition-opacity" onclick="showSaveBar()"></div>
+</div>
+</div>
+</div>
+</div>
+<!-- Sync & Storage -->
+<div class="bg-surface-container-low rounded-xl border border-border-subtle overflow-hidden">
+<button class="w-full flex items-center justify-between p-4 bg-surface-container-low hover:bg-surface-variant transition-colors" onclick="toggleSection('section-sync')">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded bg-surface-variant flex items-center justify-center text-text-primary border border-border-subtle">
+<span class="material-symbols-outlined text-sm" data-icon="cloud_sync">cloud_sync</span>
+</div>
+<h2 class="font-headline-sm text-headline-sm text-text-primary">Sync &amp; Storage</h2>
+</div>
+<span class="material-symbols-outlined text-text-secondary transform transition-transform" data-icon="expand_more" id="icon-sync">expand_more</span>
+</button>
+<div class="p-4 border-t border-border-subtle hidden space-y-6" id="section-sync">
+<div class="flex items-center justify-between">
+<div>
+<p class="font-body-md text-body-md text-text-primary">Auto-Sync</p>
+<p class="font-body-sm text-body-sm text-text-secondary">Background sync across devices</p>
+</div>
+<label class="relative inline-flex items-center cursor-pointer">
+<input checked="" class="sr-only peer" onchange="showSaveBar()" type="checkbox" value=""/>
+<div class="w-9 h-5 bg-surface-variant peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-text-primary after:border-border-subtle after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary"></div>
+</label>
+</div>
+<div class="space-y-2">
+<div class="flex justify-between items-end">
+<label class="font-label-caps text-label-caps text-text-secondary block">Local Storage</label>
+<span class="font-mono-base text-mono-base text-text-primary text-xs">2.4 GB / 5.0 GB</span>
+</div>
+<div class="w-full bg-surface-dim h-1.5 rounded-full overflow-hidden">
+<div class="bg-primary h-1.5 rounded-full w-[48%]"></div>
+</div>
+<button class="text-xs font-body-sm text-text-secondary hover:text-text-primary underline mt-2">Clear Cache</button>
+</div>
+</div>
+</div>
+<!-- Advanced -->
+<div class="bg-surface-container-low rounded-xl border border-border-subtle overflow-hidden">
+<button class="w-full flex items-center justify-between p-4 bg-surface-container-low hover:bg-surface-variant transition-colors" onclick="toggleSection('section-adv')">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded bg-surface-variant flex items-center justify-center text-text-primary border border-border-subtle">
+<span class="material-symbols-outlined text-sm" data-icon="terminal">terminal</span>
+</div>
+<h2 class="font-headline-sm text-headline-sm text-text-primary">Advanced</h2>
+</div>
+<span class="material-symbols-outlined text-text-secondary transform transition-transform" data-icon="expand_more" id="icon-adv">expand_more</span>
+</button>
+<div class="p-4 border-t border-border-subtle hidden space-y-4" id="section-adv">
+<div class="flex items-center justify-between py-2">
+<div>
+<p class="font-body-md text-body-md text-text-primary text-error">Danger Zone</p>
+<p class="font-body-sm text-body-sm text-text-secondary">Permanently delete local graph data</p>
+</div>
+<button class="px-3 py-1.5 rounded bg-error-container text-error border border-error/20 font-body-sm text-body-sm hover:bg-error-container/80 transition-colors">Wipe Graph</button>
+</div>
+</div>
+</div>
+</div>
+</main>
+<!-- FLOATING SAVE BAR -->
+<div class="fixed bottom-[80px] md:bottom-6 left-0 md:left-[calc(220px+24px)] right-0 md:right-6 md:w-auto px-4 md:px-0 translate-y-[150%] transition-transform duration-300 ease-in-out z-40 pointer-events-none" id="floating-save-bar">
+<div class="max-w-[800px] mx-auto pointer-events-auto">
+<div class="bg-surface-container-high/90 backdrop-blur-md border border-border-emphasis rounded-xl p-3 flex items-center justify-between shadow-2xl">
+<span class="font-body-sm text-body-sm text-text-primary pl-2">Unsaved changes</span>
+<div class="flex gap-2">
+<button class="px-4 py-1.5 rounded-lg bg-surface-variant hover:bg-surface-container-highest border border-border-subtle text-text-primary font-body-sm text-body-sm transition-colors" onclick="hideSaveBar()">Discard</button>
+<button class="px-4 py-1.5 rounded-lg bg-primary hover:bg-primary/90 text-on-primary font-body-sm text-body-sm transition-colors font-semibold" onclick="hideSaveBar()">Save Changes</button>
+</div>
+</div>
+</div>
+</div>
+<!-- MOBILE BOTTOM NAV -->
+<nav class="md:hidden fixed bottom-0 left-0 w-full bg-surface-container-low border-t border-border-subtle pb-safe pt-2 px-2 z-50">
+<div class="flex justify-between items-center max-w-sm mx-auto h-[60px]">
+<a class="flex flex-col items-center justify-center w-16 h-full text-text-secondary" href="#">
+<span class="material-symbols-outlined text-[24px] mb-1" data-icon="dashboard">dashboard</span>
+<span class="font-label-caps text-label-caps text-[10px]">Overview</span>
+</a>
+<a class="flex flex-col items-center justify-center w-16 h-full text-text-secondary" href="#">
+<span class="material-symbols-outlined text-[24px] mb-1" data-icon="search">search</span>
+<span class="font-label-caps text-label-caps text-[10px]">Search</span>
+</a>
+<a class="flex flex-col items-center justify-center w-16 h-full text-text-secondary" href="#">
+<span class="material-symbols-outlined text-[24px] mb-1" data-icon="hub">hub</span>
+<span class="font-label-caps text-label-caps text-[10px]">Graph</span>
+</a>
+<a class="flex flex-col items-center justify-center w-16 h-full text-primary" href="#">
+<span class="material-symbols-outlined text-[24px] mb-1" data-icon="settings" data-weight="fill">settings</span>
+<span class="font-label-caps text-label-caps text-[10px]">Settings</span>
+</a>
+</div>
+</nav>
+<script>
+        function toggleSection(sectionId) {
+            const section = document.getElementById(sectionId);
+            const iconId = sectionId.replace('section-', 'icon-');
+            const icon = document.getElementById(iconId);
+            
+            if (section.classList.contains('hidden')) {
+                section.classList.remove('hidden');
+                icon.style.transform = 'rotate(180deg)';
+            } else {
+                section.classList.add('hidden');
+                icon.style.transform = 'rotate(0deg)';
+            }
+        }
+
+        function showSaveBar() {
+            const bar = document.getElementById('floating-save-bar');
+            bar.classList.remove('translate-y-[150%]');
+            bar.classList.add('translate-y-0');
+        }
+
+        function hideSaveBar() {
+            const bar = document.getElementById('floating-save-bar');
+            bar.classList.remove('translate-y-0');
+            bar.classList.add('translate-y-[150%]');
+        }
+    </script>
+</body></html>

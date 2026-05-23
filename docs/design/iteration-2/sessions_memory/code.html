@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Memory - Sessions</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&amp;family=JetBrains+Mono:wght@400&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "on-error": "#690005",
+                        "surface-container-low": "#1d1a24",
+                        "surface-variant": "#36333d",
+                        "on-tertiary": "#4b2800",
+                        "text-primary": "#ededed",
+                        "lesson-amber": "#fbbf24",
+                        "surface-dim": "#14121b",
+                        "primary-container": "#9c79ff",
+                        "on-secondary": "#002b73",
+                        "on-tertiary-container": "#412200",
+                        "session-zinc": "#52525b",
+                        "on-error-container": "#ffdad6",
+                        "surface-tint": "#cebdff",
+                        "secondary-container": "#004dbf",
+                        "on-tertiary-fixed": "#2d1600",
+                        "on-secondary-fixed": "#001848",
+                        "tool-emerald": "#34d399",
+                        "project-blue": "#5b8bff",
+                        "primary-fixed-dim": "#cebdff",
+                        "tertiary": "#ffb873",
+                        "outline": "#948ea0",
+                        "secondary-fixed": "#dae2ff",
+                        "secondary": "#b2c5ff",
+                        "text-muted": "rgba(237,237,237,0.45)",
+                        "inverse-on-surface": "#322f39",
+                        "surface-container": "#211e28",
+                        "inverse-surface": "#e7e0ed",
+                        "inverse-primary": "#6a3add",
+                        "on-secondary-container": "#b7c8ff",
+                        "error-container": "#93000a",
+                        "on-tertiary-fixed-variant": "#6a3b00",
+                        "border-emphasis": "rgba(255,255,255,0.12)",
+                        "on-primary-fixed-variant": "#5212c4",
+                        "surface-bright": "#3b3842",
+                        "primary": "#cebdff",
+                        "error": "#ffb4ab",
+                        "tertiary-container": "#d07d1b",
+                        "primary-fixed": "#e8ddff",
+                        "reference-cyan": "#22d3ee",
+                        "on-secondary-fixed-variant": "#0040a2",
+                        "tertiary-fixed-dim": "#ffb873",
+                        "background": "#14121b",
+                        "on-primary-container": "#310082",
+                        "on-primary-fixed": "#21005d",
+                        "on-surface": "#e7e0ed",
+                        "surface": "#14121b",
+                        "decision-purple": "#8b5fff",
+                        "surface-container-highest": "#36333d",
+                        "outline-variant": "#494455",
+                        "tertiary-fixed": "#ffdcbf",
+                        "surface-container-high": "#2b2832",
+                        "on-background": "#e7e0ed",
+                        "secondary-fixed-dim": "#b2c5ff",
+                        "surface-container-lowest": "#0f0d16",
+                        "on-primary": "#390093",
+                        "text-secondary": "rgba(237,237,237,0.7)",
+                        "person-pink": "#f472b6",
+                        "border-subtle": "rgba(255,255,255,0.06)",
+                        "on-surface-variant": "#cbc3d7",
+                        "crystal-gold": "#fcd34d"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "container-max": "1200px",
+                        "sidebar-width": "220px",
+                        "gutter": "24px",
+                        "inline-gap": "8px",
+                        "stack-gap": "12px"
+                    },
+                    "fontFamily": {
+                        "body-sm": ["Inter"],
+                        "mono-base": ["JetBrains Mono"],
+                        "body-lg": ["Inter"],
+                        "headline-sm": ["Inter"],
+                        "body-md": ["Inter"],
+                        "label-caps": ["Inter"],
+                        "headline-lg": ["Inter"],
+                        "headline-md": ["Inter"]
+                    },
+                    "fontSize": {
+                        "body-sm": ["13px", {"lineHeight": "18px", "fontWeight": "400"}],
+                        "mono-base": ["13px", {"lineHeight": "20px", "fontWeight": "400"}],
+                        "body-lg": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+                        "headline-sm": ["16px", {"lineHeight": "24px", "letterSpacing": "-0.01em", "fontWeight": "600"}],
+                        "body-md": ["14px", {"lineHeight": "20px", "fontWeight": "400"}],
+                        "label-caps": ["11px", {"lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "600"}],
+                        "headline-lg": ["24px", {"lineHeight": "32px", "letterSpacing": "-0.02em", "fontWeight": "600"}],
+                        "headline-md": ["20px", {"lineHeight": "28px", "letterSpacing": "-0.02em", "fontWeight": "600"}]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        .glass-panel {
+            background: rgba(20, 18, 27, 0.6);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+        }
+        
+        .card-hover-effect {
+            position: relative;
+        }
+        
+        .card-hover-effect::before {
+            content: '';
+            position: absolute;
+            inset: -1px;
+            border-radius: inherit;
+            padding: 1px;
+            background: linear-gradient(to bottom right, rgba(206, 189, 255, 0.3), transparent 60%);
+            -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+            -webkit-mask-composite: xor;
+            mask-composite: exclude;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            z-index: 0;
+        }
+        
+        .card-hover-effect:hover::before {
+            opacity: 1;
+        }
+
+        .emissive-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            box-shadow: 0 0 8px currentColor;
+        }
+    </style>
+</head>
+<body class="bg-background text-text-primary font-body-md antialiased min-h-screen selection:bg-primary/30">
+<!-- Top Navigation -->
+<nav class="fixed top-0 right-0 w-[calc(100%-220px)] h-[48px] bg-surface/80 dark:bg-surface/80 backdrop-blur-xl text-text-primary font-body-sm text-body-sm border-b border-border-subtle flex justify-between items-center px-gutter ml-[220px] z-40">
+<div class="flex items-center gap-inline-gap flex-1">
+<div class="relative w-64">
+<span class="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-text-muted text-[16px]">search</span>
+<input class="w-full bg-surface-container-low border border-border-subtle rounded-full py-1 pl-8 pr-12 focus:outline-none focus:border-border-emphasis focus:ring-1 focus:ring-primary/20 text-body-sm font-body-sm transition-all h-[28px]" placeholder="Search sessions..." type="text"/>
+<div class="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+<kbd class="font-mono-base text-mono-base text-text-muted bg-surface-variant px-1.5 py-0.5 rounded text-[10px]">⌘</kbd>
+<kbd class="font-mono-base text-mono-base text-text-muted bg-surface-variant px-1.5 py-0.5 rounded text-[10px]">K</kbd>
+</div>
+</div>
+</div>
+<div class="flex items-center gap-inline-gap">
+<button class="p-1.5 hover:text-text-primary text-text-muted cursor-pointer transition-colors rounded-md hover:bg-surface-variant">
+<span class="material-symbols-outlined text-[20px]">notifications</span>
+</button>
+<div class="w-7 h-7 rounded-full bg-surface-variant border border-border-subtle overflow-hidden ml-2 cursor-pointer">
+<!-- User Avatar Placeholder -->
+<div class="w-full h-full bg-gradient-to-br from-primary-container to-surface-variant"></div>
+</div>
+</div>
+</nav>
+<!-- Side Navigation -->
+<nav class="fixed left-0 top-0 h-full w-[220px] bg-surface-container-low dark:bg-surface-container-low text-primary dark:text-primary font-body-md text-body-md border-r border-border-subtle flex flex-col py-gutter px-3 z-50">
+<!-- Header -->
+<div class="px-3 mb-6 flex items-center gap-3">
+<div class="w-8 h-8 rounded-lg bg-surface-variant border border-border-subtle flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-primary text-[18px]">memory</span>
+</div>
+<div class="flex flex-col overflow-hidden">
+<h1 class="font-headline-md text-headline-md font-bold tracking-tight text-primary dark:text-primary truncate">memory</h1>
+<span class="font-label-caps text-label-caps text-text-muted">v2.4.0-stable</span>
+</div>
+</div>
+<!-- Scrollable Tabs -->
+<div class="flex-1 overflow-y-auto overflow-x-hidden space-y-0.5 scrollbar-hide">
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg group" href="#">
+<span class="material-symbols-outlined text-[18px] group-hover:text-primary transition-colors">dashboard</span>
+<span class="truncate">Overview</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg group" href="#">
+<span class="material-symbols-outlined text-[18px] group-hover:text-primary transition-colors">search</span>
+<span class="truncate">Search</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg group" href="#">
+<span class="material-symbols-outlined text-[18px] group-hover:text-primary transition-colors">menu_book</span>
+<span class="truncate">Wiki</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg group" href="#">
+<span class="material-symbols-outlined text-[18px] group-hover:text-primary transition-colors">article</span>
+<span class="truncate">Raw</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg group" href="#">
+<span class="material-symbols-outlined text-[18px] group-hover:text-primary transition-colors">hub</span>
+<span class="truncate">Graph</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg group" href="#">
+<span class="material-symbols-outlined text-[18px] group-hover:text-primary transition-colors">timeline</span>
+<span class="truncate">Timeline</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg group" href="#">
+<span class="material-symbols-outlined text-[18px] group-hover:text-primary transition-colors">pulse_alert</span>
+<span class="truncate">Activity</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-primary bg-surface-container-highest rounded-lg font-bold scale-[0.98] transition-transform" href="#">
+<span class="material-symbols-outlined text-[18px]" style="font-variation-settings: 'FILL' 1;">layers</span>
+<span class="truncate">Sessions</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg group" href="#">
+<span class="material-symbols-outlined text-[18px] group-hover:text-primary transition-colors">diamond</span>
+<span class="truncate">Crystals</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg group" href="#">
+<span class="material-symbols-outlined text-[18px] group-hover:text-primary transition-colors">policy</span>
+<span class="truncate">Audit</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg group" href="#">
+<span class="material-symbols-outlined text-[18px] group-hover:text-primary transition-colors">settings</span>
+<span class="truncate">Settings</span>
+</a>
+</div>
+<!-- Footer -->
+<div class="pt-4 mt-4 border-t border-border-subtle">
+<button class="w-full flex items-center justify-between px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg text-left mb-2">
+<div class="flex items-center gap-inline-gap">
+<div class="w-2 h-2 rounded-full bg-tool-emerald animate-pulse"></div>
+<span class="font-body-sm text-body-sm">Syncing...</span>
+</div>
+</button>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined text-[18px]">cloud_done</span>
+<span class="truncate">Status</span>
+</a>
+</div>
+</nav>
+<!-- Main Content Area -->
+<main class="ml-[220px] mt-[48px] p-gutter max-w-container-max mx-auto min-h-[calc(100vh-48px)] flex gap-gutter">
+<!-- Left Filter Rail -->
+<aside class="w-48 shrink-0 flex flex-col gap-6 pt-2 hidden lg:flex">
+<div>
+<h3 class="font-label-caps text-label-caps text-text-muted mb-3">TOOL TYPE</h3>
+<div class="space-y-1">
+<label class="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-surface-variant cursor-pointer group">
+<input checked="" class="rounded border-border-subtle bg-surface text-primary focus:ring-primary focus:ring-offset-background w-3.5 h-3.5" type="checkbox"/>
+<span class="font-body-sm text-body-sm text-text-secondary group-hover:text-text-primary transition-colors flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-tool-emerald"></span>
+                            Terminal
+                        </span>
+</label>
+<label class="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-surface-variant cursor-pointer group">
+<input checked="" class="rounded border-border-subtle bg-surface text-primary focus:ring-primary focus:ring-offset-background w-3.5 h-3.5" type="checkbox"/>
+<span class="font-body-sm text-body-sm text-text-secondary group-hover:text-text-primary transition-colors flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-project-blue"></span>
+                            Editor
+                        </span>
+</label>
+<label class="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-surface-variant cursor-pointer group">
+<input class="rounded border-border-subtle bg-surface text-primary focus:ring-primary focus:ring-offset-background w-3.5 h-3.5" type="checkbox"/>
+<span class="font-body-sm text-body-sm text-text-secondary group-hover:text-text-primary transition-colors flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-lesson-amber"></span>
+                            Browser
+                        </span>
+</label>
+</div>
+</div>
+<div>
+<h3 class="font-label-caps text-label-caps text-text-muted mb-3">DATE RANGE</h3>
+<div class="space-y-1">
+<button class="w-full text-left px-2 py-1.5 rounded hover:bg-surface-variant font-body-sm text-body-sm text-text-primary bg-surface-variant">Today</button>
+<button class="w-full text-left px-2 py-1.5 rounded hover:bg-surface-variant font-body-sm text-body-sm text-text-secondary">Last 7 Days</button>
+<button class="w-full text-left px-2 py-1.5 rounded hover:bg-surface-variant font-body-sm text-body-sm text-text-secondary">Last 30 Days</button>
+<button class="w-full text-left px-2 py-1.5 rounded hover:bg-surface-variant font-body-sm text-body-sm text-text-secondary flex justify-between items-center">
+                        Custom
+                        <span class="material-symbols-outlined text-[14px]">chevron_right</span>
+</button>
+</div>
+</div>
+<div>
+<h3 class="font-label-caps text-label-caps text-text-muted mb-3">CURATION</h3>
+<div class="space-y-1">
+<label class="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-surface-variant cursor-pointer group">
+<input class="rounded border-border-subtle bg-surface text-primary focus:ring-primary focus:ring-offset-background w-3.5 h-3.5" type="checkbox"/>
+<span class="font-body-sm text-body-sm text-text-secondary group-hover:text-text-primary transition-colors flex items-center gap-2">
+<span class="material-symbols-outlined text-[14px] text-crystal-gold">diamond</span>
+                            Crystallized
+                        </span>
+</label>
+<label class="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-surface-variant cursor-pointer group">
+<input checked="" class="rounded border-border-subtle bg-surface text-primary focus:ring-primary focus:ring-offset-background w-3.5 h-3.5" type="checkbox"/>
+<span class="font-body-sm text-body-sm text-text-secondary group-hover:text-text-primary transition-colors flex items-center gap-2">
+<span class="material-symbols-outlined text-[14px] text-text-muted">article</span>
+                            Raw
+                        </span>
+</label>
+</div>
+</div>
+</aside>
+<!-- Session Grid Canvas -->
+<div class="flex-1 flex flex-col min-w-0">
+<!-- Header area for canvas -->
+<header class="flex justify-between items-end mb-6 pt-2">
+<div>
+<h2 class="font-headline-lg text-headline-lg text-text-primary">Sessions</h2>
+<p class="font-body-md text-body-md text-text-secondary mt-1">Active context threads and raw telemetry logs.</p>
+</div>
+<div class="flex gap-2">
+<button class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-surface-container-high border border-border-subtle hover:border-border-emphasis transition-colors font-body-sm text-body-sm text-text-secondary hover:text-text-primary">
+<span class="material-symbols-outlined text-[16px]">sort</span>
+                        Latest
+                    </button>
+</div>
+</header>
+<!-- Bento/Grid Layout -->
+<div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+<!-- Tile 1 -->
+<div class="bg-surface-container border border-border-subtle rounded-xl p-4 flex flex-col card-hover-effect cursor-pointer group h-[220px]">
+<div class="flex justify-between items-start mb-4 z-10 relative">
+<div class="w-10 h-10 rounded-lg bg-surface-container-high border border-border-subtle flex items-center justify-center text-tool-emerald group-hover:bg-tool-emerald/10 transition-colors">
+<span class="material-symbols-outlined text-[24px]">terminal</span>
+</div>
+<div class="text-right">
+<span class="block font-mono-base text-mono-base text-text-secondary">Today, 14:32</span>
+<span class="font-label-caps text-label-caps text-tool-emerald inline-flex items-center gap-1 mt-1">
+<span class="emissive-dot text-tool-emerald"></span>
+                                ACTIVE
+                            </span>
+</div>
+</div>
+<div class="flex-1 overflow-hidden z-10 relative">
+<h4 class="font-headline-sm text-headline-sm text-text-primary mb-2 truncate">System Context Migration</h4>
+<p class="font-body-sm text-body-sm text-text-secondary line-clamp-3 leading-relaxed">
+                            Executing batched migration of legacy nodes into the v2.4 structure. Analyzing dependency graphs for isolated clusters. Found 43 orphaned wiki links requiring manual resolution before commit.
+                        </p>
+</div>
+<div class="mt-4 pt-3 border-t border-border-subtle flex justify-between items-center z-10 relative">
+<div class="flex items-center gap-3">
+<div class="flex items-center gap-1 font-mono-base text-[11px] text-text-muted" title="Tokens">
+<span class="material-symbols-outlined text-[12px]">data_object</span>
+                                24k
+                            </div>
+<div class="flex items-center gap-1 font-mono-base text-[11px] text-text-muted" title="Duration">
+<span class="material-symbols-outlined text-[12px]">schedule</span>
+                                45m
+                            </div>
+</div>
+<div class="flex items-center gap-1 font-mono-base text-[11px] text-primary" title="Wiki Links">
+<span class="material-symbols-outlined text-[12px]">link</span>
+                            12 refs
+                        </div>
+</div>
+</div>
+<!-- Tile 2 -->
+<div class="bg-surface-container border border-border-subtle rounded-xl p-4 flex flex-col card-hover-effect cursor-pointer group h-[220px]">
+<div class="flex justify-between items-start mb-4 z-10 relative">
+<div class="w-10 h-10 rounded-lg bg-surface-container-high border border-border-subtle flex items-center justify-center text-project-blue group-hover:bg-project-blue/10 transition-colors">
+<span class="material-symbols-outlined text-[24px]">code</span>
+</div>
+<div class="text-right">
+<span class="block font-mono-base text-mono-base text-text-secondary">Today, 10:15</span>
+<span class="font-label-caps text-label-caps text-text-muted mt-1 inline-block">ENDED</span>
+</div>
+</div>
+<div class="flex-1 overflow-hidden z-10 relative">
+<h4 class="font-headline-sm text-headline-sm text-text-primary mb-2 truncate">UI Component Refactor</h4>
+<p class="font-body-sm text-body-sm text-text-secondary line-clamp-3 leading-relaxed">
+                            Refactoring shared components JSON parsing logic. Implementing strict adherence to style_ keys and generating Tailwind utility classes on the fly. Added tests for semantic shell mapping.
+                        </p>
+</div>
+<div class="mt-4 pt-3 border-t border-border-subtle flex justify-between items-center z-10 relative">
+<div class="flex items-center gap-3">
+<div class="flex items-center gap-1 font-mono-base text-[11px] text-text-muted">
+<span class="material-symbols-outlined text-[12px]">data_object</span>
+                                118k
+                            </div>
+<div class="flex items-center gap-1 font-mono-base text-[11px] text-text-muted">
+<span class="material-symbols-outlined text-[12px]">schedule</span>
+                                2h 15m
+                            </div>
+</div>
+<div class="flex items-center gap-1 font-mono-base text-[11px] text-primary">
+<span class="material-symbols-outlined text-[12px]">link</span>
+                            4 refs
+                        </div>
+</div>
+</div>
+<!-- Tile 3 -->
+<div class="bg-surface-container border border-border-subtle rounded-xl p-4 flex flex-col card-hover-effect cursor-pointer group h-[220px]">
+<div class="flex justify-between items-start mb-4 z-10 relative">
+<div class="w-10 h-10 rounded-lg bg-surface-container-high border border-border-subtle flex items-center justify-center text-lesson-amber group-hover:bg-lesson-amber/10 transition-colors">
+<span class="material-symbols-outlined text-[24px]">travel_explore</span>
+</div>
+<div class="text-right">
+<span class="block font-mono-base text-mono-base text-text-secondary">Yesterday</span>
+<span class="font-label-caps text-label-caps text-crystal-gold inline-flex items-center gap-1 mt-1">
+<span class="material-symbols-outlined text-[12px]">diamond</span>
+                                CURATED
+                            </span>
+</div>
+</div>
+<div class="flex-1 overflow-hidden z-10 relative">
+<h4 class="font-headline-sm text-headline-sm text-text-primary mb-2 truncate">Research: Tonal Layering UX</h4>
+<p class="font-body-sm text-body-sm text-text-secondary line-clamp-3 leading-relaxed">
+                            Reviewing linear vs hierarchical depth models in dark interfaces. Captured notes on Vercel's use of inset shadows and background blur to establish surface z-index without traditional box-shadows.
+                        </p>
+</div>
+<div class="mt-4 pt-3 border-t border-border-subtle flex justify-between items-center z-10 relative">
+<div class="flex items-center gap-3">
+<div class="flex items-center gap-1 font-mono-base text-[11px] text-text-muted">
+<span class="material-symbols-outlined text-[12px]">data_object</span>
+                                12k
+                            </div>
+<div class="flex items-center gap-1 font-mono-base text-[11px] text-text-muted">
+<span class="material-symbols-outlined text-[12px]">schedule</span>
+                                34m
+                            </div>
+</div>
+<div class="flex items-center gap-1 font-mono-base text-[11px] text-primary">
+<span class="material-symbols-outlined text-[12px]">link</span>
+                            28 refs
+                        </div>
+</div>
+</div>
+<!-- Tile 4 -->
+<div class="bg-surface-container border border-border-subtle rounded-xl p-4 flex flex-col card-hover-effect cursor-pointer group h-[220px]">
+<div class="flex justify-between items-start mb-4 z-10 relative">
+<div class="w-10 h-10 rounded-lg bg-surface-container-high border border-border-subtle flex items-center justify-center text-tool-emerald group-hover:bg-tool-emerald/10 transition-colors">
+<span class="material-symbols-outlined text-[24px]">terminal</span>
+</div>
+<div class="text-right">
+<span class="block font-mono-base text-mono-base text-text-secondary">Oct 24</span>
+<span class="font-label-caps text-label-caps text-text-muted mt-1 inline-block">ENDED</span>
+</div>
+</div>
+<div class="flex-1 overflow-hidden z-10 relative">
+<h4 class="font-headline-sm text-headline-sm text-text-primary mb-2 truncate">Docker Environment Setup</h4>
+<p class="font-body-sm text-body-sm text-text-secondary line-clamp-3 leading-relaxed">
+                            Configuring volume mounts for persistent memory cache. Resolved permission issues with the local socket binding. Updated docker-compose.yml to include the new Redis layer for semantic search buffering.
+                        </p>
+</div>
+<div class="mt-4 pt-3 border-t border-border-subtle flex justify-between items-center z-10 relative">
+<div class="flex items-center gap-3">
+<div class="flex items-center gap-1 font-mono-base text-[11px] text-text-muted">
+<span class="material-symbols-outlined text-[12px]">data_object</span>
+                                45k
+                            </div>
+<div class="flex items-center gap-1 font-mono-base text-[11px] text-text-muted">
+<span class="material-symbols-outlined text-[12px]">schedule</span>
+                                1h 10m
+                            </div>
+</div>
+<div class="flex items-center gap-1 font-mono-base text-[11px] text-primary opacity-50">
+<span class="material-symbols-outlined text-[12px]">link</span>
+                            0 refs
+                        </div>
+</div>
+</div>
+<!-- Tile 5 -->
+<div class="bg-surface-container border border-border-subtle rounded-xl p-4 flex flex-col card-hover-effect cursor-pointer group h-[220px]">
+<div class="flex justify-between items-start mb-4 z-10 relative">
+<div class="w-10 h-10 rounded-lg bg-surface-container-high border border-border-subtle flex items-center justify-center text-decision-purple group-hover:bg-decision-purple/10 transition-colors">
+<span class="material-symbols-outlined text-[24px]">fork_right</span>
+</div>
+<div class="text-right">
+<span class="block font-mono-base text-mono-base text-text-secondary">Oct 22</span>
+<span class="font-label-caps text-label-caps text-crystal-gold inline-flex items-center gap-1 mt-1">
+<span class="material-symbols-outlined text-[12px]">diamond</span>
+                                CURATED
+                            </span>
+</div>
+</div>
+<div class="flex-1 overflow-hidden z-10 relative">
+<h4 class="font-headline-sm text-headline-sm text-text-primary mb-2 truncate">Database Scaling Strategy</h4>
+<p class="font-body-sm text-body-sm text-text-secondary line-clamp-3 leading-relaxed">
+                            Evaluating horizontal sharding vs read replicas for the primary vector store. Decision made to stick with a monolithic instance until query latency exceeds 200ms on the 95th percentile. Documented reasoning in ADR-042.
+                        </p>
+</div>
+<div class="mt-4 pt-3 border-t border-border-subtle flex justify-between items-center z-10 relative">
+<div class="flex items-center gap-3">
+<div class="flex items-center gap-1 font-mono-base text-[11px] text-text-muted">
+<span class="material-symbols-outlined text-[12px]">data_object</span>
+                                89k
+                            </div>
+<div class="flex items-center gap-1 font-mono-base text-[11px] text-text-muted">
+<span class="material-symbols-outlined text-[12px]">schedule</span>
+                                3h 05m
+                            </div>
+</div>
+<div class="flex items-center gap-1 font-mono-base text-[11px] text-primary">
+<span class="material-symbols-outlined text-[12px]">link</span>
+                            15 refs
+                        </div>
+</div>
+</div>
+</div>
+<!-- Load More / Pagination -->
+<div class="mt-8 flex justify-center">
+<button class="px-4 py-2 bg-surface-container hover:bg-surface-variant border border-border-subtle rounded-lg font-body-sm text-body-sm text-text-secondary hover:text-text-primary transition-colors flex items-center gap-2">
+<span class="material-symbols-outlined text-[16px]">history</span>
+                    Load Older Sessions
+                </button>
+</div>
+</div>
+</main>
+</body></html>

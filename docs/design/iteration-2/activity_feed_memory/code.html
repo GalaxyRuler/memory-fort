@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Activity · Memory</title>
+<!-- Google Fonts & Material Symbols -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&amp;family=JetBrains+Mono:wght@400&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<!-- Tailwind Theme Configuration -->
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "on-error": "#690005",
+                        "surface-container-low": "#1d1a24",
+                        "surface-variant": "#36333d",
+                        "on-tertiary": "#4b2800",
+                        "text-primary": "#ededed",
+                        "lesson-amber": "#fbbf24",
+                        "surface-dim": "#14121b",
+                        "primary-container": "#9c79ff",
+                        "on-secondary": "#002b73",
+                        "on-tertiary-container": "#412200",
+                        "session-zinc": "#52525b",
+                        "on-error-container": "#ffdad6",
+                        "surface-tint": "#cebdff",
+                        "secondary-container": "#004dbf",
+                        "on-tertiary-fixed": "#2d1600",
+                        "on-secondary-fixed": "#001848",
+                        "tool-emerald": "#34d399",
+                        "project-blue": "#5b8bff",
+                        "primary-fixed-dim": "#cebdff",
+                        "tertiary": "#ffb873",
+                        "outline": "#948ea0",
+                        "secondary-fixed": "#dae2ff",
+                        "secondary": "#b2c5ff",
+                        "text-muted": "rgba(237,237,237,0.45)",
+                        "inverse-on-surface": "#322f39",
+                        "surface-container": "#211e28",
+                        "inverse-surface": "#e7e0ed",
+                        "inverse-primary": "#6a3add",
+                        "on-secondary-container": "#b7c8ff",
+                        "error-container": "#93000a",
+                        "on-tertiary-fixed-variant": "#6a3b00",
+                        "border-emphasis": "rgba(255,255,255,0.12)",
+                        "on-primary-fixed-variant": "#5212c4",
+                        "surface-bright": "#3b3842",
+                        "primary": "#cebdff",
+                        "error": "#ffb4ab",
+                        "tertiary-container": "#d07d1b",
+                        "primary-fixed": "#e8ddff",
+                        "reference-cyan": "#22d3ee",
+                        "on-secondary-fixed-variant": "#0040a2",
+                        "tertiary-fixed-dim": "#ffb873",
+                        "background": "#14121b",
+                        "on-primary-container": "#310082",
+                        "on-primary-fixed": "#21005d",
+                        "on-surface": "#e7e0ed",
+                        "surface": "#14121b",
+                        "decision-purple": "#8b5fff",
+                        "surface-container-highest": "#36333d",
+                        "outline-variant": "#494455",
+                        "tertiary-fixed": "#ffdcbf",
+                        "surface-container-high": "#2b2832",
+                        "on-background": "#e7e0ed",
+                        "secondary-fixed-dim": "#b2c5ff",
+                        "surface-container-lowest": "#0f0d16",
+                        "on-primary": "#390093",
+                        "text-secondary": "rgba(237,237,237,0.7)",
+                        "person-pink": "#f472b6",
+                        "border-subtle": "rgba(255,255,255,0.06)",
+                        "on-surface-variant": "#cbc3d7",
+                        "crystal-gold": "#fcd34d"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "container-max": "1200px",
+                        "sidebar-width": "220px",
+                        "gutter": "24px",
+                        "inline-gap": "8px",
+                        "stack-gap": "12px"
+                    },
+                    "fontFamily": {
+                        "body-sm": ["Inter"],
+                        "mono-base": ["JetBrains Mono"],
+                        "body-lg": ["Inter"],
+                        "headline-sm": ["Inter"],
+                        "body-md": ["Inter"],
+                        "label-caps": ["Inter"],
+                        "headline-lg": ["Inter"],
+                        "headline-md": ["Inter"]
+                    },
+                    "fontSize": {
+                        "body-sm": ["13px", {"lineHeight": "18px", "fontWeight": "400"}],
+                        "mono-base": ["13px", {"lineHeight": "20px", "fontWeight": "400"}],
+                        "body-lg": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+                        "headline-sm": ["16px", {"lineHeight": "24px", "letterSpacing": "-0.01em", "fontWeight": "600"}],
+                        "body-md": ["14px", {"lineHeight": "20px", "fontWeight": "400"}],
+                        "label-caps": ["11px", {"lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "600"}],
+                        "headline-lg": ["24px", {"lineHeight": "32px", "letterSpacing": "-0.02em", "fontWeight": "600"}],
+                        "headline-md": ["20px", {"lineHeight": "28px", "letterSpacing": "-0.02em", "fontWeight": "600"}]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        /* Hide scrollbar for cleaner look in nav */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
+    </style>
+</head>
+<body class="bg-background text-text-primary font-body-sm antialiased overflow-y-scroll">
+<!-- Shell: TopNavBar -->
+<nav class="fixed top-0 right-0 w-[calc(100%-220px)] h-[48px] bg-surface/80 dark:bg-surface/80 backdrop-blur-xl border-b border-border-subtle flex justify-between items-center px-gutter ml-[220px] z-40">
+<div class="flex-1"></div>
+<div class="flex items-center gap-inline-gap">
+<span class="material-symbols-outlined text-text-muted hover:text-text-primary cursor-pointer text-[18px]">notifications</span>
+<div class="w-6 h-6 rounded-full bg-surface-variant border border-subtle overflow-hidden cursor-pointer">
+<!-- Placeholder for Profile Avatar -->
+</div>
+</div>
+</nav>
+<!-- Shell: SideNavBar -->
+<aside class="fixed left-0 top-0 h-full w-[220px] bg-surface-container-low dark:bg-surface-container-low border-r border-border-subtle flex flex-col py-gutter px-3 z-50">
+<!-- Brand Header -->
+<div class="flex flex-col mb-8 px-3">
+<span class="font-headline-md text-headline-md font-bold tracking-tight text-primary dark:text-primary">memory</span>
+<span class="text-text-muted font-label-caps text-label-caps mt-1">v2.4.0-stable</span>
+</div>
+<!-- Navigation Links -->
+<div class="flex-1 flex flex-col gap-1 overflow-y-auto">
+<!-- Inactive -->
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg group" href="#">
+<span class="material-symbols-outlined text-[18px] group-hover:opacity-100 opacity-70 transition-opacity">dashboard</span>
+<span class="font-body-md text-body-md">Overview</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg group" href="#">
+<span class="material-symbols-outlined text-[18px] group-hover:opacity-100 opacity-70 transition-opacity">search</span>
+<span class="font-body-md text-body-md">Search</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg group" href="#">
+<span class="material-symbols-outlined text-[18px] group-hover:opacity-100 opacity-70 transition-opacity">menu_book</span>
+<span class="font-body-md text-body-md">Wiki</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg group" href="#">
+<span class="material-symbols-outlined text-[18px] group-hover:opacity-100 opacity-70 transition-opacity">article</span>
+<span class="font-body-md text-body-md">Raw</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg group" href="#">
+<span class="material-symbols-outlined text-[18px] group-hover:opacity-100 opacity-70 transition-opacity">hub</span>
+<span class="font-body-md text-body-md">Graph</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg group" href="#">
+<span class="material-symbols-outlined text-[18px] group-hover:opacity-100 opacity-70 transition-opacity">timeline</span>
+<span class="font-body-md text-body-md">Timeline</span>
+</a>
+<!-- Active State -->
+<a class="flex items-center gap-inline-gap px-3 py-2 text-primary bg-surface-container-highest rounded-lg font-bold scale-[0.98] transition-transform" href="#">
+<span class="material-symbols-outlined text-[18px]">pulse_alert</span>
+<span class="font-body-md text-body-md">Activity</span>
+</a>
+<!-- Inactive -->
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg group" href="#">
+<span class="material-symbols-outlined text-[18px] group-hover:opacity-100 opacity-70 transition-opacity">layers</span>
+<span class="font-body-md text-body-md">Sessions</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg group" href="#">
+<span class="material-symbols-outlined text-[18px] group-hover:opacity-100 opacity-70 transition-opacity">diamond</span>
+<span class="font-body-md text-body-md">Crystals</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg group" href="#">
+<span class="material-symbols-outlined text-[18px] group-hover:opacity-100 opacity-70 transition-opacity">policy</span>
+<span class="font-body-md text-body-md">Audit</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg group" href="#">
+<span class="material-symbols-outlined text-[18px] group-hover:opacity-100 opacity-70 transition-opacity">settings</span>
+<span class="font-body-md text-body-md">Settings</span>
+</a>
+</div>
+<!-- Footer / System Status -->
+<div class="mt-auto pt-4 border-t border-border-subtle flex flex-col gap-2">
+<div class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:bg-surface-variant rounded-lg transition-colors cursor-pointer">
+<span class="material-symbols-outlined text-[16px] text-project-blue">cloud_done</span>
+<span class="font-body-sm text-body-sm">Syncing...</span>
+</div>
+</div>
+</aside>
+<!-- Main Content Canvas -->
+<main class="ml-[220px] pt-[48px] min-h-screen bg-background">
+<div class="max-w-[800px] mx-auto p-gutter pt-8">
+<!-- Page Header -->
+<header class="mb-8">
+<h1 class="font-headline-lg text-headline-lg text-text-primary mb-6">Activity Feed</h1>
+<!-- Filter Chips -->
+<div class="flex flex-wrap gap-inline-gap">
+<button class="px-4 py-1.5 rounded-full border border-primary/30 bg-primary/10 text-primary font-body-sm text-body-sm hover:bg-primary/20 transition-colors">
+                        All
+                    </button>
+<button class="px-4 py-1.5 rounded-full border border-subtle bg-surface-container text-text-secondary font-body-sm text-body-sm hover:bg-surface-variant hover:text-text-primary transition-colors">
+                        Raw Captured
+                    </button>
+<button class="px-4 py-1.5 rounded-full border border-subtle bg-surface-container text-text-secondary font-body-sm text-body-sm hover:bg-surface-variant hover:text-text-primary transition-colors">
+                        Wiki Updates
+                    </button>
+<button class="px-4 py-1.5 rounded-full border border-subtle bg-surface-container text-text-secondary font-body-sm text-body-sm hover:bg-surface-variant hover:text-text-primary transition-colors">
+                        Compile Runs
+                    </button>
+<button class="px-4 py-1.5 rounded-full border border-subtle bg-surface-container text-text-secondary font-body-sm text-body-sm hover:bg-surface-variant hover:text-text-primary transition-colors">
+                        Sync Events
+                    </button>
+</div>
+</header>
+<!-- Timeline Feed -->
+<div class="relative border-l border-border-subtle ml-[11px] space-y-8 pb-12">
+<!-- Event Item: Wiki Update (Diff Style) -->
+<div class="relative pl-8 group">
+<!-- Icon / Node -->
+<div class="absolute -left-[12px] top-1 w-[24px] h-[24px] rounded-full bg-surface border border-lesson-amber flex items-center justify-center shadow-[0_0_8px_rgba(251,191,36,0.15)] ring-1 ring-lesson-amber/20 z-10">
+<span class="material-symbols-outlined text-[14px] text-lesson-amber" style="font-variation-settings: 'FILL' 1;">edit_document</span>
+</div>
+<!-- Content Card -->
+<div class="bg-surface-container border border-subtle rounded-lg overflow-hidden transition-colors group-hover:border-emphasis">
+<div class="p-4 cursor-pointer flex justify-between items-start" onclick="this.nextElementSibling.classList.toggle('hidden')">
+<div>
+<h3 class="font-headline-sm text-headline-sm text-text-primary mb-1">Updated concepts/neural-nets.md</h3>
+<p class="font-body-sm text-body-sm text-text-secondary">Added section on backpropagation derivatives.</p>
+</div>
+<div class="flex flex-col items-end gap-1">
+<span class="font-mono-base text-[11px] text-text-muted">10 mins ago</span>
+<span class="material-symbols-outlined text-[16px] text-text-muted transition-transform group-hover:translate-y-0.5">expand_more</span>
+</div>
+</div>
+<!-- Expandable Diff Preview -->
+<div class="hidden border-t border-subtle bg-surface-dim">
+<pre class="p-4 font-mono-base text-mono-base overflow-x-auto"><div class="text-text-muted opacity-50 mb-2">@@ -45,6 +45,12 @@</div>
+<div class="text-text-secondary"> The core mechanism relies on gradient descent.</div>
+<div class="text-error bg-error/10 px-2 py-0.5 inline-block w-full border-l-2 border-error/50">- We calculate the error and adjust weights manually.</div>
+<div class="text-tool-emerald bg-tool-emerald/10 px-2 py-0.5 inline-block w-full border-l-2 border-tool-emerald/50">+ We calculate the error and backpropagate it through the layers.</div>
+<div class="text-tool-emerald bg-tool-emerald/10 px-2 py-0.5 inline-block w-full border-l-2 border-tool-emerald/50">+ The derivative of the activation function dictates the step size.</div>
+<div class="text-text-secondary"> This allows the network to learn complex patterns over epochs.</div>
+                            </pre>
+</div>
+</div>
+</div>
+<!-- Event Item: Raw Captured (Image/Text) -->
+<div class="relative pl-8 group">
+<div class="absolute -left-[12px] top-1 w-[24px] h-[24px] rounded-full bg-surface border border-reference-cyan flex items-center justify-center shadow-[0_0_8px_rgba(34,211,238,0.15)] ring-1 ring-reference-cyan/20 z-10">
+<span class="material-symbols-outlined text-[14px] text-reference-cyan" style="font-variation-settings: 'FILL' 1;">capture</span>
+</div>
+<div class="bg-surface-container border border-subtle rounded-lg overflow-hidden transition-colors group-hover:border-emphasis">
+<div class="p-4 cursor-pointer flex justify-between items-start" onclick="this.nextElementSibling.classList.toggle('hidden')">
+<div>
+<h3 class="font-headline-sm text-headline-sm text-text-primary mb-1">Captured Web Clipping</h3>
+<p class="font-body-sm text-body-sm text-text-secondary">Extracted visual reference from design portal.</p>
+</div>
+<div class="flex flex-col items-end gap-1">
+<span class="font-mono-base text-[11px] text-text-muted">1 hour ago</span>
+<span class="material-symbols-outlined text-[16px] text-text-muted transition-transform group-hover:translate-y-0.5">expand_more</span>
+</div>
+</div>
+<!-- Expandable Raw Preview -->
+<div class="hidden border-t border-subtle bg-surface-dim p-4">
+<div class="rounded-md border border-subtle overflow-hidden relative h-48 w-full bg-surface-variant">
+<img alt="Captured visual reference" class="w-full h-full object-cover opacity-80" data-alt="A striking digital installation art piece featuring glowing, generative geometric shapes suspended in a vast, dark minimalist gallery space. The room is illuminated by low-key, moody lighting that creates a deep, technical aesthetic. The artwork relies on a sophisticated palette of deep blacks and pristine whites, punctuated by subtle neon cyan glowing accents along the edges of abstract cubic structures. The mood is serene yet highly futuristic, representing complex data structures." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBD71R29RJDe9rzRwSSCP1vSkpuPhLvKvLFtX9oFuOTXKE3CeEfnBoHRnSKbhyppsQai_XG1aY4Uwityl2_RDHHLdEDXZMgvt6gHIC_Tjb_2dgvlbeu6YnJxgjoGEGVvR0PbBz4C5385joyhcAhX0_XeOGRJw3Trl0oJkNrosIgau5VcWtB2e8lGllKQONBonw0oQ-RIdEPMMj5AHp-3hILHFAYNff0nLUrN9dMJwCqwCaVDPtbo3nf1hlKFQXQLmfDOaUvtU3qYV3l"/>
+</div>
+<div class="mt-3 flex gap-2">
+<span class="px-2 py-0.5 rounded bg-surface border border-subtle font-mono-base text-[10px] text-text-muted">source: linear.app</span>
+<span class="px-2 py-0.5 rounded bg-surface border border-subtle font-mono-base text-[10px] text-reference-cyan">type: image/jpeg</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Event Item: Compile Run (Terminal output) -->
+<div class="relative pl-8 group">
+<div class="absolute -left-[12px] top-1 w-[24px] h-[24px] rounded-full bg-surface border border-tool-emerald flex items-center justify-center shadow-[0_0_8px_rgba(52,211,153,0.15)] ring-1 ring-tool-emerald/20 z-10">
+<span class="material-symbols-outlined text-[14px] text-tool-emerald" style="font-variation-settings: 'FILL' 1;">terminal</span>
+</div>
+<div class="bg-surface-container border border-subtle rounded-lg overflow-hidden transition-colors group-hover:border-emphasis">
+<div class="p-4 cursor-pointer flex justify-between items-start" onclick="this.nextElementSibling.classList.toggle('hidden')">
+<div>
+<h3 class="font-headline-sm text-headline-sm text-text-primary mb-1">Index Compilation Triggered</h3>
+<div class="flex items-center gap-2 mt-1">
+<span class="w-2 h-2 rounded-full bg-tool-emerald shadow-[0_0_4px_rgba(52,211,153,0.8)]"></span>
+<p class="font-body-sm text-body-sm text-tool-emerald">Success: 243 files processed</p>
+</div>
+</div>
+<div class="flex flex-col items-end gap-1">
+<span class="font-mono-base text-[11px] text-text-muted">3 hours ago</span>
+<span class="material-symbols-outlined text-[16px] text-text-muted transition-transform group-hover:translate-y-0.5">expand_more</span>
+</div>
+</div>
+<!-- Expandable Terminal Preview -->
+<div class="hidden border-t border-subtle bg-surface-lowest">
+<pre class="p-4 font-mono-base text-[12px] leading-5 text-text-secondary overflow-x-auto"><span class="text-text-muted">❯ memory build --strict</span>
+<span class="text-tool-emerald">✓</span> Initializing parser... [12ms]
+<span class="text-tool-emerald">✓</span> Scanning workspace directories... [45ms]
+<span class="text-tool-emerald">✓</span> Compiling markdown ast... [120ms]
+<span class="text-lesson-amber">⚠</span> Warning in draft/notes.md: Unresolved reference '[[quantum-state]]'
+<span class="text-tool-emerald">✓</span> Generating search indices... [89ms]
+<span class="text-primary mt-2 block">Compilation finished successfully in 0.28s.</span>
+                            </pre>
+</div>
+</div>
+</div>
+<!-- Event Item: Sync Event (Simple, no expand) -->
+<div class="relative pl-8 group">
+<div class="absolute -left-[12px] top-1 w-[24px] h-[24px] rounded-full bg-surface border border-project-blue flex items-center justify-center shadow-[0_0_8px_rgba(91,139,255,0.15)] ring-1 ring-project-blue/20 z-10">
+<span class="material-symbols-outlined text-[14px] text-project-blue" style="font-variation-settings: 'FILL' 1;">sync</span>
+</div>
+<div class="bg-surface-container border border-subtle rounded-lg p-4 transition-colors group-hover:border-emphasis flex justify-between items-center">
+<div>
+<h3 class="font-body-md text-body-md text-text-primary">Cloud state synchronized</h3>
+<p class="font-body-sm text-body-sm text-text-muted mt-0.5">Pushed 3 local commits to upstream origin.</p>
+</div>
+<span class="font-mono-base text-[11px] text-text-muted">Yesterday</span>
+</div>
+</div>
+<!-- Loading Indicator for Infinite Scroll -->
+<div class="relative pl-8 pt-6 flex items-center gap-3">
+<div class="w-1.5 h-1.5 rounded-full bg-text-muted animate-pulse"></div>
+<div class="w-1.5 h-1.5 rounded-full bg-text-muted animate-pulse" style="animation-delay: 150ms"></div>
+<div class="w-1.5 h-1.5 rounded-full bg-text-muted animate-pulse" style="animation-delay: 300ms"></div>
+</div>
+</div>
+</div>
+</main>
+</body></html>

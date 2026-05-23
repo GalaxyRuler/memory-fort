@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Timeline - Memory App</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&amp;family=JetBrains+Mono:wght@400&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "on-error": "#690005",
+                    "surface-container-low": "#1d1a24",
+                    "surface-variant": "#36333d",
+                    "on-tertiary": "#4b2800",
+                    "text-primary": "#ededed",
+                    "lesson-amber": "#fbbf24",
+                    "surface-dim": "#14121b",
+                    "primary-container": "#9c79ff",
+                    "on-secondary": "#002b73",
+                    "on-tertiary-container": "#412200",
+                    "session-zinc": "#52525b",
+                    "on-error-container": "#ffdad6",
+                    "surface-tint": "#cebdff",
+                    "secondary-container": "#004dbf",
+                    "on-tertiary-fixed": "#2d1600",
+                    "on-secondary-fixed": "#001848",
+                    "tool-emerald": "#34d399",
+                    "project-blue": "#5b8bff",
+                    "primary-fixed-dim": "#cebdff",
+                    "tertiary": "#ffb873",
+                    "outline": "#948ea0",
+                    "secondary-fixed": "#dae2ff",
+                    "secondary": "#b2c5ff",
+                    "text-muted": "rgba(237,237,237,0.45)",
+                    "inverse-on-surface": "#322f39",
+                    "surface-container": "#211e28",
+                    "inverse-surface": "#e7e0ed",
+                    "inverse-primary": "#6a3add",
+                    "on-secondary-container": "#b7c8ff",
+                    "error-container": "#93000a",
+                    "on-tertiary-fixed-variant": "#6a3b00",
+                    "border-emphasis": "rgba(255,255,255,0.12)",
+                    "on-primary-fixed-variant": "#5212c4",
+                    "surface-bright": "#3b3842",
+                    "primary": "#cebdff",
+                    "error": "#ffb4ab",
+                    "tertiary-container": "#d07d1b",
+                    "primary-fixed": "#e8ddff",
+                    "reference-cyan": "#22d3ee",
+                    "on-secondary-fixed-variant": "#0040a2",
+                    "tertiary-fixed-dim": "#ffb873",
+                    "background": "#14121b",
+                    "on-primary-container": "#310082",
+                    "on-primary-fixed": "#21005d",
+                    "on-surface": "#e7e0ed",
+                    "surface": "#14121b",
+                    "decision-purple": "#8b5fff",
+                    "surface-container-highest": "#36333d",
+                    "outline-variant": "#494455",
+                    "tertiary-fixed": "#ffdcbf",
+                    "surface-container-high": "#2b2832",
+                    "on-background": "#e7e0ed",
+                    "secondary-fixed-dim": "#b2c5ff",
+                    "surface-container-lowest": "#0f0d16",
+                    "on-primary": "#390093",
+                    "text-secondary": "rgba(237,237,237,0.7)",
+                    "person-pink": "#f472b6",
+                    "border-subtle": "rgba(255,255,255,0.06)",
+                    "on-surface-variant": "#cbc3d7",
+                    "crystal-gold": "#fcd34d"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.25rem",
+                    "lg": "0.5rem",
+                    "xl": "0.75rem",
+                    "full": "9999px"
+            },
+            "spacing": {
+                    "container-max": "1200px",
+                    "sidebar-width": "220px",
+                    "gutter": "24px",
+                    "inline-gap": "8px",
+                    "stack-gap": "12px"
+            },
+            "fontFamily": {
+                    "body-sm": ["Inter"],
+                    "mono-base": ["JetBrains Mono"],
+                    "body-lg": ["Inter"],
+                    "headline-sm": ["Inter"],
+                    "body-md": ["Inter"],
+                    "label-caps": ["Inter"],
+                    "headline-lg": ["Inter"],
+                    "headline-md": ["Inter"]
+            },
+            "fontSize": {
+                    "body-sm": ["13px", {"lineHeight": "18px", "fontWeight": "400"}],
+                    "mono-base": ["13px", {"lineHeight": "20px", "fontWeight": "400"}],
+                    "body-lg": ["16px", {"lineHeight": "24px", "fontWeight": "400"}],
+                    "headline-sm": ["16px", {"lineHeight": "24px", "letterSpacing": "-0.01em", "fontWeight": "600"}],
+                    "body-md": ["14px", {"lineHeight": "20px", "fontWeight": "400"}],
+                    "label-caps": ["11px", {"lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "600"}],
+                    "headline-lg": ["24px", {"lineHeight": "32px", "letterSpacing": "-0.02em", "fontWeight": "600"}],
+                    "headline-md": ["20px", {"lineHeight": "28px", "letterSpacing": "-0.02em", "fontWeight": "600"}]
+            }
+          }
+        }
+      }
+    </script>
+<style>
+        body {
+            background-color: theme('colors.background');
+            color: theme('colors.text-primary');
+        }
+        
+        /* Emissive Glows */
+        .glow-cyan { box-shadow: 0 0 8px 2px rgba(34, 211, 238, 0.4); }
+        .glow-emerald { box-shadow: 0 0 8px 2px rgba(52, 211, 153, 0.4); }
+        .glow-purple { box-shadow: 0 0 8px 2px rgba(139, 95, 255, 0.4); }
+        .glow-amber { box-shadow: 0 0 8px 2px rgba(251, 191, 36, 0.4); }
+
+        /* Timeline Specific */
+        .timeline-track {
+            background: linear-gradient(90deg, rgba(255,255,255,0.02) 0%, rgba(255,255,255,0.05) 50%, rgba(255,255,255,0.02) 100%);
+        }
+        
+        /* Hide scrollbar for timeline */
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+    </style>
+</head>
+<body class="flex h-screen overflow-hidden antialiased selection:bg-primary selection:text-on-primary">
+<!-- SideNavBar -->
+<nav class="fixed left-0 top-0 h-full w-[220px] bg-surface-container-low dark:bg-surface-container-low border-r border-border-subtle z-50">
+<div class="flex flex-col h-full py-gutter px-3">
+<div class="mb-8 px-3">
+<h1 class="font-headline-md text-headline-md font-bold tracking-tight text-primary dark:text-primary">memory</h1>
+<p class="font-body-sm text-body-sm text-text-muted mt-1">v2.4.0-stable</p>
+</div>
+<div class="flex-1 overflow-y-auto no-scrollbar space-y-1">
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg font-body-md text-body-md" href="#">
+<span class="material-symbols-outlined text-[18px]">dashboard</span>
+                    Overview
+                </a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg font-body-md text-body-md" href="#">
+<span class="material-symbols-outlined text-[18px]">search</span>
+                    Search
+                </a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg font-body-md text-body-md" href="#">
+<span class="material-symbols-outlined text-[18px]">menu_book</span>
+                    Wiki
+                </a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg font-body-md text-body-md" href="#">
+<span class="material-symbols-outlined text-[18px]">article</span>
+                    Raw
+                </a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg font-body-md text-body-md" href="#">
+<span class="material-symbols-outlined text-[18px]">hub</span>
+                    Graph
+                </a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-primary bg-surface-container-highest rounded-lg font-bold font-body-md text-body-md hover:bg-surface-variant transition-colors duration-200 scale-[0.98]" href="#">
+<span class="material-symbols-outlined text-[18px]" style="font-variation-settings: 'FILL' 1;">timeline</span>
+                    Timeline
+                </a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg font-body-md text-body-md" href="#">
+<span class="material-symbols-outlined text-[18px]">pulse_alert</span>
+                    Activity
+                </a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg font-body-md text-body-md" href="#">
+<span class="material-symbols-outlined text-[18px]">layers</span>
+                    Sessions
+                </a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg font-body-md text-body-md" href="#">
+<span class="material-symbols-outlined text-[18px]">diamond</span>
+                    Crystals
+                </a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg font-body-md text-body-md" href="#">
+<span class="material-symbols-outlined text-[18px]">policy</span>
+                    Audit
+                </a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg font-body-md text-body-md" href="#">
+<span class="material-symbols-outlined text-[18px]">settings</span>
+                    Settings
+                </a>
+</div>
+<div class="mt-auto pt-4 border-t border-border-subtle">
+<button class="w-full flex justify-center items-center gap-2 py-2 px-4 rounded-lg bg-primary-container/10 text-primary hover:bg-primary-container/20 transition-colors border border-primary/20 text-sm font-medium mb-4">
+<span class="material-symbols-outlined text-[16px]">sync</span>
+                    Syncing...
+                </button>
+<div class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary font-body-md text-body-md">
+<span class="material-symbols-outlined text-[18px]">cloud_done</span>
+                    Status
+                </div>
+</div>
+</div>
+</nav>
+<!-- TopNavBar -->
+<header class="fixed top-0 right-0 w-[calc(100%-220px)] h-[48px] bg-surface/80 dark:bg-surface/80 backdrop-blur-xl border-b border-border-subtle z-40 flex justify-between items-center px-gutter ml-[220px]">
+<div class="flex-1"></div> <!-- Spacer for left alignment if needed later -->
+<!-- Search Pill -->
+<div class="flex-1 max-w-md mx-auto hidden md:flex items-center bg-surface-container/50 border border-border-subtle rounded-full px-4 py-1.5 hover:border-border-emphasis transition-colors group cursor-text">
+<span class="material-symbols-outlined text-text-muted text-[18px] mr-2">search</span>
+<input class="bg-transparent border-none focus:ring-0 p-0 text-body-sm font-body-sm text-text-primary placeholder-text-muted w-full focus:outline-none" placeholder="Search timeline events..." type="text"/>
+<span class="font-mono-base text-mono-base text-text-muted border border-border-subtle rounded px-1.5 py-0.5 ml-2 text-[10px]">⌘K</span>
+</div>
+<div class="flex-1 flex justify-end items-center gap-4">
+<button class="text-text-muted hover:text-text-primary transition-colors cursor-pointer">
+<span class="material-symbols-outlined">notifications</span>
+</button>
+<div class="w-8 h-8 rounded-full bg-surface-variant overflow-hidden border border-border-subtle">
+<img alt="User profile" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBUg9ZoBsq73Oea8Ns3HLlWAN4YRPLONpJu_kMfgnAM0I9QcAkrONIZ_tNFPxef3YyZZTApel6O-V_cYcPEirGkMNwOJMIM92mBS5b9Jb2vEfnKiPxtx2zDC8hyaKBxP5AKqU2TW8_xH2ZKCCS5p2lFNftcvv1rPXJwfHAiddoqxWbwuyhvas9_C-TvR7ii1hfm7rDb622U5NI9O8w4ftikmkD8BShvnUtjBBRNUIRV4oAawQBrrXSIRIXvEtXBANDz4qtu3GCeqzcJ"/>
+</div>
+</div>
+</header>
+<!-- Main Content Canvas -->
+<main class="ml-[220px] pt-[48px] w-full h-full relative overflow-hidden flex flex-col bg-surface">
+<!-- Timeline Header Actions -->
+<div class="px-8 py-6 flex justify-between items-end flex-shrink-0 z-10">
+<div>
+<h2 class="font-headline-lg text-headline-lg text-text-primary mb-1">Temporal Graph</h2>
+<p class="font-body-sm text-body-sm text-text-secondary">Visualizing interactions across all nodes.</p>
+</div>
+<div class="flex gap-3">
+<div class="flex items-center gap-2 bg-surface-container rounded-lg p-1 border border-border-subtle">
+<button class="px-3 py-1 rounded text-text-primary bg-surface-variant font-body-sm text-body-sm border border-border-subtle shadow-sm">1D</button>
+<button class="px-3 py-1 rounded text-text-muted hover:text-text-primary font-body-sm text-body-sm">1W</button>
+<button class="px-3 py-1 rounded text-text-muted hover:text-text-primary font-body-sm text-body-sm">1M</button>
+</div>
+<button class="flex items-center justify-center w-8 h-8 rounded-lg border border-border-subtle text-text-muted hover:text-text-primary bg-surface-container">
+<span class="material-symbols-outlined text-[18px]">filter_list</span>
+</button>
+</div>
+</div>
+<!-- Horizontal Scrollable Canvas -->
+<div class="flex-1 overflow-x-auto overflow-y-hidden no-scrollbar relative w-full flex flex-col cursor-grab active:cursor-grabbing pb-12" id="timeline-container">
+<!-- Grid Lines Background -->
+<div class="absolute inset-0 z-0 pointer-events-none w-[300vw]" style="background-image: linear-gradient(to right, rgba(255,255,255,0.03) 1px, transparent 1px); background-size: 120px 100%;"></div>
+<!-- Vertical Lanes Container -->
+<div class="flex-1 flex flex-col justify-around py-8 w-[300vw] relative z-10 px-8">
+<!-- Claude Lane -->
+<div class="relative h-24 flex items-center group">
+<!-- Lane Label -->
+<div class="absolute left-0 -ml-4 flex items-center gap-2 text-text-muted font-label-caps text-label-caps uppercase tracking-wider opacity-50 group-hover:opacity-100 transition-opacity bg-surface z-20 pr-2">
+<span class="material-symbols-outlined text-[14px] text-project-blue">smart_toy</span>
+                        Claude
+                    </div>
+<!-- Track Line -->
+<div class="absolute w-full h-[2px] bg-border-subtle timeline-track rounded-full"></div>
+<!-- Events -->
+<div class="absolute left-[10%] w-4 h-4 rounded-full bg-project-blue glow-cyan border-2 border-surface z-20 cursor-pointer transform hover:scale-150 transition-transform">
+<div class="hidden absolute top-6 left-1/2 -translate-x-1/2 w-48 bg-surface-container/90 backdrop-blur-md border border-border-subtle rounded-lg p-3 z-30 group-hover/card:block shadow-2xl">
+<p class="font-label-caps text-label-caps text-project-blue mb-1">Architecture Review</p>
+<p class="font-body-sm text-body-sm text-text-secondary line-clamp-2">Discussed caching strategies for the new timeline view.</p>
+</div>
+</div>
+<div class="absolute left-[35%] w-3 h-3 rounded-full bg-surface-variant border border-project-blue z-20 cursor-pointer transform hover:scale-150 transition-transform"></div>
+<div class="absolute left-[60%] w-5 h-5 rounded-full bg-project-blue glow-cyan border-2 border-surface z-20 cursor-pointer transform hover:scale-150 transition-transform flex items-center justify-center">
+<span class="w-1.5 h-1.5 bg-surface rounded-full"></span>
+</div>
+</div>
+<!-- Codex Lane -->
+<div class="relative h-24 flex items-center group">
+<div class="absolute left-0 -ml-4 flex items-center gap-2 text-text-muted font-label-caps text-label-caps uppercase tracking-wider opacity-50 group-hover:opacity-100 transition-opacity bg-surface z-20 pr-2">
+<span class="material-symbols-outlined text-[14px] text-tool-emerald">terminal</span>
+                        Codex
+                    </div>
+<div class="absolute w-full h-[2px] bg-border-subtle timeline-track rounded-full"></div>
+<div class="absolute left-[15%] w-3 h-3 rounded-full bg-tool-emerald glow-emerald border-2 border-surface z-20 cursor-pointer transform hover:scale-150 transition-transform"></div>
+<div class="absolute left-[40%] w-4 h-4 rounded-full bg-tool-emerald glow-emerald border-2 border-surface z-20 cursor-pointer transform hover:scale-150 transition-transform"></div>
+<div class="absolute left-[42%] w-3 h-3 rounded-full bg-tool-emerald glow-emerald border-2 border-surface z-20 cursor-pointer transform hover:scale-150 transition-transform"></div>
+</div>
+<!-- Antigravity Lane -->
+<div class="relative h-24 flex items-center group">
+<div class="absolute left-0 -ml-4 flex items-center gap-2 text-text-muted font-label-caps text-label-caps uppercase tracking-wider opacity-50 group-hover:opacity-100 transition-opacity bg-surface z-20 pr-2">
+<span class="material-symbols-outlined text-[14px] text-decision-purple">rocket_launch</span>
+                        Antigravity
+                    </div>
+<div class="absolute w-full h-[2px] bg-border-subtle timeline-track rounded-full"></div>
+<div class="absolute left-[5%] w-4 h-4 rounded-full bg-decision-purple glow-purple border-2 border-surface z-20 cursor-pointer transform hover:scale-150 transition-transform"></div>
+<div class="absolute left-[70%] w-6 h-6 rounded-full bg-decision-purple glow-purple border-2 border-surface z-20 cursor-pointer transform hover:scale-150 transition-transform flex items-center justify-center">
+<span class="material-symbols-outlined text-[12px] text-surface">star</span>
+</div>
+</div>
+<!-- Graph Overlay (Optional context line) -->
+<svg class="absolute inset-0 w-full h-full pointer-events-none z-0 opacity-20" preserveaspectratio="none">
+<path class="text-text-muted" d="M0,150 Q100,50 300,100 T600,120 T900,80 T1200,140 T1500,90 T1800,110" fill="none" stroke="currentColor" stroke-dasharray="4 4" stroke-width="2"></path>
+</svg>
+</div>
+<!-- Bottom Time Axis -->
+<div class="absolute bottom-0 left-0 w-[300vw] h-12 border-t border-border-subtle flex items-end pb-2 px-8 text-text-muted font-mono-base text-mono-base z-20 bg-surface/50 backdrop-blur-sm">
+<div class="absolute left-[0%] translate-x-[-50%] flex flex-col items-center">
+<div class="h-2 w-px bg-border-subtle mb-1"></div>
+                    00:00
+                </div>
+<div class="absolute left-[10%] translate-x-[-50%] flex flex-col items-center">
+<div class="h-2 w-px bg-border-subtle mb-1"></div>
+                    04:00
+                </div>
+<div class="absolute left-[20%] translate-x-[-50%] flex flex-col items-center">
+<div class="h-2 w-px bg-border-subtle mb-1"></div>
+                    08:00
+                </div>
+<div class="absolute left-[30%] translate-x-[-50%] flex flex-col items-center">
+<div class="h-3 w-px bg-text-muted mb-1 text-primary"></div>
+<span class="text-primary font-bold">12:00</span>
+</div>
+<div class="absolute left-[40%] translate-x-[-50%] flex flex-col items-center">
+<div class="h-2 w-px bg-border-subtle mb-1"></div>
+                    16:00
+                </div>
+<div class="absolute left-[50%] translate-x-[-50%] flex flex-col items-center">
+<div class="h-2 w-px bg-border-subtle mb-1"></div>
+                    20:00
+                </div>
+<div class="absolute left-[60%] translate-x-[-50%] flex flex-col items-center">
+<div class="h-2 w-px bg-border-subtle mb-1"></div>
+                    Oct 24
+                </div>
+</div>
+<!-- Current Time Indicator -->
+<div class="absolute top-0 bottom-0 left-[30%] w-px bg-primary/30 z-0 pointer-events-none">
+<div class="absolute top-0 left-1/2 -translate-x-1/2 w-2 h-2 rounded-full bg-primary glow-purple"></div>
+</div>
+</div>
+</main>
+<script>
+        // Simple drag to scroll implementation for the timeline container
+        const slider = document.getElementById('timeline-container');
+        let isDown = false;
+        let startX;
+        let scrollLeft;
+
+        slider.addEventListener('mousedown', (e) => {
+            isDown = true;
+            slider.classList.add('active');
+            startX = e.pageX - slider.offsetLeft;
+            scrollLeft = slider.scrollLeft;
+        });
+        
+        slider.addEventListener('mouseleave', () => {
+            isDown = false;
+            slider.classList.remove('active');
+        });
+        
+        slider.addEventListener('mouseup', () => {
+            isDown = false;
+            slider.classList.remove('active');
+        });
+        
+        slider.addEventListener('mousemove', (e) => {
+            if (!isDown) return;
+            e.preventDefault();
+            const x = e.pageX - slider.offsetLeft;
+            const walk = (x - startX) * 2; // Scroll-fast multiplier
+            slider.scrollLeft = scrollLeft - walk;
+        });
+    </script>
+</body></html>

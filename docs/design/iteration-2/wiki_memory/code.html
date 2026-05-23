@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Wiki Browse - Memory</title>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "on-error": "#690005",
+                        "surface-container-low": "#1d1a24",
+                        "surface-variant": "#36333d",
+                        "on-tertiary": "#4b2800",
+                        "text-primary": "#ededed",
+                        "lesson-amber": "#fbbf24",
+                        "surface-dim": "#14121b",
+                        "primary-container": "#9c79ff",
+                        "on-secondary": "#002b73",
+                        "on-tertiary-container": "#412200",
+                        "session-zinc": "#52525b",
+                        "on-error-container": "#ffdad6",
+                        "surface-tint": "#cebdff",
+                        "secondary-container": "#004dbf",
+                        "on-tertiary-fixed": "#2d1600",
+                        "on-secondary-fixed": "#001848",
+                        "tool-emerald": "#34d399",
+                        "project-blue": "#5b8bff",
+                        "primary-fixed-dim": "#cebdff",
+                        "tertiary": "#ffb873",
+                        "outline": "#948ea0",
+                        "secondary-fixed": "#dae2ff",
+                        "secondary": "#b2c5ff",
+                        "text-muted": "rgba(237,237,237,0.45)",
+                        "inverse-on-surface": "#322f39",
+                        "surface-container": "#211e28",
+                        "inverse-surface": "#e7e0ed",
+                        "inverse-primary": "#6a3add",
+                        "on-secondary-container": "#b7c8ff",
+                        "error-container": "#93000a",
+                        "on-tertiary-fixed-variant": "#6a3b00",
+                        "border-emphasis": "rgba(255,255,255,0.12)",
+                        "on-primary-fixed-variant": "#5212c4",
+                        "surface-bright": "#3b3842",
+                        "primary": "#cebdff",
+                        "error": "#ffb4ab",
+                        "tertiary-container": "#d07d1b",
+                        "primary-fixed": "#e8ddff",
+                        "reference-cyan": "#22d3ee",
+                        "on-secondary-fixed-variant": "#0040a2",
+                        "tertiary-fixed-dim": "#ffb873",
+                        "background": "#14121b",
+                        "on-primary-container": "#310082",
+                        "on-primary-fixed": "#21005d",
+                        "on-surface": "#e7e0ed",
+                        "surface": "#14121b",
+                        "decision-purple": "#8b5fff",
+                        "surface-container-highest": "#36333d",
+                        "outline-variant": "#494455",
+                        "tertiary-fixed": "#ffdcbf",
+                        "surface-container-high": "#2b2832",
+                        "on-background": "#e7e0ed",
+                        "secondary-fixed-dim": "#b2c5ff",
+                        "surface-container-lowest": "#0f0d16",
+                        "on-primary": "#390093",
+                        "text-secondary": "rgba(237,237,237,0.7)",
+                        "person-pink": "#f472b6",
+                        "border-subtle": "rgba(255,255,255,0.06)",
+                        "on-surface-variant": "#cbc3d7",
+                        "crystal-gold": "#fcd34d"
+                    },
+                    borderRadius: {
+                        DEFAULT: "0.25rem",
+                        lg: "0.5rem",
+                        xl: "0.75rem",
+                        full: "9999px"
+                    },
+                    spacing: {
+                        "container-max": "1200px",
+                        "sidebar-width": "220px",
+                        "gutter": "24px",
+                        "inline-gap": "8px",
+                        "stack-gap": "12px"
+                    },
+                    fontFamily: {
+                        "body-sm": ["Inter"],
+                        "mono-base": ["JetBrains Mono"],
+                        "body-lg": ["Inter"],
+                        "headline-sm": ["Inter"],
+                        "body-md": ["Inter"],
+                        "label-caps": ["Inter"],
+                        "headline-lg": ["Inter"],
+                        "headline-md": ["Inter"]
+                    },
+                    fontSize: {
+                        "body-sm": ["13px", { lineHeight: "18px", fontWeight: "400" }],
+                        "mono-base": ["13px", { lineHeight: "20px", fontWeight: "400" }],
+                        "body-lg": ["16px", { lineHeight: "24px", fontWeight: "400" }],
+                        "headline-sm": ["16px", { lineHeight: "24px", letterSpacing: "-0.01em", fontWeight: "600" }],
+                        "body-md": ["14px", { lineHeight: "20px", fontWeight: "400" }],
+                        "label-caps": ["11px", { lineHeight: "16px", letterSpacing: "0.05em", fontWeight: "600" }],
+                        "headline-lg": ["24px", { lineHeight: "32px", letterSpacing: "-0.02em", fontWeight: "600" }],
+                        "headline-md": ["20px", { lineHeight: "28px", letterSpacing: "-0.02em", fontWeight: "600" }]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        /* Custom scrollbar for inner panes */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
+        
+        .emissive-dot { box-shadow: 0 0 6px currentColor; }
+    </style>
+</head>
+<body class="bg-background text-text-primary font-body-md h-screen w-screen overflow-hidden flex">
+<!-- SideNavBar (Shared Component) -->
+<nav class="bg-surface-container-low text-primary font-body-md text-body-md fixed left-0 top-0 h-full w-[220px] border-r border-border-subtle flex flex-col py-gutter px-3 z-50">
+<!-- Header -->
+<div class="flex items-center gap-inline-gap px-3 mb-8">
+<div class="w-8 h-8 rounded bg-primary-container flex items-center justify-center text-on-primary-container font-bold">
+<span class="material-symbols-outlined text-[18px]">memory</span>
+</div>
+<div>
+<div class="font-headline-md text-headline-md font-bold tracking-tight text-primary">memory</div>
+<div class="font-label-caps text-label-caps text-text-muted">v2.4.0-stable</div>
+</div>
+</div>
+<!-- Main Tabs -->
+<div class="flex flex-col gap-[2px] flex-1">
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined text-[18px]">dashboard</span>
+<span>Overview</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined text-[18px]">search</span>
+<span>Search</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-primary bg-surface-container-highest rounded-lg font-bold" href="#">
+<span class="material-symbols-outlined text-[18px]" style="font-variation-settings: 'FILL' 1;">menu_book</span>
+<span>Wiki</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined text-[18px]">article</span>
+<span>Raw</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined text-[18px]">hub</span>
+<span>Graph</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined text-[18px]">timeline</span>
+<span>Timeline</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined text-[18px]">pulse_alert</span>
+<span>Activity</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined text-[18px]">layers</span>
+<span>Sessions</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined text-[18px]">diamond</span>
+<span>Crystals</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#">
+<span class="material-symbols-outlined text-[18px]">policy</span>
+<span>Audit</span>
+</a>
+<a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg mt-auto" href="#">
+<span class="material-symbols-outlined text-[18px]">settings</span>
+<span>Settings</span>
+</a>
+</div>
+<!-- Footer / Status -->
+<div class="mt-4 pt-4 border-t border-border-subtle">
+<div class="flex items-center justify-between px-3 py-2 text-text-muted font-body-sm text-body-sm">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-[16px]">cloud_done</span>
+<span>Status</span>
+</div>
+<span class="text-[10px] bg-surface-variant px-1.5 py-0.5 rounded">Syncing...</span>
+</div>
+</div>
+</nav>
+<!-- TopNavBar (Shared Component) -->
+<header class="bg-surface/80 backdrop-blur-xl text-text-primary font-body-sm text-body-sm fixed top-0 right-0 w-[calc(100%-220px)] h-[48px] border-b border-border-subtle flex justify-between items-center px-gutter ml-[220px] z-40">
+<div class="flex-1"></div> <!-- Spacer since search is on right -->
+<div class="flex items-center gap-4">
+<div class="relative hidden md:flex items-center bg-surface-container border border-border-subtle rounded-full px-3 py-1.5 w-64 hover:border-outline transition-colors">
+<span class="material-symbols-outlined text-[16px] text-text-muted mr-2">search</span>
+<input class="bg-transparent border-none outline-none text-body-sm font-body-sm text-text-primary placeholder:text-text-muted w-full focus:ring-0 p-0" placeholder="Search memory..." type="text"/>
+<span class="font-mono-base text-mono-base text-text-muted bg-surface-variant px-1.5 rounded ml-2">⌘K</span>
+</div>
+<button class="text-text-muted hover:text-text-primary transition-colors">
+<span class="material-symbols-outlined text-[20px]">notifications</span>
+</button>
+<div class="w-7 h-7 rounded-full bg-gradient-to-tr from-primary to-decision-purple p-[1px] cursor-pointer">
+<div class="w-full h-full bg-surface rounded-full flex items-center justify-center overflow-hidden">
+<img alt="User profile" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBymX9nNBG6LzijCzJwBAXUf65K83AHCeM7ViSTk5tgs4gwg2pFWmkiUbGAhpStyLp35PDAzMOAW511coZQuLbVerQaxM5mTvCEm-xR3-Bp8o5hRYdzbFFgLxYc9-h5KU4IAtdSG1ssXQsuI3j4-hVa_4SvHw9zGWhftXJqWwy_WuIk2EaOBq1_86rDBZTaaxKJ3lpCFFa9wca21goD2791Zif5_jhzcp6x88IdTvNC_68rokLNm63wrF4SZgWAdfzMLy9Cg3V7ddKf"/>
+</div>
+</div>
+</div>
+</header>
+<!-- Main Content Area -->
+<main class="ml-[220px] mt-[48px] flex-1 flex h-[calc(100vh-48px)] w-[calc(100vw-220px)] bg-background">
+<!-- Left Pane: Categories (300px) -->
+<aside class="w-[300px] border-r border-border-subtle bg-surface flex flex-col shrink-0">
+<!-- Pane Header & Search -->
+<div class="p-gutter pb-4 border-b border-border-subtle flex flex-col gap-4">
+<div class="font-headline-sm text-headline-sm text-text-primary">Wiki Index</div>
+<div class="relative flex items-center bg-surface-container-low border border-border-subtle rounded-md px-3 py-2 focus-within:border-primary focus-within:ring-1 focus-within:ring-primary/20 transition-all">
+<span class="material-symbols-outlined text-[16px] text-text-muted mr-2">filter_list</span>
+<input class="bg-transparent border-none outline-none text-body-sm font-body-sm text-text-primary placeholder:text-text-muted w-full focus:ring-0 p-0" placeholder="Filter categories..." type="text"/>
+</div>
+</div>
+<!-- Category List -->
+<div class="flex-1 overflow-y-auto p-4 flex flex-col gap-1 font-body-sm text-body-sm">
+<button class="flex justify-between items-center px-3 py-2 rounded-md bg-surface-container-highest text-primary font-medium w-full text-left">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-[16px]">apps</span>
+<span>All Pages</span>
+</div>
+<span class="font-mono-base text-xs opacity-70">1,204</span>
+</button>
+<div class="my-2 border-t border-border-subtle w-full"></div>
+<!-- Entity Categories -->
+<button class="flex justify-between items-center px-3 py-2 rounded-md text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors w-full text-left group">
+<div class="flex items-center gap-2">
+<div class="w-2 h-2 rounded-full bg-project-blue emissive-dot text-project-blue"></div>
+<span>Projects</span>
+</div>
+<span class="font-mono-base text-xs text-text-muted group-hover:text-text-secondary">42</span>
+</button>
+<button class="flex justify-between items-center px-3 py-2 rounded-md text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors w-full text-left group">
+<div class="flex items-center gap-2">
+<div class="w-2 h-2 rounded-full bg-decision-purple emissive-dot text-decision-purple"></div>
+<span>Decisions</span>
+</div>
+<span class="font-mono-base text-xs text-text-muted group-hover:text-text-secondary">18</span>
+</button>
+<button class="flex justify-between items-center px-3 py-2 rounded-md text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors w-full text-left group">
+<div class="flex items-center gap-2">
+<div class="w-2 h-2 rounded-full bg-lesson-amber emissive-dot text-lesson-amber"></div>
+<span>Lessons</span>
+</div>
+<span class="font-mono-base text-xs text-text-muted group-hover:text-text-secondary">128</span>
+</button>
+<button class="flex justify-between items-center px-3 py-2 rounded-md text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors w-full text-left group">
+<div class="flex items-center gap-2">
+<div class="w-2 h-2 rounded-full bg-person-pink emissive-dot text-person-pink"></div>
+<span>People</span>
+</div>
+<span class="font-mono-base text-xs text-text-muted group-hover:text-text-secondary">31</span>
+</button>
+<button class="flex justify-between items-center px-3 py-2 rounded-md text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors w-full text-left group">
+<div class="flex items-center gap-2">
+<div class="w-2 h-2 rounded-full bg-tool-emerald emissive-dot text-tool-emerald"></div>
+<span>Tools &amp; Tech</span>
+</div>
+<span class="font-mono-base text-xs text-text-muted group-hover:text-text-secondary">85</span>
+</button>
+<button class="flex justify-between items-center px-3 py-2 rounded-md text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors w-full text-left group">
+<div class="flex items-center gap-2">
+<div class="w-2 h-2 rounded-full bg-crystal-gold emissive-dot text-crystal-gold"></div>
+<span>Crystals</span>
+</div>
+<span class="font-mono-base text-xs text-text-muted group-hover:text-text-secondary">7</span>
+</button>
+</div>
+</aside>
+<!-- Right Pane: Card Grid -->
+<section class="flex-1 overflow-y-auto flex flex-col bg-background relative">
+<!-- Background Decoration (Subtle Pattern) -->
+<div class="absolute inset-0 pointer-events-none opacity-5" style="background-image: radial-gradient(circle at 2px 2px, white 1px, transparent 0); background-size: 32px 32px;"></div>
+<!-- Toolbar -->
+<div class="sticky top-0 z-10 bg-background/90 backdrop-blur-md px-gutter py-4 border-b border-border-subtle flex justify-between items-center">
+<div class="flex items-center gap-3">
+<span class="font-headline-lg text-headline-lg text-text-primary">All Pages</span>
+<span class="font-mono-base text-mono-base text-text-muted bg-surface-container px-2 py-0.5 rounded-full border border-border-subtle">1,204 nodes</span>
+</div>
+<div class="flex items-center gap-4">
+<div class="flex items-center text-body-sm font-body-sm text-text-secondary">
+<span class="mr-2">Sort by:</span>
+<select class="bg-surface-container border border-border-subtle rounded px-2 py-1 text-text-primary outline-none focus:border-primary/50 appearance-none pr-8 relative cursor-pointer" style="background-image: url('data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%23ededed%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E'); background-repeat: no-repeat; background-position: right .7rem top 50%; background-size: .65rem auto;">
+<option>Confidence (High to Low)</option>
+<option>Recent Activity</option>
+<option>Alphabetical</option>
+<option>Most Connected</option>
+</select>
+</div>
+<button class="p-1.5 rounded border border-border-subtle text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors">
+<span class="material-symbols-outlined text-[18px]">grid_view</span>
+</button>
+<button class="p-1.5 rounded border border-transparent text-text-muted hover:text-text-primary hover:bg-surface-variant transition-colors">
+<span class="material-symbols-outlined text-[18px]">view_list</span>
+</button>
+</div>
+</div>
+<!-- Grid Container -->
+<div class="p-gutter grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-gutter pb-32">
+<!-- Card: Project (Blue) -->
+<div class="bg-surface-container-low border border-border-subtle rounded-lg p-5 flex flex-col gap-4 relative overflow-hidden group hover:border-outline-variant hover:bg-surface-container transition-all cursor-pointer shadow-sm">
+<div class="absolute top-0 left-0 right-0 h-[3px] bg-project-blue shadow-[0_0_8px_rgba(91,139,255,0.6)]"></div>
+<div class="flex justify-between items-start">
+<h3 class="font-headline-sm text-headline-sm text-text-primary group-hover:text-project-blue transition-colors">Project V2 Migration Strategy</h3>
+<span class="material-symbols-outlined text-text-muted text-[18px] opacity-0 group-hover:opacity-100 transition-opacity">open_in_new</span>
+</div>
+<p class="font-body-sm text-body-sm text-text-secondary line-clamp-2 flex-1">
+                        Comprehensive rollout plan for migrating the legacy frontend to the new React Server Components architecture. Includes phased deployment dates and rollback procedures.
+                    </p>
+<div class="flex flex-wrap gap-2">
+<span class="font-label-caps text-label-caps px-2 py-1 bg-surface-variant text-text-secondary rounded border border-border-subtle">#infrastructure</span>
+<span class="font-label-caps text-label-caps px-2 py-1 bg-surface-variant text-text-secondary rounded border border-border-subtle">#q3-goals</span>
+</div>
+<div class="flex justify-between items-center mt-2 pt-4 border-t border-border-subtle">
+<div class="flex items-center gap-1.5">
+<div class="w-1.5 h-1.5 rounded-full bg-tool-emerald"></div>
+<span class="font-label-caps text-label-caps text-text-muted">High Confidence</span>
+</div>
+<div class="flex items-center gap-3 font-mono-base text-xs text-text-muted">
+<div class="flex items-center gap-1" title="Incoming Links">
+<span class="material-symbols-outlined text-[14px]">arrow_forward</span>
+<span>12</span>
+</div>
+<div class="flex items-center gap-1" title="Outgoing Links">
+<span class="material-symbols-outlined text-[14px]">arrow_back</span>
+<span>8</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Card: Decision (Purple) -->
+<div class="bg-surface-container-low border border-border-subtle rounded-lg p-5 flex flex-col gap-4 relative overflow-hidden group hover:border-outline-variant hover:bg-surface-container transition-all cursor-pointer shadow-sm">
+<div class="absolute top-0 left-0 right-0 h-[3px] bg-decision-purple shadow-[0_0_8px_rgba(139,95,255,0.6)]"></div>
+<div class="flex justify-between items-start">
+<h3 class="font-headline-sm text-headline-sm text-text-primary group-hover:text-decision-purple transition-colors">Adopt Tailwind CSS for V2</h3>
+<span class="material-symbols-outlined text-text-muted text-[18px] opacity-0 group-hover:opacity-100 transition-opacity">open_in_new</span>
+</div>
+<p class="font-body-sm text-body-sm text-text-secondary line-clamp-2 flex-1">
+                        ADR recording the decision to move away from styled-components in favor of Tailwind CSS to improve build times and standardize design tokens across teams.
+                    </p>
+<div class="flex flex-wrap gap-2">
+<span class="font-label-caps text-label-caps px-2 py-1 bg-surface-variant text-text-secondary rounded border border-border-subtle">#adr</span>
+<span class="font-label-caps text-label-caps px-2 py-1 bg-surface-variant text-text-secondary rounded border border-border-subtle">#frontend</span>
+</div>
+<div class="flex justify-between items-center mt-2 pt-4 border-t border-border-subtle">
+<div class="flex items-center gap-1.5">
+<div class="w-1.5 h-1.5 rounded-full bg-tool-emerald"></div>
+<span class="font-label-caps text-label-caps text-text-muted">Finalized</span>
+</div>
+<div class="flex items-center gap-3 font-mono-base text-xs text-text-muted">
+<div class="flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px]">arrow_forward</span>
+<span>24</span>
+</div>
+<div class="flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px]">arrow_back</span>
+<span>3</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Card: Lesson (Amber) -->
+<div class="bg-surface-container-low border border-border-subtle rounded-lg p-5 flex flex-col gap-4 relative overflow-hidden group hover:border-outline-variant hover:bg-surface-container transition-all cursor-pointer shadow-sm">
+<div class="absolute top-0 left-0 right-0 h-[3px] bg-lesson-amber shadow-[0_0_8px_rgba(251,191,36,0.6)]"></div>
+<div class="flex justify-between items-start">
+<h3 class="font-headline-sm text-headline-sm text-text-primary group-hover:text-lesson-amber transition-colors">Post-mortem: DB Connection Pool Exhaustion</h3>
+<span class="material-symbols-outlined text-text-muted text-[18px] opacity-0 group-hover:opacity-100 transition-opacity">open_in_new</span>
+</div>
+<p class="font-body-sm text-body-sm text-text-secondary line-clamp-2 flex-1">
+                        Analysis of the Sept 14th outage. Root cause was identified as unclosed transaction scopes in the new analytics worker leading to connection starvation.
+                    </p>
+<div class="flex flex-wrap gap-2">
+<span class="font-label-caps text-label-caps px-2 py-1 bg-surface-variant text-text-secondary rounded border border-border-subtle">#incident</span>
+<span class="font-label-caps text-label-caps px-2 py-1 bg-surface-variant text-text-secondary rounded border border-border-subtle">#database</span>
+</div>
+<div class="flex justify-between items-center mt-2 pt-4 border-t border-border-subtle">
+<div class="flex items-center gap-1.5">
+<div class="w-1.5 h-1.5 rounded-full bg-lesson-amber"></div>
+<span class="font-label-caps text-label-caps text-text-muted">Review Needed</span>
+</div>
+<div class="flex items-center gap-3 font-mono-base text-xs text-text-muted">
+<div class="flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px]">arrow_forward</span>
+<span>5</span>
+</div>
+<div class="flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px]">arrow_back</span>
+<span>11</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Card: Tool (Emerald) -->
+<div class="bg-surface-container-low border border-border-subtle rounded-lg p-5 flex flex-col gap-4 relative overflow-hidden group hover:border-outline-variant hover:bg-surface-container transition-all cursor-pointer shadow-sm">
+<div class="absolute top-0 left-0 right-0 h-[3px] bg-tool-emerald shadow-[0_0_8px_rgba(52,211,153,0.6)]"></div>
+<div class="flex justify-between items-start">
+<h3 class="font-headline-sm text-headline-sm text-text-primary group-hover:text-tool-emerald transition-colors">Redis Cache Configuration</h3>
+<span class="material-symbols-outlined text-text-muted text-[18px] opacity-0 group-hover:opacity-100 transition-opacity">open_in_new</span>
+</div>
+<p class="font-body-sm text-body-sm text-text-secondary line-clamp-2 flex-1">
+                        Standardized connection string formats, eviction policies (allkeys-lru), and memory limits for production Redis clusters.
+                    </p>
+<div class="flex flex-wrap gap-2">
+<span class="font-label-caps text-label-caps px-2 py-1 bg-surface-variant text-text-secondary rounded border border-border-subtle">#cache</span>
+<span class="font-label-caps text-label-caps px-2 py-1 bg-surface-variant text-text-secondary rounded border border-border-subtle">#devops</span>
+</div>
+<div class="flex justify-between items-center mt-2 pt-4 border-t border-border-subtle">
+<div class="flex items-center gap-1.5">
+<div class="w-1.5 h-1.5 rounded-full bg-tool-emerald"></div>
+<span class="font-label-caps text-label-caps text-text-muted">Verified</span>
+</div>
+<div class="flex items-center gap-3 font-mono-base text-xs text-text-muted">
+<div class="flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px]">arrow_forward</span>
+<span>41</span>
+</div>
+<div class="flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px]">arrow_back</span>
+<span>2</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Card: Person (Pink) -->
+<div class="bg-surface-container-low border border-border-subtle rounded-lg p-5 flex flex-col gap-4 relative overflow-hidden group hover:border-outline-variant hover:bg-surface-container transition-all cursor-pointer shadow-sm">
+<div class="absolute top-0 left-0 right-0 h-[3px] bg-person-pink shadow-[0_0_8px_rgba(244,114,182,0.6)]"></div>
+<div class="flex justify-between items-start">
+<h3 class="font-headline-sm text-headline-sm text-text-primary group-hover:text-person-pink transition-colors">Sarah Jenkins (Lead Arch)</h3>
+<span class="material-symbols-outlined text-text-muted text-[18px] opacity-0 group-hover:opacity-100 transition-opacity">open_in_new</span>
+</div>
+<p class="font-body-sm text-body-sm text-text-secondary line-clamp-2 flex-1">
+                        Notes from 1:1s and key architectural context provided by Sarah regarding the billing system limits. Best contacted via Slack for urgent DB queries.
+                    </p>
+<div class="flex flex-wrap gap-2">
+<span class="font-label-caps text-label-caps px-2 py-1 bg-surface-variant text-text-secondary rounded border border-border-subtle">#contact</span>
+<span class="font-label-caps text-label-caps px-2 py-1 bg-surface-variant text-text-secondary rounded border border-border-subtle">#architecture</span>
+</div>
+<div class="flex justify-between items-center mt-2 pt-4 border-t border-border-subtle">
+<div class="flex items-center gap-1.5">
+<div class="w-1.5 h-1.5 rounded-full bg-surface-variant border border-outline"></div>
+<span class="font-label-caps text-label-caps text-text-muted">Draft</span>
+</div>
+<div class="flex items-center gap-3 font-mono-base text-xs text-text-muted">
+<div class="flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px]">arrow_forward</span>
+<span>3</span>
+</div>
+<div class="flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px]">arrow_back</span>
+<span>7</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+</section>
+</main>
+</body></html>

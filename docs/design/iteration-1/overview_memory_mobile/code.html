@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Memory App - Mobile Overview</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&amp;family=JetBrains+Mono:wght@400&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+          darkMode: "class",
+          theme: {
+            extend: {
+              "colors": {
+                      "surface": "#14121b",
+                      "surface-container-high": "#2b2832",
+                      "on-secondary-container": "#b7c8ff",
+                      "outline-variant": "#494455",
+                      "on-background": "#e7e0ed",
+                      "secondary-fixed": "#dae2ff",
+                      "inverse-surface": "#e7e0ed",
+                      "surface-tint": "#cebdff",
+                      "on-surface": "#e7e0ed",
+                      "error-container": "#93000a",
+                      "person-pink": "#f472b6",
+                      "decision-purple": "#8b5fff",
+                      "surface-container-lowest": "#0f0d16",
+                      "secondary-fixed-dim": "#b2c5ff",
+                      "surface-variant": "#36333d",
+                      "surface-dim": "#14121b",
+                      "error": "#ffb4ab",
+                      "on-surface-variant": "#cbc3d7",
+                      "inverse-on-surface": "#322f39",
+                      "primary-fixed-dim": "#cebdff",
+                      "tertiary-fixed": "#ffdcbf",
+                      "on-error": "#690005",
+                      "surface-bright": "#3b3842",
+                      "on-tertiary-fixed-variant": "#6a3b00",
+                      "text-secondary": "rgba(237,237,237,0.7)",
+                      "tertiary-fixed-dim": "#ffb873",
+                      "background": "#14121b",
+                      "crystal-gold": "#fcd34d",
+                      "text-primary": "#ededed",
+                      "lesson-amber": "#fbbf24",
+                      "primary": "#cebdff",
+                      "on-secondary": "#002b73",
+                      "on-secondary-fixed": "#001848",
+                      "tertiary": "#ffb873",
+                      "on-error-container": "#ffdad6",
+                      "on-primary": "#390093",
+                      "tool-emerald": "#34d399",
+                      "primary-fixed": "#e8ddff",
+                      "on-primary-fixed": "#21005d",
+                      "on-tertiary-fixed": "#2d1600",
+                      "reference-cyan": "#22d3ee",
+                      "primary-container": "#9c79ff",
+                      "secondary": "#b2c5ff",
+                      "outline": "#948ea0",
+                      "on-primary-fixed-variant": "#5212c4",
+                      "border-emphasis": "rgba(255,255,255,0.12)",
+                      "on-secondary-fixed-variant": "#0040a2",
+                      "inverse-primary": "#6a3add",
+                      "on-primary-container": "#310082",
+                      "secondary-container": "#004dbf",
+                      "project-blue": "#5b8bff",
+                      "surface-container-highest": "#36333d",
+                      "tertiary-container": "#d07d1b",
+                      "on-tertiary-container": "#412200",
+                      "text-muted": "rgba(237,237,237,0.45)",
+                      "surface-container": "#211e28",
+                      "border-subtle": "rgba(255,255,255,0.06)",
+                      "surface-container-low": "#1d1a24",
+                      "on-tertiary": "#4b2800",
+                      "session-zinc": "#52525b"
+              },
+              "borderRadius": {
+                      "DEFAULT": "0.25rem",
+                      "lg": "0.5rem",
+                      "xl": "0.75rem",
+                      "full": "9999px"
+              },
+              "spacing": {
+                      "sidebar-width": "220px",
+                      "stack-gap": "12px",
+                      "container-max": "1200px",
+                      "gutter": "16px",
+                      "inline-gap": "8px"
+              },
+              "fontFamily": {
+                      "label-caps": [
+                              "Inter"
+                      ],
+                      "headline-lg": [
+                              "Inter"
+                      ],
+                      "body-lg": [
+                              "Inter"
+                      ],
+                      "mono-base": [
+                              "JetBrains Mono"
+                      ],
+                      "body-md": [
+                              "Inter"
+                      ],
+                      "headline-md": [
+                              "Inter"
+                      ],
+                      "headline-sm": [
+                              "Inter"
+                      ],
+                      "body-sm": [
+                              "Inter"
+                      ]
+              },
+              "fontSize": {
+                      "label-caps": [
+                              "11px",
+                              {
+                                      "lineHeight": "16px",
+                                      "letterSpacing": "0.05em",
+                                      "fontWeight": "600"
+                              }
+                      ],
+                      "headline-lg": [
+                              "24px",
+                              {
+                                      "lineHeight": "32px",
+                                      "letterSpacing": "-0.02em",
+                                      "fontWeight": "600"
+                              }
+                      ],
+                      "body-lg": [
+                              "16px",
+                              {
+                                      "lineHeight": "24px",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "mono-base": [
+                              "13px",
+                              {
+                                      "lineHeight": "20px",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "body-md": [
+                              "14px",
+                              {
+                                      "lineHeight": "20px",
+                                      "fontWeight": "400"
+                              }
+                      ],
+                      "headline-md": [
+                              "20px",
+                              {
+                                      "lineHeight": "28px",
+                                      "letterSpacing": "-0.02em",
+                                      "fontWeight": "600"
+                              }
+                      ],
+                      "headline-sm": [
+                              "16px",
+                              {
+                                      "lineHeight": "24px",
+                                      "letterSpacing": "-0.01em",
+                                      "fontWeight": "600"
+                              }
+                      ],
+                      "body-sm": [
+                              "13px",
+                              {
+                                      "lineHeight": "18px",
+                                      "fontWeight": "400"
+                              }
+                      ]
+              }
+            }
+          }
+        }
+    </script>
+<style>
+        body {
+            background-color: #14121b; /* surface */
+            color: #ededed; /* text-primary */
+        }
+        .emissive-bloom {
+            box-shadow: 0 0 12px var(--bloom-color, rgba(206, 189, 255, 0.4));
+        }
+        .glass-panel {
+            background: rgba(43, 40, 50, 0.4);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+        }
+        .brand-gradient-text {
+            background: linear-gradient(135deg, #cebdff 0%, #8b5fff 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            color: transparent;
+        }
+        
+        /* Hide scrollbar for horizontal scroll areas */
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+  </head>
+<body class="antialiased min-h-screen flex flex-col font-body-md text-body-md pb-[80px]">
+<!-- Top Navigation / Header (Mobile) -->
+<header class="sticky top-0 z-40 bg-surface/80 backdrop-blur-xl border-b border-border-subtle px-gutter h-[56px] flex items-center justify-between">
+<div class="flex items-center gap-inline-gap">
+<button class="p-2 -ml-2 text-text-secondary hover:text-text-primary rounded-lg transition-colors">
+<span class="material-symbols-outlined" data-icon="menu">menu</span>
+</button>
+<span class="font-headline-md text-headline-md font-bold tracking-tight brand-gradient-text">memory</span>
+</div>
+<div class="flex items-center gap-inline-gap">
+<button class="p-2 text-text-secondary hover:text-text-primary rounded-full transition-colors relative">
+<span class="material-symbols-outlined" data-icon="notifications">notifications</span>
+<span class="absolute top-2 right-2 w-2 h-2 bg-primary rounded-full emissive-bloom" style="--bloom-color: rgba(206,189,255,0.6)"></span>
+</button>
+<div class="w-8 h-8 rounded-full bg-surface-container-highest border border-border-subtle overflow-hidden">
+<img alt="User profile" class="w-full h-full object-cover" data-alt="A futuristic minimalist avatar portrait of a user in a highly technological, dark-mode environment. Soft purple rim lighting illuminates the silhouette. The aesthetic is clean, technical, and slightly mysterious, fitting a private digital memory sanctuary. Deep blacks and emissive primary accents dominate." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDGCWVsAz9yDtPHxUjKiZvs6GpxCPvz3BKajyzN3LZzsp6rJRd7l05ucCcbf04Oq2Sp2fQHI6OjiWKLYBWyOpBXRrbya0Vd0PIMgn4oLzs8b-dMl2XHYE9sUlkcAlxBNLIsmFuzze4OJsoudd9hBgZxMiZ14Z8MofkmN5kJ4cQ2o5vv2B8xcvhPSYLq7TvRihBalkOk6I7yyajinycK4n7oZz8SCA70jlYtFcwc4rGUkp0_NehX8EBhTwm8Awb3dxtSZ3-JWf8Jw4bF"/>
+</div>
+</div>
+</header>
+<!-- Main Content Canvas -->
+<main class="flex-1 w-full px-gutter py-stack-gap flex flex-col gap-6">
+<!-- Welcome / Context -->
+<section class="flex flex-col gap-2">
+<h1 class="font-headline-lg text-headline-lg text-text-primary">Good evening.</h1>
+<p class="font-body-sm text-body-sm text-text-secondary">4 active threads · 2 items need attention</p>
+</section>
+<!-- Command Bar (Fake input for mobile) -->
+<div class="w-full glass-panel rounded-full h-12 flex items-center px-4 gap-3 cursor-text">
+<span class="material-symbols-outlined text-text-secondary" data-icon="search">search</span>
+<span class="font-body-md text-body-md text-text-muted flex-1">Search memory...</span>
+<span class="font-mono-base text-mono-base text-text-secondary bg-surface-container px-2 py-1 rounded border border-border-subtle">⌘K</span>
+</div>
+<!-- Recent Activity (Horizontal Scroll) -->
+<section class="flex flex-col gap-stack-gap">
+<div class="flex items-center justify-between">
+<h2 class="font-headline-sm text-headline-sm text-text-primary">Recent Activity</h2>
+<button class="font-label-caps text-label-caps text-primary hover:text-primary-fixed transition-colors">VIEW ALL</button>
+</div>
+<div class="flex gap-4 overflow-x-auto no-scrollbar -mx-gutter px-gutter pb-2 snap-x">
+<!-- Activity Card 1 -->
+<div class="min-w-[240px] snap-center bg-surface-container-low border border-border-subtle rounded-xl p-4 flex flex-col gap-3 relative overflow-hidden group">
+<div class="absolute top-0 right-0 w-24 h-24 bg-project-blue/10 rounded-full blur-2xl -mr-8 -mt-8"></div>
+<div class="flex items-center gap-2 z-10">
+<div class="w-2 h-2 rounded-full bg-project-blue emissive-bloom" style="--bloom-color: rgba(91,139,255,0.4)"></div>
+<span class="font-label-caps text-label-caps text-text-secondary uppercase">Project</span>
+</div>
+<h3 class="font-body-lg text-body-lg text-text-primary font-semibold z-10">Neural Interface Design</h3>
+<p class="font-body-sm text-body-sm text-text-secondary line-clamp-2 z-10">Updated interaction models for the haptic feedback loop in phase 3 testing.</p>
+<div class="mt-auto pt-2 flex items-center justify-between border-t border-border-subtle z-10">
+<span class="font-mono-base text-mono-base text-text-muted text-[11px]">2h ago</span>
+<span class="material-symbols-outlined text-text-secondary text-[16px]" data-icon="arrow_forward">arrow_forward</span>
+</div>
+</div>
+<!-- Activity Card 2 -->
+<div class="min-w-[240px] snap-center bg-surface-container-low border border-border-subtle rounded-xl p-4 flex flex-col gap-3 relative overflow-hidden group">
+<div class="absolute top-0 right-0 w-24 h-24 bg-crystal-gold/10 rounded-full blur-2xl -mr-8 -mt-8"></div>
+<div class="flex items-center gap-2 z-10">
+<div class="w-2 h-2 rounded-full bg-crystal-gold emissive-bloom" style="--bloom-color: rgba(252,211,77,0.4)"></div>
+<span class="font-label-caps text-label-caps text-text-secondary uppercase">Insight</span>
+</div>
+<h3 class="font-body-lg text-body-lg text-text-primary font-semibold z-10">Latent Space Navigation</h3>
+<p class="font-body-sm text-body-sm text-text-secondary line-clamp-2 z-10">Mapping conceptual proximity using non-Euclidean distance metrics.</p>
+<div class="mt-auto pt-2 flex items-center justify-between border-t border-border-subtle z-10">
+<span class="font-mono-base text-mono-base text-text-muted text-[11px]">5h ago</span>
+<span class="material-symbols-outlined text-text-secondary text-[16px]" data-icon="arrow_forward">arrow_forward</span>
+</div>
+</div>
+</div>
+</section>
+<!-- At a Glance (2x2 Grid) -->
+<section class="flex flex-col gap-stack-gap">
+<h2 class="font-headline-sm text-headline-sm text-text-primary">At a Glance</h2>
+<div class="grid grid-cols-2 gap-3">
+<!-- Stat 1 -->
+<div class="glass-panel rounded-xl p-4 flex flex-col gap-1 items-start">
+<span class="material-symbols-outlined text-decision-purple mb-1" data-icon="hub">hub</span>
+<span class="font-headline-lg text-headline-lg text-text-primary">142</span>
+<span class="font-body-sm text-body-sm text-text-secondary">Nodes</span>
+</div>
+<!-- Stat 2 -->
+<div class="glass-panel rounded-xl p-4 flex flex-col gap-1 items-start">
+<span class="material-symbols-outlined text-tool-emerald mb-1" data-icon="link">link</span>
+<span class="font-headline-lg text-headline-lg text-text-primary">89</span>
+<span class="font-body-sm text-body-sm text-text-secondary">Connections</span>
+</div>
+<!-- Stat 3 -->
+<div class="glass-panel rounded-xl p-4 flex flex-col gap-1 items-start">
+<span class="material-symbols-outlined text-crystal-gold mb-1" data-icon="diamond">diamond</span>
+<span class="font-headline-lg text-headline-lg text-text-primary">12</span>
+<span class="font-body-sm text-body-sm text-text-secondary">Crystals</span>
+</div>
+<!-- Stat 4 -->
+<div class="glass-panel rounded-xl p-4 flex flex-col gap-1 items-start">
+<span class="material-symbols-outlined text-lesson-amber mb-1" data-icon="bolt">bolt</span>
+<span class="font-headline-lg text-headline-lg text-text-primary">4</span>
+<span class="font-body-sm text-body-sm text-text-secondary">Active Tasks</span>
+</div>
+</div>
+</section>
+<!-- Needs Attention -->
+<section class="flex flex-col gap-stack-gap">
+<h2 class="font-headline-sm text-headline-sm text-text-primary flex items-center gap-2">
+<span class="material-symbols-outlined text-error text-[18px]" data-icon="error">error</span>
+                Needs Attention
+            </h2>
+<div class="flex flex-col gap-2">
+<!-- Alert 1 -->
+<div class="bg-surface-container border border-error-container rounded-lg p-3 flex items-start gap-3">
+<div class="w-1.5 h-1.5 rounded-full bg-error mt-2 emissive-bloom" style="--bloom-color: rgba(255,180,171,0.5)"></div>
+<div class="flex-1 flex flex-col">
+<span class="font-body-md text-body-md text-text-primary">Sync Conflict: Knowledge Graph</span>
+<span class="font-body-sm text-body-sm text-text-secondary">Local branch out of sync with remote.</span>
+</div>
+<button class="text-primary hover:text-primary-fixed p-1 rounded">
+<span class="material-symbols-outlined text-[20px]" data-icon="sync">sync</span>
+</button>
+</div>
+<!-- Alert 2 -->
+<div class="bg-surface-container border border-border-subtle rounded-lg p-3 flex items-start gap-3">
+<div class="w-1.5 h-1.5 rounded-full bg-lesson-amber mt-2 emissive-bloom" style="--bloom-color: rgba(251,191,36,0.5)"></div>
+<div class="flex-1 flex flex-col">
+<span class="font-body-md text-body-md text-text-primary">Orphaned Nodes Detected</span>
+<span class="font-body-sm text-body-sm text-text-secondary">3 nodes have no inbound links.</span>
+</div>
+<button class="text-primary hover:text-primary-fixed p-1 rounded">
+<span class="material-symbols-outlined text-[20px]" data-icon="cleaning_services">cleaning_services</span>
+</button>
+</div>
+</div>
+</section>
+</main>
+<!-- Bottom Navigation Bar (Mobile) -->
+<nav class="fixed bottom-0 left-0 w-full h-[64px] bg-surface-container/90 backdrop-blur-xl border-t border-border-subtle flex justify-around items-center px-2 z-50 md:hidden">
+<!-- Tab: Overview (Active) -->
+<a class="flex flex-col items-center justify-center w-16 h-full text-primary gap-1" href="#">
+<div class="px-4 py-1 bg-primary-container/20 rounded-full flex items-center justify-center">
+<span class="material-symbols-outlined text-[24px]" data-icon="dashboard" data-weight="fill" style="font-variation-settings: 'FILL' 1;">dashboard</span>
+</div>
+<span class="font-label-caps text-[10px] tracking-wide">Overview</span>
+</a>
+<!-- Tab: Search -->
+<a class="flex flex-col items-center justify-center w-16 h-full text-text-muted hover:text-text-primary transition-colors gap-1" href="#">
+<div class="px-4 py-1 rounded-full flex items-center justify-center">
+<span class="material-symbols-outlined text-[24px]" data-icon="search">search</span>
+</div>
+<span class="font-label-caps text-[10px] tracking-wide">Search</span>
+</a>
+<!-- Tab: Wiki -->
+<a class="flex flex-col items-center justify-center w-16 h-full text-text-muted hover:text-text-primary transition-colors gap-1" href="#">
+<div class="px-4 py-1 rounded-full flex items-center justify-center">
+<span class="material-symbols-outlined text-[24px]" data-icon="menu_book">menu_book</span>
+</div>
+<span class="font-label-caps text-[10px] tracking-wide">Wiki</span>
+</a>
+<!-- Tab: Activity -->
+<a class="flex flex-col items-center justify-center w-16 h-full text-text-muted hover:text-text-primary transition-colors gap-1" href="#">
+<div class="px-4 py-1 rounded-full flex items-center justify-center">
+<span class="material-symbols-outlined text-[24px]" data-icon="pulse">pulse_alert</span>
+</div>
+<span class="font-label-caps text-[10px] tracking-wide">Activity</span>
+</a>
+<!-- Tab: Settings -->
+<a class="flex flex-col items-center justify-center w-16 h-full text-text-muted hover:text-text-primary transition-colors gap-1" href="#">
+<div class="px-4 py-1 rounded-full flex items-center justify-center">
+<span class="material-symbols-outlined text-[24px]" data-icon="settings">settings</span>
+</div>
+<span class="font-label-caps text-[10px] tracking-wide">Settings</span>
+</a>
+</nav>
+</body></html>

@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Memory - Graph Search State</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            "colors": {
+                    "surface": "#14121b",
+                    "surface-container-high": "#2b2832",
+                    "on-secondary-container": "#b7c8ff",
+                    "outline-variant": "#494455",
+                    "on-background": "#e7e0ed",
+                    "secondary-fixed": "#dae2ff",
+                    "inverse-surface": "#e7e0ed",
+                    "surface-tint": "#cebdff",
+                    "on-surface": "#e7e0ed",
+                    "error-container": "#93000a",
+                    "person-pink": "#f472b6",
+                    "decision-purple": "#8b5fff",
+                    "surface-container-lowest": "#0f0d16",
+                    "secondary-fixed-dim": "#b2c5ff",
+                    "surface-variant": "#36333d",
+                    "surface-dim": "#14121b",
+                    "error": "#ffb4ab",
+                    "on-surface-variant": "#cbc3d7",
+                    "inverse-on-surface": "#322f39",
+                    "primary-fixed-dim": "#cebdff",
+                    "tertiary-fixed": "#ffdcbf",
+                    "on-error": "#690005",
+                    "surface-bright": "#3b3842",
+                    "on-tertiary-fixed-variant": "#6a3b00",
+                    "text-secondary": "rgba(237,237,237,0.7)",
+                    "tertiary-fixed-dim": "#ffb873",
+                    "background": "#14121b",
+                    "crystal-gold": "#fcd34d",
+                    "text-primary": "#ededed",
+                    "lesson-amber": "#fbbf24",
+                    "primary": "#cebdff",
+                    "on-secondary": "#002b73",
+                    "on-secondary-fixed": "#001848",
+                    "tertiary": "#ffb873",
+                    "on-error-container": "#ffdad6",
+                    "on-primary": "#390093",
+                    "tool-emerald": "#34d399",
+                    "primary-fixed": "#e8ddff",
+                    "on-primary-fixed": "#21005d",
+                    "on-tertiary-fixed": "#2d1600",
+                    "reference-cyan": "#22d3ee",
+                    "primary-container": "#9c79ff",
+                    "secondary": "#b2c5ff",
+                    "outline": "#948ea0",
+                    "on-primary-fixed-variant": "#5212c4",
+                    "border-emphasis": "rgba(255,255,255,0.12)",
+                    "on-secondary-fixed-variant": "#0040a2",
+                    "inverse-primary": "#6a3add",
+                    "on-primary-container": "#310082",
+                    "secondary-container": "#004dbf",
+                    "project-blue": "#5b8bff",
+                    "surface-container-highest": "#36333d",
+                    "tertiary-container": "#d07d1b",
+                    "on-tertiary-container": "#412200",
+                    "text-muted": "rgba(237,237,237,0.45)",
+                    "surface-container": "#211e28",
+                    "border-subtle": "rgba(255,255,255,0.06)",
+                    "surface-container-low": "#1d1a24",
+                    "on-tertiary": "#4b2800",
+                    "session-zinc": "#52525b"
+            },
+            "borderRadius": {
+                    "DEFAULT": "0.25rem",
+                    "lg": "0.5rem",
+                    "xl": "0.75rem",
+                    "full": "9999px"
+            },
+            "spacing": {
+                    "sidebar-width": "220px",
+                    "stack-gap": "12px",
+                    "container-max": "1200px",
+                    "gutter": "24px",
+                    "inline-gap": "8px"
+            },
+            "fontFamily": {
+                    "label-caps": [
+                            "Inter"
+                    ],
+                    "headline-lg": [
+                            "Inter"
+                    ],
+                    "body-lg": [
+                            "Inter"
+                    ],
+                    "mono-base": [
+                            "JetBrains Mono"
+                    ],
+                    "body-md": [
+                            "Inter"
+                    ],
+                    "headline-md": [
+                            "Inter"
+                    ],
+                    "headline-sm": [
+                            "Inter"
+                    ],
+                    "body-sm": [
+                            "Inter"
+                    ]
+            },
+            "fontSize": {
+                    "label-caps": [
+                            "11px",
+                            {
+                                    "lineHeight": "16px",
+                                    "letterSpacing": "0.05em",
+                                    "fontWeight": "600"
+                            }
+                    ],
+                    "headline-lg": [
+                            "24px",
+                            {
+                                    "lineHeight": "32px",
+                                    "letterSpacing": "-0.02em",
+                                    "fontWeight": "600"
+                            }
+                    ],
+                    "body-lg": [
+                            "16px",
+                            {
+                                    "lineHeight": "24px",
+                                    "fontWeight": "400"
+                            }
+                    ],
+                    "mono-base": [
+                            "13px",
+                            {
+                                    "lineHeight": "20px",
+                                    "fontWeight": "400"
+                            }
+                    ],
+                    "body-md": [
+                            "14px",
+                            {
+                                    "lineHeight": "20px",
+                                    "fontWeight": "400"
+                            }
+                    ],
+                    "headline-md": [
+                            "20px",
+                            {
+                                    "lineHeight": "28px",
+                                    "letterSpacing": "-0.02em",
+                                    "fontWeight": "600"
+                            }
+                    ],
+                    "headline-sm": [
+                            "16px",
+                            {
+                                    "lineHeight": "24px",
+                                    "letterSpacing": "-0.01em",
+                                    "fontWeight": "600"
+                            }
+                    ],
+                    "body-sm": [
+                            "13px",
+                            {
+                                    "lineHeight": "18px",
+                                    "fontWeight": "400"
+                            }
+                    ]
+            }
+    },
+        },
+      }
+    </script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&amp;family=JetBrains+Mono:wght@400&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<style>
+        body { font-family: 'Inter', sans-serif; background-color: theme('colors.background'); color: theme('colors.text-primary'); }
+        .mono { font-family: 'JetBrains Mono', monospace; }
+        .material-symbols-outlined { font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
+        .icon-fill { font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
+        
+        /* Graph Visuals */
+        @keyframes svg-pulse {
+            0% { r: 20; opacity: 0.8; stroke-width: 0; }
+            70% { r: 50; opacity: 0; stroke-width: 2; }
+            100% { r: 20; opacity: 0; stroke-width: 0; }
+        }
+        .node-pulse-circle {
+            animation: svg-pulse 2s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+            fill: none;
+            stroke: #cebdff;
+        }
+        
+        .fade-out { opacity: 0.15; transition: opacity 0.3s ease; }
+        
+        .line-glow { stroke: rgba(206, 189, 255, 0.6); stroke-width: 2; }
+        .line-fade { stroke: rgba(255, 255, 255, 0.04); stroke-width: 1; }
+        
+        /* Deep space background */
+        .deep-space {
+            background: radial-gradient(circle at 50% 50%, #1a1625 0%, #0d0b14 100%);
+        }
+    </style>
+</head>
+<body class="bg-background text-text-primary h-screen w-full overflow-hidden flex">
+<!-- SideNavBar (Shared Component) -->
+<nav aria-label="Sidebar Navigation" class="bg-surface-container-low dark:bg-surface-container-low text-primary dark:text-primary font-body-md text-body-md fixed left-0 top-0 h-full w-[220px] border-r border-border-subtle z-50 flex flex-col justify-between hidden md:flex">
+<div class="flex flex-col h-full py-gutter px-3">
+<div class="mb-8 px-3 flex flex-col gap-1">
+<span class="font-headline-md text-headline-md font-bold tracking-tight text-primary dark:text-primary">memory</span>
+<span class="text-text-muted font-label-caps text-label-caps">v2.4.0-stable</span>
+</div>
+<ul class="flex flex-col gap-1 flex-grow">
+<li class=""><a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#"><span class="material-symbols-outlined text-[18px]" data-icon="dashboard">dashboard</span> Overview</a></li>
+<li class=""><a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#"><span class="material-symbols-outlined text-[18px]" data-icon="search">search</span> Search</a></li>
+<li class=""><a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#"><span class="material-symbols-outlined text-[18px]" data-icon="menu_book">menu_book</span> Wiki</a></li>
+<li class=""><a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#"><span class="material-symbols-outlined text-[18px]" data-icon="article">article</span> Raw</a></li>
+<!-- Graph is ACTIVE -->
+<li class=""><a class="flex items-center gap-inline-gap px-3 py-2 text-primary bg-surface-container-highest rounded-lg font-bold hover:bg-surface-variant transition-colors duration-200 scale-[0.98] transition-transform" href="#"><span class="material-symbols-outlined text-[18px] icon-fill" data-icon="hub">hub</span> Graph</a></li>
+<li class=""><a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#"><span class="material-symbols-outlined text-[18px]" data-icon="timeline">timeline</span> Timeline</a></li>
+<li class=""><a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#"><span class="material-symbols-outlined text-[18px]" data-icon="pulse">pulse_alert</span> Activity</a></li>
+<li class=""><a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#"><span class="material-symbols-outlined text-[18px]" data-icon="layers">layers</span> Sessions</a></li>
+<li class=""><a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#"><span class="material-symbols-outlined text-[18px]" data-icon="diamond">diamond</span> Crystals</a></li>
+<li class=""><a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg" href="#"><span class="material-symbols-outlined text-[18px]" data-icon="policy">policy</span> Audit</a></li>
+<li class=""><a class="flex items-center gap-inline-gap px-3 py-2 text-text-secondary hover:text-text-primary hover:bg-surface-variant transition-colors duration-200 rounded-lg mt-auto" href="#"><span class="material-symbols-outlined text-[18px]" data-icon="settings">settings</span> Settings</a></li>
+</ul>
+<div class="mt-4 pt-4 border-t border-border-subtle">
+<button class="w-full flex items-center justify-center gap-2 py-2 bg-surface-variant text-text-primary rounded-lg font-body-sm text-body-sm hover:bg-outline-variant transition-colors duration-200 border border-border-subtle">
+<span class="material-symbols-outlined text-[16px]" data-icon="cloud_done">cloud_done</span> Syncing...
+                 </button>
+<div class="mt-2 text-center">
+<span class="text-text-muted font-label-caps text-label-caps">Status</span>
+</div>
+</div>
+</div>
+</nav>
+<!-- TopNavBar (Shared Component) -->
+<header class="bg-surface/80 dark:bg-surface/80 text-text-primary font-body-sm text-body-sm fixed top-0 right-0 w-full md:w-[calc(100%-220px)] h-[48px] border-b border-border-subtle z-40 flex justify-between items-center px-gutter backdrop-blur-[8px]"><div class="flex-1 flex items-center gap-4"><button class="md:hidden text-text-secondary hover:text-text-primary"><span class="material-symbols-outlined" data-icon="menu">menu</span></button><div class="relative w-full max-w-md flex items-center"><span class="material-symbols-outlined absolute left-3 text-text-secondary text-[18px]" data-icon="search">search</span><input class="w-full bg-surface-container-highest border border-primary text-text-primary rounded-full pl-10 pr-24 py-1.5 focus:outline-none focus:border-primary-container focus:ring-1 focus:ring-primary-container transition-all font-mono-base text-mono-base placeholder-text-muted" placeholder="Search graph..." type="text" value="voyage"/><div class="absolute right-3 flex items-center gap-2"><span class="text-primary font-label-caps text-label-caps bg-primary/10 px-2 py-0.5 rounded-full">3 matches</span><span class="text-text-muted font-mono-base text-[10px] border border-border-subtle rounded px-1.5 py-0.5 bg-surface">⌘K</span></div></div></div><div class="flex items-center gap-4"><button class="text-text-muted hover:text-text-primary cursor-pointer transition-colors"><span class="material-symbols-outlined text-[20px]" data-icon="notifications">notifications</span></button><div class="w-7 h-7 rounded-full bg-surface-container-high border border-border-subtle overflow-hidden relative"><div class="absolute inset-0 bg-gradient-to-tr from-primary/20 to-decision-purple/20"></div><img alt="User profile" class="w-full h-full object-cover opacity-80" data-alt="A small, stylized avatar portrait of a user with a subtle purple duotone effect, fitting into a dark, technical user interface." src="https://lh3.googleusercontent.com/aida-public/AB6AXuD7GnUnW8yaoS5T19ShRqXRAft0X6W4Ct-UI6INNMAx2Xqkxz3IpHh30BCJpgh5GVNhJj-d5GIeyaBQOkZ3h1Z7KeUAEfjw6kkcsshijPI1TjUPXRWzrNiDHcFtvW87NZL-O284c_7beFbRb6Y6m_U_9W1uBeRPlZOsLVgqYYTjA6k3I7PDPuPwuwc4QCF33DqFbqSjgnvS0HPIKMaO4euQYW29Mng1SWpZ8nQzwxxuS4uDqe4SsfhYU4tC99o-inih6qdPgG6MaYRh"/></div></div></header>
+<!-- Main Content Canvas -->
+<main class="w-full h-full pt-[48px] md:ml-[220px] deep-space relative overflow-hidden flex flex-col">
+<!-- HUD Overlays -->
+<div class="absolute top-4 left-4 z-10 flex flex-col gap-2 pointer-events-none">
+<div class="bg-surface-container/80 border border-primary/30 rounded-lg p-3 shadow-lg flex items-center gap-3 backdrop-blur-[8px]">
+<div class="w-2 h-2 rounded-full bg-primary animate-pulse"></div>
+<div class="flex flex-col">
+<span class="font-label-caps text-label-caps text-text-muted">Graph View</span>
+<div class="flex items-center gap-2">
+<span class="font-body-sm text-body-sm font-bold text-text-primary">Search Active: "voyage"</span>
+<span class="text-primary font-label-caps text-[10px] bg-primary/20 px-2 py-0.5 rounded-full border border-primary/30">3 MATCHES</span>
+</div>
+</div>
+</div>
+<div class="flex gap-2">
+<div class="bg-surface-container-low/50 border border-border-subtle rounded px-2 py-1 flex items-center gap-1 backdrop-blur-[4px]">
+<span class="w-1.5 h-1.5 rounded-full bg-person-pink"></span>
+<span class="font-label-caps text-label-caps text-text-secondary">Entity</span>
+</div>
+<div class="bg-surface-container-low/50 border border-border-subtle rounded px-2 py-1 flex items-center gap-1 backdrop-blur-[4px]">
+<span class="w-1.5 h-1.5 rounded-full bg-project-blue"></span>
+<span class="font-label-caps text-label-caps text-text-secondary">Project</span>
+</div>
+<div class="bg-surface-container-low/50 border border-border-subtle rounded px-2 py-1 flex items-center gap-1 backdrop-blur-[4px]">
+<span class="w-1.5 h-1.5 rounded-full bg-lesson-amber"></span>
+<span class="font-label-caps text-label-caps text-text-secondary">Concept</span>
+</div>
+</div>
+</div>
+<div class="absolute bottom-4 right-4 z-10 pointer-events-none flex gap-2">
+<button class="bg-surface-container-highest border border-border-subtle rounded-full w-8 h-8 flex items-center justify-center text-text-secondary hover:text-text-primary pointer-events-auto">
+<span class="material-symbols-outlined text-[18px]" data-icon="add">add</span>
+</button>
+<button class="bg-surface-container-highest border border-border-subtle rounded-full w-8 h-8 flex items-center justify-center text-text-secondary hover:text-text-primary pointer-events-auto">
+<span class="material-symbols-outlined text-[18px]" data-icon="remove">remove</span>
+</button>
+<button class="bg-surface-container-highest border border-border-subtle rounded-full w-8 h-8 flex items-center justify-center text-text-secondary hover:text-text-primary pointer-events-auto">
+<span class="material-symbols-outlined text-[18px]" data-icon="center_focus_strong">center_focus_strong</span>
+</button>
+</div>
+<!-- SVG Graph Canvas -->
+<div class="flex-1 w-full h-full relative cursor-grab active:cursor-grabbing">
+<svg class="w-full h-full" viewbox="0 0 1000 800" xmlns="http://www.w3.org/2000/svg">
+<!-- Grid Background -->
+<defs>
+<pattern height="34.64" id="hexGrid" patternunits="userSpaceOnUse" width="60">
+<path d="M 15 0 L 30 8.66 L 30 25.98 L 15 34.64 L 0 25.98 L 0 8.66 Z" fill="none" stroke="rgba(255,255,255,0.03)" stroke-width="1"></path>
+<path d="M 45 17.32 L 60 25.98 L 60 43.3 L 45 51.96 L 30 43.3 L 30 25.98 Z" fill="none" stroke="rgba(255,255,255,0.03)" stroke-width="1"></path>
+</pattern>
+<filter height="200%" id="bloom" width="200%" x="-50%" y="-50%">
+<fegaussianblur result="blur" stddeviation="8"></fegaussianblur>
+<femerge>
+<femergenode in="blur"></femergenode>
+<femergenode in="SourceGraphic"></femergenode>
+</femerge>
+</filter>
+</defs>
+<rect fill="url(#hexGrid)" height="100%" width="100%"></rect>
+<!-- Edges (Faded Background Connections) -->
+<g class="fade-out">
+<line class="line-fade" x1="100" x2="150" y1="100" y2="250"></line>
+<line class="line-fade" x1="150" x2="250" y1="250" y2="200"></line>
+<line class="line-fade" x1="250" x2="350" y1="200" y2="150"></line>
+<line class="line-fade" x1="350" x2="400" y1="150" y2="300"></line>
+<line class="line-fade" x1="400" x2="280" y1="300" y2="450"></line>
+<line class="line-fade" x1="280" x2="150" y1="450" y2="550"></line>
+<line class="line-fade" x1="150" x2="100" y1="550" y2="700"></line>
+<line class="line-fade" x1="280" x2="400" y1="450" y2="650"></line>
+<line class="line-fade" x1="400" x2="550" y1="650" y2="600"></line>
+<line class="line-fade" x1="550" x2="700" y1="600" y2="700"></line>
+<line class="line-fade" x1="700" x2="850" y1="500" y2="600"></line>
+<line class="line-fade" x1="850" x2="950" y1="600" y2="450"></line>
+<line class="line-fade" x1="800" x2="900" y1="300" y2="200"></line>
+<line class="line-fade" x1="650" x2="800" y1="180" y2="300"></line>
+<line class="line-fade" x1="650" x2="750" y1="180" y2="100"></line>
+<line class="line-fade" x1="350" x2="500" y1="150" y2="100"></line>
+<line class="line-fade" x1="500" x2="650" y1="100" y2="180"></line>
+<line class="line-fade" x1="400" x2="500" y1="300" y2="250"></line>
+<line class="line-fade" x1="550" x2="700" y1="600" y2="500"></line>
+<line class="line-fade" x1="500" x2="650" y1="250" y2="180"></line>
+<line class="line-fade" x1="250" x2="200" y1="200" y2="350"></line>
+<line class="line-fade" x1="200" x2="280" y1="350" y2="450"></line>
+<line class="line-fade" x1="700" x2="800" y1="500" y2="300"></line>
+<line class="line-fade" x1="200" x2="300" y1="600" y2="700"></line>
+<line class="line-fade" x1="300" x2="400" y1="700" y2="650"></line>
+</g>
+<!-- Edges (Active Search Connections) -->
+<g>
+<line class="line-glow" x1="500" x2="500" y1="400" y2="250"></line>
+<line class="line-glow" x1="500" x2="700" y1="400" y2="500"></line>
+</g>
+<!-- Nodes (Dense Background Network) -->
+<g class="fade-out">
+<circle cx="100" cy="100" fill="theme('colors.surface-container-high')" r="8"></circle>
+<circle cx="150" cy="250" fill="theme('colors.surface-container-high')" r="12"></circle>
+<circle cx="250" cy="200" fill="theme('colors.surface-container-high')" r="10"></circle>
+<circle cx="350" cy="150" fill="theme('colors.surface-container-high')" r="16"></circle>
+<circle cx="400" cy="300" fill="theme('colors.surface-container-high')" r="14"></circle>
+<circle cx="150" cy="550" fill="theme('colors.surface-container-high')" r="9"></circle>
+<circle cx="100" cy="700" fill="theme('colors.surface-container-high')" r="11"></circle>
+<circle cx="400" cy="650" fill="theme('colors.surface-container-high')" r="12"></circle>
+<circle cx="550" cy="600" fill="theme('colors.surface-container-high')" r="15"></circle>
+<circle cx="700" cy="700" fill="theme('colors.surface-container-high')" r="8"></circle>
+<circle cx="850" cy="600" fill="theme('colors.surface-container-high')" r="10"></circle>
+<circle cx="950" cy="450" fill="theme('colors.surface-container-high')" r="12"></circle>
+<circle cx="800" cy="300" fill="theme('colors.surface-container-high')" r="18"></circle>
+<circle cx="900" cy="200" fill="theme('colors.surface-container-high')" r="9"></circle>
+<circle cx="650" cy="180" fill="theme('colors.surface-container-high')" r="14"></circle>
+<circle cx="750" cy="100" fill="theme('colors.surface-container-high')" r="11"></circle>
+<circle cx="500" cy="100" fill="theme('colors.surface-container-high')" r="13"></circle>
+<circle cx="200" cy="350" fill="theme('colors.surface-container-high')" r="10"></circle>
+<circle cx="200" cy="600" fill="theme('colors.surface-container-high')" r="11"></circle>
+<circle cx="300" cy="700" fill="theme('colors.surface-container-high')" r="9"></circle>
+<circle cx="80" cy="400" fill="theme('colors.surface-container-high')" r="8"></circle>
+<circle cx="850" cy="150" fill="theme('colors.surface-container-high')" r="7"></circle>
+<circle cx="600" cy="80" fill="theme('colors.surface-container-high')" r="9"></circle>
+<circle cx="300" cy="80" fill="theme('colors.surface-container-high')" r="10"></circle>
+<circle cx="280" cy="450" fill="theme('colors.surface-container-high')" r="14"></circle> <!-- Formerly active node, now background -->
+<!-- Assorted node colors for variety -->
+<circle cx="150" cy="250" fill="theme('colors.person-pink')" r="4"></circle>
+<circle cx="350" cy="150" fill="theme('colors.lesson-amber')" r="5"></circle>
+<circle cx="400" cy="650" fill="theme('colors.project-blue')" r="4"></circle>
+<circle cx="800" cy="300" fill="theme('colors.tool-emerald')" r="6"></circle>
+<circle cx="650" cy="180" fill="theme('colors.person-pink')" r="4"></circle>
+<circle cx="550" cy="600" fill="theme('colors.reference-cyan')" r="5"></circle>
+<circle cx="280" cy="450" fill="theme('colors.person-pink')" r="5"></circle>
+</g>
+<!-- Nodes (3 Active Search Hits) -->
+<g filter="url(#bloom)">
+<!-- Match 1: The Voyage (Project) -->
+<g transform="translate(500, 250)">
+<circle class="node-pulse-circle" cx="0" cy="0" r="20"></circle>
+<circle cx="0" cy="0" fill="theme('colors.surface-container')" r="22" stroke="theme('colors.primary')" stroke-width="2"></circle>
+<circle cx="0" cy="0" fill="theme('colors.project-blue')" r="8"></circle>
+<rect class="backdrop-blur-[4px]" fill="theme('colors.surface-container-highest')" height="24" rx="4" stroke="theme('colors.primary')" stroke-width="1" width="105" x="30" y="-12"></rect>
+<text fill="theme('colors.text-primary')" font-family="Inter" font-size="12" font-weight="600" x="40" y="4">The Voyage</text>
+<text fill="theme('colors.text-muted')" font-family="JetBrains Mono" font-size="9" x="40" y="18">Project</text>
+</g>
+<!-- Match 2: Voyage Planning (Concept) -->
+<g transform="translate(700, 500)">
+<circle class="node-pulse-circle" cx="0" cy="0" r="16" style="animation-delay: 0.3s;"></circle>
+<circle cx="0" cy="0" fill="theme('colors.surface-container')" r="18" stroke="theme('colors.primary')" stroke-width="2"></circle>
+<circle cx="0" cy="0" fill="theme('colors.lesson-amber')" r="6"></circle>
+<rect fill="theme('colors.surface-container-highest')" height="24" rx="4" stroke="theme('colors.primary')" stroke-width="1" width="115" x="-140" y="-12"></rect>
+<text fill="theme('colors.text-primary')" font-family="Inter" font-size="12" font-weight="600" x="-130" y="4">Voyage Logistics</text>
+<text fill="theme('colors.text-muted')" font-family="JetBrains Mono" font-size="9" x="-130" y="18">Concept</text>
+</g>
+<!-- Match 3: Center Hub (Note) -->
+<g transform="translate(500, 400)">
+<circle class="node-pulse-circle" cx="0" cy="0" r="18" style="animation-delay: 0.6s;"></circle>
+<circle cx="0" cy="0" fill="theme('colors.surface-container')" r="20" stroke="theme('colors.primary')" stroke-width="2"></circle>
+<circle cx="0" cy="0" fill="theme('colors.reference-cyan')" r="7"></circle>
+<rect fill="theme('colors.surface-container-highest')" height="24" rx="4" stroke="theme('colors.primary')" stroke-width="1" width="130" x="30" y="-12"></rect>
+<text fill="theme('colors.text-primary')" font-family="Inter" font-size="12" font-weight="600" x="40" y="4">Initial Voyage Idea</text>
+<text fill="theme('colors.text-muted')" font-family="JetBrains Mono" font-size="9" x="40" y="18">Note</text>
+</g>
+</g>
+</svg>
+</div>
+</main>
+</body></html>
