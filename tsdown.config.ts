@@ -1,4 +1,16 @@
+import { execSync } from "node:child_process";
 import { defineConfig } from "tsdown";
+
+let commit = "unknown";
+try {
+  commit = execSync("git rev-parse --short HEAD", {
+    stdio: ["pipe", "pipe", "ignore"],
+  })
+    .toString()
+    .trim();
+} catch {
+  // Build still works outside a git checkout; schema.md will record "unknown".
+}
 
 const common = {
   format: "esm",
@@ -6,6 +18,10 @@ const common = {
   target: "node20",
   dts: true,
   sourcemap: true,
+  checks: { pluginTimings: false },
+  define: {
+    __MEMORY_BUILD_COMMIT__: JSON.stringify(commit),
+  },
 } as const;
 
 export default defineConfig([

@@ -14,6 +14,8 @@ import {
 import { atomicWrite, atomicAppend } from "../../storage/atomic-write.js";
 import { detectTemplateVars, renderTemplate } from "../template-render.js";
 
+declare const __MEMORY_BUILD_COMMIT__: string | undefined;
+
 export interface InitOptions {
   reset?: boolean;
   /** Absolute path to the source repo containing templates/. */
@@ -48,7 +50,6 @@ const GITIGNORE_CONTENT = `# Memory runtime artifacts not stored in git
 errors.log
 .archive/
 embeddings/
-.gitattributes
 claude-code-plugin/
 `;
 
@@ -109,6 +110,7 @@ export async function runInit(opts: InitOptions = {}): Promise<InitResult> {
       sourceRepoDir: opts.sourceRepoDir,
       now: opts.now,
     });
+    vars.install_commit = buildInstallCommit(vars.install_commit);
     await atomicWrite(schemaPath(), renderTemplate(template, vars));
     result.created.push(schemaPath());
   } else {
@@ -200,12 +202,15 @@ export async function runInit(opts: InitOptions = {}): Promise<InitResult> {
       });
       execFileSync(
         "git",
-        ["add", "schema.md", "index.md", "log.md", "config.yaml", ".gitignore"],
-        { cwd: root, stdio: ["ignore", "ignore", "ignore"] },
-      );
-      execFileSync(
-        "git",
-        ["add", "-f", ".gitattributes"],
+        [
+          "add",
+          "schema.md",
+          "index.md",
+          "log.md",
+          "config.yaml",
+          ".gitignore",
+          ".gitattributes",
+        ],
         { cwd: root, stdio: ["ignore", "ignore", "ignore"] },
       );
       execFileSync("git", ["commit", "-q", "-m", "chore: memory init"], {
@@ -221,6 +226,13 @@ export async function runInit(opts: InitOptions = {}): Promise<InitResult> {
   }
 
   return result;
+}
+
+function buildInstallCommit(detectedCommit: string): string {
+  if (typeof __MEMORY_BUILD_COMMIT__ !== "undefined") {
+    return __MEMORY_BUILD_COMMIT__;
+  }
+  return detectedCommit;
 }
 
 async function archiveExistingRoot(root: string, now: Date): Promise<string> {
