@@ -87,6 +87,20 @@ Errors are loud — every hook script catches its own failures and appends a tim
 
 See [troubleshooting.md](troubleshooting.md) for the top failure modes per platform with diagnosis steps.
 
+## Bundling strategy
+
+The retrieval and dashboard code in `src/` gets bundled to `dist/` via tsdown, with rolldown under the hood. Modules use different bundling strategies depending on their runtime constraints:
+
+| Module | Strategy | Reason |
+|---|---|---|
+| `dist/retrieval/voyage-client.mjs` | External SDK using `createRequire` | `voyageai@0.2.1` has an ESM entry that uses unsupported directory imports under Node 22; the CommonJS export loads reliably |
+| `dist/retrieval/corpus.mjs`, `dist/retrieval/metadata-score.mjs` | Self-contained parsers, no `gray-matter` or `js-yaml` | Keeps retrieval bundles small and avoids dependency-resolution surprises in VPS/runtime smoke paths |
+| `dist/dashboard/server.mjs` | Bundles app code; `voyageai` remains external | Same SDK constraint as `voyage-client`; the dashboard process loads the SDK from runtime `node_modules` |
+| `dist/cli.mjs` | Bundles app code; search CLI uses Node built-ins such as `fetch` | Local creator machines do not need Voyage credentials or extra runtime dependencies for CLI search |
+| `dist/hooks/*` | Bundles app code for cold-start `node` invocations | Hook scripts and the detached `auto-push-worker` need self-sufficient bundles when spawned by host tools |
+
+When the dashboard runs on the VPS, `voyageai` must be available under `/root/memory-system/services/node_modules/voyageai`. The `memory install-vps` command installs that runtime dependency automatically. Rolldown's internal `PLUGIN_TIMINGS` diagnostics are silenced with `checks: { pluginTimings: false }` in `tsdown.config.ts`.
+
 ## Related docs
 
 - [cli.md](cli.md) — CLI command reference

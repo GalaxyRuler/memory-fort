@@ -33,12 +33,17 @@ export interface RefreshResult {
 interface PendingDoc {
   document: SearchDocument;
   hash: string;
+  text: string;
+  tokenEstimate: number;
 }
 
 const DEFAULT_BATCH_SIZE = 64;
 const DEFAULT_TIMEOUT_MS = 30_000;
 const DEFAULT_MODEL = "voyage-4-large";
 const DEFAULT_DIM = 2048;
+const VOYAGE_PER_DOC_TOKEN_LIMIT = 30_000;
+const VOYAGE_BATCH_TOKEN_LIMIT = 100_000;
+const CHARS_PER_TOKEN_ESTIMATE = 4;
 
 export async function refreshEmbeddings(opts: RefreshOptions): Promise<RefreshResult> {
   const batchSize = Math.max(1, Math.floor(opts.batchSize ?? DEFAULT_BATCH_SIZE));
@@ -74,7 +79,8 @@ export async function refreshEmbeddings(opts: RefreshOptions): Promise<RefreshRe
     const pending: PendingDoc[] = [];
 
     for (const document of documents) {
-      const hash = hashText(document.body);
+      const text = truncateToTokens(document.body, VOYAGE_PER_DOC_TOKEN_LIMIT);
+      const hash = hashText(text);
       const existing = existingByPath.get(document.relPath);
       if (
         existing &&
@@ -84,14 +90,19 @@ export async function refreshEmbeddings(opts: RefreshOptions): Promise<RefreshRe
       ) {
         result.unchanged += 1;
       } else {
-        pending.push({ document, hash });
+        pending.push({
+          document,
+          hash,
+          text,
+          tokenEstimate: estimateTokens(text),
+        });
       }
     }
 
-    for (const batch of chunk(pending, batchSize)) {
+    for (const batch of buildEmbeddingBatches(pending, batchSize)) {
       try {
         const response = await withTimeout(
-          opts.embedClient.embed(batch.map((item) => item.document.body)),
+          opts.embedClient.embed(batch.map((item) => item.text)),
           timeoutMs,
         );
         if (response.vectors.length !== batch.length) {
@@ -161,12 +172,44 @@ function hashText(text: string): string {
   return createHash("sha256").update(text).digest("hex");
 }
 
-function chunk<T>(items: T[], size: number): T[][] {
-  const chunks: T[][] = [];
-  for (let index = 0; index < items.length; index += size) {
-    chunks.push(items.slice(index, index + size));
+function estimateTokens(text: string): number {
+  return Math.ceil(text.length / CHARS_PER_TOKEN_ESTIMATE);
+}
+
+function truncateToTokens(text: string, maxTokens: number): string {
+  const maxChars = maxTokens * CHARS_PER_TOKEN_ESTIMATE;
+  if (text.length <= maxChars) return text;
+
+  const truncated = text.slice(0, maxChars);
+  const lastSpace = truncated.lastIndexOf(" ");
+  return lastSpace > maxChars * 0.9 ? truncated.slice(0, lastSpace) : truncated;
+}
+
+function buildEmbeddingBatches(items: PendingDoc[], maxDocs: number): PendingDoc[][] {
+  const batches: PendingDoc[][] = [];
+  let current: PendingDoc[] = [];
+  let currentTokens = 0;
+
+  for (const item of items) {
+    const wouldExceedDocs = current.length >= maxDocs;
+    const wouldExceedTokens =
+      current.length > 0 &&
+      currentTokens + item.tokenEstimate > VOYAGE_BATCH_TOKEN_LIMIT;
+
+    if (wouldExceedDocs || wouldExceedTokens) {
+      batches.push(current);
+      current = [];
+      currentTokens = 0;
+    }
+
+    current.push(item);
+    currentTokens += item.tokenEstimate;
   }
-  return chunks;
+
+  if (current.length > 0) {
+    batches.push(current);
+  }
+  return batches;
 }
 
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {

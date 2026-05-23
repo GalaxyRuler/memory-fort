@@ -57,6 +57,15 @@ function fakeClient(vectors: number[][], model = "voyage-4-large", dim = 2048): 
   };
 }
 
+function capturingClient(): EmbedClient & { embed: ReturnType<typeof vi.fn> } {
+  const embed = vi.fn(async (texts: string[]) => ({
+    vectors: texts.map(() => [1, 2, 3]),
+    model: "voyage-4-large",
+    dim: 2048,
+  }));
+  return { embed } as EmbedClient & { embed: ReturnType<typeof vi.fn> };
+}
+
 describe("embedding refresh", () => {
   let tmp: string;
 
@@ -204,5 +213,52 @@ describe("embedding refresh", () => {
     expect(result.errors).toHaveLength(1);
     expect(result.errors[0]?.reason.toLowerCase()).toContain("timeout");
     expect(reloaded.records).toEqual([before]);
+  });
+
+  it("Per-doc truncation keeps oversized raws under the Voyage item limit", async () => {
+    const embedClient = capturingClient();
+    const longBody = "word ".repeat(40_000);
+
+    const result = await refreshEmbeddings({
+      memoryRoot: tmp,
+      documents: [doc("raw/2026-05-23/codex-large.md", longBody, "raw")],
+      embedClient,
+    });
+
+    const firstCallTexts = embedClient.embed.mock.calls[0]?.[0] as string[];
+    expect(result.embedded).toBe(1);
+    expect(firstCallTexts[0]!.length).toBeLessThanOrEqual(120_000);
+  });
+
+  it("Token-aware batching splits batches before cumulative Voyage token cap", async () => {
+    const embedClient = capturingClient();
+    const documents = Array.from({ length: 10 }, (_, index) =>
+      doc(`raw/2026-05-23/codex-${index}.md`, "x".repeat(50_000), "raw"),
+    );
+
+    const result = await refreshEmbeddings({
+      memoryRoot: tmp,
+      documents,
+      embedClient,
+    });
+
+    expect(result.embedded).toBe(10);
+    expect(embedClient.embed).toHaveBeenCalledTimes(2);
+  });
+
+  it("Single doc near per-doc limit embeds in one batch", async () => {
+    const embedClient = capturingClient();
+    const nearLimitBody = "x".repeat(120_000);
+
+    const result = await refreshEmbeddings({
+      memoryRoot: tmp,
+      documents: [doc("raw/2026-05-23/codex-near-limit.md", nearLimitBody, "raw")],
+      embedClient,
+    });
+
+    const firstCallTexts = embedClient.embed.mock.calls[0]?.[0] as string[];
+    expect(result.embedded).toBe(1);
+    expect(embedClient.embed).toHaveBeenCalledOnce();
+    expect(firstCallTexts[0]).toHaveLength(120_000);
   });
 });
