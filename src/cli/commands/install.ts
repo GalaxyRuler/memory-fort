@@ -1,8 +1,9 @@
 import { installAntigravity } from "./install/antigravity.js";
 import { installClaudeCode } from "./install/claude-code.js";
+import { runInstallClaudeDesktop } from "./install/claude-desktop.js";
 import { installCodex } from "./install/codex.js";
 
-export type Platform = "claude-code" | "codex" | "antigravity";
+export type Platform = "claude-code" | "codex" | "antigravity" | "claude-desktop";
 
 export async function runInstall(platform: string): Promise<void> {
   switch (platform) {
@@ -59,9 +60,25 @@ export async function runInstall(platform: string): Promise<void> {
       );
       return;
     }
+    case "claude-desktop": {
+      const result = await runInstallClaudeDesktop();
+      console.log(`Installed memory MCP for Claude Desktop at ${result.configPath}`);
+      console.log(`  memory MCP entry ${result.memoryEntryAction}`);
+      console.log(`  preserved ${result.preservedServerCount} other MCP server(s)`);
+      console.log("");
+      console.log("Next steps:");
+      console.log("  1. Restart Claude Desktop to load the memory MCP server.");
+      console.log(
+        "  2. Open Settings → Developer → MCP Servers and confirm memory is listed.",
+      );
+      console.log(
+        "  3. Claude Desktop is MCP-only — no hooks are installed for passive capture.",
+      );
+      return;
+    }
     default:
       console.error(
-        `Unknown platform: ${platform}. Valid: claude-code, codex, antigravity`,
+        `Unknown platform: ${platform}. Valid: claude-code, codex, antigravity, claude-desktop`,
       );
       process.exit(2);
   }

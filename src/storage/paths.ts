@@ -68,6 +68,18 @@ export function mcpServerPath(): string {
   return join(memoryRoot(), "claude-code-plugin", "scripts", "mcp-server.mjs");
 }
 
+export function claudeDesktopConfigDir(): string {
+  const override = process.env["MEMORY_CLAUDE_DESKTOP_DIR"];
+  if (override && override.trim().length > 0) return override;
+  const appData = process.env["APPDATA"];
+  if (appData) return join(appData, "Claude");
+  return join(homedir(), "Library", "Application Support", "Claude");
+}
+
+export function claudeDesktopConfigPath(): string {
+  return join(claudeDesktopConfigDir(), "claude_desktop_config.json");
+}
+
 export function formatIsoDate(date: Date): string {
   // YYYY-MM-DD in UTC to avoid TZ drift across machines
   const y = date.getUTCFullYear();
