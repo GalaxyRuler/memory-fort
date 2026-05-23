@@ -96,6 +96,11 @@ export default defineConfig([
   },
   {
     ...common,
+    entry: { "retrieval/search": "src/retrieval/search.ts" },
+    clean: false,
+  },
+  {
+    ...common,
     entry: { "storage/config": "src/storage/config.ts" },
     clean: false,
   },
