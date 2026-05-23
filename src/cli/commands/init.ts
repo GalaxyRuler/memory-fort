@@ -47,7 +47,14 @@ const SUBDIRS = [
 const GITIGNORE_CONTENT = `# Memory runtime artifacts not stored in git
 errors.log
 .archive/
-embeddings/raw.*.jsonl
+embeddings/
+.gitattributes
+claude-code-plugin/
+`;
+
+const GITATTRIBUTES_CONTENT = `*.md text eol=lf
+*.yaml text eol=lf
+*.json text eol=lf
 `;
 
 const DEFAULT_CONFIG = `# memory-system runtime configuration
@@ -168,6 +175,14 @@ export async function runInit(opts: InitOptions = {}): Promise<InitResult> {
     result.preserved.push(gitignore);
   }
 
+  const gitattributes = join(root, ".gitattributes");
+  if (!existsSync(gitattributes)) {
+    await atomicWrite(gitattributes, GITATTRIBUTES_CONTENT);
+    result.created.push(gitattributes);
+  } else {
+    result.preserved.push(gitattributes);
+  }
+
   if (!existsSync(join(root, ".git"))) {
     try {
       execFileSync("git", ["init", "-q", "-b", "main"], {
@@ -186,6 +201,11 @@ export async function runInit(opts: InitOptions = {}): Promise<InitResult> {
       execFileSync(
         "git",
         ["add", "schema.md", "index.md", "log.md", "config.yaml", ".gitignore"],
+        { cwd: root, stdio: ["ignore", "ignore", "ignore"] },
+      );
+      execFileSync(
+        "git",
+        ["add", "-f", ".gitattributes"],
         { cwd: root, stdio: ["ignore", "ignore", "ignore"] },
       );
       execFileSync("git", ["commit", "-q", "-m", "chore: memory init"], {

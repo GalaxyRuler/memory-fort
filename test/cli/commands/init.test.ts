@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { execFileSync } from "node:child_process";
 import { mkdtemp, rm, readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -42,14 +43,25 @@ describe("runInit", () => {
     expect(existsSync(join(result.root, "config.yaml"))).toBe(true);
     expect(existsSync(join(result.root, "errors.log"))).toBe(true);
     expect(existsSync(join(result.root, ".gitignore"))).toBe(true);
+    expect(existsSync(join(result.root, ".gitattributes"))).toBe(true);
     expect(existsSync(join(result.root, "prompts", "compile.md"))).toBe(true);
     expect(existsSync(join(result.root, "prompts", "lint.md"))).toBe(true);
     expect(existsSync(join(result.root, "prompts", "hyde.md"))).toBe(true);
     const gitignore = await readFile(join(result.root, ".gitignore"), "utf-8");
     expect(gitignore).toContain("errors.log");
     expect(gitignore).toContain(".archive/");
-    expect(gitignore).toContain("embeddings/raw.*.jsonl");
+    expect(gitignore).toContain("embeddings/");
+    expect(gitignore).toContain(".gitattributes");
+    expect(gitignore).toContain("claude-code-plugin/");
+    expect(gitignore).not.toContain("embeddings/raw.*.jsonl");
     expect(gitignore).not.toContain("raw/");
+    const gitattributes = await readFile(
+      join(result.root, ".gitattributes"),
+      "utf-8",
+    );
+    expect(gitattributes).toContain("*.md text eol=lf");
+    expect(gitattributes).toContain("*.yaml text eol=lf");
+    expect(gitattributes).toContain("*.json text eol=lf");
   });
 
   it("renders schema.md template with no placeholders remaining", async () => {
@@ -111,6 +123,11 @@ describe("runInit", () => {
     const result = await runInit({ sourceRepoDir });
     if (existsSync(join(result.root, ".git"))) {
       expect(existsSync(join(result.root, ".git", "HEAD"))).toBe(true);
+      const tracked = execFileSync("git", ["ls-files", ".gitattributes"], {
+        cwd: result.root,
+        encoding: "utf-8",
+      }).trim();
+      expect(tracked).toBe(".gitattributes");
     }
   });
 });
