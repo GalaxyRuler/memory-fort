@@ -46,6 +46,16 @@ export default defineConfig([
   },
   {
     ...common,
+    entry: { "retrieval/bm25": "src/retrieval/bm25.ts" },
+    clean: false,
+  },
+  {
+    ...common,
+    entry: { "retrieval/exact": "src/retrieval/exact.ts" },
+    clean: false,
+  },
+  {
+    ...common,
     entry: { "hooks/auto-push-worker": "src/sync/auto-push-worker.ts" },
     clean: false,
   },
