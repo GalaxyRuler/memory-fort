@@ -240,6 +240,38 @@ privacy:
 
 ---
 
+### F16. ~~SearchDocument lacked frontmatter `updated` for metadata recency~~ — RESOLVED at 044660a
+
+**Discovered:** 2026-05-23, during Phase 3 search-quality audit after metadata scoring was found to depend on filesystem `mtime`.
+
+**Symptom:** `SearchDocument` exposed `mtime` but not frontmatter `updated`, so metadata recency could rank pages based on checkout/write time rather than the curated page's own update date.
+
+**Hypothesis:** The corpus loader should carry `frontmatter.updated` as a first-class field and metadata scoring should prefer it, falling back to `mtime` only when frontmatter lacks a valid date.
+
+**Suggested fix:** Add `updated: string | null` to `SearchDocument`, populate it from `frontmatter.updated` when it matches `YYYY-MM-DD`, and update metadata scoring to prefer that field.
+
+**Resolved:** 2026-05-23 — Phase 3 polish Slice 21 added `SearchDocument.updated`, loaded it from frontmatter, and switched metadata recency to `updated ?? mtime`.
+
+**Phase:** Phase 3 polish — ranking-quality cleanup.
+
+---
+
+### F18. ~~Metadata-only search results surface random pages for nonsense queries~~ — RESOLVED at 044660a
+
+**Discovered:** 2026-05-23, during Phase 3 search-quality audit of the dashboard `/api/search` endpoint.
+
+**Symptom:** Metadata scoring ranks every active document, so queries with no meaningful lexical/vector/exact/graph match could still return top pages purely because their status/confidence/recency metadata was strong.
+
+**Hypothesis:** Metadata is useful as a tie-breaker but should not be a sufficient retrieval signal. Search should require at least one non-metadata source before a document can appear in final results.
+
+**Suggested fix:** Filter fused RRF results to require a contributing source other than `metadata`. While validating against real Voyage embeddings, also keep low positive cosine scores from acting as universal vector matches and ignore tiny stopword-only lexical hits.
+
+**Resolved:** 2026-05-23 — Phase 3 polish Slice 21 excludes metadata-only RRF results, applies a weak-vector floor, and filters stopwords from search-core lexical signals. The live VPS now returns zero results for the sentinel nonsense query while real Voyage queries still return ranked pages.
+
+**Phase:** Phase 3 polish — ranking-quality cleanup.
+
+---
+
 ## Resolved
 
 (none yet)
