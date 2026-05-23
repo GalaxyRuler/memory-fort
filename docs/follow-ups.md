@@ -14,7 +14,7 @@ Update this file whenever a real issue is observed but deferred. Keep entries te
 
 ---
 
-### F2. tsdown emits PLUGIN_TIMINGS performance warnings on every build
+### F2. ~~tsdown emits PLUGIN_TIMINGS performance warnings on every build~~ — RESOLVED at 6d0d9cf
 
 **Discovered:** 2026-05-21, step #7-fix build (also visible in step #6, step #7).
 
@@ -23,6 +23,8 @@ Update this file whenever a real issue is observed but deferred. Keep entries te
 **Hypothesis:** tsdown ^0.22 enables performance instrumentation by default; the warnings show plugin timings that exceed some threshold. Likely tunable via `tsdown.config.ts` — probably a `silent: true` or `logLevel: 'error'` option.
 
 **Suggested fix:** Look up tsdown 0.22 config option to suppress non-error output. Add to `tsdown.config.ts`. Verify build still works and CI-style output is clean.
+
+**Resolved:** 2026-05-23 — Phase 3 polish Slice 20 set Rolldown `checks.pluginTimings` to `false` through `tsdown.config.ts`. Build output now has zero `PLUGIN_TIMINGS` lines.
 
 **Phase:** Phase 6 (Polish) — purely cosmetic; the warnings don't change behavior.
 
@@ -36,7 +38,7 @@ Update this file whenever a real issue is observed but deferred. Keep entries te
 
 ---
 
-### F4. `{{install_commit}}` template variable left literal in rendered schema.md
+### F4. ~~`{{install_commit}}` template variable left literal in rendered schema.md~~ — RESOLVED at 6d0d9cf
 
 **Discovered:** 2026-05-21, after `memory init` ran on the real machine.
 
@@ -45,6 +47,8 @@ Update this file whenever a real issue is observed but deferred. Keep entries te
 **Hypothesis:** `memory init` needs a way to know the source repo's location. Options: (a) accept `--source-repo-dir <path>` flag on init, (b) embed the commit hash at build time via tsdown define, (c) drop the template variable (it's informational only).
 
 **Suggested fix:** Option (b) is cleanest. Use tsdown's `define` option to inject `process.env.MEMORY_BUILD_COMMIT` at build time; init reads it and substitutes.
+
+**Resolved:** 2026-05-23 — Phase 3 polish Slice 20 injects `__MEMORY_BUILD_COMMIT__` with `git rev-parse --short HEAD` at build time and uses it while rendering `schema.md`. Fresh `memory init` output replaces `{{install_commit}}` with a concrete short commit hash, falling back to `unknown` if git is unavailable.
 
 **Phase:** Phase 6 (Polish) — informational, not blocking any functionality.
 
@@ -201,6 +205,38 @@ privacy:
 **Resolved:** 2026-05-23 — Phase 3 polish Slice 19 normalized the live config line and verified `memory stats` no longer emits a config parse warning.
 
 **Phase:** Phase 3 polish — same cleanup slice as F11/F12/F14.
+
+---
+
+### F15. ~~Document `voyageai` 0.2.1 ESM directory-import workaround~~ — RESOLVED at 6d0d9cf
+
+**Discovered:** 2026-05-23, during Slice 11 Voyage SDK integration when the SDK's ESM entry path failed under Node 22 due unsupported directory imports.
+
+**Symptom:** Direct ESM import of `voyageai` could fail before the wrapper constructed a client, even though the SDK's CommonJS export loaded correctly.
+
+**Hypothesis:** `voyageai@0.2.1` publishes an ESM entry that performs directory imports Node 22 rejects, while the CJS export path avoids that packaging quirk.
+
+**Suggested fix:** Keep the existing `createRequire("voyageai")` workaround until the SDK publishes a fixed ESM entry. Document the quirk so future SDK cleanup does not accidentally regress it.
+
+**Resolved:** 2026-05-23 — Phase 3 polish Slice 20 documents the `voyageai@0.2.1` ESM directory-import quirk and records the existing `createRequire` workaround as intentional and stable. Upstream issue not filed; low priority.
+
+**Phase:** Phase 3 polish — documentation-only follow-up.
+
+---
+
+### F20. ~~`.gitattributes` was mistakenly ignored by the init template~~ — RESOLVED at 6d0d9cf
+
+**Discovered:** 2026-05-23, during the Slice 19 audit after `.gitattributes` had to be force-added despite being a file that should be tracked.
+
+**Symptom:** The `memory init` `.gitignore` template included `.gitattributes`, so fresh installs created a real git configuration file and then ignored it. Slice 19 worked around this with `git add -f`.
+
+**Hypothesis:** `.gitattributes` is repository configuration, not a runtime artifact. It should be tracked normally, while `embeddings/` and `claude-code-plugin/` remain ignored.
+
+**Suggested fix:** Remove `.gitattributes` from both the init `.gitignore` template and the live `~/.memory/.gitignore`, then remove the force-add workaround.
+
+**Resolved:** 2026-05-23 — Phase 3 polish Slice 20 removes `.gitattributes` from the source and live `.gitignore` files. Fresh `memory init` now tracks `.gitattributes` with a normal `git add`.
+
+**Phase:** Phase 3 polish — immediate typo cleanup after Slice 19.
 
 ---
 
