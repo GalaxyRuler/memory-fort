@@ -20,7 +20,6 @@ function runStub(
 
 describe("stub commands", () => {
   const stubs: Array<[string, number]> = [
-    ["search", 3],
     ["crystallize", 4],
     ["backup", 6],
     ["import-from-agentmemory", 5],
@@ -40,8 +39,12 @@ describe("stub commands", () => {
   }
 
   it("stub accepts arbitrary positional args without complaining about unknown options", () => {
-    const r = runStub("search", ["some query", "--unknown-flag", "value"]);
+    const r = runStub("crystallize", ["some query", "--unknown-flag", "value"]);
     expect(r.code).toBe(2);
     expect(r.stderr).not.toContain("unknown option");
+  });
+
+  it("'search' is no longer listed with the stub commands", () => {
+    expect(stubs.map(([name]) => name)).not.toContain("search");
   });
 });

@@ -2,6 +2,12 @@
 
 `memory <subcommand> [options]` — single binary at `dist/cli.mjs`, installed as `memory` on PATH via npm-link or by running `node dist/cli.mjs` directly.
 
+## search
+
+`memory search <query> [--scope wiki|raw|crystals|all] [--k <n>] [--min-score <n>] [--no-rerank] [--json] [--vps-url <url>]` queries the VPS dashboard `/api/search` endpoint over Tailscale and prints ranked memory results. Use `--json` to emit the raw API response for debugging or scripts; otherwise the CLI prints the query, result count, latency, warnings, and a short snippet per result. This command does not run retrieval locally and does not need local Voyage credentials.
+
+---
+
 ## compile
 
 **Synopsis:**
@@ -196,7 +202,6 @@ Each prints a "not yet implemented in Phase 1" message and exits 2. The CLI surf
 
 | Stub | Phase |
 |---|---|
-| `memory search` | 3 — Hybrid retrieval (BM25 + voyage-4-large embeddings + Voyage Rerank 2.5 + graph traversal) |
 | `memory crystallize` | 4 — Distill a completed thread into a long-form digest |
 | `memory backup` | 6 — git commit + push memory state to remote |
 | `memory import-from-agentmemory` | 5 — One-shot migration from GalaxyRuler/agentmemory's binary state store |

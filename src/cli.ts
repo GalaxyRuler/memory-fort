@@ -12,6 +12,7 @@ import { runLog } from "./cli/commands/log.js";
 import { runPage } from "./cli/commands/page.js";
 import { runPull, formatPullSuccess } from "./cli/commands/pull.js";
 import { runPush, formatPushSuccess } from "./cli/commands/push.js";
+import { runSearch } from "./cli/commands/search.js";
 import { runStats, formatStatsResult } from "./cli/commands/stats.js";
 import { runSync, formatSyncSuccess } from "./cli/commands/sync.js";
 import { runSyncBootstrap } from "./cli/commands/sync-bootstrap.js";
@@ -363,6 +364,39 @@ program
     }
   });
 
+program
+  .command("search <query>")
+  .description("Search memory via the VPS dashboard /api/search endpoint")
+  .option("--scope <scope>", "wiki | raw | crystals | all (default: all)")
+  .option("--k <n>", "top-K results (default: 10)", (v) => parseInt(v, 10))
+  .option("--min-score <n>", "minimum score filter (0..1)", parseFloat)
+  .option("--no-rerank", "skip Voyage rerank (faster, less accurate)")
+  .option("--json", "emit raw JSON instead of pretty-printed results")
+  .option("--vps-url <url>", "override VPS base URL (e.g., https://other.example/memory)")
+  .action(async (
+    query: string,
+    opts: {
+      scope?: "wiki" | "raw" | "crystals" | "all";
+      k?: number;
+      minScore?: number;
+      rerank?: boolean;
+      json?: boolean;
+      vpsUrl?: string;
+    },
+  ) => {
+    const result = await runSearch(query, {
+      scope: opts.scope,
+      k: opts.k,
+      minScore: opts.minScore,
+      noRerank: opts.rerank === false,
+      json: opts.json,
+      vpsUrl: opts.vpsUrl,
+    });
+    if (result.stdout) process.stdout.write(result.stdout);
+    if (result.stderr) process.stderr.write(result.stderr);
+    process.exit(result.exitCode);
+  });
+
 function registerStub(name: string, phase: number, description: string): void {
   program
     .command(name)
@@ -381,11 +415,6 @@ function registerStub(name: string, phase: number, description: string): void {
     });
 }
 
-registerStub(
-  "search",
-  3,
-  "Hybrid retrieval (BM25 + voyage-4-large + rerank + graph)",
-);
 registerStub(
   "crystallize",
   4,
