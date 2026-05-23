@@ -81,6 +81,16 @@ export default defineConfig([
   },
   {
     ...common,
+    entry: { "retrieval/rrf": "src/retrieval/rrf.ts" },
+    clean: false,
+  },
+  {
+    ...common,
+    entry: { "retrieval/rerank": "src/retrieval/rerank.ts" },
+    clean: false,
+  },
+  {
+    ...common,
     entry: { "storage/config": "src/storage/config.ts" },
     clean: false,
   },
