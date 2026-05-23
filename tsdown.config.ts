@@ -41,6 +41,11 @@ export default defineConfig([
   },
   {
     ...common,
+    entry: { "retrieval/corpus": "src/retrieval/corpus.ts" },
+    clean: false,
+  },
+  {
+    ...common,
     entry: { "hooks/auto-push-worker": "src/sync/auto-push-worker.ts" },
     clean: false,
   },
