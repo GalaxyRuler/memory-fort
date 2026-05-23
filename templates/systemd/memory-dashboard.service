@@ -12,6 +12,7 @@ Restart=on-failure
 RestartSec=5
 Environment=MEMORY_INSTALL_ROOT=${INSTALL_ROOT}
 Environment=NODE_ENV=production
+EnvironmentFile=-${INSTALL_ROOT}/env/voyage.env
 StandardOutput=append:${INSTALL_ROOT}/logs/dashboard.log
 StandardError=append:${INSTALL_ROOT}/logs/dashboard.log
 

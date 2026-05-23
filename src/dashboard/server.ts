@@ -1,5 +1,9 @@
 import { createServer as createHttpServer, type Server as HttpServer, type ServerResponse } from "node:http";
 import { isAbsolute, join, relative, resolve } from "node:path";
+import { runSearch } from "../retrieval/search.js";
+import type { SearchScope } from "../retrieval/corpus.js";
+import type { EmbedClient } from "../retrieval/refresh.js";
+import type { VoyageClient } from "../retrieval/voyage-client.js";
 import {
   loadDashboardStatus,
   loadLogTail,
@@ -20,11 +24,14 @@ import {
   renderWikiPage,
 } from "./render.js";
 
+export { makeVoyageClient } from "../retrieval/voyage-client.js";
+
 export interface ServerOptions {
   vaultRoot: string;
   port?: number;
   host?: string;
   loader?: (vaultRoot: string) => Promise<DashboardStatus>;
+  voyageClient?: VoyageClient | null;
 }
 
 export interface RunningServer {
@@ -75,8 +82,8 @@ function writeHtml(res: ServerResponse, status: number, body: string): void {
   res.end(body);
 }
 
-function writeJson(res: ServerResponse, body: unknown): void {
-  res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
+function writeJson(res: ServerResponse, body: unknown, status = 200): void {
+  res.writeHead(status, { "Content-Type": "application/json; charset=utf-8" });
   res.end(JSON.stringify(body, null, 2));
 }
 
@@ -87,10 +94,68 @@ function parseLineCount(value: string | null): number {
   return Math.max(0, Math.min(1000, parsed));
 }
 
+const SEARCH_SCOPES = new Set<SearchScope>(["wiki", "raw", "crystals", "all"]);
+
+function parseSearchBoolean(value: string | null): boolean {
+  return value === "true";
+}
+
+function parseClampedInt(value: string | null, fallback: number, min: number, max: number): number {
+  if (!value) return fallback;
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(min, Math.min(max, parsed));
+}
+
+function parseClampedFloat(value: string | null, fallback: number, min: number, max: number): number {
+  if (!value) return fallback;
+  const parsed = Number.parseFloat(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(min, Math.min(max, parsed));
+}
+
+function parseSearchScope(value: string | null): SearchScope {
+  return value && SEARCH_SCOPES.has(value as SearchScope) ? (value as SearchScope) : "all";
+}
+
+function makeEmbedClient(voyageClient: VoyageClient | null | undefined): EmbedClient {
+  if (!voyageClient) {
+    return {
+      embed: async () => {
+        throw new Error("voyage unavailable");
+      },
+    };
+  }
+
+  return {
+    embed: async (
+      texts: string[],
+      embedOpts?: { inputType?: "document" | "query"; signal?: AbortSignal },
+    ) => {
+      const response = await voyageClient.embed(texts, {
+        inputType: embedOpts?.inputType ?? "document",
+        signal: embedOpts?.signal,
+      });
+      return { vectors: response.vectors, model: response.model, dim: response.dim };
+    },
+  } as EmbedClient;
+}
+
+const unavailableVoyageClient: VoyageClient = {
+  embed: async () => {
+    throw new Error("voyage unavailable");
+  },
+  rerank: async () => {
+    throw new Error("voyage unavailable");
+  },
+};
+
 export async function createServer(opts: ServerOptions): Promise<RunningServer> {
   const port = opts.port ?? 4410;
   const host = opts.host ?? "127.0.0.1";
   const loader = opts.loader ?? loadDashboardStatus;
+  const voyageClient = opts.voyageClient ?? null;
+  const embedClient = makeEmbedClient(voyageClient);
 
   const server = createHttpServer(async (req, res) => {
     const method = req.method ?? "GET";
@@ -137,6 +202,36 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
 
       if (segments.length === 2 && segments[0] === "api" && segments[1] === "wiki") {
         writeJson(res, await loadWikiIndex(opts.vaultRoot));
+        return;
+      }
+
+      if (segments.length === 2 && segments[0] === "api" && segments[1] === "search") {
+        const query = url.searchParams.get("q")?.trim() ?? "";
+        if (query.length === 0) {
+          writeJson(res, { error: "missing query parameter q" }, 400);
+          return;
+        }
+        const noRerank = parseSearchBoolean(url.searchParams.get("noRerank"));
+        const hydeExpansion = url.searchParams.get("hydeExpansion") ?? undefined;
+        try {
+          const result = await runSearch({
+            query,
+            scope: parseSearchScope(url.searchParams.get("scope")),
+            k: parseClampedInt(url.searchParams.get("k"), 10, 1, 50),
+            minScore: parseClampedFloat(url.searchParams.get("minScore"), 0, 0, 1),
+            noRerank: noRerank || !voyageClient,
+            noHyde: parseSearchBoolean(url.searchParams.get("noHyde")),
+            hydeExpansion,
+            vaultRoot: opts.vaultRoot,
+            embedClient,
+            voyageClient: voyageClient ?? unavailableVoyageClient,
+          });
+          writeJson(res, result);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          res.writeHead(500, { "Content-Type": "text/plain; charset=utf-8" });
+          res.end(JSON.stringify({ error: message }));
+        }
         return;
       }
 

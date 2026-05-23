@@ -1,9 +1,11 @@
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
+import { Buffer } from "node:buffer";
+import { spawn } from "node:child_process";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { configPath } from "../../storage/paths.js";
-import { makeRealSshRunner, type SshCommand, type SshRunner } from "../../sync/ssh-runner.js";
+import { type SshCommand, type SshRunner } from "../../sync/ssh-runner.js";
 
 export interface InstallVpsOptions {
   sshHost?: string;
@@ -37,6 +39,7 @@ interface Snapshot {
 const DEFAULT_HOST = "srv1317946";
 const DEFAULT_INSTALL_ROOT = "/root/memory-system";
 const DEFAULT_NODE_PATH = "/usr/local/node22/bin/node";
+const UPLOAD_CHUNK_SIZE = 12_000;
 
 const SNAPSHOT_COMMANDS: Array<SshCommand & { key: keyof Snapshot }> = [
   {
@@ -97,8 +100,8 @@ async function readConfiguredHost(): Promise<string | null> {
   return null;
 }
 
-function buildInstallInfoCommand(installRoot: string, now: Date): SshCommand {
-  const info = JSON.stringify(
+function buildInstallInfoContent(installRoot: string, now: Date): string {
+  return JSON.stringify(
     {
       installed_at: now.toISOString(),
       installed_by: "memory install-vps",
@@ -108,13 +111,22 @@ function buildInstallInfoCommand(installRoot: string, now: Date): SshCommand {
     null,
     2,
   );
+}
+
+function buildInstallInfoCommand(installRoot: string, now: Date): SshCommand {
+  const info = buildInstallInfoContent(installRoot, now);
   return {
     command: `cat > ${installRoot}/install-info.json <<EOF\n${info}\nEOF`,
     description: "write install-info.json",
   };
 }
 
-function buildLayoutCommands(installRoot: string, includeMkdir: boolean, now: Date): SshCommand[] {
+function buildLayoutCommands(
+  installRoot: string,
+  includeMkdir: boolean,
+  now: Date,
+  useChunkedWrites = false,
+): SshCommand[] {
   const commands: SshCommand[] = [];
   if (includeMkdir) {
     commands.push({
@@ -135,7 +147,15 @@ function buildLayoutCommands(installRoot: string, includeMkdir: boolean, now: Da
       command: `chmod 700 ${installRoot}/env`,
       description: "lock down env directory to root-only",
     },
-    buildInstallInfoCommand(installRoot, now),
+  );
+  commands.push(
+    ...(useChunkedWrites
+      ? uploadChunkedCommands(
+        `${installRoot}/install-info.json`,
+        buildInstallInfoContent(installRoot, now),
+        "write install-info.json",
+      )
+      : [buildInstallInfoCommand(installRoot, now)]),
   );
   return commands;
 }
@@ -181,6 +201,34 @@ async function runChecked(host: string, runner: SshRunner, cmd: SshCommand) {
   return result;
 }
 
+function makeInstallVpsSshRunner(): SshRunner {
+  return {
+    run(host: string, cmd: SshCommand) {
+      return new Promise((resolve, reject) => {
+        const child = spawn("ssh", [host, cmd.command], {
+          stdio: ["ignore", "pipe", "pipe"],
+          windowsHide: true,
+        });
+        let stdout = "";
+        let stderr = "";
+
+        child.stdout?.on("data", (chunk: Buffer | string) => {
+          stdout += chunk.toString();
+        });
+        child.stderr?.on("data", (chunk: Buffer | string) => {
+          stderr += chunk.toString();
+        });
+        child.on("error", (err) => {
+          reject(new Error(`ssh failed to start: ${err.message}`));
+        });
+        child.on("close", (code) => {
+          resolve({ stdout, stderr, exitCode: code ?? -1 });
+        });
+      });
+    },
+  };
+}
+
 async function captureSnapshot(host: string, runner: SshRunner): Promise<Snapshot> {
   const snapshot = emptySnapshot();
   for (const cmd of SNAPSHOT_COMMANDS) {
@@ -224,7 +272,37 @@ function uploadCommand(path: string, content: string, description: string): SshC
   };
 }
 
-async function buildSystemdCommands(installRoot: string, nodePath: string): Promise<SshCommand[]> {
+function uploadChunkedCommands(path: string, content: string, description: string): SshCommand[] {
+  const encoded = Buffer.from(content.replace(/\r\n/g, "\n"), "utf-8").toString("base64");
+  const tempPath = `${path}.b64`;
+  const commands: SshCommand[] = [
+    {
+      command: `: > ${tempPath}`,
+      description: `${description} (prepare chunks)`,
+    },
+  ];
+
+  const chunkCount = Math.ceil(encoded.length / UPLOAD_CHUNK_SIZE);
+  for (let index = 0; index < chunkCount; index += 1) {
+    const chunk = encoded.slice(index * UPLOAD_CHUNK_SIZE, (index + 1) * UPLOAD_CHUNK_SIZE);
+    commands.push({
+      command: `printf '%s' '${chunk}' >> ${tempPath}`,
+      description: `${description} (chunk ${index + 1}/${chunkCount})`,
+    });
+  }
+
+  commands.push({
+    command: `base64 -d ${tempPath} > ${path} && rm -f ${tempPath}`,
+    description,
+  });
+  return commands;
+}
+
+async function buildSystemdCommands(
+  installRoot: string,
+  nodePath: string,
+  useChunkedWrites = false,
+): Promise<SshCommand[]> {
   const dashboardUnit = (await readTemplate("systemd", "memory-dashboard.service"))
     .replaceAll("${INSTALL_ROOT}", installRoot)
     .replaceAll("${NODE_PATH}", nodePath);
@@ -234,21 +312,27 @@ async function buildSystemdCommands(installRoot: string, nodePath: string): Prom
   const dashboardScript = (await readTemplate("scripts", "dashboard.mjs")).replaceAll("/root/memory-system", installRoot);
   const dashboardBundle = await readDashboardBundle();
   const placeholder = await readTemplate("scripts", "dashboard-placeholder.mjs");
+  const uploadFileCommands = (path: string, content: string, description: string): SshCommand[] =>
+    useChunkedWrites ? uploadChunkedCommands(path, content, description) : [uploadCommand(path, content, description)];
 
   return [
-    uploadCommand(`${installRoot}/services/memory-backup.sh`, backupScript, "upload backup runner"),
+    ...uploadFileCommands(`${installRoot}/services/memory-backup.sh`, backupScript, "upload backup runner"),
     { command: `chmod 755 ${installRoot}/services/memory-backup.sh`, description: "make backup runner executable" },
-    uploadCommand(`${installRoot}/services/dashboard.mjs`, dashboardScript, "upload dashboard entry point"),
+    ...uploadFileCommands(`${installRoot}/services/dashboard.mjs`, dashboardScript, "upload dashboard entry point"),
     { command: `chmod 644 ${installRoot}/services/dashboard.mjs`, description: "set dashboard entry point permissions" },
-    uploadCommand(`${installRoot}/services/dashboard-bundle.mjs`, dashboardBundle, "upload dashboard bundle"),
+    ...uploadChunkedCommands(`${installRoot}/services/dashboard-bundle.mjs`, dashboardBundle, "upload dashboard bundle"),
     { command: `chmod 644 ${installRoot}/services/dashboard-bundle.mjs`, description: "set dashboard bundle permissions" },
-    uploadCommand(`${installRoot}/services/dashboard-placeholder.mjs`, placeholder, "upload dashboard placeholder"),
+    {
+      command: `cd ${installRoot}/services && if [ ! -f package.json ]; then npm init -y >/dev/null; fi && npm install voyageai@~0.2.1 >/dev/null`,
+      description: "install dashboard Voyage SDK dependency",
+    },
+    ...uploadFileCommands(`${installRoot}/services/dashboard-placeholder.mjs`, placeholder, "upload dashboard placeholder"),
     { command: `chmod 644 ${installRoot}/services/dashboard-placeholder.mjs`, description: "set dashboard placeholder permissions" },
-    uploadCommand("/etc/systemd/system/memory-dashboard.service", dashboardUnit, "upload memory-dashboard.service"),
+    ...uploadFileCommands("/etc/systemd/system/memory-dashboard.service", dashboardUnit, "upload memory-dashboard.service"),
     { command: "chmod 644 /etc/systemd/system/memory-dashboard.service", description: "set dashboard service permissions" },
-    uploadCommand("/etc/systemd/system/memory-backup.service", backupService, "upload memory-backup.service"),
+    ...uploadFileCommands("/etc/systemd/system/memory-backup.service", backupService, "upload memory-backup.service"),
     { command: "chmod 644 /etc/systemd/system/memory-backup.service", description: "set backup service permissions" },
-    uploadCommand("/etc/systemd/system/memory-backup.timer", backupTimer, "upload memory-backup.timer"),
+    ...uploadFileCommands("/etc/systemd/system/memory-backup.timer", backupTimer, "upload memory-backup.timer"),
     { command: "chmod 644 /etc/systemd/system/memory-backup.timer", description: "set backup timer permissions" },
     { command: "systemctl daemon-reload", description: "reload systemd units" },
     { command: "systemctl enable --now memory-dashboard.service", description: "enable and start memory dashboard" },
@@ -322,6 +406,7 @@ export async function runInstallVps(opts: InstallVpsOptions = {}): Promise<Insta
   const now = new Date();
   const idempotency = buildIdempotencyCommand(installRoot);
   const allLayoutCommands = buildLayoutCommands(installRoot, true, now);
+  const useChunkedWrites = opts.runner === undefined;
 
   if (opts.dryRun === true) {
     const systemdCommands = await buildSystemdCommands(installRoot, DEFAULT_NODE_PATH);
@@ -344,12 +429,12 @@ export async function runInstallVps(opts: InstallVpsOptions = {}): Promise<Insta
     };
   }
 
-  const runner = opts.runner ?? makeRealSshRunner();
+  const runner = opts.runner ?? makeInstallVpsSshRunner();
   const steps: InstallVpsResult["steps"] = [];
   const preSnapshot = await captureSnapshot(host, runner);
   const idempotencyResult = await runChecked(host, runner, idempotency);
   const exists = idempotencyResult.stdout.trim() === "EXISTS";
-  const layoutCommands = buildLayoutCommands(installRoot, !exists, now);
+  const layoutCommands = buildLayoutCommands(installRoot, !exists, now, useChunkedWrites);
 
   for (const cmd of layoutCommands) {
     const result = await runChecked(host, runner, cmd);
@@ -362,7 +447,7 @@ export async function runInstallVps(opts: InstallVpsOptions = {}): Promise<Insta
   }
 
   const nodePath = await resolveNodePath(host, runner);
-  const systemdCommands = await buildSystemdCommands(installRoot, nodePath);
+  const systemdCommands = await buildSystemdCommands(installRoot, nodePath, useChunkedWrites);
   for (const cmd of systemdCommands) {
     const result = await runChecked(host, runner, cmd);
     steps.push({
