@@ -71,6 +71,16 @@ export default defineConfig([
   },
   {
     ...common,
+    entry: { "retrieval/graph": "src/retrieval/graph.ts" },
+    clean: false,
+  },
+  {
+    ...common,
+    entry: { "retrieval/metadata-score": "src/retrieval/metadata-score.ts" },
+    clean: false,
+  },
+  {
+    ...common,
     entry: { "storage/config": "src/storage/config.ts" },
     clean: false,
   },
