@@ -2,7 +2,34 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadCounts, loadLastCompile, loadSyncState } from "../../src/dashboard/loaders.js";
+import {
+  loadCounts,
+  loadLastCompile,
+  loadLogTail,
+  loadPageDetail,
+  loadRawIndex,
+  loadSyncState,
+  loadWikiIndex,
+} from "../../src/dashboard/loaders.js";
+
+function page(frontmatter: Record<string, unknown>, body: string): string {
+  const lines = Object.entries(frontmatter).flatMap(([key, value]) => {
+    if (Array.isArray(value)) {
+      return [`${key}:`, ...value.map((item) => `  - ${item}`)];
+    }
+    if (typeof value === "object" && value !== null) {
+      return [
+        `${key}:`,
+        ...Object.entries(value as Record<string, unknown>).flatMap(([childKey, childValue]) => [
+          `  ${childKey}:`,
+          ...(Array.isArray(childValue) ? childValue.map((item) => `    - ${item}`) : [`    - ${childValue}`]),
+        ]),
+      ];
+    }
+    return [`${key}: ${value}`];
+  });
+  return `---\n${lines.join("\n")}\n---\n\n${body}`;
+}
 
 describe("dashboard loaders", () => {
   let tmp: string;
@@ -82,5 +109,109 @@ describe("dashboard loaders", () => {
       conflictsPending: 0,
       conflictFiles: [],
     });
+  });
+
+  it("loadWikiIndex groups pages by category and sorts", async () => {
+    await mkdir(join(tmp, "wiki", "projects"), { recursive: true });
+    await mkdir(join(tmp, "wiki", "decisions"), { recursive: true });
+    await mkdir(join(tmp, "wiki", "lessons"), { recursive: true });
+    await writeFile(
+      join(tmp, "wiki", "projects", "zeta.md"),
+      page({ type: "projects", title: "Zeta", created: "2026-05-21", updated: "2026-05-22" }, "Zeta summary.\n"),
+    );
+    await writeFile(
+      join(tmp, "wiki", "projects", "alpha.md"),
+      page({ type: "projects", title: "Alpha", created: "2026-05-21", updated: "2026-05-23" }, "Alpha summary.\n"),
+    );
+    await writeFile(
+      join(tmp, "wiki", "decisions", "beta.md"),
+      page({ type: "decisions", title: "Beta", created: "2026-05-21", updated: "2026-05-23" }, "Beta summary.\n"),
+    );
+    await writeFile(
+      join(tmp, "wiki", "decisions", "delta.md"),
+      page({ type: "decisions", title: "Delta", created: "2026-05-21", updated: "2026-05-22" }, "Delta summary.\n"),
+    );
+    await writeFile(
+      join(tmp, "wiki", "lessons", "one.md"),
+      page({ type: "lessons", title: "One", created: "2026-05-21", updated: "2026-05-21" }, "One summary.\n"),
+    );
+
+    const index = await loadWikiIndex(tmp);
+
+    expect(index.total).toBe(5);
+    expect(Object.keys(index.byCategory)).toEqual(["decisions", "lessons", "projects"]);
+    expect(index.byCategory.projects).toHaveLength(2);
+    expect(index.byCategory.projects.map((entry) => entry.slug)).toEqual(["alpha", "zeta"]);
+  });
+
+  it("loadPageDetail resolves relations and inbound references", async () => {
+    await mkdir(join(tmp, "wiki", "projects"), { recursive: true });
+    await mkdir(join(tmp, "wiki", "lessons"), { recursive: true });
+    await writeFile(
+      join(tmp, "wiki", "projects", "a.md"),
+      page(
+        {
+          type: "projects",
+          title: "A",
+          created: "2026-05-21",
+          updated: "2026-05-23",
+          relations: { uses: ["b"] },
+        },
+        "A body.\n",
+      ),
+    );
+    await writeFile(
+      join(tmp, "wiki", "projects", "b.md"),
+      page({ type: "projects", title: "B", created: "2026-05-21", updated: "2026-05-23" }, "B body.\n"),
+    );
+    await writeFile(
+      join(tmp, "wiki", "lessons", "c.md"),
+      page({ type: "lessons", title: "C", created: "2026-05-21", updated: "2026-05-23" }, "Links to [[A]].\n"),
+    );
+
+    const detail = await loadPageDetail(tmp, "projects/a.md");
+
+    expect(detail?.relations[0]).toMatchObject({
+      key: "uses",
+      target: "b",
+      resolvedPath: "projects/b.md",
+      resolvedTitle: "B",
+    });
+    expect(detail?.inbound).toContainEqual({
+      fromPath: "lessons/c.md",
+      fromTitle: "C",
+      via: "wikilink",
+    });
+  });
+
+  it("loadPageDetail returns null for non-existent paths", async () => {
+    await mkdir(join(tmp, "wiki", "projects"), { recursive: true });
+
+    await expect(loadPageDetail(tmp, "projects/ghost.md")).resolves.toBeNull();
+  });
+
+  it("loadRawIndex walks the raw tree", async () => {
+    await mkdir(join(tmp, "raw", "2026-05-21"), { recursive: true });
+    await mkdir(join(tmp, "raw", "2026-05-22"), { recursive: true });
+    await writeFile(join(tmp, "raw", "2026-05-21", "foo.md"), "foo\n");
+    await writeFile(join(tmp, "raw", "2026-05-21", "bar.md"), "bar\n");
+    await writeFile(join(tmp, "raw", "2026-05-22", "baz.md"), "baz\n");
+
+    const entries = await loadRawIndex(tmp);
+
+    expect(entries.map((entry) => entry.date)).toEqual(["2026-05-22", "2026-05-21"]);
+    expect(entries[0]?.files).toHaveLength(1);
+    expect(entries[1]?.files).toHaveLength(2);
+  });
+
+  it("loadLogTail returns last N lines", async () => {
+    const lines = Array.from({ length: 200 }, (_, index) => `line ${index + 1}`);
+    await writeFile(join(tmp, "log.md"), `${lines.join("\n")}\n`);
+
+    const tail = await loadLogTail(tmp, 50);
+
+    expect(tail.lines).toHaveLength(50);
+    expect(tail.totalLines).toBe(200);
+    expect(tail.lines.at(-1)).toBe("line 200");
   });
 });

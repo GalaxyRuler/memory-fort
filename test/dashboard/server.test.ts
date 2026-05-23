@@ -1,4 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { DashboardStatus } from "../../src/dashboard/loaders.js";
 import { createServer } from "../../src/dashboard/server.js";
 
@@ -19,7 +22,22 @@ function fixture(): DashboardStatus {
   };
 }
 
+function page(frontmatter: Record<string, unknown>, body: string): string {
+  const lines = Object.entries(frontmatter).map(([key, value]) => `${key}: ${value}`);
+  return `---\n${lines.join("\n")}\n---\n\n${body}`;
+}
+
 describe("dashboard server", () => {
+  let tmp: string;
+
+  beforeEach(async () => {
+    tmp = await mkdtemp(join(tmpdir(), "dash-server-"));
+  });
+
+  afterEach(async () => {
+    await rm(tmp, { recursive: true, force: true });
+  });
+
   it("GET /healthz returns 200 text/plain ok", async () => {
     let loaderCalled = false;
     const server = await createServer({
@@ -72,6 +90,94 @@ describe("dashboard server", () => {
       expect(response.status).toBe(200);
       expect(response.headers.get("content-type")).toContain("application/json");
       await expect(response.json()).resolves.toEqual(status);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("GET /wiki/ returns 200 HTML with category sections", async () => {
+    await mkdir(join(tmp, "wiki", "projects"), { recursive: true });
+    await mkdir(join(tmp, "wiki", "decisions"), { recursive: true });
+    await writeFile(
+      join(tmp, "wiki", "projects", "foo.md"),
+      page({ type: "projects", title: "Foo", created: "2026-05-21", updated: "2026-05-23" }, "Foo body.\n"),
+    );
+    await writeFile(
+      join(tmp, "wiki", "decisions", "bar.md"),
+      page({ type: "decisions", title: "Bar", created: "2026-05-21", updated: "2026-05-23" }, "Bar body.\n"),
+    );
+    const server = await createServer({ vaultRoot: tmp, port: 0 });
+
+    try {
+      const response = await fetch(`http://${server.host}:${server.port}/wiki/`);
+      const body = await response.text();
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toContain("text/html");
+      expect(body).toContain("Wiki");
+      expect(body).toContain("projects");
+      expect(body).toContain("decisions");
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("GET /wiki/<category>/<slug> returns 200 HTML with page body", async () => {
+    await mkdir(join(tmp, "wiki", "projects"), { recursive: true });
+    await writeFile(
+      join(tmp, "wiki", "projects", "foo.md"),
+      page({ type: "projects", title: "Foo", created: "2026-05-21", updated: "2026-05-23" }, "Foo page content.\n"),
+    );
+    const server = await createServer({ vaultRoot: tmp, port: 0 });
+
+    try {
+      const response = await fetch(`http://${server.host}:${server.port}/wiki/projects/foo`);
+      const body = await response.text();
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toContain("text/html");
+      expect(body).toContain("Foo page content.");
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("GET /wiki/projects/ghost returns 404", async () => {
+    await mkdir(join(tmp, "wiki", "projects"), { recursive: true });
+    const server = await createServer({ vaultRoot: tmp, port: 0 });
+
+    try {
+      const response = await fetch(`http://${server.host}:${server.port}/wiki/projects/ghost`);
+      const body = await response.text();
+      expect(response.status).toBe(404);
+      expect(body).toContain("Not found");
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("Path traversal blocked: GET /wiki/..%2Fbar/foo returns 400", async () => {
+    const server = await createServer({ vaultRoot: join(tmp, "missing-vault"), port: 0 });
+
+    try {
+      const response = await fetch(`http://${server.host}:${server.port}/wiki/..%2Fbar/foo`);
+      const body = await response.text();
+      expect(response.status).toBe(400);
+      expect(body).toContain("Bad Request");
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("GET /api/log?lines=10 returns JSON with 10 lines", async () => {
+    const lines = Array.from({ length: 50 }, (_, index) => `line ${index + 1}`);
+    await writeFile(join(tmp, "log.md"), `${lines.join("\n")}\n`);
+    const server = await createServer({ vaultRoot: tmp, port: 0 });
+
+    try {
+      const response = await fetch(`http://${server.host}:${server.port}/api/log?lines=10`);
+      const body = (await response.json()) as { lines: string[] };
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toContain("application/json");
+      expect(body.lines).toHaveLength(10);
     } finally {
       await server.close();
     }

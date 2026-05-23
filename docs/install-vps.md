@@ -75,6 +75,8 @@ The installer writes three unit files under `/etc/systemd/system/`:
 
 Slice 6 replaced the original placeholder with `dashboard.mjs`, which imports the bundled dashboard server from `dashboard-bundle.mjs`. The older `dashboard-placeholder.mjs` file remains on disk as a fallback reference, but systemd no longer points at it. The dashboard responds on `/healthz` with `ok`, exposes `/api/status` as JSON, and serves server-rendered HTML at `/`. It binds to localhost only; Tailscale Serve owns the tailnet-only `/memory/` route.
 
+Slice 7 adds read-only browse pages and JSON endpoints for the curated vault: `/wiki/` and `/api/wiki` list wiki pages by category, `/wiki/<category>/<slug>` and `/api/wiki/<category>/<slug>` show one page with resolved relations and inbound references, `/raw/` and `/api/raw` list raw sessions by date, `/raw/<date>/<filename>` and `/api/raw/<date>/<filename>` show one raw file, and `/log` plus `/api/log?lines=N` tail `log.md`. The HTML views are server-rendered and escape vault content; markdown bodies are intentionally shown as plain text for this phase.
+
 Backups are local tarballs under `/root/memory-system/backups/`. The backup script archives `memory.git`, `vault`, `services`, `env`, and `install-info.json`, skips logs and backups, and keeps the last 30 daily archives. The `04:00 UTC` schedule intentionally avoids the known `03:00 UTC` Vaultwarden and OpenClaw backup windows.
 
 Inspect the units:
