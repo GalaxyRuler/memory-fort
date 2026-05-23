@@ -186,6 +186,50 @@ Keep design references in:
 
 ## Step-by-Step Slices
 
+### Slice 0 — Claude Desktop MCP Install
+
+- Goal: add `memory install claude-desktop` command that writes the memory MCP entry into Claude Desktop's config (`~/AppData/Roaming/Claude/claude_desktop_config.json` on Windows; equivalent paths on macOS/Linux).
+- Mirror the Antigravity install pattern: MCP-only, no hooks.
+- Preserve any existing `mcpServers` entries.
+- Files: `src/cli/commands/install/claude-desktop.ts`.
+- Files: `src/storage/paths.ts` to add helper if missing.
+- Files: `src/cli/commands/install.ts` to wire the new platform.
+- Files: `test/cli/commands/install-claude-desktop.test.ts`.
+- Files: `docs/install-claude-desktop.md`.
+- Acceptance: command writes correct MCP config to the resolved path.
+- Acceptance: command preserves other `mcpServers` entries.
+- Acceptance: command is idempotent.
+- Tests use `MEMORY_CLAUDE_DESKTOP_DIR` env override, mirroring `MEMORY_CLAUDE_DIR` and `MEMORY_ANTIGRAVITY_DIR`.
+- Add exactly 4 tests.
+- Closes the gap that all four user surfaces now have memory integration: Claude Code, Codex desktop/CLI, Antigravity desktop, and Claude Desktop.
+
+### Slice 2.5 — Backend JSON Adapter Endpoints (Frontload)
+
+- Goal: ship all six new JSON adapter endpoints in one focused slice before any SPA frontend slice needs them.
+- Resolve the cross-slice backend dependency identified in the Phase 4 plan grill round.
+- Frontend slices 3, 6, 8, and 10 previously referenced backend endpoints scheduled for later slices.
+- All endpoints are read-only.
+- Add `GET /api/page/:relpath`.
+- `/api/page/:relpath` is the JSON variant of the existing HTML page-detail route and reuses `loadPageDetail` from `src/dashboard/loaders.ts`.
+- Add `GET /api/activity?cursor=&limit=`.
+- `/api/activity` returns a structured event stream merging git log, sync log, and compile log, similar to existing `/api/log` but typed.
+- Add `GET /api/timeline?from=&to=&zoom=`.
+- `/api/timeline` returns lane-bucketed events from the same source as `/api/activity`.
+- Add `GET /api/graph?scope=&hops=`.
+- `/api/graph` wraps `buildGraph` and `expandGraph` from `src/retrieval/graph.ts` and returns nodes plus edges.
+- Add `GET /api/sync-state`.
+- `/api/sync-state` reads `~/.memory/.sync-state.json` or the VPS-side equivalent and returns JSON.
+- Add `GET /api/config`.
+- `/api/config` parses the user's `~/.memory/config.yaml` and returns JSON with `voyage.api_key` redacted.
+- Files: `src/dashboard/server.ts` for new routes.
+- Files: `src/dashboard/loaders.ts` for new loaders if needed.
+- Files: `test/dashboard/server.test.ts` for endpoint coverage.
+- Acceptance: exactly 10 tests.
+- Acceptance: about 1 happy-path and 1 error-path test per endpoint, plus a redaction test for `/api/config`.
+- Acceptance: all endpoints return valid JSON.
+- Acceptance: existing dashboard routes remain unchanged.
+- Slice 11 becomes redundant after Slice 2.5 ships; keep Slice 11 only for graph-specific enhancements if needed.
+
 ### Slice 1 — SPA Scaffold + Design System Tokens
 
 - Install React 19, Vite, TypeScript, Tailwind CSS, TanStack Router, TanStack Query, Lucide React, `cmdk`, `three`, and `react-force-graph-3d`.
@@ -340,6 +384,8 @@ Keep design references in:
 
 ### Slice 11 — Graph Backend Endpoint
 
+- Status: absorbed into Slice 2.5 once the backend JSON adapters ship.
+- Repurpose this slice for graph-specific enhancements such as scope filtering, hops tuning, payload shaping, or performance diagnostics if Slice 2.5 leaves any graph work behind.
 - Add `GET /api/graph?scope=&hops=`.
 - Reuse `loadSearchCorpus`.
 - Reuse `buildGraph`.
@@ -524,6 +570,8 @@ Keep design references in:
 - Four cosmetic gaps accepted for inline implementation correction.
 - Phase 3 backend is tagged at `v0.3.0-phase3`.
 - `/api/search` is the shared CLI, MCP, and dashboard search backend.
+- Slice 0 added: Claude Desktop MCP install command closes the fourth user surface gap and mirrors the Antigravity pattern.
+- Slice 2.5 added: backend JSON adapter endpoints are frontloaded, resolving the cross-slice backend dependency surfaced in the grill round and removing Slice 11 redundancy.
 
 ## Notes for Implementers
 
