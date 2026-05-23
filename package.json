@@ -16,7 +16,8 @@
     "commander": "^12",
     "gray-matter": "^4",
     "js-yaml": "^4",
-    "@modelcontextprotocol/sdk": "^1.29"
+    "@modelcontextprotocol/sdk": "^1.29",
+    "voyageai": "~0.2.1"
   },
   "devDependencies": {
     "typescript": "^5",

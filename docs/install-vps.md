@@ -65,6 +65,10 @@ After install, the VPS has:
 
 `/root/memory-system/` and `/root/memory-system/env/` are mode `700`. Future environment files should live under `env/` and remain root-only.
 
+## Voyage API key
+
+For Phase 3 search (Slices 11+), the VPS needs a Voyage AI API key. Create `/root/memory-system/env/voyage.env` with `VOYAGE_API_KEY=<your-key>` (one line) and `chmod 600`. The key lives in Vaultwarden on this VPS. Future systemd units that need Voyage (dashboard, MCP search backend) will load this file via `EnvironmentFile=` in their unit definitions.
+
 ## Systemd Integration
 
 The installer writes three unit files under `/etc/systemd/system/`:

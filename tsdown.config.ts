@@ -66,6 +66,16 @@ export default defineConfig([
   },
   {
     ...common,
+    entry: { "retrieval/voyage-client": "src/retrieval/voyage-client.ts" },
+    clean: false,
+  },
+  {
+    ...common,
+    entry: { "storage/config": "src/storage/config.ts" },
+    clean: false,
+  },
+  {
+    ...common,
     entry: { "hooks/auto-push-worker": "src/sync/auto-push-worker.ts" },
     clean: false,
   },
