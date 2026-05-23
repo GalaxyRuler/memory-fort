@@ -126,6 +126,43 @@ Fix (1) is the root-cause fix — guarantees strings regardless of how users aut
 
 ---
 
+### F11. Claude Code plugin scripts tracked inside `~/.memory/` repo create rebuild noise
+
+**Discovered:** 2026-05-23, during Phase 3 Slice 6.5b implementation when Codex had to make a `chore: update deployed auto-push worker bounded retry bundle` commit in the live `~/.memory/` repo after rebuilding the source repo.
+
+**Symptom:** Every time `memory-system` source rebuilds (via tsdown), the plugin scripts under `~/.memory/claude-code-plugin/scripts/` change content. Git in `~/.memory/` sees them as modified files (they were committed back in Slice 1's catch-up commit `e1cb730`). The Slice 6.5b auto-sync worker correctly treats them as non-raw dirty files and refuses to push — but to clear the dirty state, the user (or in practice, Codex during slice verification) must manually commit them with a generic `chore: update deployed ...` message. One such commit accumulates per source rebuild.
+
+**Hypothesis:** `claude-code-plugin/` shouldn't have been committed to the tracked `~/.memory/` repo in the first place. It's an install-time generated artifact created by `memory install claude-code`. The plugin scripts dir is a Windows junction (or symlink) pointing at `dist/hooks/` in the source repo; when git traverses INTO the junction, it sees the files as if they're inside the repo and tracks content changes.
+
+**Suggested fix:** Small slice (Slice 7.5 or polish-phase task):
+1. `git rm -r --cached claude-code-plugin/` in `~/.memory/`
+2. Add `claude-code-plugin/` to `~/.memory/.gitignore`
+3. Update the `memory init` template's .gitignore similarly so fresh installs never track the plugin dir
+4. Commit + push the cleanup
+
+**Phase:** Phase 3 — slot before v0.3.0-phase3 tag if convenient; not blocking remaining slices. Workaround in place (Codex commits the bundle updates manually).
+
+---
+
+### F12. CRLF warnings on raw files newly tracked under Windows
+
+**Discovered:** 2026-05-23, during Phase 3 Slice 6.5 (un-gitignore raw/) when the existing 29 raws were first added to git on the Windows machine.
+
+**Symptom:** Git emits CRLF normalization warnings ("LF will be replaced by CRLF the next time Git touches it") whenever raw files are tracked or restaged on Windows. Cosmetic noise; doesn't affect correctness because the post-receive hook on the VPS reads the files regardless of line endings.
+
+**Hypothesis:** Windows machines have `core.autocrlf=true` by default. Raw files are written by hooks with LF endings (Node default), but git wants to convert to CRLF on checkout. The conversion is harmless for `.md` files but the warnings clutter terminal output during sync.
+
+**Suggested fix:** Add `~/.memory/.gitattributes` with:
+```gitattributes
+*.md text eol=lf
+```
+
+This pins line endings to LF for all markdown files, suppressing the warnings and ensuring consistent content across Linux (VPS) and Windows (creator machines). One small commit in the live repo + an update to the `memory init` template so fresh installs ship the .gitattributes.
+
+**Phase:** Phase 3 — slot alongside F11 in the same cleanup slice if you do one.
+
+---
+
 ## Resolved
 
 (none yet)
