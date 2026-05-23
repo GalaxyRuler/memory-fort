@@ -56,6 +56,16 @@ export default defineConfig([
   },
   {
     ...common,
+    entry: { "retrieval/embeddings-store": "src/retrieval/embeddings-store.ts" },
+    clean: false,
+  },
+  {
+    ...common,
+    entry: { "retrieval/refresh": "src/retrieval/refresh.ts" },
+    clean: false,
+  },
+  {
+    ...common,
     entry: { "hooks/auto-push-worker": "src/sync/auto-push-worker.ts" },
     clean: false,
   },
