@@ -172,6 +172,41 @@ describe("search core", () => {
     expect(response.results.length).toBeLessThanOrEqual(5);
   });
 
+  it("runSearch excludes metadata-only results", async () => {
+    const { voyageClient } = clients();
+    const embed = vi.fn(async (texts: string[]) => ({
+      vectors: texts.map(() => [0, 0, 0]),
+      model: "test-embed",
+      dim: 3,
+    }));
+    const documents = [
+      makeDoc({
+        relPath: "wiki/decisions/no-vector-db.md",
+        title: "No vector database",
+        body: "no vector database deployment note",
+        tags: [],
+      }),
+      makeDoc({
+        relPath: "wiki/projects/beta.md",
+        title: "Beta",
+        body: "beta body with unrelated notes",
+        tags: [],
+      }),
+    ];
+
+    const response = await runSearch({
+      query: "xyzqwerty_no_such_term_anywhere",
+      noHyde: true,
+      noRerank: true,
+      vaultRoot: tmp,
+      embedClient: { embed } as EmbedClient,
+      voyageClient,
+      corpusLoader: async () => ({ documents, errors: [] }),
+    });
+
+    expect(response.results).toEqual([]);
+  });
+
   it("noHyde skips HyDE even for short query", async () => {
     const { embedClient, voyageClient } = clients();
 
@@ -296,6 +331,7 @@ function makeDoc(overrides: Partial<SearchDocument>): SearchDocument {
     body,
     snippetSource: overrides.snippetSource ?? body.slice(0, 240),
     mtime: overrides.mtime ?? "2026-05-23T00:00:00.000Z",
+    updated: overrides.updated ?? "2026-05-23",
     sizeBytes: overrides.sizeBytes ?? body.length,
   };
 }

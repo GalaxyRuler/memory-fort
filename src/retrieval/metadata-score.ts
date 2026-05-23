@@ -83,13 +83,10 @@ function factorForStatus(
 }
 
 function documentDate(document: SearchDocument): Date | null {
-  const withUpdated = document as SearchDocument & { updated?: unknown };
-  const candidate =
-    typeof withUpdated.updated === "string" && withUpdated.updated.trim().length > 0
-      ? withUpdated.updated
-      : document.mtime;
-  const parsed = new Date(candidate);
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
+  const referenceTime = document.updated
+    ? Date.parse(document.updated)
+    : Date.parse(document.mtime);
+  return Number.isNaN(referenceTime) ? null : new Date(referenceTime);
 }
 
 function isRecent(date: Date | null, now: Date, recencyDays: number): boolean {

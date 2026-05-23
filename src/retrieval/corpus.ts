@@ -26,6 +26,7 @@ export interface SearchDocument {
   session: string | null;
   body: string;
   snippetSource: string;
+  updated: string | null;
   mtime: string;
   sizeBytes: number;
 }
@@ -171,6 +172,7 @@ async function loadDocument(file: MarkdownFile): Promise<SearchDocument> {
     session: readString(frontmatter.session) ?? rawIdentity.session,
     body: parsed.body,
     snippetSource: firstNonEmptyLine(parsed.body),
+    updated: readUpdated(frontmatter.updated),
     mtime: info.mtime.toISOString(),
     sizeBytes: info.size,
   };
@@ -292,6 +294,12 @@ function ensureObject(
 
 function readString(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0
+    ? value
+    : null;
+}
+
+function readUpdated(value: unknown): string | null {
+  return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)
     ? value
     : null;
 }

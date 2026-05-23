@@ -30,6 +30,7 @@ function doc(relPath: string, body: string, kind: SearchDocument["kind"] = "wiki
     session: null,
     body,
     snippetSource: body,
+    updated: null,
     mtime: "2026-05-23T00:00:00.000Z",
     sizeBytes: body.length,
   };

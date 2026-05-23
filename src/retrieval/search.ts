@@ -1,6 +1,6 @@
 import { loadSearchCorpus, type SearchDocument, type SearchScope } from "./corpus.js";
 import { loadEmbeddings, type EmbeddingKind } from "./embeddings-store.js";
-import { buildBm25Index, scoreBm25 } from "./bm25.js";
+import { buildBm25Index, scoreBm25, tokenize } from "./bm25.js";
 import { exactBoosts } from "./exact.js";
 import { buildGraph, expandGraph } from "./graph.js";
 import { scoreByMetadata } from "./metadata-score.js";
@@ -98,6 +98,30 @@ interface Candidate {
 const DEFAULT_K = 10;
 const DEFAULT_MIN_SCORE = 0;
 const SIGNAL_LIMIT = 50;
+// Voyage returns low positive cosine for unrelated text; keep vector as a signal, not a universal match.
+const MIN_VECTOR_SCORE = 0.25;
+const LEXICAL_STOPWORDS = new Set([
+  "a",
+  "an",
+  "and",
+  "are",
+  "as",
+  "at",
+  "be",
+  "by",
+  "for",
+  "from",
+  "in",
+  "is",
+  "it",
+  "no",
+  "of",
+  "on",
+  "or",
+  "the",
+  "to",
+  "with",
+]);
 const HYDE_PROMPT_TEMPLATE = `# HyDE expansion prompt
 
 You're helping the memory system search for information. A short or abstract query has been provided. Write a SHORT hypothetical paragraph (100-300 tokens) that reads as if it were a perfect curated wiki entry answering the query. The paragraph will be embedded and used to find semantically similar wiki/raw content.
@@ -171,6 +195,7 @@ export async function runSearch(opts: SearchOptions): Promise<SearchResponse> {
           expansion: opts.hydeExpansion,
         }).embeddingInput
       : opts.query;
+  const lexicalQuery = lexicalSignalQuery(opts.query);
 
   const refreshStarted = Date.now();
   try {
@@ -216,7 +241,7 @@ export async function runSearch(opts: SearchOptions): Promise<SearchResponse> {
 
   const bm25Started = Date.now();
   const bm25 = scoreBm25(
-    opts.query,
+    lexicalQuery,
     buildBm25Index(documents.map((document) => ({
       relPath: document.relPath,
       text: document.body,
@@ -235,7 +260,7 @@ export async function runSearch(opts: SearchOptions): Promise<SearchResponse> {
 
   const exactStarted = Date.now();
   const exact = exactBoosts(
-    opts.query,
+    lexicalQuery,
     documents.map((document) => ({
       relPath: document.relPath,
       title: document.title,
@@ -275,11 +300,14 @@ export async function runSearch(opts: SearchOptions): Promise<SearchResponse> {
       })),
     },
   ]);
+  const fusedFiltered = fused.filter((item) =>
+    item.sources.some((source) => source.source !== "metadata"),
+  );
   timings.rrfMs = Date.now() - rrfStarted;
 
   const byPath = new Map(documents.map((document) => [document.relPath, document]));
   const candidateLimit = Math.min(SIGNAL_LIMIT, Math.max(resultLimit * 2, resultLimit));
-  const candidates: Candidate[] = fused
+  const candidates: Candidate[] = fusedFiltered
     .slice(0, candidateLimit)
     .map((rrf) => {
       const document = byPath.get(rrf.relPath);
@@ -394,7 +422,7 @@ async function vectorScores(
       const vector = recordsByPath.get(document.relPath);
       if (!vector) return null;
       const score = cosineSimilarity(queryVector, vector);
-      return score > 0 ? { relPath: document.relPath, score } : null;
+      return score >= MIN_VECTOR_SCORE ? { relPath: document.relPath, score } : null;
     })
     .filter((score): score is VectorScore => score !== null)
     .sort((a, b) => b.score - a.score || a.relPath.localeCompare(b.relPath))
@@ -420,6 +448,12 @@ function filterByScope(
 
 function toRankedItems(scores: Array<{ relPath: string }>): RankedItem[] {
   return scores.map((score, index) => ({ relPath: score.relPath, rank: index + 1 }));
+}
+
+function lexicalSignalQuery(query: string): string {
+  return tokenize(query)
+    .filter((token) => !LEXICAL_STOPWORDS.has(token))
+    .join(" ");
 }
 
 function dominantSource(result: RrfResult): string {

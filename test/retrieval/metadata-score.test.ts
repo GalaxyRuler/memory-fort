@@ -2,13 +2,11 @@ import { describe, expect, it } from "vitest";
 import { scoreByMetadata } from "../../src/retrieval/metadata-score.js";
 import type { SearchDocument } from "../../src/retrieval/corpus.js";
 
-type MetadataDoc = SearchDocument & { updated?: string };
-
 function doc(
   relPath: string,
-  overrides: Partial<MetadataDoc> = {},
-): MetadataDoc {
-  const updated = overrides.updated ?? "2026-05-20T00:00:00.000Z";
+  overrides: Partial<SearchDocument> = {},
+): SearchDocument {
+  const updated = overrides.updated ?? "2026-05-20";
   return {
     kind: "wiki",
     relPath,
@@ -73,12 +71,12 @@ describe("retrieval metadata scoring", () => {
     const scored = scoreByMetadata(
       [
         doc("wiki/projects/old.md", {
-          updated: "2026-02-12T00:00:00.000Z",
-          mtime: "2026-02-12T00:00:00.000Z",
+          updated: "2026-02-12",
+          mtime: "2026-05-22T00:00:00.000Z",
         }),
         doc("wiki/projects/recent.md", {
-          updated: "2026-05-18T00:00:00.000Z",
-          mtime: "2026-05-18T00:00:00.000Z",
+          updated: "2026-05-18",
+          mtime: "2026-02-12T00:00:00.000Z",
         }),
       ],
       { now: new Date("2026-05-23T00:00:00.000Z") },

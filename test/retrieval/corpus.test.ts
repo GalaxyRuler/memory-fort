@@ -154,6 +154,7 @@ describe("retrieval corpus loader", () => {
           relations: { uses: ["bar"] },
           source: "claude-code",
           session: "abc123",
+          updated: "2026-05-22",
         },
         "First summary line.\n\nMore content.",
       ),
@@ -178,6 +179,7 @@ describe("retrieval corpus loader", () => {
       relations: { uses: ["bar"] },
       source: "claude-code",
       session: "abc123",
+      updated: "2026-05-22",
     });
     expect(document?.snippetSource).toMatch(/^First summary line\./);
   });
