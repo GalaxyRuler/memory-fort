@@ -43,11 +43,12 @@ MCP active tools (callable by the LLM in any host session):
   memory.log_observation(text, tags?, confidence?, source?) — write
   memory.read_page(path) — read wiki page
   memory.list_pages(type?, tag?, status?) — discover
+  memory.search(query, scope?, k?, min_score?, no_rerank?, hyde_expansion?) — query the VPS search backend
 ```
 
 Each hook script is a one-shot Node.js process that reads stdin (the hook payload as JSON), appends to a markdown file, exits 0. Errors go to `~/.memory/errors.log` — see [troubleshooting.md](troubleshooting.md).
 
-The MCP server is a stateless stdio process spawned by each host on session start. It registers three tools, services requests against `~/.memory/`, and exits when the host closes.
+The MCP server is a stateless stdio process spawned by each host on session start. It registers four tools, services local read/write requests against `~/.memory/`, and exits when the host closes. The `memory.search` tool is intentionally a thin client of the Tailscale-protected VPS dashboard endpoint (`/memory/api/search`): local creator machines do not run retrieval or hold Voyage credentials, but Claude Code, Codex, and Antigravity can still ask the shared backend for ranked results with snippets and provenance.
 
 ## Curation pipeline
 

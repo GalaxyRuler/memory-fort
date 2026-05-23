@@ -211,7 +211,113 @@ export async function listPages(
   };
 }
 
-export function createServer(): McpServer {
+const SearchInput = z.object({
+  query: z.string().min(1, "query must be non-empty").describe("The search query"),
+  scope: z
+    .enum(["wiki", "raw", "crystals", "all"])
+    .optional()
+    .describe("Search scope (default: all)"),
+  k: z
+    .number()
+    .int()
+    .min(1)
+    .max(50)
+    .optional()
+    .describe("Top-K results (default: 10, max: 50)"),
+  min_score: z
+    .number()
+    .min(0)
+    .max(1)
+    .optional()
+    .describe("Minimum score filter (0..1, default: 0)"),
+  no_rerank: z
+    .boolean()
+    .optional()
+    .describe("Skip Voyage rerank for faster but less accurate results"),
+  hyde_expansion: z
+    .string()
+    .optional()
+    .describe(
+      "Pre-computed HyDE expansion text — if you previously got a hyde_prompt_pending response, call back with the expanded text here",
+    ),
+});
+
+export type SearchInput = z.infer<typeof SearchInput>;
+
+export interface SearchDeps {
+  fetchFn?: typeof fetch;
+  vpsUrl?: string;
+}
+
+interface ApiSearchResult {
+  path: string;
+  title?: string;
+  snippet?: string;
+  score?: number;
+  source?: string;
+  sources?: Array<{ source: string; rank: number }>;
+  kind?: "wiki" | "raw" | "crystal";
+}
+
+interface ApiSearchResponse {
+  query: string;
+  results: ApiSearchResult[];
+  warnings?: string[];
+  timings?: { totalMs?: number; rerankMs?: number };
+  degraded?: boolean;
+  hyde?: {
+    reason?: string;
+    promptEmitted?: string;
+  };
+}
+
+const DEFAULT_SEARCH_BASE_URL = "https://srv1317946.tail6916d8.ts.net/memory";
+
+export async function searchMemory(
+  input: SearchInput,
+  deps: SearchDeps = {},
+): Promise<{ content: Array<{ type: "text"; text: string }>; isError?: boolean }> {
+  const fetchFn = deps.fetchFn ?? fetch;
+  const url = buildSearchUrl(deps.vpsUrl ?? DEFAULT_SEARCH_BASE_URL, input);
+
+  let response: Response;
+  try {
+    response = await fetchFn(url);
+  } catch {
+    return toolError(
+      "Search backend offline. The MCP server couldn't reach the VPS at " +
+        "srv1317946 over Tailscale. Try: (a) confirm Tailscale is connected, " +
+        "(b) use memory.read_page or memory.list_pages for offline browsing, " +
+        "(c) ask user to verify the VPS is healthy.",
+    );
+  }
+
+  if (!response.ok) {
+    const body = await response.text().catch(() => "");
+    return toolError(
+      `Search backend returned HTTP ${response.status}: ${truncate(body, 500)}`,
+    );
+  }
+
+  let body: ApiSearchResponse;
+  try {
+    body = (await response.json()) as ApiSearchResponse;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return toolError(`Failed to parse search backend JSON: ${message}`);
+  }
+
+  return {
+    content: [
+      {
+        type: "text",
+        text: formatSearchToolResponse(body),
+      },
+    ],
+  };
+}
+
+export function createServer(deps: SearchDeps = {}): McpServer {
   const server = new McpServer({ name: "memory", version: "0.1.0" });
 
   server.registerTool(
@@ -244,6 +350,16 @@ export function createServer(): McpServer {
     async (args) => listPages(args),
   );
 
+  server.registerTool(
+    "search",
+    {
+      description:
+        "Search the user's memory system (wiki + raw observations). Uses BM25 + Voyage embeddings + rerank + graph + metadata signals fused via RRF. Returns ranked results with snippets and provenance metadata. If query is short (≤5 words) AND no BM25 hits exist, the response includes a 'hyde_prompt_pending' field with a HyDE prompt the LLM can expand and re-submit via the 'hyde_expansion' parameter for better semantic matches.",
+      inputSchema: SearchInput.shape,
+    },
+    async (args) => searchMemory(args, deps),
+  );
+
   return server;
 }
 
@@ -263,4 +379,86 @@ function isToolName(value: unknown): value is ToolName {
     value === "antigravity" ||
     value === "manual"
   );
+}
+
+function buildSearchUrl(baseUrl: string, input: SearchInput): string {
+  const url = new URL(`${trimTrailingSlash(baseUrl)}/api/search`);
+  url.searchParams.set("q", input.query);
+  if (input.scope !== undefined) url.searchParams.set("scope", input.scope);
+  if (input.k !== undefined) url.searchParams.set("k", String(input.k));
+  if (input.min_score !== undefined) {
+    url.searchParams.set("minScore", String(input.min_score));
+  }
+  if (input.no_rerank !== undefined) {
+    url.searchParams.set("noRerank", String(input.no_rerank));
+  }
+  if (input.hyde_expansion !== undefined) {
+    url.searchParams.set("hydeExpansion", input.hyde_expansion);
+  }
+  return url.toString();
+}
+
+function formatSearchToolResponse(body: ApiSearchResponse): string {
+  const result = {
+    query: body.query,
+    result_count: Array.isArray(body.results) ? body.results.length : 0,
+    degraded: body.degraded === true,
+    warnings: body.warnings ?? [],
+    results: (body.results ?? []).map((item, index) => ({
+      rank: index + 1,
+      path: item.path,
+      title: item.title ?? item.path,
+      snippet: item.snippet ?? "",
+      score: item.score ?? 0,
+      source: item.source ?? "unknown",
+      sources: item.sources ?? [],
+      kind: item.kind ?? "wiki",
+    })),
+    ...(body.hyde?.reason === "triggered-pending-expansion" &&
+    body.hyde.promptEmitted
+      ? {
+          hyde_prompt_pending: {
+            prompt: body.hyde.promptEmitted,
+            instruction:
+              "To get better semantic matches, expand this prompt with the LLM, then call memory.search again with hyde_expansion set to your expansion.",
+          },
+        }
+      : {}),
+    timings: {
+      total_ms: body.timings?.totalMs ?? 0,
+      rerank_ms: body.timings?.rerankMs ?? 0,
+    },
+  };
+
+  const status = result.degraded ? "degraded" : "ok";
+  const text =
+    `${result.result_count} results for "${result.query}" ` +
+    `(${status}, ${result.timings.total_ms}ms total, ${result.timings.rerank_ms}ms rerank):\n` +
+    "```json\n" +
+    `${JSON.stringify(result, null, 2)}\n` +
+    "```";
+
+  if ("hyde_prompt_pending" in result) {
+    return `${text}\n\nHyDE prompt pending: expand the prompt, then call memory.search again with hyde_expansion.`;
+  }
+  return text;
+}
+
+function toolError(message: string): {
+  content: Array<{ type: "text"; text: string }>;
+  isError: true;
+} {
+  return {
+    content: [{ type: "text", text: message }],
+    isError: true,
+  };
+}
+
+function truncate(value: string, maxLength: number): string {
+  if (value.length <= maxLength) return value;
+  return `${value.slice(0, maxLength - 3)}...`;
+}
+
+function trimTrailingSlash(value: string): string {
+  return value.replace(/\/+$/, "");
 }
