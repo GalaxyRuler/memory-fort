@@ -3,3 +3,6 @@ dist/
 *.tsbuildinfo
 coverage/
 .vitest/
+
+# Brainstorming session working dir (visual companion server)
+.superpowers/
