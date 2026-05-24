@@ -116,6 +116,20 @@ export interface RawSession {
   sizeBytes: number;
 }
 
+export type RawSessionSource = "claude-code" | "codex" | "antigravity" | "manual" | "unknown";
+
+export interface RawSessionDetail {
+  date: string;
+  filename: string;
+  fullPath: string;
+  source: RawSessionSource;
+  sessionId: string;
+  sizeBytes: number;
+  mtime: string;
+  body: string;
+  frontmatter: Record<string, unknown>;
+}
+
 export interface LogTail {
   lines: string[];
   totalLines: number;
@@ -640,6 +654,49 @@ export async function loadRawSession(vaultRoot: string, date: string, filename: 
     filename,
     content: await readFile(fullPath, "utf-8"),
     sizeBytes: info.size,
+  };
+}
+
+function parseRawSourceFromFilename(filename: string): RawSessionSource {
+  if (filename.startsWith("claude-code-")) return "claude-code";
+  if (filename.startsWith("codex-")) return "codex";
+  if (filename.startsWith("antigravity-")) return "antigravity";
+  if (filename.startsWith("manual-mcp-") || filename.startsWith("manual-")) return "manual";
+  return "unknown";
+}
+
+function parseRawSessionIdFromFilename(filename: string): string {
+  const noExt = filename.replace(/\.md$/, "");
+  const prefixes = ["claude-code-", "codex-", "antigravity-", "manual-mcp-", "manual-"];
+  for (const prefix of prefixes) {
+    if (noExt.startsWith(prefix)) return noExt.slice(prefix.length);
+  }
+  return noExt;
+}
+
+export async function loadRawSessionDetail(
+  vaultRoot: string,
+  date: string,
+  filename: string,
+): Promise<RawSessionDetail | null> {
+  const rawRoot = join(vaultRoot, "raw");
+  const fullPath = safeResolveUnder(rawRoot, date, filename);
+  if (!fullPath || !(await pathExists(fullPath))) return null;
+  const info = await stat(fullPath);
+  if (!info.isFile()) return null;
+
+  const content = await readFile(fullPath, "utf-8");
+  const parsed = parseWikiMarkdown(content);
+  return {
+    date,
+    filename,
+    fullPath,
+    source: parseRawSourceFromFilename(filename),
+    sessionId: parseRawSessionIdFromFilename(filename),
+    sizeBytes: info.size,
+    mtime: info.mtime.toISOString(),
+    body: parsed.body,
+    frontmatter: parsed.frontmatter as Record<string, unknown>,
   };
 }
 

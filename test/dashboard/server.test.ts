@@ -366,6 +366,53 @@ describe("dashboard server", () => {
     }
   });
 
+  it("GET /api/raw/:date/:filename returns 200 JSON for an existing session", async () => {
+    await mkdir(join(tmp, "raw", "2026-05-24"), { recursive: true });
+    const filename = "claude-code-019e4bf7-d7b8-4a57.md";
+    await writeFile(
+      join(tmp, "raw", "2026-05-24", filename),
+      page({ source: "claude-code", tool: "capture" }, "# Session\n\nRaw body content.\n"),
+    );
+    const server = await createServer({ vaultRoot: tmp, port: 0 });
+
+    try {
+      const response = await fetch(`http://${server.host}:${server.port}/api/raw/2026-05-24/${filename}`);
+      const body = await response.json();
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toContain("application/json");
+      expect(body).toEqual({
+        date: "2026-05-24",
+        filename,
+        fullPath: expect.stringContaining(filename),
+        source: "claude-code",
+        sessionId: "019e4bf7-d7b8-4a57",
+        sizeBytes: expect.any(Number),
+        mtime: expect.any(String),
+        body: expect.stringContaining("Raw body content."),
+        frontmatter: expect.objectContaining({ source: "claude-code", tool: "capture" }),
+      });
+      expect(body.sizeBytes).toBeGreaterThan(0);
+      expect(Number.isFinite(Date.parse(body.mtime))).toBe(true);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("GET /api/raw/:date/:filename returns 404 JSON when session does not exist", async () => {
+    await mkdir(join(tmp, "raw", "2026-05-24"), { recursive: true });
+    const server = await createServer({ vaultRoot: tmp, port: 0 });
+
+    try {
+      const response = await fetch(`http://${server.host}:${server.port}/api/raw/2026-05-24/missing.md`);
+      const body = await response.json();
+      expect(response.status).toBe(404);
+      expect(response.headers.get("content-type")).toContain("application/json");
+      expect(body.error).toContain("session not found");
+    } finally {
+      await server.close();
+    }
+  });
+
   it("GET /api/activity returns 200 JSON with newest events first", async () => {
     await writeActivityLog(tmp);
     const server = await createServer({ vaultRoot: tmp, port: 0 });

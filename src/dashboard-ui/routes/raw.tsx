@@ -1,14 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { RawBrowsePage } from "../components/RawBrowsePage.js";
 
 export const Route = createFileRoute("/raw")({
-  component: RawRoute,
+  component: RawBrowsePage,
+  validateSearch: (search): { source?: string } => ({
+    source: typeof search.source === "string" ? search.source : undefined,
+  }),
 });
-
-function RawRoute() {
-  return (
-    <section className="space-y-2 p-6">
-      <h2 className="text-2xl font-semibold">Raw</h2>
-      <p className="text-text-secondary">Stub - populated in later slice.</p>
-    </section>
-  );
-}

@@ -14,6 +14,7 @@ import {
   loadRedactedConfig,
   loadRawIndex,
   loadRawSession,
+  loadRawSessionDetail,
   loadTimelineFeed,
   loadWikiIndex,
   type DashboardStatus,
@@ -382,12 +383,12 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
 
       if (segments.length === 4 && segments[0] === "api" && segments[1] === "raw") {
         if (!assertVaultChild(opts.vaultRoot, "raw", segments[2]!, segments[3]!)) {
-          writeHtml(res, 400, renderBadRequest("Malformed raw path."));
+          writeJsonError(res, 400, "malformed raw path");
           return;
         }
-        const session = await loadRawSession(opts.vaultRoot, segments[2]!, segments[3]!);
+        const session = await loadRawSessionDetail(opts.vaultRoot, segments[2]!, segments[3]!);
         if (!session) {
-          writeHtml(res, 404, renderNotFound(path));
+          writeJsonError(res, 404, "session not found");
           return;
         }
         writeJson(res, session);
