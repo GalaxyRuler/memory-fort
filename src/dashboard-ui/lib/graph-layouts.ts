@@ -1,4 +1,4 @@
-export type GraphMode = "force" | "clustered" | "constellation";
+export type GraphMode = "force" | "clustered" | "constellation" | "orbital" | "timeline-flow";
 
 export interface ForceConfig {
   linkDistance: number;
@@ -16,7 +16,15 @@ export function getForceSimulationConfig(mode: GraphMode): ForceConfig {
       return { linkDistance: 90, linkStrength: 0.3, chargeStrength: -400, centerStrength: 0.02, collideRadius: 12 };
     case "constellation":
       return { linkDistance: 120, linkStrength: 0.15, chargeStrength: -60, centerStrength: 0.1, collideRadius: 4 };
+    case "orbital":
+      return { linkDistance: 80, linkStrength: 0.05, chargeStrength: -50, centerStrength: 0.01, collideRadius: 6 };
+    case "timeline-flow":
+      return { linkDistance: 80, linkStrength: 0.2, chargeStrength: -150, centerStrength: 0.03, collideRadius: 6 };
   }
+}
+
+export function usesFixedPositions(mode: GraphMode): boolean {
+  return mode === "orbital" || mode === "timeline-flow";
 }
 
 export function getNodeSize(inboundCount: number, mode: GraphMode): number {
@@ -33,5 +41,9 @@ export function getEdgeOpacity(mode: GraphMode): number {
       return 0.35;
     case "constellation":
       return 0.2;
+    case "orbital":
+      return 0.45;
+    case "timeline-flow":
+      return 0.3;
   }
 }

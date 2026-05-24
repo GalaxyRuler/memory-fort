@@ -4,6 +4,7 @@ import * as THREE from "three";
 import { type GraphEdge, type GraphNode } from "../hooks/useGraph.js";
 import { edgeColor, nodeColor } from "../lib/graph-colors.js";
 import { getEdgeOpacity, getForceSimulationConfig, getNodeSize, type GraphMode } from "../lib/graph-layouts.js";
+import { type PositionedNode } from "../lib/graph-positioning.js";
 
 export interface GraphCanvasProps {
   nodes: GraphNode[];
@@ -13,12 +14,17 @@ export interface GraphCanvasProps {
   onNodeClick: (node: GraphNode) => void;
   width?: number;
   height?: number;
+  fixedPositions?: PositionedNode[];
+  visiblePaths?: Set<string>;
 }
 
 interface GraphCanvasNode extends GraphNode {
   id: string;
   __color: string;
   __size: number;
+  fx?: number;
+  fy?: number;
+  fz?: number;
 }
 
 interface GraphCanvasLink {
@@ -38,8 +44,24 @@ interface StrengthForce {
   strength: (strength: number) => StrengthForce;
 }
 
-export function GraphCanvas({ nodes, edges, mode, enabledTypes, onNodeClick, width, height }: GraphCanvasProps) {
+export function GraphCanvas({
+  nodes,
+  edges,
+  mode,
+  enabledTypes,
+  onNodeClick,
+  width,
+  height,
+  fixedPositions,
+  visiblePaths,
+}: GraphCanvasProps) {
   const fgRef = useRef<ForceGraphMethods<GraphCanvasNode, GraphCanvasLink> | undefined>(undefined);
+
+  const positionLookup = useMemo(() => {
+    const lookup = new Map<string, PositionedNode>();
+    for (const position of fixedPositions ?? []) lookup.set(position.path, position);
+    return lookup;
+  }, [fixedPositions]);
 
   const filteredNodes = useMemo(() => {
     return nodes.filter((node) => {
@@ -55,26 +77,40 @@ export function GraphCanvas({ nodes, edges, mode, enabledTypes, onNodeClick, wid
   }, [edges, nodePathSet]);
 
   const graphData = useMemo(() => {
+    const allNodes = filteredNodes.map((node): GraphCanvasNode => {
+      const position = positionLookup.get(node.path);
+      return {
+        ...node,
+        id: node.path,
+        __color: nodeColor(node),
+        __size: getNodeSize(node.inboundCount, mode),
+        fx: position?.fx,
+        fy: position?.fy,
+        fz: position?.fz,
+      };
+    });
+    const allLinks = filteredEdges.map(
+      (edge): GraphCanvasLink => ({
+        source: edge.fromPath,
+        target: edge.toPath,
+        __color: edgeColor(edge),
+        __kind: edge.kind,
+        __relationType: edge.relationType,
+      }),
+    );
+    const visibleNodes = visiblePaths ? allNodes.filter((node) => visiblePaths.has(node.path)) : allNodes;
+    const visibleNodePaths = new Set(visibleNodes.map((node) => node.id));
+    const visibleLinks = allLinks.filter((link) => visibleNodePaths.has(link.source) && visibleNodePaths.has(link.target));
+
     return {
-      nodes: filteredNodes.map(
-        (node): GraphCanvasNode => ({
-          ...node,
-          id: node.path,
-          __color: nodeColor(node),
-          __size: getNodeSize(node.inboundCount, mode),
-        }),
-      ),
-      links: filteredEdges.map(
-        (edge): GraphCanvasLink => ({
-          source: edge.fromPath,
-          target: edge.toPath,
-          __color: edgeColor(edge),
-          __kind: edge.kind,
-          __relationType: edge.relationType,
-        }),
-      ),
+      nodes: visibleNodes,
+      links: visibleLinks,
     };
-  }, [filteredNodes, filteredEdges, mode]);
+  }, [filteredNodes, filteredEdges, mode, positionLookup, visiblePaths]);
+
+  useEffect(() => {
+    fgRef.current?.d3ReheatSimulation();
+  }, [graphData]);
 
   useEffect(() => {
     const fg = fgRef.current;

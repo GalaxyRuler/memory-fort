@@ -1,11 +1,13 @@
-import { Layers, Sparkles, Wind } from "lucide-react";
+import { CircleDot as Orbit, Clock, Layers, Sparkles, Wind } from "lucide-react";
 import { cn } from "../lib/cn.js";
 import { type GraphMode } from "../lib/graph-layouts.js";
 
 const MODES: Array<{ value: GraphMode; label: string; icon: typeof Wind }> = [
   { value: "force", label: "Force", icon: Wind },
   { value: "clustered", label: "Clustered", icon: Layers },
-  { value: "constellation", label: "Constellation", icon: Sparkles },
+  { value: "constellation", label: "Star", icon: Sparkles },
+  { value: "orbital", label: "Orbital", icon: Orbit },
+  { value: "timeline-flow", label: "Time", icon: Clock },
 ];
 
 const ENTITY_TYPES = ["projects", "decisions", "lessons", "references", "tools", "crystal"];
@@ -22,7 +24,7 @@ export function GraphHUD({ mode, enabledTypes, onModeChange, onToggleType }: Gra
     <div className="glass-blur absolute left-4 top-4 z-10 w-56 space-y-3 rounded-lg p-3">
       <div>
         <h3 className="mb-1.5 font-mono text-[10px] uppercase tracking-wider text-text-muted">Mode</h3>
-        <div className="grid grid-cols-3 gap-1">
+        <div className="grid grid-cols-5 gap-1">
           {MODES.map((modeOption) => {
             const Icon = modeOption.icon;
             const isActive = mode === modeOption.value;

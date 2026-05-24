@@ -4,6 +4,7 @@ import { describe, expect, test, vi } from "vitest";
 import { GraphDetailPanel } from "../../../src/dashboard-ui/components/GraphDetailPanel.js";
 import { GraphHUD } from "../../../src/dashboard-ui/components/GraphHUD.js";
 import { GraphTelemetry } from "../../../src/dashboard-ui/components/GraphTelemetry.js";
+import { TimelineScrubber } from "../../../src/dashboard-ui/components/TimelineScrubber.js";
 import type { GraphNode } from "../../../src/dashboard-ui/hooks/useGraph.js";
 
 vi.mock("@tanstack/react-router", () => ({
@@ -42,12 +43,22 @@ function graphNode(overrides: Partial<GraphNode> = {}): GraphNode {
 }
 
 describe("graph UI components", () => {
-  test("GraphHUD renders all three mode buttons and highlights active mode", () => {
+  test("GraphHUD renders core mode buttons and highlights active mode", () => {
     render(<GraphHUD enabledTypes={new Set(["projects"])} mode="force" onModeChange={vi.fn()} onToggleType={vi.fn()} />);
 
     expect(screen.getByRole("button", { name: /Force/ })).toHaveClass("bg-surface-2");
     expect(screen.getByRole("button", { name: /Clustered/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Constellation/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Star/ })).toBeInTheDocument();
+  });
+
+  test("GraphHUD renders all five graph mode buttons", () => {
+    render(<GraphHUD enabledTypes={new Set(["projects"])} mode="force" onModeChange={vi.fn()} onToggleType={vi.fn()} />);
+
+    expect(screen.getByRole("button", { name: /Force/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Clustered/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Star/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Orbital/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Time/ })).toBeInTheDocument();
   });
 
   test("GraphHUD fires onModeChange when clicked", () => {
@@ -96,5 +107,23 @@ describe("graph UI components", () => {
     expect(screen.getByText("3 unresolved")).toHaveClass("text-status-amber");
     expect(container).toHaveTextContent("nodes");
     expect(container).toHaveTextContent("edges");
+  });
+
+  test("TimelineScrubber fires onChange when slider moves", () => {
+    const onChange = vi.fn();
+    render(<TimelineScrubber maxAgeDays={30} onChange={onChange} />);
+
+    fireEvent.change(screen.getByLabelText("Timeline scrubber"), { target: { value: "90" } });
+
+    expect(onChange).toHaveBeenCalledWith(90);
+  });
+
+  test("TimelineScrubber preset button fires onChange with preset days", () => {
+    const onChange = vi.fn();
+    render(<TimelineScrubber maxAgeDays={30} onChange={onChange} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "1w" }));
+
+    expect(onChange).toHaveBeenCalledWith(7);
   });
 });
