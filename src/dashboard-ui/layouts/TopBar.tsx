@@ -1,8 +1,10 @@
 import { useLocation } from "@tanstack/react-router";
 import { Search } from "lucide-react";
+import { useOptionalCommandPaletteContext } from "../hooks/useCommandPalette.js";
 import { NAV_ITEMS } from "../lib/nav-items.js";
 
 export function TopBar() {
+  const commandPalette = useOptionalCommandPaletteContext();
   const location = useLocation();
   const segments = location.pathname.split("/").filter(Boolean);
   const matchedNav = NAV_ITEMS.find(
@@ -25,6 +27,7 @@ export function TopBar() {
       </div>
       <button
         type="button"
+        onClick={() => commandPalette?.openPalette()}
         className="flex items-center gap-2 rounded-md border border-border-subtle bg-surface px-2.5 py-1 text-xs text-text-secondary transition-colors hover:bg-surface-2 hover:text-text-primary"
         aria-label="Open command palette"
       >
