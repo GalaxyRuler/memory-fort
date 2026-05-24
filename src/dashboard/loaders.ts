@@ -3,6 +3,9 @@ import { constants } from "node:fs";
 import { access, readdir, readFile, stat } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { promisify } from "node:util";
+import { loadSearchCorpus, type SearchScope } from "../retrieval/corpus.js";
+import { buildGraph } from "../retrieval/graph.js";
+import { loadMemoryConfig } from "../storage/config.js";
 import type { Frontmatter } from "../storage/frontmatter.js";
 
 export interface DashboardStatus {
@@ -41,6 +44,33 @@ export type RunGit = (opts: { cwd: string; args: string[] }) => Promise<string>;
 
 const execFileAsync = promisify(execFile);
 const WIKILINK_RE = /\[\[([^\]\n]+)\]\]/g;
+const LOG_HEADING_RE = /^## \[([^\]]+)\] ([A-Za-z0-9_-]+) \| (.*)$/;
+const CHECKOUT_SHA_RE = /\b[0-9a-f]{7,40}\b/i;
+const TIMELINE_LANES = [
+  "claude-code",
+  "codex",
+  "antigravity",
+  "manual",
+  "compile",
+  "lint",
+  "sync",
+] as const;
+const TIMELINE_COLORS: Record<(typeof TIMELINE_LANES)[number], string> = {
+  "claude-code": "#8b5fff",
+  codex: "#5b8bff",
+  antigravity: "#cebdff",
+  manual: "#94a3b8",
+  compile: "#22c55e",
+  lint: "#f59e0b",
+  sync: "#38bdf8",
+};
+const TIMELINE_BUCKET_MS: Record<TimelineZoom, number> = {
+  "1H": 60 * 60 * 1000,
+  "1D": 24 * 60 * 60 * 1000,
+  "1W": 7 * 24 * 60 * 60 * 1000,
+  "1M": 30 * 24 * 60 * 60 * 1000,
+  "1Y": 365 * 24 * 60 * 60 * 1000,
+};
 
 export interface WikiIndexEntry {
   category: string;
@@ -90,6 +120,64 @@ export interface LogTail {
   lines: string[];
   totalLines: number;
   requestedLines: number;
+}
+
+export type ActivitySource = "git" | "compile" | "sync" | "lint" | "errors";
+export type ActivityLevel = "info" | "warn" | "error";
+
+export interface ActivityEvent {
+  timestamp: string;
+  source: ActivitySource;
+  level: ActivityLevel;
+  summary: string;
+  details?: Record<string, unknown>;
+}
+
+export interface ActivityFeed {
+  events: ActivityEvent[];
+  nextCursor: string | null;
+}
+
+export type TimelineZoom = "1H" | "1D" | "1W" | "1M" | "1Y";
+
+export interface TimelineLaneEvent {
+  timestamp: string;
+  summary: string;
+  entity_color: string;
+}
+
+export interface TimelineFeed {
+  from: string;
+  to: string;
+  zoom: TimelineZoom;
+  lanes: Array<{ lane: string; events: TimelineLaneEvent[] }>;
+  velocity: Array<{ bucket: string; count: number }>;
+}
+
+export interface GraphFeed {
+  nodes: Array<{
+    path: string;
+    title: string;
+    kind: "wiki" | "raw" | "crystal";
+    type: string;
+    confidence: number | null;
+    updated: string | null;
+    inboundCount: number;
+    outboundCount: number;
+  }>;
+  edges: Array<{
+    fromPath: string;
+    toPath: string;
+    kind: "relation" | "wikilink";
+    relationType: string | null;
+  }>;
+  unresolvedTargets: Array<{ fromPath: string; raw: string; reason: string }>;
+}
+
+export interface CheckoutSyncState {
+  lastCheckoutAt: string | null;
+  lastCommit: string | null;
+  status: "synced" | "stale" | "unknown";
 }
 
 interface ResolutionIndex {
@@ -570,4 +658,267 @@ export async function loadLogTail(vaultRoot: string, lineCount = 100): Promise<L
     totalLines: lines.length,
     requestedLines,
   };
+}
+
+export async function loadActivityEvents(
+  vaultRoot: string,
+  opts: { cursor?: string | null; limit?: number } = {},
+): Promise<ActivityFeed> {
+  const limit = Math.max(1, Math.min(200, Math.floor(opts.limit ?? 50)));
+  const cursorTime = opts.cursor ? Date.parse(opts.cursor) : Number.POSITIVE_INFINITY;
+  const allEvents = [
+    ...(await loadGitActivityEvents(vaultRoot)),
+    ...(await loadLogActivityEvents(vaultRoot)),
+    ...(await loadCheckoutActivityEvents(vaultRoot)),
+    ...(await loadErrorActivityEvents(vaultRoot)),
+  ]
+    .filter((event) => Date.parse(event.timestamp) < cursorTime)
+    .sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp) || a.summary.localeCompare(b.summary));
+
+  const events = allEvents.slice(0, limit);
+  return {
+    events,
+    nextCursor: events.at(-1)?.timestamp ?? null,
+  };
+}
+
+export async function loadTimelineFeed(
+  vaultRoot: string,
+  opts: { from: Date; to: Date; zoom: TimelineZoom },
+): Promise<TimelineFeed> {
+  const allEvents = await loadActivityEvents(vaultRoot, { limit: 200 });
+  const fromMs = opts.from.getTime();
+  const toMs = opts.to.getTime();
+  const visibleEvents = allEvents.events.filter((event) => {
+    const timestamp = Date.parse(event.timestamp);
+    return timestamp >= fromMs && timestamp <= toMs;
+  });
+
+  const lanes = TIMELINE_LANES.map((lane) => ({
+    lane,
+    events: visibleEvents
+      .filter((event) => timelineLaneForEvent(event) === lane)
+      .map((event) => ({
+        timestamp: event.timestamp,
+        summary: event.summary,
+        entity_color: TIMELINE_COLORS[lane],
+      })),
+  }));
+
+  const bucketMs = TIMELINE_BUCKET_MS[opts.zoom];
+  const velocity: TimelineFeed["velocity"] = [];
+  for (let bucket = fromMs; bucket <= toMs; bucket += bucketMs) {
+    const nextBucket = bucket + bucketMs;
+    velocity.push({
+      bucket: new Date(bucket).toISOString(),
+      count: visibleEvents.filter((event) => {
+        const timestamp = Date.parse(event.timestamp);
+        return timestamp >= bucket && timestamp < nextBucket;
+      }).length,
+    });
+  }
+
+  return {
+    from: opts.from.toISOString(),
+    to: opts.to.toISOString(),
+    zoom: opts.zoom,
+    lanes,
+    velocity,
+  };
+}
+
+export async function loadGraphFeed(vaultRoot: string, scope: SearchScope = "wiki"): Promise<GraphFeed> {
+  const corpus = await loadSearchCorpus({ vaultRoot, scope });
+  const graph = buildGraph(corpus.documents);
+  const docsByPath = new Map(corpus.documents.map((document) => [document.relPath, document]));
+
+  const nodes = [...graph.nodes.values()]
+    .map((node) => {
+      const document = docsByPath.get(node.path);
+      return {
+        path: node.path,
+        title: document?.title ?? node.path,
+        kind: document?.kind ?? "wiki",
+        type: document?.type ?? "unknown",
+        confidence: document?.confidence ?? null,
+        updated: document?.updated ?? null,
+        inboundCount: node.inbound.length,
+        outboundCount: node.outbound.length,
+      };
+    })
+    .sort((a, b) => a.path.localeCompare(b.path));
+
+  return {
+    nodes,
+    edges: graph.edges,
+    unresolvedTargets: graph.unresolvedTargets,
+  };
+}
+
+export async function loadCheckoutSyncState(vaultRoot: string, now: Date = new Date()): Promise<CheckoutSyncState> {
+  const checkoutPath = await findCheckoutLogPath(vaultRoot);
+  if (!checkoutPath) {
+    return { lastCheckoutAt: null, lastCommit: null, status: "unknown" };
+  }
+
+  const content = await readFile(checkoutPath, "utf-8");
+  const lastLine = content.split(/\r?\n/).filter((line) => line.trim().length > 0).at(-1);
+  if (!lastLine) {
+    return { lastCheckoutAt: null, lastCommit: null, status: "unknown" };
+  }
+
+  const timestamp = parseIsoFromText(lastLine);
+  if (!timestamp) {
+    return { lastCheckoutAt: null, lastCommit: null, status: "unknown" };
+  }
+
+  const ageMs = now.getTime() - Date.parse(timestamp);
+  return {
+    lastCheckoutAt: timestamp,
+    lastCommit: CHECKOUT_SHA_RE.exec(lastLine)?.[0] ?? null,
+    status: ageMs > 6 * 60 * 60 * 1000 ? "stale" : "synced",
+  };
+}
+
+export async function loadRedactedConfig(vaultRoot: string): Promise<Record<string, unknown>> {
+  return redactConfig(await loadMemoryConfig(vaultRoot)) as Record<string, unknown>;
+}
+
+async function loadGitActivityEvents(vaultRoot: string): Promise<ActivityEvent[]> {
+  const args = ["log", "--format=%cI%x09%h%x09%s", "-n", "100"];
+  let output = "";
+  try {
+    output = await defaultRunGit({ cwd: vaultRoot, args });
+  } catch {
+    try {
+      output = await runBareRepoGit(vaultRoot, args);
+    } catch {
+      return [];
+    }
+  }
+
+  return output
+    .trimEnd()
+    .split(/\r?\n/)
+    .filter((line) => line.length > 0)
+    .flatMap((line): ActivityEvent[] => {
+      const [timestampRaw = "", sha = "", subject = ""] = line.split("\t");
+      const timestamp = normalizeIso(timestampRaw);
+      if (!timestamp) return [];
+      return [{
+        timestamp,
+        source: "git",
+        level: "info",
+        summary: `${sha} ${subject}`.trim(),
+        details: { sha },
+      }];
+    });
+}
+
+async function loadLogActivityEvents(vaultRoot: string): Promise<ActivityEvent[]> {
+  const logPath = join(vaultRoot, "log.md");
+  if (!(await pathExists(logPath))) return [];
+
+  const events: ActivityEvent[] = [];
+  for (const line of (await readFile(logPath, "utf-8")).split(/\r?\n/)) {
+    const match = LOG_HEADING_RE.exec(line);
+    if (!match) continue;
+    const timestamp = normalizeIso(match[1]!);
+    if (!timestamp) continue;
+    events.push({
+      timestamp,
+      source: normalizeActivitySource(match[2]!),
+      level: "info",
+      summary: match[3]!.trim(),
+    });
+  }
+  return events;
+}
+
+async function loadCheckoutActivityEvents(vaultRoot: string): Promise<ActivityEvent[]> {
+  const checkoutPath = await findCheckoutLogPath(vaultRoot);
+  if (!checkoutPath) return [];
+
+  const events: ActivityEvent[] = [];
+  for (const line of (await readFile(checkoutPath, "utf-8")).split(/\r?\n/)) {
+    if (line.trim().length === 0) continue;
+    const timestamp = parseIsoFromText(line);
+    if (!timestamp) continue;
+    events.push({
+      timestamp,
+      source: "sync",
+      level: "info",
+      summary: line.replace(timestamp, "").trim() || "vault checkout",
+      details: { sha: CHECKOUT_SHA_RE.exec(line)?.[0] ?? null },
+    });
+  }
+  return events;
+}
+
+async function loadErrorActivityEvents(vaultRoot: string): Promise<ActivityEvent[]> {
+  const errorsPath = join(vaultRoot, "errors.log");
+  if (!(await pathExists(errorsPath))) return [];
+
+  const info = await stat(errorsPath);
+  if (info.size === 0) return [];
+  const lines = (await readFile(errorsPath, "utf-8"))
+    .split(/\r?\n/)
+    .filter((line) => line.trim().length > 0);
+  const latest = lines.at(-1);
+  if (!latest) return [];
+  return [{
+    timestamp: info.mtime.toISOString(),
+    source: "errors",
+    level: "error",
+    summary: latest.length > 180 ? `${latest.slice(0, 177)}...` : latest,
+  }];
+}
+
+async function findCheckoutLogPath(vaultRoot: string): Promise<string | null> {
+  const candidates = [
+    join(dirname(vaultRoot), "logs", "checkout.log"),
+    join(vaultRoot, "logs", "checkout.log"),
+  ];
+  for (const candidate of candidates) {
+    if (await pathExists(candidate)) return candidate;
+  }
+  return null;
+}
+
+function normalizeActivitySource(source: string): ActivitySource {
+  if (source === "compile" || source === "sync" || source === "lint") return source;
+  if (source === "errors") return "errors";
+  return "git";
+}
+
+function timelineLaneForEvent(event: ActivityEvent): (typeof TIMELINE_LANES)[number] {
+  if (event.source === "compile" || event.source === "lint" || event.source === "sync") return event.source;
+  return "manual";
+}
+
+function normalizeIso(value: string): string | null {
+  const parsed = new Date(value);
+  return Number.isFinite(parsed.getTime()) ? parsed.toISOString() : null;
+}
+
+function parseIsoFromText(value: string): string | null {
+  const match = /\d{4}-\d{2}-\d{2}T[0-9:.+-]+Z?/.exec(value);
+  return match ? normalizeIso(match[0]!) : null;
+}
+
+function redactConfig(value: unknown, path: string[] = []): unknown {
+  if (Array.isArray(value)) {
+    return value.map((item) => redactConfig(item, path));
+  }
+  if (!value || typeof value !== "object") return value;
+
+  const result: Record<string, unknown> = {};
+  for (const [key, child] of Object.entries(value)) {
+    if (path.length === 1 && path[0] === "voyage" && key === "api_key" && typeof child === "string" && child.length > 0) {
+      result[key] = "[REDACTED]";
+    } else {
+      result[key] = redactConfig(child, [...path, key]);
+    }
+  }
+  return result;
 }

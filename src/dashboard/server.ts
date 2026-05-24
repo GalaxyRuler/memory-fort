@@ -5,13 +5,19 @@ import type { SearchScope } from "../retrieval/corpus.js";
 import type { EmbedClient } from "../retrieval/refresh.js";
 import type { VoyageClient } from "../retrieval/voyage-client.js";
 import {
+  loadActivityEvents,
+  loadCheckoutSyncState,
   loadDashboardStatus,
+  loadGraphFeed,
   loadLogTail,
   loadPageDetail,
+  loadRedactedConfig,
   loadRawIndex,
   loadRawSession,
+  loadTimelineFeed,
   loadWikiIndex,
   type DashboardStatus,
+  type TimelineZoom,
 } from "./loaders.js";
 import {
   renderBadRequest,
@@ -87,6 +93,10 @@ function writeJson(res: ServerResponse, body: unknown, status = 200): void {
   res.end(JSON.stringify(body, null, 2));
 }
 
+function writeJsonError(res: ServerResponse, status: number, message: string): void {
+  writeJson(res, { error: message }, status);
+}
+
 function parseLineCount(value: string | null): number {
   if (!value) return 100;
   const parsed = Number.parseInt(value, 10);
@@ -116,6 +126,24 @@ function parseClampedFloat(value: string | null, fallback: number, min: number, 
 
 function parseSearchScope(value: string | null): SearchScope {
   return value && SEARCH_SCOPES.has(value as SearchScope) ? (value as SearchScope) : "all";
+}
+
+function parseGraphScope(value: string | null): SearchScope | null {
+  if (!value) return "wiki";
+  return SEARCH_SCOPES.has(value as SearchScope) ? (value as SearchScope) : null;
+}
+
+const TIMELINE_ZOOMS = new Set<TimelineZoom>(["1H", "1D", "1W", "1M", "1Y"]);
+
+function parseTimelineZoom(value: string | null): TimelineZoom | null {
+  if (!value) return "1D";
+  return TIMELINE_ZOOMS.has(value as TimelineZoom) ? (value as TimelineZoom) : null;
+}
+
+function parseIsoDate(value: string | null): Date | null {
+  if (!value) return null;
+  const parsed = new Date(value);
+  return Number.isFinite(parsed.getTime()) ? parsed : null;
 }
 
 function makeEmbedClient(voyageClient: VoyageClient | null | undefined): EmbedClient {
@@ -190,11 +218,74 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
 
     const segments = parseSafeSegments(path);
     if (!segments) {
-      writeHtml(res, 400, renderBadRequest("Malformed dashboard path."));
+      if (path.startsWith("/api/")) {
+        writeJsonError(res, 400, "malformed dashboard path");
+      } else {
+        writeHtml(res, 400, renderBadRequest("Malformed dashboard path."));
+      }
       return;
     }
 
     try {
+      if (segments.length >= 3 && segments[0] === "api" && segments[1] === "page") {
+        const relPath = segments.slice(2).join("/");
+        if (!relPath.startsWith("wiki/") || !relPath.endsWith(".md") || !assertVaultChild(opts.vaultRoot, ...segments.slice(2))) {
+          writeJsonError(res, 400, "malformed page path");
+          return;
+        }
+        const page = await loadPageDetail(opts.vaultRoot, relPath.slice("wiki/".length));
+        if (!page) {
+          writeJsonError(res, 404, "page not found");
+          return;
+        }
+        writeJson(res, { ...page, relPath });
+        return;
+      }
+
+      if (segments.length === 2 && segments[0] === "api" && segments[1] === "activity") {
+        writeJson(res, await loadActivityEvents(opts.vaultRoot, {
+          cursor: url.searchParams.get("cursor"),
+          limit: parseClampedInt(url.searchParams.get("limit"), 50, 1, 200),
+        }));
+        return;
+      }
+
+      if (segments.length === 2 && segments[0] === "api" && segments[1] === "timeline") {
+        const zoom = parseTimelineZoom(url.searchParams.get("zoom"));
+        if (!zoom) {
+          writeJsonError(res, 400, "invalid timeline zoom");
+          return;
+        }
+        const to = parseIsoDate(url.searchParams.get("to")) ?? new Date();
+        const from = parseIsoDate(url.searchParams.get("from")) ?? new Date(to.getTime() - 24 * 60 * 60 * 1000);
+        if (from.getTime() > to.getTime()) {
+          writeJsonError(res, 400, "timeline from must be before to");
+          return;
+        }
+        writeJson(res, await loadTimelineFeed(opts.vaultRoot, { from, to, zoom }));
+        return;
+      }
+
+      if (segments.length === 2 && segments[0] === "api" && segments[1] === "graph") {
+        const scope = parseGraphScope(url.searchParams.get("scope"));
+        if (!scope) {
+          writeJsonError(res, 400, "invalid graph scope");
+          return;
+        }
+        writeJson(res, await loadGraphFeed(opts.vaultRoot, scope));
+        return;
+      }
+
+      if (segments.length === 2 && segments[0] === "api" && segments[1] === "sync-state") {
+        writeJson(res, await loadCheckoutSyncState(opts.vaultRoot));
+        return;
+      }
+
+      if (segments.length === 2 && segments[0] === "api" && segments[1] === "config") {
+        writeJson(res, await loadRedactedConfig(opts.vaultRoot));
+        return;
+      }
+
       if (segments.length === 1 && segments[0] === "wiki") {
         writeHtml(res, 200, renderWikiIndex(await loadWikiIndex(opts.vaultRoot)));
         return;
@@ -313,8 +404,12 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
         return;
       }
     } catch (err) {
-      res.writeHead(500, { "Content-Type": "text/plain; charset=utf-8" });
-      res.end(`dashboard failed: ${(err as Error).message}`);
+      if (path.startsWith("/api/")) {
+        writeJsonError(res, 500, (err as Error).message);
+      } else {
+        res.writeHead(500, { "Content-Type": "text/plain; charset=utf-8" });
+        res.end(`dashboard failed: ${(err as Error).message}`);
+      }
       return;
     }
 

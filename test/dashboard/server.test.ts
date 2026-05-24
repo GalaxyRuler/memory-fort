@@ -69,6 +69,26 @@ async function writeSearchWiki(root: string, count = 3): Promise<void> {
   }
 }
 
+async function writeActivityLog(root: string): Promise<void> {
+  await writeFile(
+    join(root, "log.md"),
+    [
+      "## [2026-05-24T12:00:00.000Z] compile | latest compile",
+      "",
+      "Compile completed.",
+      "",
+      "## [2026-05-23T11:00:00.000Z] sync | middle sync",
+      "",
+      "Sync completed.",
+      "",
+      "## [2026-05-22T10:00:00.000Z] lint | old lint",
+      "",
+      "Lint completed.",
+      "",
+    ].join("\n"),
+  );
+}
+
 describe("dashboard server", () => {
   let tmp: string;
 
@@ -295,6 +315,261 @@ describe("dashboard server", () => {
       const body = await response.json();
       expect(response.status).toBe(200);
       expect(body.results.length).toBeLessThanOrEqual(50);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("GET /api/page/:relpath returns 200 JSON for an existing page", async () => {
+    await mkdir(join(tmp, "wiki", "projects"), { recursive: true });
+    await writeFile(
+      join(tmp, "wiki", "projects", "foo.md"),
+      page(
+        { type: "projects", title: "Foo", status: "active", confidence: "0.9", updated: "2026-05-23" },
+        "Foo page content.\n",
+      ),
+    );
+    const server = await createServer({ vaultRoot: tmp, port: 0 });
+
+    try {
+      const relPath = encodeURIComponent("wiki/projects/foo.md");
+      const response = await fetch(`http://${server.host}:${server.port}/api/page/${relPath}`);
+      const body = await response.json();
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toContain("application/json");
+      expect(body).toEqual({
+        relPath: "wiki/projects/foo.md",
+        fullPath: expect.stringContaining("foo.md"),
+        frontmatter: expect.objectContaining({ title: "Foo", type: "projects" }),
+        body: expect.stringContaining("Foo page content."),
+        relations: expect.any(Array),
+        inbound: expect.any(Array),
+      });
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("GET /api/page/:relpath returns 404 for a non-existent page", async () => {
+    await mkdir(join(tmp, "wiki", "projects"), { recursive: true });
+    const server = await createServer({ vaultRoot: tmp, port: 0 });
+
+    try {
+      const relPath = encodeURIComponent("wiki/projects/ghost.md");
+      const response = await fetch(`http://${server.host}:${server.port}/api/page/${relPath}`);
+      const body = await response.json();
+      expect(response.status).toBe(404);
+      expect(response.headers.get("content-type")).toContain("application/json");
+      expect(body.error).toContain("not found");
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("GET /api/activity returns 200 JSON with newest events first", async () => {
+    await writeActivityLog(tmp);
+    const server = await createServer({ vaultRoot: tmp, port: 0 });
+
+    try {
+      const response = await fetch(`http://${server.host}:${server.port}/api/activity?limit=10`);
+      const body = await response.json();
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toContain("application/json");
+      expect(body.events.map((event: { timestamp: string }) => event.timestamp)).toEqual([
+        "2026-05-24T12:00:00.000Z",
+        "2026-05-23T11:00:00.000Z",
+        "2026-05-22T10:00:00.000Z",
+      ]);
+      expect(body.events[0]).toMatchObject({
+        source: "compile",
+        level: "info",
+        summary: "latest compile",
+      });
+      expect(body.nextCursor).toBe("2026-05-22T10:00:00.000Z");
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("GET /api/activity respects cursor for pagination", async () => {
+    await writeActivityLog(tmp);
+    const server = await createServer({ vaultRoot: tmp, port: 0 });
+
+    try {
+      const cursor = encodeURIComponent("2026-05-23T11:00:00.000Z");
+      const response = await fetch(`http://${server.host}:${server.port}/api/activity?cursor=${cursor}&limit=10`);
+      const body = await response.json();
+      expect(response.status).toBe(200);
+      expect(body.events).toHaveLength(1);
+      expect(body.events[0].timestamp).toBe("2026-05-22T10:00:00.000Z");
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("GET /api/timeline returns lanes bucketed correctly", async () => {
+    await writeActivityLog(tmp);
+    const server = await createServer({ vaultRoot: tmp, port: 0 });
+
+    try {
+      const response = await fetch(
+        `http://${server.host}:${server.port}/api/timeline?zoom=1D&from=2026-05-22T00:00:00.000Z&to=2026-05-25T00:00:00.000Z`,
+      );
+      const body = await response.json();
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toContain("application/json");
+      expect(body.lanes).toHaveLength(7);
+      expect(body.lanes.map((lane: { lane: string }) => lane.lane)).toEqual([
+        "claude-code",
+        "codex",
+        "antigravity",
+        "manual",
+        "compile",
+        "lint",
+        "sync",
+      ]);
+      expect(body.lanes.find((lane: { lane: string }) => lane.lane === "compile").events).toHaveLength(1);
+      expect(body.velocity.length).toBeGreaterThan(0);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("GET /api/timeline rejects invalid zoom value", async () => {
+    const server = await createServer({ vaultRoot: tmp, port: 0 });
+
+    try {
+      const response = await fetch(`http://${server.host}:${server.port}/api/timeline?zoom=foo`);
+      const body = await response.json();
+      expect(response.status).toBe(400);
+      expect(response.headers.get("content-type")).toContain("application/json");
+      expect(body.error).toContain("zoom");
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("GET /api/graph returns nodes and edges for a wiki scope", async () => {
+    await mkdir(join(tmp, "wiki", "projects"), { recursive: true });
+    await mkdir(join(tmp, "wiki", "tools"), { recursive: true });
+    await mkdir(join(tmp, "wiki", "lessons"), { recursive: true });
+    await writeFile(
+      join(tmp, "wiki", "projects", "a.md"),
+      [
+        "---",
+        "type: projects",
+        "title: A",
+        "updated: 2026-05-23",
+        "confidence: 0.9",
+        "relations:",
+        "  uses:",
+        "    - b",
+        "---",
+        "",
+        "A links to [[c]].",
+      ].join("\n"),
+    );
+    await writeFile(
+      join(tmp, "wiki", "tools", "b.md"),
+      page({ type: "tools", title: "B", updated: "2026-05-23", confidence: "0.8" }, "B body.\n"),
+    );
+    await writeFile(
+      join(tmp, "wiki", "lessons", "c.md"),
+      page({ type: "lessons", title: "C", updated: "2026-05-23", confidence: "0.7" }, "C body.\n"),
+    );
+    const server = await createServer({ vaultRoot: tmp, port: 0 });
+
+    try {
+      const response = await fetch(`http://${server.host}:${server.port}/api/graph?scope=wiki`);
+      const body = await response.json();
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toContain("application/json");
+      expect(body.nodes).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            path: "wiki/projects/a.md",
+            title: "A",
+            kind: "wiki",
+            type: "projects",
+            outboundCount: 2,
+          }),
+        ]),
+      );
+      expect(body.edges).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            fromPath: "wiki/projects/a.md",
+            toPath: "wiki/tools/b.md",
+            kind: "relation",
+            relationType: "uses",
+          }),
+        ]),
+      );
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("GET /api/sync-state returns checkout-log-derived state", async () => {
+    await mkdir(join(tmp, "logs"), { recursive: true });
+    await writeFile(
+      join(tmp, "logs", "checkout.log"),
+      "2026-05-24T12:00:00.000Z checked out 747ce8f from creator push\n",
+    );
+    const server = await createServer({ vaultRoot: tmp, port: 0 });
+
+    try {
+      const response = await fetch(`http://${server.host}:${server.port}/api/sync-state`);
+      const body = await response.json();
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toContain("application/json");
+      expect(body).toEqual({
+        lastCheckoutAt: "2026-05-24T12:00:00.000Z",
+        lastCommit: "747ce8f",
+        status: "synced",
+      });
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("GET /api/config returns parsed config with API key redacted", async () => {
+    await writeFile(
+      join(tmp, "config.yaml"),
+      [
+        "voyage:",
+        '  api_key: "real-key-value-here"',
+        '  model: "voyage-4-large"',
+        "privacy:",
+        "  allowlist: []",
+        "",
+      ].join("\n"),
+    );
+    const server = await createServer({ vaultRoot: tmp, port: 0 });
+
+    try {
+      const response = await fetch(`http://${server.host}:${server.port}/api/config`);
+      const body = await response.json();
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toContain("application/json");
+      expect(body).toEqual({
+        voyage: { api_key: "[REDACTED]", model: "voyage-4-large" },
+        privacy: { allowlist: [] },
+      });
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("GET /api/config returns an empty object when config.yaml is missing", async () => {
+    const server = await createServer({ vaultRoot: tmp, port: 0 });
+
+    try {
+      const response = await fetch(`http://${server.host}:${server.port}/api/config`);
+      const body = await response.json();
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toContain("application/json");
+      expect(body).toEqual({});
     } finally {
       await server.close();
     }
