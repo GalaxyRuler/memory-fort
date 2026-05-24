@@ -10,6 +10,14 @@ export default defineConfig({
     outDir: resolve(__dirname, "dist/dashboard-ui"),
     emptyOutDir: true,
     sourcemap: true,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          "graph-engine": ["three", "react-force-graph-3d"],
+          markdown: ["react-markdown", "remark-gfm"],
+        },
+      },
+    },
   },
   server: {
     proxy: {

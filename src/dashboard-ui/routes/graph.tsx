@@ -1,4 +1,7 @@
+import { lazy, Suspense } from "react";
 import { createFileRoute } from "@tanstack/react-router";
+
+const GraphPage = lazy(() => import("../components/GraphPage.js").then((module) => ({ default: module.GraphPage })));
 
 export const Route = createFileRoute("/graph")({
   component: GraphRoute,
@@ -6,9 +9,8 @@ export const Route = createFileRoute("/graph")({
 
 function GraphRoute() {
   return (
-    <section className="space-y-2 p-6">
-      <h2 className="text-2xl font-semibold">Graph</h2>
-      <p className="text-text-secondary">Stub - populated in later slice.</p>
-    </section>
+    <Suspense fallback={<div className="p-6 text-sm text-text-muted">Loading graph engine...</div>}>
+      <GraphPage />
+    </Suspense>
   );
 }
