@@ -39,4 +39,22 @@ describe("BottomSheet", () => {
 
     expect(onClose).toHaveBeenCalledTimes(1);
   });
+
+  test("keeps the backdrop hidden from assistive technology while preserving click close", () => {
+    const onClose = vi.fn();
+    render(
+      <BottomSheet isOpen={true} title="Details" onClose={onClose}>
+        <p>Sheet content</p>
+      </BottomSheet>,
+    );
+
+    const backdrop = screen.getByTestId("bottom-sheet-backdrop");
+
+    expect(backdrop).toHaveAttribute("aria-hidden", "true");
+    expect(backdrop).not.toHaveAttribute("aria-label");
+
+    fireEvent.click(backdrop);
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
 });

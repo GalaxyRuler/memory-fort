@@ -72,7 +72,7 @@ export function BottomSheet({
     <div className={cn("fixed inset-0 z-40 flex items-end justify-center", className)}>
       <button
         type="button"
-        aria-label="Close bottom sheet"
+        aria-hidden="true"
         className="absolute inset-0 bg-background/70"
         data-testid="bottom-sheet-backdrop"
         onClick={onClose}

@@ -28,7 +28,7 @@ function KeyboardList({ onActivate = vi.fn() }: { onActivate?: (item: string) =>
 describe("useListKeyNav", () => {
   test("J advances focus and K retreats", () => {
     render(<KeyboardList />);
-    const list = screen.getByRole("list", { name: "Keyboard list" });
+    const list = screen.getByRole("listbox", { name: "Keyboard list" });
 
     list.focus();
     fireEvent.keyDown(list, { key: "j" });
@@ -43,7 +43,7 @@ describe("useListKeyNav", () => {
   test("Enter activates the focused item", () => {
     const onActivate = vi.fn();
     render(<KeyboardList onActivate={onActivate} />);
-    const list = screen.getByRole("list", { name: "Keyboard list" });
+    const list = screen.getByRole("listbox", { name: "Keyboard list" });
 
     list.focus();
     fireEvent.keyDown(list, { key: "j" });
@@ -55,11 +55,19 @@ describe("useListKeyNav", () => {
   test("J and K do nothing when an input has focus", () => {
     render(<KeyboardList />);
     const input = screen.getByLabelText("Editable field");
-    const list = screen.getByRole("list", { name: "Keyboard list" });
+    const list = screen.getByRole("listbox", { name: "Keyboard list" });
 
     input.focus();
     fireEvent.keyDown(list, { key: "j" });
 
     expect(screen.getByText("alpha")).toHaveAttribute("data-focused", "true");
+  });
+
+  test("uses listbox and option roles so aria-selected is valid", () => {
+    render(<KeyboardList />);
+
+    expect(screen.getByRole("listbox", { name: "Keyboard list" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "alpha" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("option", { name: "beta" })).toHaveAttribute("aria-selected", "false");
   });
 });
