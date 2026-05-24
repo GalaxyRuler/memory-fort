@@ -1,0 +1,43 @@
+@font-face {
+  font-family: "Inter";
+  src: url("/fonts/Inter-VariableFont.woff2") format("woff2-variations");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("/fonts/JetBrainsMono-VariableFont.woff2") format("woff2-variations");
+  font-weight: 100 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer utilities {
+  .glass-blur {
+    background: rgba(15, 15, 20, 0.65);
+    backdrop-filter: blur(20px) saturate(180%);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  .gradient-accent {
+    background: linear-gradient(135deg, #8b5fff, #5b8bff);
+  }
+}
+
+html,
+body {
+  min-height: 100vh;
+  background: #09090b;
+  color: #ededed;
+  font-family: "Inter", system-ui, sans-serif;
+}
+
+body {
+  margin: 0;
+}
