@@ -1,14 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { SettingsPage } from "../components/SettingsPage.js";
 
 export const Route = createFileRoute("/settings")({
-  component: SettingsRoute,
+  component: SettingsPage,
 });
-
-function SettingsRoute() {
-  return (
-    <section className="space-y-2 p-6">
-      <h2 className="text-2xl font-semibold">Settings</h2>
-      <p className="text-text-secondary">Stub - populated in later slice.</p>
-    </section>
-  );
-}
