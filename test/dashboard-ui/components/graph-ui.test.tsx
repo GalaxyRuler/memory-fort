@@ -42,9 +42,24 @@ function graphNode(overrides: Partial<GraphNode> = {}): GraphNode {
   };
 }
 
+function renderGraphHUD(overrides: Partial<Parameters<typeof GraphHUD>[0]> = {}) {
+  return render(
+    <GraphHUD
+      enabledTypes={new Set(["projects"])}
+      mode="force"
+      searchMatchCount={0}
+      searchQuery=""
+      onModeChange={vi.fn()}
+      onSearchChange={vi.fn()}
+      onToggleType={vi.fn()}
+      {...overrides}
+    />,
+  );
+}
+
 describe("graph UI components", () => {
   test("GraphHUD renders core mode buttons and highlights active mode", () => {
-    render(<GraphHUD enabledTypes={new Set(["projects"])} mode="force" onModeChange={vi.fn()} onToggleType={vi.fn()} />);
+    renderGraphHUD();
 
     expect(screen.getByRole("button", { name: /Force/ })).toHaveClass("bg-surface-2");
     expect(screen.getByRole("button", { name: /Clustered/ })).toBeInTheDocument();
@@ -52,7 +67,7 @@ describe("graph UI components", () => {
   });
 
   test("GraphHUD renders all five graph mode buttons", () => {
-    render(<GraphHUD enabledTypes={new Set(["projects"])} mode="force" onModeChange={vi.fn()} onToggleType={vi.fn()} />);
+    renderGraphHUD();
 
     expect(screen.getByRole("button", { name: /Force/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Clustered/ })).toBeInTheDocument();
@@ -63,7 +78,7 @@ describe("graph UI components", () => {
 
   test("GraphHUD fires onModeChange when clicked", () => {
     const onModeChange = vi.fn();
-    render(<GraphHUD enabledTypes={new Set(["projects"])} mode="force" onModeChange={onModeChange} onToggleType={vi.fn()} />);
+    renderGraphHUD({ onModeChange });
 
     fireEvent.click(screen.getByRole("button", { name: /Clustered/ }));
 
@@ -72,11 +87,21 @@ describe("graph UI components", () => {
 
   test("GraphHUD entity filter toggles", () => {
     const onToggleType = vi.fn();
-    render(<GraphHUD enabledTypes={new Set(["projects"])} mode="force" onModeChange={vi.fn()} onToggleType={onToggleType} />);
+    renderGraphHUD({ onToggleType });
 
     fireEvent.click(screen.getByLabelText("projects"));
 
     expect(onToggleType).toHaveBeenCalledWith("projects");
+  });
+
+  test("GraphHUD search input fires onSearchChange with the typed value", () => {
+    const onSearchChange = vi.fn();
+    renderGraphHUD({ searchMatchCount: 2, searchQuery: "memo", onSearchChange });
+
+    fireEvent.change(screen.getByLabelText("Search"), { target: { value: "memory" } });
+
+    expect(onSearchChange).toHaveBeenCalledWith("memory");
+    expect(screen.getByText("2 matches")).toBeInTheDocument();
   });
 
   test("GraphDetailPanel renders node information and close button", () => {

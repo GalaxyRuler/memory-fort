@@ -1,4 +1,4 @@
-import { CircleDot as Orbit, Clock, Layers, Sparkles, Wind } from "lucide-react";
+import { CircleDot as Orbit, Clock, Crosshair, Layers, Search, Sparkles, Wind, X } from "lucide-react";
 import { cn } from "../lib/cn.js";
 import { type GraphMode } from "../lib/graph-layouts.js";
 
@@ -15,13 +15,66 @@ const ENTITY_TYPES = ["projects", "decisions", "lessons", "references", "tools",
 export interface GraphHUDProps {
   mode: GraphMode;
   enabledTypes: Set<string>;
+  searchQuery: string;
+  searchMatchCount: number;
+  focusModeLabel?: string | null;
   onModeChange: (mode: GraphMode) => void;
+  onSearchChange: (query: string) => void;
   onToggleType: (type: string) => void;
+  onClearFocusMode?: () => void;
 }
 
-export function GraphHUD({ mode, enabledTypes, onModeChange, onToggleType }: GraphHUDProps) {
+export function GraphHUD({
+  mode,
+  enabledTypes,
+  searchQuery,
+  searchMatchCount,
+  focusModeLabel,
+  onModeChange,
+  onSearchChange,
+  onToggleType,
+  onClearFocusMode,
+}: GraphHUDProps) {
+  const hasSearch = searchQuery.trim().length > 0;
+
   return (
     <div className="glass-blur absolute left-4 top-4 z-10 w-56 space-y-3 rounded-lg p-3">
+      <div>
+        <label htmlFor="graph-search" className="mb-1.5 block font-mono text-[10px] uppercase tracking-wider text-text-muted">
+          Search
+        </label>
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-text-muted" size={13} strokeWidth={1.5} />
+          <input
+            id="graph-search"
+            type="search"
+            value={searchQuery}
+            onChange={(event) => onSearchChange(event.currentTarget.value)}
+            placeholder="Find node"
+            className="w-full rounded-md border border-border-subtle bg-surface/70 py-1.5 pl-7 pr-2 font-mono text-xs text-text-primary outline-none transition-colors placeholder:text-text-muted focus:border-primary/60"
+          />
+        </div>
+        {hasSearch && (
+          <div className="mt-1.5 inline-flex rounded-full border border-border-subtle bg-surface/70 px-2 py-0.5 font-mono text-[10px] text-text-secondary">
+            {searchMatchCount} {searchMatchCount === 1 ? "match" : "matches"}
+          </div>
+        )}
+        {focusModeLabel && onClearFocusMode && (
+          <div className="mt-2 flex items-center gap-2 rounded-md border border-border-subtle bg-surface/70 px-2 py-1.5 text-[11px] text-text-secondary">
+            <Crosshair size={13} strokeWidth={1.5} className="shrink-0 text-primary" />
+            <span className="min-w-0 flex-1 truncate">Focus: {focusModeLabel}</span>
+            <button
+              type="button"
+              aria-label="Clear focus mode"
+              onClick={onClearFocusMode}
+              className="rounded text-text-muted transition-colors hover:text-text-primary"
+            >
+              <X size={13} strokeWidth={1.5} />
+            </button>
+          </div>
+        )}
+      </div>
+
       <div>
         <h3 className="mb-1.5 font-mono text-[10px] uppercase tracking-wider text-text-muted">Mode</h3>
         <div className="grid grid-cols-5 gap-1">
