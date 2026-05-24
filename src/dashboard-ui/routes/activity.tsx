@@ -1,14 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { ActivityFeedPage } from "../components/ActivityFeedPage.js";
 
 export const Route = createFileRoute("/activity")({
-  component: ActivityRoute,
+  component: ActivityFeedPage,
+  validateSearch: (search): { source?: string; level?: string } => ({
+    source: typeof search.source === "string" ? search.source : undefined,
+    level: typeof search.level === "string" ? search.level : undefined,
+  }),
 });
-
-function ActivityRoute() {
-  return (
-    <section className="space-y-2 p-6">
-      <h2 className="text-2xl font-semibold">Activity</h2>
-      <p className="text-text-secondary">Stub - populated in later slice.</p>
-    </section>
-  );
-}
