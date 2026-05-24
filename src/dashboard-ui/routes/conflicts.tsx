@@ -1,14 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { ConflictsPage } from "../components/ConflictsPage.js";
 
 export const Route = createFileRoute("/conflicts")({
-  component: ConflictsRoute,
+  component: ConflictsPage,
 });
-
-function ConflictsRoute() {
-  return (
-    <section className="space-y-2 p-6">
-      <h2 className="text-2xl font-semibold">Conflict Resolution</h2>
-      <p className="text-text-secondary">Stub - populated in later slice.</p>
-    </section>
-  );
-}

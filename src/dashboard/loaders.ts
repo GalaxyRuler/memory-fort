@@ -3,6 +3,7 @@ import { constants } from "node:fs";
 import { access, readdir, readFile, stat } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { promisify } from "node:util";
+import { loadWiki as loadCurationWiki } from "../curation/checks.js";
 import { loadSearchCorpus, type SearchScope } from "../retrieval/corpus.js";
 import { buildGraph } from "../retrieval/graph.js";
 import { loadMemoryConfig } from "../storage/config.js";
@@ -194,6 +195,54 @@ export interface CheckoutSyncState {
   status: "synced" | "stale" | "unknown";
 }
 
+export type CompileStatus = "idle" | "running" | "completed" | "failed";
+
+export interface CompileLastRun {
+  startedAt: string;
+  finishedAt: string;
+  durationMs: number;
+  pagesCompiled: number;
+  digestPath: string;
+}
+
+export interface CompileState {
+  status: CompileStatus;
+  lastRun: CompileLastRun | null;
+}
+
+export type ConflictReason = "duplicate-title" | "contradiction" | "stale-clone";
+
+export interface ConflictPageSummary {
+  path: string;
+  title: string;
+  updated: string | null;
+  snippet: string;
+}
+
+export interface ConflictRecord {
+  id: string;
+  pageA: ConflictPageSummary;
+  pageB: ConflictPageSummary;
+  reason: ConflictReason;
+}
+
+export interface ConflictsResponse {
+  conflicts: ConflictRecord[];
+}
+
+export interface MaintenancePageSummary {
+  path: string;
+  title: string;
+  updated: string | null;
+  confidence: number | null;
+}
+
+export interface MaintenanceScan {
+  orphans: MaintenancePageSummary[];
+  lowConfidence: MaintenancePageSummary[];
+  stale: MaintenancePageSummary[];
+}
+
 interface ResolutionIndex {
   byPath: Map<string, WikiPage>;
   byFilename: Map<string, WikiPage[]>;
@@ -371,7 +420,12 @@ function buildResolutionIndex(pages: WikiPage[]): ResolutionIndex {
 }
 
 function resolveLink(target: string, idx: ResolutionIndex): WikiPage | null {
-  const clean = target.trim().replace(/\.md$/, "");
+  const clean = target
+    .trim()
+    .split("|")[0]!
+    .split("#")[0]!
+    .replace(/^wiki\//, "")
+    .replace(/\.md$/, "");
   const byPath = idx.byPath.get(clean);
   if (byPath) return byPath;
   const matches = idx.byFilename.get(clean) ?? [];
@@ -546,6 +600,204 @@ export async function loadSyncState(vaultRoot: string): Promise<DashboardStatus[
     console.warn(`dashboard: unable to read sync state: ${(err as Error).message}`);
     return null;
   }
+}
+
+const COMPILE_STATUSES = new Set<CompileStatus>(["idle", "running", "completed", "failed"]);
+const CONFLICT_REASONS = new Set<ConflictReason>(["duplicate-title", "contradiction", "stale-clone"]);
+
+function parseCompileStatus(value: unknown): CompileStatus {
+  return typeof value === "string" && COMPILE_STATUSES.has(value as CompileStatus)
+    ? (value as CompileStatus)
+    : "idle";
+}
+
+function parseCompileLastRun(value: unknown): CompileLastRun | null {
+  if (!value || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  const startedAt = record["startedAt"];
+  const finishedAt = record["finishedAt"];
+  const durationMs = record["durationMs"];
+  const pagesCompiled = record["pagesCompiled"];
+  const digestPath = record["digestPath"];
+  if (
+    typeof startedAt !== "string" ||
+    typeof finishedAt !== "string" ||
+    typeof durationMs !== "number" ||
+    !Number.isFinite(durationMs) ||
+    typeof pagesCompiled !== "number" ||
+    !Number.isFinite(pagesCompiled) ||
+    typeof digestPath !== "string"
+  ) {
+    return null;
+  }
+
+  return { startedAt, finishedAt, durationMs, pagesCompiled, digestPath };
+}
+
+export async function loadCompileState(vaultRoot: string): Promise<CompileState> {
+  const candidates = [
+    join(vaultRoot, "state", "compile-state.json"),
+    join(vaultRoot, "state", "compile.json"),
+    join(vaultRoot, ".compile-state.json"),
+  ];
+
+  for (const path of candidates) {
+    if (!(await pathExists(path))) continue;
+    try {
+      const parsed = JSON.parse(await readFile(path, "utf-8")) as Record<string, unknown>;
+      return {
+        status: parseCompileStatus(parsed["status"]),
+        lastRun: parseCompileLastRun(parsed["lastRun"] ?? parsed["last_run"]),
+      };
+    } catch (err) {
+      console.warn(`dashboard: unable to read compile state: ${(err as Error).message}`);
+      return { status: "idle", lastRun: null };
+    }
+  }
+
+  return { status: "idle", lastRun: null };
+}
+
+function parseConflictPageSummary(value: unknown): ConflictPageSummary | null {
+  if (!value || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  const path = record["path"];
+  const title = record["title"];
+  const updated = record["updated"];
+  const snippet = record["snippet"];
+  if (
+    typeof path !== "string" ||
+    typeof title !== "string" ||
+    !(typeof updated === "string" || updated === null || updated === undefined) ||
+    typeof snippet !== "string"
+  ) {
+    return null;
+  }
+  return { path, title, updated: updated ?? null, snippet: snippet.slice(0, 200) };
+}
+
+function parseConflictRecord(value: unknown): ConflictRecord | null {
+  if (!value || typeof value !== "object") return null;
+  const record = value as Record<string, unknown>;
+  const id = record["id"];
+  const reason = record["reason"];
+  const pageA = parseConflictPageSummary(record["pageA"]);
+  const pageB = parseConflictPageSummary(record["pageB"]);
+  if (
+    typeof id !== "string" ||
+    typeof reason !== "string" ||
+    !CONFLICT_REASONS.has(reason as ConflictReason) ||
+    !pageA ||
+    !pageB
+  ) {
+    return null;
+  }
+  return { id, reason: reason as ConflictReason, pageA, pageB };
+}
+
+export async function loadConflicts(vaultRoot: string): Promise<ConflictsResponse> {
+  const candidates = [
+    join(vaultRoot, "state", "conflicts.json"),
+    join(vaultRoot, ".conflicts.json"),
+  ];
+
+  for (const path of candidates) {
+    if (!(await pathExists(path))) continue;
+    try {
+      const parsed = JSON.parse(await readFile(path, "utf-8")) as unknown;
+      const rawConflicts =
+        Array.isArray(parsed)
+          ? parsed
+          : parsed && typeof parsed === "object" && Array.isArray((parsed as Record<string, unknown>)["conflicts"])
+            ? ((parsed as Record<string, unknown>)["conflicts"] as unknown[])
+            : [];
+      return {
+        conflicts: rawConflicts
+          .map(parseConflictRecord)
+          .filter((item): item is ConflictRecord => item !== null),
+      };
+    } catch (err) {
+      console.warn(`dashboard: unable to read conflict store: ${(err as Error).message}`);
+      return { conflicts: [] };
+    }
+  }
+
+  return { conflicts: [] };
+}
+
+function pageSummary(page: WikiPage): MaintenancePageSummary {
+  const title = readTitle(page) ?? page.path;
+  const updated = typeof page.frontmatter.updated === "string" ? page.frontmatter.updated : null;
+  const confidence = typeof page.frontmatter.confidence === "number" ? page.frontmatter.confidence : null;
+  return { path: `wiki/${page.path}`, title, updated, confidence };
+}
+
+function collectOutbound(page: WikiPage, idx: ResolutionIndex): Set<string> {
+  const outbound = new Set<string>();
+  WIKILINK_RE.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = WIKILINK_RE.exec(page.body)) !== null) {
+    const resolved = resolveLink(match[1]!, idx);
+    if (resolved) outbound.add(resolved.path);
+  }
+
+  const relations = page.frontmatter.relations;
+  if (!relations || typeof relations !== "object") return outbound;
+  for (const targets of Object.values(relations)) {
+    if (!Array.isArray(targets)) continue;
+    for (const target of targets) {
+      if (typeof target !== "string") continue;
+      const resolved = resolveLink(target, idx);
+      if (resolved) outbound.add(resolved.path);
+    }
+  }
+  return outbound;
+}
+
+export async function loadMaintenanceScan(vaultRoot: string, now: Date = new Date()): Promise<MaintenanceScan> {
+  const pages = await loadCurationWiki(join(vaultRoot, "wiki"));
+  const idx = buildResolutionIndex(pages);
+  const inbound = new Map<string, Set<string>>();
+  const outboundByPath = new Map<string, Set<string>>();
+
+  for (const page of pages) {
+    const outbound = collectOutbound(page, idx);
+    outboundByPath.set(page.path, outbound);
+    for (const targetPath of outbound) {
+      if (!inbound.has(targetPath)) inbound.set(targetPath, new Set());
+      inbound.get(targetPath)!.add(page.path);
+    }
+  }
+
+  const staleCutoff = now.getTime() - 180 * 24 * 60 * 60 * 1000;
+  const orphans: MaintenancePageSummary[] = [];
+  const lowConfidence: MaintenancePageSummary[] = [];
+  const stale: MaintenancePageSummary[] = [];
+
+  for (const page of pages) {
+    const outbound = outboundByPath.get(page.path);
+    if ((inbound.get(page.path)?.size ?? 0) === 0 && (!outbound || outbound.size === 0)) {
+      orphans.push(pageSummary(page));
+    }
+
+    if (typeof page.frontmatter.confidence === "number" && page.frontmatter.confidence < 0.6) {
+      lowConfidence.push(pageSummary(page));
+    }
+
+    if (typeof page.frontmatter.updated === "string") {
+      const updatedAt = Date.parse(page.frontmatter.updated);
+      if (Number.isFinite(updatedAt) && updatedAt < staleCutoff) {
+        stale.push(pageSummary(page));
+      }
+    }
+  }
+
+  const byPath = (a: MaintenancePageSummary, b: MaintenancePageSummary) => a.path.localeCompare(b.path);
+  return {
+    orphans: orphans.sort(byPath),
+    lowConfidence: lowConfidence.sort(byPath),
+    stale: stale.sort(byPath),
+  };
 }
 
 export async function loadDashboardStatus(vaultRoot: string): Promise<DashboardStatus> {

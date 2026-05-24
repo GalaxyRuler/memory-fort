@@ -3,14 +3,17 @@ import {
   BookOpen,
   FileText,
   Gem,
+  GitMerge,
   History,
   Home,
   Layers,
   Network,
+  Play,
   Search,
   Settings as SettingsIcon,
   Shield,
   type LucideIcon,
+  Wrench,
 } from "lucide-react";
 
 export interface NavItem {
@@ -31,6 +34,9 @@ export const NAV_ITEMS: NavItem[] = [
   { to: "/sessions", label: "Sessions", icon: Layers },
   { to: "/crystals", label: "Crystals", icon: Gem },
   { to: "/audit", label: "Audit", icon: Shield },
+  { to: "/compile", label: "Compile", icon: Play },
+  { to: "/conflicts", label: "Conflict Resolution", icon: GitMerge },
+  { to: "/maintenance", label: "Maintenance", icon: Wrench },
   { to: "/settings", label: "Settings", icon: SettingsIcon, inMobileNav: true },
 ];
 

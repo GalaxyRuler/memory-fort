@@ -75,7 +75,7 @@ export async function saveEmbeddings(
   records: EmbeddingRecord[],
 ): Promise<void> {
   const content =
-    records.length === 0 ? "" : `${records.map(JSON.stringify).join("\n")}\n`;
+    records.length === 0 ? "" : `${records.map((record) => JSON.stringify(record)).join("\n")}\n`;
   await atomicWrite(embeddingsPath(memoryRoot, kind), content);
 }
 

@@ -65,7 +65,7 @@ export function buildGraph(documents: SearchDocument[]): SearchGraph {
     relationType: string | null,
   ): void {
     const resolution = resolver(raw);
-    if (resolution.path) {
+    if (resolution.path !== null) {
       addResolvedEdge({
         fromPath,
         toPath: resolution.path,

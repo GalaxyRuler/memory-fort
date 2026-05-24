@@ -16,10 +16,12 @@ export interface TemplateVars {
  */
 export function renderTemplate(
   template: string,
-  vars: Record<string, string>,
+  vars: TemplateVars | Record<string, string>,
 ): string {
   return template.replace(/\{\{([a-z_]+)\}\}/g, (_, name: string) => {
-    return name in vars ? vars[name]! : `{{${name}}}`;
+    return Object.prototype.hasOwnProperty.call(vars, name)
+      ? (vars as Record<string, string>)[name]!
+      : `{{${name}}}`;
   });
 }
 

@@ -1,14 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { CompilePage } from "../components/CompilePage.js";
 
 export const Route = createFileRoute("/compile")({
-  component: CompileRoute,
+  component: CompilePage,
 });
-
-function CompileRoute() {
-  return (
-    <section className="space-y-2 p-6">
-      <h2 className="text-2xl font-semibold">Compile</h2>
-      <p className="text-text-secondary">Stub - populated in later slice.</p>
-    </section>
-  );
-}

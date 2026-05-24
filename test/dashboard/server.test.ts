@@ -24,7 +24,21 @@ function fixture(): DashboardStatus {
 }
 
 function page(frontmatter: Record<string, unknown>, body: string): string {
-  const lines = Object.entries(frontmatter).map(([key, value]) => `${key}: ${value}`);
+  const lines = Object.entries(frontmatter).flatMap(([key, value]) => {
+    if (Array.isArray(value)) {
+      return [`${key}:`, ...value.map((item) => `  - ${item}`)];
+    }
+    if (typeof value === "object" && value !== null) {
+      return [
+        `${key}:`,
+        ...Object.entries(value as Record<string, unknown>).flatMap(([childKey, childValue]) => [
+          `  ${childKey}:`,
+          ...(Array.isArray(childValue) ? childValue.map((item) => `    - ${item}`) : [`    - ${childValue}`]),
+        ]),
+      ];
+    }
+    return [`${key}: ${value}`];
+  });
   return `---\n${lines.join("\n")}\n---\n\n${body}`;
 }
 
@@ -574,6 +588,164 @@ describe("dashboard server", () => {
         lastCheckoutAt: "2026-05-24T12:00:00.000Z",
         lastCommit: "747ce8f",
         status: "synced",
+      });
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("GET /api/compile/state returns idle state JSON on a vault with no compile state", async () => {
+    const server = await createServer({ vaultRoot: tmp, port: 0 });
+
+    try {
+      const response = await fetch(`http://${server.host}:${server.port}/api/compile/state`);
+      const body = await response.json();
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toContain("application/json");
+      expect(body).toEqual({ status: "idle", lastRun: null });
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("GET /api/conflicts returns an empty list on a clean vault and parses a populated store", async () => {
+    const server = await createServer({ vaultRoot: tmp, port: 0 });
+
+    try {
+      const cleanResponse = await fetch(`http://${server.host}:${server.port}/api/conflicts`);
+      expect(cleanResponse.status).toBe(200);
+      await expect(cleanResponse.json()).resolves.toEqual({ conflicts: [] });
+
+      await mkdir(join(tmp, "state"), { recursive: true });
+      const conflict = {
+        id: "conflict-1",
+        reason: "contradiction",
+        pageA: {
+          path: "wiki/decisions/database-migration.md",
+          title: "Database Migration Strategy",
+          updated: "2026-05-22",
+          snippet: "Rule: migrate synchronously during the maintenance window.",
+        },
+        pageB: {
+          path: "wiki/lessons/q4-migration-outage.md",
+          title: "Post-Mortem: Q4 Migration Outage",
+          updated: "2026-05-23",
+          snippet: "Finding: asynchronous dual-write avoids long transaction locks.",
+        },
+      };
+      await writeFile(join(tmp, "state", "conflicts.json"), JSON.stringify([conflict], null, 2));
+
+      const populatedResponse = await fetch(`http://${server.host}:${server.port}/api/conflicts`);
+      expect(populatedResponse.status).toBe(200);
+      await expect(populatedResponse.json()).resolves.toEqual({ conflicts: [conflict] });
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("GET /api/maintenance/scan returns orphan, low-confidence, and stale buckets", async () => {
+    await mkdir(join(tmp, "wiki", "projects"), { recursive: true });
+    await mkdir(join(tmp, "wiki", "lessons"), { recursive: true });
+    await mkdir(join(tmp, "wiki", "references"), { recursive: true });
+    await mkdir(join(tmp, "wiki", "tools"), { recursive: true });
+    await writeFile(
+      join(tmp, "wiki", "projects", "linked.md"),
+      page(
+        {
+          type: "projects",
+          title: "Linked",
+          created: "2026-05-20",
+          updated: "2026-05-23",
+          status: "active",
+          confidence: 0.9,
+          relations: { uses: ["tools/helper"] },
+        },
+        "Linked body.\n",
+      ),
+    );
+    await writeFile(
+      join(tmp, "wiki", "tools", "helper.md"),
+      page(
+        {
+          type: "tools",
+          title: "Helper",
+          created: "2026-05-20",
+          updated: "2026-05-23",
+          status: "active",
+          confidence: 0.8,
+        },
+        "Helper body.\n",
+      ),
+    );
+    await writeFile(
+      join(tmp, "wiki", "lessons", "orphan.md"),
+      page(
+        {
+          type: "lessons",
+          title: "Orphan",
+          created: "2026-05-20",
+          updated: "2026-05-23",
+          status: "active",
+          confidence: 0.9,
+        },
+        "Standalone body.\n",
+      ),
+    );
+    await writeFile(
+      join(tmp, "wiki", "references", "low.md"),
+      page(
+        {
+          type: "references",
+          title: "Low Confidence",
+          created: "2026-05-20",
+          updated: "2026-05-23",
+          status: "active",
+          confidence: 0.55,
+        },
+        "Low confidence body references [[projects/linked]].\n",
+      ),
+    );
+    await writeFile(
+      join(tmp, "wiki", "projects", "stale.md"),
+      page(
+        {
+          type: "projects",
+          title: "Stale Page",
+          created: "2025-01-01",
+          updated: "2025-01-01",
+          status: "active",
+          confidence: 0.9,
+        },
+        "Stale body references [[projects/linked]].\n",
+      ),
+    );
+    const server = await createServer({ vaultRoot: tmp, port: 0 });
+
+    try {
+      const response = await fetch(`http://${server.host}:${server.port}/api/maintenance/scan`);
+      const body = await response.json();
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toContain("application/json");
+      expect(Array.isArray(body.orphans)).toBe(true);
+      expect(Array.isArray(body.lowConfidence)).toBe(true);
+      expect(Array.isArray(body.stale)).toBe(true);
+      expect(body.orphans).toContainEqual({
+        path: "wiki/lessons/orphan.md",
+        title: "Orphan",
+        updated: "2026-05-23",
+        confidence: 0.9,
+      });
+      expect(body.lowConfidence).toContainEqual({
+        path: "wiki/references/low.md",
+        title: "Low Confidence",
+        updated: "2026-05-23",
+        confidence: 0.55,
+      });
+      expect(body.stale).toContainEqual({
+        path: "wiki/projects/stale.md",
+        title: "Stale Page",
+        updated: "2025-01-01",
+        confidence: 0.9,
       });
     } finally {
       await server.close();

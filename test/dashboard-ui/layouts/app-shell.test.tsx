@@ -40,11 +40,11 @@ describe("dashboard app shell", () => {
     expect(screen.getByRole("navigation", { name: /mobile navigation/i })).toBeInTheDocument();
   });
 
-  test("Sidebar lists all 11 nav items", () => {
+  test("Sidebar lists all nav items", () => {
     render(<Sidebar />);
 
     const sidebar = screen.getByRole("complementary");
-    expect(within(sidebar).getAllByRole("link")).toHaveLength(11);
+    expect(within(sidebar).getAllByRole("link")).toHaveLength(NAV_ITEMS.length);
     for (const item of NAV_ITEMS) {
       expect(within(sidebar).getByRole("link", { name: item.label })).toBeInTheDocument();
     }

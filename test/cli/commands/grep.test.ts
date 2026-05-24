@@ -1,8 +1,14 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtemp, rm, mkdir, writeFile } from "node:fs/promises";
+import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runGrep } from "../../../src/cli/commands/grep.js";
+
+function hasRipgrep(): boolean {
+  const result = spawnSync("rg", ["--version"], { encoding: "utf-8" });
+  return !result.error && result.status === 0;
+}
 
 describe("runGrep (mocked spawn)", () => {
   let tmp: string;
@@ -118,6 +124,7 @@ describe("runGrep (mocked spawn)", () => {
 });
 
 describe("runGrep (real rg integration)", () => {
+  const realRgIt = hasRipgrep() ? it : it.skip;
   let tmp: string;
   let origMem: string | undefined;
 
@@ -138,7 +145,7 @@ describe("runGrep (real rg integration)", () => {
     await rm(tmp, { recursive: true, force: true });
   });
 
-  it("finds matches with real ripgrep", () => {
+  realRgIt("finds matches with real ripgrep", () => {
     let stdoutCapture = "";
     const result = runGrep({
       pattern: "stale port",

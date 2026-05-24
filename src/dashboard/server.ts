@@ -6,10 +6,13 @@ import type { EmbedClient } from "../retrieval/refresh.js";
 import type { VoyageClient } from "../retrieval/voyage-client.js";
 import {
   loadActivityEvents,
+  loadCompileState,
+  loadConflicts,
   loadCheckoutSyncState,
   loadDashboardStatus,
   loadGraphFeed,
   loadLogTail,
+  loadMaintenanceScan,
   loadPageDetail,
   loadRedactedConfig,
   loadRawIndex,
@@ -284,6 +287,26 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
 
       if (segments.length === 2 && segments[0] === "api" && segments[1] === "config") {
         writeJson(res, await loadRedactedConfig(opts.vaultRoot));
+        return;
+      }
+
+      if (segments.length === 3 && segments[0] === "api" && segments[1] === "compile" && segments[2] === "state") {
+        writeJson(res, await loadCompileState(opts.vaultRoot));
+        return;
+      }
+
+      if (segments.length === 2 && segments[0] === "api" && segments[1] === "conflicts") {
+        writeJson(res, await loadConflicts(opts.vaultRoot));
+        return;
+      }
+
+      if (
+        segments.length === 3 &&
+        segments[0] === "api" &&
+        segments[1] === "maintenance" &&
+        segments[2] === "scan"
+      ) {
+        writeJson(res, await loadMaintenanceScan(opts.vaultRoot));
         return;
       }
 

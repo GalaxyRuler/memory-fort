@@ -3,9 +3,12 @@ import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  loadCompileState,
+  loadConflicts,
   loadCounts,
   loadLastCompile,
   loadLogTail,
+  loadMaintenanceScan,
   loadPageDetail,
   loadRawIndex,
   loadSyncState,
@@ -108,6 +111,187 @@ describe("dashboard loaders", () => {
       pendingPushCount: 0,
       conflictsPending: 0,
       conflictFiles: [],
+    });
+  });
+
+  it("loadCompileState returns idle when the state file is missing", async () => {
+    await expect(loadCompileState(tmp)).resolves.toEqual({ status: "idle", lastRun: null });
+  });
+
+  it("loadCompileState parses compile-state.json with a completed last run", async () => {
+    await mkdir(join(tmp, "state"), { recursive: true });
+    const lastRun = {
+      startedAt: "2026-05-24T10:00:00.000Z",
+      finishedAt: "2026-05-24T10:00:04.250Z",
+      durationMs: 4250,
+      pagesCompiled: 12,
+      digestPath: "wiki/crystal/compile-2026-05-24.md",
+    };
+    await writeFile(
+      join(tmp, "state", "compile-state.json"),
+      JSON.stringify({ status: "completed", lastRun }, null, 2),
+    );
+
+    await expect(loadCompileState(tmp)).resolves.toEqual({ status: "completed", lastRun });
+  });
+
+  it("loadCompileState returns idle when compile-state.json is malformed", async () => {
+    await mkdir(join(tmp, "state"), { recursive: true });
+    await writeFile(join(tmp, "state", "compile-state.json"), "{ not json");
+
+    await expect(loadCompileState(tmp)).resolves.toEqual({ status: "idle", lastRun: null });
+  });
+
+  it("loadConflicts returns an empty list when the store is missing and parses an array-shaped store", async () => {
+    await expect(loadConflicts(tmp)).resolves.toEqual({ conflicts: [] });
+
+    await mkdir(join(tmp, "state"), { recursive: true });
+    const validConflict = {
+      id: "conflict-1",
+      reason: "contradiction",
+      pageA: {
+        path: "wiki/decisions/a.md",
+        title: "A",
+        updated: "2026-05-22",
+        snippet: "A says to keep the old path.",
+      },
+      pageB: {
+        path: "wiki/lessons/b.md",
+        title: "B",
+        updated: null,
+        snippet: "B says the new path is required.",
+      },
+    };
+    await writeFile(
+      join(tmp, "state", "conflicts.json"),
+      JSON.stringify([validConflict], null, 2),
+    );
+
+    await expect(loadConflicts(tmp)).resolves.toEqual({ conflicts: [validConflict] });
+  });
+
+  it("loadConflicts accepts object-shaped stores and filters invalid records", async () => {
+    await mkdir(join(tmp, "state"), { recursive: true });
+    const validConflict = {
+      id: "conflict-2",
+      reason: "duplicate-title",
+      pageA: {
+        path: "wiki/projects/a.md",
+        title: "A",
+        updated: "2026-05-22",
+        snippet: "A project page.",
+      },
+      pageB: {
+        path: "wiki/projects/b.md",
+        title: "B",
+        updated: "2026-05-23",
+        snippet: "B project page.",
+      },
+    };
+    await writeFile(
+      join(tmp, "state", "conflicts.json"),
+      JSON.stringify(
+        {
+          conflicts: [
+            validConflict,
+            { ...validConflict, id: 42 },
+            { ...validConflict, reason: "unsupported-reason" },
+            { ...validConflict, pageB: { title: "missing path" } },
+          ],
+        },
+        null,
+        2,
+      ),
+    );
+
+    await expect(loadConflicts(tmp)).resolves.toEqual({ conflicts: [validConflict] });
+  });
+
+  it("loadMaintenanceScan classifies orphan, low-confidence, and stale pages with an injected clock", async () => {
+    await mkdir(join(tmp, "wiki", "projects"), { recursive: true });
+    await mkdir(join(tmp, "wiki", "lessons"), { recursive: true });
+    await mkdir(join(tmp, "wiki", "references"), { recursive: true });
+    await mkdir(join(tmp, "wiki", "tools"), { recursive: true });
+    await writeFile(
+      join(tmp, "wiki", "projects", "linked.md"),
+      page(
+        {
+          type: "projects",
+          title: "Linked",
+          created: "2026-05-20",
+          updated: "2026-05-23",
+          status: "active",
+          confidence: 0.9,
+          relations: { uses: ["tools/helper"] },
+        },
+        "Linked body.\n",
+      ),
+    );
+    await writeFile(
+      join(tmp, "wiki", "tools", "helper.md"),
+      page(
+        {
+          type: "tools",
+          title: "Helper",
+          created: "2026-05-20",
+          updated: "2026-05-23",
+          status: "active",
+          confidence: 0.8,
+        },
+        "Helper body.\n",
+      ),
+    );
+    await writeFile(
+      join(tmp, "wiki", "lessons", "orphan.md"),
+      page(
+        {
+          type: "lessons",
+          title: "Orphan",
+          created: "2026-05-20",
+          updated: "2026-05-23",
+          status: "active",
+          confidence: 0.9,
+        },
+        "Standalone body with no wiki links.\n",
+      ),
+    );
+    await writeFile(
+      join(tmp, "wiki", "references", "low.md"),
+      page(
+        {
+          type: "references",
+          title: "Low Confidence",
+          created: "2026-05-20",
+          updated: "2026-05-23",
+          status: "active",
+          confidence: 0.55,
+        },
+        "Low confidence body references [[projects/linked]].\n",
+      ),
+    );
+    await writeFile(
+      join(tmp, "wiki", "projects", "stale.md"),
+      page(
+        {
+          type: "projects",
+          title: "Stale Page",
+          created: "2024-12-01",
+          updated: "2025-11-24",
+          status: "active",
+          confidence: 0.9,
+        },
+        "Stale body references [[projects/linked]].\n",
+      ),
+    );
+
+    const scan = await loadMaintenanceScan(tmp, new Date("2026-05-24T00:00:00.000Z"));
+
+    expect(scan).toEqual({
+      orphans: [{ path: "wiki/lessons/orphan.md", title: "Orphan", updated: "2026-05-23", confidence: 0.9 }],
+      lowConfidence: [
+        { path: "wiki/references/low.md", title: "Low Confidence", updated: "2026-05-23", confidence: 0.55 },
+      ],
+      stale: [{ path: "wiki/projects/stale.md", title: "Stale Page", updated: "2025-11-24", confidence: 0.9 }],
     });
   });
 
