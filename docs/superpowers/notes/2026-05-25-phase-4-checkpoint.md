@@ -153,3 +153,17 @@ From this session I could not easily run a non-Tailscale shell probe. I did not 
 Are we ready to tag v0.4.0-phase4? No.
 
 Reason: the live VPS serves the SPA shell and assets, but every `/memory/*` client route currently renders `Not Found` under the production prefix. The tag should wait until the TanStack Router basepath or deployment mount handling is corrected and the primary screens can be dogfooded against the real corpus.
+
+## Resolution
+
+Cause: Vite correctly built assets with `base: "/memory/"`, and the dashboard server correctly served `index.html` for non-API routes under `/memory`, but TanStack Router was created without a `basepath`. In production the browser path was `/memory/wiki`, while the route tree only contained paths such as `/wiki`, so the shell loaded and the client router rendered `Not Found`.
+
+Fix: `src/dashboard-ui/router.tsx` now creates the router with `basepath: "/memory"`, leaving all route `to` strings root-relative and leaving `/memory/api` in `src/dashboard-ui/lib/api.ts` untouched. A regression smoke test was added at `test/dashboard-ui/router.test.tsx` to assert `router.options.basepath === "/memory"`. A grep of `src/dashboard-ui/` found no hardcoded router-link `/memory/` workarounds outside the legitimate API base.
+
+Local smoke: Vite dev at `http://127.0.0.1:5173/memory` rendered the overview, wiki, and graph routes through a real headless Chrome session. Live smoke after `npm run memory -- install-vps` rendered `/memory/` with overview telemetry and recent activity, `/memory/wiki` with the wiki heading/list content, and `/memory/graph` with the graph HUD, mode buttons, entity filters, and 13-node/27-edge telemetry. HTTP responses for `/memory/`, `/memory/wiki`, and `/memory/graph` remained 200 `text/html; charset=utf-8`.
+
+Latency after resolution, live VPS over Tailscale, median of three real headless Chrome trials: overview cold 1383ms, overview warm 276ms; search from entering `voyage` to results cold 1095ms, search warm 965ms; graph route to graph HUD/canvas readiness cold 4852ms, graph warm 544ms.
+
+Bundle after resolution: main moved from 504.55 KB / 150.64 KB gzip to 504.57 KB / 150.65 KB gzip, a +0.02 KB raw delta. GraphPage stayed 26.80 KB / 8.60 KB gzip, and graph-engine stayed 1342.21 KB / 362.71 KB gzip.
+
+Ready to tag v0.4.0-phase4 after this resolution? Yes, with caveats. The production basepath blocker is fixed and primary routes now render through the live `/memory` mount; remaining items in Open Follow-Ups are polish, dependency, or verification follow-ups rather than launch blockers.
