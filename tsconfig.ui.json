@@ -5,6 +5,7 @@
     "jsx": "react-jsx",
     "moduleResolution": "Bundler",
     "noEmit": true,
+    "rootDir": ".",
     "types": ["vite/client", "vitest/globals"]
   },
   "include": ["src/dashboard-ui/**/*", "test/dashboard-ui/**/*", "vite.config.ts", "tailwind.config.ts"]

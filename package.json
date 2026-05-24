@@ -36,6 +36,7 @@
     "voyageai": "~0.2.1"
   },
   "devDependencies": {
+    "@tanstack/router-plugin": "^1.168.11",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",

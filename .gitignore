@@ -3,6 +3,7 @@ dist/
 *.tsbuildinfo
 coverage/
 .vitest/
+src/dashboard-ui/routeTree.gen.ts
 
 # Brainstorming session working dir (visual companion server)
 .superpowers/
