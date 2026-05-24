@@ -103,6 +103,18 @@ async function writeActivityLog(root: string): Promise<void> {
   );
 }
 
+async function writeDashboardDist(root: string): Promise<string> {
+  const distRoot = join(root, "dist", "dashboard-ui");
+  await mkdir(join(distRoot, "assets"), { recursive: true });
+  await writeFile(
+    join(distRoot, "index.html"),
+    '<!doctype html><html><head><title>Memory</title><script type="module" src="/memory/assets/app-123.js"></script></head><body><div id="root"></div></body></html>',
+  );
+  await writeFile(join(distRoot, "assets", "app-123.js"), "console.log('dashboard asset');\n");
+  await writeFile(join(distRoot, "assets", "style-123.css"), "body{color:white}\n");
+  return distRoot;
+}
+
 describe("dashboard server", () => {
   let tmp: string;
 
@@ -794,6 +806,90 @@ describe("dashboard server", () => {
       expect(response.status).toBe(200);
       expect(response.headers.get("content-type")).toContain("application/json");
       expect(body).toEqual({});
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("GET static asset returns content type and immutable cache-control", async () => {
+    const dashboardDistRoot = await writeDashboardDist(tmp);
+    const server = await createServer({ vaultRoot: tmp, port: 0, dashboardDistRoot });
+
+    try {
+      const response = await fetch(`http://${server.host}:${server.port}/assets/app-123.js`);
+      const body = await response.text();
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toContain("application/javascript");
+      expect(response.headers.get("cache-control")).toBe("public, max-age=31536000, immutable");
+      expect(body).toContain("dashboard asset");
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("GET index.html returns no-cache", async () => {
+    const dashboardDistRoot = await writeDashboardDist(tmp);
+    const server = await createServer({ vaultRoot: tmp, port: 0, dashboardDistRoot });
+
+    try {
+      const response = await fetch(`http://${server.host}:${server.port}/`);
+      const body = await response.text();
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toContain("text/html");
+      expect(response.headers.get("cache-control")).toBe("no-cache");
+      expect(body).toContain('<div id="root"');
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("GET non-API SPA routes fall back to index.html", async () => {
+    const dashboardDistRoot = await writeDashboardDist(tmp);
+    const server = await createServer({ vaultRoot: tmp, port: 0, dashboardDistRoot });
+
+    try {
+      for (const path of ["/wiki", "/graph", "/some/deep/path"]) {
+        const response = await fetch(`http://${server.host}:${server.port}${path}`);
+        const body = await response.text();
+        expect(response.status).toBe(200);
+        expect(response.headers.get("content-type")).toContain("text/html");
+        expect(response.headers.get("cache-control")).toBe("no-cache");
+        expect(body).toContain('<div id="root"');
+      }
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("GET path traversal against static handler returns 400", async () => {
+    const dashboardDistRoot = await writeDashboardDist(tmp);
+    const server = await createServer({ vaultRoot: tmp, port: 0, dashboardDistRoot });
+
+    try {
+      const response = await fetch(`http://${server.host}:${server.port}/..%2fetc%2fpasswd`);
+      const body = await response.text();
+      expect(response.status).toBe(400);
+      expect(body).toContain("Bad Request");
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("GET /api/status keeps API precedence when static assets are enabled", async () => {
+    const dashboardDistRoot = await writeDashboardDist(tmp);
+    const status = fixture();
+    const server = await createServer({
+      vaultRoot: tmp,
+      port: 0,
+      dashboardDistRoot,
+      loader: async () => status,
+    });
+
+    try {
+      const response = await fetch(`http://${server.host}:${server.port}/api/status`);
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toContain("application/json");
+      await expect(response.json()).resolves.toEqual(status);
     } finally {
       await server.close();
     }

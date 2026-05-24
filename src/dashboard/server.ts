@@ -1,5 +1,7 @@
 import { createServer as createHttpServer, type Server as HttpServer, type ServerResponse } from "node:http";
-import { isAbsolute, join, relative, resolve } from "node:path";
+import { readFile, stat } from "node:fs/promises";
+import { extname, isAbsolute, join, relative, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { runSearch } from "../retrieval/search.js";
 import type { SearchScope } from "../retrieval/corpus.js";
 import type { EmbedClient } from "../retrieval/refresh.js";
@@ -42,6 +44,7 @@ export interface ServerOptions {
   host?: string;
   loader?: (vaultRoot: string) => Promise<DashboardStatus>;
   voyageClient?: VoyageClient | null;
+  dashboardDistRoot?: string | null;
 }
 
 export interface RunningServer {
@@ -60,10 +63,116 @@ function closeServer(server: HttpServer): Promise<void> {
 }
 
 const SAFE_SEGMENT_RE = /^[A-Za-z0-9._-]+$/;
+const DASHBOARD_MOUNT_PREFIX = "/memory";
+
+interface StaticAssetsRoot {
+  root: string;
+  indexPath: string;
+}
+
+const MIME_TYPES: Record<string, string> = {
+  ".html": "text/html; charset=utf-8",
+  ".js": "application/javascript; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".svg": "image/svg+xml",
+  ".woff2": "font/woff2",
+  ".png": "image/png",
+  ".map": "application/json; charset=utf-8",
+};
+
+type StaticServeResult = "served" | "miss" | "bad-request";
 
 function isStrictChild(parent: string, child: string): boolean {
   const rel = relative(resolve(parent), resolve(child));
   return rel.length > 0 && !rel.startsWith("..") && !isAbsolute(rel);
+}
+
+function isInsideOrSame(parent: string, child: string): boolean {
+  const rel = relative(resolve(parent), resolve(child));
+  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+}
+
+async function fileExists(path: string): Promise<boolean> {
+  try {
+    const info = await stat(path);
+    return info.isFile();
+  } catch {
+    return false;
+  }
+}
+
+function defaultDashboardDistRoot(): string | null {
+  const serverPath = fileURLToPath(import.meta.url).replace(/\\/g, "/");
+  if (!serverPath.includes("/dist/dashboard/")) return null;
+  return fileURLToPath(new URL("../dashboard-ui/", import.meta.url));
+}
+
+async function resolveStaticAssetsRoot(input: string | null | undefined): Promise<StaticAssetsRoot | null> {
+  if (input === null) return null;
+
+  const configuredRoot = input ?? process.env["MEMORY_DASHBOARD_DIST"] ?? defaultDashboardDistRoot();
+  if (!configuredRoot) return null;
+
+  const root = resolve(configuredRoot);
+  const indexPath = join(root, "index.html");
+  const hasIndex = await fileExists(indexPath);
+
+  if (!hasIndex) {
+    throw new Error(`dashboard UI dist missing index.html at ${indexPath}; run npm run build:ui`);
+  }
+
+  return { root, indexPath };
+}
+
+function normalizeDashboardPath(pathname: string): string {
+  if (pathname === DASHBOARD_MOUNT_PREFIX) return "/";
+  if (pathname.startsWith(`${DASHBOARD_MOUNT_PREFIX}/`)) return pathname.slice(DASHBOARD_MOUNT_PREFIX.length);
+  return pathname;
+}
+
+function contentTypeForPath(path: string): string {
+  return MIME_TYPES[extname(path)] ?? "application/octet-stream";
+}
+
+async function writeStaticFile(
+  res: ServerResponse,
+  filePath: string,
+  cacheControl: string,
+): Promise<void> {
+  const body = await readFile(filePath);
+  res.writeHead(200, {
+    "Content-Type": contentTypeForPath(filePath),
+    "Cache-Control": cacheControl,
+  });
+  res.end(body);
+}
+
+async function serveStaticAssetIfFound(
+  res: ServerResponse,
+  assets: StaticAssetsRoot | null,
+  segments: string[],
+): Promise<StaticServeResult> {
+  if (!assets) return "miss";
+  if (segments.length === 0) {
+    await writeStaticFile(res, assets.indexPath, "no-cache");
+    return "served";
+  }
+
+  const candidate = join(assets.root, ...segments);
+  if (!isInsideOrSame(assets.root, candidate)) return "bad-request";
+  if (!(await fileExists(candidate))) return "miss";
+
+  const isImmutableAsset = segments[0] === "assets";
+  await writeStaticFile(
+    res,
+    candidate,
+    isImmutableAsset ? "public, max-age=31536000, immutable" : "no-cache",
+  );
+  return "served";
+}
+
+async function serveSpaHistoryFallback(res: ServerResponse, assets: StaticAssetsRoot): Promise<void> {
+  await writeStaticFile(res, assets.indexPath, "no-cache");
 }
 
 function parseSafeSegments(pathname: string): string[] | null {
@@ -188,14 +297,23 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
   const loader = opts.loader ?? loadDashboardStatus;
   const voyageClient = opts.voyageClient ?? null;
   const embedClient = makeEmbedClient(voyageClient);
+  const staticAssets = await resolveStaticAssetsRoot(opts.dashboardDistRoot);
 
   const server = createHttpServer(async (req, res) => {
     const method = req.method ?? "GET";
     const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
-    const path = url.pathname;
+    const path = normalizeDashboardPath(url.pathname);
 
     if (method !== "GET") {
-      writeHtml(res, 404, renderNotFound(path));
+      if (path.startsWith("/api/")) {
+        writeJsonError(res, 405, "method not allowed");
+      } else {
+        res.writeHead(405, {
+          "Content-Type": "text/plain; charset=utf-8",
+          "Allow": "GET",
+        });
+        res.end("method not allowed");
+      }
       return;
     }
 
@@ -205,7 +323,7 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
       return;
     }
 
-    if (path === "/" || path === "/api/status") {
+    if (path === "/api/status" || (path === "/" && !staticAssets)) {
       try {
         const status = await loader(opts.vaultRoot);
         if (path === "/api/status") {
@@ -307,6 +425,17 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
         segments[2] === "scan"
       ) {
         writeJson(res, await loadMaintenanceScan(opts.vaultRoot));
+        return;
+      }
+
+      if (staticAssets && !path.startsWith("/api/")) {
+        const staticResult = await serveStaticAssetIfFound(res, staticAssets, segments);
+        if (staticResult === "served") return;
+        if (staticResult === "bad-request") {
+          writeHtml(res, 400, renderBadRequest("Malformed dashboard path."));
+          return;
+        }
+        await serveSpaHistoryFallback(res, staticAssets);
         return;
       }
 
@@ -427,6 +556,7 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
         writeJson(res, await loadLogTail(opts.vaultRoot, parseLineCount(url.searchParams.get("lines"))));
         return;
       }
+
     } catch (err) {
       if (path.startsWith("/api/")) {
         writeJsonError(res, 500, (err as Error).message);

@@ -1,5 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { runInstallVps } from "../../../src/cli/commands/install-vps.js";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { runInstallVps, type LocalCommandRunner } from "../../../src/cli/commands/install-vps.js";
 import type { SshCommand, SshRunner } from "../../../src/sync/ssh-runner.js";
 
 interface RecordedCall {
@@ -32,6 +35,22 @@ function makeRunner(
 
 function commands(runner: { calls: RecordedCall[] }): string[] {
   return runner.calls.map((call) => call.command.command);
+}
+
+function activeRunner(): SshRunner & { calls: RecordedCall[] } {
+  return makeRunner((call) => ({
+    stdout: call.command.command.includes("test -d")
+      ? "EXISTS\n"
+      : call.command.command === "which node"
+        ? "/usr/local/node22/bin/node\n"
+        : call.command.command.includes("curl -sS")
+          ? "ok\n"
+          : "active\n",
+  }));
+}
+
+function expectedNpmCommand(): string {
+  return process.platform === "win32" ? "npm.cmd" : "npm";
 }
 
 describe("runInstallVps", () => {
@@ -259,5 +278,102 @@ describe("runInstallVps", () => {
     });
 
     await expect(runInstallVps({ runner })).rejects.toThrow(/Node.*srv1317946/);
+  });
+
+  it("Installer syncs dist/dashboard-ui to the VPS with rsync --delete", async () => {
+    const tmpRoot = await mkdtemp(join(tmpdir(), "install-vps-ui-"));
+    const dashboardDistRoot = join(tmpRoot, "dist", "dashboard-ui");
+    await mkdir(join(dashboardDistRoot, "assets"), { recursive: true });
+    await writeFile(join(dashboardDistRoot, "index.html"), "<div id=\"root\"></div>");
+
+    const localCommands: Array<{ command: string; args: string[] }> = [];
+    const localRunner: LocalCommandRunner = {
+      async run(command, args) {
+        localCommands.push({ command, args });
+        return { stdout: "", stderr: "", exitCode: 0 };
+      },
+    };
+
+    try {
+      await runInstallVps({
+        installRoot: "/tmp/mem",
+        runner: activeRunner(),
+        dashboardDistRoot,
+        localRunner,
+      });
+
+      expect(localCommands).toEqual([
+        {
+          command: expectedNpmCommand(),
+          args: ["run", "build:ui"],
+        },
+        {
+          command: "rsync",
+          args: [
+            "-az",
+            "--delete",
+            `${dashboardDistRoot.replace(/\\/g, "/")}/`,
+            "srv1317946:/tmp/mem/dist/dashboard-ui/",
+          ],
+        },
+      ]);
+    } finally {
+      await rm(tmpRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("Installer falls back to scp mirroring when rsync is unavailable", async () => {
+    const tmpRoot = await mkdtemp(join(tmpdir(), "install-vps-ui-"));
+    const dashboardDistRoot = join(tmpRoot, "dist", "dashboard-ui");
+    await mkdir(join(dashboardDistRoot, "assets"), { recursive: true });
+    await writeFile(join(dashboardDistRoot, "index.html"), "<div id=\"root\"></div>");
+
+    const runner = activeRunner();
+    const localCommands: Array<{ command: string; args: string[] }> = [];
+    const localRunner: LocalCommandRunner = {
+      async run(command, args) {
+        localCommands.push({ command, args });
+        if (command === "rsync") {
+          throw new Error("rsync failed to start: spawn rsync ENOENT");
+        }
+        return { stdout: "", stderr: "", exitCode: 0 };
+      },
+    };
+
+    try {
+      await runInstallVps({
+        installRoot: "/tmp/mem",
+        runner,
+        dashboardDistRoot,
+        localRunner,
+      });
+
+      expect(commands(runner)).toContain("rm -rf /tmp/mem/dist/dashboard-ui && mkdir -p /tmp/mem/dist/dashboard-ui");
+      expect(localCommands).toEqual([
+        {
+          command: expectedNpmCommand(),
+          args: ["run", "build:ui"],
+        },
+        {
+          command: "rsync",
+          args: [
+            "-az",
+            "--delete",
+            `${dashboardDistRoot.replace(/\\/g, "/")}/`,
+            "srv1317946:/tmp/mem/dist/dashboard-ui/",
+          ],
+        },
+        {
+          command: "scp",
+          args: [
+            "-r",
+            `${dashboardDistRoot.replace(/\\/g, "/")}/.`,
+            "srv1317946:/tmp/mem/dist/dashboard-ui/",
+          ],
+        },
+      ]);
+    } finally {
+      await rm(tmpRoot, { recursive: true, force: true });
+    }
   });
 });

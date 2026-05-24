@@ -9,6 +9,10 @@ const HOST = process.env.MEMORY_DASHBOARD_HOST || "127.0.0.1";
 const VAULT_ROOT = process.env.MEMORY_INSTALL_ROOT
   ? `${process.env.MEMORY_INSTALL_ROOT}/vault`
   : "/root/memory-system/vault";
+const DASHBOARD_DIST = process.env.MEMORY_DASHBOARD_DIST ||
+  (process.env.MEMORY_INSTALL_ROOT
+    ? `${process.env.MEMORY_INSTALL_ROOT}/dist/dashboard-ui`
+    : new URL("../dist/dashboard-ui/", import.meta.url).pathname);
 
 const apiKey = process.env.VOYAGE_API_KEY;
 const voyageClient = apiKey ? makeVoyageClient({ apiKey }) : null;
@@ -23,8 +27,9 @@ const server = await createServer({
   port: PORT,
   host: HOST,
   voyageClient,
+  dashboardDistRoot: DASHBOARD_DIST,
 });
-console.log(`[${new Date().toISOString()}] dashboard listening on http://${HOST}:${PORT} (vault=${VAULT_ROOT})`);
+console.log(`[${new Date().toISOString()}] dashboard listening on http://${HOST}:${PORT} (vault=${VAULT_ROOT}, ui=${DASHBOARD_DIST})`);
 
 const shutdown = async () => {
   console.log(`[${new Date().toISOString()}] shutting down`);

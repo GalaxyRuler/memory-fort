@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { Buffer } from "node:buffer";
 import { spawn } from "node:child_process";
-import { dirname, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { configPath } from "../../storage/paths.js";
 import { type SshCommand, type SshRunner } from "../../sync/ssh-runner.js";
@@ -12,6 +12,8 @@ export interface InstallVpsOptions {
   installRoot?: string;
   dryRun?: boolean;
   runner?: SshRunner;
+  localRunner?: LocalCommandRunner;
+  dashboardDistRoot?: string;
 }
 
 export interface InstallVpsResult {
@@ -34,6 +36,10 @@ interface Snapshot {
   tailscaleServe: string;
   listening: string;
   caddyStatus: string;
+}
+
+export interface LocalCommandRunner {
+  run(command: string, args: string[]): Promise<{ stdout: string; stderr: string; exitCode: number }>;
 }
 
 const DEFAULT_HOST = "srv1317946";
@@ -205,10 +211,18 @@ function makeInstallVpsSshRunner(): SshRunner {
   return {
     run(host: string, cmd: SshCommand) {
       return new Promise((resolve, reject) => {
-        const child = spawn("ssh", [host, cmd.command], {
-          stdio: ["ignore", "pipe", "pipe"],
-          windowsHide: true,
-        });
+        let child;
+        try {
+          child = spawn("ssh", [host, cmd.command], {
+            stdio: ["ignore", "pipe", "pipe"],
+            windowsHide: true,
+          });
+        } catch (err) {
+          reject(new Error(
+            `ssh failed to start (${cmd.description}; command length ${cmd.command.length}): ${(err as Error).message}`,
+          ));
+          return;
+        }
         let stdout = "";
         let stderr = "";
 
@@ -220,6 +234,44 @@ function makeInstallVpsSshRunner(): SshRunner {
         });
         child.on("error", (err) => {
           reject(new Error(`ssh failed to start: ${err.message}`));
+        });
+        child.on("close", (code) => {
+          resolve({ stdout, stderr, exitCode: code ?? -1 });
+        });
+      });
+    },
+  };
+}
+
+function makeLocalCommandRunner(): LocalCommandRunner {
+  return {
+    run(command: string, args: string[]) {
+      return new Promise((resolve, reject) => {
+        const spawnCommand = process.platform === "win32" && command.endsWith(".cmd") ? "cmd.exe" : command;
+        const spawnArgs = spawnCommand === "cmd.exe" ? ["/d", "/s", "/c", command, ...args] : args;
+        let child;
+        try {
+          child = spawn(spawnCommand, spawnArgs, {
+            stdio: ["ignore", "pipe", "pipe"],
+            windowsHide: true,
+          });
+        } catch (err) {
+          reject(new Error(
+            `${command} failed to start (args length ${args.join(" ").length}): ${(err as Error).message}`,
+          ));
+          return;
+        }
+        let stdout = "";
+        let stderr = "";
+
+        child.stdout?.on("data", (chunk: Buffer | string) => {
+          stdout += chunk.toString();
+        });
+        child.stderr?.on("data", (chunk: Buffer | string) => {
+          stderr += chunk.toString();
+        });
+        child.on("error", (err) => {
+          reject(new Error(`${command} failed to start: ${err.message}`));
         });
         child.on("close", (code) => {
           resolve({ stdout, stderr, exitCode: code ?? -1 });
@@ -242,6 +294,154 @@ function printDryRun(host: string, commands: SshCommand[]): void {
   for (const cmd of commands) {
     process.stdout.write(`[dry-run] $ ssh ${host} '${cmd.command}'\n`);
   }
+}
+
+function printDryRunLocal(command: string, args: string[]): void {
+  process.stdout.write(`[dry-run] $ ${formatLocalCommand(command, args)}\n`);
+}
+
+function resolveDashboardDistRoot(input: string | undefined): string {
+  return input ? resolve(input) : resolve(process.cwd(), "dist", "dashboard-ui");
+}
+
+function assertDashboardDistReady(root: string): void {
+  if (!existsSync(join(root, "index.html"))) {
+    throw new Error(`dashboard UI dist missing at ${root}; run npm run build:ui before memory install-vps`);
+  }
+}
+
+function rsyncPath(path: string): string {
+  const normalized = path.replace(/\\/g, "/");
+  return normalized.endsWith("/") ? normalized : `${normalized}/`;
+}
+
+function scpContentsPath(path: string): string {
+  return `${rsyncPath(path)}.`;
+}
+
+function formatLocalCommand(command: string, args: string[]): string {
+  return [command, ...args].join(" ");
+}
+
+function npmCommand(): string {
+  return process.platform === "win32" ? "npm.cmd" : "npm";
+}
+
+async function buildDashboardUi(localRunner: LocalCommandRunner): Promise<InstallVpsResult["steps"][number]> {
+  const command = npmCommand();
+  const args = ["run", "build:ui"];
+  const result = await localRunner.run(command, args);
+  if (result.exitCode !== 0) {
+    const detail = result.stderr.trim() || result.stdout.trim() || `exit code ${result.exitCode}`;
+    throw new Error(`local command failed (build dashboard UI): ${formatLocalCommand(command, args)}: ${detail}`);
+  }
+  return {
+    command: formatLocalCommand(command, args),
+    description: "build dashboard UI static assets",
+    output: result.stdout || result.stderr,
+    exitCode: result.exitCode,
+  };
+}
+
+async function syncDashboardUiDist(
+  host: string,
+  installRoot: string,
+  runner: SshRunner,
+  localRunner: LocalCommandRunner,
+  dashboardDistRoot: string,
+): Promise<InstallVpsResult["steps"]> {
+  const steps: InstallVpsResult["steps"] = [];
+  steps.push(await buildDashboardUi(localRunner));
+  assertDashboardDistReady(dashboardDistRoot);
+
+  const mkdirCommand: SshCommand = {
+    command: `mkdir -p ${installRoot}/dist/dashboard-ui`,
+    description: "create dashboard UI dist directory",
+  };
+  const mkdirResult = await runChecked(host, runner, mkdirCommand);
+  steps.push({
+    command: mkdirCommand.command,
+    description: mkdirCommand.description,
+    output: mkdirResult.stdout || mkdirResult.stderr,
+    exitCode: mkdirResult.exitCode,
+  });
+
+  const args = [
+    "-az",
+    "--delete",
+    rsyncPath(dashboardDistRoot),
+    `${host}:${installRoot}/dist/dashboard-ui/`,
+  ];
+  let result;
+  try {
+    result = await localRunner.run("rsync", args);
+  } catch (err) {
+    const message = (err as Error).message;
+    if (!message.includes("ENOENT") && !message.includes("rsync failed to start")) {
+      throw err;
+    }
+    steps.push(...await syncDashboardUiDistWithScpFallback(
+      host,
+      installRoot,
+      runner,
+      localRunner,
+      dashboardDistRoot,
+      message,
+    ));
+    return steps;
+  }
+  if (result.exitCode !== 0) {
+    const detail = result.stderr.trim() || result.stdout.trim() || `exit code ${result.exitCode}`;
+    throw new Error(`local command failed (upload dashboard UI static assets): ${formatLocalCommand("rsync", args)}: ${detail}`);
+  }
+  steps.push({
+    command: formatLocalCommand("rsync", args),
+    description: "upload dashboard UI static assets",
+    output: result.stdout || result.stderr,
+    exitCode: result.exitCode,
+  });
+
+  return steps;
+}
+
+async function syncDashboardUiDistWithScpFallback(
+  host: string,
+  installRoot: string,
+  runner: SshRunner,
+  localRunner: LocalCommandRunner,
+  dashboardDistRoot: string,
+  rsyncFailure: string,
+): Promise<InstallVpsResult["steps"]> {
+  const steps: InstallVpsResult["steps"] = [];
+  const resetCommand: SshCommand = {
+    command: `rm -rf ${installRoot}/dist/dashboard-ui && mkdir -p ${installRoot}/dist/dashboard-ui`,
+    description: "reset dashboard UI dist directory for scp fallback",
+  };
+  const resetResult = await runChecked(host, runner, resetCommand);
+  steps.push({
+    command: resetCommand.command,
+    description: resetCommand.description,
+    output: resetResult.stdout || resetResult.stderr,
+    exitCode: resetResult.exitCode,
+  });
+
+  const args = [
+    "-r",
+    scpContentsPath(dashboardDistRoot),
+    `${host}:${installRoot}/dist/dashboard-ui/`,
+  ];
+  const result = await localRunner.run("scp", args);
+  if (result.exitCode !== 0) {
+    const detail = result.stderr.trim() || result.stdout.trim() || `exit code ${result.exitCode}`;
+    throw new Error(`local command failed (upload dashboard UI static assets via scp fallback after ${rsyncFailure}): ${formatLocalCommand("scp", args)}: ${detail}`);
+  }
+  steps.push({
+    command: formatLocalCommand("scp", args),
+    description: "upload dashboard UI static assets via scp fallback",
+    output: result.stdout || result.stderr,
+    exitCode: result.exitCode,
+  });
+  return steps;
 }
 
 async function readTemplate(...parts: string[]): Promise<string> {
@@ -323,8 +523,8 @@ async function buildSystemdCommands(
     ...uploadChunkedCommands(`${installRoot}/services/dashboard-bundle.mjs`, dashboardBundle, "upload dashboard bundle"),
     { command: `chmod 644 ${installRoot}/services/dashboard-bundle.mjs`, description: "set dashboard bundle permissions" },
     {
-      command: `cd ${installRoot}/services && if [ ! -f package.json ]; then npm init -y >/dev/null; fi && npm install voyageai@~0.2.1 >/dev/null`,
-      description: "install dashboard Voyage SDK dependency",
+      command: `cd ${installRoot}/services && if [ ! -f package.json ]; then npm init -y >/dev/null; fi && npm install voyageai@~0.2.1 gray-matter@^4 js-yaml@^4 >/dev/null`,
+      description: "install dashboard runtime dependencies",
     },
     ...uploadFileCommands(`${installRoot}/services/dashboard-placeholder.mjs`, placeholder, "upload dashboard placeholder"),
     { command: `chmod 644 ${installRoot}/services/dashboard-placeholder.mjs`, description: "set dashboard placeholder permissions" },
@@ -402,6 +602,7 @@ export async function runInstallVps(opts: InstallVpsOptions = {}): Promise<Insta
   if (!isSafeRemotePath(installRoot)) {
     throw new Error(`install root must be an absolute path without quotes or newlines: ${installRoot}`);
   }
+  const dashboardDistRoot = resolveDashboardDistRoot(opts.dashboardDistRoot);
 
   const now = new Date();
   const idempotency = buildIdempotencyCommand(installRoot);
@@ -418,6 +619,13 @@ export async function runInstallVps(opts: InstallVpsOptions = {}): Promise<Insta
       ...systemdCommands,
       ...SNAPSHOT_COMMANDS,
     ]);
+    printDryRunLocal(npmCommand(), ["run", "build:ui"]);
+    printDryRunLocal("rsync", [
+      "-az",
+      "--delete",
+      rsyncPath(dashboardDistRoot),
+      `${host}:${installRoot}/dist/dashboard-ui/`,
+    ]);
     return {
       host,
       installRoot,
@@ -430,6 +638,7 @@ export async function runInstallVps(opts: InstallVpsOptions = {}): Promise<Insta
   }
 
   const runner = opts.runner ?? makeInstallVpsSshRunner();
+  const localRunner = opts.localRunner ?? (opts.runner === undefined ? makeLocalCommandRunner() : null);
   const steps: InstallVpsResult["steps"] = [];
   const preSnapshot = await captureSnapshot(host, runner);
   const idempotencyResult = await runChecked(host, runner, idempotency);
@@ -447,6 +656,9 @@ export async function runInstallVps(opts: InstallVpsOptions = {}): Promise<Insta
   }
 
   const nodePath = await resolveNodePath(host, runner);
+  if (localRunner) {
+    steps.push(...await syncDashboardUiDist(host, installRoot, runner, localRunner, dashboardDistRoot));
+  }
   const systemdCommands = await buildSystemdCommands(installRoot, nodePath, useChunkedWrites);
   for (const cmd of systemdCommands) {
     const result = await runChecked(host, runner, cmd);
