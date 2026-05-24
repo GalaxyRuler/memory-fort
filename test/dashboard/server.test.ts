@@ -573,9 +573,14 @@ describe("dashboard server", () => {
 
   it("GET /api/sync-state returns checkout-log-derived state", async () => {
     await mkdir(join(tmp, "logs"), { recursive: true });
+    // Use a fixture timestamp anchored to the current clock so the staleness
+    // window (6h) never drifts under us. The loader computes status against
+    // real Date.now(); a hardcoded ISO date silently flips to "stale" 6 hours
+    // after the date in the literal.
+    const checkoutAt = new Date(Date.now() - 60_000).toISOString();
     await writeFile(
       join(tmp, "logs", "checkout.log"),
-      "2026-05-24T12:00:00.000Z checked out 747ce8f from creator push\n",
+      `${checkoutAt} checked out 747ce8f from creator push\n`,
     );
     const server = await createServer({ vaultRoot: tmp, port: 0 });
 
@@ -585,7 +590,7 @@ describe("dashboard server", () => {
       expect(response.status).toBe(200);
       expect(response.headers.get("content-type")).toContain("application/json");
       expect(body).toEqual({
-        lastCheckoutAt: "2026-05-24T12:00:00.000Z",
+        lastCheckoutAt: checkoutAt,
         lastCommit: "747ce8f",
         status: "synced",
       });
