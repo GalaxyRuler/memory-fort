@@ -28,6 +28,19 @@
   .gradient-accent {
     background: linear-gradient(135deg, #8b5fff, #5b8bff);
   }
+
+  @keyframes spin-slow {
+    from {
+      transform: rotate(0deg);
+    }
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  .animate-spin-slow {
+    animation: spin-slow 8s linear infinite;
+  }
 }
 
 html,

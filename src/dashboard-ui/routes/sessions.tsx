@@ -1,14 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { SessionsPage } from "../components/SessionsPage.js";
 
 export const Route = createFileRoute("/sessions")({
-  component: SessionsRoute,
+  component: SessionsPage,
+  validateSearch: (search): { source?: string } => ({
+    source: typeof search.source === "string" ? search.source : undefined,
+  }),
 });
-
-function SessionsRoute() {
-  return (
-    <section className="space-y-2 p-6">
-      <h2 className="text-2xl font-semibold">Sessions</h2>
-      <p className="text-text-secondary">Stub - populated in later slice.</p>
-    </section>
-  );
-}
