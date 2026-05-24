@@ -37,7 +37,7 @@ export function ActivityEventRow({ event }: { event: ActivityEvent }) {
         />
         <div className="flex-1 min-w-0">
           <p className="text-sm text-text-primary break-words">{event.summary}</p>
-          <div className="flex items-center gap-2 mt-1">
+          <div className="mt-1 flex flex-wrap items-center gap-2">
             <span className="text-[10px] uppercase tracking-wider text-text-muted font-mono">{event.source}</span>
             <span className="text-xs text-text-muted">{relativeTime(event.timestamp)}</span>
           </div>

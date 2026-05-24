@@ -86,10 +86,10 @@ describe("dashboard app shell", () => {
   });
 
   test("MobileBottomNav highlights the active item", () => {
-    routerMockState.currentPath = "/activity";
+    routerMockState.currentPath = "/timeline";
 
     render(<MobileBottomNav />);
 
-    expect(screen.getByRole("link", { name: "Activity" })).toHaveClass("text-text-primary");
+    expect(screen.getByRole("link", { name: "Timeline" })).toHaveClass("text-text-primary");
   });
 });

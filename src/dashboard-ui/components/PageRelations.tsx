@@ -1,9 +1,18 @@
 import { Link } from "@tanstack/react-router";
 import { type PageInbound, type PageRelation } from "../hooks/usePageDetail.js";
+import { cn } from "../lib/cn.js";
 import { wikiPathToRouterParams } from "../lib/wikilinks.js";
 import { Card } from "./Card.js";
 
-export function PageRelations({ relations, inbound }: { relations: PageRelation[]; inbound: PageInbound[] }) {
+export function PageRelations({
+  className,
+  relations,
+  inbound,
+}: {
+  className?: string;
+  relations: PageRelation[];
+  inbound: PageInbound[];
+}) {
   const grouped = new Map<string, PageRelation[]>();
   for (const relation of relations) {
     const group = grouped.get(relation.key) ?? [];
@@ -12,7 +21,7 @@ export function PageRelations({ relations, inbound }: { relations: PageRelation[
   }
 
   return (
-    <section className="mt-8 space-y-4">
+    <section className={cn("mt-8 space-y-4", className)}>
       {grouped.size > 0 ? (
         <Card>
           <h2 className="mb-3 text-sm font-semibold">Relations</h2>
@@ -40,13 +49,16 @@ export function PageRelations({ relations, inbound }: { relations: PageRelation[
             {inbound.map((reference, index) => {
               const params = wikiPathToRouterParams(reference.fromPath);
               return (
-                <li className="flex items-baseline justify-between gap-2 text-sm" key={`${reference.fromPath}-${index}`}>
+                <li
+                  className="flex flex-col gap-1 text-sm sm:flex-row sm:items-baseline sm:justify-between sm:gap-2"
+                  key={`${reference.fromPath}-${index}`}
+                >
                   {params ? (
-                    <Link className="truncate text-primary hover:underline" params={params} to="/wiki/$category/$slug">
+                    <Link className="break-words text-primary hover:underline sm:truncate" params={params} to="/wiki/$category/$slug">
                       {reference.fromTitle ?? reference.fromPath}
                     </Link>
                   ) : (
-                    <span className="truncate">{reference.fromTitle ?? reference.fromPath}</span>
+                    <span className="break-words sm:truncate">{reference.fromTitle ?? reference.fromPath}</span>
                   )}
                   <span className="flex-shrink-0 font-mono text-xs text-text-muted">via {reference.via}</span>
                 </li>

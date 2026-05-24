@@ -54,9 +54,9 @@ export function AuditPage() {
   });
 
   return (
-    <div className="mx-auto max-w-7xl p-6">
+    <div className="mx-auto max-w-7xl p-4 md:p-6">
       <header className="mb-4">
-        <h1 className="text-2xl font-semibold tracking-tight">Audit log</h1>
+        <h1 className="break-words text-2xl font-semibold tracking-tight">Audit log</h1>
         <p className="text-sm text-text-secondary">
           Unified stream: git, sync, compile, lint, errors. {events.length} entries shown.
         </p>
@@ -85,7 +85,7 @@ export function AuditPage() {
                 })
               }
               className={cn(
-                "rounded-md px-2 py-1 transition-colors",
+                "min-h-11 rounded-md px-3 py-1 transition-colors md:min-h-8 md:px-2",
                 levelFilter === level.value ? "bg-surface-2 text-text-primary" : "text-text-secondary hover:text-text-primary",
               )}
             >
@@ -107,7 +107,7 @@ export function AuditPage() {
                 })
               }
               className={cn(
-                "rounded-md px-2 py-1 transition-colors",
+                "min-h-11 rounded-md px-3 py-1 transition-colors md:min-h-8 md:px-2",
                 sourceFilter === source.value ? "bg-surface-2 text-text-primary" : "text-text-secondary hover:text-text-primary",
               )}
             >
@@ -120,7 +120,7 @@ export function AuditPage() {
       <Card className="p-3">
         {activity.isLoading && <p className="text-sm text-text-muted">Loading audit...</p>}
         {!activity.isLoading && events.length === 0 && <p className="text-sm text-text-muted">No entries match these filters.</p>}
-        <ul>
+        <ul className="space-y-2 md:space-y-0">
           {events.map((event, index) => (
             <AuditRow key={`${event.timestamp}-${index}`} event={event} />
           ))}

@@ -3,11 +3,20 @@ import { StatusPill } from "../components/StatusPill.js";
 import { cn } from "../lib/cn.js";
 import { NAV_ITEMS } from "../lib/nav-items.js";
 
-export function Sidebar({ className }: { className?: string }) {
+export function Sidebar({
+  className,
+  label = "Primary sidebar",
+  onNavigate,
+}: {
+  className?: string;
+  label?: string;
+  onNavigate?: () => void;
+}) {
   const location = useLocation();
 
   return (
     <aside
+      aria-label={label}
       className={cn(
         "w-[220px] flex-shrink-0 flex-col gap-1 border-r border-border-subtle bg-surface p-3",
         className,
@@ -28,8 +37,9 @@ export function Sidebar({ className }: { className?: string }) {
             <Link
               key={item.to}
               to={item.to}
+              onClick={onNavigate}
               className={cn(
-                "relative flex items-center gap-2.5 rounded-md px-3 py-1.5 text-sm transition-colors",
+                "relative flex min-h-11 items-center gap-2.5 rounded-md px-3 py-2 text-sm transition-colors md:min-h-0 md:py-1.5",
                 isActive
                   ? "bg-surface-2 text-text-primary"
                   : "text-text-secondary hover:bg-surface-2 hover:text-text-primary",

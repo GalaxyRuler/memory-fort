@@ -9,7 +9,7 @@ export interface MarkdownBodyProps {
 
 export function MarkdownBody({ source }: MarkdownBodyProps) {
   return (
-    <div className="prose prose-invert max-w-none prose-headings:font-semibold prose-headings:tracking-tight prose-a:text-primary prose-blockquote:border-l-primary prose-code:rounded prose-code:bg-surface-2 prose-code:px-1 prose-code:font-mono prose-code:text-text-primary prose-code:before:content-none prose-code:after:content-none prose-pre:border prose-pre:border-border-subtle prose-pre:bg-surface-2">
+    <div className="prose prose-invert max-w-none prose-headings:break-words prose-headings:font-semibold prose-headings:tracking-tight prose-p:break-words prose-a:break-words prose-a:text-primary prose-blockquote:border-l-primary prose-code:break-words prose-code:rounded prose-code:bg-surface-2 prose-code:px-1 prose-code:font-mono prose-code:text-text-primary prose-code:before:content-none prose-code:after:content-none prose-pre:overflow-x-auto prose-pre:border prose-pre:border-border-subtle prose-pre:bg-surface-2">
       <ReactMarkdown
         components={{
           a: ({ children, href, ...rest }) => {

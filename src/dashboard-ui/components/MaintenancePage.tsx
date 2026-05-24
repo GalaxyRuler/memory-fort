@@ -76,10 +76,10 @@ function MaintenanceRow({ page, section }: { page: MaintenancePageSummary; secti
   return (
     <li className="grid grid-cols-1 gap-3 border-t border-border-subtle/70 px-4 py-3 md:grid-cols-[minmax(0,1fr)_9rem_9rem_8rem] md:items-center">
       <div className="min-w-0">
-        <div className="truncate text-sm font-medium text-text-primary">{page.title}</div>
+        <div className="break-words text-sm font-medium text-text-primary md:truncate">{page.title}</div>
         <p className="break-all font-mono text-xs text-text-muted">{page.path}</p>
       </div>
-      <span className="font-mono text-xs text-text-secondary">{page.updated ?? "unknown"}</span>
+      <span className="break-words font-mono text-xs text-text-secondary">{page.updated ?? "unknown"}</span>
       <div className="flex items-center gap-2">
         <div className="h-1.5 w-16 overflow-hidden rounded-full bg-surface-2">
           <div className={`h-full rounded-full ${section.dotClass}`} style={{ width: `${confidence}%` }} />
@@ -106,7 +106,7 @@ function MaintenanceSectionPanel({ section }: { section: MaintenanceSection }) {
             <Icon size={18} strokeWidth={1.5} className={section.colorClass} />
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="text-base font-semibold">{section.title}</h2>
+                <h2 className="break-words text-base font-semibold">{section.title}</h2>
                 <span
                   className="rounded bg-surface-2 px-2 py-0.5 font-mono text-xs text-text-muted"
                   data-testid={`maintenance-count-${section.key}`}
@@ -122,7 +122,7 @@ function MaintenanceSectionPanel({ section }: { section: MaintenanceSection }) {
               <ActionIcon size={14} strokeWidth={1.5} />
               {section.bulkLabel}
             </Button>
-            <p className="text-xs text-text-muted">{section.helper}</p>
+            <p className="break-all text-xs text-text-muted">{section.helper}</p>
           </div>
         </header>
 
@@ -200,7 +200,7 @@ export function MaintenancePage() {
   ];
 
   return (
-    <div className="mx-auto max-w-7xl p-6">
+    <div className="mx-auto max-w-7xl p-4 md:p-6">
       <header className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <div className="mb-2 flex items-center gap-2 text-sm text-text-muted">
@@ -209,7 +209,7 @@ export function MaintenancePage() {
             <span>/</span>
             <span className="text-text-secondary">Maintenance</span>
           </div>
-          <h1 className="text-2xl font-semibold tracking-tight">Maintenance & Orphanage</h1>
+          <h1 className="break-words text-2xl font-semibold tracking-tight">Maintenance & Orphanage</h1>
           <p className="max-w-2xl text-sm text-text-secondary">
             Identify disconnected concepts, review low-confidence automated drafts, and prune stale knowledge from the
             system.

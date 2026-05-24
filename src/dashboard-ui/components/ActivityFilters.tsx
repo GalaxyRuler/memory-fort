@@ -26,7 +26,7 @@ export interface ActivityFiltersProps {
 
 export function ActivityFilters({ source, level, onChange }: ActivityFiltersProps) {
   return (
-    <Card className="sticky top-4 space-y-4">
+    <Card className="space-y-4 md:sticky md:top-4">
       <div>
         <h3 className="text-xs uppercase tracking-wider text-text-muted mb-2">Source</h3>
         <div className="space-y-1">
@@ -36,7 +36,7 @@ export function ActivityFilters({ source, level, onChange }: ActivityFiltersProp
               type="button"
               onClick={() => onChange({ source: item.value })}
               className={cn(
-                "w-full text-left px-2 py-1 rounded-md text-sm transition-colors",
+                "min-h-11 w-full rounded-md px-2 py-2 text-left text-sm transition-colors md:min-h-8 md:py-1",
                 source === item.value
                   ? "bg-surface-2 text-text-primary"
                   : "text-text-secondary hover:text-text-primary hover:bg-surface-2/50",
@@ -57,7 +57,7 @@ export function ActivityFilters({ source, level, onChange }: ActivityFiltersProp
               type="button"
               onClick={() => onChange({ level: item.value })}
               className={cn(
-                "flex-1 px-2 py-1 rounded-md text-xs transition-colors",
+                "min-h-11 flex-1 rounded-md px-2 py-1 text-xs transition-colors md:min-h-8",
                 level === item.value
                   ? "bg-surface-2 text-text-primary"
                   : "text-text-secondary hover:text-text-primary hover:bg-surface-2/50",

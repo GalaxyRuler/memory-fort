@@ -8,11 +8,11 @@ export function CrystalsPage() {
   const crystals = wiki.data?.byCategory.crystal ?? [];
 
   return (
-    <div className="mx-auto max-w-7xl p-6">
-      <header className="mb-6 flex items-center gap-3">
+    <div className="mx-auto max-w-7xl p-4 md:p-6">
+      <header className="mb-6 flex items-start gap-3">
         <CrystalRotatingIcon className="h-10 w-10" />
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Crystals</h1>
+          <h1 className="break-words text-2xl font-semibold tracking-tight">Crystals</h1>
           <p className="text-sm text-text-secondary">
             Distilled long-form digests from completed work threads. {crystals.length} crystal
             {crystals.length === 1 ? "" : "s"}.
@@ -43,8 +43,8 @@ export function CrystalsPage() {
             <div className="mb-2 flex items-start gap-3">
               <CrystalRotatingIcon className="mt-0.5 h-6 w-6 flex-shrink-0" />
               <div className="min-w-0 flex-1">
-                <h3 className="truncate text-base font-semibold text-text-primary">{crystal.title}</h3>
-                <p className="font-mono text-xs text-text-muted">{crystal.updated}</p>
+                <h3 className="break-words text-base font-semibold text-text-primary md:truncate">{crystal.title}</h3>
+                <p className="break-words font-mono text-xs text-text-muted">{crystal.updated}</p>
               </div>
             </div>
             <p className="ml-9 line-clamp-3 text-sm text-text-secondary">{crystal.summary || "(no summary)"}</p>

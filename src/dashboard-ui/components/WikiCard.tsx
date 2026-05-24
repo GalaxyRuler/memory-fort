@@ -22,10 +22,10 @@ export function WikiCard({ entry }: { entry: WikiIndexEntry }) {
       params={{ category: entry.category, slug: entry.slug }}
       to="/wiki/$category/$slug"
     >
-      <h3 className="mb-1 truncate text-base font-semibold text-text-primary">{entry.title}</h3>
+      <h3 className="mb-1 break-words text-base font-semibold text-text-primary md:truncate">{entry.title}</h3>
       <p className="mb-3 line-clamp-2 text-sm text-text-secondary">{entry.summary || "(no summary)"}</p>
-      <div className="flex items-center justify-between font-mono text-xs text-text-muted">
-        <span>{entry.updated}</span>
+      <div className="flex flex-wrap items-center justify-between gap-2 font-mono text-xs text-text-muted">
+        <span className="break-words">{entry.updated}</span>
         <span className="capitalize">{entry.category}</span>
       </div>
     </Link>

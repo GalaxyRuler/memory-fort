@@ -17,24 +17,24 @@ export function TimelinePage() {
   const timeline = useTimeline({ zoom });
 
   return (
-    <div className="p-6 max-w-7xl mx-auto">
+    <div className="mx-auto max-w-7xl p-4 md:p-6">
       <header className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Timeline</h1>
+          <h1 className="break-words text-2xl font-semibold tracking-tight">Timeline</h1>
           <p className="text-sm text-text-secondary">
             {timeline.data
               ? `${new Date(timeline.data.from).toLocaleString()} -> ${new Date(timeline.data.to).toLocaleString()}`
               : "Loading..."}
           </p>
         </div>
-        <div className="flex gap-1">
+        <div className="grid grid-cols-5 gap-1 sm:flex">
           {ZOOM_OPTIONS.map((option) => (
             <button
               key={option}
               type="button"
               onClick={() => navigate({ search: { zoom: option === "1D" ? undefined : option }, replace: true })}
               className={cn(
-                "px-3 py-1.5 rounded-md text-xs font-mono transition-colors",
+                "min-h-11 rounded-md px-3 py-1.5 font-mono text-xs transition-colors md:min-h-8",
                 zoom === option
                   ? "bg-surface-2 text-text-primary"
                   : "text-text-secondary hover:text-text-primary hover:bg-surface-2/50",

@@ -51,9 +51,9 @@ export function SessionTile({ file, date }: { file: RawIndexFile; date: string }
         </div>
         <span className="font-mono text-[10px] uppercase tracking-wider text-text-muted">{source}</span>
       </div>
-      <p className="mb-1 truncate font-mono text-sm text-text-primary">{truncatedId}</p>
-      <p className="font-mono text-xs text-text-muted">{date}</p>
-      <div className="mt-3 flex items-center justify-between border-t border-border-subtle pt-3 font-mono text-xs text-text-muted">
+      <p className="mb-1 break-all font-mono text-sm text-text-primary md:truncate">{truncatedId}</p>
+      <p className="break-words font-mono text-xs text-text-muted">{date}</p>
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-border-subtle pt-3 font-mono text-xs text-text-muted">
         <span>{formatBytes(file.sizeBytes)}</span>
         <span>{new Date(file.mtime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
       </div>

@@ -25,10 +25,10 @@ export function CategorySidebar({ index, selectedCategory, onSelect }: CategoryS
   const totalCount = index?.total ?? 0;
 
   return (
-    <Card className="sticky top-4 space-y-1">
+    <Card className="space-y-1 md:sticky md:top-4">
       <button
         className={cn(
-          "flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-sm transition-colors",
+          "flex min-h-11 w-full items-center justify-between rounded-md px-2 py-2 text-left text-sm transition-colors md:min-h-8 md:py-1.5",
           selectedCategory === null
             ? "bg-surface-2 text-text-primary"
             : "text-text-secondary hover:bg-surface-2/50 hover:text-text-primary",
@@ -44,7 +44,7 @@ export function CategorySidebar({ index, selectedCategory, onSelect }: CategoryS
         <button
           key={category}
           className={cn(
-            "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors",
+            "flex min-h-11 w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm transition-colors md:min-h-8 md:py-1.5",
             selectedCategory === category
               ? "bg-surface-2 text-text-primary"
               : "text-text-secondary hover:bg-surface-2/50 hover:text-text-primary",

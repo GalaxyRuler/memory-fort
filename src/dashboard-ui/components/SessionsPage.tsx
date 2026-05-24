@@ -34,9 +34,9 @@ export function SessionsPage() {
   const visibleTiles = tiles.slice(0, 60);
 
   return (
-    <div className="mx-auto max-w-7xl p-6">
+    <div className="mx-auto max-w-7xl p-4 md:p-6">
       <header className="mb-6">
-        <h1 className="text-2xl font-semibold tracking-tight">Sessions</h1>
+        <h1 className="break-words text-2xl font-semibold tracking-tight">Sessions</h1>
         <p className="text-sm text-text-secondary">
           {tiles.length} captured session{tiles.length === 1 ? "" : "s"}
         </p>

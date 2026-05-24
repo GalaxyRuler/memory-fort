@@ -17,7 +17,7 @@ export function Button({ variant = "secondary", className, children, ...rest }: 
   return (
     <button
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-all",
+        "inline-flex min-h-11 items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-all md:min-h-8",
         VARIANT_CLASSES[variant],
         className,
       )}

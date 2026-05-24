@@ -22,14 +22,14 @@ export function RawSessionDetail() {
   const source = parseSourceFromFilename(data.filename);
 
   return (
-    <div className="p-6 max-w-4xl mx-auto">
+    <div className="mx-auto max-w-4xl p-4 md:p-6">
       <header className="mb-6 border-b border-border-subtle pb-4">
-        <div className="flex items-center gap-2 mb-3">
+        <div className="mb-3 flex flex-wrap items-center gap-2">
           <span className={cn("w-2 h-2 rounded-full", sourceColorClass(source))} aria-hidden />
           <span className="text-xs uppercase tracking-wider text-text-muted">{source}</span>
           <StatusPill kind="active">raw</StatusPill>
         </div>
-        <h1 className="text-xl font-mono font-medium tracking-tight mb-2 break-all">{data.sessionId}</h1>
+        <h1 className="mb-2 break-all font-mono text-lg font-medium tracking-tight md:text-xl">{data.sessionId}</h1>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-text-muted font-mono">
           <span>{data.date}</span>
           <span>{formatBytes(data.sizeBytes)}</span>

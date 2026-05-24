@@ -17,7 +17,7 @@ export interface RawFiltersProps {
 
 export function RawFilters({ source, onChange }: RawFiltersProps) {
   return (
-    <Card className="sticky top-4">
+    <Card className="md:sticky md:top-4">
       <h3 className="text-xs uppercase tracking-wider text-text-muted mb-2">Tool</h3>
       <div className="space-y-1">
         {SOURCES.map((item) => (
@@ -26,7 +26,7 @@ export function RawFilters({ source, onChange }: RawFiltersProps) {
             type="button"
             onClick={() => onChange(item.value)}
             className={cn(
-              "w-full text-left px-2 py-1.5 rounded-md text-sm transition-colors",
+              "min-h-11 w-full rounded-md px-2 py-2 text-left text-sm transition-colors md:min-h-8 md:py-1.5",
               source === item.value
                 ? "bg-surface-2 text-text-primary"
                 : "text-text-secondary hover:text-text-primary hover:bg-surface-2/50",

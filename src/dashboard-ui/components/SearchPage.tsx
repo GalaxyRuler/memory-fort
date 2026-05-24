@@ -46,9 +46,9 @@ export function SearchPage() {
   }, [debouncedQuery, navigate, params.q]);
 
   return (
-    <div className="mx-auto max-w-7xl p-6">
+    <div className="mx-auto max-w-7xl p-4 md:p-6">
       <header className="mb-6">
-        <h1 className="mb-2 text-2xl font-semibold tracking-tight">Search</h1>
+        <h1 className="mb-2 break-words text-2xl font-semibold tracking-tight">Search</h1>
         <Input
           autoFocus
           className="w-full font-mono"

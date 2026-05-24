@@ -1,6 +1,8 @@
 import { Link } from "@tanstack/react-router";
+import { useState } from "react";
 import { type SearchResult } from "../hooks/useSearch.js";
 import { cn } from "../lib/cn.js";
+import { BottomSheet } from "./BottomSheet.js";
 import { Card } from "./Card.js";
 import { ScoreBreakdown } from "./ScoreBreakdown.js";
 
@@ -15,35 +17,48 @@ type ResultLinkProps =
   | { to: "/raw/$date/$filename"; params: { date: string; filename: string } };
 
 export function SearchResultCard({ result }: { result: SearchResult }) {
+  const [isScoreOpen, setIsScoreOpen] = useState(false);
   const linkProps = resultLinkProps(result);
 
   return (
     <Card className="transition-colors hover:bg-surface-2">
-      <div className="flex items-start gap-3">
+      <div className="flex flex-col gap-3 md:flex-row md:items-start">
         <span
           aria-hidden
-          className={cn("mt-1.5 h-2 w-2 flex-shrink-0 rounded-full", KIND_COLOR[result.kind] ?? "bg-text-muted")}
+          className={cn("hidden h-2 w-2 flex-shrink-0 rounded-full md:mt-1.5 md:block", KIND_COLOR[result.kind] ?? "bg-text-muted")}
         />
         <div className="min-w-0 flex-1">
           {linkProps ? (
             <Link {...linkProps} className="block">
-              <h3 className="truncate text-base font-semibold text-text-primary hover:underline">
+              <h3 className="break-words text-base font-semibold text-text-primary hover:underline md:truncate">
                 {result.title}
               </h3>
             </Link>
           ) : (
-            <h3 className="truncate text-base font-semibold text-text-primary">{result.title}</h3>
+            <h3 className="break-words text-base font-semibold text-text-primary md:truncate">{result.title}</h3>
           )}
-          <p className="mb-2 truncate font-mono text-xs text-text-muted">{result.path}</p>
+          <p className="mb-2 break-all font-mono text-xs text-text-muted md:truncate">{result.path}</p>
           <p className="mb-3 line-clamp-2 text-sm text-text-secondary">{result.snippet}</p>
-          <ScoreBreakdown sources={result.sources} />
+          <ScoreBreakdown className="hidden md:flex" sources={result.sources} />
         </div>
-        <div className="flex-shrink-0 text-right">
-          <p className="text-xs uppercase tracking-wider text-text-muted">Score</p>
-          <p className="font-mono text-lg font-semibold">{result.score.toFixed(2)}</p>
-          <p className="font-mono text-[10px] text-text-muted">{result.source}</p>
+        <div className="flex flex-shrink-0 items-center justify-between gap-3 border-t border-border-subtle pt-3 md:block md:border-t-0 md:pt-0 md:text-right">
+          <div>
+            <p className="text-xs uppercase tracking-wider text-text-muted">Score</p>
+            <p className="font-mono text-lg font-semibold">{result.score.toFixed(2)}</p>
+            <p className="break-words font-mono text-[10px] text-text-muted">{result.source}</p>
+          </div>
+          <button
+            type="button"
+            className="min-h-11 rounded-md border border-border-subtle px-3 text-xs text-text-secondary md:hidden"
+            onClick={() => setIsScoreOpen(true)}
+          >
+            Details
+          </button>
         </div>
       </div>
+      <BottomSheet isOpen={isScoreOpen} onClose={() => setIsScoreOpen(false)} title="Score details">
+        <ScoreBreakdown sources={result.sources} />
+      </BottomSheet>
     </Card>
   );
 }

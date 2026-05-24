@@ -13,8 +13,8 @@ export interface StatCardProps {
 export function StatCard({ label, value, sparkline, sparklineColor, footer }: StatCardProps) {
   return (
     <Card>
-      <div className="mb-2 flex items-baseline justify-between">
-        <p className="text-xs uppercase tracking-wider text-text-muted">{label}</p>
+      <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+        <p className="break-words text-xs uppercase tracking-wider text-text-muted">{label}</p>
         {sparkline && (
           <Sparkline
             data={sparkline}
@@ -23,8 +23,8 @@ export function StatCard({ label, value, sparkline, sparklineColor, footer }: St
           />
         )}
       </div>
-      <p className="text-2xl font-semibold tracking-tight">{value}</p>
-      {footer && <p className="mt-1 text-xs text-text-muted">{footer}</p>}
+      <p className="break-words text-2xl font-semibold tracking-tight">{value}</p>
+      {footer && <p className="mt-1 break-words text-xs text-text-muted">{footer}</p>}
     </Card>
   );
 }

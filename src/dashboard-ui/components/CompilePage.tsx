@@ -18,10 +18,10 @@ function formatTimestamp(value: string): string {
 function CompileRunSummary({ lastRun }: { lastRun: CompileLastRun }) {
   return (
     <GlassPanel className="space-y-4 bg-surface/70">
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h2 className="text-base font-semibold">Last completed run</h2>
-          <p className="font-mono text-xs text-text-muted">{formatTimestamp(lastRun.finishedAt)}</p>
+          <p className="break-words font-mono text-xs text-text-muted">{formatTimestamp(lastRun.finishedAt)}</p>
         </div>
         <StatusPill kind="synced">completed</StatusPill>
       </div>
@@ -65,7 +65,7 @@ function CompileSourceNodes() {
 
 function CompileGraphPreview({ isRunning, hasLastRun }: { isRunning: boolean; hasLastRun: boolean }) {
   return (
-    <GlassPanel className="relative min-h-[22rem] overflow-hidden bg-surface/35 p-0">
+    <GlassPanel className="relative min-h-[18rem] overflow-hidden bg-surface/35 p-0 md:min-h-[22rem]">
       <div
         className="absolute inset-0 opacity-25"
         style={{
@@ -73,13 +73,13 @@ function CompileGraphPreview({ isRunning, hasLastRun }: { isRunning: boolean; ha
           backgroundSize: "24px 24px",
         }}
       />
-      <div className="relative z-10 grid h-full min-h-[22rem] grid-cols-1 items-center gap-8 p-6 md:grid-cols-[1fr_1.5fr]">
+      <div className="relative z-10 grid h-full min-h-[18rem] grid-cols-1 items-center gap-8 p-4 md:min-h-[22rem] md:grid-cols-[1fr_1.5fr] md:p-6">
         <CompileSourceNodes />
         <div className="flex flex-col items-center gap-4 text-center">
           <div className="flex h-20 w-20 items-center justify-center rounded-full border border-entity-decisions/70 bg-entity-decisions/20 text-entity-decisions shadow-[0_0_24px_rgba(139,95,255,0.35)]">
             <Network size={30} strokeWidth={1.5} />
           </div>
-          <div className="rounded-lg border border-border-emphasis bg-surface/80 px-5 py-3 backdrop-blur">
+        <div className="rounded-lg border border-border-emphasis bg-surface/80 px-4 py-3 backdrop-blur md:px-5">
             <p className="text-xs font-semibold uppercase tracking-wide text-entity-decisions">
               {isRunning ? "Synthesizing graph" : hasLastRun ? "Digest ready" : "Awaiting compile"}
             </p>
@@ -120,7 +120,7 @@ function CompileLogPanel({ isRunning, lastRun }: { isRunning: boolean; lastRun: 
       </div>
       <div className="space-y-2 font-mono text-sm text-text-secondary">
         {lines.map((line, index) => (
-          <p key={line} className={index === 1 && isRunning ? "text-entity-decisions" : undefined}>
+            <p key={line} className={index === 1 && isRunning ? "break-all text-entity-decisions" : "break-all"}>
             <span className="mr-2 text-text-muted">[{String(index + 1).padStart(2, "0")}]</span>
             {line}
           </p>
@@ -167,14 +167,14 @@ export function CompilePage() {
   const isRunning = state?.status === "running";
 
   return (
-    <div className="relative mx-auto min-h-[calc(100vh-5rem)] max-w-7xl overflow-hidden p-6">
+    <div className="relative mx-auto min-h-[calc(100vh-5rem)] max-w-7xl overflow-hidden p-4 md:p-6">
       <header className="relative z-10 mb-6 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex items-start gap-3">
           <div className="mt-1 flex h-9 w-9 items-center justify-center rounded-lg border border-border-emphasis bg-surface-2 text-primary">
             <Cpu size={18} strokeWidth={1.5} />
           </div>
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight">Compilation Phase</h1>
+            <h1 className="break-words text-2xl font-semibold tracking-tight">Compilation Phase</h1>
             <p className="max-w-2xl text-sm text-text-secondary">
               Read-only curation status from the local memory state. Triggering compile remains a CLI-only operation.
             </p>

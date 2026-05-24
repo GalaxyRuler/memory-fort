@@ -10,8 +10,8 @@ function isSection(value: ConfigValue): value is Record<string, ConfigValue> {
 export function SettingsPage() {
   const config = useConfig();
 
-  if (config.isLoading) return <div className="p-6 text-sm text-text-muted">Loading settings...</div>;
-  if (config.error || !config.data) return <div className="p-6 text-sm text-status-red">Failed to load config.</div>;
+  if (config.isLoading) return <div className="p-4 text-sm text-text-muted md:p-6">Loading settings...</div>;
+  if (config.error || !config.data) return <div className="p-4 text-sm text-status-red md:p-6">Failed to load config.</div>;
 
   const entries = Object.entries(config.data);
   const sections = entries.filter(([, value]) => isSection(value));
@@ -19,9 +19,9 @@ export function SettingsPage() {
   const generalData = Object.fromEntries(scalars) as Record<string, ConfigValue>;
 
   return (
-    <div className="mx-auto max-w-4xl p-6">
+    <div className="mx-auto max-w-4xl p-4 md:p-6">
       <header className="mb-6">
-        <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
+        <h1 className="break-words text-2xl font-semibold tracking-tight">Settings</h1>
         <p className="text-sm text-text-secondary">
           Read-only view of{" "}
           <code className="rounded bg-surface-2 px-1.5 py-0.5 font-mono text-xs">~/.memory/config.yaml</code>. Edit via
@@ -43,9 +43,9 @@ export function SettingsPage() {
           <p className="mb-3 text-sm text-text-secondary">
             Phase 4 dashboard is read-only. To edit settings, open the config file directly on a creator machine:
           </p>
-          <div className="flex items-center gap-2 rounded-md bg-surface-2 p-3 font-mono text-xs text-text-primary">
+          <div className="flex items-start gap-2 rounded-md bg-surface-2 p-3 font-mono text-xs text-text-primary">
             <FileText size={14} strokeWidth={1.5} className="flex-shrink-0 text-text-muted" />
-            <code>code "C:/Users/Admin/.memory/config.yaml"</code>
+            <code className="break-all">code "C:/Users/Admin/.memory/config.yaml"</code>
           </div>
           <p className="mt-3 text-xs text-text-muted">
             Changes sync to the VPS within about 5 seconds via the auto-push hook. The dashboard picks up the new

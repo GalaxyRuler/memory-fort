@@ -24,7 +24,7 @@ export function MobileBottomNav({ className }: { className?: string }) {
             key={item.to}
             to={item.to}
             className={cn(
-              "flex flex-col items-center gap-0.5 rounded-md px-3 py-2 transition-colors",
+              "flex min-h-11 min-w-11 flex-col items-center justify-center gap-0.5 rounded-md px-2 py-2 transition-colors",
               isActive ? "text-text-primary" : "text-text-muted",
             )}
           >

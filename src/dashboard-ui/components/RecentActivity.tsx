@@ -59,7 +59,7 @@ export function RecentActivity({
               aria-hidden
             />
             <div className="min-w-0 flex-1">
-              <p className="truncate text-text-primary">{event.summary}</p>
+              <p className="break-words text-text-primary md:truncate">{event.summary}</p>
               <p className="text-xs text-text-muted">{relativeTime(event.timestamp)}</p>
             </div>
           </li>

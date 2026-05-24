@@ -26,9 +26,9 @@ export function SettingsField({ label, value }: SettingsFieldProps) {
   return (
     <div className="grid grid-cols-1 items-baseline gap-1 border-b border-border-subtle/60 py-2 last:border-b-0 sm:grid-cols-[200px_1fr] sm:gap-4">
       <dt className="font-mono text-xs uppercase tracking-wider text-text-muted">{label}</dt>
-      <dd className={cn("flex items-center gap-2 text-sm", isLong && "break-all font-mono text-xs")}>
+      <dd className={cn("flex min-w-0 items-center gap-2 text-sm", isLong && "break-all font-mono text-xs")}>
         {isRedacted && <Lock size={12} strokeWidth={1.5} className="flex-shrink-0 text-status-amber" />}
-        <span className={cn(isRedacted ? "font-mono text-status-amber" : "text-text-primary")}>{formatted}</span>
+        <span className={cn("min-w-0 break-words", isRedacted ? "font-mono text-status-amber" : "text-text-primary")}>{formatted}</span>
       </dd>
     </div>
   );

@@ -23,12 +23,14 @@ export function PageHeader({ page }: { page: PageDetail }) {
 
   return (
     <header className="mb-6 border-b border-border-subtle pb-6">
-      <div className="mb-3 flex items-center gap-2">
+      <div className="mb-3 flex flex-wrap items-center gap-2">
         <EntityIcon size="lg" type={validType} />
         <span className="text-xs uppercase tracking-wider text-text-muted">{type ?? "(no type)"}</span>
         <StatusPill kind={validStatus} />
       </div>
-      <h1 className="mb-2 text-3xl font-semibold tracking-tight">{frontmatter.title ?? page.relPath}</h1>
+      <h1 className="mb-2 break-words text-2xl font-semibold tracking-tight md:text-3xl">
+        {frontmatter.title ?? page.relPath}
+      </h1>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-xs text-text-muted">
         <span>created {frontmatter.created ?? "?"}</span>
         <span>updated {frontmatter.updated ?? "?"}</span>
@@ -40,7 +42,7 @@ export function PageHeader({ page }: { page: PageDetail }) {
       {Array.isArray(frontmatter.tags) && frontmatter.tags.length > 0 ? (
         <div className="mt-3 flex flex-wrap gap-1.5">
           {frontmatter.tags.map((tag) => (
-            <span className="rounded-full bg-surface-2 px-2 py-0.5 text-xs text-text-secondary" key={tag}>
+            <span className="break-words rounded-full bg-surface-2 px-2 py-0.5 text-xs text-text-secondary" key={tag}>
               {tag}
             </span>
           ))}

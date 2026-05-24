@@ -34,7 +34,7 @@ function ConflictSide({ label, page }: { label: "A" | "B"; page: ConflictPageSum
           </span>
           <span className="font-mono text-xs text-text-muted">Page {label}</span>
         </div>
-        <span className="font-mono text-xs text-text-muted">{page.updated ?? "unknown"}</span>
+        <span className="break-words font-mono text-xs text-text-muted">{page.updated ?? "unknown"}</span>
       </div>
       <div className="flex flex-1 flex-col gap-4 p-5">
         <div>
@@ -95,7 +95,7 @@ function ConflictActions({ conflict }: { conflict: ConflictRecord }) {
           Keep as Alternatives
         </Button>
       </div>
-      <p className="text-xs text-text-muted">{helper}</p>
+      <p className="break-all text-xs text-text-muted">{helper}</p>
     </GlassPanel>
   );
 }
@@ -115,7 +115,7 @@ function ConflictCard({ conflict }: { conflict: ConflictRecord }) {
             <p className="text-xs text-text-muted">{REASON_DESCRIPTIONS[conflict.reason]}</p>
           </div>
         </div>
-        <span className="font-mono text-xs text-text-muted">{conflict.id}</span>
+        <span className="break-all font-mono text-xs text-text-muted">{conflict.id}</span>
       </header>
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_18rem_minmax(0,1fr)]">
@@ -132,13 +132,13 @@ export function ConflictsPage() {
   const items = conflicts.data?.conflicts ?? [];
 
   return (
-    <div className="mx-auto max-w-7xl p-6">
+    <div className="mx-auto max-w-7xl p-4 md:p-6">
       <header className="mb-6 flex flex-col gap-2 border-b border-border-subtle pb-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3">
           <GitMerge size={22} strokeWidth={1.5} className="text-text-secondary" />
           <div>
-            <div className="flex items-center gap-3">
-              <h1 className="text-2xl font-semibold tracking-tight">Conflict Resolution</h1>
+            <div className="flex flex-wrap items-center gap-3">
+              <h1 className="break-words text-2xl font-semibold tracking-tight">Conflict Resolution</h1>
               <span className="rounded-full border border-status-red/25 bg-status-red/10 px-2 py-0.5 font-mono text-xs text-status-red">
                 {items.length} ACTIVE
               </span>

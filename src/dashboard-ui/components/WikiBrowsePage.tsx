@@ -13,9 +13,9 @@ export function WikiBrowsePage() {
     : Object.values(wiki.data?.byCategory ?? {}).flat();
 
   return (
-    <div className="mx-auto max-w-7xl p-6">
+    <div className="mx-auto max-w-7xl p-4 md:p-6">
       <header className="mb-6">
-        <h1 className="text-2xl font-semibold tracking-tight">Wiki</h1>
+        <h1 className="break-words text-2xl font-semibold tracking-tight">Wiki</h1>
         <p className="text-sm text-text-secondary">{wiki.data?.total ?? 0} curated pages</p>
       </header>
 

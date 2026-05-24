@@ -28,15 +28,15 @@ export function ActivityFeedPage() {
   });
 
   return (
-    <div className="p-6 max-w-7xl mx-auto">
+    <div className="mx-auto max-w-7xl p-4 md:p-6">
       <header className="mb-6">
-        <h1 className="text-2xl font-semibold tracking-tight">Activity</h1>
+        <h1 className="break-words text-2xl font-semibold tracking-tight">Activity</h1>
         <p className="text-sm text-text-secondary">
           {filtered.length} event{filtered.length === 1 ? "" : "s"} shown
         </p>
       </header>
 
-      <div className="grid grid-cols-1 md:grid-cols-[240px_1fr] gap-4">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-[240px_1fr]">
         <ActivityFilters
           source={sourceFilter}
           level={levelFilter}

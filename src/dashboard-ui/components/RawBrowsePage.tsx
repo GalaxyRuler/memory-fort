@@ -22,15 +22,15 @@ export function RawBrowsePage() {
   const totalCount = filteredEntries.reduce((sum, entry) => sum + entry.files.length, 0);
 
   return (
-    <div className="p-6 max-w-7xl mx-auto">
+    <div className="mx-auto max-w-7xl p-4 md:p-6">
       <header className="mb-6">
-        <h1 className="text-2xl font-semibold tracking-tight">Raw observations</h1>
+        <h1 className="break-words text-2xl font-semibold tracking-tight">Raw observations</h1>
         <p className="text-sm text-text-secondary">
           {totalCount} session{totalCount === 1 ? "" : "s"} captured
         </p>
       </header>
 
-      <div className="grid grid-cols-1 md:grid-cols-[240px_1fr] gap-4">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-[240px_1fr]">
         <RawFilters
           source={sourceFilter}
           onChange={(source) => navigate({ search: { source: source === "all" ? undefined : source }, replace: true })}
@@ -42,7 +42,7 @@ export function RawBrowsePage() {
           )}
           {filteredEntries.map((entry) => (
             <section key={entry.date} className="mb-6">
-              <h2 className="text-xs uppercase tracking-wider text-text-muted mb-2 font-mono">
+              <h2 className="mb-2 break-words font-mono text-xs uppercase tracking-wider text-text-muted">
                 {entry.date} - {entry.files.length} session{entry.files.length === 1 ? "" : "s"}
               </h2>
               {entry.files.map((file) => (

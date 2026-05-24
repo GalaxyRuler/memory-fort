@@ -18,7 +18,7 @@ function OverviewScreen() {
   const rawSpark = Array(5).fill(counts?.rawObservations ?? 0) as number[];
 
   return (
-    <div className="space-y-4 p-6">
+    <div className="space-y-4 p-4 md:p-6">
       <header>
         <h1 className="text-2xl font-semibold tracking-tight">Overview</h1>
         <p className="text-sm text-text-secondary">System telemetry and recent cognitive activity.</p>
