@@ -1,3 +1,4 @@
+import { type HTMLAttributes } from "react";
 import { Link } from "@tanstack/react-router";
 import { type WikiIndexEntry } from "../hooks/useWikiIndex.js";
 import { cn } from "../lib/cn.js";
@@ -12,15 +13,22 @@ const CATEGORY_COLORS: Record<string, string> = {
   crystals: "border-t-entity-crystals",
 };
 
-export function WikiCard({ entry }: { entry: WikiIndexEntry }) {
+export function WikiCard({
+  entry,
+  keyboardProps,
+}: {
+  entry: WikiIndexEntry;
+  keyboardProps?: HTMLAttributes<HTMLAnchorElement>;
+}) {
   return (
     <Link
       className={cn(
-        "block rounded-lg border border-t-4 border-border-subtle bg-surface p-4 transition-colors hover:bg-surface-2",
+        "block rounded-lg border border-t-4 border-border-subtle bg-surface p-4 transition-colors hover:bg-surface-2 data-[focused=true]:bg-surface-2 data-[focused=true]:ring-1 data-[focused=true]:ring-primary/60",
         CATEGORY_COLORS[entry.category] ?? "border-t-text-muted",
       )}
       params={{ category: entry.category, slug: entry.slug }}
       to="/wiki/$category/$slug"
+      {...keyboardProps}
     >
       <h3 className="mb-1 break-words text-base font-semibold text-text-primary md:truncate">{entry.title}</h3>
       <p className="mb-3 line-clamp-2 text-sm text-text-secondary">{entry.summary || "(no summary)"}</p>

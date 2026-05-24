@@ -1,3 +1,4 @@
+import { type HTMLAttributes } from "react";
 import { AlertCircle, AlertTriangle, FileCog, GitCommit, RefreshCw } from "lucide-react";
 import { type ActivityEvent } from "../hooks/useActivity.js";
 import { cn } from "../lib/cn.js";
@@ -25,10 +26,22 @@ const LEVEL_BORDER = {
   error: "border-status-red/30",
 } as const;
 
-export function ActivityEventRow({ event }: { event: ActivityEvent }) {
+export function ActivityEventRow({
+  event,
+  keyboardProps,
+}: {
+  event: ActivityEvent;
+  keyboardProps?: HTMLAttributes<HTMLLIElement>;
+}) {
   const Icon = SOURCE_ICON[event.source] ?? GitCommit;
   return (
-    <li className={cn("border rounded-md px-3 py-2.5 mb-2", LEVEL_BORDER[event.level])}>
+    <li
+      className={cn(
+        "border rounded-md px-3 py-2.5 mb-2 data-[focused=true]:bg-surface-2 data-[focused=true]:ring-1 data-[focused=true]:ring-primary/60",
+        LEVEL_BORDER[event.level],
+      )}
+      {...keyboardProps}
+    >
       <div className="flex items-start gap-3">
         <Icon
           size={14}

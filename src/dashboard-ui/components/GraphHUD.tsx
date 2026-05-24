@@ -85,6 +85,7 @@ export function GraphHUD({
               <button
                 key={modeOption.value}
                 type="button"
+                aria-label={`Switch graph mode to ${modeOption.label}`}
                 onClick={() => onModeChange(modeOption.value)}
                 className={cn(
                   "flex flex-col items-center gap-1 rounded-md px-1 py-1.5 text-[10px] transition-colors",

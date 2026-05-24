@@ -1,6 +1,9 @@
 import { useNavigate, useSearch } from "@tanstack/react-router";
+import { Terminal } from "lucide-react";
+import { useListKeyNav } from "../hooks/useListKeyNav.js";
 import { type RawIndexFile, useRawIndex } from "../hooks/useRawIndex.js";
 import { parseSourceFromFilename, type RawSource } from "../lib/raw-helpers.js";
+import { EmptyState } from "./EmptyState.js";
 import { RawFilters } from "./RawFilters.js";
 import { SessionTile } from "./SessionTile.js";
 
@@ -32,6 +35,15 @@ export function SessionsPage() {
 
   tiles.sort((a, b) => new Date(b.file.mtime).getTime() - new Date(a.file.mtime).getTime());
   const visibleTiles = tiles.slice(0, 60);
+  const listNav = useListKeyNav({
+    items: visibleTiles,
+    getKey: (tile) => `${tile.date}/${tile.file.filename}`,
+    onActivate: (tile) =>
+      navigate({
+        to: "/raw/$date/$filename",
+        params: { date: tile.date, filename: tile.file.filename },
+      }),
+  });
 
   return (
     <div className="mx-auto max-w-7xl p-4 md:p-6">
@@ -49,10 +61,21 @@ export function SessionsPage() {
         />
         <div>
           {raw.isLoading && <p className="px-2 text-sm text-text-muted">Loading sessions...</p>}
-          {tiles.length === 0 && !raw.isLoading && <p className="px-2 text-sm text-text-muted">No sessions match this filter.</p>}
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {visibleTiles.map((tile) => (
-              <SessionTile key={`${tile.date}/${tile.file.filename}`} file={tile.file} date={tile.date} />
+          {tiles.length === 0 && !raw.isLoading && (
+            <EmptyState
+              icon={Terminal}
+              title="No sessions match this filter"
+              description="Choose another tool filter to review captured sessions."
+            />
+          )}
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3" {...listNav.listProps}>
+            {visibleTiles.map((tile, index) => (
+              <SessionTile
+                key={`${tile.date}/${tile.file.filename}`}
+                file={tile.file}
+                date={tile.date}
+                keyboardProps={listNav.getItemProps(index)}
+              />
             ))}
           </div>
           {tiles.length > 60 && (

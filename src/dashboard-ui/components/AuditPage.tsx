@@ -1,9 +1,12 @@
 import { useNavigate, useSearch } from "@tanstack/react-router";
+import { ClipboardList } from "lucide-react";
 import { useState } from "react";
+import { useListKeyNav } from "../hooks/useListKeyNav.js";
 import { type ActivityEvent, useActivity } from "../hooks/useActivity.js";
 import { cn } from "../lib/cn.js";
 import { AuditRow } from "./AuditRow.js";
 import { Card } from "./Card.js";
+import { EmptyState } from "./EmptyState.js";
 import { Input } from "./Input.js";
 
 const LEVELS: Array<{ value: ActivityEvent["level"] | "all"; label: string }> = [
@@ -51,6 +54,11 @@ export function AuditPage() {
     if (levelFilter !== "all" && event.level !== levelFilter) return false;
     if (search && !event.summary.toLowerCase().includes(search.toLowerCase())) return false;
     return true;
+  });
+  const listNav = useListKeyNav({
+    items: events,
+    getKey: (event, index) => `${event.timestamp}-${index}`,
+    onActivate: () => undefined,
   });
 
   return (
@@ -119,10 +127,17 @@ export function AuditPage() {
 
       <Card className="p-3">
         {activity.isLoading && <p className="text-sm text-text-muted">Loading audit...</p>}
-        {!activity.isLoading && events.length === 0 && <p className="text-sm text-text-muted">No entries match these filters.</p>}
-        <ul className="space-y-2 md:space-y-0">
+        {!activity.isLoading && events.length === 0 && (
+          <EmptyState
+            icon={ClipboardList}
+            title="No entries match these filters"
+            description="Adjust the level, source, or text filter to inspect the audit stream."
+            className="border-0 bg-transparent"
+          />
+        )}
+        <ul className="space-y-2 md:space-y-0" {...listNav.listProps}>
           {events.map((event, index) => (
-            <AuditRow key={`${event.timestamp}-${index}`} event={event} />
+            <AuditRow key={`${event.timestamp}-${index}`} event={event} keyboardProps={listNav.getItemProps(index)} />
           ))}
         </ul>
       </Card>

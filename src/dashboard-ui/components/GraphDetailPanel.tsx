@@ -1,5 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { X } from "lucide-react";
+import { useEffect, useId, useRef } from "react";
 import { type GraphNode } from "../hooks/useGraph.js";
 import { useMediaQuery } from "../hooks/useMediaQuery.js";
 import { nodeColor } from "../lib/graph-colors.js";
@@ -13,6 +14,50 @@ export interface GraphDetailPanelProps {
 
 export function GraphDetailPanel({ node, onClose }: GraphDetailPanelProps) {
   const isMobile = useMediaQuery("(max-width: 767px)");
+  const titleId = useId();
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    if (!node || isMobile) return;
+    previousFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+
+    const focusable = getFocusableElements(panelRef.current);
+    const firstFocusable = focusable[0] ?? panelRef.current;
+    firstFocusable?.focus();
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        onClose();
+        return;
+      }
+
+      if (event.key !== "Tab") return;
+      const focusableElements = getFocusableElements(panelRef.current);
+      if (focusableElements.length === 0) {
+        event.preventDefault();
+        panelRef.current?.focus();
+        return;
+      }
+
+      const first = focusableElements[0];
+      const last = focusableElements[focusableElements.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      previousFocusRef.current?.focus();
+      previousFocusRef.current = null;
+    };
+  }, [isMobile, node, onClose]);
 
   if (!node) return null;
 
@@ -28,7 +73,14 @@ export function GraphDetailPanel({ node, onClose }: GraphDetailPanelProps) {
   }
 
   return (
-    <div className="glass-blur absolute right-4 top-4 z-10 w-72 rounded-lg p-4">
+    <div
+      aria-labelledby={titleId}
+      aria-modal="false"
+      className="glass-blur absolute right-4 top-4 z-10 w-72 rounded-lg p-4"
+      ref={panelRef}
+      role="dialog"
+      tabIndex={-1}
+    >
       <div className="mb-3 flex items-start justify-between">
         <div className="flex min-w-0 items-center gap-2">
           <span className="h-2 w-2 flex-shrink-0 rounded-full" style={{ background: color }} aria-hidden />
@@ -39,7 +91,9 @@ export function GraphDetailPanel({ node, onClose }: GraphDetailPanelProps) {
         </button>
       </div>
 
-      <h3 className="mb-1 break-words text-base font-semibold text-text-primary">{node.title}</h3>
+      <h3 id={titleId} className="mb-1 break-words text-base font-semibold text-text-primary">
+        {node.title}
+      </h3>
       <p className="mb-3 break-all font-mono text-xs text-text-muted">{node.path}</p>
 
       <dl className="grid grid-cols-2 gap-2 text-xs">
@@ -76,6 +130,15 @@ export function GraphDetailPanel({ node, onClose }: GraphDetailPanelProps) {
       )}
     </div>
   );
+}
+
+function getFocusableElements(root: HTMLElement | null): HTMLElement[] {
+  if (!root) return [];
+  return Array.from(
+    root.querySelectorAll<HTMLElement>(
+      'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    ),
+  ).filter((element) => !element.hasAttribute("disabled") && element.getAttribute("aria-hidden") !== "true");
 }
 
 function GraphNodeDetails({

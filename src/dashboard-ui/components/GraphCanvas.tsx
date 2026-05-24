@@ -5,6 +5,7 @@ import { type GraphEdge, type GraphNode } from "../hooks/useGraph.js";
 import { edgeColor, nodeColor } from "../lib/graph-colors.js";
 import { getEdgeOpacity, getForceSimulationConfig, getNodeSize, type GraphMode } from "../lib/graph-layouts.js";
 import { type PositionedNode } from "../lib/graph-positioning.js";
+import { useReducedMotion } from "../lib/reduced-motion.js";
 
 export interface GraphCanvasProps {
   nodes: GraphNode[];
@@ -64,7 +65,7 @@ export function GraphCanvas({
 }: GraphCanvasProps) {
   const fgRef = useRef<ForceGraphMethods<GraphCanvasNode, GraphCanvasLink> | undefined>(undefined);
   const [haloPulse, setHaloPulse] = useState(1);
-  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
+  const prefersReducedMotion = useReducedMotion();
   const hasMatchedPaths = (matchedPaths?.size ?? 0) > 0;
   const hasTracePath = tracePathSet !== null && tracePathSet !== undefined && tracePathSet.nodes.size > 0;
 
@@ -123,16 +124,6 @@ export function GraphCanvas({
   useEffect(() => {
     fgRef.current?.d3ReheatSimulation();
   }, [graphData]);
-
-  useEffect(() => {
-    if (typeof window === "undefined" || !window.matchMedia) return;
-
-    const mediaQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
-    const updatePreference = () => setPrefersReducedMotion(mediaQuery.matches);
-    updatePreference();
-    mediaQuery.addEventListener("change", updatePreference);
-    return () => mediaQuery.removeEventListener("change", updatePreference);
-  }, []);
 
   useEffect(() => {
     if (!hasMatchedPaths || prefersReducedMotion) {

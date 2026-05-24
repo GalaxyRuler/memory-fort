@@ -1,3 +1,4 @@
+import { type HTMLAttributes } from "react";
 import { Link } from "@tanstack/react-router";
 import { Cpu, Rocket, Terminal, User } from "lucide-react";
 import { type RawIndexFile } from "../hooks/useRawIndex.js";
@@ -33,7 +34,15 @@ const SOURCE_ICON_TEXT: Record<RawSource, string> = {
   unknown: "text-text-muted",
 };
 
-export function SessionTile({ file, date }: { file: RawIndexFile; date: string }) {
+export function SessionTile({
+  file,
+  date,
+  keyboardProps,
+}: {
+  file: RawIndexFile;
+  date: string;
+  keyboardProps?: HTMLAttributes<HTMLAnchorElement>;
+}) {
   const source = parseSourceFromFilename(file.filename);
   const sessionId = parseSessionIdFromFilename(file.filename);
   const Icon = SOURCE_ICON[source];
@@ -43,7 +52,8 @@ export function SessionTile({ file, date }: { file: RawIndexFile; date: string }
     <Link
       to="/raw/$date/$filename"
       params={{ date, filename: file.filename }}
-      className="block rounded-lg border border-border-subtle bg-surface p-4 transition-all hover:border-border-emphasis hover:bg-surface-2"
+      className="block rounded-lg border border-border-subtle bg-surface p-4 transition-all hover:border-border-emphasis hover:bg-surface-2 data-[focused=true]:border-primary/60 data-[focused=true]:bg-surface-2 data-[focused=true]:ring-1 data-[focused=true]:ring-primary/60"
+      {...keyboardProps}
     >
       <div className="mb-3 flex items-start justify-between">
         <div className={cn("flex h-9 w-9 items-center justify-center rounded-md", SOURCE_ICON_BG[source])}>

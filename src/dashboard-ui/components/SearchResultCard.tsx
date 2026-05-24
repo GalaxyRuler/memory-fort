@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { useState } from "react";
+import { type HTMLAttributes, useState } from "react";
 import { type SearchResult } from "../hooks/useSearch.js";
 import { cn } from "../lib/cn.js";
 import { BottomSheet } from "./BottomSheet.js";
@@ -12,16 +12,25 @@ const KIND_COLOR: Record<string, string> = {
   crystal: "bg-entity-crystals",
 };
 
-type ResultLinkProps =
+export type ResultLinkProps =
   | { to: "/wiki/$category/$slug"; params: { category: string; slug: string } }
   | { to: "/raw/$date/$filename"; params: { date: string; filename: string } };
 
-export function SearchResultCard({ result }: { result: SearchResult }) {
+export function SearchResultCard({
+  result,
+  keyboardProps,
+}: {
+  result: SearchResult;
+  keyboardProps?: HTMLAttributes<HTMLDivElement>;
+}) {
   const [isScoreOpen, setIsScoreOpen] = useState(false);
   const linkProps = resultLinkProps(result);
 
   return (
-    <Card className="transition-colors hover:bg-surface-2">
+    <Card
+      className="transition-colors hover:bg-surface-2 data-[focused=true]:bg-surface-2 data-[focused=true]:ring-1 data-[focused=true]:ring-primary/60"
+      {...keyboardProps}
+    >
       <div className="flex flex-col gap-3 md:flex-row md:items-start">
         <span
           aria-hidden
@@ -63,7 +72,7 @@ export function SearchResultCard({ result }: { result: SearchResult }) {
   );
 }
 
-function resultLinkProps(result: SearchResult): ResultLinkProps | null {
+export function resultLinkProps(result: SearchResult): ResultLinkProps | null {
   if (result.kind === "wiki" && result.path.startsWith("wiki/")) {
     const parts = result.path.replace(/^wiki\//, "").replace(/\.md$/, "").split("/");
     if (parts.length >= 2) {

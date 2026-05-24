@@ -18,6 +18,18 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer base {
+  :root {
+    --color-accent: #cebdff;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+}
+
 @layer utilities {
   .glass-blur {
     background: rgba(15, 15, 20, 0.65);
@@ -40,6 +52,19 @@
 
   .animate-spin-slow {
     animation: spin-slow 8s linear infinite;
+  }
+
+  @keyframes shimmer {
+    from {
+      background-position: 200% 0;
+    }
+    to {
+      background-position: -200% 0;
+    }
+  }
+
+  .animate-shimmer {
+    animation: shimmer 1.5s linear infinite;
   }
 }
 

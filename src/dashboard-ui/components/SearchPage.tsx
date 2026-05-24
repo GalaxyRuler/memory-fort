@@ -1,10 +1,14 @@
 import { useNavigate, useSearch as useRouterSearch } from "@tanstack/react-router";
+import { Search } from "lucide-react";
 import { useEffect, useState } from "react";
+import { useListKeyNav } from "../hooks/useListKeyNav.js";
 import { type SearchScope, useSearch } from "../hooks/useSearch.js";
 import { useDebouncedValue } from "../hooks/useDebouncedValue.js";
+import { EmptyState } from "./EmptyState.js";
 import { Input } from "./Input.js";
 import { SearchFilters } from "./SearchFilters.js";
-import { SearchResultCard } from "./SearchResultCard.js";
+import { resultLinkProps, SearchResultCard } from "./SearchResultCard.js";
+import { Skeleton } from "./Skeleton.js";
 
 interface SearchPageSearch {
   q?: string;
@@ -27,6 +31,20 @@ export function SearchPage() {
     k,
     noRerank,
     enabled: debouncedQuery.trim().length > 0,
+  });
+  const results = search.data?.results ?? [];
+  const listNav = useListKeyNav({
+    items: results,
+    getKey: (result) => result.path,
+    onActivate: (result) => {
+      const linkProps = resultLinkProps(result);
+      if (!linkProps) return;
+      if (linkProps.to === "/wiki/$category/$slug") {
+        navigate({ to: linkProps.to, params: linkProps.params });
+      } else {
+        navigate({ to: linkProps.to, params: linkProps.params });
+      }
+    },
   });
 
   useEffect(() => {
@@ -79,18 +97,30 @@ export function SearchPage() {
           }
           scope={scope}
         />
-        <div className="space-y-3">
+        <div className="space-y-3" {...listNav.listProps}>
           {!debouncedQuery ? (
-            <p className="px-2 text-sm text-text-muted">Type a query to begin searching memory.</p>
+            <EmptyState
+              icon={Search}
+              title="Type a query to begin"
+              description="Type a query to begin searching memory."
+            />
           ) : null}
           {debouncedQuery && search.isLoading ? (
-            <p className="px-2 text-sm text-text-muted">Searching...</p>
+            <div className="space-y-3" aria-label="Searching memory">
+              {Array.from({ length: 3 }).map((_, index) => (
+                <Skeleton key={index} variant="card" />
+              ))}
+            </div>
           ) : null}
           {debouncedQuery && search.data && search.data.results.length === 0 && !search.isLoading ? (
-            <p className="px-2 text-sm text-text-muted">No results for &quot;{debouncedQuery}&quot;.</p>
+            <EmptyState
+              icon={Search}
+              title={`No results for "${debouncedQuery}".`}
+              description="Try a different query or broaden the scope filter."
+            />
           ) : null}
-          {search.data?.results.map((result) => (
-            <SearchResultCard key={result.path} result={result} />
+          {results.map((result, index) => (
+            <SearchResultCard key={result.path} result={result} keyboardProps={listNav.getItemProps(index)} />
           ))}
         </div>
       </div>

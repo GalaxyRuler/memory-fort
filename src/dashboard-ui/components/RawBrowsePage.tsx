@@ -1,8 +1,12 @@
 import { useNavigate, useSearch } from "@tanstack/react-router";
+import { Terminal } from "lucide-react";
+import { useListKeyNav } from "../hooks/useListKeyNav.js";
 import { useRawIndex } from "../hooks/useRawIndex.js";
 import { parseSourceFromFilename, type RawSource } from "../lib/raw-helpers.js";
+import { EmptyState } from "./EmptyState.js";
 import { RawFilters } from "./RawFilters.js";
 import { SessionRow } from "./SessionRow.js";
+import { Skeleton } from "./Skeleton.js";
 
 export function RawBrowsePage() {
   const raw = useRawIndex();
@@ -20,6 +24,17 @@ export function RawBrowsePage() {
     .filter((entry) => entry.files.length > 0);
 
   const totalCount = filteredEntries.reduce((sum, entry) => sum + entry.files.length, 0);
+  const rows = filteredEntries.flatMap((entry) => entry.files.map((file) => ({ date: entry.date, file })));
+  const rowIndexByKey = new Map(rows.map((row, index) => [`${row.date}/${row.file.filename}`, index]));
+  const listNav = useListKeyNav({
+    items: rows,
+    getKey: (row) => `${row.date}/${row.file.filename}`,
+    onActivate: (row) =>
+      navigate({
+        to: "/raw/$date/$filename",
+        params: { date: row.date, filename: row.file.filename },
+      }),
+  });
 
   return (
     <div className="mx-auto max-w-7xl p-4 md:p-6">
@@ -35,10 +50,20 @@ export function RawBrowsePage() {
           source={sourceFilter}
           onChange={(source) => navigate({ search: { source: source === "all" ? undefined : source }, replace: true })}
         />
-        <div>
-          {raw.isLoading && <p className="text-sm text-text-muted px-2">Loading raws...</p>}
+        <div {...listNav.listProps}>
+          {raw.isLoading && (
+            <div className="space-y-3" aria-label="Loading raw observations">
+              {Array.from({ length: 5 }).map((_, index) => (
+                <Skeleton key={index} className="h-16" variant="block" />
+              ))}
+            </div>
+          )}
           {filteredEntries.length === 0 && !raw.isLoading && (
-            <p className="text-sm text-text-muted px-2">No sessions match this filter.</p>
+            <EmptyState
+              icon={Terminal}
+              title="No sessions match this filter"
+              description="Choose another tool filter to inspect captured raw observations."
+            />
           )}
           {filteredEntries.map((entry) => (
             <section key={entry.date} className="mb-6">
@@ -46,7 +71,12 @@ export function RawBrowsePage() {
                 {entry.date} - {entry.files.length} session{entry.files.length === 1 ? "" : "s"}
               </h2>
               {entry.files.map((file) => (
-                <SessionRow key={file.filename} file={file} date={entry.date} />
+                <SessionRow
+                  key={file.filename}
+                  file={file}
+                  date={entry.date}
+                  keyboardProps={listNav.getItemProps(rowIndexByKey.get(`${entry.date}/${file.filename}`) ?? 0)}
+                />
               ))}
             </section>
           ))}

@@ -1,6 +1,10 @@
 import { useNavigate, useSearch } from "@tanstack/react-router";
+import { BookOpen } from "lucide-react";
+import { useListKeyNav } from "../hooks/useListKeyNav.js";
 import { useWikiIndex } from "../hooks/useWikiIndex.js";
 import { CategorySidebar } from "./CategorySidebar.js";
+import { EmptyState } from "./EmptyState.js";
+import { Skeleton } from "./Skeleton.js";
 import { WikiCard } from "./WikiCard.js";
 
 export function WikiBrowsePage() {
@@ -11,6 +15,15 @@ export function WikiBrowsePage() {
   const entries = selectedCategory
     ? wiki.data?.byCategory[selectedCategory] ?? []
     : Object.values(wiki.data?.byCategory ?? {}).flat();
+  const listNav = useListKeyNav({
+    items: entries,
+    getKey: (entry) => entry.relPath,
+    onActivate: (entry) =>
+      navigate({
+        to: "/wiki/$category/$slug",
+        params: { category: entry.category, slug: entry.slug },
+      }),
+  });
 
   return (
     <div className="mx-auto max-w-7xl p-4 md:p-6">
@@ -31,13 +44,23 @@ export function WikiBrowsePage() {
           selectedCategory={selectedCategory}
         />
         <div>
-          {wiki.isLoading ? <p className="px-2 text-sm text-text-muted">Loading wiki...</p> : null}
-          {wiki.data && entries.length === 0 ? (
-            <p className="px-2 text-sm text-text-muted">No pages in this category.</p>
+          {wiki.isLoading ? (
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3" aria-label="Loading wiki">
+              {Array.from({ length: 6 }).map((_, index) => (
+                <Skeleton key={index} variant="card" />
+              ))}
+            </div>
           ) : null}
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {entries.map((entry) => (
-              <WikiCard entry={entry} key={entry.relPath} />
+          {wiki.data && entries.length === 0 ? (
+            <EmptyState
+              icon={BookOpen}
+              title="No pages in this category"
+              description="Try another category to browse curated wiki pages."
+            />
+          ) : null}
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3" {...listNav.listProps}>
+            {entries.map((entry, index) => (
+              <WikiCard entry={entry} key={entry.relPath} keyboardProps={listNav.getItemProps(index)} />
             ))}
           </div>
         </div>

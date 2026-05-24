@@ -1,7 +1,10 @@
 import { useNavigate, useSearch } from "@tanstack/react-router";
+import { Activity } from "lucide-react";
+import { useListKeyNav } from "../hooks/useListKeyNav.js";
 import { useActivity, type ActivityEvent } from "../hooks/useActivity.js";
 import { ActivityEventRow } from "./ActivityEventRow.js";
 import { ActivityFilters } from "./ActivityFilters.js";
+import { EmptyState } from "./EmptyState.js";
 
 const SOURCES = new Set<ActivityEvent["source"]>(["git", "compile", "sync", "lint", "errors"]);
 const LEVELS = new Set<ActivityEvent["level"]>(["info", "warn", "error"]);
@@ -25,6 +28,11 @@ export function ActivityFeedPage() {
     if (sourceFilter !== "all" && event.source !== sourceFilter) return false;
     if (levelFilter !== "all" && event.level !== levelFilter) return false;
     return true;
+  });
+  const listNav = useListKeyNav({
+    items: filtered,
+    getKey: (event, index) => `${event.timestamp}-${index}`,
+    onActivate: () => undefined,
   });
 
   return (
@@ -54,11 +62,19 @@ export function ActivityFeedPage() {
         <div>
           {activity.isLoading && <p className="text-sm text-text-muted px-2">Loading activity...</p>}
           {!activity.isLoading && filtered.length === 0 && (
-            <p className="text-sm text-text-muted px-2">No events match these filters.</p>
+            <EmptyState
+              icon={Activity}
+              title="No events match these filters"
+              description="Adjust the source or level filter to inspect the activity stream."
+            />
           )}
-          <ul>
+          <ul {...listNav.listProps}>
             {filtered.map((event, index) => (
-              <ActivityEventRow key={`${event.timestamp}-${index}`} event={event} />
+              <ActivityEventRow
+                key={`${event.timestamp}-${index}`}
+                event={event}
+                keyboardProps={listNav.getItemProps(index)}
+              />
             ))}
           </ul>
         </div>
