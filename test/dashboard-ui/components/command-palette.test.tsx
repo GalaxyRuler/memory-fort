@@ -122,6 +122,31 @@ describe("CommandPalette", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(String(fetchMock.mock.calls[0][0])).toContain("q=voyage");
+    expect(String(fetchMock.mock.calls[0][0])).toContain("noRerank=true");
+  });
+
+  test("does not render inert sort controls", () => {
+    renderPalette();
+    openWithShortcut();
+
+    expect(screen.queryByText("Sort:")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "recent" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "confidence" })).not.toBeInTheDocument();
+  });
+
+  test("labels palette search responses as fast", async () => {
+    const fetchMock = vi.fn(
+      async () => new Response(JSON.stringify(makeSearchResponse()), { status: 200 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    renderPalette();
+    openWithShortcut();
+
+    fireEvent.change(screen.getByRole("combobox", { name: "Search memory" }), {
+      target: { value: "voyage" },
+    });
+
+    expect(await screen.findByText(/37ms .* fast/)).toBeInTheDocument();
   });
 
   test("selecting a result navigates and closes the palette", async () => {

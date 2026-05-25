@@ -14,9 +14,6 @@ const SCOPES: { value: SearchScope; label: string }[] = [
   { value: "crystals", label: "Crystals" },
 ];
 
-const SORT_OPTIONS = ["relevance", "recent", "confidence"] as const;
-type SortKey = (typeof SORT_OPTIONS)[number];
-
 const SOURCE_LABELS = {
   bm25: "BM25",
   vector: "embed",
@@ -30,11 +27,10 @@ export function CommandPalette() {
   const { open, setOpen, close } = useCommandPaletteContext();
   const [query, setQuery] = useState("");
   const [scope, setScope] = useState<SearchScope>("all");
-  const [sort, setSort] = useState<SortKey>("relevance");
   const debouncedQuery = useDebouncedValue(query, 150);
-  const search = useSearch({ query: debouncedQuery, scope, k: 12 });
+  const search = useSearch({ query: debouncedQuery, scope, k: 12, noRerank: true });
   const navigate = useNavigate();
-  const sortedResults = sortResults(search.data?.results, sort);
+  const results = search.data?.results ?? [];
 
   useEffect(() => {
     if (open) setQuery("");
@@ -79,22 +75,6 @@ export function CommandPalette() {
             {item.label}
           </button>
         ))}
-        <span className="ml-3 mr-1 text-text-muted">Sort:</span>
-        {SORT_OPTIONS.map((item) => (
-          <button
-            key={item}
-            type="button"
-            onClick={() => setSort(item)}
-            className={cn(
-              "rounded-md px-2 py-0.5 capitalize transition-colors",
-              sort === item
-                ? "bg-surface-2 text-text-primary"
-                : "text-text-secondary hover:text-text-primary",
-            )}
-          >
-            {item}
-          </button>
-        ))}
       </div>
       <Command.List className="max-h-[50vh] overflow-y-auto p-1">
         {search.isLoading && debouncedQuery && (
@@ -107,12 +87,12 @@ export function CommandPalette() {
             <p className="px-4 py-3 text-sm text-text-muted">Type to search memory.</p>
           </Command.Empty>
         )}
-        {debouncedQuery && search.data && sortedResults.length === 0 && !search.isLoading && (
+        {debouncedQuery && search.data && results.length === 0 && !search.isLoading && (
           <Command.Empty>
             <p className="px-4 py-3 text-sm text-text-muted">No results.</p>
           </Command.Empty>
         )}
-        {sortedResults.map((result) => (
+        {results.map((result) => (
           <Command.Item
             key={result.path}
             value={result.path}
@@ -139,11 +119,11 @@ export function CommandPalette() {
       {search.data && (
         <div className="flex items-center justify-between border-t border-border-subtle px-3 py-2 font-mono text-[10px] text-text-muted">
           <span>
-            {sortedResults.length} results
+            {results.length} results
             {sourceSummary(search.data.results) ? ` · ${sourceSummary(search.data.results)}` : ""}
           </span>
           <span>
-            {search.data.timings.totalMs}ms{search.data.degraded ? " · degraded" : ""}
+            {search.data.timings.totalMs}ms{search.data.degraded ? " · degraded" : ""} · fast
           </span>
         </div>
       )}
@@ -171,15 +151,6 @@ function kindToColor(kind: SearchResult["kind"]): string {
   }
 }
 
-function sortResults(results: SearchResult[] | undefined, sort: SortKey): SearchResult[] {
-  if (!results) return [];
-  if (sort === "relevance") return results;
-  // TODO: /api/search does not expose timestamps or confidence yet; keep relevance order for now.
-  if (sort === "recent") return [...results];
-  if (sort === "confidence") return [...results];
-  return results;
-}
-
 function navigateToResult(result: SearchResult, navigate: ReturnType<typeof useNavigate>) {
   if (result.kind === "wiki" && result.path.startsWith("wiki/")) {
     const parts = result.path.replace(/^wiki\//, "").replace(/\.md$/, "").split("/");
@@ -200,5 +171,9 @@ function navigateToResult(result: SearchResult, navigate: ReturnType<typeof useN
         params: { date: parts[0], filename: parts.slice(1).join("/") },
       });
     }
+  }
+
+  if (result.kind === "crystal") {
+    void navigate({ to: "/crystals" });
   }
 }

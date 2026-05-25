@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { apiGet } from "../lib/api.js";
 
 export type SearchScope = "all" | "wiki" | "raw" | "crystals";
@@ -55,6 +55,7 @@ export function useSearch({
         noRerank: noRerank ? "true" : undefined,
       }),
     enabled: enabled && query.trim().length > 0,
+    placeholderData: keepPreviousData,
     staleTime: 30_000,
   });
 }
