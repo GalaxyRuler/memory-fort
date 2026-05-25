@@ -208,6 +208,91 @@ describe("retrieval corpus loader", () => {
     expect(byName["unknown-foo.md"]?.session).toBe("foo");
   });
 
+  it("canonicalizes raw observations across agent frontmatter variants", async () => {
+    await writeMarkdown(
+      tmp,
+      "raw/2026-05-24/claude-code-claude123.md",
+      frontmatterPage(
+        {
+          source: "claude-code",
+          session_id: "claude-session-1",
+          tags: ["GraphCanvas"],
+        },
+        "# GraphCanvas resize fix\n\nTool: edit src/dashboard-ui/components/GraphCanvas.tsx\n\nClaude noted the resize fix.\n",
+      ),
+    );
+    await writeMarkdown(
+      tmp,
+      "raw/2026-05-24/codex-codex456.md",
+      frontmatterPage(
+        {
+          source: "codex",
+          sessionId: "codex-session-2",
+        },
+        "# GraphCanvas resize fix\n\nUsed tool: apply_patch\n\nCodex adjusted the same sizing path.\n",
+      ),
+    );
+    await writeMarkdown(
+      tmp,
+      "raw/2026-05-24/antigravity-ag789.md",
+      frontmatterPage(
+        {
+          source: "antigravity",
+          conversation_id: "antigravity-session-3",
+        },
+        "# GraphCanvas resize fix\n\nUsed tool: browser\n\nAntigravity verified the rendered graph view.\n",
+      ),
+    );
+
+    const result = await loadSearchCorpus({ vaultRoot: tmp, scope: "raw" });
+    const byName = Object.fromEntries(
+      result.documents.map((document) => [
+        document.relPath.split("/").at(-1),
+        document,
+      ]),
+    );
+
+    expect(byName["claude-code-claude123.md"]).toMatchObject({
+      source: "claude-code",
+      session: "claude-session-1",
+      agentSessionId: "claude-session-1",
+      confidence: 0.75,
+      title: "GraphCanvas resize fix",
+      toolCallsSummary: ["edit src/dashboard-ui/components/GraphCanvas.tsx"],
+      rawFrontmatter: expect.objectContaining({ session_id: "claude-session-1" }),
+    });
+    expect(byName["codex-codex456.md"]).toMatchObject({
+      source: "codex",
+      session: "codex-session-2",
+      agentSessionId: "codex-session-2",
+      confidence: 0.75,
+      title: "GraphCanvas resize fix",
+      toolCallsSummary: ["apply_patch"],
+      rawFrontmatter: expect.objectContaining({ sessionId: "codex-session-2" }),
+    });
+    expect(byName["antigravity-ag789.md"]).toMatchObject({
+      source: "antigravity",
+      session: "antigravity-session-3",
+      agentSessionId: "antigravity-session-3",
+      confidence: 0.6,
+      title: "GraphCanvas resize fix",
+      toolCallsSummary: ["browser"],
+      rawFrontmatter: expect.objectContaining({
+        conversation_id: "antigravity-session-3",
+      }),
+    });
+
+    for (const document of result.documents) {
+      expect(document.topicTags).toEqual(
+        expect.arrayContaining(["graphcanvas", "resize", "fix"]),
+      );
+      expect(document.tags).toEqual(
+        expect.arrayContaining(["graphcanvas", "resize", "fix"]),
+      );
+      expect(document.body).toContain("canonical topics: graphcanvas resize fix");
+    }
+  });
+
   it("mtime captured and sizeBytes correct", async () => {
     const fullPath = await writeMarkdown(
       tmp,

@@ -1,5 +1,6 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import { basename, join, relative, resolve } from "node:path";
+import { canonicalizeRawObservation } from "../compile/canonicalize.js";
 import type { Frontmatter } from "../storage/frontmatter.js";
 
 export type SearchScope = "wiki" | "raw" | "crystals" | "all";
@@ -24,6 +25,10 @@ export interface SearchDocument {
   relations: Record<string, string[]>;
   source: SearchSource;
   session: string | null;
+  agentSessionId?: string | null;
+  toolCallsSummary?: string[];
+  topicTags?: string[];
+  rawFrontmatter?: Record<string, unknown> | null;
   body: string;
   snippetSource: string;
   updated: string | null;
@@ -154,23 +159,37 @@ async function loadDocument(file: MarkdownFile): Promise<SearchDocument> {
   const filename = basename(file.relPath, ".md");
   const rawIdentity = parseRawIdentity(filename);
   const frontmatter = parsed.frontmatter;
+  const canonical =
+    file.kind === "raw"
+      ? canonicalizeRawObservation({
+          filename,
+          identity: rawIdentity,
+          frontmatter: frontmatter as Record<string, unknown>,
+          body: parsed.body,
+        })
+      : null;
 
   return {
     kind: file.kind,
     relPath: file.relPath,
     fullPath: file.fullPath,
-    title: readString(frontmatter.title) ?? filename,
+    title: canonical?.title ?? readString(frontmatter.title) ?? filename,
     type: readString(frontmatter.type) ?? defaultType(file),
     status: readString(frontmatter.status) ?? "active",
-    confidence: readNumber(frontmatter.confidence),
-    tags: readStringArray(frontmatter.tags),
+    confidence: canonical?.confidence ?? readNumber(frontmatter.confidence),
+    tags: canonical?.tags ?? readStringArray(frontmatter.tags),
     relations: readRelations(frontmatter.relations),
     source:
-      file.kind === "raw"
+      canonical?.source ??
+      (file.kind === "raw"
         ? rawIdentity.source
-        : readSearchSource(frontmatter.source),
-    session: readString(frontmatter.session) ?? rawIdentity.session,
-    body: parsed.body,
+        : readSearchSource(frontmatter.source)),
+    session: canonical?.session ?? readString(frontmatter.session) ?? rawIdentity.session,
+    agentSessionId: canonical?.session ?? null,
+    toolCallsSummary: canonical?.toolCallsSummary ?? [],
+    topicTags: canonical?.topicTags ?? [],
+    rawFrontmatter: canonical?.rawFrontmatter ?? null,
+    body: canonical?.body ?? parsed.body,
     snippetSource: firstNonEmptyLine(parsed.body),
     updated: readUpdated(frontmatter.updated),
     mtime: info.mtime.toISOString(),
