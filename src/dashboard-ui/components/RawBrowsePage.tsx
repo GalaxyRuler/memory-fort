@@ -10,8 +10,8 @@ import { Skeleton } from "./Skeleton.js";
 
 export function RawBrowsePage() {
   const raw = useRawIndex();
-  const params = useSearch({ from: "/raw" }) as { source?: RawSource | "all" };
-  const navigate = useNavigate({ from: "/raw" });
+  const params = useSearch({ from: "/raw/" }) as { source?: RawSource | "all" };
+  const navigate = useNavigate({ from: "/raw/" });
   const sourceFilter = params.source ?? "all";
 
   const filteredEntries = (raw.data ?? [])

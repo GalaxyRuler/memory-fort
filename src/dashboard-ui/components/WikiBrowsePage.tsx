@@ -9,8 +9,8 @@ import { WikiCard } from "./WikiCard.js";
 
 export function WikiBrowsePage() {
   const wiki = useWikiIndex();
-  const params = useSearch({ from: "/wiki" }) as { category?: string };
-  const navigate = useNavigate({ from: "/wiki" });
+  const params = useSearch({ from: "/wiki/" }) as { category?: string };
+  const navigate = useNavigate({ from: "/wiki/" });
   const selectedCategory = params.category ?? null;
   const entries = selectedCategory
     ? wiki.data?.byCategory[selectedCategory] ?? []
