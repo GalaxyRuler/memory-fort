@@ -34,6 +34,30 @@ vi.mock("@tanstack/react-router", () => ({
   useLocation: () => ({ pathname: routerMockState.currentPath }),
 }));
 
+vi.mock("../../../src/dashboard-ui/hooks/useStatus.js", () => ({
+  useStatus: () => ({
+    data: {
+      vaultRoot: "C:/memory",
+      repoHead: null,
+      counts: { wikiPages: 13, rawObservations: 40, crystals: 0 },
+      lastCompile: null,
+      errorsLog: { sizeBytes: 0, lastLine: null, isClean: true },
+      syncState: {
+        lastSyncAttempt: null,
+        lastSyncSuccess: null,
+        pendingPushCount: 0,
+        conflictsPending: 0,
+        conflictFiles: [],
+        lastCheckoutAt: "2026-05-24T12:00:00.000Z",
+        isStale: false,
+      },
+      generatedAt: "2026-05-24T12:00:00.000Z",
+    },
+    isError: false,
+    isLoading: false,
+  }),
+}));
+
 const originalMatchMedia = window.matchMedia;
 
 function setMobileMedia(matches: boolean) {
