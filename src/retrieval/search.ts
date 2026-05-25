@@ -1,6 +1,6 @@
 import { loadSearchCorpus, type SearchDocument, type SearchScope } from "./corpus.js";
 import { loadEmbeddings, type EmbeddingKind } from "./embeddings-store.js";
-import { buildBm25Index, scoreBm25, tokenize } from "./bm25.js";
+import { buildBm25Index, scoreBm25, tokenize, type Bm25Index } from "./bm25.js";
 import { exactBoosts } from "./exact.js";
 import { buildGraph, expandGraph } from "./graph.js";
 import { scoreByMetadata } from "./metadata-score.js";
@@ -98,6 +98,7 @@ interface Candidate {
 const DEFAULT_K = 10;
 const DEFAULT_MIN_SCORE = 0;
 const SIGNAL_LIMIT = 50;
+const BM25_CACHE_MAX_ENTRIES = 8;
 // Voyage returns low positive cosine for unrelated text; keep vector as a signal, not a universal match.
 const MIN_VECTOR_SCORE = 0.25;
 const LEXICAL_STOPWORDS = new Set([
@@ -143,6 +144,8 @@ You're helping the memory system search for information. A short or abstract que
 - Aim for ~150-200 words
 
 Now write the hypothetical paragraph(s):`;
+
+const bm25IndexCache = new Map<string, Bm25Index>();
 
 export async function runSearch(opts: SearchOptions): Promise<SearchResponse> {
   if (!opts.vaultRoot) throw new Error("vaultRoot is required");
@@ -242,10 +245,7 @@ export async function runSearch(opts: SearchOptions): Promise<SearchResponse> {
   const bm25Started = Date.now();
   const bm25 = scoreBm25(
     lexicalQuery,
-    buildBm25Index(documents.map((document) => ({
-      relPath: document.relPath,
-      text: document.body,
-    }))),
+    cachedBm25Index(opts.vaultRoot, documents),
   ).slice(0, SIGNAL_LIMIT);
   timings.bm25Ms = Date.now() - bm25Started;
 
@@ -448,6 +448,43 @@ function filterByScope(
 
 function toRankedItems(scores: Array<{ relPath: string }>): RankedItem[] {
   return scores.map((score, index) => ({ relPath: score.relPath, rank: index + 1 }));
+}
+
+function cachedBm25Index(vaultRoot: string, documents: SearchDocument[]): Bm25Index {
+  const fingerprint = corpusFingerprint(vaultRoot, documents);
+  const cached = bm25IndexCache.get(fingerprint);
+  if (cached) return cached;
+
+  const index = buildBm25Index(
+    documents.map((document) => ({
+      relPath: document.relPath,
+      text: document.body,
+    })),
+  );
+  bm25IndexCache.set(fingerprint, index);
+  trimBm25Cache();
+  return index;
+}
+
+function corpusFingerprint(vaultRoot: string, documents: SearchDocument[]): string {
+  return [
+    vaultRoot,
+    ...documents.map((document) =>
+      [
+        document.relPath,
+        document.mtime,
+        document.sizeBytes,
+      ].join("\u0000"),
+    ),
+  ].join("\u0001");
+}
+
+function trimBm25Cache(): void {
+  while (bm25IndexCache.size > BM25_CACHE_MAX_ENTRIES) {
+    const oldestKey = bm25IndexCache.keys().next().value;
+    if (oldestKey === undefined) return;
+    bm25IndexCache.delete(oldestKey);
+  }
 }
 
 function lexicalSignalQuery(query: string): string {
