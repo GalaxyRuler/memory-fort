@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { AppShell } from "../../../src/dashboard-ui/layouts/AppShell.js";
@@ -25,6 +25,30 @@ vi.mock("@tanstack/react-router", () => ({
   ),
   Outlet: () => <div data-testid="route-outlet">Route content</div>,
   useLocation: () => ({ pathname: routerMockState.currentPath }),
+}));
+
+vi.mock("../../../src/dashboard-ui/hooks/useStatus.js", () => ({
+  useStatus: () => ({
+    data: {
+      vaultRoot: "C:/memory",
+      repoHead: null,
+      counts: { wikiPages: 13, rawObservations: 40, crystals: 0 },
+      lastCompile: null,
+      errorsLog: { sizeBytes: 0, lastLine: null, isClean: true },
+      syncState: {
+        lastSyncAttempt: null,
+        lastSyncSuccess: null,
+        pendingPushCount: 0,
+        conflictsPending: 0,
+        conflictFiles: [],
+        lastCheckoutAt: "2026-05-24T12:00:00.000Z",
+        isStale: false,
+      },
+      generatedAt: "2026-05-24T12:00:00.000Z",
+    },
+    isError: false,
+    isLoading: false,
+  }),
 }));
 
 describe("dashboard app shell", () => {
@@ -91,5 +115,22 @@ describe("dashboard app shell", () => {
     render(<MobileBottomNav />);
 
     expect(screen.getByRole("link", { name: "Timeline" })).toHaveClass("text-text-primary");
+  });
+
+  test("mobile drawer backdrop is hidden from assistive tech and closes the drawer", async () => {
+    render(<AppShell />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Open navigation menu" }));
+
+    expect(screen.getAllByRole("button", { name: "Close navigation menu" })).toHaveLength(1);
+    const backdrop = screen.getByTestId("mobile-drawer-backdrop");
+    expect(backdrop).toHaveAttribute("aria-hidden", "true");
+    expect(backdrop).not.toHaveAttribute("aria-label");
+
+    fireEvent.click(backdrop);
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "Navigation menu" })).not.toBeInTheDocument();
+    });
   });
 });

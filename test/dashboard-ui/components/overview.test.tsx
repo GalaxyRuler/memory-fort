@@ -7,6 +7,14 @@ import { StatCard } from "../../../src/dashboard-ui/components/StatCard.js";
 import type { ActivityEvent } from "../../../src/dashboard-ui/hooks/useActivity.js";
 import type { DashboardStatus } from "../../../src/dashboard-ui/hooks/useStatus.js";
 
+vi.mock("@tanstack/react-router", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@tanstack/react-router")>();
+  return {
+    ...actual,
+    useNavigate: () => vi.fn(),
+  };
+});
+
 describe("overview components", () => {
   test("Sparkline renders polyline with correct point count", () => {
     const { container } = render(<Sparkline data={[1, 3, 2, 5, 4]} />);

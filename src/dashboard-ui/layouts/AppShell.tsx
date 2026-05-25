@@ -71,8 +71,9 @@ export function AppShell() {
         >
           <button
             type="button"
-            aria-label="Close navigation menu"
+            aria-hidden="true"
             className="absolute inset-0 bg-background/70"
+            data-testid="mobile-drawer-backdrop"
             onClick={() => setIsMobileSidebarOpen(false)}
             tabIndex={-1}
           />

@@ -1,7 +1,10 @@
 import { Link, useLocation } from "@tanstack/react-router";
-import { StatusPill } from "../components/StatusPill.js";
+import { Skeleton } from "../components/Skeleton.js";
+import { StatusPill, type StatusKind } from "../components/StatusPill.js";
+import { useStatus, type DashboardStatus } from "../hooks/useStatus.js";
 import { cn } from "../lib/cn.js";
 import { NAV_ITEMS } from "../lib/nav-items.js";
+import { relativeTime } from "../lib/time-helpers.js";
 
 export function Sidebar({
   className,
@@ -13,6 +16,8 @@ export function Sidebar({
   onNavigate?: () => void;
 }) {
   const location = useLocation();
+  const status = useStatus();
+  const sidebarStatus = statusPillState(status);
 
   return (
     <aside
@@ -58,8 +63,55 @@ export function Sidebar({
         })}
       </nav>
       <div className="mt-auto px-2">
-        <StatusPill kind="synced">synced 8s ago</StatusPill>
+        {sidebarStatus === "loading" ? (
+          <Skeleton
+            aria-label="Loading sync status"
+            className="h-[1.375rem] w-28 rounded-full"
+            variant="line"
+          />
+        ) : (
+          <StatusPill kind={sidebarStatus.kind}>{sidebarStatus.label}</StatusPill>
+        )}
       </div>
     </aside>
   );
+}
+
+type StatusQuery = ReturnType<typeof useStatus>;
+
+function statusPillState(
+  status: StatusQuery,
+): "loading" | { kind: StatusKind; label: string } {
+  if (status.isLoading && !status.data) return "loading";
+  if (status.isError || status.data?.errorsLog?.isClean === false) {
+    return {
+      kind: "error",
+      label: statusLabel("error", statusTimestamp(status.data)),
+    };
+  }
+
+  if (!status.data?.syncState) {
+    return { kind: "unknown", label: "unknown" };
+  }
+
+  const syncState = status.data.syncState;
+  const label = syncState.isStale ? "stale" : "synced";
+  return {
+    kind: syncState.isStale ? "stale" : "synced",
+    label: statusLabel(label, statusTimestamp(status.data)),
+  };
+}
+
+function statusTimestamp(status: DashboardStatus | undefined): string | null {
+  return (
+    status?.syncState?.lastCheckoutAt ??
+    status?.syncState?.lastSyncSuccess ??
+    status?.syncState?.lastSyncAttempt ??
+    status?.generatedAt ??
+    null
+  );
+}
+
+function statusLabel(label: string, timestamp: string | null): string {
+  return timestamp ? `${label} ${relativeTime(timestamp)}` : label;
 }

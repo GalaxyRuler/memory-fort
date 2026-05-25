@@ -1,3 +1,4 @@
+import { useNavigate } from "@tanstack/react-router";
 import { AlertCircle, AlertTriangle } from "lucide-react";
 import type { ComponentType } from "react";
 import type { DashboardStatus } from "../hooks/useStatus.js";
@@ -9,9 +10,12 @@ interface AttentionItem {
   tone: "red" | "amber";
   title: string;
   cta?: string;
+  onClick?: () => void;
 }
 
 export function NeedsAttention({ status }: { status: DashboardStatus | undefined }) {
+  const navigate = useNavigate();
+
   if (!status) {
     return (
       <Card>
@@ -29,6 +33,7 @@ export function NeedsAttention({ status }: { status: DashboardStatus | undefined
         status.syncState.conflictsPending === 1 ? "" : "s"
       } pending`,
       cta: "Resolve",
+      onClick: () => navigate({ to: "/conflicts" }),
     });
   }
   if (status.errorsLog && !status.errorsLog.isClean) {
@@ -37,6 +42,7 @@ export function NeedsAttention({ status }: { status: DashboardStatus | undefined
       tone: "amber",
       title: "Errors log has new entries",
       cta: "View",
+      onClick: () => navigate({ to: "/audit", search: { level: "error" } }),
     });
   }
   if (items.length === 0) {
@@ -69,7 +75,7 @@ export function NeedsAttention({ status }: { status: DashboardStatus | undefined
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-medium">{item.title}</p>
                 {item.cta && (
-                  <Button variant="ghost" className="mt-2 text-xs">
+                  <Button variant="ghost" className="mt-2 text-xs" onClick={item.onClick}>
                     {item.cta}
                   </Button>
                 )}

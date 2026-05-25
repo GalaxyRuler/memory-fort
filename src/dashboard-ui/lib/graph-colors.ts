@@ -17,8 +17,8 @@ export const RELATION_COLORS: Record<string, string> = {
   caused_by: "#fb923c",
   fixed_by: "#34d399",
   derived_from: "#8b5fff",
-  mentioned_in: "rgba(237,237,237,0.4)",
-  linked: "rgba(91,139,255,0.7)",
+  mentioned_in: "rgb(237,237,237)",
+  linked: "rgb(91,139,255)",
 };
 
 export function nodeColor(node: { type: string; kind: string }): string {
@@ -31,5 +31,5 @@ export function nodeColor(node: { type: string; kind: string }): string {
 export function edgeColor(edge: { kind: string; relationType: string | null }): string {
   if (edge.kind === "wikilink") return RELATION_COLORS.linked;
   if (edge.relationType && RELATION_COLORS[edge.relationType]) return RELATION_COLORS[edge.relationType];
-  return "rgba(237,237,237,0.3)";
+  return "rgb(237,237,237)";
 }

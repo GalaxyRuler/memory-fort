@@ -34,6 +34,14 @@ describe("dashboard UI base components", () => {
     rerender(<StatusPill kind="conflict">needs review</StatusPill>);
     const conflict = screen.getByText("needs review").closest("span");
     expect(conflict).toHaveClass("bg-status-red/20", "text-status-red");
+
+    rerender(<StatusPill kind="error">error</StatusPill>);
+    const error = screen.getByText("error").closest("span");
+    expect(error).toHaveClass("bg-status-red/20", "text-status-red");
+
+    rerender(<StatusPill kind="unknown">unknown</StatusPill>);
+    const unknown = screen.getByText("unknown").closest("span");
+    expect(unknown).toHaveClass("bg-text-muted/20", "text-text-muted");
   });
 
   it("Card renders children with surface and border classes", () => {

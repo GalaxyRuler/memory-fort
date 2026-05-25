@@ -29,6 +29,8 @@ export interface DashboardStatus {
     pendingPushCount: number;
     conflictsPending: number;
     conflictFiles: string[];
+    lastCheckoutAt?: string | null;
+    isStale?: boolean;
   } | null;
   generatedAt: string;
 }

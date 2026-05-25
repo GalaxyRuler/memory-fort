@@ -37,6 +37,8 @@ export interface DashboardStatus {
     pendingPushCount: number;
     conflictsPending: number;
     conflictFiles: string[];
+    lastCheckoutAt?: string | null;
+    isStale?: boolean;
   } | null;
   generatedAt: string;
 }
@@ -587,14 +589,27 @@ export async function loadSyncState(vaultRoot: string): Promise<DashboardStatus[
   if (!(await pathExists(path))) return null;
   try {
     const parsed = JSON.parse(await readFile(path, "utf-8")) as Record<string, unknown>;
+    const lastSyncAttempt = typeof parsed["last_sync_attempt"] === "string" ? parsed["last_sync_attempt"] : null;
+    const lastSyncSuccess = typeof parsed["last_sync_success"] === "string" ? parsed["last_sync_success"] : null;
+    const pendingPushCount = typeof parsed["pending_push_count"] === "number" ? parsed["pending_push_count"] : 0;
+    const conflictsPending = typeof parsed["conflicts_pending"] === "number" ? parsed["conflicts_pending"] : 0;
+    const lastCheckoutAt =
+      typeof parsed["last_checkout_at"] === "string"
+        ? parsed["last_checkout_at"]
+        : lastSyncSuccess ?? lastSyncAttempt;
     return {
-      lastSyncAttempt: typeof parsed["last_sync_attempt"] === "string" ? parsed["last_sync_attempt"] : null,
-      lastSyncSuccess: typeof parsed["last_sync_success"] === "string" ? parsed["last_sync_success"] : null,
-      pendingPushCount: typeof parsed["pending_push_count"] === "number" ? parsed["pending_push_count"] : 0,
-      conflictsPending: typeof parsed["conflicts_pending"] === "number" ? parsed["conflicts_pending"] : 0,
+      lastSyncAttempt,
+      lastSyncSuccess,
+      pendingPushCount,
+      conflictsPending,
       conflictFiles: Array.isArray(parsed["conflict_files"])
         ? parsed["conflict_files"].filter((value): value is string => typeof value === "string")
         : [],
+      lastCheckoutAt,
+      isStale:
+        typeof parsed["is_stale"] === "boolean"
+          ? parsed["is_stale"]
+          : pendingPushCount > 0,
     };
   } catch (err) {
     console.warn(`dashboard: unable to read sync state: ${(err as Error).message}`);

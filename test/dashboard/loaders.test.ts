@@ -111,6 +111,8 @@ describe("dashboard loaders", () => {
       pendingPushCount: 0,
       conflictsPending: 0,
       conflictFiles: [],
+      lastCheckoutAt: "2026-05-23T00:00:00.000Z",
+      isStale: false,
     });
   });
 
