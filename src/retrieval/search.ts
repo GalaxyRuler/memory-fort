@@ -1,6 +1,13 @@
 import { loadSearchCorpus, type SearchDocument, type SearchScope } from "./corpus.js";
 import { loadEmbeddings, type EmbeddingKind } from "./embeddings-store.js";
-import { buildBm25Index, scoreBm25, tokenize, type Bm25Index } from "./bm25.js";
+import {
+  buildBm25IndexFromEntries,
+  scoreBm25,
+  tokenize,
+  type Bm25Index,
+  type Bm25IndexEntry,
+  type Tokens,
+} from "./bm25.js";
 import { exactBoosts } from "./exact.js";
 import { buildGraph, expandGraph } from "./graph.js";
 import { scoreByMetadata } from "./metadata-score.js";
@@ -99,6 +106,7 @@ const DEFAULT_K = 10;
 const DEFAULT_MIN_SCORE = 0;
 const SIGNAL_LIMIT = 50;
 const BM25_CACHE_MAX_ENTRIES = 8;
+const BM25_TOKEN_CACHE_MAX_ENTRIES = 4096;
 // Voyage returns low positive cosine for unrelated text; keep vector as a signal, not a universal match.
 const MIN_VECTOR_SCORE = 0.25;
 const LEXICAL_STOPWORDS = new Set([
@@ -146,6 +154,7 @@ You're helping the memory system search for information. A short or abstract que
 Now write the hypothetical paragraph(s):`;
 
 const bm25IndexCache = new Map<string, Bm25Index>();
+const bm25TokenCache = new Map<string, Bm25IndexEntry>();
 
 export async function runSearch(opts: SearchOptions): Promise<SearchResponse> {
   if (!opts.vaultRoot) throw new Error("vaultRoot is required");
@@ -455,15 +464,51 @@ function cachedBm25Index(vaultRoot: string, documents: SearchDocument[]): Bm25In
   const cached = bm25IndexCache.get(fingerprint);
   if (cached) return cached;
 
-  const index = buildBm25Index(
-    documents.map((document) => ({
-      relPath: document.relPath,
-      text: document.body,
-    })),
+  const index = buildBm25IndexFromEntries(
+    documents.map((document) => cachedTokenizedDocument(vaultRoot, document)),
   );
   bm25IndexCache.set(fingerprint, index);
   trimBm25Cache();
   return index;
+}
+
+function cachedTokenizedDocument(
+  vaultRoot: string,
+  document: SearchDocument,
+): Bm25IndexEntry {
+  const cacheKey = tokenCacheKey(vaultRoot, document);
+  const cached = bm25TokenCache.get(cacheKey);
+  if (cached) {
+    bm25TokenCache.delete(cacheKey);
+    bm25TokenCache.set(cacheKey, cached);
+    return cached;
+  }
+
+  const entry = {
+    relPath: document.relPath,
+    tokens: buildTokens(document.body),
+  };
+  bm25TokenCache.set(cacheKey, entry);
+  trimBm25TokenCache();
+  return entry;
+}
+
+function buildTokens(text: string): Tokens {
+  const terms = tokenize(text);
+  const termCount = new Map<string, number>();
+  for (const term of terms) {
+    termCount.set(term, (termCount.get(term) ?? 0) + 1);
+  }
+  return { terms, termCount, length: terms.length };
+}
+
+function tokenCacheKey(vaultRoot: string, document: SearchDocument): string {
+  return [
+    vaultRoot,
+    document.relPath,
+    document.mtime,
+    document.sizeBytes,
+  ].join("\u0000");
 }
 
 function corpusFingerprint(vaultRoot: string, documents: SearchDocument[]): string {
@@ -484,6 +529,14 @@ function trimBm25Cache(): void {
     const oldestKey = bm25IndexCache.keys().next().value;
     if (oldestKey === undefined) return;
     bm25IndexCache.delete(oldestKey);
+  }
+}
+
+function trimBm25TokenCache(): void {
+  while (bm25TokenCache.size > BM25_TOKEN_CACHE_MAX_ENTRIES) {
+    const oldestKey = bm25TokenCache.keys().next().value;
+    if (oldestKey === undefined) return;
+    bm25TokenCache.delete(oldestKey);
   }
 }
 

@@ -15,17 +15,27 @@ describe("search BM25 cache", () => {
     await writeWikiPage(
       "alpha.md",
       "Alpha Embedding",
-      "embedding ".repeat(40_000) + "alpha retrieval memory",
+      largeBody("embedding", "alpha retrieval memory"),
     );
     await writeWikiPage(
       "beta.md",
       "Beta Embedding",
-      "embedding ".repeat(35_000) + "beta semantic recall",
+      largeBody("embedding", "beta semantic recall"),
     );
     await writeWikiPage(
       "gamma.md",
       "Gamma Search",
-      "search ".repeat(30_000) + "gamma lexical notes",
+      largeBody("search", "gamma lexical notes"),
+    );
+    await writeWikiPage(
+      "delta.md",
+      "Delta Embedding",
+      largeBody("embedding", "delta cache notes"),
+    );
+    await writeWikiPage(
+      "epsilon.md",
+      "Epsilon Search",
+      largeBody("search", "epsilon sidecar notes"),
     );
   });
 
@@ -33,13 +43,11 @@ describe("search BM25 cache", () => {
     await rm(vaultRoot, { recursive: true, force: true });
   });
 
-  test("reuses the BM25 index until a contributing file mtime changes", async () => {
+  test("reuses cached BM25 work until a contributing source file mtime changes", async () => {
     const first = await searchEmbedding();
     const second = await searchEmbedding();
 
-    expect(second.results.map((result) => result.path)).toEqual(
-      first.results.map((result) => result.path),
-    );
+    expect(resultPaths(second)).toEqual(resultPaths(first));
     expect(first.timings.bm25Ms).toBeGreaterThan(0);
     expect(second.timings.bm25Ms).toBeLessThanOrEqual(first.timings.bm25Ms / 10);
 
@@ -48,12 +56,59 @@ describe("search BM25 cache", () => {
 
     const afterMtimeChange = await searchEmbedding();
 
-    expect(afterMtimeChange.results.map((result) => result.path)).toEqual(
-      first.results.map((result) => result.path),
+    expect(resultPaths(afterMtimeChange)).toEqual(resultPaths(first));
+    expect(afterMtimeChange.timings.bm25Ms).toBeGreaterThan(second.timings.bm25Ms);
+    expect(afterMtimeChange.timings.bm25Ms).toBeLessThanOrEqual(200);
+  });
+
+  test("keeps a single source file add mostly warm", async () => {
+    const first = await searchEmbedding();
+    const warm = await searchEmbedding();
+    await writeWikiPage(
+      "zeta.md",
+      "Zeta Embedding",
+      largeBody("embedding", "zeta new source note"),
     );
-    expect(afterMtimeChange.timings.bm25Ms).toBeGreaterThanOrEqual(
-      first.timings.bm25Ms / 2,
+
+    const afterAdd = await searchEmbedding();
+
+    expect(warm.timings.bm25Ms).toBeLessThanOrEqual(first.timings.bm25Ms / 10);
+    expect(afterAdd.results.some((result) => result.path.endsWith("zeta.md"))).toBe(true);
+    expect(afterAdd.timings.bm25Ms).toBeLessThanOrEqual(200);
+    expect(afterAdd.timings.bm25Ms).toBeLessThan(first.timings.bm25Ms / 2);
+  });
+
+  test("keeps a single source file modify mostly warm", async () => {
+    const first = await searchEmbedding();
+    const warm = await searchEmbedding();
+    await writeWikiPage(
+      "beta.md",
+      "Beta Embedding",
+      largeBody("embedding", "beta modified semantic recall"),
     );
+    const changedAt = new Date(Date.now() + 60_000);
+    await utimes(join(vaultRoot, "wiki", "projects", "beta.md"), changedAt, changedAt);
+
+    const afterModify = await searchEmbedding();
+
+    expect(warm.timings.bm25Ms).toBeLessThanOrEqual(first.timings.bm25Ms / 10);
+    expect(afterModify.results.some((result) => result.path.endsWith("beta.md"))).toBe(true);
+    expect(afterModify.timings.bm25Ms).toBeLessThanOrEqual(200);
+    expect(afterModify.timings.bm25Ms).toBeLessThan(first.timings.bm25Ms / 2);
+  });
+
+  test("ignores non-corpus sidecar mtime touches for BM25 cache reuse", async () => {
+    const first = await searchEmbedding();
+    const warm = await searchEmbedding();
+    await writeFile(join(vaultRoot, ".sync-state.json"), "{}\n", "utf-8");
+    const changedAt = new Date(Date.now() + 60_000);
+    await utimes(join(vaultRoot, ".sync-state.json"), changedAt, changedAt);
+
+    const afterSidecarTouch = await searchEmbedding();
+
+    expect(warm.timings.bm25Ms).toBeLessThanOrEqual(first.timings.bm25Ms / 10);
+    expect(resultPaths(afterSidecarTouch)).toEqual(resultPaths(first));
+    expect(afterSidecarTouch.timings.bm25Ms).toBeLessThanOrEqual(first.timings.bm25Ms / 10);
   });
 
   async function searchEmbedding() {
@@ -61,7 +116,7 @@ describe("search BM25 cache", () => {
     return runSearch({
       query: "embedding",
       scope: "wiki",
-      k: 3,
+      k: 10,
       noHyde: true,
       noRerank: true,
       vaultRoot,
@@ -76,6 +131,14 @@ describe("search BM25 cache", () => {
       `---\ntitle: ${title}\ntype: projects\nstatus: active\nconfidence: 0.9\n---\n${body}\n`,
       "utf-8",
     );
+  }
+
+  function largeBody(term: string, suffix: string): string {
+    return `${term} `.repeat(55_000) + suffix;
+  }
+
+  function resultPaths(result: Awaited<ReturnType<typeof searchEmbedding>>): string[] {
+    return result.results.map((item) => item.path).sort();
   }
 });
 

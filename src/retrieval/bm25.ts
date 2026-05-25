@@ -49,6 +49,14 @@ export function buildBm25Index(
       tokens: buildTokens(doc.text),
     }))
     .sort((a, b) => a.relPath.localeCompare(b.relPath));
+  return buildBm25IndexFromEntries(entries, opts);
+}
+
+export function buildBm25IndexFromEntries(
+  entriesInput: Bm25IndexEntry[],
+  opts: Bm25Options = {},
+): Bm25Index {
+  const entries = [...entriesInput].sort((a, b) => a.relPath.localeCompare(b.relPath));
   const totalDocs = entries.length;
   const totalLength = entries.reduce((sum, entry) => sum + entry.tokens.length, 0);
   const documentFrequency = new Map<string, number>();
