@@ -10,6 +10,8 @@ import {
   checkOrphans,
   checkStale,
   checkDrafts,
+  checkContradictions,
+  checkSupersededDependents,
   runAllChecks,
   type WikiPage,
 } from "../../src/curation/checks.js";
@@ -417,6 +419,132 @@ describe("checkDrafts", () => {
       }),
     ];
     expect(checkDrafts(pages)).toEqual([]);
+  });
+});
+
+describe("checkContradictions", () => {
+  it("propagates contradiction conflicts to dependents up to two relation hops", () => {
+    const pages = [
+      page("decisions/postgres.md", {
+        type: "decisions",
+        title: "Use Postgres",
+        created: "2026-05-21",
+        updated: "2026-05-21",
+        status: "superseded",
+        relations: { contradicts: ["decisions/jsonl"] },
+      }),
+      page("decisions/jsonl.md", {
+        type: "decisions",
+        title: "Use JSONL",
+        created: "2026-05-21",
+        updated: "2026-05-21",
+        status: "active",
+      }),
+      page("projects/c.md", {
+        type: "projects",
+        title: "C",
+        created: "2026-05-21",
+        updated: "2026-05-21",
+        relations: { derived_from: ["decisions/postgres"] },
+      }),
+      page("projects/d.md", {
+        type: "projects",
+        title: "D",
+        created: "2026-05-21",
+        updated: "2026-05-21",
+        relations: { uses: ["decisions/postgres"] },
+      }),
+      page("projects/e.md", {
+        type: "projects",
+        title: "E",
+        created: "2026-05-21",
+        updated: "2026-05-21",
+        relations: { depends_on: ["decisions/postgres"] },
+      }),
+      page("projects/f.md", {
+        type: "projects",
+        title: "F",
+        created: "2026-05-21",
+        updated: "2026-05-21",
+        relations: { linked: ["projects/c"] },
+      }),
+      page("projects/g.md", {
+        type: "projects",
+        title: "G",
+        created: "2026-05-21",
+        updated: "2026-05-21",
+        relations: { linked: ["projects/f"] },
+      }),
+    ];
+
+    const conflicts = checkContradictions(pages);
+    const direct = conflicts.find((conflict) => conflict.reason === "contradiction");
+    expect(direct).toMatchObject({
+      pageA: "wiki/decisions/postgres.md",
+      pageB: "wiki/decisions/jsonl.md",
+      reason: "contradiction",
+    });
+
+    const derived = conflicts.filter((conflict) => conflict.reason === "derived-from-contradiction");
+    expect(derived.map((conflict) => conflict.dependentPath).sort()).toEqual([
+      "wiki/projects/c.md",
+      "wiki/projects/d.md",
+      "wiki/projects/e.md",
+      "wiki/projects/f.md",
+    ]);
+    expect(derived.find((conflict) => conflict.dependentPath === "wiki/projects/f.md")?.via).toEqual([
+      "projects/c.md:derived_from",
+      "projects/f.md:linked",
+    ]);
+    expect(derived).not.toContainEqual(
+      expect.objectContaining({ dependentPath: "wiki/projects/g.md" }),
+    );
+  });
+});
+
+describe("checkSupersededDependents", () => {
+  it("flags active pages that still depend on superseded pages up to two relation hops", () => {
+    const pages = [
+      page("decisions/old.md", {
+        type: "decisions",
+        title: "Old",
+        created: "2026-05-21",
+        updated: "2026-05-21",
+        status: "superseded",
+      }),
+      page("projects/direct.md", {
+        type: "projects",
+        title: "Direct",
+        created: "2026-05-21",
+        updated: "2026-05-21",
+        status: "active",
+        relations: { uses: ["decisions/old"] },
+      }),
+      page("projects/indirect.md", {
+        type: "projects",
+        title: "Indirect",
+        created: "2026-05-21",
+        updated: "2026-05-21",
+        status: "active",
+        relations: { linked: ["projects/direct"] },
+      }),
+      page("projects/too-far.md", {
+        type: "projects",
+        title: "Too Far",
+        created: "2026-05-21",
+        updated: "2026-05-21",
+        status: "active",
+        relations: { linked: ["projects/indirect"] },
+      }),
+    ];
+
+    const issues = checkSupersededDependents(pages);
+    expect(issues.map((issue) => issue.page).sort()).toEqual([
+      "wiki/projects/direct.md",
+      "wiki/projects/indirect.md",
+    ]);
+    expect(issues[0]!.category).toBe("superseded-dependent");
+    expect(issues[0]!.message).toContain("wiki/decisions/old.md");
   });
 });
 

@@ -1,7 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "../lib/api.js";
 
-export type ConflictReason = "duplicate-title" | "contradiction" | "stale-clone";
+export type ConflictReason =
+  | "duplicate-title"
+  | "contradiction"
+  | "stale-clone"
+  | "derived-from-contradiction";
 
 export interface ConflictPageSummary {
   path: string;
@@ -10,12 +14,22 @@ export interface ConflictPageSummary {
   snippet: string;
 }
 
-export interface ConflictRecord {
+export interface DirectConflictRecord {
   id: string;
   pageA: ConflictPageSummary;
   pageB: ConflictPageSummary;
-  reason: ConflictReason;
+  reason: Exclude<ConflictReason, "derived-from-contradiction">;
 }
+
+export interface DerivedConflictRecord {
+  id: string;
+  reason: "derived-from-contradiction";
+  dependentPath: string;
+  via: string[];
+  rootContradictionId: string;
+}
+
+export type ConflictRecord = DirectConflictRecord | DerivedConflictRecord;
 
 export interface ConflictsResponse {
   conflicts: ConflictRecord[];

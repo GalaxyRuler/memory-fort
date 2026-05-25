@@ -1,5 +1,11 @@
 import { AlertTriangle, Archive, Check, GitBranch, GitMerge } from "lucide-react";
-import { type ConflictPageSummary, type ConflictRecord, useConflicts } from "../hooks/useConflicts.js";
+import {
+  type ConflictPageSummary,
+  type ConflictRecord,
+  type DirectConflictRecord,
+  type DerivedConflictRecord,
+  useConflicts,
+} from "../hooks/useConflicts.js";
 import { Button } from "./Button.js";
 import { GlassPanel } from "./GlassPanel.js";
 
@@ -7,12 +13,14 @@ const REASON_LABELS: Record<ConflictRecord["reason"], string> = {
   "duplicate-title": "Duplicate title",
   contradiction: "Direct Contradiction",
   "stale-clone": "Stale clone",
+  "derived-from-contradiction": "Derived from contradiction",
 };
 
 const REASON_DESCRIPTIONS: Record<ConflictRecord["reason"], string> = {
   "duplicate-title": "Two pages appear to describe the same memory entity.",
   contradiction: "The selected pages describe conflicting facts or guidance.",
   "stale-clone": "One page appears to be an older clone of the other.",
+  "derived-from-contradiction": "This page depends on a contradicted memory path.",
 };
 
 function formatPageType(path: string): string {
@@ -54,7 +62,7 @@ function ConflictSide({ label, page }: { label: "A" | "B"; page: ConflictPageSum
   );
 }
 
-function ConflictActions({ conflict }: { conflict: ConflictRecord }) {
+function ConflictActions({ conflict }: { conflict: DirectConflictRecord }) {
   const helper = `Resolve via CLI: memory curate --resolve ${conflict.id}`;
 
   return (
@@ -100,7 +108,7 @@ function ConflictActions({ conflict }: { conflict: ConflictRecord }) {
   );
 }
 
-function ConflictCard({ conflict }: { conflict: ConflictRecord }) {
+function DirectConflictCard({ conflict }: { conflict: DirectConflictRecord }) {
   return (
     <div className="space-y-4">
       <header className="flex flex-col gap-2 rounded-lg border border-border-subtle bg-surface/55 p-3 sm:flex-row sm:items-center sm:justify-between">
@@ -125,6 +133,50 @@ function ConflictCard({ conflict }: { conflict: ConflictRecord }) {
       </div>
     </div>
   );
+}
+
+function DerivedConflictCard({ conflict }: { conflict: DerivedConflictRecord }) {
+  return (
+    <GlassPanel className="space-y-4 border-status-amber/25 bg-status-amber/5 p-4">
+      <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex items-start gap-3">
+          <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full border border-status-amber/30 bg-status-amber/15 text-status-amber">
+            <GitBranch size={18} strokeWidth={1.5} />
+          </div>
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-base font-semibold text-text-primary">{REASON_LABELS[conflict.reason]}</h2>
+              <span className="rounded-full border border-status-amber/30 bg-status-amber/10 px-2 py-0.5 text-xs font-semibold uppercase text-status-amber">
+                indirect
+              </span>
+            </div>
+            <p className="mt-1 text-sm text-text-secondary">{REASON_DESCRIPTIONS[conflict.reason]}</p>
+          </div>
+        </div>
+        <span className="break-all font-mono text-xs text-text-muted">{conflict.id}</span>
+      </header>
+
+      <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
+        <div className="rounded-md border border-border-subtle bg-surface/55 p-3">
+          <p className="text-xs font-semibold uppercase text-text-muted">Dependent page</p>
+          <p className="mt-1 break-all font-mono text-sm text-text-primary">{conflict.dependentPath}</p>
+        </div>
+        <div className="rounded-md border border-border-subtle bg-surface/55 p-3">
+          <p className="text-xs font-semibold uppercase text-text-muted">Relation chain</p>
+          <p className="mt-1 break-all font-mono text-sm text-text-secondary">{conflict.via.join(" -> ")}</p>
+        </div>
+      </div>
+
+      <p className="break-all text-xs text-text-muted">Root contradiction: {conflict.rootContradictionId}</p>
+    </GlassPanel>
+  );
+}
+
+function ConflictCard({ conflict }: { conflict: ConflictRecord }) {
+  if (conflict.reason === "derived-from-contradiction") {
+    return <DerivedConflictCard conflict={conflict} />;
+  }
+  return <DirectConflictCard conflict={conflict} />;
 }
 
 export function ConflictsPage() {

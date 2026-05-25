@@ -3,7 +3,10 @@ import { constants } from "node:fs";
 import { access, readdir, readFile, stat } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { promisify } from "node:util";
-import { loadWiki as loadCurationWiki } from "../curation/checks.js";
+import {
+  checkSupersededDependents,
+  loadWiki as loadCurationWiki,
+} from "../curation/checks.js";
 import { loadSearchCorpus, type SearchScope } from "../retrieval/corpus.js";
 import { buildGraph } from "../retrieval/graph.js";
 import { loadMemoryConfig } from "../storage/config.js";
@@ -212,7 +215,11 @@ export interface CompileState {
   lastRun: CompileLastRun | null;
 }
 
-export type ConflictReason = "duplicate-title" | "contradiction" | "stale-clone";
+export type ConflictReason =
+  | "duplicate-title"
+  | "contradiction"
+  | "stale-clone"
+  | "derived-from-contradiction";
 
 export interface ConflictPageSummary {
   path: string;
@@ -221,12 +228,22 @@ export interface ConflictPageSummary {
   snippet: string;
 }
 
-export interface ConflictRecord {
+export interface DirectConflictRecord {
   id: string;
   pageA: ConflictPageSummary;
   pageB: ConflictPageSummary;
-  reason: ConflictReason;
+  reason: Exclude<ConflictReason, "derived-from-contradiction">;
 }
+
+export interface DerivedConflictRecord {
+  id: string;
+  reason: "derived-from-contradiction";
+  dependentPath: string;
+  via: string[];
+  rootContradictionId: string;
+}
+
+export type ConflictRecord = DirectConflictRecord | DerivedConflictRecord;
 
 export interface ConflictsResponse {
   conflicts: ConflictRecord[];
@@ -243,6 +260,7 @@ export interface MaintenanceScan {
   orphans: MaintenancePageSummary[];
   lowConfidence: MaintenancePageSummary[];
   stale: MaintenancePageSummary[];
+  supersededDependents: MaintenancePageSummary[];
 }
 
 interface ResolutionIndex {
@@ -618,7 +636,11 @@ export async function loadSyncState(vaultRoot: string): Promise<DashboardStatus[
 }
 
 const COMPILE_STATUSES = new Set<CompileStatus>(["idle", "running", "completed", "failed"]);
-const CONFLICT_REASONS = new Set<ConflictReason>(["duplicate-title", "contradiction", "stale-clone"]);
+const DIRECT_CONFLICT_REASONS = new Set<DirectConflictRecord["reason"]>([
+  "duplicate-title",
+  "contradiction",
+  "stale-clone",
+]);
 
 function parseCompileStatus(value: unknown): CompileStatus {
   return typeof value === "string" && COMPILE_STATUSES.has(value as CompileStatus)
@@ -696,18 +718,34 @@ function parseConflictRecord(value: unknown): ConflictRecord | null {
   const record = value as Record<string, unknown>;
   const id = record["id"];
   const reason = record["reason"];
+  if (reason === "derived-from-contradiction") {
+    const dependentPath = record["dependentPath"];
+    const via = record["via"];
+    const rootContradictionId = record["rootContradictionId"];
+    if (
+      typeof id !== "string" ||
+      typeof dependentPath !== "string" ||
+      !Array.isArray(via) ||
+      !via.every((item) => typeof item === "string") ||
+      typeof rootContradictionId !== "string"
+    ) {
+      return null;
+    }
+    return { id, reason, dependentPath, via, rootContradictionId };
+  }
+
   const pageA = parseConflictPageSummary(record["pageA"]);
   const pageB = parseConflictPageSummary(record["pageB"]);
   if (
     typeof id !== "string" ||
     typeof reason !== "string" ||
-    !CONFLICT_REASONS.has(reason as ConflictReason) ||
+    !DIRECT_CONFLICT_REASONS.has(reason as DirectConflictRecord["reason"]) ||
     !pageA ||
     !pageB
   ) {
     return null;
   }
-  return { id, reason: reason as ConflictReason, pageA, pageB };
+  return { id, reason: reason as DirectConflictRecord["reason"], pageA, pageB };
 }
 
 export async function loadConflicts(vaultRoot: string): Promise<ConflictsResponse> {
@@ -788,6 +826,10 @@ export async function loadMaintenanceScan(vaultRoot: string, now: Date = new Dat
   const orphans: MaintenancePageSummary[] = [];
   const lowConfidence: MaintenancePageSummary[] = [];
   const stale: MaintenancePageSummary[] = [];
+  const supersededDependentPaths = new Set(
+    checkSupersededDependents(pages).map((issue) => issue.page.replace(/^wiki\//, "")),
+  );
+  const supersededDependents: MaintenancePageSummary[] = [];
 
   for (const page of pages) {
     const outbound = outboundByPath.get(page.path);
@@ -805,6 +847,10 @@ export async function loadMaintenanceScan(vaultRoot: string, now: Date = new Dat
         stale.push(pageSummary(page));
       }
     }
+
+    if (supersededDependentPaths.has(page.path)) {
+      supersededDependents.push(pageSummary(page));
+    }
   }
 
   const byPath = (a: MaintenancePageSummary, b: MaintenancePageSummary) => a.path.localeCompare(b.path);
@@ -812,6 +858,7 @@ export async function loadMaintenanceScan(vaultRoot: string, now: Date = new Dat
     orphans: orphans.sort(byPath),
     lowConfidence: lowConfidence.sort(byPath),
     stale: stale.sort(byPath),
+    supersededDependents: supersededDependents.sort(byPath),
   };
 }
 

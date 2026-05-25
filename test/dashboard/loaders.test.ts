@@ -209,8 +209,26 @@ describe("dashboard loaders", () => {
     await expect(loadConflicts(tmp)).resolves.toEqual({ conflicts: [validConflict] });
   });
 
+  it("loadConflicts parses derived contradiction records", async () => {
+    await mkdir(join(tmp, "state"), { recursive: true });
+    const derivedConflict = {
+      id: "contradiction:a:b:dependent:projects/c.md",
+      reason: "derived-from-contradiction",
+      dependentPath: "wiki/projects/c.md",
+      via: ["decisions/a.md:derived_from", "projects/c.md:linked"],
+      rootContradictionId: "contradiction:a:b",
+    };
+    await writeFile(
+      join(tmp, "state", "conflicts.json"),
+      JSON.stringify([derivedConflict], null, 2),
+    );
+
+    await expect(loadConflicts(tmp)).resolves.toEqual({ conflicts: [derivedConflict] });
+  });
+
   it("loadMaintenanceScan classifies orphan, low-confidence, and stale pages with an injected clock", async () => {
     await mkdir(join(tmp, "wiki", "projects"), { recursive: true });
+    await mkdir(join(tmp, "wiki", "decisions"), { recursive: true });
     await mkdir(join(tmp, "wiki", "lessons"), { recursive: true });
     await mkdir(join(tmp, "wiki", "references"), { recursive: true });
     await mkdir(join(tmp, "wiki", "tools"), { recursive: true });
@@ -285,6 +303,35 @@ describe("dashboard loaders", () => {
         "Stale body references [[projects/linked]].\n",
       ),
     );
+    await writeFile(
+      join(tmp, "wiki", "decisions", "old.md"),
+      page(
+        {
+          type: "decisions",
+          title: "Old Decision",
+          created: "2026-05-20",
+          updated: "2026-05-20",
+          status: "superseded",
+          confidence: 0.9,
+        },
+        "Old body.\n",
+      ),
+    );
+    await writeFile(
+      join(tmp, "wiki", "projects", "dependent.md"),
+      page(
+        {
+          type: "projects",
+          title: "Dependent",
+          created: "2026-05-20",
+          updated: "2026-05-23",
+          status: "active",
+          confidence: 0.9,
+          relations: { depends_on: ["decisions/old"] },
+        },
+        "Dependent body references a superseded decision.\n",
+      ),
+    );
 
     const scan = await loadMaintenanceScan(tmp, new Date("2026-05-24T00:00:00.000Z"));
 
@@ -294,6 +341,9 @@ describe("dashboard loaders", () => {
         { path: "wiki/references/low.md", title: "Low Confidence", updated: "2026-05-23", confidence: 0.55 },
       ],
       stale: [{ path: "wiki/projects/stale.md", title: "Stale Page", updated: "2025-11-24", confidence: 0.9 }],
+      supersededDependents: [
+        { path: "wiki/projects/dependent.md", title: "Dependent", updated: "2026-05-23", confidence: 0.9 },
+      ],
     });
   });
 

@@ -23,13 +23,28 @@ export type LintCategory =
   | "broken-relation"
   | "orphan"
   | "stale"
-  | "draft";
+  | "draft"
+  | "superseded-dependent";
 
 export interface LintIssue {
   category: LintCategory;
   page: string;
   message: string;
   suggestion?: string;
+}
+
+export type CurationConflictReason =
+  | "contradiction"
+  | "derived-from-contradiction";
+
+export interface CurationConflictRecord {
+  id: string;
+  reason: CurationConflictReason;
+  pageA?: string;
+  pageB?: string;
+  dependentPath?: string;
+  via?: string[];
+  rootContradictionId?: string;
 }
 
 /**
@@ -263,6 +278,132 @@ export function checkDrafts(pages: WikiPage[]): LintIssue[] {
   return issues;
 }
 
+interface RelationEdge {
+  from: string;
+  relation: string;
+}
+
+function buildInboundRelationIndex(pages: WikiPage[]): Map<string, RelationEdge[]> {
+  const idx = buildResolutionIndex(pages);
+  const inbound = new Map<string, RelationEdge[]>();
+
+  for (const page of pages) {
+    const relations = page.frontmatter.relations;
+    if (!relations || typeof relations !== "object") continue;
+    for (const [relation, targets] of Object.entries(
+      relations as Record<string, unknown>,
+    )) {
+      if (!Array.isArray(targets)) continue;
+      for (const target of targets) {
+        if (typeof target !== "string") continue;
+        const resolved = resolveLink(target, idx);
+        if (!resolved) continue;
+        const edges = inbound.get(resolved) ?? [];
+        edges.push({ from: page.path, relation });
+        inbound.set(resolved, edges);
+      }
+    }
+  }
+
+  return inbound;
+}
+
+function collectRelationDependents(
+  rootPath: string,
+  inbound: Map<string, RelationEdge[]>,
+  blocked: Set<string> = new Set(),
+): Map<string, string[]> {
+  const dependents = new Map<string, string[]>();
+  const queue: Array<{ path: string; depth: number; via: string[] }> = [
+    { path: rootPath, depth: 0, via: [] },
+  ];
+  const seen = new Set<string>([rootPath, ...blocked]);
+
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    if (current.depth >= 2) continue;
+
+    for (const edge of inbound.get(current.path) ?? []) {
+      if (seen.has(edge.from)) continue;
+      seen.add(edge.from);
+      const via = [...current.via, `${edge.from}:${edge.relation}`];
+      dependents.set(edge.from, via);
+      queue.push({ path: edge.from, depth: current.depth + 1, via });
+    }
+  }
+
+  return dependents;
+}
+
+export function checkContradictions(pages: WikiPage[]): CurationConflictRecord[] {
+  const idx = buildResolutionIndex(pages);
+  const inbound = buildInboundRelationIndex(pages);
+  const conflicts: CurationConflictRecord[] = [];
+  const seenDirect = new Set<string>();
+
+  for (const page of pages) {
+    const targets = page.frontmatter.relations?.["contradicts"];
+    if (!Array.isArray(targets)) continue;
+
+    for (const target of targets) {
+      if (typeof target !== "string") continue;
+      const resolved = resolveLink(target, idx);
+      if (!resolved) continue;
+
+      const pair = [page.path, resolved].sort().join("\0");
+      if (seenDirect.has(pair)) continue;
+      seenDirect.add(pair);
+
+      const id = `contradiction:${page.path}:${resolved}`;
+      conflicts.push({
+        id,
+        reason: "contradiction",
+        pageA: `wiki/${page.path}`,
+        pageB: `wiki/${resolved}`,
+      });
+
+      const blocked = new Set([page.path, resolved]);
+      const dependents = new Map([
+        ...collectRelationDependents(page.path, inbound, blocked),
+        ...collectRelationDependents(resolved, inbound, blocked),
+      ]);
+
+      for (const [dependentPath, via] of [...dependents.entries()].sort()) {
+        conflicts.push({
+          id: `${id}:dependent:${dependentPath}`,
+          reason: "derived-from-contradiction",
+          dependentPath: `wiki/${dependentPath}`,
+          via,
+          rootContradictionId: id,
+        });
+      }
+    }
+  }
+
+  return conflicts;
+}
+
+export function checkSupersededDependents(pages: WikiPage[]): LintIssue[] {
+  const inbound = buildInboundRelationIndex(pages);
+  const issues: LintIssue[] = [];
+
+  for (const page of pages) {
+    if ((page.frontmatter.status ?? "active") !== "superseded") continue;
+    const dependents = collectRelationDependents(page.path, inbound);
+    for (const [dependentPath, via] of [...dependents.entries()].sort()) {
+      issues.push({
+        category: "superseded-dependent",
+        page: `wiki/${dependentPath}`,
+        message: `references superseded page wiki/${page.path} via ${via.join(" -> ")}`,
+        suggestion:
+          "Review the relation chain and update it to the active replacement, or mark the dependent page for review.",
+      });
+    }
+  }
+
+  return issues;
+}
+
 export function runAllChecks(
   pages: WikiPage[],
   opts: { now?: Date; staleDays?: number } = {},
@@ -274,5 +415,6 @@ export function runAllChecks(
     ...checkOrphans(pages),
     ...checkStale(pages, { now: opts.now, thresholdDays: opts.staleDays }),
     ...checkDrafts(pages),
+    ...checkSupersededDependents(pages),
   ];
 }

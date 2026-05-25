@@ -3,6 +3,7 @@ import {
   Archive,
   Clock,
   Filter,
+  GitBranch,
   Link,
   MoreHorizontal,
   Network,
@@ -15,7 +16,7 @@ import { Button } from "./Button.js";
 import { GlassPanel } from "./GlassPanel.js";
 
 interface MaintenanceSection {
-  key: "orphans" | "lowConfidence" | "stale";
+  key: "orphans" | "lowConfidence" | "stale" | "supersededDependents";
   title: string;
   metricLabel: string;
   metricHint: string;
@@ -150,7 +151,7 @@ function MaintenanceSectionPanel({ section }: { section: MaintenanceSection }) {
 
 export function MaintenancePage() {
   const scan = useMaintenanceScan();
-  const data = scan.data ?? { orphans: [], lowConfidence: [], stale: [] };
+  const data = scan.data ?? { orphans: [], lowConfidence: [], stale: [], supersededDependents: [] };
   const sections: MaintenanceSection[] = [
     {
       key: "orphans",
@@ -197,6 +198,21 @@ export function MaintenancePage() {
       icon: Clock,
       actionIcon: Archive,
     },
+    {
+      key: "supersededDependents",
+      title: "Superseded Dependents",
+      metricLabel: "Superseded refs",
+      metricHint: "need review",
+      description: "Pages that still depend on superseded pages through relation chains.",
+      pages: data.supersededDependents,
+      colorClass: "text-status-amber",
+      dotClass: "bg-status-amber",
+      bulkLabel: "Review references",
+      rowAction: "Review",
+      helper: "CLI: memory lint",
+      icon: GitBranch,
+      actionIcon: GitBranch,
+    },
   ];
 
   return (
@@ -235,7 +251,7 @@ export function MaintenancePage() {
 
       {!scan.isLoading && !scan.isError && (
         <div className="space-y-4">
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
             {sections.map((section) => (
               <MetricCard key={section.key} section={section} />
             ))}
