@@ -51,6 +51,18 @@ vi.mock("../../../src/dashboard-ui/hooks/useStatus.js", () => ({
   }),
 }));
 
+vi.mock("../../../src/dashboard-ui/hooks/useSyncState.js", () => ({
+  useSyncState: () => ({
+    data: {
+      lastCheckoutAt: "2026-05-24T12:00:00.000Z",
+      lastCommit: "60d9f22",
+      status: "synced",
+    },
+    isError: false,
+    isLoading: false,
+  }),
+}));
+
 describe("dashboard app shell", () => {
   beforeEach(() => {
     routerMockState.currentPath = "/";
