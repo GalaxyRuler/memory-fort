@@ -30,7 +30,7 @@ export function Sidebar({
       )}
     >
       <div className="px-3 py-4">
-        <h1 className="text-lg font-semibold tracking-tight">memory</h1>
+        <h1 className="text-lg font-semibold tracking-tight">Memory Fort</h1>
         <p className="text-xs text-text-muted">v0.4.0-dev</p>
       </div>
       <nav className="flex flex-col gap-0.5" aria-label="Primary navigation">

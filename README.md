@@ -1,6 +1,6 @@
-# memory-system
+# Memory Fort
 
-Cross-tool memory system: a single `~/.memory/` directory of
+Memory Fort is a cross-tool memory system: a single `~/.memory/` directory of
 markdown files that Claude Code, Codex (desktop + CLI), and
 Google Antigravity all read and write. No daemon, no ports,
 no database - just files + Karpathy LLM Wiki + a thin stdio

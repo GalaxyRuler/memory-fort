@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Cross-tool memory system: Claude Code + Codex + Antigravity → unified ~/.memory/ wiki",
+  "description": "Memory Fort: cross-tool memory for Claude Code, Codex, and Antigravity",
   "scripts": {
     "build": "node --max-old-space-size=8192 ./node_modules/tsdown/dist/run.mjs",
     "build:ui": "vite build",

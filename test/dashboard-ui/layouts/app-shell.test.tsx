@@ -71,7 +71,7 @@ describe("dashboard app shell", () => {
   test("AppShell renders sidebar and main content area", () => {
     render(<AppShell />);
 
-    expect(screen.getByRole("complementary")).toHaveTextContent("memory");
+    expect(screen.getByRole("complementary")).toHaveTextContent("Memory Fort");
     expect(screen.getByTestId("route-outlet")).toBeInTheDocument();
     expect(screen.getByRole("navigation", { name: /mobile navigation/i })).toBeInTheDocument();
   });
