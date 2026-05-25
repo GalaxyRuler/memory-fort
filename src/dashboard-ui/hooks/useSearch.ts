@@ -22,6 +22,8 @@ export interface SearchResponse {
     embedQueryMs: number;
     bm25Ms: number;
     vectorMs: number;
+    graphMs: number;
+    graphSpreadMs: number;
     rerankMs: number;
     totalMs: number;
   };

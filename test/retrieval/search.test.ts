@@ -70,6 +70,7 @@ describe("search core", () => {
       "vectorMs",
       "exactMs",
       "graphMs",
+      "graphSpreadMs",
       "metadataMs",
       "rrfMs",
       "rerankMs",
@@ -245,6 +246,85 @@ describe("search core", () => {
       ["Voyage AI is an embedding provider used by memory-system."],
       expect.objectContaining({ inputType: "query" }),
     );
+  });
+
+  it("adds spreading activation as a separate graph-spread RRF source", async () => {
+    const { embedClient, voyageClient } = clients();
+    const documents = [
+      makeDoc({
+        relPath: "wiki/projects/react.md",
+        title: "React",
+        body: "react component recall seed",
+        relations: { relates: ["wiki/lessons/hooks.md"] },
+      }),
+      makeDoc({
+        relPath: "wiki/lessons/hooks.md",
+        title: "Hooks",
+        body: "unrelated child node",
+      }),
+    ];
+
+    const response = await runSearch({
+      query: "react recall",
+      noHyde: true,
+      noRerank: true,
+      vaultRoot: tmp,
+      embedClient,
+      voyageClient,
+      corpusLoader: async () => ({ documents, errors: [] }),
+    });
+
+    const child = response.results.find(
+      (result) => result.path === "wiki/lessons/hooks.md",
+    );
+    expect(response.timings.graphSpreadMs).toEqual(expect.any(Number));
+    expect(child?.sources.some((source) => source.source === "graph-spread")).toBe(
+      true,
+    );
+  });
+
+  it("can disable spreading activation with MEMORY_FORT_SPREADING_ACTIVATION", async () => {
+    const previous = process.env.MEMORY_FORT_SPREADING_ACTIVATION;
+    process.env.MEMORY_FORT_SPREADING_ACTIVATION = "false";
+    const { embedClient, voyageClient } = clients();
+    const documents = [
+      makeDoc({
+        relPath: "wiki/projects/react.md",
+        title: "React",
+        body: "react component recall seed",
+        relations: { relates: ["wiki/lessons/hooks.md"] },
+      }),
+      makeDoc({
+        relPath: "wiki/lessons/hooks.md",
+        title: "Hooks",
+        body: "unrelated child node",
+      }),
+    ];
+
+    try {
+      const response = await runSearch({
+        query: "react recall",
+        noHyde: true,
+        noRerank: true,
+        vaultRoot: tmp,
+        embedClient,
+        voyageClient,
+        corpusLoader: async () => ({ documents, errors: [] }),
+      });
+
+      expect(response.timings.graphSpreadMs).toEqual(expect.any(Number));
+      expect(
+        response.results.some((result) =>
+          result.sources.some((source) => source.source === "graph-spread"),
+        ),
+      ).toBe(false);
+    } finally {
+      if (previous === undefined) {
+        delete process.env.MEMORY_FORT_SPREADING_ACTIVATION;
+      } else {
+        process.env.MEMORY_FORT_SPREADING_ACTIVATION = previous;
+      }
+    }
   });
 });
 

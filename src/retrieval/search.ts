@@ -9,7 +9,7 @@ import {
   type Tokens,
 } from "./bm25.js";
 import { exactBoosts } from "./exact.js";
-import { buildGraph, expandGraph } from "./graph.js";
+import { buildGraph, expandGraph, spreadingActivation } from "./graph.js";
 import { scoreByMetadata } from "./metadata-score.js";
 import { rrfFuse, type RankedItem, type RrfResult } from "./rrf.js";
 import { rerankCandidates } from "./rerank.js";
@@ -59,6 +59,7 @@ export interface SearchTimings {
   vectorMs: number;
   exactMs: number;
   graphMs: number;
+  graphSpreadMs: number;
   metadataMs: number;
   rrfMs: number;
   rerankMs: number;
@@ -289,6 +290,17 @@ export async function runSearch(opts: SearchOptions): Promise<SearchResponse> {
   );
   timings.graphMs = Date.now() - graphStarted;
 
+  const graphSpreadStarted = Date.now();
+  const graphSpreadRanked = spreadingActivationEnabled()
+    ? spreadingActivation(seed, graph).map(
+        (item, index): RankedItem => ({
+          relPath: item.path,
+          rank: index + 1,
+        }),
+      )
+    : [];
+  timings.graphSpreadMs = Date.now() - graphSpreadStarted;
+
   const metadataStarted = Date.now();
   const metadata = scoreByMetadata(documents, {
     now: opts.now?.(),
@@ -301,6 +313,7 @@ export async function runSearch(opts: SearchOptions): Promise<SearchResponse> {
     { source: "vector", items: toRankedItems(vector) },
     { source: "exact", items: toRankedItems(exact) },
     { source: "graph", items: graphRanked },
+    { source: "graph-spread", items: graphSpreadRanked },
     {
       source: "metadata",
       items: metadata.map((score, index) => ({
@@ -582,6 +595,7 @@ function emptyTimings(): SearchTimings {
     vectorMs: 0,
     exactMs: 0,
     graphMs: 0,
+    graphSpreadMs: 0,
     metadataMs: 0,
     rrfMs: 0,
     rerankMs: 0,
@@ -594,6 +608,11 @@ function throwIfAborted(signal?: AbortSignal): void {
   const error = new Error("Search aborted");
   error.name = "AbortError";
   throw error;
+}
+
+function spreadingActivationEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  const value = env.MEMORY_FORT_SPREADING_ACTIVATION?.trim().toLowerCase();
+  return value !== "0" && value !== "false" && value !== "off";
 }
 
 function errorMessage(error: unknown): string {

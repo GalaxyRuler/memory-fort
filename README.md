@@ -29,6 +29,9 @@ node dist/cli.mjs stats
 - `MEMORY_FORT_INJECTION_CONF_FLOOR`: minimum confidence for pages injected by
   the session-start hook. Defaults to `0`, which injects all index entries.
   Set to `0.5` to suppress low-confidence drafts from the startup context.
+- `MEMORY_FORT_SPREADING_ACTIVATION`: enables the associative graph retrieval
+  stream. Defaults to `true`; set to `false`, `0`, or `off` to benchmark search
+  with only the original one-hop graph expansion.
 
 ## License
 

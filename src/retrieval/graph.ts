@@ -27,12 +27,31 @@ export interface GraphExpansionResult {
   pathToEdges: Map<string, Edge[]>;
 }
 
+export interface SpreadingActivationOptions {
+  decay?: number;
+  inhibitionLambda?: number;
+  epsilon?: number;
+  maxIterations?: number;
+  followDirection?: "outbound" | "inbound" | "both";
+  edgeWeights?: Record<string, number>;
+}
+
+export interface ActivationResult {
+  path: string;
+  activation: number;
+}
+
 type Resolution =
   | { path: string }
   | { path: null; reason: "ambiguous-filename" | "not-found" };
 
 const WIKILINK_PATTERN = /\[\[([^\]\n]+)\]\]/g;
 const SAFE_WIKILINK_TARGET = /^[A-Za-z0-9._/ -]+$/;
+const DEFAULT_DECAY = 0.6;
+const DEFAULT_INHIBITION_LAMBDA = 0.15;
+const DEFAULT_EPSILON = 0.01;
+const DEFAULT_MAX_ITERATIONS = 5;
+const DEFAULT_EDGE_WEIGHTS: Record<string, number> = {};
 
 export function buildGraph(documents: SearchDocument[]): SearchGraph {
   const nodes = new Map<string, GraphNode>();
@@ -136,6 +155,81 @@ export function expandGraph(
   return { expanded, pathToEdges };
 }
 
+export function spreadingActivation(
+  seeds: Set<string>,
+  graph: SearchGraph,
+  opts: SpreadingActivationOptions = {},
+): ActivationResult[] {
+  const decay = opts.decay ?? DEFAULT_DECAY;
+  const inhibitionLambda =
+    opts.inhibitionLambda ?? DEFAULT_INHIBITION_LAMBDA;
+  const epsilon = opts.epsilon ?? DEFAULT_EPSILON;
+  const maxIterations = opts.maxIterations ?? DEFAULT_MAX_ITERATIONS;
+  const followDirection = opts.followDirection ?? "both";
+  const edgeWeights = opts.edgeWeights ?? DEFAULT_EDGE_WEIGHTS;
+  const activations = new Map<string, number>();
+  const visited = new Set<string>();
+  let frontier = new Map<string, number>();
+
+  for (const seed of seeds) {
+    if (!graph.nodes.has(seed)) continue;
+    activations.set(seed, 1);
+    visited.add(seed);
+    frontier.set(seed, 1);
+  }
+
+  for (
+    let iteration = 0;
+    iteration < maxIterations && frontier.size > 0;
+    iteration += 1
+  ) {
+    const rawNext = new Map<string, number>();
+    const siblingContributions = new Map<string, Map<string, number>>();
+
+    for (const [path, activation] of frontier) {
+      const node = graph.nodes.get(path);
+      if (!node) continue;
+      for (const edge of traversableEdges(node, followDirection)) {
+        const neighbor = edge.fromPath === path ? edge.toPath : edge.fromPath;
+        if (visited.has(neighbor)) continue;
+        const contribution =
+          activation * edgeWeight(edge, edgeWeights) * decay;
+        rawNext.set(neighbor, (rawNext.get(neighbor) ?? 0) + contribution);
+
+        const siblings =
+          siblingContributions.get(path) ?? new Map<string, number>();
+        siblings.set(neighbor, (siblings.get(neighbor) ?? 0) + contribution);
+        siblingContributions.set(path, siblings);
+      }
+    }
+
+    if (rawNext.size === 0) break;
+
+    const penalties = siblingPenalties(
+      siblingContributions,
+      inhibitionLambda,
+    );
+    const nextFrontier = new Map<string, number>();
+    for (const [path, rawActivation] of rawNext) {
+      const activation = Math.max(
+        0,
+        rawActivation - (penalties.get(path) ?? 0),
+      );
+      if (activation <= epsilon) continue;
+      activations.set(path, activation);
+      nextFrontier.set(path, activation);
+    }
+
+    if (nextFrontier.size === 0) break;
+    for (const path of nextFrontier.keys()) visited.add(path);
+    frontier = nextFrontier;
+  }
+
+  return [...activations.entries()]
+    .map(([path, activation]) => ({ path, activation }))
+    .sort((a, b) => b.activation - a.activation || a.path.localeCompare(b.path));
+}
+
 function createResolver(documents: SearchDocument[]): (target: string) => Resolution {
   const exact = new Map<string, Set<string>>();
   const byFilename = new Map<string, Set<string>>();
@@ -192,4 +286,53 @@ function addToIndex(index: Map<string, Set<string>>, key: string, value: string)
   const values = index.get(key) ?? new Set<string>();
   values.add(value);
   index.set(key, values);
+}
+
+function traversableEdges(
+  node: GraphNode,
+  followDirection: "outbound" | "inbound" | "both",
+): Edge[] {
+  return [
+    ...(followDirection === "outbound" || followDirection === "both"
+      ? node.outbound
+      : []),
+    ...(followDirection === "inbound" || followDirection === "both"
+      ? node.inbound
+      : []),
+  ];
+}
+
+function edgeWeight(edge: Edge, edgeWeights: Record<string, number>): number {
+  if (edge.relationType && edgeWeights[edge.relationType] !== undefined) {
+    return edgeWeights[edge.relationType]!;
+  }
+  if (edgeWeights[edge.kind] !== undefined) {
+    return edgeWeights[edge.kind]!;
+  }
+  return 1;
+}
+
+function siblingPenalties(
+  siblingContributions: Map<string, Map<string, number>>,
+  inhibitionLambda: number,
+): Map<string, number> {
+  const penalties = new Map<string, number>();
+  if (inhibitionLambda <= 0) return penalties;
+
+  for (const siblings of siblingContributions.values()) {
+    if (siblings.size <= 1) continue;
+    for (const [path] of siblings) {
+      const maxCompetitor = Math.max(
+        ...[...siblings.entries()]
+          .filter(([siblingPath]) => siblingPath !== path)
+          .map(([, activation]) => activation),
+      );
+      penalties.set(
+        path,
+        (penalties.get(path) ?? 0) + inhibitionLambda * maxCompetitor,
+      );
+    }
+  }
+
+  return penalties;
 }
