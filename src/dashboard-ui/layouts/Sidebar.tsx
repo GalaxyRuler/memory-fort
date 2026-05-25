@@ -2,6 +2,7 @@ import { Link, useLocation } from "@tanstack/react-router";
 import { Skeleton } from "../components/Skeleton.js";
 import { StatusPill, type StatusKind } from "../components/StatusPill.js";
 import { useStatus, type DashboardStatus } from "../hooks/useStatus.js";
+import { useSyncState, type CheckoutSyncState } from "../hooks/useSyncState.js";
 import { cn } from "../lib/cn.js";
 import { NAV_ITEMS } from "../lib/nav-items.js";
 import { relativeTime } from "../lib/time-helpers.js";
@@ -17,7 +18,8 @@ export function Sidebar({
 }) {
   const location = useLocation();
   const status = useStatus();
-  const sidebarStatus = statusPillState(status);
+  const syncState = useSyncState();
+  const sidebarStatus = statusPillState(status, syncState);
 
   return (
     <aside
@@ -78,9 +80,11 @@ export function Sidebar({
 }
 
 type StatusQuery = ReturnType<typeof useStatus>;
+type SyncStateQuery = ReturnType<typeof useSyncState>;
 
 function statusPillState(
   status: StatusQuery,
+  syncState: SyncStateQuery,
 ): "loading" | { kind: StatusKind; label: string } {
   if (status.isLoading && !status.data) return "loading";
   if (status.isError || status.data?.errorsLog?.isClean === false) {
@@ -90,15 +94,20 @@ function statusPillState(
     };
   }
 
-  if (!status.data?.syncState) {
+  if (syncState.isLoading && !syncState.data) return "loading";
+  if (syncState.isError || !syncState.data) {
     return { kind: "unknown", label: "unknown" };
   }
 
-  const syncState = status.data.syncState;
-  const label = syncState.isStale ? "stale" : "synced";
+  const checkoutSyncState = syncState.data;
+  if (checkoutSyncState.status !== "synced" && checkoutSyncState.status !== "stale") {
+    return { kind: "unknown", label: "unknown" };
+  }
+
+  const label = checkoutSyncState.status;
   return {
-    kind: syncState.isStale ? "stale" : "synced",
-    label: statusLabel(label, statusTimestamp(status.data)),
+    kind: checkoutSyncState.status,
+    label: statusLabel(label, syncTimestamp(checkoutSyncState)),
   };
 }
 
@@ -110,6 +119,10 @@ function statusTimestamp(status: DashboardStatus | undefined): string | null {
     status?.generatedAt ??
     null
   );
+}
+
+function syncTimestamp(syncState: CheckoutSyncState): string | null {
+  return syncState.lastCheckoutAt;
 }
 
 function statusLabel(label: string, timestamp: string | null): string {
