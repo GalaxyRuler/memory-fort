@@ -156,6 +156,39 @@ export function GraphCanvas({
     fg.d3ReheatSimulation();
   }, [mode]);
 
+  useEffect(() => {
+    const fg = fgRef.current;
+    if (!fg || !width || !height) return;
+
+    const renderer = fg.renderer();
+    const camera = fg.camera();
+    if (!renderer || !camera) return;
+
+    renderer.setSize(width, height);
+
+    if ("aspect" in camera) {
+      const perspectiveCamera = camera as THREE.PerspectiveCamera;
+      perspectiveCamera.aspect = width / height;
+      perspectiveCamera.updateProjectionMatrix();
+    }
+
+    const sceneEl = renderer.domElement?.parentElement;
+    if (sceneEl) {
+      sceneEl.style.width = `${width}px`;
+      sceneEl.style.height = `${height}px`;
+    }
+  }, [width, height]);
+
+  useEffect(() => {
+    if (graphData.nodes.length === 0) return;
+
+    const timer = setTimeout(() => {
+      fgRef.current?.zoomToFit(400, 50);
+    }, 1500);
+
+    return () => clearTimeout(timer);
+  }, [graphData.nodes.length, mode]);
+
   const nodeThreeObject = useMemo(() => {
     return (node: NodeObject<GraphCanvasNode>) => {
       const style = getNodeRenderStyle(node.path, matchedPaths, tracePathSet, haloPulse);
@@ -228,6 +261,7 @@ export function GraphCanvas({
       showNavInfo={false}
       onNodeClick={(node: NodeObject<GraphCanvasNode>) => onNodeClick(node)}
       onNodeRightClick={(node: NodeObject<GraphCanvasNode>, event: MouseEvent) => onNodeRightClick?.(node, event)}
+      onEngineStop={() => fgRef.current?.zoomToFit(400, 50)}
       enableNavigationControls={true}
       enableNodeDrag={false}
     />
