@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { runHook, type HookPayload } from "./error-handler.js";
+import { confidenceAwareIndex } from "./session-start-helpers.js";
 import { schemaPath, indexPath, logPath } from "../storage/paths.js";
 
 export interface SessionStartDeps {
@@ -29,15 +30,22 @@ export async function sessionStartBody(
   const parts: string[] = [];
   parts.push(`[memory:session-start] context loading\n`);
 
-  const sections: Array<{ label: string; path: string; tail?: number }> = [
+  const sections: Array<{
+    label: string;
+    path: string;
+    tail?: number;
+    confidenceAware?: boolean;
+  }> = [
     { label: "Schema", path: schemaPath() },
-    { label: "Index", path: indexPath() },
+    { label: "Index", path: indexPath(), confidenceAware: true },
     { label: "Recent log", path: logPath(), tail: 20 },
   ];
 
   for (const sec of sections) {
     try {
-      const content = await readFn(sec.path);
+      const content = sec.confidenceAware
+        ? await confidenceAwareIndex({ indexFilePath: sec.path, readFile: readFn })
+        : await readFn(sec.path);
       const body = sec.tail ? lastLines(content, sec.tail) : content;
       parts.push(`\n--- ${sec.label} (${sec.path}) ---\n${body.trim()}\n`);
     } catch {

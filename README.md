@@ -24,6 +24,12 @@ node dist/cli.mjs install antigravity
 node dist/cli.mjs stats
 ```
 
+## Environment variables
+
+- `MEMORY_FORT_INJECTION_CONF_FLOOR`: minimum confidence for pages injected by
+  the session-start hook. Defaults to `0`, which injects all index entries.
+  Set to `0.5` to suppress low-confidence drafts from the startup context.
+
 ## License
 
 Personal use - not packaged for public consumption.
