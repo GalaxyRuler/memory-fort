@@ -4,6 +4,7 @@ import { access, readdir, readFile, stat } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { promisify } from "node:util";
 import {
+  checkPruneCandidates,
   checkSupersededDependents,
   loadWiki as loadCurationWiki,
 } from "../curation/checks.js";
@@ -261,6 +262,7 @@ export interface MaintenanceScan {
   lowConfidence: MaintenancePageSummary[];
   stale: MaintenancePageSummary[];
   supersededDependents: MaintenancePageSummary[];
+  pruneCandidates: MaintenancePageSummary[];
 }
 
 interface ResolutionIndex {
@@ -395,6 +397,9 @@ async function loadWikiPages(root: string): Promise<WikiPage[]> {
     for (const entry of entries) {
       const full = join(dir, entry.name);
       if (entry.isDirectory()) {
+        if (relative(root, full).replace(/\\/g, "/").split("/")[0] === "archive") {
+          continue;
+        }
         await walk(full);
       } else if (entry.isFile() && entry.name.endsWith(".md")) {
         try {
@@ -830,6 +835,12 @@ export async function loadMaintenanceScan(vaultRoot: string, now: Date = new Dat
     checkSupersededDependents(pages).map((issue) => issue.page.replace(/^wiki\//, "")),
   );
   const supersededDependents: MaintenancePageSummary[] = [];
+  const pruneCandidatePaths = new Set(
+    checkPruneCandidates(pages, { now }).map((candidate) =>
+      candidate.path.replace(/^wiki\//, ""),
+    ),
+  );
+  const pruneCandidates: MaintenancePageSummary[] = [];
 
   for (const page of pages) {
     const outbound = outboundByPath.get(page.path);
@@ -851,6 +862,10 @@ export async function loadMaintenanceScan(vaultRoot: string, now: Date = new Dat
     if (supersededDependentPaths.has(page.path)) {
       supersededDependents.push(pageSummary(page));
     }
+
+    if (pruneCandidatePaths.has(page.path)) {
+      pruneCandidates.push(pageSummary(page));
+    }
   }
 
   const byPath = (a: MaintenancePageSummary, b: MaintenancePageSummary) => a.path.localeCompare(b.path);
@@ -859,6 +874,7 @@ export async function loadMaintenanceScan(vaultRoot: string, now: Date = new Dat
     lowConfidence: lowConfidence.sort(byPath),
     stale: stale.sort(byPath),
     supersededDependents: supersededDependents.sort(byPath),
+    pruneCandidates: pruneCandidates.sort(byPath),
   };
 }
 

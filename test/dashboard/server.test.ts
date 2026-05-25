@@ -746,6 +746,7 @@ describe("dashboard server", () => {
       expect(Array.isArray(body.orphans)).toBe(true);
       expect(Array.isArray(body.lowConfidence)).toBe(true);
       expect(Array.isArray(body.stale)).toBe(true);
+      expect(Array.isArray(body.pruneCandidates)).toBe(true);
       expect(body.orphans).toContainEqual({
         path: "wiki/lessons/orphan.md",
         title: "Orphan",

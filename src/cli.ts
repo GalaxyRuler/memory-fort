@@ -12,6 +12,7 @@ import { runLog } from "./cli/commands/log.js";
 import { runPage } from "./cli/commands/page.js";
 import { runPull, formatPullSuccess } from "./cli/commands/pull.js";
 import { runPush, formatPushSuccess } from "./cli/commands/push.js";
+import { runPrune } from "./cli/commands/prune.js";
 import { runSearch } from "./cli/commands/search.js";
 import { runStats, formatStatsResult } from "./cli/commands/stats.js";
 import { runSync, formatSyncSuccess } from "./cli/commands/sync.js";
@@ -321,6 +322,31 @@ program
       process.stdout.write(result.rendered);
     } catch (err) {
       console.error(`memory page failed: ${(err as Error).message}`);
+      process.exit(1);
+    }
+  });
+
+program
+  .command("prune")
+  .description("Plan, archive, or restore prune candidates")
+  .option("--plan", "dry-run report of prune candidates")
+  .option("--apply", "archive prune candidates")
+  .option("--restore <path>", "restore an archived path")
+  .action(async (opts: { plan?: boolean; apply?: boolean; restore?: string }) => {
+    const modes = [opts.plan, opts.apply, opts.restore !== undefined].filter(Boolean);
+    if (modes.length !== 1) {
+      console.error("memory prune: choose exactly one of --plan, --apply, or --restore <path>");
+      process.exit(2);
+    }
+    try {
+      const result = await runPrune(
+        opts.restore
+          ? { mode: "restore", path: opts.restore }
+          : { mode: opts.apply ? "apply" : "plan" },
+      );
+      process.stdout.write(result.report);
+    } catch (err) {
+      console.error((err as Error).message);
       process.exit(1);
     }
   });

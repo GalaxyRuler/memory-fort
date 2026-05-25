@@ -24,6 +24,18 @@ node dist/cli.mjs install antigravity
 node dist/cli.mjs stats
 ```
 
+## Pruning
+
+`memory prune --plan` reports archive-ready candidates without writing files.
+`memory prune --apply` moves eligible files into
+`wiki/archive/YYYY-MM-DD/<original vault path>` and marks matching embeddings
+with `archived: true` so they can be restored cheaply. `memory prune --restore <path>`
+moves an archived file back to its original active path.
+
+Pruning policy is intentionally narrow: wiki pages must be stale, orphaned, and
+below `confidence: 0.5`; raw observations must be older than 90 days and
+unreferenced by wiki pages. Crystals are never automatically pruned.
+
 ## Environment variables
 
 - `MEMORY_FORT_INJECTION_CONF_FLOOR`: minimum confidence for pages injected by

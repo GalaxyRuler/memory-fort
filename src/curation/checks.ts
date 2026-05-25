@@ -47,6 +47,18 @@ export interface CurationConflictRecord {
   rootContradictionId?: string;
 }
 
+export type PruneCandidateCategory =
+  | "stale-orphan-low-confidence"
+  | "large-raw";
+
+export interface PruneCandidate {
+  category: PruneCandidateCategory;
+  path: string;
+  title: string;
+  updated: string | null;
+  confidence: number | null;
+}
+
 /**
  * Read all Markdown pages below wiki/ from disk. Skips files whose
  * frontmatter fails to parse; malformed-file reporting is a
@@ -62,6 +74,9 @@ export async function loadWiki(rootDir?: string): Promise<WikiPage[]> {
     for (const entry of entries) {
       const full = join(dir, entry.name);
       if (entry.isDirectory()) {
+        if (relative(root, full).replace(/\\/g, "/").split("/")[0] === "archive") {
+          continue;
+        }
         await walk(full);
       } else if (entry.isFile() && entry.name.endsWith(".md")) {
         try {
@@ -402,6 +417,43 @@ export function checkSupersededDependents(pages: WikiPage[]): LintIssue[] {
   }
 
   return issues;
+}
+
+export function checkPruneCandidates(
+  pages: WikiPage[],
+  opts: { now?: Date; staleDays?: number } = {},
+): PruneCandidate[] {
+  const now = opts.now ?? new Date();
+  const staleDays = opts.staleDays ?? 180;
+  const staleCutoff = now.getTime() - staleDays * 24 * 60 * 60 * 1000;
+  const orphanPaths = new Set(
+    checkOrphans(pages).map((issue) => issue.page.replace(/^wiki\//, "")),
+  );
+  const candidates: PruneCandidate[] = [];
+
+  for (const page of pages) {
+    if (page.frontmatter.type === "crystal" || page.path.startsWith("crystals/")) {
+      continue;
+    }
+    if ((page.frontmatter.status ?? "active") !== "active") continue;
+    if (!orphanPaths.has(page.path)) continue;
+    const confidence = page.frontmatter.confidence;
+    if (typeof confidence !== "number" || confidence >= 0.5) continue;
+    const updated = page.frontmatter.updated;
+    if (typeof updated !== "string") continue;
+    const updatedAt = Date.parse(updated);
+    if (!Number.isFinite(updatedAt) || updatedAt >= staleCutoff) continue;
+
+    candidates.push({
+      category: "stale-orphan-low-confidence",
+      path: `wiki/${page.path}`,
+      title: page.frontmatter.title,
+      updated,
+      confidence,
+    });
+  }
+
+  return candidates.sort((a, b) => a.path.localeCompare(b.path));
 }
 
 export function runAllChecks(

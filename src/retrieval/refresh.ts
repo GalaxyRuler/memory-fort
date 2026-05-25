@@ -136,6 +136,7 @@ export async function refreshEmbeddings(opts: RefreshOptions): Promise<RefreshRe
 
     const records = [...existingByPath.values()].filter((record) => {
       if (knownPaths.has(record.path)) return true;
+      if (record.archived) return true;
       result.pruned += 1;
       return false;
     });

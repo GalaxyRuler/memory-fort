@@ -344,6 +344,7 @@ describe("dashboard loaders", () => {
       supersededDependents: [
         { path: "wiki/projects/dependent.md", title: "Dependent", updated: "2026-05-23", confidence: 0.9 },
       ],
+      pruneCandidates: [],
     });
   });
 

@@ -12,6 +12,7 @@ import {
   checkDrafts,
   checkContradictions,
   checkSupersededDependents,
+  checkPruneCandidates,
   runAllChecks,
   type WikiPage,
 } from "../../src/curation/checks.js";
@@ -545,6 +546,87 @@ describe("checkSupersededDependents", () => {
     ]);
     expect(issues[0]!.category).toBe("superseded-dependent");
     expect(issues[0]!.message).toContain("wiki/decisions/old.md");
+  });
+});
+
+describe("checkPruneCandidates", () => {
+  it("flags only pages that are stale, orphaned, and low confidence", () => {
+    const now = new Date("2026-05-24T00:00:00.000Z");
+    const pages = [
+      page("projects/eligible.md", {
+        type: "projects",
+        title: "Eligible",
+        created: "2025-01-01",
+        updated: "2025-01-01",
+        status: "active",
+        confidence: 0.3,
+      }),
+      page("projects/fresh.md", {
+        type: "projects",
+        title: "Fresh",
+        created: "2026-05-01",
+        updated: "2026-05-01",
+        status: "active",
+        confidence: 0.3,
+      }),
+      page("projects/confident.md", {
+        type: "projects",
+        title: "Confident",
+        created: "2025-01-01",
+        updated: "2025-01-01",
+        status: "active",
+        confidence: 0.8,
+      }),
+      page("projects/referenced.md", {
+        type: "projects",
+        title: "Referenced",
+        created: "2025-01-01",
+        updated: "2025-01-01",
+        status: "active",
+        confidence: 0.3,
+      }),
+      page(
+        "projects/referrer.md",
+        {
+          type: "projects",
+          title: "Referrer",
+          created: "2026-05-01",
+          updated: "2026-05-01",
+          status: "active",
+          confidence: 0.9,
+        },
+        "See [[projects/referenced]].",
+      ),
+    ];
+
+    expect(checkPruneCandidates(pages, { now })).toEqual([
+      {
+        category: "stale-orphan-low-confidence",
+        path: "wiki/projects/eligible.md",
+        title: "Eligible",
+        updated: "2025-01-01",
+        confidence: 0.3,
+      },
+    ]);
+  });
+
+  it("never proposes crystals for pruning", () => {
+    const pages = [
+      page("crystals/insight.md", {
+        type: "crystal",
+        title: "Insight",
+        created: "2025-01-01",
+        updated: "2025-01-01",
+        status: "active",
+        confidence: 0.2,
+      }),
+    ];
+
+    expect(
+      checkPruneCandidates(pages, {
+        now: new Date("2026-05-24T00:00:00.000Z"),
+      }),
+    ).toEqual([]);
   });
 });
 

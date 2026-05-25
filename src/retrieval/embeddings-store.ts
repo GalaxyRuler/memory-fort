@@ -11,6 +11,7 @@ export interface EmbeddingRecord {
   model: string;
   dim: number;
   ts: string;
+  archived?: boolean;
 }
 
 export interface EmbeddingsMeta {
@@ -90,6 +91,23 @@ export async function removeStale(
   return { removed: records.length - kept.length };
 }
 
+export async function markEmbeddingsArchived(
+  memoryRoot: string,
+  kind: EmbeddingKind,
+  paths: Set<string>,
+  archived: boolean,
+): Promise<{ updated: number }> {
+  const { records } = await loadEmbeddings(memoryRoot, kind);
+  let updated = 0;
+  const next = records.map((record) => {
+    if (!paths.has(record.path)) return record;
+    updated += 1;
+    return archived ? { ...record, archived: true } : { ...record, archived: false };
+  });
+  await saveEmbeddings(memoryRoot, kind, next);
+  return { updated };
+}
+
 export async function loadEmbeddingsMeta(
   memoryRoot: string,
 ): Promise<EmbeddingsMeta | null> {
@@ -143,6 +161,9 @@ function validateEmbeddingRecord(value: unknown): EmbeddingRecord {
   }
   if (typeof record.ts !== "string" || record.ts.length === 0) {
     throw new Error("record.ts must be a non-empty string");
+  }
+  if (record.archived !== undefined && typeof record.archived !== "boolean") {
+    throw new Error("record.archived must be a boolean");
   }
 
   return record as unknown as EmbeddingRecord;

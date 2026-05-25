@@ -16,7 +16,7 @@ import { Button } from "./Button.js";
 import { GlassPanel } from "./GlassPanel.js";
 
 interface MaintenanceSection {
-  key: "orphans" | "lowConfidence" | "stale" | "supersededDependents";
+  key: "orphans" | "lowConfidence" | "stale" | "supersededDependents" | "pruneCandidates";
   title: string;
   metricLabel: string;
   metricHint: string;
@@ -151,7 +151,13 @@ function MaintenanceSectionPanel({ section }: { section: MaintenanceSection }) {
 
 export function MaintenancePage() {
   const scan = useMaintenanceScan();
-  const data = scan.data ?? { orphans: [], lowConfidence: [], stale: [], supersededDependents: [] };
+  const data = scan.data ?? {
+    orphans: [],
+    lowConfidence: [],
+    stale: [],
+    supersededDependents: [],
+    pruneCandidates: [],
+  };
   const sections: MaintenanceSection[] = [
     {
       key: "orphans",
@@ -213,6 +219,21 @@ export function MaintenancePage() {
       icon: GitBranch,
       actionIcon: GitBranch,
     },
+    {
+      key: "pruneCandidates",
+      title: "Ready To Prune",
+      metricLabel: "Prune ready",
+      metricHint: "CLI only",
+      description: "Pages that are stale, orphaned, and below confidence 0.5.",
+      pages: data.pruneCandidates,
+      colorClass: "text-status-green",
+      dotClass: "bg-status-green",
+      bulkLabel: "Plan prune",
+      rowAction: "Archive",
+      helper: "CLI: memory prune --plan",
+      icon: Archive,
+      actionIcon: Archive,
+    },
   ];
 
   return (
@@ -251,7 +272,7 @@ export function MaintenancePage() {
 
       {!scan.isLoading && !scan.isError && (
         <div className="space-y-4">
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-5">
             {sections.map((section) => (
               <MetricCard key={section.key} section={section} />
             ))}

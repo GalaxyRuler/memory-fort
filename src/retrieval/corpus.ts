@@ -124,6 +124,12 @@ async function collectMarkdownFiles(
     for (const entry of entries) {
       const fullPath = join(dir, entry.name);
       if (entry.isDirectory()) {
+        if (
+          topLevel === "wiki" &&
+          toVaultRelPath(vaultRoot, fullPath).startsWith("wiki/archive/")
+        ) {
+          continue;
+        }
         await walk(fullPath);
       } else if (entry.isFile() && entry.name.endsWith(".md")) {
         files.push({

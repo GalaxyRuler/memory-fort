@@ -13,6 +13,7 @@ export interface MaintenanceScan {
   lowConfidence: MaintenancePageSummary[];
   stale: MaintenancePageSummary[];
   supersededDependents: MaintenancePageSummary[];
+  pruneCandidates: MaintenancePageSummary[];
 }
 
 export function useMaintenanceScan() {
