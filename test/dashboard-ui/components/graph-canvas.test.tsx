@@ -87,8 +87,8 @@ describe("GraphCanvas", () => {
     vi.useRealTimers();
   });
 
-  test("imperatively resizes the force graph renderer and auto-fits the camera", async () => {
-    render(
+  test("auto-fits the camera after the simulation settles", async () => {
+    const { getByTestId } = render(
       <GraphCanvas
         edges={[]}
         enabledTypes={new Set(["projects"])}
@@ -100,18 +100,15 @@ describe("GraphCanvas", () => {
       />,
     );
 
-    expect(forceGraphMock.renderer.setSize).toHaveBeenCalledWith(1280, 720);
-    expect(forceGraphMock.camera.aspect).toBeCloseTo(1280 / 720);
-    expect(forceGraphMock.camera.updateProjectionMatrix).toHaveBeenCalled();
-    expect(forceGraphMock.renderer.domElement.parentElement.style).toMatchObject({
-      height: "720px",
-      width: "1280px",
-    });
+    // Resizing is handled natively by the library via width/height props —
+    // no imperative renderer.setSize calls from our component.
 
+    // Trigger onEngineStop (simulated by clicking the mock button)
     await act(async () => {
-      vi.advanceTimersByTime(1500);
+      getByTestId("force-graph").click();
     });
 
+    // onEngineStop should zoomToFit
     expect(forceGraphMock.zoomToFit).toHaveBeenCalledWith(400, 50);
   });
 });

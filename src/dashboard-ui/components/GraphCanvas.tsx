@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import ForceGraph3D, { type ForceGraphMethods, type LinkObject, type NodeObject } from "react-force-graph-3d";
 import * as THREE from "three";
 import { type GraphEdge, type GraphNode } from "../hooks/useGraph.js";
@@ -64,7 +64,6 @@ export function GraphCanvas({
   tracePathSet,
 }: GraphCanvasProps) {
   const fgRef = useRef<ForceGraphMethods<GraphCanvasNode, GraphCanvasLink> | undefined>(undefined);
-  const appliedSizeRef = useRef({ width: 0, height: 0 });
   const [haloPulse, setHaloPulse] = useState(1);
   const prefersReducedMotion = useReducedMotion();
   const hasMatchedPaths = (matchedPaths?.size ?? 0) > 0;
@@ -157,39 +156,6 @@ export function GraphCanvas({
     fg.d3ReheatSimulation();
   }, [mode]);
 
-  // Imperative resize helper — ForceGraph3D ignores width/height prop updates.
-  // Called from both the useEffect (for mid-session window resizes) and
-  // onEngineStop (which fires after the lazy-loaded graph-engine chunk mounts).
-  const applySize = useCallback(() => {
-    const fg = fgRef.current;
-    if (!fg || !width || !height) return;
-    if (appliedSizeRef.current.width === width && appliedSizeRef.current.height === height) return;
-
-    const renderer = fg.renderer();
-    const camera = fg.camera();
-    if (!renderer || !camera) return;
-
-    renderer.setSize(width, height);
-
-    if ("aspect" in camera) {
-      const perspectiveCamera = camera as THREE.PerspectiveCamera;
-      perspectiveCamera.aspect = width / height;
-      perspectiveCamera.updateProjectionMatrix();
-    }
-
-    const sceneEl = renderer.domElement?.parentElement;
-    if (sceneEl) {
-      sceneEl.style.width = `${width}px`;
-      sceneEl.style.height = `${height}px`;
-    }
-
-    appliedSizeRef.current = { width, height };
-  }, [width, height]);
-
-  useEffect(() => {
-    applySize();
-  }, [applySize]);
-
   useEffect(() => {
     if (graphData.nodes.length === 0) return;
 
@@ -273,7 +239,6 @@ export function GraphCanvas({
       onNodeClick={(node: NodeObject<GraphCanvasNode>) => onNodeClick(node)}
       onNodeRightClick={(node: NodeObject<GraphCanvasNode>, event: MouseEvent) => onNodeRightClick?.(node, event)}
       onEngineStop={() => {
-        applySize();
         fgRef.current?.zoomToFit(400, 50);
       }}
       enableNavigationControls={true}

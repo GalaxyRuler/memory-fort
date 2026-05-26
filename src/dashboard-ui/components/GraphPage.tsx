@@ -46,7 +46,12 @@ export function GraphPage() {
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const contextMenuRef = useRef<HTMLDivElement>(null);
-  const [size, setSize] = useState({ width: 800, height: 600 });
+  // Initialize to near-correct dimensions so ForceGraph3D's first render
+  // isn't stuck at a wrong size while waiting for the ResizeObserver callback.
+  const [size, setSize] = useState(() => ({
+    width: typeof window !== "undefined" ? window.innerWidth : 800,
+    height: typeof window !== "undefined" ? window.innerHeight - 48 : 600,
+  }));
 
   useEffect(() => {
     if (!containerRef.current || typeof ResizeObserver === "undefined") return;
