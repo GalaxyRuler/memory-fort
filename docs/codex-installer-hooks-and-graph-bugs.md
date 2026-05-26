@@ -311,16 +311,57 @@ The user runs `memory verify` and gets a clear diagnostic that catches the kind 
 
 ---
 
+## Task 9 — Legend node counts
+
+### Why
+The current galactic legend lists 4 cognitive galaxies and 6 domain shapes as if they're equally populated. Live audit shows the actual data is 1028 / 11 / 5 / 1 — wildly imbalanced. A glance at the legend gives no signal of this. The user shouldn't have to ask "why does everything look episodic" — the legend should already say so.
+
+### Contract
+
+In the Legend component (`src/dashboard-ui/components/galactic/Legend.tsx` or wherever Subagent A landed it):
+
+- Each row in the **COGNITIVE GALAXIES** section gets a node-count tally right-aligned at the end of the row, in mono font, muted color. Number = count of nodes currently in `props.nodes` whose `cognitiveType === <row's value>`.
+- Each row in the **DOMAIN SHAPES** section gets the same treatment, counting by `node.type` or `node.cat` (whichever field the React port uses).
+- Counts update reactively when `props.nodes` changes (e.g., when a scope filter is applied or live data refreshes).
+- Render width: counts are right-aligned. If a count is 0, show `0` in dimmer color (`text-mc-ghost` or equivalent). Don't hide zero rows — the user should see "Procedural: 0" if it's empty.
+
+### Visual target
+
+```
+COGNITIVE GALAXIES
+●  Core            core memory             1
+●  Semantic        semantic memory        11
+●  Episodic        episodic memory      1028
+●  Procedural      procedural memory       5
+
+DOMAIN SHAPES
+■  Projects        mini-system             2
+■  Decisions       banded rocky            4
+■  Lessons         binary moons            4
+■  References      ringed giant            2
+■  Tools           octagon                 1
+■  Crystals        faceted hex             4
+```
+
+Counts sum doesn't need to match total nodes (some may be archive or untyped). That's fine.
+
+### Files
+- `src/dashboard-ui/components/galactic/Legend.tsx`
+- `test/dashboard-ui/components/galactic-legend.test.tsx` — extend existing test with a fixture of mixed-type nodes; assert each count renders correctly and zero rows still render with dim styling
+
+---
+
 ## Execution order (updated)
 
 1. **Task 1 (claude-code plugin enablement)** — biggest user impact, must restore capture
 2. **Task 8 (memory verify command)** — second priority, so future silent failures get caught immediately
 3. **Task 6 (cognitive inference rebalance)** — high-value: makes the galactic view actually informative
 4. **Task 7 (cross-galaxy edge visibility)** — visual cleanup, pairs naturally with Task 6
-5. **Task 3 (VS Code Windows path)** — quick win
-6. **Task 4 (claude-desktop repair)** — quick win
-7. **Task 5 (auto-push race)** — cleanup
-8. **Task 2 (galactic camera)** — UX polish
+5. **Task 9 (legend node counts)** — small but high-signal; pairs with Task 6 since balance becomes visible
+6. **Task 3 (VS Code Windows path)** — quick win
+7. **Task 4 (claude-desktop repair)** — quick win
+8. **Task 5 (auto-push race)** — cleanup
+9. **Task 2 (galactic camera)** — UX polish
 
 Each task = one commit. Tests green between every commit.
 
@@ -355,6 +396,7 @@ After deploy, manually verify on the user's machine:
 - [ ] `memory verify` exists, runs in <30s, catches the silent-failure pattern the user just hit
 - [ ] Cognitive type distribution rebalanced: episodic <50% of total nodes (currently 98.5%)
 - [ ] Cross-galaxy edges visibly thicker/brighter than within-galaxy edges
+- [ ] Legend shows live node counts per cognitive galaxy and domain shape
 - [ ] Galactic graph zoom transitions target the nearest galaxy, not always Semantic
 - [ ] VS Code installer works on Windows and writes to `%APPDATA%\Code\User\settings.json`
 - [ ] Claude Desktop installer repairs corrupted entries
