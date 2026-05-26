@@ -5,6 +5,7 @@ coverage/
 .vitest/
 src/dashboard-ui/routeTree.gen.ts
 ~/.memory/datasets/
+wiki/.audit/verify-*.json
 
 # Brainstorming session working dir (visual companion server)
 .superpowers/

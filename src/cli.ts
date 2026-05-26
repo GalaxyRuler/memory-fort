@@ -27,6 +27,12 @@ import { runSync, formatSyncSuccess } from "./cli/commands/sync.js";
 import { runSyncBootstrap } from "./cli/commands/sync-bootstrap.js";
 import { runTailErrors } from "./cli/commands/tail-errors.js";
 import { formatVerifyResult, runVerify } from "./cli/commands/verify.js";
+import {
+  formatVerifyScheduleResult,
+  runVerifySchedule,
+  type VerifyScheduleAction,
+  type VerifyScheduleShell,
+} from "./cli/commands/verify-schedule.js";
 import { formatWatchResult, runWatch } from "./cli/commands/watch.js";
 
 const program = new Command();
@@ -485,8 +491,26 @@ program
   .description("End-to-end health check for vault, sync, dashboard, search, and client capture")
   .option("--offline", "skip network checks such as git remote and dashboard")
   .option("--json", "emit structured VerifyReport JSON")
-  .action(async (opts: { offline?: boolean; json?: boolean }) => {
+  .option("--schedule <action>", "install | uninstall | status")
+  .option("--daily <HH:MM>", "daily local time for scheduled verify (default: 09:00)")
+  .option("--shell <shell>", "scheduler shell override: powershell | systemd")
+  .action(async (opts: {
+    offline?: boolean;
+    json?: boolean;
+    schedule?: VerifyScheduleAction;
+    daily?: string;
+    shell?: VerifyScheduleShell;
+  }) => {
     try {
+      if (opts.schedule) {
+        const schedule = await runVerifySchedule({
+          action: opts.schedule,
+          daily: opts.daily,
+          shell: opts.shell,
+        });
+        process.stdout.write(formatVerifyScheduleResult(schedule));
+        process.exit(schedule.exitCode);
+      }
       const result = await runVerify({ offline: opts.offline });
       process.stdout.write(
         opts.json
