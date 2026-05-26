@@ -38,10 +38,17 @@ export interface GalacticCanvasProps {
   onZoomLevelChange?: (level: GalacticZoomLevel) => void;
 }
 
-interface Camera {
+export interface Camera {
   camX: number;
   camY: number;
   scale: number;
+}
+
+export interface ZoomTargetOptions {
+  camera: Camera;
+  layout: GalacticLayout;
+  level: GalacticZoomLevel;
+  selectedNodeId: string | null;
 }
 
 interface DragState {
@@ -94,9 +101,12 @@ export const GalacticCanvas = forwardRef<GalacticCanvasHandle, GalacticCanvasPro
   }, [emitZoom]);
 
   const setZoomLevel = useCallback((level: GalacticZoomLevel) => {
-    const selected = selectedRef.current ? layoutRef.current.nodes.find((node) => node.path === selectedRef.current) : null;
-    const fallback = layoutRef.current.galaxies.semantic;
-    const target = level === 0 ? { cx: 0, cy: 0 } : selected?.galaxy ?? fallback;
+    const target = selectZoomTarget({
+      camera: cameraRef.current,
+      layout: layoutRef.current,
+      level,
+      selectedNodeId: selectedRef.current,
+    });
     cameraRef.current = { camX: target.cx, camY: target.cy, scale: LEVEL_SCALE[level] };
     setCameraVersion((value) => value + 1);
     onZoomLevelChange?.(level);
@@ -242,6 +252,29 @@ export const GalacticCanvas = forwardRef<GalacticCanvasHandle, GalacticCanvasPro
     </div>
   );
 });
+
+export function selectZoomTarget(opts: ZoomTargetOptions): { cx: number; cy: number } {
+  if (opts.level === 0) return { cx: 0, cy: 0 };
+
+  const selected = opts.selectedNodeId
+    ? opts.layout.nodes.find((node) => node.path === opts.selectedNodeId)
+    : null;
+  if (selected) return { cx: selected.galaxy.cx, cy: selected.galaxy.cy };
+
+  const nearest = nearestGalaxyToCamera(opts.layout.galaxies, opts.camera);
+  return { cx: nearest.cx, cy: nearest.cy };
+}
+
+export function nearestGalaxyToCamera(
+  galaxies: GalacticLayout["galaxies"],
+  camera: Camera,
+): GalacticLayout["galaxies"][keyof GalacticLayout["galaxies"]] {
+  return Object.values(galaxies).reduce((nearest, galaxy) => {
+    const nearestDistance = Math.hypot(camera.camX - nearest.cx, camera.camY - nearest.cy);
+    const distance = Math.hypot(camera.camX - galaxy.cx, camera.camY - galaxy.cy);
+    return distance < nearestDistance ? galaxy : nearest;
+  });
+}
 
 function render(
   ctx: CanvasRenderingContext2D,
