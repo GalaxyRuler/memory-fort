@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { existsSync } from "node:fs";
+import { closeSync, existsSync, openSync, unlinkSync } from "node:fs";
 import { appendFile, mkdir, readFile, unlink } from "node:fs/promises";
 import { spawn as realSpawn } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
@@ -17,7 +17,7 @@ export interface AutoPushOptions {
 
 export type ScheduleResult =
   | { scheduled: true; token: string; workerPid?: number }
-  | { scheduled: false; reason: "disabled" };
+  | { scheduled: false; reason: "disabled" | "busy" };
 
 export interface PendingFile {
   token: string;
@@ -38,11 +38,12 @@ export async function scheduleAutoPush(opts: AutoPushOptions = {}): Promise<Sche
   const spawnFn = opts.spawnFn ?? realSpawn;
 
   await ensureAutoPushIgnored(root);
-  await writePendingFile(root, {
+  const wrotePending = await writePendingFile(root, {
     token,
     scheduledAt: nowFn().toISOString(),
     debounceMs,
   });
+  if (!wrotePending) return { scheduled: false, reason: "busy" };
 
   const child = spawnFn("node", [workerPath, root, token], {
     detached: true,
@@ -65,8 +66,21 @@ export async function readPendingFile(memoryRoot: string): Promise<PendingFile |
   };
 }
 
-export async function writePendingFile(memoryRoot: string, contents: PendingFile): Promise<void> {
-  await atomicWrite(pendingPath(memoryRoot), `${JSON.stringify(contents, null, 2)}\n`);
+export async function writePendingFile(memoryRoot: string, contents: PendingFile): Promise<boolean> {
+  const path = pendingPath(memoryRoot);
+  await mkdir(dirname(path), { recursive: true });
+  const releaseLock = tryAcquirePendingFileLock(`${path}.lock`);
+  if (!releaseLock) return false;
+
+  try {
+    await atomicWrite(path, `${JSON.stringify(contents, null, 2)}\n`);
+    return true;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw err;
+  } finally {
+    releaseLock();
+  }
 }
 
 export async function deletePendingFile(memoryRoot: string): Promise<void> {
@@ -79,6 +93,25 @@ export async function deletePendingFile(memoryRoot: string): Promise<void> {
 
 function pendingPath(memoryRoot: string): string {
   return join(memoryRoot, ".auto-push-pending");
+}
+
+function tryAcquirePendingFileLock(path: string): (() => void) | null {
+  let fd: number;
+  try {
+    fd = openSync(path, "wx");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "EEXIST") return null;
+    throw err;
+  }
+
+  return () => {
+    closeSync(fd);
+    try {
+      unlinkSync(path);
+    } catch {
+      // Another process may have cleaned up a stale lock; the pending write is done.
+    }
+  };
 }
 
 async function ensureAutoPushIgnored(memoryRoot: string): Promise<void> {

@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { scheduleAutoPush, readPendingFile } from "../../src/sync/auto-push.js";
@@ -75,5 +76,28 @@ describe("scheduleAutoPush", () => {
     const pending = await readPendingFile(tmp);
 
     expect(pending?.token).toBe(second.token);
+  });
+
+  it("skips scheduling quietly when the pending-file lock is already held", async () => {
+    const { calls, spawnFn } = makeSpawn();
+    await writeFile(join(tmp, ".auto-push-pending.lock"), "locked");
+
+    const result = await scheduleAutoPush({ memoryRoot: tmp, spawnFn: spawnFn as never });
+
+    expect(result).toEqual({ scheduled: false, reason: "busy" });
+    expect(calls).toHaveLength(0);
+    expect(existsSync(join(tmp, "errors.log"))).toBe(false);
+  });
+
+  it("handles concurrent schedule attempts without errors.log entries", async () => {
+    const { calls, spawnFn } = makeSpawn();
+
+    const attempts = await Promise.allSettled(
+      Array.from({ length: 20 }, () => scheduleAutoPush({ memoryRoot: tmp, spawnFn: spawnFn as never })),
+    );
+
+    expect(attempts.every((attempt) => attempt.status === "fulfilled")).toBe(true);
+    expect(calls.length).toBeGreaterThan(0);
+    expect(existsSync(join(tmp, "errors.log"))).toBe(false);
   });
 });
