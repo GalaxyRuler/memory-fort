@@ -280,6 +280,12 @@ export function inferCognitiveType(
     return "semantic";
   }
 
+  // Agentmemory is being retired — every imported observation from it is
+  // archival by definition and should settle into semantic, regardless of age.
+  if (imported?.system === "agentmemory") {
+    return "semantic";
+  }
+
   if (document.relPath.startsWith("raw/")) {
     return isWithinLastDays(document.observedAt ?? document.created, 30, now) ? "episodic" : "semantic";
   }
