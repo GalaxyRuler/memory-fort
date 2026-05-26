@@ -48,12 +48,26 @@ export function Legend({ nodes }: { nodes: GraphNode[] }) {
           ))}
         </div>
       </section>
-      <section className="space-y-1 border-t border-border-subtle pt-3 font-mono text-[11px] text-text-muted">
-        <div>orbit pull · inbound count</div>
-        <div>glow halo · confidence</div>
-        <div>edge lens · relation weight</div>
-        <div>particle flow · active relation</div>
+      <section>
+        <h2 className="mb-2 font-mono text-[11px] font-semibold uppercase tracking-wider text-text-primary">Physics · data-driven</h2>
+        <div className="space-y-1.5">
+          <PhysicsRow label="orbit pull" detail="inbound count" />
+          <PhysicsRow label="planet size" detail="inbound count" />
+          <PhysicsRow label="glow halo" detail="confidence" />
+          <PhysicsRow label="edge warp" detail="relation weight" />
+          <PhysicsRow label="particle flow" detail="active relation" />
+        </div>
       </section>
+    </div>
+  );
+}
+
+function PhysicsRow({ label, detail }: { label: string; detail: string }) {
+  return (
+    <div className="grid grid-cols-[auto_minmax(5rem,auto)_1fr] items-center gap-2">
+      <span className="h-2.5 w-2.5 flex-shrink-0 rounded-full bg-amber-500" aria-hidden="true" />
+      <span className="text-text-secondary">{label}</span>
+      <span className="truncate font-mono text-[10px] text-text-muted">{detail}</span>
     </div>
   );
 }

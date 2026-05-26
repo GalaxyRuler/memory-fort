@@ -295,7 +295,16 @@ function render(
   drawStarfield(ctx, size, elapsed);
 
   for (const galaxy of Object.values(layout.galaxies)) drawAccretionSwarm(ctx, galaxy, camera, size, elapsed);
-  for (const edge of layout.edges) drawEdge(ctx, edge, camera, size, elapsed, selectedId);
+  // Draw within-galaxy edges first, cross-galaxy on top so they never get
+  // obscured by galaxy backdrops or other edges. Cross-galaxy connections
+  // are the most informative — they prove the whole graph is one organism,
+  // not 4 isolated clusters.
+  const orderedEdges = [...layout.edges].sort((a, b) => {
+    const aCross = a.source.cognitiveType !== a.target.cognitiveType ? 1 : 0;
+    const bCross = b.source.cognitiveType !== b.target.cognitiveType ? 1 : 0;
+    return aCross - bCross;
+  });
+  for (const edge of orderedEdges) drawEdge(ctx, edge, camera, size, elapsed, selectedId);
   if (camera.scale > 0.3) {
     for (const galaxy of Object.values(layout.galaxies)) {
       for (const system of Object.values(galaxy.systems)) if (system) drawSystemBackdrop(ctx, system, camera, size);
@@ -392,6 +401,7 @@ function drawEdge(ctx: CanvasRenderingContext2D, edge: GalacticLayout["edges"][n
   const target = worldToScreen(edge.target, camera, size);
   const control = worldToScreen({ x: lens.controlX, y: lens.controlY }, camera, size);
   const highlighted = selectedId === edge.source.path || selectedId === edge.target.path;
+  const crossGalaxy = edge.source.cognitiveType !== edge.target.cognitiveType;
   const style = computeEdgeRenderStyle({
     highlighted,
     sourceCognitiveType: edge.source.cognitiveType,
@@ -399,13 +409,23 @@ function drawEdge(ctx: CanvasRenderingContext2D, edge: GalacticLayout["edges"][n
     weight: edge.weight,
     zoomLevel: zoomLevelForScale(camera.scale),
   });
-  const gradient = ctx.createLinearGradient(source.x, source.y, target.x, target.y);
-  gradient.addColorStop(0, hexA(DOMAIN_META[edge.source.domain].color, style.opacity));
-  gradient.addColorStop(1, hexA(DOMAIN_META[edge.target.domain].color, style.opacity));
   ctx.save();
   ctx.lineCap = "round";
   ctx.lineWidth = style.lineWidth;
-  ctx.strokeStyle = gradient;
+
+  if (crossGalaxy) {
+    // Cross-galaxy edges are the most informative connections. Render them
+    // as bright cyan filaments with a glow shadow so they read as
+    // first-class lines against the galaxy halos. Same lensing curve.
+    ctx.shadowColor = `rgba(34, 211, 238, ${style.opacity})`;
+    ctx.shadowBlur = 6;
+    ctx.strokeStyle = `rgba(165, 243, 252, ${style.opacity})`;
+  } else {
+    const gradient = ctx.createLinearGradient(source.x, source.y, target.x, target.y);
+    gradient.addColorStop(0, hexA(DOMAIN_META[edge.source.domain].color, style.opacity));
+    gradient.addColorStop(1, hexA(DOMAIN_META[edge.target.domain].color, style.opacity));
+    ctx.strokeStyle = gradient;
+  }
   ctx.beginPath();
   ctx.moveTo(source.x, source.y);
   ctx.quadraticCurveTo(control.x, control.y, target.x, target.y);
@@ -433,15 +453,19 @@ export function computeEdgeRenderStyle({
   zoomLevel,
 }: EdgeRenderStyleOptions): { lineWidth: number; opacity: number } {
   const crossGalaxy = sourceCognitiveType !== targetCognitiveType;
-  const boost = crossGalaxy ? 1.5 : 1;
   const baseLineWidth = highlighted ? 1.4 + weight * 0.6 : 0.4 + weight * 0.6;
   const baseOpacity = (highlighted ? 0.55 : 0.2) + weight * 0.35;
+  if (crossGalaxy) {
+    // Cross-galaxy edges: visually dominant. Higher floors at galactic zoom
+    // so they punch through galaxy halos; thicker boost (2x); cap opacity
+    // near full brightness so the cyan reads cleanly.
+    const lineWidth = Math.max(zoomLevel === 0 ? 1.6 : 1.2, baseLineWidth * 2);
+    const opacity = Math.min(1, Math.max(zoomLevel === 0 ? 0.65 : 0.5, baseOpacity * 1.8));
+    return { lineWidth, opacity };
+  }
   const lineWidth = zoomLevel === 0 ? Math.max(0.8, baseLineWidth) : baseLineWidth;
   const opacity = zoomLevel === 0 ? Math.max(0.35, baseOpacity) : baseOpacity;
-  return {
-    lineWidth: lineWidth * boost,
-    opacity: opacity * boost,
-  };
+  return { lineWidth, opacity };
 }
 
 function drawPlanet(ctx: CanvasRenderingContext2D, node: GalacticNode, camera: Camera, size: { width: number; height: number }, hoverId: string | null, selectedId: string | null): void {

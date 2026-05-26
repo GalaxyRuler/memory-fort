@@ -19,9 +19,12 @@ describe("Galactic legend", () => {
     expect(screen.getByText("References")).toBeInTheDocument();
     expect(screen.getByText("Tools")).toBeInTheDocument();
     expect(screen.getByText("Crystals")).toBeInTheDocument();
-    expect(screen.getByText("orbit pull · inbound count")).toBeInTheDocument();
-    expect(screen.getByText("glow halo · confidence")).toBeInTheDocument();
-    expect(screen.getByText("edge lens · relation weight")).toBeInTheDocument();
+    // Physics section: each row is split into label + detail spans now.
+    expect(screen.getByText(/Physics/i)).toBeInTheDocument();
+    expect(screen.getByText("orbit pull")).toBeInTheDocument();
+    expect(screen.getByText("planet size")).toBeInTheDocument();
+    expect(screen.getByText("glow halo")).toBeInTheDocument();
+    expect(screen.getByText("edge warp")).toBeInTheDocument();
   });
 
   it("shows reactive node counts for cognitive galaxies and domain shapes including zero rows", () => {
