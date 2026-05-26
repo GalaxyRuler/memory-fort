@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { existsSync } from "node:fs";
 import { runInit } from "../../../src/cli/commands/init.js";
 import { runImportAgentMemory } from "../../../src/cli/commands/import-agentmemory.js";
+import type { ConsolidateResult } from "../../../src/consolidate/runner.js";
 import { parseFrontmatter } from "../../../src/storage/frontmatter.js";
 
 describe("runImportAgentMemory", () => {
@@ -75,4 +76,35 @@ describe("runImportAgentMemory", () => {
     const second = await runImportAgentMemory({ from: dataDir, mode: "apply" });
     expect(second.report).toContain("dedup-skipped: 2");
   });
+
+  it("can chain consolidation after an apply import", async () => {
+    let consolidateCalls = 0;
+    const result = await runImportAgentMemory({
+      from: dataDir,
+      mode: "apply",
+      now: new Date("2026-05-26T00:00:00.000Z"),
+      consolidateAfter: true,
+      consolidateFn: async (opts) => {
+        consolidateCalls += 1;
+        expect(opts.plan).toBe(false);
+        return consolidateResult();
+      },
+    });
+
+    expect(consolidateCalls).toBe(1);
+    expect(result.report).toContain("Memory consolidate apply");
+  });
+
+  function consolidateResult(): ConsolidateResult {
+    return {
+      mode: "apply",
+      plans: [],
+      summary: {
+        scanned: 1,
+        updated: 1,
+        newEdges: 1,
+      },
+      auditLogPath: join(memDir, "wiki", ".audit", "consolidate-2026-05-26T00-00-00-000Z.md"),
+    };
+  }
 });

@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runBackfill } from "../../../src/cli/commands/backfill.js";
+import type { ConsolidateResult } from "../../../src/consolidate/runner.js";
 import { runInit } from "../../../src/cli/commands/init.js";
 
 describe("runBackfill", () => {
@@ -70,6 +71,24 @@ describe("runBackfill", () => {
     expect(second.report).toContain("skipped: 1");
   });
 
+  it("can chain consolidation after an apply run", async () => {
+    let consolidateCalls = 0;
+    const result = await runBackfill({
+      from: "claude-code",
+      since: "2026-05-22",
+      now: new Date("2026-05-26T12:00:00.000Z"),
+      consolidateAfter: true,
+      consolidateFn: async (opts) => {
+        consolidateCalls += 1;
+        expect(opts.plan).toBe(false);
+        return consolidateResult();
+      },
+    });
+
+    expect(consolidateCalls).toBe(1);
+    expect(result.report).toContain("Memory consolidate apply");
+  });
+
   it("rejects unknown clients", async () => {
     await expect(runBackfill({ from: "unknown" })).rejects.toThrow(/unknown sniffer/);
   });
@@ -92,5 +111,18 @@ describe("runBackfill", () => {
     const value = originalEnv[key];
     if (value === undefined) delete process.env[key];
     else process.env[key] = value;
+  }
+
+  function consolidateResult(): ConsolidateResult {
+    return {
+      mode: "apply",
+      plans: [],
+      summary: {
+        scanned: 1,
+        updated: 1,
+        newEdges: 1,
+      },
+      auditLogPath: join(memoryDir, "wiki", ".audit", "consolidate-2026-05-26T12-00-00-000Z.md"),
+    };
   }
 });

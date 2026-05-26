@@ -444,7 +444,8 @@ program
   .requiredOption("--from <path>", "path to agentmemory data/ or state_store.db/")
   .option("--plan", "dry-run report")
   .option("--apply", "write imported pages and audit log")
-  .action(async (opts: { from: string; plan?: boolean; apply?: boolean }) => {
+  .option("--consolidate-after", "run memory consolidate --apply after import completes")
+  .action(async (opts: { from: string; plan?: boolean; apply?: boolean; consolidateAfter?: boolean }) => {
     const modes = [opts.plan, opts.apply].filter(Boolean);
     if (modes.length !== 1) {
       console.error("memory import-agentmemory: choose exactly one of --plan or --apply");
@@ -454,6 +455,7 @@ program
       const result = await runImportAgentMemory({
         from: opts.from,
         mode: opts.apply ? "apply" : "plan",
+        consolidateAfter: opts.consolidateAfter,
       });
       process.stdout.write(result.report);
     } catch (err) {
@@ -482,13 +484,15 @@ program
   .option("--since <date>", "oldest session mtime to include (default: 30 days ago)")
   .option("--plan", "dry-run report")
   .option("--apply", "apply backfill explicitly (default when --plan is absent)")
-  .action(async (opts: { from?: string; since?: string; plan?: boolean; apply?: boolean }) => {
+  .option("--consolidate-after", "run memory consolidate --apply after backfill completes")
+  .action(async (opts: { from?: string; since?: string; plan?: boolean; apply?: boolean; consolidateAfter?: boolean }) => {
     try {
       const result = await runBackfill({
         from: opts.from,
         since: opts.since,
         plan: opts.plan,
         apply: opts.apply,
+        consolidateAfter: opts.consolidateAfter,
       });
       process.stdout.write(result.report);
     } catch (err) {

@@ -8,6 +8,7 @@ import { checkClients } from "../../../src/cli/commands/verify/clients.js";
 import { checkCompile } from "../../../src/cli/commands/verify/compile.js";
 import { checkDashboard } from "../../../src/cli/commands/verify/dashboard.js";
 import { checkGitRemote } from "../../../src/cli/commands/verify/git.js";
+import { checkEpisodicRelations } from "../../../src/cli/commands/verify/episodic-relations.js";
 import { checkSearch } from "../../../src/cli/commands/verify/search.js";
 import { checkVaultReadWrite } from "../../../src/cli/commands/verify/vault.js";
 
@@ -91,6 +92,32 @@ describe("verify checks", () => {
 
     expect(result.status).toBe("pass");
     expect(result.label).toContain("returned 1 results in 47ms");
+  });
+
+  it("episodic relation coverage warns below thirty percent", async () => {
+    await writeRawObservation("raw/2026-05-26/linked.md", ["wiki/projects/memory-fort.md"]);
+    await writeRawObservation("raw/2026-05-26/orphan-a.md", []);
+    await writeRawObservation("raw/2026-05-26/orphan-b.md", []);
+    await writeRawObservation("raw/2026-05-26/orphan-c.md", []);
+
+    const result = await checkEpisodicRelations({ vaultRoot: tmp, now });
+
+    expect(result.status).toBe("warn");
+    expect(result.label).toContain("25% of episodic memories have >=1 relation");
+    expect(result.detail).toContain("3 orphaned");
+    expect(result.suggestedFix).toContain("memory consolidate --plan");
+  });
+
+  it("episodic relation coverage passes at thirty percent or above", async () => {
+    await writeRawObservation("raw/2026-05-26/linked-a.md", ["wiki/projects/memory-fort.md"]);
+    await writeRawObservation("raw/2026-05-26/linked-b.md", ["wiki/tools/codex.md"]);
+    await writeRawObservation("raw/2026-05-26/orphan-a.md", []);
+    await writeRawObservation("raw/2026-05-26/orphan-b.md", []);
+
+    const result = await checkEpisodicRelations({ vaultRoot: tmp, now });
+
+    expect(result.status).toBe("pass");
+    expect(result.label).toContain("50% of episodic memories have >=1 relation");
   });
 
   it("client checks catch enabled Claude Code with no recent capture as a warning", async () => {
@@ -209,4 +236,25 @@ describe("verify checks", () => {
     expect(result.status).toBe("pass");
     expect(result.label).toContain("compile last ran 2026-05-22");
   });
+
+  async function writeRawObservation(relPath: string, mentions: string[]): Promise<void> {
+    const fullPath = join(tmp, relPath);
+    await mkdir(join(fullPath, ".."), { recursive: true });
+    const relations = mentions.length > 0
+      ? ["relations:", "  mentions:", ...mentions.map((mention) => `    - ${mention}`)]
+      : ["relations:", "  mentions: []"];
+    await writeFile(
+      fullPath,
+      [
+        "---",
+        "title: Test observation",
+        "kind: raw",
+        ...relations,
+        "---",
+        "",
+        "Captured text.",
+        "",
+      ].join("\n"),
+    );
+  }
 });

@@ -9,15 +9,25 @@ import {
   formatAgentMemoryImportReport,
   planAgentMemoryImport,
 } from "../../migration/map-agentmemory.js";
+import { memoryRoot } from "../../storage/paths.js";
+import {
+  formatConsolidateResult,
+  runConsolidate,
+  type ConsolidateResult,
+  type RunConsolidateOptions,
+} from "./consolidate.js";
 
 export interface ImportAgentMemoryOptions {
   from: string;
   mode: "plan" | "apply";
   now?: Date;
+  consolidateAfter?: boolean;
+  consolidateFn?: (opts: RunConsolidateOptions) => Promise<ConsolidateResult>;
 }
 
 export interface ImportAgentMemoryResult {
   report: string;
+  consolidate?: ConsolidateResult;
 }
 
 export async function runImportAgentMemory(
@@ -33,8 +43,17 @@ export async function runImportAgentMemory(
   }
 
   const result = await applyAgentMemoryImportPlan(plan, { now: opts.now });
+  const consolidate = opts.consolidateAfter
+    ? await (opts.consolidateFn ?? runConsolidate)({
+        plan: false,
+        corpusRoot: memoryRoot(),
+        now: opts.now,
+      })
+    : undefined;
+  const report = formatAgentMemoryImportReport("apply", plan, result.auditLogPath);
   return {
-    report: formatAgentMemoryImportReport("apply", plan, result.auditLogPath),
+    report: consolidate ? `${report}\n${formatConsolidateResult(consolidate)}` : report,
+    consolidate,
   };
 }
 

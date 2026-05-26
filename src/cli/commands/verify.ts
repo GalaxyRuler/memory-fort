@@ -3,6 +3,7 @@ import { checkAutoPush } from "./verify/autopush.js";
 import { checkClients } from "./verify/clients.js";
 import { checkCompile } from "./verify/compile.js";
 import { checkDashboard } from "./verify/dashboard.js";
+import { checkEpisodicRelations } from "./verify/episodic-relations.js";
 import { checkGitRemote } from "./verify/git.js";
 import { formatVerifyResult } from "./verify/render.js";
 import { checkSearch } from "./verify/search.js";
@@ -94,6 +95,7 @@ async function runDefaultChecks(ctx: {
   if (ctx.includeSearch) {
     checks.push(await checkSearch(ctx));
   }
+  checks.push(await checkEpisodicRelations(ctx));
   checks.push(...await checkClients(ctx));
   checks.push(await checkAutoPush(ctx));
   checks.push(

@@ -4,6 +4,12 @@ import { ClaudeCodeSniffer } from "../../sniffers/claude-code.js";
 import { rawSessionRelPath, runSniffer, type RunSnifferResult } from "../../sniffers/run-sniffer.js";
 import type { RawSession, Sniffer } from "../../sniffers/types.js";
 import { join } from "node:path";
+import {
+  formatConsolidateResult,
+  runConsolidate,
+  type RunConsolidateOptions,
+  type ConsolidateResult,
+} from "./consolidate.js";
 
 export interface BackfillOptions {
   from?: string;
@@ -12,11 +18,14 @@ export interface BackfillOptions {
   apply?: boolean;
   now?: Date;
   sniffers?: Sniffer[];
+  consolidateAfter?: boolean;
+  consolidateFn?: (opts: RunConsolidateOptions) => Promise<ConsolidateResult>;
 }
 
 export interface BackfillResult {
   report: string;
   auditLogPath?: string;
+  consolidate?: ConsolidateResult;
 }
 
 interface SnifferPlan {
@@ -48,9 +57,17 @@ export async function runBackfill(opts: BackfillOptions = {}): Promise<BackfillR
     `backfill-${now.toISOString().replace(/[:.]/g, "-")}.md`,
   );
   await atomicWrite(auditLogPath, formatBackfillAudit(results, since, now));
+  const consolidate = opts.consolidateAfter
+    ? await (opts.consolidateFn ?? runConsolidate)({
+        plan: false,
+        corpusRoot: memoryRoot(),
+        now,
+      })
+    : undefined;
   return {
-    report: formatBackfillApply(results, since, auditLogPath),
+    report: formatBackfillApply(results, since, auditLogPath, consolidate),
     auditLogPath,
+    consolidate,
   };
 }
 
@@ -104,7 +121,12 @@ function formatBackfillPlan(plans: SnifferPlan[], since: Date): string {
   return `${lines.join("\n")}\n`;
 }
 
-function formatBackfillApply(results: RunSnifferResult[], since: Date, auditLogPath: string): string {
+function formatBackfillApply(
+  results: RunSnifferResult[],
+  since: Date,
+  auditLogPath: string,
+  consolidate?: ConsolidateResult,
+): string {
   const written = results.reduce((sum, result) => sum + result.written.length, 0);
   const skipped = results.reduce((sum, result) => sum + result.skipped.length, 0);
   const lines = [
@@ -118,7 +140,10 @@ function formatBackfillApply(results: RunSnifferResult[], since: Date, auditLogP
   for (const result of results) {
     lines.push(`${result.sniffer}: written ${result.written.length}, skipped ${result.skipped.length}`);
   }
-  return `${lines.join("\n")}\n`;
+  const report = `${lines.join("\n")}\n`;
+  return consolidate
+    ? `${report}\n${formatConsolidateResult(consolidate)}`
+    : report;
 }
 
 function formatBackfillAudit(results: RunSnifferResult[], since: Date, now: Date): string {
