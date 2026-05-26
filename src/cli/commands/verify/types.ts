@@ -13,6 +13,7 @@ export interface CheckResult {
 export interface VerifyReport {
   startedAt: string;
   finishedAt: string;
+  role: VerifyRole;
   overallStatus: CheckStatus;
   checks: CheckResult[];
 }
@@ -26,7 +27,9 @@ export interface VerifyCheckContext {
   offline?: boolean;
 }
 
-export type RunCheckOptions = VerifyCheckContext;
+export interface RunCheckOptions extends VerifyCheckContext {
+  dashboardStatus?: unknown;
+}
 
 export interface CheckDescriptor {
   id: string;

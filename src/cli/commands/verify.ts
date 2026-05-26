@@ -1,22 +1,19 @@
 import { memoryRoot } from "../../storage/paths.js";
-import { checkAutoPush } from "./verify/autopush.js";
-import { checkClients } from "./verify/clients.js";
-import { checkCompile } from "./verify/compile.js";
-import { checkDashboard } from "./verify/dashboard.js";
-import { checkEpisodicRelations } from "./verify/episodic-relations.js";
-import { checkGitRemote } from "./verify/git.js";
+import { type VerifyDashboardStatus } from "./verify/dashboard.js";
+import { ALL_CHECKS } from "./verify/registry.js";
 import { formatVerifyResult } from "./verify/render.js";
-import { checkSearch } from "./verify/search.js";
+import { detectRole } from "./verify/role.js";
 import {
+  type CheckDescriptor,
   type CheckResult,
   type CheckStatus,
+  type VerifyRole,
   type VerifyCheckResult,
   type VerifyReport,
 } from "./verify/types.js";
-import { checkVaultReadWrite } from "./verify/vault.js";
 
 export { formatVerifyResult } from "./verify/render.js";
-export type { CheckResult, CheckStatus, VerifyCheckResult, VerifyReport } from "./verify/types.js";
+export type { CheckDescriptor, CheckResult, CheckStatus, VerifyCheckResult, VerifyReport, VerifyRole } from "./verify/types.js";
 
 type CheckFn = () => Promise<VerifyCheckResult | VerifyCheckResult[]>;
 
@@ -24,12 +21,16 @@ export interface VerifyOptions {
   offline?: boolean;
   includeSearch?: boolean;
   now?: () => Date;
+  role?: VerifyRole;
+  detectRoleFn?: () => VerifyRole;
+  checkDescriptors?: CheckDescriptor[];
   checkFns?: CheckFn[];
 }
 
 export interface VerifyResult {
   startedAt: string;
   finishedAt: string;
+  role: VerifyRole;
   overallStatus: CheckStatus;
   checks: VerifyCheckResult[];
   passed: number;
@@ -40,15 +41,20 @@ export interface VerifyResult {
 
 export async function runVerify(opts: VerifyOptions = {}): Promise<VerifyResult> {
   const now = opts.now ?? (() => new Date());
+  const role = opts.role ?? opts.detectRoleFn?.() ?? detectRole();
   const startedAt = now().toISOString();
   const checks = opts.checkFns
     ? await runInjectedChecks(opts.checkFns)
-    : await runDefaultChecks({
-        vaultRoot: memoryRoot(),
-        now,
-        offline: opts.offline,
-        includeSearch: opts.includeSearch ?? true,
-      });
+    : await runDescriptorChecks(
+      opts.checkDescriptors ?? ALL_CHECKS,
+      role,
+      {
+          vaultRoot: memoryRoot(),
+          now,
+          offline: opts.offline,
+          includeSearch: opts.includeSearch ?? true,
+        },
+    );
 
   const passed = checks.filter((check) => check.status === "pass").length;
   const failed = checks.filter((check) => check.status === "fail").length;
@@ -57,6 +63,7 @@ export async function runVerify(opts: VerifyOptions = {}): Promise<VerifyResult>
   return {
     startedAt,
     finishedAt,
+    role,
     overallStatus: overallStatus(checks),
     checks,
     passed,
@@ -79,32 +86,41 @@ async function runInjectedChecks(checkFns: CheckFn[]): Promise<VerifyCheckResult
   return checks;
 }
 
-async function runDefaultChecks(ctx: {
+async function runDescriptorChecks(
+  descriptors: CheckDescriptor[],
+  role: VerifyRole,
+  ctx: {
   vaultRoot: string;
   now: () => Date;
   offline?: boolean;
   includeSearch: boolean;
-}): Promise<VerifyCheckResult[]> {
+},
+): Promise<VerifyCheckResult[]> {
   const checks: VerifyCheckResult[] = [];
-  checks.push(await checkVaultReadWrite(ctx));
-  checks.push(await checkGitRemote(ctx));
+  let dashboardStatus: VerifyDashboardStatus | null = null;
+  for (const descriptor of descriptors) {
+    if (!descriptor.roles.includes(role)) continue;
+    if (descriptor.id === "search.pipeline" && !ctx.includeSearch) continue;
 
-  const dashboard = await checkDashboard(ctx);
-  checks.push(dashboard);
-
-  if (ctx.includeSearch) {
-    checks.push(await checkSearch(ctx));
-  }
-  checks.push(await checkEpisodicRelations(ctx));
-  checks.push(...await checkClients(ctx));
-  checks.push(await checkAutoPush(ctx));
-  checks.push(
-    await checkCompile({
+    const result = await descriptor.run({
       ...ctx,
-      dashboardStatus: dashboard.statusBody ?? null,
-    }),
-  );
+      dashboardStatus,
+    });
+    const flattened = [result].flat();
+    checks.push(...flattened);
+    if (descriptor.id === "dashboard.status") {
+      dashboardStatus = readDashboardStatus(flattened[0]);
+    }
+  }
   return checks;
+}
+
+function readDashboardStatus(check: VerifyCheckResult | undefined): VerifyDashboardStatus | null {
+  if (!check || !("statusBody" in check)) return null;
+  const statusBody = check.statusBody;
+  return statusBody && typeof statusBody === "object"
+    ? statusBody as VerifyDashboardStatus
+    : null;
 }
 
 function withDuration(check: VerifyCheckResult, started: number): VerifyCheckResult {

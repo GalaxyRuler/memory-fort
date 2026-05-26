@@ -7,7 +7,7 @@ export interface RenderableVerifyReport extends VerifyReport {
 }
 
 export function formatVerifyResult(result: RenderableVerifyReport): string {
-  const lines = [`memory verify · ${result.startedAt}`, ""];
+  const lines = [`memory verify · ${result.startedAt}`, `Role: ${result.role}`, ""];
   for (const check of result.checks) {
     const marker =
       check.status === "pass" ? "✓" : check.status === "warn" ? "⚠" : "✗";

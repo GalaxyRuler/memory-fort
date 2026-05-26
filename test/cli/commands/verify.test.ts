@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   formatVerifyResult,
   runVerify,
+  type CheckDescriptor,
   type CheckResult,
 } from "../../../src/cli/commands/verify.js";
 
@@ -20,6 +21,7 @@ describe("runVerify", () => {
     expect(result.overallStatus).toBe("pass");
     expect(result.startedAt).toBe("2026-05-26T03:30:00.000Z");
     expect(result.finishedAt).toBe("2026-05-26T03:30:00.000Z");
+    expect(result.role).toBe("operator");
     expect(result.passed).toBe(3);
     expect(result.failed).toBe(0);
     expect(result.warnings).toBe(0);
@@ -33,6 +35,7 @@ describe("runVerify", () => {
       ]),
     );
     expect(formatVerifyResult(result)).toContain("3/3 checks passed");
+    expect(formatVerifyResult(result)).toContain("Role: operator");
   });
 
   it("returns exit 1 when any check fails while warnings remain non-fatal", async () => {
@@ -90,6 +93,7 @@ describe("runVerify", () => {
       startedAt: "2026-05-26T03:30:00.000Z",
       finishedAt: "2026-05-26T03:30:00.000Z",
       overallStatus: "warn",
+      role: "operator",
       checks: [
         {
           id: "search pipeline",
@@ -101,6 +105,33 @@ describe("runVerify", () => {
       ],
     });
     expect(parsed.checks[0]?.durationMs).toEqual(expect.any(Number));
+  });
+
+  it("runs only checks assigned to the selected role", async () => {
+    const seen: string[] = [];
+    const result = await runVerify({
+      role: "server",
+      now: () => new Date("2026-05-26T03:30:00.000Z"),
+      checkDescriptors: [
+        descriptor("shared", ["operator", "server"], seen),
+        descriptor("operator-only", ["operator"], seen),
+      ],
+    });
+
+    expect(seen).toEqual(["shared"]);
+    expect(result.role).toBe("server");
+    expect(result.checks.map((check) => check.id)).toEqual(["shared"]);
+  });
+
+  it("auto-detects the role when no role is provided", async () => {
+    const result = await runVerify({
+      detectRoleFn: () => "server",
+      now: () => new Date("2026-05-26T03:30:00.000Z"),
+      checkDescriptors: [descriptor("server check", ["server"])],
+    });
+
+    expect(result.role).toBe("server");
+    expect(result.checks.map((check) => check.id)).toEqual(["server check"]);
   });
 });
 
@@ -114,4 +145,20 @@ function warn(label: string, detail: string, suggestedFix?: string): CheckResult
 
 function fail(label: string, suggestedFix: string): CheckResult {
   return { id: label, label, status: "fail", suggestedFix, durationMs: 0 };
+}
+
+function descriptor(
+  id: string,
+  roles: CheckDescriptor["roles"],
+  seen: string[] = [],
+): CheckDescriptor {
+  return {
+    id,
+    label: id,
+    roles,
+    async run() {
+      seen.push(id);
+      return pass(id);
+    },
+  };
 }
