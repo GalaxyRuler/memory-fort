@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtemp, rm, mkdir, writeFile, readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { runInit } from "../../../src/cli/commands/init.js";
-import { installVsCode } from "../../../src/cli/commands/install/vscode.js";
+import { installVsCode, resolveVsCodeUserDir } from "../../../src/cli/commands/install/vscode.js";
 
 describe("installVsCode", () => {
   let tmp: string;
@@ -13,6 +13,7 @@ describe("installVsCode", () => {
   let workspaceDir: string;
   let origMem: string | undefined;
   let origUserDir: string | undefined;
+  let origAppData: string | undefined;
 
   beforeEach(async () => {
     tmp = await mkdtemp(join(tmpdir(), "install-vscode-"));
@@ -21,6 +22,7 @@ describe("installVsCode", () => {
     workspaceDir = join(tmp, "workspace");
     origMem = process.env["MEMORY_ROOT"];
     origUserDir = process.env["MEMORY_VSCODE_USER_DIR"];
+    origAppData = process.env["APPDATA"];
     process.env["MEMORY_ROOT"] = memDir;
     await runInit({ sourceRepoDir: process.cwd() });
   });
@@ -30,6 +32,8 @@ describe("installVsCode", () => {
     else process.env["MEMORY_ROOT"] = origMem;
     if (origUserDir === undefined) delete process.env["MEMORY_VSCODE_USER_DIR"];
     else process.env["MEMORY_VSCODE_USER_DIR"] = origUserDir;
+    if (origAppData === undefined) delete process.env["APPDATA"];
+    else process.env["APPDATA"] = origAppData;
     await rm(tmp, { recursive: true, force: true });
   });
 
@@ -99,6 +103,36 @@ describe("installVsCode", () => {
     process.env["MEMORY_VSCODE_USER_DIR"] = userDir;
     const result = await installVsCode({ installed: true });
     expect(result.configPath).toBe(join(userDir, "mcp.json"));
+  });
+
+  it("resolves the Windows VS Code user directory from APPDATA", () => {
+    expect(
+      resolveVsCodeUserDir({
+        env: { APPDATA: join(tmp, "Roaming") },
+        homeDir: homedir(),
+        platform: "win32",
+      }),
+    ).toBe(join(tmp, "Roaming", "Code", "User"));
+  });
+
+  it("resolves the macOS VS Code user directory from the home Library path", () => {
+    expect(
+      resolveVsCodeUserDir({
+        env: { APPDATA: join(tmp, "Roaming") },
+        homeDir: homedir(),
+        platform: "darwin",
+      }),
+    ).toBe(join(homedir(), "Library", "Application Support", "Code", "User"));
+  });
+
+  it("resolves the Linux VS Code user directory from XDG-style config path", () => {
+    expect(
+      resolveVsCodeUserDir({
+        env: { APPDATA: join(tmp, "Roaming") },
+        homeDir: homedir(),
+        platform: "linux",
+      }),
+    ).toBe(join(homedir(), ".config", "Code", "User"));
   });
 
   it("installs the bundled Memory Fort VS Code extension", async () => {

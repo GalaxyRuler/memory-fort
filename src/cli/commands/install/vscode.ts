@@ -33,12 +33,30 @@ export interface InstallVsCodeResult {
 }
 
 export function vscodeUserDir(override?: string): string {
-  if (override) return override;
-  const envOverride = process.env["MEMORY_VSCODE_USER_DIR"];
+  return resolveVsCodeUserDir({
+    override,
+    env: process.env,
+    homeDir: homedir(),
+    platform: process.platform,
+  });
+}
+
+export function resolveVsCodeUserDir(opts: {
+  override?: string;
+  env?: NodeJS.ProcessEnv;
+  homeDir: string;
+  platform: NodeJS.Platform;
+}): string {
+  if (opts.override) return opts.override;
+  const envOverride = opts.env?.["MEMORY_VSCODE_USER_DIR"];
   if (envOverride && envOverride.trim().length > 0) return envOverride;
-  const appData = process.env["APPDATA"];
-  if (appData) return join(appData, "Code", "User");
-  return join(homedir(), ".config", "Code", "User");
+  if (opts.platform === "win32") {
+    return join(opts.env?.["APPDATA"] ?? join(opts.homeDir, "AppData", "Roaming"), "Code", "User");
+  }
+  if (opts.platform === "darwin") {
+    return join(opts.homeDir, "Library", "Application Support", "Code", "User");
+  }
+  return join(opts.homeDir, ".config", "Code", "User");
 }
 
 export function vscodeMcpConfigPath(opts: {
