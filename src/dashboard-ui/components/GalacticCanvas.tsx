@@ -1,5 +1,5 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
-import type { GraphEdge, GraphNode } from "../hooks/useGraph.js";
+import type { CognitiveType, GraphEdge, GraphNode } from "../hooks/useGraph.js";
 import {
   buildGalacticLayout,
   COGNITIVE_META,
@@ -14,6 +14,14 @@ import { confidenceGlow, edgeLensing, zoomLevelForScale, clamp } from "../lib/ga
 import { hexA, PLANET_RENDERERS } from "../lib/galactic/planets.js";
 
 export type GalacticZoomLevel = 0 | 1 | 2;
+
+export interface EdgeRenderStyleOptions {
+  highlighted: boolean;
+  sourceCognitiveType: CognitiveType;
+  targetCognitiveType: CognitiveType;
+  weight: number;
+  zoomLevel: GalacticZoomLevel;
+}
 
 export interface GalacticCanvasHandle {
   focusNode: (path: string, scale?: number) => void;
@@ -349,13 +357,19 @@ function drawEdge(ctx: CanvasRenderingContext2D, edge: GalacticLayout["edges"][n
   const target = worldToScreen(edge.target, camera, size);
   const control = worldToScreen({ x: lens.controlX, y: lens.controlY }, camera, size);
   const highlighted = selectedId === edge.source.path || selectedId === edge.target.path;
-  const opacity = (highlighted ? 0.55 : 0.2) + edge.weight * 0.35;
+  const style = computeEdgeRenderStyle({
+    highlighted,
+    sourceCognitiveType: edge.source.cognitiveType,
+    targetCognitiveType: edge.target.cognitiveType,
+    weight: edge.weight,
+    zoomLevel: zoomLevelForScale(camera.scale),
+  });
   const gradient = ctx.createLinearGradient(source.x, source.y, target.x, target.y);
-  gradient.addColorStop(0, hexA(DOMAIN_META[edge.source.domain].color, opacity));
-  gradient.addColorStop(1, hexA(DOMAIN_META[edge.target.domain].color, opacity));
+  gradient.addColorStop(0, hexA(DOMAIN_META[edge.source.domain].color, style.opacity));
+  gradient.addColorStop(1, hexA(DOMAIN_META[edge.target.domain].color, style.opacity));
   ctx.save();
   ctx.lineCap = "round";
-  ctx.lineWidth = highlighted ? 1.4 + edge.weight * 0.6 : 0.4 + edge.weight * 0.6;
+  ctx.lineWidth = style.lineWidth;
   ctx.strokeStyle = gradient;
   ctx.beginPath();
   ctx.moveTo(source.x, source.y);
@@ -374,6 +388,25 @@ function drawEdge(ctx: CanvasRenderingContext2D, edge: GalacticLayout["edges"][n
     }
   }
   ctx.restore();
+}
+
+export function computeEdgeRenderStyle({
+  highlighted,
+  sourceCognitiveType,
+  targetCognitiveType,
+  weight,
+  zoomLevel,
+}: EdgeRenderStyleOptions): { lineWidth: number; opacity: number } {
+  const crossGalaxy = sourceCognitiveType !== targetCognitiveType;
+  const boost = crossGalaxy ? 1.5 : 1;
+  const baseLineWidth = highlighted ? 1.4 + weight * 0.6 : 0.4 + weight * 0.6;
+  const baseOpacity = (highlighted ? 0.55 : 0.2) + weight * 0.35;
+  const lineWidth = zoomLevel === 0 ? Math.max(0.8, baseLineWidth) : baseLineWidth;
+  const opacity = zoomLevel === 0 ? Math.max(0.35, baseOpacity) : baseOpacity;
+  return {
+    lineWidth: lineWidth * boost,
+    opacity: opacity * boost,
+  };
 }
 
 function drawPlanet(ctx: CanvasRenderingContext2D, node: GalacticNode, camera: Camera, size: { width: number; height: number }, hoverId: string | null, selectedId: string | null): void {
