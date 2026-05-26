@@ -2,12 +2,14 @@ import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "../lib/api.js";
 
 export type GraphScope = "wiki" | "raw" | "crystals" | "all";
+export type CognitiveType = "core" | "semantic" | "episodic" | "procedural";
 
 export interface GraphNode {
   path: string;
   title: string;
   kind: "wiki" | "raw" | "crystal";
   type: string;
+  cognitiveType: CognitiveType;
   confidence: number | null;
   updated: string | null;
   inboundCount: number;

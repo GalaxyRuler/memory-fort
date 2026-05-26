@@ -8,7 +8,7 @@ import {
   checkSupersededDependents,
   loadWiki as loadCurationWiki,
 } from "../curation/checks.js";
-import { loadSearchCorpus, type SearchScope } from "../retrieval/corpus.js";
+import { loadSearchCorpus, type CognitiveType, type SearchScope } from "../retrieval/corpus.js";
 import { buildGraph } from "../retrieval/graph.js";
 import { loadMemoryConfig } from "../storage/config.js";
 import type { Frontmatter } from "../storage/frontmatter.js";
@@ -181,6 +181,7 @@ export interface GraphFeed {
     title: string;
     kind: "wiki" | "raw" | "crystal";
     type: string;
+    cognitiveType: CognitiveType;
     confidence: number | null;
     updated: string | null;
     inboundCount: number;
@@ -1127,6 +1128,7 @@ export async function loadGraphFeed(vaultRoot: string, scope: SearchScope = "wik
         title: document?.title ?? node.path,
         kind: document?.kind ?? "wiki",
         type: document?.type ?? "unknown",
+        cognitiveType: document?.cognitiveType ?? "semantic",
         confidence: document?.confidence ?? null,
         updated: document?.updated ?? null,
         inboundCount: node.inbound.length,

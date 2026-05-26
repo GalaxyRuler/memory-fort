@@ -30,6 +30,7 @@ const KNOWN_TYPES: EntityType[] = [
 ];
 
 const KNOWN_STATUS = ["active", "archived", "superseded"] as const;
+const KNOWN_COGNITIVE_TYPES = ["core", "semantic", "episodic", "procedural"] as const;
 
 const KNOWN_RELATIONS = [
   "uses",
@@ -110,6 +111,12 @@ export function validateFrontmatter(
   }
   if (f["status"] !== undefined && !KNOWN_STATUS.includes(f["status"] as never)) {
     errors.push(`status must be one of: ${KNOWN_STATUS.join(", ")}`);
+  }
+  if (
+    f["cognitive_type"] !== undefined &&
+    !KNOWN_COGNITIVE_TYPES.includes(f["cognitive_type"] as never)
+  ) {
+    errors.push(`cognitive_type must be one of: ${KNOWN_COGNITIVE_TYPES.join(", ")}`);
   }
   if (f["confidence"] !== undefined) {
     const c = f["confidence"];

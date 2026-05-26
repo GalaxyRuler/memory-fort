@@ -2,6 +2,7 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import { basename, join, relative, resolve } from "node:path";
 import { canonicalizeRawObservation } from "../compile/canonicalize.js";
 import type { Frontmatter } from "../storage/frontmatter.js";
+import { buildGraph } from "./graph.js";
 
 export type SearchScope = "wiki" | "raw" | "crystals" | "all";
 export type SearchSource =
@@ -12,6 +13,7 @@ export type SearchSource =
   | "crystal"
   | "unknown";
 export type SearchKind = "wiki" | "raw" | "crystal";
+export type CognitiveType = "core" | "semantic" | "episodic" | "procedural";
 
 export interface SearchDocument {
   kind: SearchKind;
@@ -20,6 +22,7 @@ export interface SearchDocument {
   title: string;
   type: string;
   status: string;
+  cognitiveType: CognitiveType;
   confidence: number | null;
   tags: string[];
   relations: Record<string, string[]>;
@@ -31,9 +34,11 @@ export interface SearchDocument {
   rawFrontmatter?: Record<string, unknown> | null;
   body: string;
   snippetSource: string;
+  created: string | null;
   updated: string | null;
   mtime: string;
   sizeBytes: number;
+  explicitCognitiveType?: CognitiveType | null;
 }
 
 export interface LoadCorpusOptions {
@@ -94,6 +99,7 @@ export async function loadSearchCorpus(
   }
 
   documents.sort((a, b) => a.relPath.localeCompare(b.relPath));
+  applyCognitiveTypeInference(documents);
   return {
     documents,
     errors,
@@ -165,6 +171,7 @@ async function loadDocument(file: MarkdownFile): Promise<SearchDocument> {
   const filename = basename(file.relPath, ".md");
   const rawIdentity = parseRawIdentity(filename);
   const frontmatter = parsed.frontmatter;
+  const explicitCognitiveType = readCognitiveType(frontmatter.cognitive_type);
   const canonical =
     file.kind === "raw"
       ? canonicalizeRawObservation({
@@ -182,6 +189,7 @@ async function loadDocument(file: MarkdownFile): Promise<SearchDocument> {
     title: canonical?.title ?? readString(frontmatter.title) ?? filename,
     type: readString(frontmatter.type) ?? defaultType(file),
     status: readString(frontmatter.status) ?? "active",
+    cognitiveType: explicitCognitiveType ?? "semantic",
     confidence: canonical?.confidence ?? readNumber(frontmatter.confidence),
     tags: canonical?.tags ?? readStringArray(frontmatter.tags),
     relations: readRelations(frontmatter.relations),
@@ -197,10 +205,47 @@ async function loadDocument(file: MarkdownFile): Promise<SearchDocument> {
     rawFrontmatter: canonical?.rawFrontmatter ?? null,
     body: canonical?.body ?? parsed.body,
     snippetSource: firstNonEmptyLine(parsed.body),
+    created: readDate(frontmatter.created),
     updated: readUpdated(frontmatter.updated),
     mtime: info.mtime.toISOString(),
     sizeBytes: info.size,
+    explicitCognitiveType,
   };
+}
+
+function applyCognitiveTypeInference(documents: SearchDocument[]): void {
+  if (documents.length === 0) return;
+
+  const graph = buildGraph(documents);
+  for (const document of documents) {
+    document.cognitiveType =
+      document.explicitCognitiveType ??
+      inferCognitiveType(document, graph.nodes.get(document.relPath)?.inbound.length ?? 0);
+  }
+}
+
+export function inferCognitiveType(
+  document: Pick<SearchDocument, "relPath" | "kind" | "type" | "status" | "source" | "created">,
+  inboundCount = 0,
+  now = new Date(),
+): CognitiveType {
+  const category = categoryForDocument(document);
+  if (document.source === "crystal" || category === "crystals") return "semantic";
+
+  if (
+    (document.source === "claude-code" || document.source === "codex" || document.source === "antigravity") &&
+    document.relPath.startsWith("raw/")
+  ) {
+    return "episodic";
+  }
+
+  if (category === "tools" || category === "lessons") return "procedural";
+  if (category === "projects" && document.status === "active" && inboundCount >= 5) return "core";
+  if (category === "decisions" && document.status === "active" && isWithinLastDays(document.created, 14, now)) {
+    return "episodic";
+  }
+
+  return "semantic";
 }
 
 function parseMarkdown(content: string): ParsedMarkdown {
@@ -323,10 +368,14 @@ function readString(value: unknown): string | null {
     : null;
 }
 
-function readUpdated(value: unknown): string | null {
+function readDate(value: unknown): string | null {
   return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)
     ? value
     : null;
+}
+
+function readUpdated(value: unknown): string | null {
+  return readDate(value);
 }
 
 function readNumber(value: unknown): number | null {
@@ -362,6 +411,34 @@ function readSearchSource(value: unknown): SearchSource {
     return value;
   }
   return "unknown";
+}
+
+function readCognitiveType(value: unknown): CognitiveType | null {
+  if (
+    value === "core" ||
+    value === "semantic" ||
+    value === "episodic" ||
+    value === "procedural"
+  ) {
+    return value;
+  }
+  return null;
+}
+
+function categoryForDocument(
+  document: Pick<SearchDocument, "relPath" | "kind" | "type">,
+): string {
+  if (document.kind === "crystal") return "crystals";
+  if (document.type === "crystal") return "crystals";
+  return document.type || document.relPath.split("/")[1] || document.kind;
+}
+
+function isWithinLastDays(value: string | null, days: number, now: Date): boolean {
+  if (!value) return false;
+  const created = Date.parse(`${value}T00:00:00.000Z`);
+  if (!Number.isFinite(created)) return false;
+  const ageMs = now.getTime() - created;
+  return ageMs >= 0 && ageMs <= days * 24 * 60 * 60 * 1000;
 }
 
 function defaultType(file: MarkdownFile): string {
