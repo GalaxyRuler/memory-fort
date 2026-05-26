@@ -1,6 +1,10 @@
 #!/usr/bin/env node
 import { Command } from "commander";
 import { runCompile } from "./cli/commands/compile.js";
+import {
+  formatConsolidateResult,
+  runConsolidate,
+} from "./cli/commands/consolidate.js";
 import { formatConnectResult, runConnect } from "./cli/commands/connect.js";
 import { runDoctor, formatDoctorResult } from "./cli/commands/doctor.js";
 import { registerEvalCommand } from "./cli/commands/eval.js";
@@ -331,6 +335,40 @@ program
       }
     },
   );
+
+program
+  .command("consolidate")
+  .description("Link raw episodic observations to existing wiki pages")
+  .option("--plan", "dry-run proposed relations")
+  .option("--apply", "write relations.mentions to raw observations")
+  .option("--force", "process observations that already have relations.mentions")
+  .option("--min-confidence <n>", "minimum match confidence (default: 0.6)", parseFloat)
+  .option("--max-links-per-observation <n>", "max links per observation (default: 5)", parseInteger)
+  .action(async (opts: {
+    plan?: boolean;
+    apply?: boolean;
+    force?: boolean;
+    minConfidence?: number;
+    maxLinksPerObservation?: number;
+  }) => {
+    if ([opts.plan, opts.apply].filter(Boolean).length !== 1) {
+      console.error("memory consolidate: choose exactly one of --plan or --apply");
+      process.exit(2);
+    }
+    try {
+      const result = await runConsolidate({
+        plan: Boolean(opts.plan),
+        apply: opts.apply,
+        force: opts.force,
+        minConfidence: opts.minConfidence,
+        maxLinksPerObservation: opts.maxLinksPerObservation,
+      });
+      process.stdout.write(formatConsolidateResult(result));
+    } catch (err) {
+      console.error(`memory consolidate failed: ${(err as Error).message}`);
+      process.exit(1);
+    }
+  });
 
 program
   .command("lint")
