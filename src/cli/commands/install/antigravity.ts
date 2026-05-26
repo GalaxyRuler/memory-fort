@@ -8,6 +8,8 @@ import { atomicWrite, atomicAppend } from "../../../storage/atomic-write.js";
 export interface InstallAntigravityOptions {
   /** Override ~/.gemini/antigravity/ (default). */
   antigravityDir?: string;
+  /** Antigravity Editor and workspace currently share the same MCP config. */
+  surface?: "workspace" | "ide" | "both";
   /** For tests. */
   now?: Date;
 }
@@ -16,6 +18,7 @@ export interface InstallAntigravityResult {
   mcpConfigPath: string;
   configCreated: boolean;
   hadPriorMemoryEntry: boolean;
+  surfaces: Array<"workspace" | "ide">;
   log: string[];
 }
 
@@ -89,10 +92,22 @@ export async function installAntigravity(
   );
 
   const now = opts.now ?? new Date();
+  const surfaces =
+    opts.surface === "workspace"
+      ? (["workspace"] as const)
+      : opts.surface === "ide"
+        ? (["ide"] as const)
+        : (["workspace", "ide"] as const);
   await atomicAppend(
     logPath(),
-    `## [${now.toISOString()}] install | antigravity: MCP entry in ${configPath}\n`,
+    `## [${now.toISOString()}] install | antigravity ${surfaces.join("+")}: MCP entry in ${configPath}\n`,
   );
 
-  return { mcpConfigPath: configPath, configCreated, hadPriorMemoryEntry, log };
+  return {
+    mcpConfigPath: configPath,
+    configCreated,
+    hadPriorMemoryEntry,
+    surfaces: [...surfaces],
+    log,
+  };
 }

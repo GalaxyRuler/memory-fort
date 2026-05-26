@@ -123,4 +123,13 @@ describe("installAntigravity", () => {
     expect(result.mcpConfigPath).toBe(join(antigravityDir, "mcp_config.json"));
     expect(existsSync(result.mcpConfigPath)).toBe(true);
   });
+
+  it("treats workspace and IDE as the same shared Antigravity MCP surface", async () => {
+    const result = await installAntigravity({
+      antigravityDir,
+      surface: "both",
+    });
+    expect(result.surfaces).toEqual(["workspace", "ide"]);
+    expect(result.mcpConfigPath).toBe(join(antigravityDir, "mcp_config.json"));
+  });
 });
