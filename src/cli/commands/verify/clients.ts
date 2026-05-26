@@ -11,78 +11,148 @@ import {
   isClaudeCodePluginEnabled,
 } from "../install/claude-code.js";
 import { vscodeExtensionDir, vscodeMcpConfigPath } from "../install/vscode.js";
-import { fail, pass, warn, type VerifyCheckContext, type VerifyCheckResult } from "./types.js";
+import { fail, pass, warn, type CheckDescriptor, type VerifyCheckContext, type VerifyCheckResult } from "./types.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+export const claudeCodeEnabledCheck: CheckDescriptor = {
+  id: "client.claude-code.enabled",
+  label: "Claude Code plugin enabled",
+  roles: ["operator"],
+  run: () => checkClaudeCodeEnabled(),
+};
+
+export const claudeCodeCaptureCheck: CheckDescriptor = {
+  id: "client.claude-code.capture",
+  label: "Claude Code capture is fresh",
+  roles: ["operator"],
+  run: (ctx) => checkRecentCapture(ctx, ["claude-code-", "claude-"], "client.claude-code.capture", "claude-code"),
+};
+
+export const snifferClaudeCodeBackfillCheck: CheckDescriptor = {
+  id: "sniffer.claude-code.backfill",
+  label: "Claude Code backfill store available",
+  roles: ["operator"],
+  run: () => checkClaudeCodeBackfillStore(),
+};
+
+export const codexConfigCheck: CheckDescriptor = {
+  id: "client.codex.config",
+  label: "Codex MCP block present",
+  roles: ["operator"],
+  run: () => checkCodexConfig(),
+};
+
+export const codexCaptureCheck: CheckDescriptor = {
+  id: "client.codex.capture",
+  label: "Codex capture is fresh",
+  roles: ["operator"],
+  run: (ctx) => checkRecentCapture(ctx, ["codex-"], "client.codex.capture", "codex"),
+};
+
+export const antigravityConfigCheck: CheckDescriptor = {
+  id: "client.antigravity.config",
+  label: "Antigravity MCP entry present",
+  roles: ["operator"],
+  run: () => checkJsonServer(
+    antigravityConfigPath(),
+    "mcpServers",
+    "client.antigravity.config",
+    "antigravity MCP entry present (informational)",
+    "run `memory connect antigravity`",
+    true,
+  ),
+};
+
+export const snifferAntigravityPluginCheck: CheckDescriptor = {
+  id: "sniffer.antigravity.plugin",
+  label: "Antigravity live-capture plugin installed",
+  roles: ["operator"],
+  run: () => checkAntigravityPlugin(),
+};
+
+export const antigravityCaptureCheck: CheckDescriptor = {
+  id: "client.antigravity.capture",
+  label: "Antigravity captures present",
+  roles: ["operator"],
+  run: (ctx) => checkAnyCapture(ctx, ["antigravity-"], "client.antigravity.capture"),
+};
+
+export const vscodeConfigCheck: CheckDescriptor = {
+  id: "client.vscode.config",
+  label: "VS Code MCP entry present",
+  roles: ["operator"],
+  run: () => checkJsonServer(
+    vscodeMcpConfigPath(),
+    "servers",
+    "client.vscode.config",
+    "vscode MCP entry present",
+    "run `memory connect vscode`",
+  ),
+};
+
+export const snifferVscodeExtensionCheck: CheckDescriptor = {
+  id: "sniffer.vscode.extension",
+  label: "VS Code Memory Fort extension installed",
+  roles: ["operator"],
+  run: () => checkVsCodeExtension(),
+};
+
+export const snifferVscodeCaptureCheck: CheckDescriptor = {
+  id: "sniffer.vscode.capture",
+  label: "VS Code extension capture is fresh",
+  roles: ["operator"],
+  run: (ctx) => checkRecentCapture(ctx, ["vscode-"], "sniffer.vscode.capture", "vscode extension"),
+};
+
+export const claudeDesktopConfigCheck: CheckDescriptor = {
+  id: "client.claude-desktop.config",
+  label: "Claude Desktop MCP entry present",
+  roles: ["operator"],
+  run: () => checkJsonServer(
+    claudeDesktopConfigPath(),
+    "mcpServers",
+    "client.claude-desktop.config",
+    "claude-desktop MCP entry present",
+    "run `memory connect claude-desktop`",
+  ),
+};
+
+export const snifferClaudeDesktopWatcherCheck: CheckDescriptor = {
+  id: "sniffer.claude-desktop.watcher",
+  label: "Claude Desktop watcher source available",
+  roles: ["operator"],
+  run: () => checkClaudeDesktopWatcher(),
+};
+
+export const snifferClaudeDesktopCaptureCheck: CheckDescriptor = {
+  id: "sniffer.claude-desktop.capture",
+  label: "Claude Desktop watcher capture is fresh",
+  roles: ["operator"],
+  run: (ctx) => checkRecentCapture(ctx, ["claude-desktop-"], "sniffer.claude-desktop.capture", "claude-desktop watcher"),
+};
+
+export const CLIENT_CHECKS: CheckDescriptor[] = [
+  claudeCodeEnabledCheck,
+  claudeCodeCaptureCheck,
+  snifferClaudeCodeBackfillCheck,
+  codexConfigCheck,
+  codexCaptureCheck,
+  antigravityConfigCheck,
+  snifferAntigravityPluginCheck,
+  antigravityCaptureCheck,
+  vscodeConfigCheck,
+  snifferVscodeExtensionCheck,
+  snifferVscodeCaptureCheck,
+  claudeDesktopConfigCheck,
+  snifferClaudeDesktopWatcherCheck,
+  snifferClaudeDesktopCaptureCheck,
+];
 
 export async function checkClients(
   ctx: VerifyCheckContext,
 ): Promise<VerifyCheckResult[]> {
-  const [
-    claudeEnabled,
-    claudeCapture,
-    codexConfig,
-    codexCapture,
-    antigravityConfig,
-    antigravityCapture,
-    vscodeConfig,
-    vscodeExtension,
-    vscodeCapture,
-    claudeDesktopConfig,
-    claudeDesktopWatcher,
-    claudeDesktopCapture,
-    claudeCodeBackfill,
-  ] = await Promise.all([
-    checkClaudeCodeEnabled(),
-    checkRecentCapture(ctx, ["claude-code-", "claude-"], "client.claude-code.capture", "claude-code"),
-    checkCodexConfig(),
-    checkRecentCapture(ctx, ["codex-"], "client.codex.capture", "codex"),
-    checkJsonServer(
-      antigravityConfigPath(),
-      "mcpServers",
-      "client.antigravity.config",
-      "antigravity MCP entry present (informational)",
-      "run `memory connect antigravity`",
-      true,
-    ),
-    checkAnyCapture(ctx, ["antigravity-"], "client.antigravity.capture"),
-    checkJsonServer(
-      vscodeMcpConfigPath(),
-      "servers",
-      "client.vscode.config",
-      "vscode MCP entry present",
-      "run `memory connect vscode`",
-    ),
-    checkVsCodeExtension(),
-    checkRecentCapture(ctx, ["vscode-"], "sniffer.vscode.capture", "vscode extension"),
-    checkJsonServer(
-      claudeDesktopConfigPath(),
-      "mcpServers",
-      "client.claude-desktop.config",
-      "claude-desktop MCP entry present",
-      "run `memory connect claude-desktop`",
-    ),
-    checkClaudeDesktopWatcher(),
-    checkRecentCapture(ctx, ["claude-desktop-"], "sniffer.claude-desktop.capture", "claude-desktop watcher"),
-    checkClaudeCodeBackfillStore(),
-  ]);
-
-  return [
-    claudeEnabled,
-    claudeCapture,
-    claudeCodeBackfill,
-    codexConfig,
-    codexCapture,
-    antigravityConfig,
-    await checkAntigravityPlugin(),
-    antigravityCapture,
-    vscodeConfig,
-    vscodeExtension,
-    vscodeCapture,
-    claudeDesktopConfig,
-    claudeDesktopWatcher,
-    claudeDesktopCapture,
-  ];
+  return (await Promise.all(CLIENT_CHECKS.map((check) => check.run(ctx)))).flat();
 }
 
 async function checkClaudeCodeEnabled(): Promise<VerifyCheckResult> {

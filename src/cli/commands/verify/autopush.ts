@@ -1,10 +1,17 @@
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { fail, pass, warn, type VerifyCheckContext, type VerifyCheckResult } from "./types.js";
+import { fail, pass, warn, type CheckDescriptor, type VerifyCheckContext, type VerifyCheckResult } from "./types.js";
 
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
+
+export const autoPushErrorsCheck: CheckDescriptor = {
+  id: "autopush.errors",
+  label: "auto-push has no recent errors",
+  roles: ["operator"],
+  run: checkAutoPush,
+};
 
 export async function checkAutoPush(
   ctx: VerifyCheckContext,

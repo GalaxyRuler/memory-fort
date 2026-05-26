@@ -1,7 +1,14 @@
 import { mkdir, readFile, unlink } from "node:fs/promises";
 import { join } from "node:path";
 import { atomicWrite } from "../../../storage/atomic-write.js";
-import { fail, pass, type VerifyCheckContext, type VerifyCheckResult } from "./types.js";
+import { fail, pass, type CheckDescriptor, type VerifyCheckContext, type VerifyCheckResult } from "./types.js";
+
+export const vaultReadWriteCheck: CheckDescriptor = {
+  id: "vault.read-write",
+  label: "vault read/write",
+  roles: ["operator", "server"],
+  run: checkVaultReadWrite,
+};
 
 export async function checkVaultReadWrite(
   ctx: VerifyCheckContext,

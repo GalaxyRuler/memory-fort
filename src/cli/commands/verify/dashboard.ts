@@ -1,5 +1,5 @@
 import { loadMemoryConfig } from "../../../storage/config.js";
-import { fail, pass, warn, type VerifyCheckContext, type VerifyCheckResult } from "./types.js";
+import { fail, pass, warn, type CheckDescriptor, type VerifyCheckContext, type VerifyCheckResult } from "./types.js";
 
 export interface DashboardVerifyOptions extends VerifyCheckContext {
   dashboardUrl?: string;
@@ -13,6 +13,13 @@ export interface VerifyDashboardStatus {
 }
 
 const DEFAULT_DASHBOARD_URL = "https://srv1317946.tail6916d8.ts.net/memory";
+
+export const dashboardStatusCheck: CheckDescriptor = {
+  id: "dashboard.status",
+  label: "dashboard /api/status",
+  roles: ["operator", "server"],
+  run: checkDashboard,
+};
 
 export async function resolveDashboardUrl(override?: string): Promise<string> {
   if (override) return trimTrailingSlash(override);

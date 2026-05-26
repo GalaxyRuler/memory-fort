@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { fail, pass, type VerifyCheckContext, type VerifyCheckResult } from "./types.js";
+import { fail, pass, type CheckDescriptor, type VerifyCheckContext, type VerifyCheckResult } from "./types.js";
 import type { VerifyDashboardStatus } from "./dashboard.js";
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
@@ -9,6 +9,13 @@ const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 export interface CompileVerifyOptions extends VerifyCheckContext {
   dashboardStatus?: VerifyDashboardStatus | null;
 }
+
+export const compileRecentCheck: CheckDescriptor = {
+  id: "compile.recent",
+  label: "compile state recent",
+  roles: ["operator", "server"],
+  run: checkCompile,
+};
 
 export async function checkCompile(
   opts: CompileVerifyOptions,

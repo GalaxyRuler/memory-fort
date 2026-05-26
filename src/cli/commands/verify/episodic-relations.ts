@@ -1,7 +1,14 @@
 import { loadSearchCorpus } from "../../../retrieval/corpus.js";
-import { pass, warn, type VerifyCheckContext, type VerifyCheckResult } from "./types.js";
+import { pass, warn, type CheckDescriptor, type VerifyCheckContext, type VerifyCheckResult } from "./types.js";
 
 const MIN_LINKED_RATIO = 0.3;
+
+export const episodicRelationsCoverageCheck: CheckDescriptor = {
+  id: "episodic.relations.coverage",
+  label: "episodic relation coverage",
+  roles: ["operator", "server"],
+  run: checkEpisodicRelations,
+};
 
 export async function checkEpisodicRelations(
   ctx: VerifyCheckContext,

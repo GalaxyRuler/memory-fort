@@ -1,6 +1,6 @@
 import { execFile as nodeExecFile } from "node:child_process";
 import { promisify } from "node:util";
-import { fail, pass, warn, type VerifyCheckContext, type VerifyCheckResult } from "./types.js";
+import { fail, pass, warn, type CheckDescriptor, type VerifyCheckContext, type VerifyCheckResult } from "./types.js";
 
 type ExecFile = (
   file: string,
@@ -14,6 +14,13 @@ export interface GitVerifyOptions extends VerifyCheckContext {
   remoteName?: string;
   execFile?: ExecFile;
 }
+
+export const gitRemoteCheck: CheckDescriptor = {
+  id: "git.remote",
+  label: "git remote reachable",
+  roles: ["operator"],
+  run: checkGitRemote,
+};
 
 export async function checkGitRemote(
   opts: GitVerifyOptions,

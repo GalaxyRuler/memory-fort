@@ -1,5 +1,5 @@
 import { runSearch as runRetrievalSearch, type SearchResponse } from "../../../retrieval/search.js";
-import { fail, pass, type VerifyCheckContext, type VerifyCheckResult } from "./types.js";
+import { fail, pass, type CheckDescriptor, type VerifyCheckContext, type VerifyCheckResult } from "./types.js";
 
 type SearchFn = () => Promise<Pick<SearchResponse, "query" | "results"> & {
   timings?: { totalMs?: number };
@@ -8,6 +8,13 @@ type SearchFn = () => Promise<Pick<SearchResponse, "query" | "results"> & {
 export interface SearchVerifyOptions extends VerifyCheckContext {
   searchFn?: SearchFn;
 }
+
+export const searchPipelineCheck: CheckDescriptor = {
+  id: "search.pipeline",
+  label: "search pipeline",
+  roles: ["operator", "server"],
+  run: checkSearch,
+};
 
 export async function checkSearch(
   opts: SearchVerifyOptions,
