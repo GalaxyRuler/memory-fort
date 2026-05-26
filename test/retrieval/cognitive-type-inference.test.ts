@@ -72,12 +72,87 @@ describe("cognitive type inference", () => {
     expect(result.documents[0]?.cognitiveType).toBe("semantic");
   });
 
-  it("infers episodic for agent raw observations", async () => {
-    await writeMarkdown(tmp, "raw/2026-05-24/codex-session.md", "# Session\n\nObservation.\n");
+  it("infers episodic for recent raw observations", async () => {
+    await writeMarkdown(
+      tmp,
+      "raw/2026-05-24/codex-session.md",
+      page({
+        type: "raw-session",
+        created: new Date().toISOString().slice(0, 10),
+      }),
+    );
 
     const result = await loadSearchCorpus({ vaultRoot: tmp, scope: "raw" });
 
     expect(result.documents[0]?.cognitiveType).toBe("episodic");
+  });
+
+  it("settles stale raw observations into semantic memory", async () => {
+    await writeMarkdown(
+      tmp,
+      "raw/2026-01-01/codex-session.md",
+      page({
+        type: "raw-session",
+        created: "2026-01-01",
+        cognitive_type: "episodic",
+      }),
+    );
+
+    const result = await loadSearchCorpus({ vaultRoot: tmp, scope: "raw" });
+
+    expect(result.documents[0]?.cognitiveType).toBe("semantic");
+  });
+
+  it("does not treat wiki/raw imports as episodic based on path alone", async () => {
+    await writeMarkdown(
+      tmp,
+      "wiki/raw/imported.md",
+      page({
+        type: "raw-session",
+        source: "codex",
+        created: new Date().toISOString().slice(0, 10),
+      }),
+    );
+
+    const result = await loadSearchCorpus({ vaultRoot: tmp, scope: "wiki" });
+
+    expect(result.documents[0]?.cognitiveType).toBe("semantic");
+  });
+
+  it("infers semantic for agentmemory semantic and summary imports", async () => {
+    await writeMarkdown(
+      tmp,
+      "raw/2026-05-24/agentmemory-semantic.md",
+      page({
+        type: "raw-session",
+        source: "codex",
+        created: new Date().toISOString().slice(0, 10),
+        imported_from: {
+          system: "agentmemory",
+          original_key: "mem:semantic:fact-1",
+        },
+      }),
+    );
+    await writeMarkdown(
+      tmp,
+      "raw/2026-05-24/agentmemory-summary.md",
+      page({
+        type: "raw-session",
+        source: "claude-code",
+        created: new Date().toISOString().slice(0, 10),
+        imported_from: {
+          system: "agentmemory",
+          original_key: "mem:summaries:session-1",
+        },
+      }),
+    );
+
+    const result = await loadSearchCorpus({ vaultRoot: tmp, scope: "raw" });
+
+    expect(Object.fromEntries(result.documents.map((document) => [document.relPath, document.cognitiveType]))).toEqual({
+      "raw/2026-05-24/agentmemory-semantic.md": "semantic",
+      "raw/2026-05-24/agentmemory-summary.md": "semantic",
+    });
   });
 
   it("infers procedural for tools and lessons", async () => {
@@ -111,7 +186,26 @@ describe("cognitive type inference", () => {
     expect(result.documents.find((document) => document.relPath === "wiki/projects/core.md")?.cognitiveType).toBe("core");
   });
 
-  it("infers episodic for active decisions created within the last fourteen days", async () => {
+  it("infers core for agentmemory slot imports", async () => {
+    await writeMarkdown(
+      tmp,
+      "wiki/references/slot.md",
+      page({
+        type: "references",
+        title: "Slot",
+        imported_from: {
+          system: "agentmemory",
+          original_key: "mem:slots:project-state",
+        },
+      }),
+    );
+
+    const result = await loadSearchCorpus({ vaultRoot: tmp, scope: "wiki" });
+
+    expect(result.documents[0]?.cognitiveType).toBe("core");
+  });
+
+  it("infers semantic for decisions when no stronger rule matches", async () => {
     await writeMarkdown(
       tmp,
       "wiki/decisions/recent.md",
@@ -125,7 +219,7 @@ describe("cognitive type inference", () => {
 
     const result = await loadSearchCorpus({ vaultRoot: tmp, scope: "wiki" });
 
-    expect(result.documents[0]?.cognitiveType).toBe("episodic");
+    expect(result.documents[0]?.cognitiveType).toBe("semantic");
   });
 
   it("defaults to semantic when no branch matches", async () => {

@@ -32,6 +32,10 @@ export interface SearchDocument {
   toolCallsSummary?: string[];
   topicTags?: string[];
   rawFrontmatter?: Record<string, unknown> | null;
+  importedFrom: {
+    system: string | null;
+    originalKey: string | null;
+  } | null;
   body: string;
   snippetSource: string;
   created: string | null;
@@ -203,6 +207,7 @@ async function loadDocument(file: MarkdownFile): Promise<SearchDocument> {
     toolCallsSummary: canonical?.toolCallsSummary ?? [],
     topicTags: canonical?.topicTags ?? [],
     rawFrontmatter: canonical?.rawFrontmatter ?? null,
+    importedFrom: readImportedFrom(frontmatter.imported_from),
     body: canonical?.body ?? parsed.body,
     snippetSource: firstNonEmptyLine(parsed.body),
     created: readDate(frontmatter.created),
@@ -218,31 +223,63 @@ function applyCognitiveTypeInference(documents: SearchDocument[]): void {
 
   const graph = buildGraph(documents);
   for (const document of documents) {
-    document.cognitiveType =
-      document.explicitCognitiveType ??
-      inferCognitiveType(document, graph.nodes.get(document.relPath)?.inbound.length ?? 0);
+    const inferred = inferCognitiveType(
+      document,
+      graph.nodes.get(document.relPath)?.inbound.length ?? 0,
+    );
+    document.cognitiveType = shouldHonorExplicitCognitiveType(document)
+      ? document.explicitCognitiveType!
+      : inferred;
   }
 }
 
+function shouldHonorExplicitCognitiveType(document: SearchDocument): boolean {
+  if (!document.explicitCognitiveType) return false;
+  if (document.kind === "raw") return false;
+  const key = document.importedFrom?.originalKey ?? "";
+  if (
+    document.importedFrom?.system === "agentmemory" &&
+    (key.startsWith("mem:slots:") ||
+      key.startsWith("mem:semantic:") ||
+      key.startsWith("mem:summaries:"))
+  ) {
+    return false;
+  }
+  return true;
+}
+
 export function inferCognitiveType(
-  document: Pick<SearchDocument, "relPath" | "kind" | "type" | "status" | "source" | "created">,
+  document: Pick<SearchDocument, "relPath" | "kind" | "type" | "status" | "source" | "created" | "importedFrom">,
   inboundCount = 0,
   now = new Date(),
 ): CognitiveType {
   const category = categoryForDocument(document);
+  const imported = document.importedFrom;
+  const originalKey = imported?.originalKey ?? "";
+  if (
+    imported?.system === "agentmemory" &&
+    originalKey.startsWith("mem:slots:")
+  ) {
+    return "core";
+  }
   if (document.source === "crystal" || category === "crystals") return "semantic";
 
   if (
-    (document.source === "claude-code" || document.source === "codex" || document.source === "antigravity") &&
-    document.relPath.startsWith("raw/")
+    imported?.system === "agentmemory" &&
+    (originalKey.startsWith("mem:semantic:") ||
+      originalKey.startsWith("mem:summaries:"))
   ) {
-    return "episodic";
+    return "semantic";
   }
 
-  if (category === "tools" || category === "lessons") return "procedural";
   if (category === "projects" && document.status === "active" && inboundCount >= 5) return "core";
-  if (category === "decisions" && document.status === "active" && isWithinLastDays(document.created, 14, now)) {
-    return "episodic";
+  if (category === "tools" || category === "lessons") return "procedural";
+  if (category === "references" || category === "decisions" || category === "crystals") {
+    return "semantic";
+  }
+
+  if (document.relPath.startsWith("raw/")) {
+    return isWithinLastDays(document.created, 30, now) ? "episodic" : "semantic";
   }
 
   return "semantic";
@@ -398,6 +435,21 @@ function readRelations(value: unknown): Record<string, string[]> {
     relations[key] = readStringArray(targets);
   }
   return relations;
+}
+
+function readImportedFrom(value: unknown): SearchDocument["importedFrom"] {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return null;
+  }
+  const record = value as Record<string, unknown>;
+  return {
+    system: readStringOrFirst(record["system"]),
+    originalKey: readStringOrFirst(record["original_key"]),
+  };
+}
+
+function readStringOrFirst(value: unknown): string | null {
+  return readString(value) ?? (Array.isArray(value) ? readString(value[0]) : null);
 }
 
 function readSearchSource(value: unknown): SearchSource {
