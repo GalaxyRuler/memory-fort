@@ -1,0 +1,2342 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Memory Fort — Galactic Graph Prototype</title>
+<style>
+  :root {
+    --void: #010003;
+    --void-2: #050211;
+    --hud: rgba(15, 17, 23, 0.92);
+    --hud-border: rgba(255, 255, 255, 0.08);
+    --text: #e8ecf4;
+    --text-dim: #8b949e;
+    --text-muted: #5c6478;
+    --amber: #f59e0b;
+    --cyan: #22d3ee;
+
+    --cog-semantic: #58a6ff;   /* blue   — stable, persistent */
+    --cog-episodic: #f59e0b;   /* amber  — recent, time-bound */
+    --cog-procedural: #3fb950; /* green  — rules, workflows  */
+    --cog-core: #f0f6fc;       /* white  — pinned, permanent */
+
+    --cat-projects:   #3fb950;
+    --cat-decisions:  #f85149;
+    --cat-lessons:    #a371f7;
+    --cat-references: #58a6ff;
+    --cat-tools:      #d29922;
+    --cat-crystals:   #22d3ee;
+  }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--void);
+    color: var(--text);
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    overflow: hidden;
+    height: 100%;
+    width: 100%;
+  }
+
+  canvas {
+    display: block;
+    position: absolute;
+    inset: 0;
+    cursor: grab;
+  }
+  canvas.dragging { cursor: grabbing; }
+
+  /* ─── HUD overlay ─────────────────────────────────────────── */
+  .hud {
+    position: absolute;
+    pointer-events: auto;
+    background: var(--hud);
+    backdrop-filter: blur(16px) saturate(1.2);
+    border: 1px solid var(--hud-border);
+    border-radius: 10px;
+    padding: 14px 16px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+    box-sizing: border-box;
+    z-index: 10;
+  }
+
+  .hud .bracket-tl,
+  .hud .bracket-br {
+    position: absolute;
+    width: 14px;
+    height: 14px;
+    border-color: rgba(245, 158, 11, 0.4);
+    border-style: solid;
+    pointer-events: none;
+  }
+  .hud .bracket-tl { top: 0; left: 0; border-width: 1px 0 0 1px; }
+  .hud .bracket-br { bottom: 0; right: 0; border-width: 0 1px 1px 0; }
+
+  /* Title plate top-left */
+  .hud.brand {
+    top: 16px;
+    left: 16px;
+    min-width: 280px;
+  }
+  .hud.brand .brand-title {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 11px;
+    letter-spacing: 0.25em;
+    color: var(--amber);
+    font-weight: 700;
+    text-transform: uppercase;
+  }
+  .hud.brand .brand-subtitle {
+    font-size: 12px;
+    color: var(--text-dim);
+    margin-top: 4px;
+  }
+
+  /* Zoom indicator + controls top-center */
+  .hud.zoom-indicator {
+    top: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    padding: 8px 14px;
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 11px;
+    color: var(--text-dim);
+  }
+  .hud.zoom-indicator .level {
+    padding: 4px 10px;
+    border-radius: 4px;
+    border: 1px solid var(--hud-border);
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .hud.zoom-indicator .level.active {
+    background: rgba(245, 158, 11, 0.12);
+    border-color: rgba(245, 158, 11, 0.5);
+    color: var(--amber);
+  }
+  .hud.zoom-indicator .level:hover:not(.active) {
+    color: var(--text);
+    border-color: rgba(255, 255, 255, 0.2);
+  }
+
+  /* Legend top-right */
+  .hud.legend {
+    top: 16px;
+    right: 16px;
+    font-size: 11px;
+    min-width: 220px;
+  }
+  .hud.legend h3 {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin: 0 0 8px 0;
+    font-weight: 600;
+  }
+  .hud.legend .legend-section + .legend-section { margin-top: 12px; }
+  .hud.legend .row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 4px 0;
+    color: var(--text);
+    font-size: 12px;
+  }
+  .hud.legend .swatch {
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+    flex-shrink: 0;
+  }
+  .hud.legend .swatch.circ { border-radius: 50%; }
+  .hud.legend .count {
+    margin-left: auto;
+    color: var(--text-muted);
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 10px;
+  }
+
+  /* Inspector bottom-right */
+  .hud.inspector {
+    bottom: 16px;
+    right: 16px;
+    width: 420px;
+    max-height: calc(100vh - 90px);
+    overflow-y: auto;
+    transition: transform 0.3s ease-out, opacity 0.3s;
+    opacity: 0;
+    transform: translateX(20px);
+    padding: 16px 18px;
+  }
+  .hud.inspector.visible {
+    opacity: 1;
+    transform: translateX(0);
+  }
+  .hud.inspector .label {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 9px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 4px;
+  }
+  .hud.inspector .title {
+    font-size: 17px;
+    font-weight: 600;
+    color: var(--text);
+    margin: 0 0 8px 0;
+    line-height: 1.3;
+  }
+  .hud.inspector .meta {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 11px;
+    color: var(--text-dim);
+    margin: 4px 0;
+  }
+  .hud.inspector .pill {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 10px;
+    margin-right: 4px;
+    margin-top: 4px;
+  }
+  .hud.inspector .status-pill {
+    display: inline-block;
+    padding: 1px 7px;
+    border-radius: 3px;
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 9px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    margin-left: 4px;
+    vertical-align: middle;
+  }
+  .hud.inspector .status-active { background: rgba(63, 185, 80, 0.15); color: #3fb950; border: 1px solid rgba(63,185,80,0.4); }
+  .hud.inspector .status-superseded { background: rgba(210, 153, 34, 0.15); color: #d29922; border: 1px solid rgba(210,153,34,0.4); }
+  .hud.inspector .status-draft { background: rgba(248, 81, 73, 0.15); color: #f85149; border: 1px solid rgba(248,81,73,0.4); }
+  .hud.inspector .status-archived { background: rgba(139, 148, 158, 0.15); color: var(--text-dim); border: 1px solid rgba(139,148,158,0.4); }
+
+  .hud.inspector .desc {
+    font-size: 12.5px;
+    line-height: 1.55;
+    color: var(--text);
+    margin-top: 10px;
+    padding-left: 8px;
+    border-left: 2px solid var(--hud-border);
+  }
+
+  .hud.inspector .section-title {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 9px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin: 14px 0 6px 0;
+  }
+  .hud.inspector .section-title .count {
+    color: var(--text-muted);
+    font-weight: 400;
+    margin-left: 4px;
+  }
+
+  .hud.inspector .metagrid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4px 14px;
+    margin-top: 8px;
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 11px;
+  }
+  .hud.inspector .metagrid .k {
+    color: var(--text-muted);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    font-size: 9.5px;
+    line-height: 1.7;
+  }
+  .hud.inspector .metagrid .v {
+    color: var(--text);
+    font-size: 11px;
+    line-height: 1.7;
+  }
+  .hud.inspector .metagrid .v.dim { color: var(--text-dim); }
+
+  .hud.inspector .tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 6px;
+  }
+  .hud.inspector .tag {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 3px;
+    background: rgba(245, 158, 11, 0.08);
+    border: 1px solid rgba(245, 158, 11, 0.2);
+    color: rgba(245, 158, 11, 0.95);
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 9.5px;
+  }
+
+  .hud.inspector .confidence-bar {
+    margin-top: 8px;
+    height: 4px;
+    background: rgba(255, 255, 255, 0.06);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .hud.inspector .confidence-bar > div {
+    height: 100%;
+    background: linear-gradient(90deg, var(--cog-procedural), var(--amber));
+    border-radius: 2px;
+    transition: width 0.4s ease-out;
+  }
+
+  .hud.inspector .relation-row {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 11px;
+    color: var(--text-dim);
+    margin: 3px 0;
+    cursor: pointer;
+    padding: 2px 4px;
+    border-radius: 3px;
+    transition: background 0.1s, color 0.1s;
+  }
+  .hud.inspector .relation-row:hover {
+    color: var(--cyan);
+    background: rgba(34, 211, 238, 0.08);
+  }
+  .hud.inspector .relation-row .dir {
+    display: inline-block;
+    width: 18px;
+    color: var(--text-muted);
+  }
+
+  .hud.inspector .physics {
+    margin-top: 14px;
+    padding-top: 10px;
+    border-top: 1px solid var(--hud-border);
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 10px;
+    color: var(--text-muted);
+    line-height: 1.6;
+  }
+
+  /* Help bar bottom-left */
+  .hud.help {
+    bottom: 16px;
+    left: 16px;
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 10px;
+    color: var(--text-muted);
+    padding: 10px 14px;
+  }
+  .hud.help kbd {
+    display: inline-block;
+    padding: 1px 6px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid var(--hud-border);
+    border-radius: 3px;
+    font-family: inherit;
+    font-size: 10px;
+    color: var(--text-dim);
+    margin: 0 2px;
+  }
+
+  /* Tooltip */
+  #tooltip {
+    position: absolute;
+    pointer-events: none;
+    background: rgba(7, 8, 11, 0.95);
+    border: 1px solid var(--hud-border);
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 11px;
+    color: var(--text);
+    white-space: nowrap;
+    opacity: 0;
+    transition: opacity 0.1s;
+    z-index: 100;
+  }
+  #tooltip.visible { opacity: 1; }
+
+  /* Scrollbar (inspector) */
+  .hud::-webkit-scrollbar { width: 6px; }
+  .hud::-webkit-scrollbar-track { background: transparent; }
+  .hud::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
+
+  /* "View memory" button */
+  .view-source-btn {
+    margin-top: 10px;
+    width: 100%;
+    background: rgba(245, 158, 11, 0.10);
+    border: 1px solid rgba(245, 158, 11, 0.35);
+    color: var(--amber);
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .view-source-btn:hover {
+    background: rgba(245, 158, 11, 0.18);
+    border-color: rgba(245, 158, 11, 0.6);
+  }
+
+  /* ─── Memory viewer modal ─────────────────────────────────── */
+  .modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(6px);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+  }
+  .modal-backdrop.visible { display: flex; }
+
+  .modal {
+    width: min(820px, 92vw);
+    max-height: 88vh;
+    display: flex;
+    flex-direction: column;
+    background: #0c0e13;
+    border: 1px solid rgba(245, 158, 11, 0.35);
+    border-radius: 10px;
+    box-shadow: 0 24px 64px rgba(0, 0, 0, 0.65),
+                0 0 32px rgba(245, 158, 11, 0.08);
+    position: relative;
+    overflow: hidden;
+  }
+  .modal::before,
+  .modal::after {
+    content: '';
+    position: absolute;
+    width: 16px;
+    height: 16px;
+    border-color: rgba(245, 158, 11, 0.5);
+    border-style: solid;
+    pointer-events: none;
+  }
+  .modal::before { top: 0; left: 0; border-width: 1px 0 0 1px; }
+  .modal::after { bottom: 0; right: 0; border-width: 0 1px 1px 0; }
+
+  .modal-header {
+    display: flex;
+    align-items: center;
+    padding: 12px 18px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    gap: 12px;
+  }
+  .modal-path {
+    flex: 1;
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 12px;
+    color: var(--text-dim);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .modal-path .path-prefix { color: var(--text-muted); }
+  .modal-path .path-leaf { color: var(--amber); }
+  .modal-close {
+    background: transparent;
+    border: 1px solid var(--hud-border);
+    color: var(--text-dim);
+    width: 28px;
+    height: 28px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 16px;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s;
+  }
+  .modal-close:hover {
+    color: var(--text);
+    border-color: rgba(248, 81, 73, 0.5);
+    background: rgba(248, 81, 73, 0.08);
+  }
+
+  .modal-tabs {
+    display: flex;
+    padding: 0 18px;
+    gap: 4px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    background: rgba(7, 8, 11, 0.4);
+  }
+  .modal-tab {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    padding: 10px 14px;
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: all 0.15s;
+  }
+  .modal-tab:hover { color: var(--text); }
+  .modal-tab.active {
+    color: var(--amber);
+    border-bottom-color: var(--amber);
+  }
+
+  .modal-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 24px 28px 32px;
+  }
+
+  /* Rendered markdown styles */
+  .rendered-view { font-size: 14px; line-height: 1.65; color: var(--text); }
+  .rendered-view h1 {
+    font-size: 22px; font-weight: 700;
+    color: var(--text); margin: 0 0 12px;
+    border-bottom: 1px solid var(--hud-border); padding-bottom: 8px;
+  }
+  .rendered-view h2 {
+    font-size: 17px; font-weight: 600;
+    color: var(--amber); margin: 24px 0 10px;
+  }
+  .rendered-view h3 {
+    font-size: 14px; font-weight: 600;
+    color: var(--text); margin: 18px 0 8px;
+    text-transform: uppercase; letter-spacing: 0.08em;
+  }
+  .rendered-view p { margin: 0 0 12px; }
+  .rendered-view ul, .rendered-view ol { margin: 0 0 12px; padding-left: 24px; }
+  .rendered-view li { margin: 4px 0; }
+  .rendered-view blockquote {
+    border-left: 3px solid var(--amber);
+    padding: 4px 14px;
+    margin: 12px 0;
+    color: var(--text-dim);
+    background: rgba(245, 158, 11, 0.04);
+  }
+  .rendered-view code {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 12.5px;
+    background: rgba(255, 255, 255, 0.06);
+    padding: 1px 6px;
+    border-radius: 3px;
+    color: #ffd07a;
+  }
+  .rendered-view pre {
+    background: rgba(7, 8, 11, 0.7);
+    border: 1px solid var(--hud-border);
+    border-radius: 6px;
+    padding: 12px 14px;
+    margin: 12px 0;
+    overflow-x: auto;
+  }
+  .rendered-view pre code {
+    background: transparent;
+    padding: 0;
+    font-size: 12px;
+    color: var(--text);
+  }
+  .rendered-view a {
+    color: var(--cyan); text-decoration: none;
+    border-bottom: 1px dashed rgba(34, 211, 238, 0.35);
+  }
+  .rendered-view a:hover { border-bottom-style: solid; }
+  .rendered-view .frontmatter {
+    background: rgba(7, 8, 11, 0.6);
+    border-left: 3px solid var(--cog-procedural);
+    padding: 10px 14px;
+    margin: 0 0 18px;
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 11.5px;
+    color: var(--text-dim);
+    border-radius: 0 4px 4px 0;
+  }
+  .rendered-view .frontmatter .fm-key { color: var(--cog-procedural); }
+  .rendered-view .wikilink {
+    color: var(--cyan);
+    background: rgba(34, 211, 238, 0.06);
+    padding: 1px 6px;
+    border-radius: 3px;
+    cursor: pointer;
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 12.5px;
+  }
+  .rendered-view .wikilink:hover { background: rgba(34, 211, 238, 0.16); }
+
+  /* Source view (raw markdown) */
+  .source-view {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 12.5px;
+    line-height: 1.55;
+    color: var(--text);
+    white-space: pre-wrap;
+    margin: 0;
+    background: transparent;
+    border: none;
+    padding: 0;
+  }
+  .source-view .yaml-marker { color: var(--cog-procedural); }
+  .source-view .yaml-key { color: var(--amber); }
+  .source-view .heading { color: var(--text); font-weight: 700; }
+  .source-view .wikilink-src { color: var(--cyan); }
+  .source-view .comment { color: var(--text-muted); }
+
+  .modal-content::-webkit-scrollbar { width: 8px; }
+  .modal-content::-webkit-scrollbar-track { background: transparent; }
+  .modal-content::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 4px; }
+</style>
+</head>
+<body>
+
+<canvas id="cosmos"></canvas>
+
+<div class="hud brand">
+  <span class="bracket-tl"></span>
+  <span class="bracket-br"></span>
+  <div class="brand-title">Memory Fort · Galactic Prototype</div>
+  <div class="brand-subtitle">Cognitive galaxies × Domain solar systems × Memory planets</div>
+</div>
+
+<div class="hud zoom-indicator">
+  <span class="level" data-level="0">GALACTIC</span>
+  <span class="level active" data-level="1">SOLAR SYSTEM</span>
+  <span class="level" data-level="2">PLANETARY</span>
+</div>
+
+<div class="hud legend">
+  <span class="bracket-tl"></span>
+  <span class="bracket-br"></span>
+
+  <div class="legend-section">
+    <h3>Cognitive type · galaxies</h3>
+    <div class="row"><span class="swatch circ" style="background:var(--cog-semantic)"></span> Semantic <span class="count">facts · stable</span></div>
+    <div class="row"><span class="swatch circ" style="background:var(--cog-episodic)"></span> Episodic <span class="count">events · recent</span></div>
+    <div class="row"><span class="swatch circ" style="background:var(--cog-procedural)"></span> Procedural <span class="count">rules · workflows</span></div>
+    <div class="row"><span class="swatch circ" style="background:var(--cog-core)"></span> Core <span class="count">pinned · permanent</span></div>
+  </div>
+
+  <div class="legend-section">
+    <h3>Physics · data-driven</h3>
+    <div class="row"><span style="color:var(--amber)">●</span> orbit pull <span class="count">inbound count</span></div>
+    <div class="row"><span style="color:var(--amber)">●</span> planet size <span class="count">inbound count</span></div>
+    <div class="row"><span style="color:var(--amber)">●</span> glow halo <span class="count">confidence</span></div>
+    <div class="row"><span style="color:var(--amber)">●</span> edge warp <span class="count">relation weight</span></div>
+  </div>
+
+  <div class="legend-section">
+    <h3>Domain · planet shapes</h3>
+    <div class="row"><span class="swatch" style="background:var(--cat-projects)"></span> Projects <span class="count">mini systems</span></div>
+    <div class="row"><span class="swatch" style="background:var(--cat-decisions)"></span> Decisions <span class="count">banded rocky</span></div>
+    <div class="row"><span class="swatch" style="background:var(--cat-lessons)"></span> Lessons <span class="count">binary moons</span></div>
+    <div class="row"><span class="swatch" style="background:var(--cat-references)"></span> References <span class="count">gas giants</span></div>
+    <div class="row"><span class="swatch" style="background:var(--cat-tools)"></span> Tools <span class="count">metallic rings</span></div>
+    <div class="row"><span class="swatch" style="background:var(--cat-crystals)"></span> Crystals <span class="count">faceted gems</span></div>
+  </div>
+</div>
+
+<div class="hud inspector" id="inspector">
+  <span class="bracket-tl"></span>
+  <span class="bracket-br"></span>
+
+  <!-- Header -->
+  <div class="label" id="ins-category">CATEGORY</div>
+  <h2 class="title">
+    <span id="ins-title">Selected planet</span>
+    <span class="status-pill" id="ins-status"></span>
+  </h2>
+  <div id="ins-pills" style="margin-bottom:6px"></div>
+
+  <!-- Confidence -->
+  <div class="confidence-bar"><div id="ins-conf-fill" style="width:0%"></div></div>
+  <div class="meta" style="margin-top:4px" id="ins-conf-label">confidence —</div>
+
+  <!-- Description -->
+  <div class="desc" id="ins-desc">—</div>
+
+  <!-- Metadata grid -->
+  <div class="section-title">Metadata</div>
+  <div class="metagrid">
+    <span class="k">Source</span><span class="v" id="ins-source">—</span>
+    <span class="k">Created</span><span class="v" id="ins-created">—</span>
+    <span class="k">Updated</span><span class="v" id="ins-updated">—</span>
+    <span class="k">Inbound</span><span class="v" id="ins-inbound">—</span>
+    <span class="k">Outbound</span><span class="v" id="ins-outbound">—</span>
+    <span class="k">ID</span><span class="v dim" id="ins-id">—</span>
+  </div>
+
+  <!-- Tags -->
+  <div class="section-title">Tags</div>
+  <div class="tags" id="ins-tags"></div>
+
+  <!-- Relations split: outbound (this → others) and inbound (others → this) -->
+  <div class="section-title" id="ins-out-title">References →</div>
+  <div id="ins-out-relations"></div>
+  <div class="section-title" id="ins-in-title">← Referenced by</div>
+  <div id="ins-in-relations"></div>
+
+  <!-- Physics readout -->
+  <div class="physics" id="ins-physics">physics —</div>
+
+  <!-- View memory action -->
+  <button class="view-source-btn" id="view-source-btn">▸ Open Memory</button>
+</div>
+
+<!-- Memory viewer modal -->
+<div class="modal-backdrop" id="modal-backdrop">
+  <div class="modal" id="memory-modal" role="dialog" aria-modal="true" aria-labelledby="modal-path">
+    <div class="modal-header">
+      <span class="modal-path" id="modal-path">—</span>
+      <button class="modal-close" id="modal-close" aria-label="Close">×</button>
+    </div>
+    <div class="modal-tabs">
+      <button class="modal-tab active" data-view="rendered">Rendered</button>
+      <button class="modal-tab" data-view="source">Source</button>
+    </div>
+    <div class="modal-content">
+      <div class="rendered-view" id="modal-rendered"></div>
+      <pre class="source-view" id="modal-source" style="display:none"></pre>
+    </div>
+  </div>
+</div>
+
+<div class="hud help">
+  <kbd>scroll</kbd> zoom · <kbd>drag</kbd> pan · <kbd>click</kbd> select · <kbd>esc</kbd> reset · <kbd>1/2/3</kbd> level
+</div>
+
+<div id="tooltip"></div>
+
+<!-- Hand-written memory bodies (raw markdown loaded by HAND_BODIES) -->
+<script type="text/markdown" id="body-mf">
+# Memory Fort
+
+Personal agentic memory system. Replaces `agentmemory` as the canonical
+memory layer for **Claude Code**, **Codex**, and **Antigravity**.
+
+## Architecture
+
+The system is a wiki of markdown pages plus a sidecar JSONL embeddings store.
+Search fuses five signals via Reciprocal Rank Fusion:
+
+- BM25 lexical matching
+- Vector similarity (Voyage embeddings)
+- Exact title/tag matches
+- Graph traversal (BFS + spreading activation)
+- Metadata scoring (`status × confidence × recency`)
+
+## Cognitive taxonomy
+
+Two axes drive everything:
+
+1. **Cognitive type** (`core | semantic | episodic | procedural`) —
+   governs retrieval behavior, decay, consolidation
+2. **Domain category** (`projects | decisions | lessons | references |
+   tools | crystals`) — governs display and grouping
+
+See [[cr3]] for the full justification.
+
+## Status
+
+V0.4.0-dev. Deployed at `https://srv1317946.tail6916d8.ts.net/memory/`
+(Tailscale-only). The six SOTA-gap features landed in commits `296eb32`
+through `4dfacfd`.
+</script>
+
+<script type="text/markdown" id="body-voy">
+# Voyage AI for embeddings
+
+## Decision
+
+We will use **Voyage AI** as the primary embedding provider for the sidecar
+JSONL store.
+
+## Rationale
+
+| Criterion | Voyage | OpenAI | Local (Xenova) |
+|-----------|--------|--------|----------------|
+| Quality (MTEB) | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐ |
+| Cost per 1M tokens | $0.12 | $0.13 | free |
+| Locality | API | API | local |
+| Throughput | 1K/s | 800/s | 50/s |
+
+Voyage wins on quality with comparable cost. Locality is acceptable for the
+Tailscale-only deployment.
+
+## Operational notes
+
+- API key in `/root/memory-system/env/voyage.env` (systemd EnvironmentFile)
+- Never in source, never in repo
+- Embeddings cached in `.memory/embeddings.jsonl`
+- Regeneratable from source markdown if the cache is lost
+
+## Related
+
+- [[sid]] Sidecar JSONL embeddings (substrate)
+- [[rrf]] RRF fusion at k=60 (consumer)
+</script>
+
+<script type="text/markdown" id="body-sid">
+# Sidecar JSONL embeddings
+
+## Decision
+
+Store embeddings in a sidecar **JSONL file** rather than introducing a vector
+database.
+
+## Why no vector DB
+
+For a corpus of under 10k documents:
+
+- BM25 + linear scan of embeddings is fast enough (<50ms total)
+- JSONL is human-readable, git-friendly, easy to back up
+- No additional service to operate
+- Embeddings can be regenerated cheaply if corrupted
+
+See [[cr1]] for the distilled crystal version of this decision.
+
+## Schema
+
+```jsonl
+{"path": "wiki/decisions/...", "vector": [...], "model": "voyage-large-2"}
+{"path": "wiki/lessons/...",  "vector": [...], "model": "voyage-large-2"}
+```
+
+One line per page. Vector dimension matches the active model.
+
+## Related
+
+- [[voy]] Voyage AI for embeddings (provider)
+- [[krp]] Karpathy LLM wiki pattern (origin)
+- [[cr1]] When to skip a vector DB (crystallized insight)
+</script>
+
+<script type="text/markdown" id="body-cr3">
+# Two-axis memory taxonomy
+
+> Cognitive type and domain category are **orthogonal**. Confusing them
+> collapses both. Keeping them separate gives you 4×6 = 24 expressive slots
+> without combinatorial explosion.
+
+## The axes
+
+**Axis 1 — Cognitive type** (drives physics, retrieval, decay):
+
+- `semantic` — facts, knowledge, persistent
+- `episodic` — events, sessions, time-bound
+- `procedural` — rules, workflows, "how we do it"
+- `core` — pinned, permanent, always-loaded
+
+**Axis 2 — Domain category** (drives display, grouping, visual identity):
+
+- `projects`, `decisions`, `lessons`, `references`, `tools`, `crystals`
+
+## Why it matters
+
+- A *decision* about Postgres is **episodic** at first (we made it Tuesday),
+  becomes **semantic** once it is settled (it is just a fact now).
+- A *crystal* is **semantic** by definition — it is a consolidated insight.
+- A *tool* page is **procedural** — it encodes how to use something.
+
+The dual classification lets retrieval rank by cognitive behavior while
+display groups by domain. You see this at runtime in the galactic graph:
+cognitive type = which galaxy, domain = planet shape.
+
+## Sources
+
+- [[col]] CoALA 4-type framework
+- [[mir]] MIRIX 6-component breakdown
+- [[me0]] Mem0 production 3-type
+</script>
+
+<script type="text/markdown" id="body-gfx">
+# Graph canvas resize fix
+
+## Problem
+
+The dashboard graph page was showing a **completely black canvas** even though
+the API was returning 12 nodes and 27 edges. The telemetry bar at the bottom
+confirmed data was loaded.
+
+## Root cause
+
+`react-force-graph-3d` uses a `react-kapsule` bridge that propagates React
+prop changes to the underlying `three-render-objects` instance. The
+underlying library already handles `width` and `height` prop changes in
+its `update` method, calling `renderer.setSize` and updating the camera
+aspect ratio.
+
+Our code was **doubly** resizing — first via the library's prop bridge, then
+via an imperative `applySize()` callback we wrote ourselves. The second
+call conflicted with the library's internal state tracking and left the
+renderer at the wrong size on initial mount.
+
+## Fix
+
+Remove all imperative resize code. Trust the library. Pass `width` and
+`height` props and let the kapsule handle the rest. Also fix the initial
+`{width: 800, height: 600}` state to use `window.innerWidth` /
+`window.innerHeight - 48` so the very first render is close to correct.
+
+See [[cr2]] for the crystallized version of this footgun.
+
+## Commits
+
+- `62861c2` — first attempt (still failed on user browser)
+- `e81be52` — second attempt (still failed)
+- `a3cbd11` — final fix (this one — trust the library)
+</script>
+
+<script>
+// ─────────────────────────────────────────────────────────────
+// Memory Fort — Galactic Graph Prototype
+//
+// Two-axis taxonomy:
+//   • Cognitive type (4)  → galaxy assignment + orbital physics
+//   • Domain category (6) → planet rendering shape
+//
+// Three zoom levels:
+//   0 — Galactic        (4 cognitive galaxies + accretion disks)
+//   1 — Solar System    (domain clusters within active galaxy)
+//   2 — Planetary       (individual memory planets with shapes)
+// ─────────────────────────────────────────────────────────────
+
+const COG = {
+  semantic:   { color: '#58a6ff', label: 'Semantic',   speed: 0.00030 },
+  episodic:   { color: '#f59e0b', label: 'Episodic',   speed: 0.00075 },
+  procedural: { color: '#3fb950', label: 'Procedural', speed: 0.00050 },
+  core:       { color: '#f0f6fc', label: 'Core',       speed: 0.00015 },
+};
+
+const CAT = {
+  projects:   { color: '#3fb950', label: 'Projects'   },
+  decisions:  { color: '#f85149', label: 'Decisions'  },
+  lessons:    { color: '#a371f7', label: 'Lessons'    },
+  references: { color: '#58a6ff', label: 'References' },
+  tools:      { color: '#d29922', label: 'Tools'      },
+  crystals:   { color: '#22d3ee', label: 'Crystals'   },
+};
+
+// ─── Mock data (realistic-looking Memory Fort entries) ────────
+// In production, this would be replaced by /memory/api/graph
+const memories = [
+  // CORE — pinned, permanent
+  { id: 'mf',  title: 'Memory Fort',                          cog: 'core',       cat: 'projects',  conf: 0.95, inbound: 18, outbound: 12, status: 'active',
+    source: 'manual', created: '2026-04-12', updated: '2026-05-26',
+    tags: ['project', 'memory', 'agentic', 'flagship'],
+    desc: 'Personal agentic memory system. Wiki + raw observations + graph retrieval with RRF fusion. Replaces agentmemory as canonical layer for all AI agents.' },
+  { id: 'ls',  title: 'Lisan Studio',                         cog: 'core',       cat: 'projects',  conf: 0.92, inbound: 12, outbound: 8, status: 'active',
+    source: 'manual', created: '2026-03-04', updated: '2026-05-24',
+    tags: ['project', 'qt', 'cpp', 'ide', 'arabic'],
+    desc: 'Native Qt6/C++17 Arabic-first IDE. V1.3-beta shipped 2026-05-24. Multi-cursor keystone, LSP, debugger roadmap to V2.' },
+  { id: 'iaq', title: 'iAqar',                                cog: 'core',       cat: 'projects',  conf: 0.88, inbound: 9,  outbound: 6, status: 'active',
+    source: 'manual', created: '2026-02-18', updated: '2026-05-20',
+    tags: ['project', 'real-estate', 'riyadh', 'fastify', 'react'],
+    desc: 'Riyadh real-estate investment analyzer. pnpm monorepo Vite+React19 + Fastify+Prisma. Codex implements.' },
+  { id: 'vt',  title: 'VeriTrace',                            cog: 'core',       cat: 'projects',  conf: 0.85, inbound: 7,  outbound: 5, status: 'active',
+    source: 'manual', created: '2026-02-05', updated: '2026-05-18',
+    tags: ['project', 'kicad', 'eda', 'design-agent'],
+    desc: 'KiCad design-agent web UI. Phases 0–4 shipped, Phase 5 in review (2026-05-18). Codex implements.' },
+  { id: 'ag',  title: 'Antigravity workspace',                cog: 'core',       cat: 'tools',     conf: 0.80, inbound: 6,  outbound: 9, status: 'active',
+    source: 'manual', created: '2026-03-20', updated: '2026-05-25',
+    tags: ['tool', 'gemini', 'agent', 'workspace'],
+    desc: 'Gemini-powered agentic workspace for prototyping. No hooks surface; manual context loading. Source of galactic-gravities preset reference.' },
+
+  // SEMANTIC — facts, references, knowledge
+  { id: 'voy', title: 'Voyage AI for embeddings',             cog: 'semantic',   cat: 'decisions', conf: 0.91, inbound: 8, outbound: 3, status: 'active',
+    source: 'claude-code', created: '2026-05-20', updated: '2026-05-20',
+    tags: ['decision', 'embeddings', 'voyage', 'retrieval'],
+    desc: 'Selected Voyage AI as embedding provider for sidecar JSONL store. Trade-offs: cost, locality, throughput documented in linked references.' },
+  { id: 'sid', title: 'Sidecar JSONL embeddings',             cog: 'semantic',   cat: 'decisions', conf: 0.94, inbound: 7, outbound: 4, status: 'active',
+    source: 'claude-code', created: '2026-05-20', updated: '2026-05-20',
+    tags: ['decision', 'embeddings', 'sidecar', 'jsonl', 'no-vector-db'],
+    desc: 'Use sidecar JSONL files for embeddings rather than a vector database. Lower complexity, debuggable, regenerable from source.' },
+  { id: 'rrf', title: 'RRF fusion at k=60',                   cog: 'semantic',   cat: 'decisions', conf: 0.90, inbound: 5, outbound: 2, status: 'active',
+    source: 'claude-code', created: '2026-05-21', updated: '2026-05-21',
+    tags: ['decision', 'retrieval', 'rrf', 'fusion'],
+    desc: 'Adopt Reciprocal Rank Fusion with k=60 for combining BM25, vector, exact, graph, and metadata streams. Default per Cormack et al.' },
+  { id: 'krp', title: 'Karpathy LLM wiki pattern',            cog: 'semantic',   cat: 'references',conf: 0.78, inbound: 9, outbound: 1, status: 'active',
+    source: 'manual',      created: '2026-04-30', updated: '2026-04-30',
+    tags: ['reference', 'wiki', 'karpathy', 'pattern'],
+    desc: 'Original wiki-as-memory pattern from Karpathy. Markdown pages with relations form the substrate for agent recall. Foundational reference.' },
+  { id: 'col', title: 'CoALA 4-type memory framework',        cog: 'semantic',   cat: 'references',conf: 0.86, inbound: 4, outbound: 0, status: 'active',
+    source: 'manual',      created: '2026-05-15', updated: '2026-05-15',
+    tags: ['reference', 'cognitive', 'memory', 'princeton'],
+    desc: 'Cognitive Architecture for Language Agents. Defines Working, Episodic, Semantic, Procedural memory. The canonical 4-type taxonomy.' },
+  { id: 'mir', title: 'MIRIX 6-component memory',             cog: 'semantic',   cat: 'references',conf: 0.83, inbound: 3, outbound: 0, status: 'active',
+    source: 'manual',      created: '2026-05-15', updated: '2026-05-15',
+    tags: ['reference', 'mirix', 'memory', '6-component'],
+    desc: 'Multi-Agent Memory System (Wang & Chen 2025). Six components: Core, Episodic, Semantic, Procedural, Resource, Knowledge Vault.' },
+  { id: 'me0', title: 'Mem0 3-type production',               cog: 'semantic',   cat: 'references',conf: 0.81, inbound: 3, outbound: 0, status: 'active',
+    source: 'manual',      created: '2026-05-15', updated: '2026-05-15',
+    tags: ['reference', 'mem0', 'production', 'memory'],
+    desc: 'Mem0 production stance: drop Working as live context, use only Episodic + Semantic + Procedural as persistent memory tiers.' },
+  { id: 'gal', title: 'Galactic gravities preset',            cog: 'semantic',   cat: 'references',conf: 0.74, inbound: 2, outbound: 0, status: 'active',
+    source: 'antigravity', created: '2026-05-25', updated: '2026-05-25',
+    tags: ['reference', 'visualization', 'antigravity', 'preset'],
+    desc: 'Antigravity prototype preset: nodes orbit a Sagittarius A* anchor, edges gravitationally lens toward the central black hole.' },
+
+  // EPISODIC — events, sessions
+  { id: 'gfx', title: 'Graph canvas resize fix',              cog: 'episodic',   cat: 'decisions', conf: 0.88, inbound: 4, outbound: 2, status: 'active',
+    source: 'claude-code', created: '2026-05-25', updated: '2026-05-25',
+    tags: ['fix', 'graph', 'three-js', 'react-force-graph-3d'],
+    desc: 'Diagnosed and fixed black-canvas bug in dashboard graph. Root cause: imperative renderer.setSize conflicted with react-kapsule prop bridge.' },
+  { id: 'rs1', title: 'Session: dashboard click-through',     cog: 'episodic',   cat: 'lessons',   conf: 0.72, inbound: 3, outbound: 1, status: 'active',
+    source: 'claude-code', created: '2026-05-24', updated: '2026-05-24',
+    tags: ['session', 'qa', 'dashboard'],
+    desc: 'Comprehensive click-through testing of all 14 dashboard routes. All pass except graph (black canvas) — later resolved in gfx.' },
+  { id: 'rs2', title: 'Session: galactic visual scoping',     cog: 'episodic',   cat: 'lessons',   conf: 0.68, inbound: 2, outbound: 2, status: 'active',
+    source: 'claude-code', created: '2026-05-26', updated: '2026-05-26',
+    tags: ['session', 'design', 'galactic', 'prototype'],
+    desc: 'Scoped the galactic graph aesthetic. Two-axis taxonomy chosen (cognitive × domain). Built standalone canvas prototype.' },
+  { id: 'rs3', title: 'Session: Codex prompt handoff',        cog: 'episodic',   cat: 'lessons',   conf: 0.75, inbound: 4, outbound: 1, status: 'active',
+    source: 'claude-code', created: '2026-05-26', updated: '2026-05-26',
+    tags: ['session', 'codex', 'handoff', 'implementation'],
+    desc: 'Wrote a six-task implementation brief for Codex covering rebrand, confidence injection, contradiction propagation, canonicalization, spreading activation, pruning.' },
+  { id: 'br1', title: 'Memory Fort rename decision',          cog: 'episodic',   cat: 'decisions', conf: 0.92, inbound: 5, outbound: 1, status: 'active',
+    source: 'claude-code', created: '2026-05-26', updated: '2026-05-26',
+    tags: ['decision', 'branding', 'rename'],
+    desc: 'App renamed from "memory" to "Memory Fort" — implies fortified persistence. Dashboard sidebar, browser tab, README updated.' },
+  { id: 'br2', title: 'Mission-control rollback',             cog: 'episodic',   cat: 'decisions', conf: 0.85, inbound: 2, outbound: 1, status: 'superseded',
+    source: 'claude-code', created: '2026-05-26', updated: '2026-05-26',
+    tags: ['decision', 'rollback', 'aesthetic'],
+    desc: 'Built a TUI mission-control alternative at /mc. User disliked the aesthetic; rolled back. Kept the existing Antigravity-style dashboard.' },
+  { id: 'cm1', title: 'Architectural comparison reviewed',    cog: 'episodic',   cat: 'lessons',   conf: 0.80, inbound: 3, outbound: 2, status: 'active',
+    source: 'antigravity', created: '2026-05-25', updated: '2026-05-25',
+    tags: ['lesson', 'architecture', 'sota', 'gaps'],
+    desc: 'Reviewed Antigravity-authored agentmemory vs SOTA comparison. Identified six gaps; agreed to cherry-pick rather than adopt wholesale.' },
+
+  // PROCEDURAL — rules, workflows, tools
+  { id: 'tg',  title: 'TanStack Router conventions',          cog: 'procedural', cat: 'tools',     conf: 0.85, inbound: 6, outbound: 2, status: 'active',
+    source: 'codex',       created: '2026-04-10', updated: '2026-05-12',
+    tags: ['tool', 'tanstack', 'router', 'file-based'],
+    desc: 'File-based routing under src/dashboard-ui/routes/. Basepath "/memory". Route tree auto-generated by Vite plugin on build.' },
+  { id: 'vt2', title: 'Vitest test patterns',                 cog: 'procedural', cat: 'tools',     conf: 0.88, inbound: 7, outbound: 1, status: 'active',
+    source: 'codex',       created: '2026-04-08', updated: '2026-05-22',
+    tags: ['tool', 'vitest', 'testing', 'patterns'],
+    desc: 'Co-locate component tests under test/dashboard-ui/. Mock hooks via vi.mock. Hoisted mocks for ESM. 595 tests total.' },
+  { id: 'vit', title: 'Vite + React 19 + Tailwind 4 stack',   cog: 'procedural', cat: 'tools',     conf: 0.86, inbound: 5, outbound: 3, status: 'active',
+    source: 'codex',       created: '2026-03-15', updated: '2026-05-20',
+    tags: ['tool', 'vite', 'react', 'tailwind'],
+    desc: 'Frontend stack: Vite 6 + React 19 + TypeScript strict + Tailwind 4. TanStack Router + Query v5 for routing and data.' },
+  { id: 'mcp', title: 'MCP server exposure rules',            cog: 'procedural', cat: 'tools',     conf: 0.79, inbound: 4, outbound: 1, status: 'active',
+    source: 'codex',       created: '2026-04-20', updated: '2026-05-14',
+    tags: ['tool', 'mcp', 'server', 'memory'],
+    desc: 'MCP server name "memory" stays (downstream agents hardcoded). Expose memory_save / memory_recall / memory_smart_search.' },
+  { id: 'gh1', title: 'GitHub commit author convention',      cog: 'procedural', cat: 'lessons',   conf: 0.90, inbound: 8, outbound: 0, status: 'active',
+    source: 'manual',      created: '2026-04-01', updated: '2026-04-01',
+    tags: ['lesson', 'github', 'commit', 'author', 'aoa@live.ca'],
+    desc: 'Always use GalaxyRuler <aoa@live.ca> on commits, never the gmail. Apply to README/LICENSE contacts and PR/issue fields.' },
+  { id: 'gh2', title: 'No OneDrive paths rule',               cog: 'procedural', cat: 'lessons',   conf: 0.95, inbound: 6, outbound: 0, status: 'active',
+    source: 'manual',      created: '2026-04-01', updated: '2026-04-01',
+    tags: ['lesson', 'paths', 'onedrive', 'sync'],
+    desc: 'Never route Codex/Claude work into C:/Users/Admin/OneDrive/*. Sync churn breaks builds. Excludes named OneDrive projects.' },
+  { id: 'rl1', title: 'Claude is strategy, Codex implements', cog: 'procedural', cat: 'lessons',   conf: 0.88, inbound: 7, outbound: 1, status: 'active',
+    source: 'manual',      created: '2026-04-15', updated: '2026-05-20',
+    tags: ['lesson', 'role', 'split', 'codex'],
+    desc: 'When an implementer agent (Codex/Antigravity) is in the loop, Claude audits and scopes; never implements directly or runs validation.' },
+  { id: 'cx1', title: 'Codex prompt structure',               cog: 'procedural', cat: 'tools',     conf: 0.87, inbound: 5, outbound: 2, status: 'active',
+    source: 'manual',      created: '2026-04-22', updated: '2026-05-26',
+    tags: ['tool', 'codex', 'prompt', 'handoff'],
+    desc: 'Hand off as self-contained brief: scope guard, file paths, contract per task, tests, verification checklist. No drift allowed.' },
+  { id: 'cf1', title: 'Confidence-aware injection pattern',   cog: 'procedural', cat: 'tools',     conf: 0.72, inbound: 2, outbound: 2, status: 'draft',
+    source: 'codex',       created: '2026-05-26', updated: '2026-05-26',
+    tags: ['tool', 'injection', 'confidence', 'session-start'],
+    desc: 'New session-start hook buckets index entries by confidence. Low-confidence entries prefixed with ⚠ DRAFT. Env-var floor for suppression.' },
+
+  // CRYSTALS — distilled insights
+  { id: 'cr1', title: 'When to skip a vector DB',             cog: 'semantic',   cat: 'crystals',  conf: 0.94, inbound: 6, outbound: 2, status: 'active',
+    source: 'manual',      created: '2026-05-20', updated: '2026-05-20',
+    tags: ['crystal', 'vector-db', 'embeddings', 'sidecar'],
+    desc: 'Vector DBs are over-engineered when your corpus fits in memory and you can rebuild embeddings cheaply. Sidecar JSONL wins for ≤10k docs.' },
+  { id: 'cr2', title: 'ForceGraph3D resize footgun',          cog: 'semantic',   cat: 'crystals',  conf: 0.91, inbound: 3, outbound: 1, status: 'active',
+    source: 'claude-code', created: '2026-05-25', updated: '2026-05-25',
+    tags: ['crystal', 'three-js', 'react-kapsule', 'bug'],
+    desc: 'react-force-graph-3d handles width/height via react-kapsule prop bridge. Manual renderer.setSize conflicts with internal update loop. Pass props, do not reach in.' },
+  { id: 'cr3', title: 'Two-axis memory taxonomy',             cog: 'semantic',   cat: 'crystals',  conf: 0.88, inbound: 4, outbound: 2, status: 'active',
+    source: 'claude-code', created: '2026-05-26', updated: '2026-05-26',
+    tags: ['crystal', 'taxonomy', 'cognitive', 'domain'],
+    desc: 'Cognitive type (4 values) and domain category (6 values) are orthogonal. Cognitive drives retrieval behavior; domain drives display.' },
+  { id: 'cr4', title: 'Spreading activation beats Dijkstra',  cog: 'semantic',   cat: 'crystals',  conf: 0.82, inbound: 2, outbound: 1, status: 'active',
+    source: 'antigravity', created: '2026-05-25', updated: '2026-05-25',
+    tags: ['crystal', 'graph', 'retrieval', 'cognitive'],
+    desc: 'For associative recall, cognitive-spreading-activation with decay + lateral inhibition outperforms Dijkstra shortest-path. Synapse pattern.' },
+];
+
+const links = [
+  ['voy','sid'],['sid','rrf'],['voy','krp'],['sid','krp'],
+  ['col','mir'],['mir','me0'],['col','cr3'],
+  ['gfx','vt2'],['gfx','vit'],['rs1','rs2'],['rs2','rs3'],
+  ['br1','mf'],['br2','mf'],['cm1','col'],['cm1','mir'],
+  ['tg','vit'],['vt2','vit'],['mcp','tg'],['gh1','rl1'],
+  ['gh2','rl1'],['cx1','rl1'],['cf1','sid'],['cf1','voy'],
+  ['mf','sid'],['mf','voy'],['mf','rrf'],['mf','tg'],['mf','vt2'],
+  ['ls','gh1'],['iaq','tg'],['vt','rrf'],['ag','mcp'],
+  ['cr1','sid'],['cr1','krp'],['cr2','gfx'],['cr3','col'],['cr3','mir'],
+  ['cr4','rrf'],['gal','cr3'],
+];
+
+// ─── State ────────────────────────────────────────────────────
+const canvas = document.getElementById('cosmos');
+const ctx = canvas.getContext('2d');
+const tooltip = document.getElementById('tooltip');
+const inspector = document.getElementById('inspector');
+
+let dpr = window.devicePixelRatio || 1;
+let W = 0, H = 0;
+
+const state = {
+  // Camera: world coords pan + zoom multiplier (separate from level)
+  camX: 0,
+  camY: 0,
+  scale: 1,
+  // Logical zoom level: 0 galactic, 1 solar, 2 planetary
+  level: 1,
+  levelTarget: 1,
+  // Smooth transition factor (0..1)
+  levelLerp: 1,
+  // Time
+  t: 0,
+  // Interaction
+  isDragging: false,
+  dragStart: null,
+  hover: null,
+  selected: null,
+  mouseX: 0,
+  mouseY: 0,
+};
+
+// ─── Layout: assign each memory to (galaxy, system, planet) ──
+// Galaxies = cognitive type. Solar systems within a galaxy = domain category.
+// Compute polar positions: galaxies on a big ring, systems on a mid ring inside,
+// planets on a small ring inside their system.
+
+const COG_ORDER = ['core', 'semantic', 'episodic', 'procedural'];
+const CAT_ORDER = ['projects', 'decisions', 'lessons', 'references', 'tools', 'crystals'];
+
+// World coordinate galaxy positions
+const GALAXY_RADIUS = 900;   // distance from world center
+const SYSTEM_RADIUS = 220;   // distance from galaxy center
+const PLANET_RADIUS = 80;    // distance from system center
+
+const galaxies = {};
+COG_ORDER.forEach((cog, i) => {
+  const angle = (i / COG_ORDER.length) * Math.PI * 2 - Math.PI / 2;
+  galaxies[cog] = {
+    id: cog,
+    cx: Math.cos(angle) * GALAXY_RADIUS,
+    cy: Math.sin(angle) * GALAXY_RADIUS,
+    color: COG[cog].color,
+    spinSpeed: COG[cog].speed,
+    systems: {},
+    members: [],   // memory ids
+    sandSwarm: [], // accretion particles
+  };
+  // Initial sand swarm
+  for (let p = 0; p < 220; p++) {
+    galaxies[cog].sandSwarm.push({
+      angle: Math.random() * Math.PI * 2,
+      r: 60 + Math.random() * 280,
+      speed: 0.0009 + Math.random() * 0.0018,
+      size: 0.6 + Math.random() * 1.0,
+      hue: Math.random() < 0.5 ? COG[cog].color : '#ffffff',
+    });
+  }
+});
+
+// Assign each memory to its galaxy and to a system within that galaxy
+memories.forEach((m) => {
+  const galaxy = galaxies[m.cog];
+  galaxy.members.push(m.id);
+  if (!galaxy.systems[m.cat]) {
+    const catIndex = CAT_ORDER.indexOf(m.cat);
+    const sysCount = Object.keys(CAT).length;
+    const sysAngle = (catIndex / sysCount) * Math.PI * 2;
+    galaxy.systems[m.cat] = {
+      id: m.cat,
+      cog: m.cog,
+      angle: sysAngle,
+      cx: galaxy.cx + Math.cos(sysAngle) * SYSTEM_RADIUS,
+      cy: galaxy.cy + Math.sin(sysAngle) * SYSTEM_RADIUS,
+      color: CAT[m.cat].color,
+      members: [],
+    };
+  }
+  const sys = galaxy.systems[m.cat];
+  const idx = sys.members.length;
+  m.system = sys;
+  m.galaxy = galaxy;
+  m.localAngleSeed = Math.random() * Math.PI * 2;
+  // Authority (inbound count) → smaller orbital radius + visible mass
+  // Heavy memories sit closer to system center AND get pulled toward galactic core
+  m.mass = Math.min(1, m.inbound / 16); // 0..1
+  m.localOrbitR = PLANET_RADIUS * (1.05 - m.mass * 0.55 + (idx % 3) * 0.14);
+  m.localSpeed = 0.00035 + Math.random() * 0.00060;
+  m.size = 3 + Math.pow(m.inbound, 0.7) * 2.7;
+  sys.members.push(m);
+});
+
+// Memory lookup by id
+const byId = Object.fromEntries(memories.map(m => [m.id, m]));
+
+// Resolve link endpoints. Edge weight is synthesized from the two endpoints'
+// inbound counts — a connection between two heavily-cited memories is treated
+// as a stronger relation (bends harder, more flow particles, brighter line).
+const edges = links
+  .map(([a, b]) => {
+    const sa = byId[a];
+    const tb = byId[b];
+    if (!sa || !tb) return null;
+    const weight = 0.4 + Math.min(sa.inbound, tb.inbound) / 14;
+    return { source: sa, target: tb, weight };
+  })
+  .filter(Boolean);
+
+// ─── Resize ──────────────────────────────────────────────────
+function resize() {
+  dpr = window.devicePixelRatio || 1;
+  W = window.innerWidth;
+  H = window.innerHeight;
+  canvas.width = W * dpr;
+  canvas.height = H * dpr;
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+window.addEventListener('resize', resize);
+
+// ─── Camera helpers ──────────────────────────────────────────
+function worldToScreen(wx, wy) {
+  return {
+    x: (wx - state.camX) * state.scale + W / 2,
+    y: (wy - state.camY) * state.scale + H / 2,
+  };
+}
+function screenToWorld(sx, sy) {
+  return {
+    x: (sx - W / 2) / state.scale + state.camX,
+    y: (sy - H / 2) / state.scale + state.camY,
+  };
+}
+
+// Tween toward target level
+function setLevel(newLevel) {
+  state.levelTarget = newLevel;
+
+  // Snap camera scale to a target based on level
+  const targetScale = newLevel === 0 ? 0.18 : newLevel === 1 ? 0.55 : 1.4;
+  const targetCam = newLevel === 0
+    ? { x: 0, y: 0 }
+    : state.selected
+      ? { x: state.selected.galaxy.cx, y: state.selected.galaxy.cy }
+      : { x: galaxies.semantic.cx, y: galaxies.semantic.cy };
+
+  animateCamera(targetCam.x, targetCam.y, targetScale);
+  updateLevelIndicator(newLevel);
+}
+
+function updateLevelIndicator(level) {
+  document.querySelectorAll('.zoom-indicator .level').forEach(el => {
+    el.classList.toggle('active', parseInt(el.dataset.level) === level);
+  });
+}
+
+let camAnim = null;
+function animateCamera(tx, ty, ts) {
+  camAnim = {
+    fromX: state.camX, fromY: state.camY, fromS: state.scale,
+    toX: tx, toY: ty, toS: ts,
+    start: performance.now(),
+    dur: 700,
+  };
+}
+
+function easeOutCubic(t) { return 1 - Math.pow(1 - t, 3); }
+
+function updateCamera(now) {
+  if (!camAnim) return;
+  const t = Math.min(1, (now - camAnim.start) / camAnim.dur);
+  const e = easeOutCubic(t);
+  state.camX = camAnim.fromX + (camAnim.toX - camAnim.fromX) * e;
+  state.camY = camAnim.fromY + (camAnim.toY - camAnim.fromY) * e;
+  state.scale = camAnim.fromS + (camAnim.toS - camAnim.fromS) * e;
+  if (t >= 1) {
+    camAnim = null;
+    // Snap level once we've settled
+    state.level = state.levelTarget;
+  }
+}
+
+// Derive current level from scale (for smooth visual blending between levels)
+function effectiveLevel() {
+  if (state.scale <= 0.28) return 0;
+  if (state.scale <= 0.85) return 1;
+  return 2;
+}
+
+// ─── Update simulation positions ─────────────────────────────
+function updateSim(dt) {
+  state.t += dt;
+
+  // Galaxies spin slowly
+  for (const cog in galaxies) {
+    const g = galaxies[cog];
+    g.spin = (g.spin || 0) + g.spinSpeed * dt;
+    // Sand swarm angular motion
+    g.sandSwarm.forEach(s => {
+      s.angle += s.speed * 0.5 * (1 + 0.3 * Math.sin(state.t * 0.0003 + s.r * 0.01));
+    });
+  }
+
+  // Planets orbit their solar system center.
+  // Authority physics: heavy memories (high inbound) drift toward galactic core,
+  // creating a visible gravity-well effect for highly-referenced anchors.
+  memories.forEach(m => {
+    const sys = m.system;
+    const gal = m.galaxy;
+    const orbitTime = state.t * m.localSpeed;
+    const localAngle = m.localAngleSeed + orbitTime + (m.galaxy.spin || 0) * 0.4;
+    const pullToGalaxy = m.mass * 0.5; // 0..0.5
+    const cx = sys.cx * (1 - pullToGalaxy) + gal.cx * pullToGalaxy;
+    const cy = sys.cy * (1 - pullToGalaxy) + gal.cy * pullToGalaxy;
+    const r = m.localOrbitR * (1 - m.mass * 0.2);
+    m.x = cx + Math.cos(localAngle) * r;
+    m.y = cy + Math.sin(localAngle) * r;
+    m._localAngle = localAngle;
+  });
+}
+
+// ─── Drawing ─────────────────────────────────────────────────
+
+function drawStarsfield() {
+  // Pre-generate once
+  if (!drawStarsfield.cache) {
+    const stars = [];
+    for (let i = 0; i < 380; i++) {
+      stars.push({ x: Math.random(), y: Math.random(), b: 0.2 + Math.random() * 0.8 });
+    }
+    drawStarsfield.cache = stars;
+  }
+  ctx.save();
+  drawStarsfield.cache.forEach(s => {
+    const px = s.x * W;
+    const py = s.y * H;
+    const tw = 0.4 + 0.6 * Math.sin(state.t * 0.001 + s.x * 30 + s.y * 30);
+    ctx.fillStyle = `rgba(255,255,255,${s.b * 0.5 * tw})`;
+    ctx.fillRect(px, py, 1, 1);
+  });
+  ctx.restore();
+}
+
+function drawGalaxyCore(g) {
+  const p = worldToScreen(g.cx, g.cy);
+  const r = 28 * state.scale + 8;
+
+  // Gradient glow
+  const grad = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, r * 4);
+  grad.addColorStop(0, hexA(g.color, 0.9));
+  grad.addColorStop(0.3, hexA(g.color, 0.35));
+  grad.addColorStop(1, hexA(g.color, 0));
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.arc(p.x, p.y, r * 4, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Bright core dot
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath();
+  ctx.arc(p.x, p.y, Math.max(2, r * 0.25), 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawAccretionSwarm(g) {
+  // Visible only when zoomed out enough to see whole galaxy
+  if (state.scale > 0.9) return;
+  const p = worldToScreen(g.cx, g.cy);
+  ctx.save();
+  g.sandSwarm.forEach(s => {
+    const x = p.x + Math.cos(s.angle) * s.r * state.scale;
+    const y = p.y + Math.sin(s.angle) * s.r * state.scale;
+    ctx.fillStyle = hexA(s.hue, 0.55);
+    const sz = Math.max(0.6, s.size * Math.min(1, state.scale * 1.4));
+    ctx.fillRect(x, y, sz, sz);
+  });
+  ctx.restore();
+}
+
+function drawGalaxyLabel(g, lvl) {
+  if (lvl > 0.6 && state.scale > 0.45) return;
+  const p = worldToScreen(g.cx, g.cy);
+  ctx.save();
+  ctx.font = `700 ${Math.max(10, 14 * state.scale)}px 'JetBrains Mono', monospace`;
+  ctx.fillStyle = hexA(g.color, 0.85);
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  ctx.fillText(COG[g.id].label.toUpperCase(), p.x, p.y + 36 * state.scale + 12);
+  ctx.font = `400 ${Math.max(8, 10 * state.scale)}px 'JetBrains Mono', monospace`;
+  ctx.fillStyle = 'rgba(139, 148, 158, 0.7)';
+  ctx.fillText(`${g.members.length} memories`, p.x, p.y + 36 * state.scale + 28);
+  ctx.restore();
+}
+
+function drawSystemBackdrop(sys) {
+  // Soft halo around system center
+  if (state.scale < 0.4) return;
+  const p = worldToScreen(sys.cx, sys.cy);
+  const grad = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, PLANET_RADIUS * state.scale * 2.0);
+  grad.addColorStop(0, hexA(sys.color, 0.16));
+  grad.addColorStop(1, hexA(sys.color, 0));
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.arc(p.x, p.y, PLANET_RADIUS * state.scale * 2.0, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+function drawSystemLabel(sys) {
+  if (state.scale < 0.6 || state.scale > 1.6) return;
+  const p = worldToScreen(sys.cx, sys.cy);
+  ctx.save();
+  ctx.font = `600 ${Math.max(9, 11 * state.scale)}px 'JetBrains Mono', monospace`;
+  ctx.fillStyle = hexA(sys.color, 0.78);
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(CAT[sys.id].label.toUpperCase(), p.x, p.y);
+  ctx.restore();
+}
+
+// Gravitational lensing edge — curve toward the nearest galactic anchor
+function drawEdge(e) {
+  const a = e.source, b = e.target;
+  if (!a.x || !b.x) return;
+  // Pick the galactic anchor that's between them (heuristic: a's galaxy)
+  const gA = a.galaxy;
+  const ax = a.x, ay = a.y;
+  const bx = b.x, by = b.y;
+  const mx = (ax + bx) / 2;
+  const my = (ay + by) / 2;
+  // Vector toward nearest galaxy center
+  const dxA = gA.cx - mx;
+  const dyA = gA.cy - my;
+  const dist = Math.hypot(dxA, dyA) || 1;
+  // Edge weight scales gravitational warp — stronger relations bend harder.
+  const warp = (160 + e.weight * 180) / (dist / 100 + 1);
+  const cx = mx + (dxA / dist) * warp;
+  const cy = my + (dyA / dist) * warp;
+
+  const sA = worldToScreen(ax, ay);
+  const sB = worldToScreen(bx, by);
+  const sC = worldToScreen(cx, cy);
+
+  const selected = state.selected;
+  const highlight =
+    selected && (selected.id === a.id || selected.id === b.id);
+
+  ctx.save();
+  ctx.lineCap = 'round';
+  // Edge weight scales line thickness and opacity — strong relations read as
+  // bold, bright; weak relations as thin filaments in the background.
+  ctx.lineWidth = highlight ? 1.4 + e.weight * 0.6 : 0.4 + e.weight * 0.6;
+  const baseOp = (highlight ? 0.55 : 0.2) + e.weight * 0.35;
+
+  const grad = ctx.createLinearGradient(sA.x, sA.y, sB.x, sB.y);
+  grad.addColorStop(0, hexA(CAT[a.cat].color, baseOp));
+  grad.addColorStop(1, hexA(CAT[b.cat].color, baseOp));
+  ctx.strokeStyle = grad;
+
+  ctx.beginPath();
+  ctx.moveTo(sA.x, sA.y);
+  ctx.quadraticCurveTo(sC.x, sC.y, sB.x, sB.y);
+  ctx.stroke();
+
+  // Particles streaming along the lensed path — speed and count scale with weight.
+  if (state.scale > 0.4) {
+    const flowRate = 0.00018 + e.weight * 0.00035;
+    const tFlow = (state.t * flowRate) % 1;
+    const numP = highlight ? 3 : Math.max(1, Math.round(e.weight * 2.2));
+    for (let i = 0; i < numP; i++) {
+      const t = (tFlow + i / numP) % 1;
+      const px = quad(sA.x, sC.x, sB.x, t);
+      const py = quad(sA.y, sC.y, sB.y, t);
+      ctx.fillStyle = highlight ? '#fff' : hexA(CAT[a.cat].color, 0.9);
+      ctx.beginPath();
+      ctx.arc(px, py, highlight ? 1.6 : 1.0 + e.weight * 0.3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  ctx.restore();
+}
+
+function quad(p0, p1, p2, t) {
+  const u = 1 - t;
+  return u * u * p0 + 2 * u * t * p1 + t * t * p2;
+}
+
+// ─── Per-category planet shapes ──────────────────────────────
+//
+// Each renders at (sx, sy) with screen-space size `r`.
+// They're called only when the planet is large enough on screen to read.
+
+function drawPlanet(m) {
+  if (!m.x || !m.y) return;
+  const p = worldToScreen(m.x, m.y);
+  const r = m.size * state.scale * 0.95;
+  if (p.x < -50 || p.x > W + 50 || p.y < -50 || p.y > H + 50) return;
+
+  const fn = PLANET_RENDERERS[m.cat] || drawGenericPlanet;
+  const isHover = state.hover && state.hover.id === m.id;
+  const isSel = state.selected && state.selected.id === m.id;
+
+  // Confidence-driven outer glow — high-confidence memories sit in a steady,
+  // wide halo. Low-confidence memories are barely lit (uncertainty signal).
+  // Glow uses the category color so identity stays visible across zoom levels.
+  const glowR = Math.max(8, r * 1.9 * (0.4 + m.conf * 0.9));
+  const glowOp = 0.08 + Math.pow(m.conf, 1.6) * 0.40;
+  const glowGrad = ctx.createRadialGradient(p.x, p.y, r * 0.5, p.x, p.y, glowR);
+  glowGrad.addColorStop(0, hexA(CAT[m.cat].color, glowOp));
+  glowGrad.addColorStop(1, hexA(CAT[m.cat].color, 0));
+  ctx.fillStyle = glowGrad;
+  ctx.beginPath();
+  ctx.arc(p.x, p.y, glowR, 0, Math.PI * 2);
+  ctx.fill();
+
+  fn(ctx, p.x, p.y, Math.max(2, r), m, isHover, isSel);
+
+  // Hover/select halo
+  if (isHover || isSel) {
+    ctx.save();
+    ctx.strokeStyle = isSel ? '#fff' : hexA(CAT[m.cat].color, 0.7);
+    ctx.lineWidth = isSel ? 2 : 1.2;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, r + 6, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // Title at zoom level 2
+  if (state.scale > 1.1 && r > 4) {
+    ctx.save();
+    ctx.font = `500 ${Math.min(12, 9 + r * 0.4)}px Inter, sans-serif`;
+    ctx.fillStyle = 'rgba(232, 236, 244, 0.85)';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillText(m.title, p.x, p.y + r + 6);
+    ctx.restore();
+  }
+}
+
+const PLANET_RENDERERS = {
+  decisions:  drawDecisionPlanet,
+  lessons:    drawLessonPlanet,
+  projects:   drawProjectPlanet,
+  references: drawReferencePlanet,
+  tools:      drawToolPlanet,
+  crystals:   drawCrystalPlanet,
+};
+
+function drawGenericPlanet(ctx, x, y, r, m) {
+  ctx.fillStyle = CAT[m.cat].color;
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+// ── Decisions: banded rocky planet ──
+function drawDecisionPlanet(ctx, x, y, r, m) {
+  ctx.save();
+  // Atmosphere glow
+  const atm = ctx.createRadialGradient(x, y, r * 0.7, x, y, r * 1.6);
+  atm.addColorStop(0, hexA('#f85149', 0.35));
+  atm.addColorStop(1, hexA('#f85149', 0));
+  ctx.fillStyle = atm;
+  ctx.beginPath();
+  ctx.arc(x, y, r * 1.6, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Body with bands
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.clip();
+  const bands = ['#8b2c25', '#c4493d', '#f85149', '#a83a31', '#d9554a'];
+  for (let i = 0; i < bands.length; i++) {
+    ctx.fillStyle = bands[i];
+    ctx.fillRect(x - r, y - r + (i * 2 * r / bands.length), r * 2, 2 * r / bands.length + 1);
+  }
+  // Storm cell if confidence is low (visual signal of contested decision)
+  if (m.conf < 0.75) {
+    ctx.fillStyle = 'rgba(255, 215, 0, 0.6)';
+    ctx.beginPath();
+    ctx.ellipse(x - r * 0.2, y, r * 0.32, r * 0.18, 0.6, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+  // Edge outline
+  ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+  ctx.lineWidth = 0.5;
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.stroke();
+}
+
+// ── Lessons: binary system — primary + moon ──
+function drawLessonPlanet(ctx, x, y, r, m) {
+  ctx.save();
+  // Halo
+  const halo = ctx.createRadialGradient(x, y, r * 0.6, x, y, r * 2.2);
+  halo.addColorStop(0, hexA('#a371f7', 0.4));
+  halo.addColorStop(1, hexA('#a371f7', 0));
+  ctx.fillStyle = halo;
+  ctx.beginPath();
+  ctx.arc(x, y, r * 2.2, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Primary body
+  const grad = ctx.createRadialGradient(x - r * 0.3, y - r * 0.3, 0, x, y, r);
+  grad.addColorStop(0, '#d4b3ff');
+  grad.addColorStop(1, '#7a4dc7');
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Orbiting moon
+  const a = (m._localAngle || 0) * 4;
+  const moonR = r * 0.4;
+  const moonD = r * 1.7;
+  const mx = x + Math.cos(a) * moonD;
+  const my = y + Math.sin(a) * moonD;
+  ctx.fillStyle = '#c8a8f7';
+  ctx.beginPath();
+  ctx.arc(mx, my, moonR, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Faint orbit
+  ctx.strokeStyle = 'rgba(163, 113, 247, 0.25)';
+  ctx.lineWidth = 0.5;
+  ctx.beginPath();
+  ctx.arc(x, y, moonD, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
+}
+
+// ── Projects: mini star with own orbital children ──
+function drawProjectPlanet(ctx, x, y, r, m) {
+  ctx.save();
+  // Bright corona
+  const cor = ctx.createRadialGradient(x, y, 0, x, y, r * 2.6);
+  cor.addColorStop(0, 'rgba(255, 230, 150, 0.9)');
+  cor.addColorStop(0.4, 'rgba(245, 158, 11, 0.4)');
+  cor.addColorStop(1, 'rgba(245, 158, 11, 0)');
+  ctx.fillStyle = cor;
+  ctx.beginPath();
+  ctx.arc(x, y, r * 2.6, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Star body
+  ctx.fillStyle = '#fff8d6';
+  ctx.beginPath();
+  ctx.arc(x, y, r * 0.85, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = '#f59e0b';
+  ctx.beginPath();
+  ctx.arc(x, y, r * 0.55, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Tiny orbiting children
+  const a = (m._localAngle || 0) * 2;
+  for (let i = 0; i < 3; i++) {
+    const t = a + i * (Math.PI * 2 / 3);
+    const cx2 = x + Math.cos(t) * r * 1.8;
+    const cy2 = y + Math.sin(t) * r * 1.8;
+    ctx.fillStyle = '#3fb950';
+    ctx.beginPath();
+    ctx.arc(cx2, cy2, r * 0.18, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Faint child orbit
+  ctx.strokeStyle = 'rgba(245, 158, 11, 0.3)';
+  ctx.lineWidth = 0.4;
+  ctx.beginPath();
+  ctx.arc(x, y, r * 1.8, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
+}
+
+// ── References: gas giant with ring ──
+function drawReferencePlanet(ctx, x, y, r, m) {
+  ctx.save();
+  // Halo
+  const atm = ctx.createRadialGradient(x, y, r * 0.85, x, y, r * 1.5);
+  atm.addColorStop(0, hexA('#58a6ff', 0.4));
+  atm.addColorStop(1, hexA('#58a6ff', 0));
+  ctx.fillStyle = atm;
+  ctx.beginPath();
+  ctx.arc(x, y, r * 1.5, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Body — banded gas giant
+  ctx.beginPath();
+  ctx.arc(x, y, r, 0, Math.PI * 2);
+  ctx.clip();
+  const bands = ['#1f4d8e','#2d6cc4','#58a6ff','#7eb8ff','#3a7fd1'];
+  for (let i = 0; i < bands.length; i++) {
+    ctx.fillStyle = bands[i];
+    ctx.fillRect(x - r, y - r + (i * 2 * r / bands.length), r * 2, 2 * r / bands.length + 1);
+  }
+  ctx.restore();
+
+  // Ring system (ellipse)
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(-0.4);
+  ctx.strokeStyle = 'rgba(125, 184, 255, 0.55)';
+  ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, r * 1.7, r * 0.35, 0, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.strokeStyle = 'rgba(125, 184, 255, 0.3)';
+  ctx.lineWidth = 0.6;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, r * 1.95, r * 0.42, 0, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
+}
+
+// ── Tools: metallic octagon with geometric rings ──
+function drawToolPlanet(ctx, x, y, r, m) {
+  ctx.save();
+  // Glow
+  const glow = ctx.createRadialGradient(x, y, r * 0.6, x, y, r * 1.6);
+  glow.addColorStop(0, hexA('#d29922', 0.4));
+  glow.addColorStop(1, hexA('#d29922', 0));
+  ctx.fillStyle = glow;
+  ctx.beginPath();
+  ctx.arc(x, y, r * 1.6, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Octagon body
+  ctx.translate(x, y);
+  ctx.rotate((m._localAngle || 0) * 0.5);
+  const sides = 8;
+  ctx.beginPath();
+  for (let i = 0; i < sides; i++) {
+    const a = (i / sides) * Math.PI * 2;
+    const px = Math.cos(a) * r;
+    const py = Math.sin(a) * r;
+    if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+  }
+  ctx.closePath();
+  const grad = ctx.createLinearGradient(-r, -r, r, r);
+  grad.addColorStop(0, '#5e4416');
+  grad.addColorStop(0.5, '#d29922');
+  grad.addColorStop(1, '#7e5a1f');
+  ctx.fillStyle = grad;
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+  ctx.lineWidth = 0.6;
+  ctx.stroke();
+
+  // Geometric outer ring
+  ctx.strokeStyle = 'rgba(210, 153, 34, 0.5)';
+  ctx.lineWidth = 0.6;
+  ctx.beginPath();
+  for (let i = 0; i < sides; i++) {
+    const a = (i / sides) * Math.PI * 2 + Math.PI / sides;
+    const px = Math.cos(a) * r * 1.5;
+    const py = Math.sin(a) * r * 1.5;
+    if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+  }
+  ctx.closePath();
+  ctx.stroke();
+  ctx.restore();
+}
+
+// ── Crystals: faceted prismatic gem ──
+function drawCrystalPlanet(ctx, x, y, r, m) {
+  ctx.save();
+  // Refractive glow
+  const glow = ctx.createRadialGradient(x, y, 0, x, y, r * 2.2);
+  glow.addColorStop(0, hexA('#22d3ee', 0.6));
+  glow.addColorStop(0.5, hexA('#22d3ee', 0.18));
+  glow.addColorStop(1, hexA('#22d3ee', 0));
+  ctx.fillStyle = glow;
+  ctx.beginPath();
+  ctx.arc(x, y, r * 2.2, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Hexagonal gem body
+  ctx.translate(x, y);
+  ctx.rotate((m._localAngle || 0) * 0.3);
+  const facets = 6;
+  // Outer body
+  ctx.beginPath();
+  for (let i = 0; i < facets; i++) {
+    const a = (i / facets) * Math.PI * 2 - Math.PI / 2;
+    const px = Math.cos(a) * r;
+    const py = Math.sin(a) * r;
+    if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+  }
+  ctx.closePath();
+  const grad = ctx.createLinearGradient(-r, -r, r, r);
+  grad.addColorStop(0, '#0e7490');
+  grad.addColorStop(0.5, '#22d3ee');
+  grad.addColorStop(1, '#a5f3fc');
+  ctx.fillStyle = grad;
+  ctx.fill();
+
+  // Internal facet lines
+  ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+  ctx.lineWidth = 0.5;
+  for (let i = 0; i < facets; i++) {
+    const a = (i / facets) * Math.PI * 2 - Math.PI / 2;
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r);
+    ctx.stroke();
+  }
+  // Outer outline
+  ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+  ctx.lineWidth = 0.8;
+  ctx.beginPath();
+  for (let i = 0; i < facets; i++) {
+    const a = (i / facets) * Math.PI * 2 - Math.PI / 2;
+    const px = Math.cos(a) * r;
+    const py = Math.sin(a) * r;
+    if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+  }
+  ctx.closePath();
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+// ─── Main render ─────────────────────────────────────────────
+function render() {
+  // Clear with deep void gradient
+  const bg = ctx.createRadialGradient(W/2, H/2, 0, W/2, H/2, Math.max(W,H));
+  bg.addColorStop(0, '#080614');
+  bg.addColorStop(1, '#010003');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+
+  drawStarsfield();
+
+  // Galaxies — accretion swarms first (behind everything)
+  for (const cog in galaxies) drawAccretionSwarm(galaxies[cog]);
+
+  // Edges (lensed) — always rendered for depth even when zoomed in
+  edges.forEach(drawEdge);
+
+  // System backdrops
+  if (state.scale > 0.3) {
+    for (const cog in galaxies) {
+      const g = galaxies[cog];
+      for (const cat in g.systems) drawSystemBackdrop(g.systems[cat]);
+    }
+  }
+
+  // Galaxy cores
+  for (const cog in galaxies) drawGalaxyCore(galaxies[cog]);
+
+  // Planets
+  memories.forEach(drawPlanet);
+
+  // System labels (between zoom levels 1 and 2)
+  if (state.scale > 0.6 && state.scale < 1.6) {
+    for (const cog in galaxies) {
+      const g = galaxies[cog];
+      for (const cat in g.systems) drawSystemLabel(g.systems[cat]);
+    }
+  }
+
+  // Galaxy labels
+  for (const cog in galaxies) drawGalaxyLabel(galaxies[cog], 0);
+}
+
+// ─── Interaction ─────────────────────────────────────────────
+
+canvas.addEventListener('mousedown', (e) => {
+  state.isDragging = true;
+  state.dragStart = { x: e.clientX, y: e.clientY, camX: state.camX, camY: state.camY };
+  canvas.classList.add('dragging');
+});
+window.addEventListener('mouseup', (e) => {
+  if (state.isDragging && state.dragStart) {
+    const dx = e.clientX - state.dragStart.x;
+    const dy = e.clientY - state.dragStart.y;
+    if (Math.hypot(dx, dy) < 4) {
+      // Click — try select
+      const hit = hitTest(e.clientX, e.clientY);
+      selectMemory(hit);
+    }
+  }
+  state.isDragging = false;
+  state.dragStart = null;
+  canvas.classList.remove('dragging');
+});
+canvas.addEventListener('mousemove', (e) => {
+  state.mouseX = e.clientX;
+  state.mouseY = e.clientY;
+  if (state.isDragging && state.dragStart) {
+    const dx = e.clientX - state.dragStart.x;
+    const dy = e.clientY - state.dragStart.y;
+    state.camX = state.dragStart.camX - dx / state.scale;
+    state.camY = state.dragStart.camY - dy / state.scale;
+  } else {
+    state.hover = hitTest(e.clientX, e.clientY);
+    updateTooltip();
+  }
+});
+
+canvas.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  const factor = Math.exp(-e.deltaY * 0.001);
+  const newScale = Math.max(0.08, Math.min(3.2, state.scale * factor));
+
+  // Zoom toward cursor
+  const before = screenToWorld(e.clientX, e.clientY);
+  state.scale = newScale;
+  const after = screenToWorld(e.clientX, e.clientY);
+  state.camX += before.x - after.x;
+  state.camY += before.y - after.y;
+
+  updateLevelIndicator(effectiveLevel());
+}, { passive: false });
+
+document.querySelectorAll('.zoom-indicator .level').forEach(el => {
+  el.addEventListener('click', () => {
+    setLevel(parseInt(el.dataset.level));
+  });
+});
+
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    if (modalBackdrop.classList.contains('visible')) {
+      closeMemoryModal();
+      return;
+    }
+    state.selected = null;
+    inspector.classList.remove('visible');
+    animateCamera(0, 0, 0.18);
+    state.levelTarget = 0;
+    updateLevelIndicator(0);
+  }
+  if (modalBackdrop.classList.contains('visible')) return; // don't level-switch while modal open
+  if (e.key === '1') setLevel(0);
+  if (e.key === '2') setLevel(1);
+  if (e.key === '3') setLevel(2);
+});
+
+function hitTest(sx, sy) {
+  // Test in reverse so top items hit first
+  for (let i = memories.length - 1; i >= 0; i--) {
+    const m = memories[i];
+    if (!m.x) continue;
+    const p = worldToScreen(m.x, m.y);
+    const r = m.size * state.scale * 0.95 + 4;
+    const d = Math.hypot(p.x - sx, p.y - sy);
+    if (d < Math.max(8, r)) return m;
+  }
+  return null;
+}
+
+function updateTooltip() {
+  if (state.hover) {
+    tooltip.textContent = `${state.hover.title}`;
+    tooltip.style.left = (state.mouseX + 14) + 'px';
+    tooltip.style.top = (state.mouseY + 14) + 'px';
+    tooltip.classList.add('visible');
+  } else {
+    tooltip.classList.remove('visible');
+  }
+}
+
+function selectMemory(m) {
+  state.selected = m;
+  if (!m) {
+    inspector.classList.remove('visible');
+    return;
+  }
+
+  // Header
+  document.getElementById('ins-category').textContent = `${COG[m.cog].label} · ${CAT[m.cat].label}`;
+  document.getElementById('ins-title').textContent = m.title;
+
+  const statusEl = document.getElementById('ins-status');
+  if (m.status) {
+    statusEl.textContent = m.status;
+    statusEl.className = `status-pill status-${m.status}`;
+    statusEl.style.display = 'inline-block';
+  } else {
+    statusEl.style.display = 'none';
+  }
+
+  // Cog/cat pills
+  const pills = document.getElementById('ins-pills');
+  pills.innerHTML = '';
+  [
+    { label: COG[m.cog].label, color: COG[m.cog].color },
+    { label: CAT[m.cat].label, color: CAT[m.cat].color },
+  ].forEach(p => {
+    const el = document.createElement('span');
+    el.className = 'pill';
+    el.textContent = p.label;
+    el.style.background = hexA(p.color, 0.15);
+    el.style.color = p.color;
+    el.style.border = `1px solid ${hexA(p.color, 0.4)}`;
+    pills.appendChild(el);
+  });
+
+  // Confidence bar
+  document.getElementById('ins-conf-fill').style.width = `${m.conf * 100}%`;
+  document.getElementById('ins-conf-label').textContent =
+    `confidence ${(m.conf * 100).toFixed(0)}%${m.conf < 0.5 ? ' · ⚠ DRAFT' : ''}`;
+
+  // Description
+  document.getElementById('ins-desc').textContent = m.desc || '—';
+
+  // Metadata grid
+  document.getElementById('ins-source').textContent = m.source || '—';
+  document.getElementById('ins-created').textContent = m.created || '—';
+  document.getElementById('ins-updated').textContent = m.updated || '—';
+  document.getElementById('ins-inbound').textContent = `${m.inbound ?? 0}`;
+  document.getElementById('ins-outbound').textContent = `${m.outbound ?? 0}`;
+  document.getElementById('ins-id').textContent = m.id;
+
+  // Tags
+  const tagsEl = document.getElementById('ins-tags');
+  tagsEl.innerHTML = '';
+  (m.tags || []).forEach(t => {
+    const el = document.createElement('span');
+    el.className = 'tag';
+    el.textContent = `#${t}`;
+    tagsEl.appendChild(el);
+  });
+
+  // Relations — split outbound (this → others) and inbound (others → this)
+  const outRels = edges.filter(e => e.source.id === m.id).map(e => e.target);
+  const inRels  = edges.filter(e => e.target.id === m.id).map(e => e.source);
+  renderRelations('ins-out-relations', 'ins-out-title', outRels, 'References →');
+  renderRelations('ins-in-relations',  'ins-in-title',  inRels,  '← Referenced by');
+
+  // Physics readout — explains what's driving this planet's behavior
+  const galLabel = COG[m.cog].label;
+  document.getElementById('ins-physics').innerHTML =
+    `<span style="color:var(--text-dim)">mass</span> ${m.mass?.toFixed(2) ?? '—'} · ` +
+    `<span style="color:var(--text-dim)">pull→core</span> ${((m.mass || 0) * 0.5 * 100).toFixed(0)}% · ` +
+    `<span style="color:var(--text-dim)">galaxy</span> ${galLabel} ` +
+    `<span style="color:var(--text-dim)">· system</span> ${CAT[m.cat].label}`;
+
+  inspector.classList.add('visible');
+}
+
+function renderRelations(boxId, titleId, list, baseLabel) {
+  const titleEl = document.getElementById(titleId);
+  const boxEl = document.getElementById(boxId);
+  titleEl.innerHTML = `${baseLabel}<span class="count">· ${list.length}</span>`;
+  if (list.length === 0) {
+    boxEl.innerHTML = `<div class="meta" style="color:var(--text-muted)">none</div>`;
+    return;
+  }
+  boxEl.innerHTML = list.map(r =>
+    `<div class="relation-row" data-id="${r.id}"><span class="dir">${baseLabel.includes('Referenced') ? '←' : '→'}</span>${r.title}</div>`
+  ).join('');
+  boxEl.querySelectorAll('.relation-row').forEach(el => {
+    el.addEventListener('click', () => {
+      const next = byId[el.dataset.id];
+      if (next) {
+        selectMemory(next);
+        animateCamera(next.galaxy.cx, next.galaxy.cy, Math.max(state.scale, 0.8));
+      }
+    });
+  });
+}
+
+// Color helper
+function hexA(hex, a) {
+  const h = hex.replace('#', '');
+  const r = parseInt(h.substring(0,2),16);
+  const g = parseInt(h.substring(2,4),16);
+  const b = parseInt(h.substring(4,6),16);
+  return `rgba(${r},${g},${b},${a})`;
+}
+
+// ─── Hand-written bodies for headline memories ────────────────
+// In production these are the actual .md files on disk. We hand-author a few
+// here as <script type="text/markdown"> elements at the top of the body so
+// the markdown content lives as raw text with no template-literal escaping
+// concerns. Backticks, ${...}, brackets — all pass through cleanly.
+const HAND_BODIES = (() => {
+  const out = {};
+  document.querySelectorAll('script[type="text/markdown"]').forEach((s) => {
+    const id = s.id.replace(/^body-/, '');
+    // Strip leading/trailing whitespace lines but preserve internal layout.
+    out[id] = s.textContent.replace(/^\n+/, '').replace(/\s+$/, '');
+  });
+  return out;
+})();
+
+
+// Path generator — what the file would actually live at in the vault
+function memoryPath(m) {
+  if (m.cog === 'episodic') {
+    const date = m.updated || m.created || '2026-05-26';
+    return `wiki/raw/${date}/${m.source}-${m.id}.md`;
+  }
+  if (m.cat === 'crystals') return `wiki/crystals/${m.id}.md`;
+  return `wiki/${m.cat}/${m.id}.md`;
+}
+
+// Build the body string (frontmatter + content) for any memory
+function getMemoryBody(m) {
+  const fm = [
+    '---',
+    `type: ${m.cat}`,
+    `cognitive_type: ${m.cog}`,
+    `status: ${m.status || 'active'}`,
+    `confidence: ${m.conf}`,
+    `created: ${m.created || '—'}`,
+    `updated: ${m.updated || '—'}`,
+    `source: ${m.source || 'unknown'}`,
+    `tags: [${(m.tags || []).join(', ')}]`,
+    '---',
+    '',
+  ].join('\n');
+
+  if (HAND_BODIES[m.id]) return fm + HAND_BODIES[m.id];
+
+  // Otherwise synthesize a plausible body from the available fields.
+  const lines = [`# ${m.title}`, '', m.desc, ''];
+
+  if (m.cat === 'decisions') {
+    lines.push('## Rationale', '');
+    lines.push('Trade-offs considered when making this decision:', '');
+    (m.tags || []).forEach(t => lines.push(`- ${t}`));
+    lines.push('');
+  } else if (m.cat === 'lessons') {
+    lines.push('## What was learned', '');
+    lines.push('Captured from session work. Apply consistently going forward.', '');
+  } else if (m.cat === 'tools') {
+    lines.push('## Usage', '');
+    lines.push('```', '# When to apply', `# - ${m.tags?.[0] || 'pattern'}`, '```', '');
+  } else if (m.cat === 'crystals') {
+    lines.push('## Insight', '');
+    lines.push(`> ${m.desc}`, '');
+    lines.push('Distilled from multiple sessions. High-confidence consolidation.', '');
+  } else if (m.cat === 'references') {
+    lines.push('## Source', '');
+    lines.push('External reference material. Cited for foundational context.', '');
+  } else if (m.cat === 'projects') {
+    lines.push('## Status', '');
+    lines.push(`Active project. Updated ${m.updated}.`, '');
+  }
+
+  // Relations
+  const outRels = edges.filter(e => e.source.id === m.id).map(e => e.target);
+  const inRels = edges.filter(e => e.target.id === m.id).map(e => e.source);
+  if (outRels.length) {
+    lines.push('## References', '');
+    outRels.forEach(r => lines.push(`- [[${r.id}]] ${r.title}`));
+    lines.push('');
+  }
+  if (inRels.length) {
+    lines.push('## Referenced by', '');
+    inRels.forEach(r => lines.push(`- [[${r.id}]] ${r.title}`));
+    lines.push('');
+  }
+
+  return fm + lines.join('\n');
+}
+
+// ─── Minimal markdown → HTML renderer ──────────────────────────
+// Covers what we need: frontmatter block, headings, paragraphs, code blocks,
+// inline code, bold, italic, lists, blockquotes, wikilinks, regular links.
+function renderMarkdown(text) {
+  // Split frontmatter (between leading --- and the next ---)
+  let fmHtml = '';
+  let body = text;
+  const fmMatch = text.match(/^---\n([\s\S]*?)\n---\n?/);
+  if (fmMatch) {
+    const fmLines = fmMatch[1].split('\n').map(line => {
+      const m = line.match(/^(\w+):\s*(.*)$/);
+      if (!m) return escapeHtml(line);
+      return `<span class="fm-key">${escapeHtml(m[1])}:</span> ${escapeHtml(m[2])}`;
+    });
+    fmHtml = `<div class="frontmatter">${fmLines.join('<br>')}</div>`;
+    body = text.slice(fmMatch[0].length);
+  }
+
+  // Code fences first
+  body = body.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) =>
+    `<pre><code>${escapeHtml(code)}</code></pre>`
+  );
+
+  // Headings (h1, h2, h3)
+  body = body.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+  body = body.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+  body = body.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+
+  // Blockquotes (one or more consecutive)
+  body = body.replace(/(^> .+(\n> .+)*)/gm, (m) => {
+    const inner = m.replace(/^> /gm, '').replace(/\n/g, '<br>');
+    return `<blockquote>${inner}</blockquote>`;
+  });
+
+  // Lists — collapse adjacent list lines into <ul>
+  body = body.replace(/(?:^|\n)((?:[-*] .+(?:\n|$))+)/g, (_, items) => {
+    const lis = items.trim().split('\n').map(l => {
+      const m = l.match(/^[-*]\s+(.+)$/);
+      return m ? `<li>${m[1]}</li>` : '';
+    }).join('');
+    return `\n<ul>${lis}</ul>\n`;
+  });
+
+  // Tables (very simple — just enough to render Voyage decision)
+  body = body.replace(/((?:^\|.+\|\n)+)/gm, (m) => {
+    const rows = m.trim().split('\n').filter(Boolean);
+    if (rows.length < 2) return m;
+    // Drop the separator row (---|---|---)
+    const data = rows.filter(r => !/^\|[-:|\s]+\|$/.test(r));
+    const cells = data.map((r, i) => {
+      const inner = r.split('|').slice(1, -1).map(c => c.trim());
+      const tag = i === 0 ? 'th' : 'td';
+      return '<tr>' + inner.map(c => `<${tag}>${c}</${tag}>`).join('') + '</tr>';
+    });
+    return `<table style="width:100%;border-collapse:collapse;margin:12px 0;font-size:12.5px"><tbody>${cells.join('')}</tbody></table>`;
+  });
+
+  // Wikilinks [[id]]
+  body = body.replace(/\[\[([a-z0-9_]+)\]\]/gi, (_, id) => {
+    const t = byId[id];
+    const label = t ? t.title : id;
+    return `<span class="wikilink" data-wikilink="${id}">[[${label}]]</span>`;
+  });
+
+  // Regular links [text](url)
+  body = body.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
+
+  // Bold, italic, inline code (carefully ordered: code first)
+  body = body.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+  body = body.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
+  body = body.replace(/(?<!\*)\*([^*\n]+)\*(?!\*)/g, '<em>$1</em>');
+
+  // Paragraphs — wrap orphan lines into <p>. Skip lines already in block tags.
+  body = body.split(/\n{2,}/).map(chunk => {
+    const trimmed = chunk.trim();
+    if (!trimmed) return '';
+    if (/^<(h[1-3]|ul|pre|blockquote|table)/.test(trimmed)) return trimmed;
+    return `<p>${trimmed.replace(/\n/g, '<br>')}</p>`;
+  }).join('\n');
+
+  return fmHtml + body;
+}
+
+function escapeHtml(s) {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+// Highlight source view (basic YAML / heading / wikilink colors)
+function highlightSource(text) {
+  return escapeHtml(text)
+    .replace(/^(---)$/gm, '<span class="yaml-marker">$1</span>')
+    .replace(/^(\w+):/gm, '<span class="yaml-key">$1</span>:')
+    .replace(/^(#{1,6} .+)$/gm, '<span class="heading">$1</span>')
+    .replace(/(\[\[[a-z0-9_]+\]\])/gi, '<span class="wikilink-src">$1</span>');
+}
+
+// ─── Modal logic ───────────────────────────────────────────────
+const modalBackdrop = document.getElementById('modal-backdrop');
+const modalRendered = document.getElementById('modal-rendered');
+const modalSource = document.getElementById('modal-source');
+const modalPathEl = document.getElementById('modal-path');
+
+function openMemoryModal(m) {
+  if (!m) return;
+  const body = getMemoryBody(m);
+  const path = memoryPath(m);
+  const parts = path.split('/');
+  const leaf = parts.pop();
+  modalPathEl.innerHTML = `<span class="path-prefix">${parts.join('/')}/</span><span class="path-leaf">${leaf}</span>`;
+  modalRendered.innerHTML = renderMarkdown(body);
+  modalSource.innerHTML = highlightSource(body);
+  modalBackdrop.classList.add('visible');
+  setTab('rendered');
+
+  // Wikilink click — jump-select the linked memory
+  modalRendered.querySelectorAll('.wikilink').forEach(el => {
+    el.addEventListener('click', () => {
+      const target = byId[el.dataset.wikilink];
+      if (target) {
+        closeMemoryModal();
+        selectMemory(target);
+        animateCamera(target.galaxy.cx, target.galaxy.cy, Math.max(state.scale, 0.8));
+      }
+    });
+  });
+}
+
+function closeMemoryModal() {
+  modalBackdrop.classList.remove('visible');
+}
+
+function setTab(view) {
+  document.querySelectorAll('.modal-tab').forEach(t =>
+    t.classList.toggle('active', t.dataset.view === view)
+  );
+  modalRendered.style.display = view === 'rendered' ? 'block' : 'none';
+  modalSource.style.display = view === 'source' ? 'block' : 'none';
+}
+
+document.getElementById('modal-close').addEventListener('click', closeMemoryModal);
+modalBackdrop.addEventListener('click', (e) => {
+  if (e.target === modalBackdrop) closeMemoryModal();
+});
+document.querySelectorAll('.modal-tab').forEach(t => {
+  t.addEventListener('click', () => setTab(t.dataset.view));
+});
+document.getElementById('view-source-btn').addEventListener('click', () => {
+  if (state.selected) openMemoryModal(state.selected);
+});
+
+// ─── Main loop ───────────────────────────────────────────────
+let lastT = performance.now();
+function loop(now) {
+  const dt = Math.min(50, now - lastT);
+  lastT = now;
+  updateCamera(now);
+  updateSim(dt);
+  render();
+  requestAnimationFrame(loop);
+}
+
+resize();
+// Start at solar-system level centered on the Core galaxy
+state.camX = galaxies.core.cx;
+state.camY = galaxies.core.cy;
+state.scale = 0.55;
+updateLevelIndicator(1);
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
