@@ -89,6 +89,7 @@ export async function runInstall(
     case "claude-desktop": {
       const result = await runInstallClaudeDesktop();
       console.log(`Installed memory MCP for Claude Desktop at ${result.configPath}`);
+      for (const line of result.log) console.log(`  ${line}`);
       console.log(`  memory MCP entry ${result.memoryEntryAction}`);
       console.log(`  preserved ${result.preservedServerCount} other MCP server(s)`);
       console.log("");

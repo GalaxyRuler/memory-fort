@@ -67,6 +67,32 @@ describe("runInstallClaudeDesktop", () => {
     expect(secondContent).toBe(firstContent);
   });
 
+  it("repairs a corrupted memory entry and preserves other MCP servers", async () => {
+    await mkdir(claudeDesktopDir, { recursive: true });
+    const configPath = join(claudeDesktopDir, "claude_desktop_config.json");
+    await writeFile(
+      configPath,
+      JSON.stringify({
+        theme: "dark",
+        mcpServers: {
+          other: { command: "other-server", args: ["--keep"] },
+          memory: { command: 42, args: "not-an-array" },
+        },
+      }),
+    );
+
+    const result = await runInstallClaudeDesktop();
+
+    expect(result.memoryEntryAction).toBe("updated");
+    expect(result.log).toContain("repairing corrupted entry");
+    expect(result.preservedServerCount).toBe(1);
+    const content = JSON.parse(await readFile(configPath, "utf-8"));
+    expect(content.theme).toBe("dark");
+    expect(content.mcpServers.other).toEqual({ command: "other-server", args: ["--keep"] });
+    expect(content.mcpServers.memory.command).toBe("node");
+    expect(content.mcpServers.memory.args[0]).toContain("mcp-server.mjs");
+  });
+
   it("throws clear error on malformed existing JSON", async () => {
     await mkdir(claudeDesktopDir, { recursive: true });
     const configPath = join(claudeDesktopDir, "claude_desktop_config.json");

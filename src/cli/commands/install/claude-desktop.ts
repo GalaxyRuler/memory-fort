@@ -12,12 +12,14 @@ export interface InstallClaudeDesktopResult {
   configCreated: boolean;
   memoryEntryAction: "created" | "updated" | "unchanged";
   preservedServerCount: number;
+  log: string[];
 }
 
 export async function runInstallClaudeDesktop(): Promise<InstallClaudeDesktopResult> {
   const configPath = claudeDesktopConfigPath();
   let existingConfig: Record<string, unknown> = {};
   let configCreated = false;
+  const log: string[] = [];
 
   if (existsSync(configPath)) {
     const raw = await readFile(configPath, "utf-8");
@@ -55,6 +57,9 @@ export async function runInstallClaudeDesktop(): Promise<InstallClaudeDesktopRes
     memoryEntryAction = "unchanged";
   } else {
     memoryEntryAction = "updated";
+    if (!isValidMcpEntry(existingMemory)) {
+      log.push("repairing corrupted entry");
+    }
   }
 
   mcpServers["memory"] = newMemoryEntry;
@@ -63,5 +68,15 @@ export async function runInstallClaudeDesktop(): Promise<InstallClaudeDesktopRes
 
   await atomicWrite(configPath, JSON.stringify(finalConfig, null, 2) + "\n");
 
-  return { configPath, configCreated, memoryEntryAction, preservedServerCount };
+  return { configPath, configCreated, memoryEntryAction, preservedServerCount, log };
+}
+
+function isValidMcpEntry(entry: unknown): boolean {
+  if (typeof entry !== "object" || entry === null) return false;
+  const record = entry as Record<string, unknown>;
+  return (
+    typeof record["command"] === "string" &&
+    Array.isArray(record["args"]) &&
+    record["args"].every((arg) => typeof arg === "string")
+  );
 }
