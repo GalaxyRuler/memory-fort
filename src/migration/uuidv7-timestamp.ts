@@ -1,7 +1,19 @@
 import { formatIsoDate } from "../storage/paths.js";
 
+// Agentmemory keys have a UUIDv7 either as the suffix
+//   mem:<scope>:<uuidv7>
+// OR embedded mid-key:
+//   mem:obs:<uuidv7>:obs_<extra-id>
+//   mem:sessions:<uuidv7>
+// Match the UUIDv7 wherever it appears in the key.
+// Agentmemory keys have a UUIDv7 either as the suffix
+//   mem:<scope>:<uuidv7>
+// OR embedded mid-key:
+//   mem:obs:<uuidv7>:obs_<extra-id>
+//   mem:sessions:<uuidv7>
+// Require the mem: prefix so arbitrary strings can't match.
 const AGENTMEMORY_UUIDV7_KEY =
-  /^mem:[a-z]+:([0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
+  /^mem:[a-z]+:([0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[0-9a-f]{4}-[0-9a-f]{12})(?::|$)/i;
 
 export function uuidv7ToTimestamp(uuid: string): Date | null {
   const hex = uuid.replace(/-/g, "");

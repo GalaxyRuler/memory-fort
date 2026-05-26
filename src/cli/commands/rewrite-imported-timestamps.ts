@@ -1,7 +1,8 @@
 import { existsSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { observedDateFromAgentMemoryKey } from "../../migration/uuidv7-timestamp.js";
+import { observedDateFromAgentMemoryKey, uuidv7ToTimestamp } from "../../migration/uuidv7-timestamp.js";
+import { formatIsoDate } from "../../storage/paths.js";
 import { atomicWrite } from "../../storage/atomic-write.js";
 import { parseFrontmatter, serializeFrontmatter } from "../../storage/frontmatter.js";
 import { memoryRoot } from "../../storage/paths.js";
@@ -40,7 +41,14 @@ export async function runRewriteImportedTimestamps(
     }
 
     const originalKey = typeof importedFrom["original_key"] === "string" ? importedFrom["original_key"] : "";
-    const observedAt = observedDateFromAgentMemoryKey(originalKey);
+    let observedAt = observedDateFromAgentMemoryKey(originalKey);
+
+    // Fallback: many imports have a clean UUIDv7 in the `session` field.
+    if (!observedAt && typeof frontmatter["session"] === "string") {
+      const sessionDate = uuidv7ToTimestamp(frontmatter["session"]);
+      if (sessionDate) observedAt = formatIsoDate(sessionDate);
+    }
+
     if (!observedAt) {
       result.skippedNoTimestamp += 1;
       continue;
