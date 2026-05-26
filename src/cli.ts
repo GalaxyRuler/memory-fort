@@ -21,6 +21,7 @@ import { runStats, formatStatsResult } from "./cli/commands/stats.js";
 import { runSync, formatSyncSuccess } from "./cli/commands/sync.js";
 import { runSyncBootstrap } from "./cli/commands/sync-bootstrap.js";
 import { runTailErrors } from "./cli/commands/tail-errors.js";
+import { formatVerifyResult, runVerify } from "./cli/commands/verify.js";
 
 const program = new Command();
 
@@ -431,6 +432,21 @@ program
       process.exit(result.failed > 0 ? 1 : 0);
     } catch (err) {
       console.error(`memory doctor failed: ${(err as Error).message}`);
+      process.exit(1);
+    }
+  });
+
+program
+  .command("verify")
+  .description("End-to-end health check for vault, sync, dashboard, search, and client capture")
+  .option("--offline", "skip network checks such as git remote and dashboard")
+  .action(async (opts: { offline?: boolean }) => {
+    try {
+      const result = await runVerify({ offline: opts.offline });
+      process.stdout.write(formatVerifyResult(result));
+      process.exit(result.exitCode);
+    } catch (err) {
+      console.error(`memory verify failed: ${(err as Error).message}`);
       process.exit(1);
     }
   });
