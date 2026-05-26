@@ -2,7 +2,8 @@ import { createServer as createHttpServer, type Server as HttpServer, type Serve
 import { readFile, stat } from "node:fs/promises";
 import { extname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { runVerify, type VerifyResult } from "../cli/commands/verify.js";
+import { runVerify, type VerifyResult, type VerifyRole } from "../cli/commands/verify.js";
+import { detectRole } from "../cli/commands/verify/role.js";
 import { runSearch } from "../retrieval/search.js";
 import type { SearchScope } from "../retrieval/corpus.js";
 import type { EmbedClient } from "../retrieval/refresh.js";
@@ -44,7 +45,7 @@ export interface ServerOptions {
   port?: number;
   host?: string;
   loader?: (vaultRoot: string) => Promise<DashboardStatus>;
-  verifyRunner?: (opts: { includeSearch: boolean }) => Promise<VerifyResult>;
+  verifyRunner?: (opts: { includeSearch: boolean; role: VerifyRole }) => Promise<VerifyResult>;
   voyageClient?: VoyageClient | null;
   dashboardDistRoot?: string | null;
 }
@@ -254,6 +255,11 @@ function parseGraphScope(value: string | null): SearchScope | null {
   return SEARCH_SCOPES.has(value as SearchScope) ? (value as SearchScope) : null;
 }
 
+function parseHealthRole(value: string | null): VerifyRole | null {
+  if (!value) return detectRole();
+  return value === "operator" || value === "server" ? value : null;
+}
+
 const TIMELINE_ZOOMS = new Set<TimelineZoom>(["1H", "1D", "1W", "1M", "1Y"]);
 
 function parseTimelineZoom(value: string | null): TimelineZoom | null {
@@ -304,7 +310,7 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
   const host = opts.host ?? "127.0.0.1";
   const loader = opts.loader ?? loadDashboardStatus;
   const verifyRunner = opts.verifyRunner ?? ((runnerOpts) =>
-    runVerify({ offline: false, includeSearch: runnerOpts.includeSearch }));
+    runVerify({ offline: false, includeSearch: runnerOpts.includeSearch, role: runnerOpts.role }));
   const voyageClient = opts.voyageClient ?? null;
   const embedClient = makeEmbedClient(voyageClient);
   const staticAssets = await resolveStaticAssetsRoot(opts.dashboardDistRoot);
@@ -352,12 +358,17 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
     if (path === "/api/health") {
       try {
         const includeSearch = url.searchParams.get("deep") === "true";
-        const cacheKey = includeSearch ? "deep" : "shallow";
+        const role = parseHealthRole(url.searchParams.get("role"));
+        if (!role) {
+          writeJsonError(res, 400, "invalid role; expected operator or server");
+          return;
+        }
+        const cacheKey = `${role}:${includeSearch ? "deep" : "shallow"}`;
         const cached = healthCache.get(cacheKey);
         const nowMs = Date.now();
         const report = cached && nowMs - cached.atMs < HEALTH_CACHE_MS
           ? cached.report
-          : await verifyRunner({ includeSearch });
+          : await verifyRunner({ includeSearch, role });
         if (!cached || nowMs - cached.atMs >= HEALTH_CACHE_MS) {
           healthCache.set(cacheKey, { atMs: nowMs, report });
         }

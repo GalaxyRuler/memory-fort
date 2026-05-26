@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { DashboardStatus } from "../../src/dashboard/loaders.js";
 import { createServer } from "../../src/dashboard/server.js";
-import type { VerifyResult } from "../../src/cli/commands/verify.js";
+import type { VerifyResult, VerifyRole } from "../../src/cli/commands/verify.js";
 import type { VoyageClient } from "../../src/retrieval/voyage-client.js";
 
 function fixture(): DashboardStatus {
@@ -185,13 +185,13 @@ describe("dashboard server", () => {
   });
 
   it("GET /api/health returns cached shallow verify JSON with monitor-friendly status", async () => {
-    const calls: Array<{ includeSearch?: boolean }> = [];
+    const calls: Array<{ includeSearch?: boolean; role?: VerifyRole }> = [];
     const report = verifyReport("warn");
     const server = await createServer({
       vaultRoot: tmp,
       port: 0,
       verifyRunner: async (opts) => {
-        calls.push({ includeSearch: opts.includeSearch });
+        calls.push({ includeSearch: opts.includeSearch, role: opts.role });
         return report;
       },
     });
@@ -204,20 +204,20 @@ describe("dashboard server", () => {
       expect(second.status).toBe(200);
       await expect(first.json()).resolves.toEqual(report);
       await expect(second.json()).resolves.toEqual(report);
-      expect(calls).toEqual([{ includeSearch: false }]);
+      expect(calls).toEqual([{ includeSearch: false, role: "operator" }]);
     } finally {
       await server.close();
     }
   });
 
   it("GET /api/health?deep=true includes search checks and returns 503 for failures", async () => {
-    const calls: Array<{ includeSearch?: boolean }> = [];
+    const calls: Array<{ includeSearch?: boolean; role?: VerifyRole }> = [];
     const report = verifyReport("fail");
     const server = await createServer({
       vaultRoot: tmp,
       port: 0,
       verifyRunner: async (opts) => {
-        calls.push({ includeSearch: opts.includeSearch });
+        calls.push({ includeSearch: opts.includeSearch, role: opts.role });
         return report;
       },
     });
@@ -227,7 +227,103 @@ describe("dashboard server", () => {
 
       expect(response.status).toBe(503);
       await expect(response.json()).resolves.toEqual(report);
-      expect(calls).toEqual([{ includeSearch: true }]);
+      expect(calls).toEqual([{ includeSearch: true, role: "operator" }]);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("GET /api/health defaults to the detected role", async () => {
+    const previous = process.env["MEMORY_ROLE"];
+    process.env["MEMORY_ROLE"] = "server";
+    const calls: Array<{ includeSearch?: boolean; role?: VerifyRole }> = [];
+    const serverReport = verifyReport("pass", "server", ["vault.read-write", "dashboard.status"]);
+    const operatorReport = verifyReport("pass", "operator", ["vault.read-write", "client.codex.config"]);
+    const server = await createServer({
+      vaultRoot: tmp,
+      port: 0,
+      verifyRunner: async (opts) => {
+        calls.push({ includeSearch: opts.includeSearch, role: opts.role });
+        return opts.role === "server" ? serverReport : operatorReport;
+      },
+    });
+
+    try {
+      const response = await fetch(`http://${server.host}:${server.port}/api/health`);
+      const body = await response.json() as VerifyResult;
+
+      expect(response.status).toBe(200);
+      expect(body.role).toBe("server");
+      expect(body.checks.map((check) => check.id)).toEqual(["vault.read-write", "dashboard.status"]);
+      expect(calls).toEqual([{ includeSearch: false, role: "server" }]);
+    } finally {
+      if (previous === undefined) delete process.env["MEMORY_ROLE"];
+      else process.env["MEMORY_ROLE"] = previous;
+      await server.close();
+    }
+  });
+
+  it("GET /api/health?role=operator overrides the detected role", async () => {
+    const previous = process.env["MEMORY_ROLE"];
+    process.env["MEMORY_ROLE"] = "server";
+    const operatorReport = verifyReport("pass", "operator", ["vault.read-write", "client.codex.config"]);
+    const server = await createServer({
+      vaultRoot: tmp,
+      port: 0,
+      verifyRunner: async (opts) => opts.role === "operator" ? operatorReport : verifyReport("pass", "server"),
+    });
+
+    try {
+      const response = await fetch(`http://${server.host}:${server.port}/api/health?role=operator`);
+      const body = await response.json() as VerifyResult;
+
+      expect(response.status).toBe(200);
+      expect(body.role).toBe("operator");
+      expect(body.checks.map((check) => check.id)).toEqual(["vault.read-write", "client.codex.config"]);
+    } finally {
+      if (previous === undefined) delete process.env["MEMORY_ROLE"];
+      else process.env["MEMORY_ROLE"] = previous;
+      await server.close();
+    }
+  });
+
+  it("GET /api/health?role=bogus returns 400", async () => {
+    const server = await createServer({ vaultRoot: tmp, port: 0 });
+
+    try {
+      const response = await fetch(`http://${server.host}:${server.port}/api/health?role=bogus`);
+      const body = await response.json() as { error?: string };
+
+      expect(response.status).toBe(400);
+      expect(body.error).toContain("role");
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("GET /api/health caches reports per role", async () => {
+    const calls: VerifyRole[] = [];
+    const server = await createServer({
+      vaultRoot: tmp,
+      port: 0,
+      verifyRunner: async (opts) => {
+        calls.push(opts.role);
+        return verifyReport("pass", opts.role, [`${opts.role}.check`]);
+      },
+    });
+
+    try {
+      const serverResponse = await fetch(`http://${server.host}:${server.port}/api/health?role=server`);
+      const operatorResponse = await fetch(`http://${server.host}:${server.port}/api/health?role=operator`);
+      const cachedServerResponse = await fetch(`http://${server.host}:${server.port}/api/health?role=server`);
+      const serverBody = await serverResponse.json() as VerifyResult;
+      const operatorBody = await operatorResponse.json() as VerifyResult;
+      const cachedServerBody = await cachedServerResponse.json() as VerifyResult;
+
+      expect(calls).toEqual(["server", "operator"]);
+      expect(serverBody.checks[0]?.id).toBe("server.check");
+      expect(operatorBody.checks[0]?.id).toBe("operator.check");
+      expect(cachedServerBody).toEqual(serverBody);
     } finally {
       await server.close();
     }
@@ -947,20 +1043,23 @@ describe("dashboard server", () => {
   });
 });
 
-function verifyReport(overallStatus: VerifyResult["overallStatus"]): VerifyResult {
+function verifyReport(
+  overallStatus: VerifyResult["overallStatus"],
+  role: VerifyRole = "operator",
+  ids: string[] = ["vault.read-write"],
+): VerifyResult {
   return {
     startedAt: "2026-05-26T03:30:00.000Z",
     finishedAt: "2026-05-26T03:30:01.000Z",
+    role,
     overallStatus,
-    checks: [
-      {
-        id: "vault.read-write",
-        label: "vault read/write",
+    checks: ids.map((id) => ({
+        id,
+        label: id,
         status: overallStatus === "fail" ? "fail" : "pass",
         durationMs: 1,
         suggestedFix: overallStatus === "fail" ? "run `memory init`" : undefined,
-      },
-    ],
+      })),
     passed: overallStatus === "fail" ? 0 : 1,
     failed: overallStatus === "fail" ? 1 : 0,
     warnings: overallStatus === "warn" ? 1 : 0,
