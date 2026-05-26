@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtemp, rm, mkdir, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { existsSync } from "node:fs";
 import { runInit } from "../../../src/cli/commands/init.js";
 import { runImportAgentMemory } from "../../../src/cli/commands/import-agentmemory.js";
+import { parseFrontmatter } from "../../../src/storage/frontmatter.js";
 
 describe("runImportAgentMemory", () => {
   let tmp: string;
@@ -33,7 +34,7 @@ describe("runImportAgentMemory", () => {
     );
     await mkdir(join(dataDir, "stream_store"), { recursive: true });
     await writeFile(
-      join(dataDir, "stream_store", "stream%3Amem-live%3Asession-1.bin"),
+      join(dataDir, "stream_store", "stream%3Amem-live%3A019e45fc-5e01-7180-9f0c-114a3b1f941a.bin"),
       Buffer.from(JSON.stringify({
         obs_2: {
           observation: {
@@ -68,6 +69,8 @@ describe("runImportAgentMemory", () => {
     });
     expect(first.report).toContain("audit:");
     expect(existsSync(join(memDir, "wiki", "lessons", "import-carefully.md"))).toBe(true);
+    const imported = await readFile(join(memDir, "raw", "2026-05-25", "agentmemory-obs_2.md"), "utf-8");
+    expect(parseFrontmatter(imported).frontmatter.observed_at).toBe("2026-05-20");
 
     const second = await runImportAgentMemory({ from: dataDir, mode: "apply" });
     expect(second.report).toContain("dedup-skipped: 2");

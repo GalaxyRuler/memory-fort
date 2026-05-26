@@ -6,6 +6,7 @@ import { atomicWrite } from "../storage/atomic-write.js";
 import { parseFrontmatter, serializeFrontmatter } from "../storage/frontmatter.js";
 import { formatIsoDate, memoryRoot } from "../storage/paths.js";
 import type { AgentMemoryKvEntry } from "./agentmemory-kv-reader.js";
+import { observedDateFromAgentMemoryKey } from "./uuidv7-timestamp.js";
 
 export type AgentMemoryImportActionKind =
   | "write"
@@ -196,6 +197,10 @@ function mapObservation(
   const timestamp = dateField(value, "timestamp") ?? now;
   const title = stringField(value, "title") ?? id;
   const date = formatIsoDate(timestamp);
+  const observedAt =
+    observedDateFromAgentMemoryKey(entry.scope) ??
+    observedDateFromAgentMemoryKey(entry.key) ??
+    undefined;
   const body = [
     `# ${title}`,
     "",
@@ -208,8 +213,7 @@ function mapObservation(
       ? ["## Files", "", ...arrayField(value, "files").map((file) => `- ${file}`), ""]
       : []),
   ].join("\n");
-  const content = serializeFrontmatter(
-    {
+  const frontmatter = {
       type: "raw-session",
       title,
       created: date,
@@ -223,7 +227,10 @@ function mapObservation(
         original_key: entry.key,
       },
       cognitive_type: "episodic",
-    },
+      ...(observedAt ? { observed_at: observedAt } : {}),
+    };
+  const content = serializeFrontmatter(
+    frontmatter,
     body,
   );
   return {

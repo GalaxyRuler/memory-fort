@@ -39,6 +39,7 @@ export interface SearchDocument {
   body: string;
   snippetSource: string;
   created: string | null;
+  observedAt: string | null;
   updated: string | null;
   mtime: string;
   sizeBytes: number;
@@ -211,6 +212,7 @@ async function loadDocument(file: MarkdownFile): Promise<SearchDocument> {
     body: canonical?.body ?? parsed.body,
     snippetSource: firstNonEmptyLine(parsed.body),
     created: readDate(frontmatter.created),
+    observedAt: readDate(frontmatter.observed_at),
     updated: readUpdated(frontmatter.updated),
     mtime: info.mtime.toISOString(),
     sizeBytes: info.size,
@@ -249,7 +251,7 @@ function shouldHonorExplicitCognitiveType(document: SearchDocument): boolean {
 }
 
 export function inferCognitiveType(
-  document: Pick<SearchDocument, "relPath" | "kind" | "type" | "status" | "source" | "created" | "importedFrom">,
+  document: Pick<SearchDocument, "relPath" | "kind" | "type" | "status" | "source" | "created" | "observedAt" | "importedFrom">,
   inboundCount = 0,
   now = new Date(),
 ): CognitiveType {
@@ -279,7 +281,7 @@ export function inferCognitiveType(
   }
 
   if (document.relPath.startsWith("raw/")) {
-    return isWithinLastDays(document.created, 30, now) ? "episodic" : "semantic";
+    return isWithinLastDays(document.observedAt ?? document.created, 30, now) ? "episodic" : "semantic";
   }
 
   return "semantic";

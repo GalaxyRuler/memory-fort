@@ -17,6 +17,10 @@ import { runPage } from "./cli/commands/page.js";
 import { runPull, formatPullSuccess } from "./cli/commands/pull.js";
 import { runPush, formatPushSuccess } from "./cli/commands/push.js";
 import { runPrune } from "./cli/commands/prune.js";
+import {
+  formatRewriteImportedTimestampsResult,
+  runRewriteImportedTimestamps,
+} from "./cli/commands/rewrite-imported-timestamps.js";
 import { runSearch } from "./cli/commands/search.js";
 import { runStats, formatStatsResult } from "./cli/commands/stats.js";
 import { runSync, formatSyncSuccess } from "./cli/commands/sync.js";
@@ -406,6 +410,19 @@ program
       process.stdout.write(result.report);
     } catch (err) {
       console.error((err as Error).message);
+      process.exit(1);
+    }
+  });
+
+program
+  .command("rewrite-imported-timestamps")
+  .description("Add observed_at dates to imported agentmemory files when original keys contain UUIDv7 timestamps")
+  .action(async () => {
+    try {
+      const result = await runRewriteImportedTimestamps();
+      process.stdout.write(formatRewriteImportedTimestampsResult(result));
+    } catch (err) {
+      console.error(`memory rewrite-imported-timestamps failed: ${(err as Error).message}`);
       process.exit(1);
     }
   });

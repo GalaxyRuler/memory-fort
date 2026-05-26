@@ -103,6 +103,27 @@ describe("cognitive type inference", () => {
     expect(result.documents[0]?.cognitiveType).toBe("semantic");
   });
 
+  it("uses observed_at before created when aging imported raw observations", async () => {
+    await writeMarkdown(
+      tmp,
+      "raw/2026-05-26/agentmemory-observed.md",
+      page({
+        type: "raw-session",
+        created: new Date().toISOString().slice(0, 10),
+        observed_at: "2026-01-01",
+        cognitive_type: "episodic",
+        imported_from: {
+          system: "agentmemory",
+          original_key: "mem:obs:019e45fc-5e01-7180-9f0c-114a3b1f941a",
+        },
+      }),
+    );
+
+    const result = await loadSearchCorpus({ vaultRoot: tmp, scope: "raw" });
+
+    expect(result.documents[0]?.cognitiveType).toBe("semantic");
+  });
+
   it("does not treat wiki/raw imports as episodic based on path alone", async () => {
     await writeMarkdown(
       tmp,
