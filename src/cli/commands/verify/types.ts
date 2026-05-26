@@ -1,4 +1,5 @@
 export type CheckStatus = "pass" | "warn" | "fail";
+export type VerifyRole = "operator" | "server";
 
 export interface CheckResult {
   id: string;
@@ -23,6 +24,15 @@ export interface VerifyCheckContext {
   vaultRoot: string;
   now: () => Date;
   offline?: boolean;
+}
+
+export type RunCheckOptions = VerifyCheckContext;
+
+export interface CheckDescriptor {
+  id: string;
+  label: string;
+  roles: VerifyRole[];
+  run: (opts: RunCheckOptions) => Promise<CheckResult | CheckResult[]>;
 }
 
 export function pass(id: string, label: string, detail?: string): VerifyCheckResult {
