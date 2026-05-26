@@ -24,6 +24,7 @@ describe("verify checks", () => {
       MEMORY_CODEX_DIR: process.env["MEMORY_CODEX_DIR"],
       MEMORY_ANTIGRAVITY_DIR: process.env["MEMORY_ANTIGRAVITY_DIR"],
       MEMORY_VSCODE_USER_DIR: process.env["MEMORY_VSCODE_USER_DIR"],
+      MEMORY_VSCODE_EXTENSION_DIR: process.env["MEMORY_VSCODE_EXTENSION_DIR"],
       MEMORY_CLAUDE_DESKTOP_DIR: process.env["MEMORY_CLAUDE_DESKTOP_DIR"],
     };
     process.env["MEMORY_ROOT"] = tmp;
@@ -107,6 +108,75 @@ describe("verify checks", () => {
     expect(
       results.find((result) => result.id === "client.claude-code.capture")?.status,
     ).toBe("warn");
+  });
+
+  it("client checks report sniffer, plugin, watcher, and extension health", async () => {
+    await mkdir(join(process.env["MEMORY_CLAUDE_DIR"]!, "projects"), { recursive: true });
+    await mkdir(join(process.env["MEMORY_ANTIGRAVITY_DIR"]!, "plugins", "memory", "hooks"), { recursive: true });
+    await mkdir(process.env["MEMORY_VSCODE_USER_DIR"]!, { recursive: true });
+    await mkdir(join(tmp, ".vscode", "extensions", "memory-fort.memory"), { recursive: true });
+    await mkdir(process.env["MEMORY_CLAUDE_DESKTOP_DIR"]!, { recursive: true });
+    await mkdir(join(tmp, "raw", "2026-05-26"), { recursive: true });
+
+    await writeFile(
+      join(process.env["MEMORY_ANTIGRAVITY_DIR"]!, "plugins", "memory", "plugin.json"),
+      JSON.stringify({ name: "memory", hooks: "./hooks.json" }),
+    );
+    await writeFile(
+      join(process.env["MEMORY_ANTIGRAVITY_DIR"]!, "plugins", "memory", "hooks.json"),
+      JSON.stringify({
+        hooks: Object.fromEntries([
+          "session_start",
+          "pre_turn",
+          "post_turn",
+          "pre_tool_call",
+          "post_tool_call",
+          "tool_error_recovery",
+          "user_interaction_handling",
+          "context_compaction",
+          "session_end",
+        ].map((hook) => [hook, [{ command: `node ./hooks/${hook}.mjs` }]])),
+      }),
+    );
+    for (const hook of [
+      "session_start",
+      "pre_turn",
+      "post_turn",
+      "pre_tool_call",
+      "post_tool_call",
+      "tool_error_recovery",
+      "user_interaction_handling",
+      "context_compaction",
+      "session_end",
+    ]) {
+      await writeFile(
+        join(process.env["MEMORY_ANTIGRAVITY_DIR"]!, "plugins", "memory", "hooks", `${hook}.mjs`),
+        "",
+      );
+    }
+    await writeFile(
+      join(process.env["MEMORY_VSCODE_USER_DIR"]!, "mcp.json"),
+      JSON.stringify({ servers: { memory: { command: "node" } } }),
+    );
+    process.env["MEMORY_VSCODE_EXTENSION_DIR"] = join(tmp, ".vscode", "extensions");
+    await writeFile(
+      join(tmp, ".vscode", "extensions", "memory-fort.memory", "package.json"),
+      JSON.stringify({ contributes: { chatParticipants: [{ id: "memory-fort.memory" }] } }),
+    );
+    await writeFile(
+      join(tmp, "raw", "2026-05-26", "claude-desktop-live.md"),
+      "desktop",
+    );
+    await writeFile(join(tmp, "raw", "2026-05-26", "vscode-live.md"), "vscode");
+
+    const results = await checkClients({ vaultRoot: tmp, now });
+
+    expect(results.find((result) => result.id === "sniffer.claude-code.backfill")?.status).toBe("pass");
+    expect(results.find((result) => result.id === "sniffer.antigravity.plugin")?.status).toBe("pass");
+    expect(results.find((result) => result.id === "sniffer.claude-desktop.watcher")?.status).toBe("pass");
+    expect(results.find((result) => result.id === "sniffer.claude-desktop.capture")?.status).toBe("pass");
+    expect(results.find((result) => result.id === "sniffer.vscode.extension")?.status).toBe("pass");
+    expect(results.find((result) => result.id === "sniffer.vscode.capture")?.status).toBe("pass");
   });
 
   it("auto-push check fails for errors in the last hour and warns for the last day", async () => {

@@ -3,13 +3,14 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import {
+  claudeDesktopConfigDir,
   claudeDesktopConfigPath,
   formatIsoDate,
 } from "../../../storage/paths.js";
 import {
   isClaudeCodePluginEnabled,
 } from "../install/claude-code.js";
-import { vscodeMcpConfigPath } from "../install/vscode.js";
+import { vscodeExtensionDir, vscodeMcpConfigPath } from "../install/vscode.js";
 import { fail, pass, warn, type VerifyCheckContext, type VerifyCheckResult } from "./types.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -25,7 +26,12 @@ export async function checkClients(
     antigravityConfig,
     antigravityCapture,
     vscodeConfig,
+    vscodeExtension,
+    vscodeCapture,
     claudeDesktopConfig,
+    claudeDesktopWatcher,
+    claudeDesktopCapture,
+    claudeCodeBackfill,
   ] = await Promise.all([
     checkClaudeCodeEnabled(),
     checkRecentCapture(ctx, ["claude-code-", "claude-"], "client.claude-code.capture", "claude-code"),
@@ -47,6 +53,8 @@ export async function checkClients(
       "vscode MCP entry present",
       "run `memory connect vscode`",
     ),
+    checkVsCodeExtension(),
+    checkRecentCapture(ctx, ["vscode-"], "sniffer.vscode.capture", "vscode extension"),
     checkJsonServer(
       claudeDesktopConfigPath(),
       "mcpServers",
@@ -54,17 +62,26 @@ export async function checkClients(
       "claude-desktop MCP entry present",
       "run `memory connect claude-desktop`",
     ),
+    checkClaudeDesktopWatcher(),
+    checkRecentCapture(ctx, ["claude-desktop-"], "sniffer.claude-desktop.capture", "claude-desktop watcher"),
+    checkClaudeCodeBackfillStore(),
   ]);
 
   return [
     claudeEnabled,
     claudeCapture,
+    claudeCodeBackfill,
     codexConfig,
     codexCapture,
     antigravityConfig,
+    await checkAntigravityPlugin(),
     antigravityCapture,
     vscodeConfig,
+    vscodeExtension,
+    vscodeCapture,
     claudeDesktopConfig,
+    claudeDesktopWatcher,
+    claudeDesktopCapture,
   ];
 }
 
@@ -167,6 +184,108 @@ async function checkAnyCapture(
       );
 }
 
+async function checkClaudeCodeBackfillStore(): Promise<VerifyCheckResult> {
+  const projectsDir =
+    process.env["MEMORY_CLAUDE_PROJECTS_DIR"] ?? join(homedir(), ".claude", "projects");
+  return existsSync(projectsDir)
+    ? pass("sniffer.claude-code.backfill", "claude-code backfill store available")
+    : warn(
+        "sniffer.claude-code.backfill",
+        "claude-code backfill store available",
+        `missing at ${projectsDir}`,
+      );
+}
+
+async function checkAntigravityPlugin(): Promise<VerifyCheckResult> {
+  const pluginDir = join(antigravityDir(), "plugins", "memory");
+  const manifestPath = join(pluginDir, "plugin.json");
+  const hooksPath = join(pluginDir, "hooks.json");
+  if (!existsSync(manifestPath) || !existsSync(hooksPath)) {
+    return warn(
+      "sniffer.antigravity.plugin",
+      "antigravity live-capture plugin installed",
+      `missing plugin files at ${pluginDir}`,
+      "run `memory connect antigravity`",
+    );
+  }
+
+  try {
+    const manifest = JSON.parse(await readFile(manifestPath, "utf-8")) as Record<string, unknown>;
+    const hooks = JSON.parse(await readFile(hooksPath, "utf-8")) as Record<string, unknown>;
+    const hookMap = hooks["hooks"];
+    const hasManifest = manifest["name"] === "memory" && manifest["hooks"] === "./hooks.json";
+    const hasHooks = typeof hookMap === "object" && hookMap !== null;
+    const missingHook = ANTIGRAVITY_HOOK_NAMES.find(
+      (hook) => !(hasHooks && hook in (hookMap as Record<string, unknown>)) ||
+        !existsSync(join(pluginDir, "hooks", `${hook}.mjs`)),
+    );
+    return hasManifest && !missingHook
+      ? pass("sniffer.antigravity.plugin", "antigravity live-capture plugin installed")
+      : warn(
+          "sniffer.antigravity.plugin",
+          "antigravity live-capture plugin installed",
+          missingHook ? `missing hook ${missingHook}` : "plugin manifest invalid",
+          "run `memory connect antigravity`",
+        );
+  } catch {
+    return warn(
+      "sniffer.antigravity.plugin",
+      "antigravity live-capture plugin installed",
+      "plugin JSON is malformed",
+      "run `memory connect antigravity`",
+    );
+  }
+}
+
+async function checkClaudeDesktopWatcher(): Promise<VerifyCheckResult> {
+  const dir = claudeDesktopConfigDir();
+  return existsSync(dir)
+    ? pass("sniffer.claude-desktop.watcher", "claude-desktop watcher source available")
+    : warn(
+        "sniffer.claude-desktop.watcher",
+        "claude-desktop watcher source available",
+        `missing at ${dir}`,
+        "run Claude Desktop once, then `memory watch --clients claude-desktop`",
+      );
+}
+
+async function checkVsCodeExtension(): Promise<VerifyCheckResult> {
+  const extensionPath = join(vscodeExtensionDir(), "memory-fort.memory", "package.json");
+  if (!existsSync(extensionPath)) {
+    return warn(
+      "sniffer.vscode.extension",
+      "vscode Memory Fort extension installed",
+      `missing at ${extensionPath}`,
+      "run `memory connect vscode`",
+    );
+  }
+  try {
+    const parsed = JSON.parse(await readFile(extensionPath, "utf-8")) as Record<string, unknown>;
+    const contributes = parsed["contributes"] as Record<string, unknown> | undefined;
+    const participants = contributes?.["chatParticipants"];
+    const ok = Array.isArray(participants) &&
+      participants.some((entry) => {
+        const participant = entry as Record<string, unknown>;
+        return participant["id"] === "memory-fort.memory";
+      });
+    return ok
+      ? pass("sniffer.vscode.extension", "vscode Memory Fort extension installed")
+      : warn(
+          "sniffer.vscode.extension",
+          "vscode Memory Fort extension installed",
+          "chat participant missing",
+          "run `memory connect vscode`",
+        );
+  } catch {
+    return warn(
+      "sniffer.vscode.extension",
+      "vscode Memory Fort extension installed",
+      "extension package JSON is malformed",
+      "run `memory connect vscode`",
+    );
+  }
+}
+
 async function countRecentCaptures(
   ctx: VerifyCheckContext,
   prefixes: string[],
@@ -207,9 +326,22 @@ async function listDirectoryNames(root: string): Promise<string[]> {
 }
 
 function antigravityConfigPath(): string {
-  return join(
-    process.env["MEMORY_ANTIGRAVITY_DIR"] ??
-      join(homedir(), ".gemini", "antigravity"),
-    "mcp_config.json",
-  );
+  return join(antigravityDir(), "mcp_config.json");
 }
+
+function antigravityDir(): string {
+  return process.env["MEMORY_ANTIGRAVITY_DIR"] ??
+    join(homedir(), ".gemini", "antigravity");
+}
+
+const ANTIGRAVITY_HOOK_NAMES = [
+  "session_start",
+  "pre_turn",
+  "post_turn",
+  "pre_tool_call",
+  "post_tool_call",
+  "tool_error_recovery",
+  "user_interaction_handling",
+  "context_compaction",
+  "session_end",
+] as const;
