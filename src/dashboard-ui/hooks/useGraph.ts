@@ -10,7 +10,12 @@ export interface GraphNode {
   kind: "wiki" | "raw" | "crystal";
   type: string;
   cognitiveType: CognitiveType;
+  status: string;
+  source: string;
+  created: string | null;
   confidence: number | null;
+  tags: string[];
+  description: string;
   updated: string | null;
   inboundCount: number;
   outboundCount: number;

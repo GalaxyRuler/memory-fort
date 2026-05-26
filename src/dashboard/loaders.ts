@@ -182,7 +182,12 @@ export interface GraphFeed {
     kind: "wiki" | "raw" | "crystal";
     type: string;
     cognitiveType: CognitiveType;
+    status: string;
+    source: string;
+    created: string | null;
     confidence: number | null;
+    tags: string[];
+    description: string;
     updated: string | null;
     inboundCount: number;
     outboundCount: number;
@@ -1129,7 +1134,12 @@ export async function loadGraphFeed(vaultRoot: string, scope: SearchScope = "wik
         kind: document?.kind ?? "wiki",
         type: document?.type ?? "unknown",
         cognitiveType: document?.cognitiveType ?? "semantic",
+        status: document?.status ?? "active",
+        source: document?.source ?? "unknown",
+        created: document?.created ?? null,
         confidence: document?.confidence ?? null,
+        tags: document?.tags ?? [],
+        description: document?.snippetSource ?? "",
         updated: document?.updated ?? null,
         inboundCount: node.inbound.length,
         outboundCount: node.outbound.length,
