@@ -1,12 +1,23 @@
-export type VerifyStatus = "pass" | "fail" | "warn";
+export type CheckStatus = "pass" | "warn" | "fail";
 
-export interface VerifyCheckResult {
+export interface CheckResult {
   id: string;
   label: string;
-  status: VerifyStatus;
+  status: CheckStatus;
   detail?: string;
-  fix?: string;
+  suggestedFix?: string;
+  durationMs: number;
 }
+
+export interface VerifyReport {
+  startedAt: string;
+  finishedAt: string;
+  overallStatus: CheckStatus;
+  checks: CheckResult[];
+}
+
+export type VerifyStatus = CheckStatus;
+export type VerifyCheckResult = CheckResult;
 
 export interface VerifyCheckContext {
   vaultRoot: string;
@@ -15,23 +26,23 @@ export interface VerifyCheckContext {
 }
 
 export function pass(id: string, label: string, detail?: string): VerifyCheckResult {
-  return { id, label, status: "pass", detail };
+  return { id, label, status: "pass", detail, durationMs: 0 };
 }
 
 export function fail(
   id: string,
   label: string,
-  fix?: string,
+  suggestedFix?: string,
   detail?: string,
 ): VerifyCheckResult {
-  return { id, label, status: "fail", fix, detail };
+  return { id, label, status: "fail", suggestedFix, detail, durationMs: 0 };
 }
 
 export function warn(
   id: string,
   label: string,
   detail?: string,
-  fix?: string,
+  suggestedFix?: string,
 ): VerifyCheckResult {
-  return { id, label, status: "warn", detail, fix };
+  return { id, label, status: "warn", detail, suggestedFix, durationMs: 0 };
 }

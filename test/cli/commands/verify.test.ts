@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   formatVerifyResult,
   runVerify,
-  type VerifyCheckResult,
+  type CheckResult,
 } from "../../../src/cli/commands/verify.js";
 
 describe("runVerify", () => {
@@ -17,9 +17,21 @@ describe("runVerify", () => {
     });
 
     expect(result.exitCode).toBe(0);
+    expect(result.overallStatus).toBe("pass");
+    expect(result.startedAt).toBe("2026-05-26T03:30:00.000Z");
+    expect(result.finishedAt).toBe("2026-05-26T03:30:00.000Z");
     expect(result.passed).toBe(3);
     expect(result.failed).toBe(0);
     expect(result.warnings).toBe(0);
+    expect(result.checks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "vault read/write",
+          status: "pass",
+          durationMs: expect.any(Number),
+        }),
+      ]),
+    );
     expect(formatVerifyResult(result)).toContain("3/3 checks passed");
   });
 
@@ -38,6 +50,7 @@ describe("runVerify", () => {
     });
 
     expect(result.exitCode).toBe(1);
+    expect(result.overallStatus).toBe("fail");
     expect(result.passed).toBe(1);
     expect(result.failed).toBe(1);
     expect(result.warnings).toBe(1);
@@ -56,17 +69,49 @@ describe("runVerify", () => {
     expect(formatVerifyResult(result)).toContain(
       "✗ vscode MCP entry not in settings.json - run `memory connect vscode`",
     );
+    expect(result.checks[0]?.suggestedFix).toBe("run `memory connect vscode`");
+  });
+
+  it("can be serialized as the machine-readable VerifyReport contract", async () => {
+    const result = await runVerify({
+      now: () => new Date("2026-05-26T03:30:00.000Z"),
+      checkFns: [
+        async () =>
+          warn(
+            "search pipeline",
+            "search check skipped for shallow health endpoint",
+            "retry with ?deep=true",
+          ),
+      ],
+    });
+
+    const parsed = JSON.parse(JSON.stringify(result)) as typeof result;
+    expect(parsed).toMatchObject({
+      startedAt: "2026-05-26T03:30:00.000Z",
+      finishedAt: "2026-05-26T03:30:00.000Z",
+      overallStatus: "warn",
+      checks: [
+        {
+          id: "search pipeline",
+          label: "search pipeline",
+          status: "warn",
+          detail: "search check skipped for shallow health endpoint",
+          suggestedFix: "retry with ?deep=true",
+        },
+      ],
+    });
+    expect(parsed.checks[0]?.durationMs).toEqual(expect.any(Number));
   });
 });
 
-function pass(label: string): VerifyCheckResult {
-  return { id: label, label, status: "pass" };
+function pass(label: string): CheckResult {
+  return { id: label, label, status: "pass", durationMs: 0 };
 }
 
-function warn(label: string, detail: string): VerifyCheckResult {
-  return { id: label, label, status: "warn", detail };
+function warn(label: string, detail: string, suggestedFix?: string): CheckResult {
+  return { id: label, label, status: "warn", detail, suggestedFix, durationMs: 0 };
 }
 
-function fail(label: string, fix: string): VerifyCheckResult {
-  return { id: label, label, status: "fail", fix };
+function fail(label: string, suggestedFix: string): CheckResult {
+  return { id: label, label, status: "fail", suggestedFix, durationMs: 0 };
 }

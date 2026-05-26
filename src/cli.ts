@@ -481,10 +481,15 @@ program
   .command("verify")
   .description("End-to-end health check for vault, sync, dashboard, search, and client capture")
   .option("--offline", "skip network checks such as git remote and dashboard")
-  .action(async (opts: { offline?: boolean }) => {
+  .option("--json", "emit structured VerifyReport JSON")
+  .action(async (opts: { offline?: boolean; json?: boolean }) => {
     try {
       const result = await runVerify({ offline: opts.offline });
-      process.stdout.write(formatVerifyResult(result));
+      process.stdout.write(
+        opts.json
+          ? `${JSON.stringify(result, null, 2)}\n`
+          : formatVerifyResult(result),
+      );
       process.exit(result.exitCode);
     } catch (err) {
       console.error(`memory verify failed: ${(err as Error).message}`);

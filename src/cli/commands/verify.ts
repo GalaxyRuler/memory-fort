@@ -4,11 +4,18 @@ import { checkClients } from "./verify/clients.js";
 import { checkCompile } from "./verify/compile.js";
 import { checkDashboard } from "./verify/dashboard.js";
 import { checkGitRemote } from "./verify/git.js";
+import { formatVerifyResult } from "./verify/render.js";
 import { checkSearch } from "./verify/search.js";
-import { type VerifyCheckResult } from "./verify/types.js";
+import {
+  type CheckResult,
+  type CheckStatus,
+  type VerifyCheckResult,
+  type VerifyReport,
+} from "./verify/types.js";
 import { checkVaultReadWrite } from "./verify/vault.js";
 
-export type { VerifyCheckResult } from "./verify/types.js";
+export { formatVerifyResult } from "./verify/render.js";
+export type { CheckResult, CheckStatus, VerifyCheckResult, VerifyReport } from "./verify/types.js";
 
 type CheckFn = () => Promise<VerifyCheckResult | VerifyCheckResult[]>;
 
@@ -20,6 +27,8 @@ export interface VerifyOptions {
 
 export interface VerifyResult {
   startedAt: string;
+  finishedAt: string;
+  overallStatus: CheckStatus;
   checks: VerifyCheckResult[];
   passed: number;
   failed: number;
@@ -41,8 +50,11 @@ export async function runVerify(opts: VerifyOptions = {}): Promise<VerifyResult>
   const passed = checks.filter((check) => check.status === "pass").length;
   const failed = checks.filter((check) => check.status === "fail").length;
   const warnings = checks.filter((check) => check.status === "warn").length;
+  const finishedAt = now().toISOString();
   return {
     startedAt,
+    finishedAt,
+    overallStatus: overallStatus(checks),
     checks,
     passed,
     failed,
@@ -51,35 +63,15 @@ export async function runVerify(opts: VerifyOptions = {}): Promise<VerifyResult>
   };
 }
 
-export function formatVerifyResult(result: VerifyResult): string {
-  const lines = [`memory verify · ${result.startedAt}`, ""];
-  for (const check of result.checks) {
-    const marker =
-      check.status === "pass" ? "✓" : check.status === "warn" ? "⚠" : "✗";
-    const suffix = check.fix
-      ? ` - ${check.fix}`
-      : check.detail
-        ? ` - ${check.detail}`
-        : "";
-    lines.push(`  ${marker} ${check.label}${suffix}`);
-  }
-
-  lines.push("");
-  lines.push(
-    `${result.passed}/${result.checks.length} checks passed` +
-      (result.failed > 0 ? `; ${result.failed} failed` : "") +
-      (result.warnings > 0
-        ? `; ${result.warnings} ${result.warnings === 1 ? "warning" : "warnings"}`
-        : "") +
-      ".",
-  );
-  return `${lines.join("\n")}\n`;
-}
-
 async function runInjectedChecks(checkFns: CheckFn[]): Promise<VerifyCheckResult[]> {
   const checks: VerifyCheckResult[] = [];
   for (const checkFn of checkFns) {
-    checks.push(...[await checkFn()].flat());
+    const started = performance.now();
+    checks.push(
+      ...[await checkFn()]
+        .flat()
+        .map((check) => withDuration(check, started)),
+    );
   }
   return checks;
 }
@@ -106,4 +98,17 @@ async function runDefaultChecks(ctx: {
     }),
   );
   return checks;
+}
+
+function withDuration(check: VerifyCheckResult, started: number): VerifyCheckResult {
+  return {
+    ...check,
+    durationMs: Math.max(0, Math.round(performance.now() - started)),
+  };
+}
+
+function overallStatus(checks: CheckResult[]): CheckStatus {
+  if (checks.some((check) => check.status === "fail")) return "fail";
+  if (checks.some((check) => check.status === "warn")) return "warn";
+  return "pass";
 }

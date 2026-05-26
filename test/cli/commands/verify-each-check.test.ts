@@ -76,7 +76,7 @@ describe("verify checks", () => {
     });
 
     expect(result.status).toBe("fail");
-    expect(result.fix).toContain("dashboard");
+    expect(result.suggestedFix).toContain("dashboard");
   });
 
   it("search check passes when the pipeline returns at least one result", async () => {
