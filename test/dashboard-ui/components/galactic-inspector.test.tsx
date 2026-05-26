@@ -48,13 +48,13 @@ describe("Galactic inspector", () => {
     expect(screen.getByText("wiki/projects/memory-system.md")).toBeInTheDocument();
     expect(screen.getByText("#memory")).toBeInTheDocument();
     expect(screen.getByText("#graph")).toBeInTheDocument();
-    expect(screen.getByText("References ->")).toBeInTheDocument();
-    expect(screen.getByText("<- Referenced by")).toBeInTheDocument();
+    expect(screen.getByText(/References →/)).toBeInTheDocument();
+    expect(screen.getByText(/← Referenced by/)).toBeInTheDocument();
     expect(screen.getByText("Voyage")).toBeInTheDocument();
     expect(screen.getByText("Wiki")).toBeInTheDocument();
-    expect(screen.getByText(/mass 0\.13/)).toBeInTheDocument();
+    expect(screen.getByText(/0\.13/)).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Open Memory" }));
+    fireEvent.click(screen.getByRole("button", { name: /Open Memory/ }));
 
     expect(onOpenMemory).toHaveBeenCalledWith("wiki/projects/memory-system.md");
   });

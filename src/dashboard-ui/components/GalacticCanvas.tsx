@@ -256,11 +256,10 @@ export const GalacticCanvas = forwardRef<GalacticCanvasHandle, GalacticCanvasPro
 export function selectZoomTarget(opts: ZoomTargetOptions): { cx: number; cy: number } {
   if (opts.level === 0) return { cx: 0, cy: 0 };
 
-  const selected = opts.selectedNodeId
-    ? opts.layout.nodes.find((node) => node.path === opts.selectedNodeId)
-    : null;
-  if (selected) return { cx: selected.galaxy.cx, cy: selected.galaxy.cy };
-
+  // Always follow the camera, not the selection. With ~86% of nodes in the
+  // Semantic galaxy, the previous selection-priority logic pulled the camera
+  // back to Semantic on every zoom-level change. Selection-driven panning is
+  // handled by the node-click handler instead.
   const nearest = nearestGalaxyToCamera(opts.layout.galaxies, opts.camera);
   return { cx: nearest.cx, cy: nearest.cy };
 }

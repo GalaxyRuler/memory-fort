@@ -42,7 +42,7 @@ export function GalacticHUD({
         </div>
       </GlassPanel>
       {selectedNode && (
-        <GlassPanel hasBrackets={true} className="pointer-events-auto absolute bottom-3 right-3 max-h-[calc(100vh-7rem)] w-80 overflow-auto bg-surface/70">
+        <GlassPanel hasBrackets={true} className="pointer-events-auto absolute bottom-3 right-3 max-h-[calc(100vh-7rem)] w-[420px] overflow-auto bg-surface/75">
           <Inspector edges={edges} node={selectedNode} nodes={nodes} onOpenMemory={onOpenMemory} onSelectNode={onSelectNode} />
         </GlassPanel>
       )}

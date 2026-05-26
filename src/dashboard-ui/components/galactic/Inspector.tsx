@@ -9,6 +9,13 @@ export interface InspectorProps {
   onSelectNode: (path: string) => void;
 }
 
+const STATUS_STYLES: Record<string, { border: string; bg: string; text: string }> = {
+  active: { border: "border-status-green/40", bg: "bg-status-green/10", text: "text-status-green" },
+  superseded: { border: "border-status-amber/40", bg: "bg-status-amber/10", text: "text-status-amber" },
+  draft: { border: "border-status-red/40", bg: "bg-status-red/10", text: "text-status-red" },
+  archived: { border: "border-text-muted/40", bg: "bg-text-muted/10", text: "text-text-muted" },
+};
+
 export function Inspector({ edges, node, nodes, onOpenMemory, onSelectNode }: InspectorProps) {
   if (!node) return null;
 
@@ -16,18 +23,23 @@ export function Inspector({ edges, node, nodes, onOpenMemory, onSelectNode }: In
   const outbound = edges.filter((edge) => edge.fromPath === node.path).map((edge) => nodeByPath(nodes, edge.toPath));
   const inbound = edges.filter((edge) => edge.toPath === node.path).map((edge) => nodeByPath(nodes, edge.fromPath));
   const mass = Math.min(1, node.inboundCount / 16);
+  const statusStyle = STATUS_STYLES[node.status] ?? STATUS_STYLES.active;
+  const confidencePct = Math.round((node.confidence ?? 0) * 100);
+  const isDraft = (node.confidence ?? 0) < 0.5;
 
   return (
-    <div className="space-y-4 text-xs text-text-secondary">
+    <div className="space-y-4 text-[13px] leading-relaxed text-text-secondary">
       <header>
-        <div className="mb-2 flex items-center justify-between gap-3">
-          <div className="min-w-0">
-            <p className="font-mono text-[10px] uppercase tracking-wider text-text-muted">
-              {COGNITIVE_META[node.cognitiveType].label} / {DOMAIN_META[domain].label}
-            </p>
-            <h2 className="break-words text-base font-semibold text-text-primary">{node.title}</h2>
-          </div>
-          <span className="flex-shrink-0 rounded border border-status-green/40 bg-status-green/10 px-2 py-0.5 font-mono text-[10px] uppercase text-status-green">
+        <p className="mb-1 font-mono text-[10px] uppercase tracking-[0.2em] text-text-muted">
+          {COGNITIVE_META[node.cognitiveType].label} · {DOMAIN_META[domain].label}
+        </p>
+        <div className="mb-2 flex items-start gap-2">
+          <h2 className="min-w-0 flex-1 break-words text-[17px] font-semibold leading-tight text-text-primary">
+            {node.title}
+          </h2>
+          <span
+            className={`flex-shrink-0 rounded border px-2 py-0.5 font-mono text-[9px] uppercase tracking-[0.1em] ${statusStyle.border} ${statusStyle.bg} ${statusStyle.text}`}
+          >
             {node.status}
           </span>
         </div>
@@ -38,67 +50,98 @@ export function Inspector({ edges, node, nodes, onOpenMemory, onSelectNode }: In
       </header>
 
       <section>
-        <div className="mb-1 flex items-center justify-between font-mono text-[11px] text-text-muted">
-          <span>confidence {Math.round((node.confidence ?? 0) * 100)}%</span>
+        <div className="h-1 overflow-hidden rounded-full bg-surface-3">
+          <div
+            className="h-full rounded-full bg-gradient-to-r from-status-green to-amber-500 transition-all duration-300"
+            style={{ width: `${confidencePct}%` }}
+          />
         </div>
-        <div className="h-1.5 overflow-hidden rounded bg-surface-3">
-          <div className="h-full rounded bg-primary" style={{ width: `${Math.round((node.confidence ?? 0) * 100)}%` }} />
-        </div>
+        <p className="mt-1 font-mono text-[10px] text-text-muted">
+          confidence {confidencePct}%{isDraft && " · ⚠ DRAFT"}
+        </p>
       </section>
 
-      <p className="max-h-24 overflow-auto text-sm leading-5 text-text-secondary">{node.description || "No description available."}</p>
-
-      <dl className="grid grid-cols-2 gap-2 rounded border border-border-subtle bg-background/30 p-3 font-mono text-[11px]">
-        <Meta label="source" value={node.source} />
-        <Meta label="created" value={node.created ?? "-"} />
-        <Meta label="updated" value={node.updated ?? "-"} />
-        <Meta label="inbound" value={String(node.inboundCount)} />
-        <Meta label="outbound" value={String(node.outboundCount)} />
-        <Meta label="id" value={node.path} wide />
-      </dl>
-
-      {node.tags.length > 0 && (
-        <div className="flex flex-wrap gap-1.5">
-          {node.tags.map((tag) => (
-            <span key={tag} className="rounded border border-border-subtle bg-surface/70 px-1.5 py-0.5 font-mono text-[10px] text-text-muted">
-              #{tag}
-            </span>
-          ))}
-        </div>
+      {node.description && (
+        <p className="max-h-32 overflow-auto border-l-2 border-border-subtle pl-3 text-[13px] leading-relaxed text-text-primary">
+          {node.description}
+        </p>
       )}
 
-      <RelationList direction="out" nodes={outbound} onSelectNode={onSelectNode} title="References ->" />
-      <RelationList direction="in" nodes={inbound} onSelectNode={onSelectNode} title="<- Referenced by" />
+      <section>
+        <SectionTitle>Metadata</SectionTitle>
+        <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 font-mono text-[11px]">
+          <Meta label="source" value={node.source} />
+          <Meta label="created" value={node.created ?? "—"} />
+          <Meta label="updated" value={node.updated ?? "—"} />
+          <Meta label="inbound" value={String(node.inboundCount)} />
+          <Meta label="outbound" value={String(node.outboundCount)} />
+          <Meta label="id" value={node.path} muted />
+        </dl>
+      </section>
 
-      <div className="rounded border border-border-subtle bg-surface/50 p-2 font-mono text-[11px] text-text-muted">
-        mass {mass.toFixed(2)} - pull to core {Math.round(mass * 0.5 * 100)}% - galaxy {COGNITIVE_META[node.cognitiveType].label} - system {DOMAIN_META[domain].label}
+      {node.tags.length > 0 && (
+        <section>
+          <SectionTitle>Tags</SectionTitle>
+          <div className="flex flex-wrap gap-1">
+            {node.tags.map((tag) => (
+              <span
+                key={tag}
+                className="rounded border border-amber-500/30 bg-amber-500/8 px-1.5 py-0.5 font-mono text-[10px] text-amber-400"
+              >
+                #{tag}
+              </span>
+            ))}
+          </div>
+        </section>
+      )}
+
+      <RelationList direction="out" nodes={outbound} onSelectNode={onSelectNode} title="References →" />
+      <RelationList direction="in" nodes={inbound} onSelectNode={onSelectNode} title="← Referenced by" />
+
+      <div className="rounded border border-border-subtle bg-background/40 px-3 py-2 font-mono text-[10px] leading-relaxed text-text-muted">
+        <span className="text-text-secondary">mass</span> {mass.toFixed(2)}
+        <span className="mx-1.5">·</span>
+        <span className="text-text-secondary">pull→core</span> {Math.round(mass * 0.5 * 100)}%
+        <span className="mx-1.5">·</span>
+        <span className="text-text-secondary">galaxy</span> {COGNITIVE_META[node.cognitiveType].label}
+        <span className="mx-1.5">·</span>
+        <span className="text-text-secondary">system</span> {DOMAIN_META[domain].label}
       </div>
 
       <button
         type="button"
-        className="w-full rounded-md bg-primary px-3 py-2 text-sm font-medium text-background transition-opacity hover:opacity-90"
+        className="w-full rounded border border-amber-500/40 bg-amber-500/10 px-3 py-2 font-mono text-[11px] font-semibold uppercase tracking-[0.1em] text-amber-400 transition-colors hover:border-amber-500/60 hover:bg-amber-500/20"
         onClick={() => onOpenMemory(node.path)}
       >
-        Open Memory
+        ▸ Open Memory
       </button>
     </div>
   );
 }
 
+function SectionTitle({ children }: { children: string }) {
+  return (
+    <h3 className="mb-2 font-mono text-[9px] uppercase tracking-[0.2em] text-text-muted">{children}</h3>
+  );
+}
+
 function Pill({ children, color }: { children: string; color: string }) {
   return (
-    <span className="rounded border px-2 py-0.5 font-mono text-[10px]" style={{ borderColor: color, color, backgroundColor: `${color}20` }}>
+    <span
+      className="rounded border px-2 py-0.5 font-mono text-[10px] font-medium"
+      style={{ borderColor: `${color}66`, color, backgroundColor: `${color}1a` }}
+    >
       {children}
     </span>
   );
 }
 
-function Meta({ label, value, wide = false }: { label: string; value: string; wide?: boolean }) {
+function Meta({ label, value, muted = false }: { label: string; value: string; muted?: boolean }) {
   return (
-    <div className={wide ? "col-span-2 min-w-0" : "min-w-0"}>
-      <dt className="text-text-muted">{label}</dt>
-      <dd className="truncate text-text-primary">{value}</dd>
-    </div>
+    <>
+      <dt className="text-[9px] uppercase tracking-[0.06em] text-text-muted">{label}</dt>
+      <dd className={`truncate ${muted ? "text-text-muted" : "text-text-primary"}`}>{value}</dd>
+    </>
   );
 }
 
@@ -115,20 +158,21 @@ function RelationList({
 }) {
   return (
     <section>
-      <h3 className="mb-1 font-mono text-[11px] uppercase tracking-wider text-text-muted">
-        {title} <span className="text-text-ghost">{nodes.length}</span>
+      <h3 className="mb-1 font-mono text-[9px] uppercase tracking-[0.2em] text-text-muted">
+        {title} <span className="ml-1 text-text-ghost">· {nodes.length}</span>
       </h3>
       <div className="space-y-1">
         {nodes.length === 0 ? (
-          <div className="rounded border border-border-subtle bg-background/30 px-2 py-1 font-mono text-[11px] text-text-muted">none</div>
+          <div className="font-mono text-[10px] text-text-muted">none</div>
         ) : (
           nodes.map((item) => (
             <button
               key={`${direction}:${item.path}`}
               type="button"
-              className="block w-full truncate rounded border border-border-subtle bg-background/30 px-2 py-1 text-left text-xs text-text-secondary transition-colors hover:border-primary/40 hover:text-text-primary"
+              className="block w-full truncate rounded px-2 py-1 text-left font-mono text-[11px] text-text-secondary transition-colors hover:bg-cyan-500/8 hover:text-cyan-400"
               onClick={() => onSelectNode(item.path)}
             >
+              <span className="mr-1.5 text-text-muted">{direction === "out" ? "→" : "←"}</span>
               {item.title}
             </button>
           ))

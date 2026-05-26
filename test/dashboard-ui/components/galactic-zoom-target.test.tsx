@@ -32,19 +32,24 @@ describe("galactic zoom target selection", () => {
     },
   );
 
-  it("targets the selected node galaxy when a node is selected", () => {
+  it("follows the camera (not the selection) on zoom-level change", () => {
+    // Selection-priority pulled the camera back to whatever galaxy the
+    // last-selected node lived in — with 86% of nodes in Semantic, that
+    // meant every zoom-level click felt like 'pulled to Semantic'.
+    // Fix: always follow the camera. Click-to-pan is a separate concern.
     const layout = buildGalacticLayout(fixtureNodes, []);
 
     const target = selectZoomTarget({
       camera: { camX: layout.galaxies.core.cx, camY: layout.galaxies.core.cy, scale: 0.18 },
       layout,
       level: 2,
-      selectedNodeId: "procedural.md",
+      selectedNodeId: "procedural.md", // selected node lives in procedural galaxy
     });
 
+    // Camera is at core, so we stay at core regardless of selection.
     expect(target).toEqual({
-      cx: layout.galaxies.procedural.cx,
-      cy: layout.galaxies.procedural.cy,
+      cx: layout.galaxies.core.cx,
+      cy: layout.galaxies.core.cy,
     });
   });
 
