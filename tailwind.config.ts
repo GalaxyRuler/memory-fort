@@ -53,6 +53,12 @@ export default {
           people: "#f472b6",
           "raw-session": "#5c6478",
         },
+        cognitive: {
+          core: "#f0f6fc",
+          semantic: "#58a6ff",
+          episodic: "#f59e0b",
+          procedural: "#3fb950",
+        },
       },
       fontFamily: {
         sans: ['"Inter"', "ui-sans-serif", "system-ui", "sans-serif"],
