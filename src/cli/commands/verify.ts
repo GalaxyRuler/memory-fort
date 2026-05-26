@@ -39,6 +39,12 @@ export interface VerifyResult {
   exitCode: 0 | 1;
 }
 
+export function parseVerifyRole(value: string | undefined): VerifyRole | undefined {
+  if (value === undefined) return undefined;
+  if (value === "operator" || value === "server") return value;
+  throw new Error("invalid role; expected operator or server");
+}
+
 export async function runVerify(opts: VerifyOptions = {}): Promise<VerifyResult> {
   const now = opts.now ?? (() => new Date());
   const role = opts.role ?? opts.detectRoleFn?.() ?? detectRole();

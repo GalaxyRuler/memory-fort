@@ -30,7 +30,7 @@ import { runStats, formatStatsResult } from "./cli/commands/stats.js";
 import { runSync, formatSyncSuccess } from "./cli/commands/sync.js";
 import { runSyncBootstrap } from "./cli/commands/sync-bootstrap.js";
 import { runTailErrors } from "./cli/commands/tail-errors.js";
-import { formatVerifyResult, runVerify } from "./cli/commands/verify.js";
+import { formatVerifyResult, parseVerifyRole, runVerify } from "./cli/commands/verify.js";
 import {
   formatVerifyScheduleResult,
   runVerifySchedule,
@@ -532,12 +532,14 @@ program
   .command("verify")
   .description("End-to-end health check for vault, sync, dashboard, search, and client capture")
   .option("--offline", "skip network checks such as git remote and dashboard")
+  .option("--role <role>", "operator | server")
   .option("--json", "emit structured VerifyReport JSON")
   .option("--schedule <action>", "install | uninstall | status")
   .option("--daily <HH:MM>", "daily local time for scheduled verify (default: 09:00)")
   .option("--shell <shell>", "scheduler shell override: powershell | systemd")
   .action(async (opts: {
     offline?: boolean;
+    role?: string;
     json?: boolean;
     schedule?: VerifyScheduleAction;
     daily?: string;
@@ -553,7 +555,14 @@ program
         process.stdout.write(formatVerifyScheduleResult(schedule));
         process.exit(schedule.exitCode);
       }
-      const result = await runVerify({ offline: opts.offline });
+      let role;
+      try {
+        role = parseVerifyRole(opts.role);
+      } catch (err) {
+        console.error(`memory verify failed: ${(err as Error).message}`);
+        process.exit(2);
+      }
+      const result = await runVerify({ offline: opts.offline, role });
       process.stdout.write(
         opts.json
           ? `${JSON.stringify(result, null, 2)}\n`

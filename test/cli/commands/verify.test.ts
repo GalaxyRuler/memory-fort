@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   formatVerifyResult,
+  parseVerifyRole,
   runVerify,
   type CheckDescriptor,
   type CheckResult,
@@ -132,6 +133,13 @@ describe("runVerify", () => {
 
     expect(result.role).toBe("server");
     expect(result.checks.map((check) => check.id)).toEqual(["server check"]);
+  });
+
+  it("parses verify role flag values", () => {
+    expect(parseVerifyRole(undefined)).toBeUndefined();
+    expect(parseVerifyRole("server")).toBe("server");
+    expect(parseVerifyRole("operator")).toBe("operator");
+    expect(() => parseVerifyRole("bogus")).toThrow("invalid role");
   });
 });
 
