@@ -126,7 +126,7 @@ describe("Galactic GraphPage", () => {
     expect(screen.getByText("Core Memory")).toBeInTheDocument();
     expect(canvasCalls.focusNode).toHaveBeenCalledWith("wiki/projects/core.md");
 
-    fireEvent.click(screen.getByRole("button", { name: "Open Memory" }));
+    fireEvent.click(screen.getByRole("button", { name: /Open Memory/ }));
     expect(screen.getByTestId("memory-modal")).toHaveTextContent("wiki/projects/core.md");
   });
 

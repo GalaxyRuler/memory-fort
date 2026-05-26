@@ -114,10 +114,13 @@ export const GalacticCanvas = forwardRef<GalacticCanvasHandle, GalacticCanvasPro
 
   useImperativeHandle(ref, () => ({ focusNode, setZoomLevel }), [focusNode, setZoomLevel]);
 
-  useEffect(() => {
-    if (zoomLevel === undefined) return;
-    setZoomLevel(zoomLevel);
-  }, [setZoomLevel, zoomLevel]);
+  // NOTE: deliberately NOT syncing the `zoomLevel` prop back into the camera.
+  // The canvas owns its camera; mouse-wheel zoom adjusts cameraRef directly
+  // (handleWheel) and emits onZoomLevelChange. If we re-applied the resulting
+  // prop back via setZoomLevel here, every wheel tick would snap the camera to
+  // a galaxy center at the level's preset scale — undoing the cursor zoom.
+  // Imperative camera changes (HUD chips, keys 1/2/3) go through
+  // canvasRef.setZoomLevel directly and don't depend on this prop.
 
   useEffect(() => {
     const canvas = canvasRef.current;
