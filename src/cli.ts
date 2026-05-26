@@ -6,6 +6,7 @@ import { runDoctor, formatDoctorResult } from "./cli/commands/doctor.js";
 import { registerEvalCommand } from "./cli/commands/eval.js";
 import { runGrep, type GrepScope } from "./cli/commands/grep.js";
 import { runInit } from "./cli/commands/init.js";
+import { runBackfill } from "./cli/commands/backfill.js";
 import { runImportAgentMemory } from "./cli/commands/import-agentmemory.js";
 import { runInstall } from "./cli/commands/install.js";
 import { runInstallTailscaleRoute } from "./cli/commands/install-tailscale-route.js";
@@ -401,6 +402,28 @@ program
       const result = await runImportAgentMemory({
         from: opts.from,
         mode: opts.apply ? "apply" : "plan",
+      });
+      process.stdout.write(result.report);
+    } catch (err) {
+      console.error((err as Error).message);
+      process.exit(1);
+    }
+  });
+
+program
+  .command("backfill")
+  .description("Import historical sessions from supported local client stores")
+  .option("--from <client>", "client to backfill (default: all)")
+  .option("--since <date>", "oldest session mtime to include (default: 30 days ago)")
+  .option("--plan", "dry-run report")
+  .option("--apply", "apply backfill explicitly (default when --plan is absent)")
+  .action(async (opts: { from?: string; since?: string; plan?: boolean; apply?: boolean }) => {
+    try {
+      const result = await runBackfill({
+        from: opts.from,
+        since: opts.since,
+        plan: opts.plan,
+        apply: opts.apply,
       });
       process.stdout.write(result.report);
     } catch (err) {
