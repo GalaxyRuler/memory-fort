@@ -15,8 +15,8 @@ vi.mock("../../../src/dashboard-ui/hooks/useGraph.js", async (importOriginal) =>
   };
 });
 
-vi.mock("../../../src/dashboard-ui/components/GraphCanvas.js", () => ({
-  GraphCanvas: () => <div data-testid="graph-canvas">3D graph canvas</div>,
+vi.mock("../../../src/dashboard-ui/components/GalacticCanvas.js", () => ({
+  GalacticCanvas: () => <div data-testid="galactic-canvas-shell">galactic graph canvas</div>,
 }));
 
 const originalMatchMedia = window.matchMedia;
@@ -94,6 +94,6 @@ describe("GraphPage mobile fallback", () => {
     expect(screen.getByText("Memory System")).toBeInTheDocument();
     expect(screen.getByText("decisions")).toBeInTheDocument();
     expect(screen.getByText("Mobile Dashboard")).toBeInTheDocument();
-    expect(screen.queryByTestId("graph-canvas")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("galactic-canvas-shell")).not.toBeInTheDocument();
   });
 });

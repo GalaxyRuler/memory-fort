@@ -13,7 +13,6 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks: {
-          "graph-engine": ["three", "react-force-graph-3d"],
           markdown: ["react-markdown", "remark-gfm"],
         },
       },
