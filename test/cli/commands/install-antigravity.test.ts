@@ -128,8 +128,57 @@ describe("installAntigravity", () => {
     const result = await installAntigravity({
       antigravityDir,
       surface: "both",
+      antigravityVersion: "2.0.0",
     });
     expect(result.surfaces).toEqual(["workspace", "ide"]);
     expect(result.mcpConfigPath).toBe(join(antigravityDir, "mcp_config.json"));
+  });
+
+  it("installs the Antigravity 2.0 live-capture plugin with all hook handlers", async () => {
+    const result = await installAntigravity({
+      antigravityDir,
+      antigravityVersion: "2.1.0",
+    });
+
+    expect(result.livePluginInstalled).toBe(true);
+    expect(result.pluginDir).toBe(join(antigravityDir, "plugins", "memory"));
+
+    const manifest = JSON.parse(
+      await readFile(join(result.pluginDir, "plugin.json"), "utf-8"),
+    );
+    expect(manifest.name).toBe("memory");
+    expect(manifest.hooks).toBe("./hooks.json");
+
+    const hooks = JSON.parse(await readFile(join(result.pluginDir, "hooks.json"), "utf-8"));
+    expect(Object.keys(hooks.hooks).sort()).toEqual([
+      "context_compaction",
+      "post_tool_call",
+      "post_turn",
+      "pre_tool_call",
+      "pre_turn",
+      "session_end",
+      "session_start",
+      "tool_error_recovery",
+      "user_interaction_handling",
+    ]);
+
+    for (const hookName of Object.keys(hooks.hooks)) {
+      const command = hooks.hooks[hookName][0].command as string;
+      expect(command).toContain(`hooks/${hookName}.mjs`);
+      expect(existsSync(join(result.pluginDir, "hooks", `${hookName}.mjs`))).toBe(true);
+    }
+  });
+
+  it("skips live-capture plugin install gracefully when Antigravity is older than 2.0", async () => {
+    const result = await installAntigravity({
+      antigravityDir,
+      antigravityVersion: "1.23.2",
+    });
+
+    expect(result.livePluginInstalled).toBe(false);
+    expect(result.pluginDir).toBe(join(antigravityDir, "plugins", "memory"));
+    expect(existsSync(result.mcpConfigPath)).toBe(true);
+    expect(existsSync(result.pluginDir)).toBe(false);
+    expect(result.log.join("\n")).toContain("Antigravity 2.0 required for live capture");
   });
 });
