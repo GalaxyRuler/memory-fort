@@ -26,12 +26,36 @@ describe("BM25 consolidation augmentation", () => {
           "React cards sidebar route transitions visual layout navigation density.",
         ),
       ],
+      { threshold: 5 },
     );
 
     expect(matches).toHaveLength(1);
     expect(matches[0]!.relPath).toBe("wiki/decisions/voyage-ai-for-embeddings.md");
     expect(matches[0]!.confidence).toBeGreaterThanOrEqual(0.5);
     expect(matches[0]!.confidence).toBeLessThanOrEqual(0.8);
+  });
+
+  it("does not propose audit logs as semantic consolidation targets", () => {
+    const matches = findBM25Mentions(
+      "agentmemory migration imported memories from a legacy stream store",
+      [
+        wiki(
+          "wiki/.audit/agentmemory-migration-2026-05-26.md",
+          "agentmemory migration audit",
+          "agentmemory migration imported legacy stream store entries",
+        ),
+        wiki(
+          "wiki/projects/agentmemory.md",
+          "agentmemory",
+          "agentmemory legacy plugin migration and memory import strategy",
+        ),
+      ],
+      { threshold: 0.1 },
+    );
+
+    expect(matches.map((match) => match.relPath)).toEqual([
+      "wiki/projects/agentmemory.md",
+    ]);
   });
 
   it("scores only wiki pages and caps results to topK", () => {

@@ -43,6 +43,8 @@ export interface ConsolidateResult {
   plans: ConsolidatePlan[];
   summary: {
     scanned: number;
+    proposed: number;
+    proposedEdges: number;
     updated: number;
     newEdges: number;
   };
@@ -73,6 +75,8 @@ export async function runConsolidatePlan(
       willWrite: proposedRelations.length > 0,
     };
   });
+  const proposed = plans.filter((plan) => plan.willWrite).length;
+  const proposedEdges = plans.reduce((sum, plan) => sum + plan.proposedRelations.length, 0);
 
   let updated = 0;
   let newEdges = 0;
@@ -94,6 +98,8 @@ export async function runConsolidatePlan(
     );
     await atomicWrite(auditLogPath, formatConsolidateAudit(plans, {
       scanned: observations.length,
+      proposed,
+      proposedEdges,
       updated,
       newEdges,
     }, opts.now ?? new Date()));
@@ -104,6 +110,8 @@ export async function runConsolidatePlan(
     plans,
     summary: {
       scanned: observations.length,
+      proposed,
+      proposedEdges,
       updated,
       newEdges,
     },
@@ -160,6 +168,8 @@ function formatConsolidateAudit(
     "",
     `started: ${now.toISOString()}`,
     `total scanned: ${summary.scanned}`,
+    `total proposed observations: ${summary.proposed}`,
+    `total proposed edges: ${summary.proposedEdges}`,
     `total updated: ${summary.updated}`,
     `total new edges: ${summary.newEdges}`,
     "",

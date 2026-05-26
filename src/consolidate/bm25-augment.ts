@@ -11,7 +11,7 @@ export interface ConsolidationMention extends Match {
   source: "lexical" | "bm25" | "both";
 }
 
-const DEFAULT_THRESHOLD = 5.0;
+const DEFAULT_THRESHOLD = 200;
 const DEFAULT_TOP_K = 10;
 
 export function findBM25Mentions(
@@ -21,7 +21,9 @@ export function findBM25Mentions(
 ): ConsolidationMention[] {
   const threshold = opts.threshold ?? DEFAULT_THRESHOLD;
   const topK = opts.topK ?? DEFAULT_TOP_K;
-  const wikiDocs = corpus.filter((doc) => doc.kind === "wiki");
+  const wikiDocs = corpus.filter((doc) =>
+    doc.kind === "wiki" && !doc.relPath.startsWith("wiki/.audit/")
+  );
   const docsByPath = new Map(wikiDocs.map((doc) => [doc.relPath, doc]));
   const index = buildBm25Index(
     wikiDocs.map((doc) => ({

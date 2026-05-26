@@ -35,6 +35,8 @@ export function formatConsolidateResult(result: ConsolidateResult): string {
   const lines = [
     `Memory consolidate ${result.mode}`,
     `scanned: ${result.summary.scanned}`,
+    `proposed observations: ${result.summary.proposed}`,
+    `proposed edges: ${result.summary.proposedEdges}`,
     `updated: ${result.summary.updated}`,
     `new edges: ${result.summary.newEdges}`,
   ];

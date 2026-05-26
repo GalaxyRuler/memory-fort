@@ -119,6 +119,8 @@ describe("runBackfill", () => {
       plans: [],
       summary: {
         scanned: 1,
+        proposed: 1,
+        proposedEdges: 1,
         updated: 1,
         newEdges: 1,
       },

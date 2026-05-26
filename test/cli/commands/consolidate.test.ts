@@ -53,6 +53,8 @@ describe("runConsolidate", () => {
     });
 
     expect(result.summary.scanned).toBe(2);
+    expect(result.summary.proposed).toBe(1);
+    expect(result.summary.proposedEdges).toBe(2);
     expect(result.summary.updated).toBe(0);
     expect(result.plans.find((plan) => plan.observation.endsWith("codex-session.md"))?.willWrite).toBe(true);
     expect(formatConsolidateResult(result)).toContain("Memory consolidate plan");
@@ -83,6 +85,8 @@ describe("runConsolidate", () => {
 
     const audit = await readFile(result.auditLogPath!, "utf-8");
     expect(audit).toContain("total scanned: 2");
+    expect(audit).toContain("total proposed observations: 1");
+    expect(audit).toContain("total proposed edges: 2");
     expect(audit).toContain("total updated: 1");
     expect(audit).toContain("Voyage AI");
   });

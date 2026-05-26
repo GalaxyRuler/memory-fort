@@ -81,6 +81,22 @@ describe("title consolidation index", () => {
     ]);
   });
 
+  it("excludes audit logs from title matching targets", () => {
+    const index = buildTitleIndex([
+      wiki("wiki/.audit/consolidate-2026-05-27.md", "consolidate audit"),
+      wiki("wiki/projects/memory-fort.md", "Memory Fort"),
+    ]);
+
+    const matches = findTitleMentions(
+      "The consolidate audit mentioned Memory Fort.",
+      index,
+    );
+
+    expect(matches.map((match) => match.relPath)).toEqual([
+      "wiki/projects/memory-fort.md",
+    ]);
+  });
+
   it("deduplicates repeated hits by page and keeps the earliest position", () => {
     const index = buildTitleIndex([
       wiki("wiki/projects/memory-fort.md", "Memory Fort"),
