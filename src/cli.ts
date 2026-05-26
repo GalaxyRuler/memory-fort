@@ -3,6 +3,7 @@ import { Command } from "commander";
 import { runCompile } from "./cli/commands/compile.js";
 import { formatConnectResult, runConnect } from "./cli/commands/connect.js";
 import { runDoctor, formatDoctorResult } from "./cli/commands/doctor.js";
+import { registerEvalCommand } from "./cli/commands/eval.js";
 import { runGrep, type GrepScope } from "./cli/commands/grep.js";
 import { runInit } from "./cli/commands/init.js";
 import { runImportAgentMemory } from "./cli/commands/import-agentmemory.js";
@@ -27,6 +28,8 @@ program
   .name("memory")
   .description("Cross-tool memory system CLI")
   .version("0.1.0");
+
+registerEvalCommand(program);
 
 program
   .command("init")

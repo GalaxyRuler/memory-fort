@@ -4,6 +4,7 @@ dist/
 coverage/
 .vitest/
 src/dashboard-ui/routeTree.gen.ts
+~/.memory/datasets/
 
 # Brainstorming session working dir (visual companion server)
 .superpowers/
