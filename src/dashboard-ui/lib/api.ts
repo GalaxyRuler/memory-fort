@@ -1,4 +1,4 @@
-const API_BASE = "/memory/api";
+export const API_BASE = "/memory/api";
 
 export class ApiError extends Error {
   constructor(

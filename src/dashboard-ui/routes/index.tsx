@@ -1,5 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { GlassPanel } from "../components/GlassPanel.js";
+import { HealthBadge } from "../components/HealthBadge.js";
 import { NeedsAttention } from "../components/NeedsAttention.js";
 import { StatCard } from "../components/StatCard.js";
 import { useActivity } from "../hooks/useActivity.js";
@@ -104,6 +105,8 @@ function OverviewScreen() {
           <span>head: {status.data?.repoHead?.shortSha || "untracked"}</span>
         </div>
       </header>
+
+      <HealthBadge />
 
       {/* Top Row: 4 Metric Cards */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
