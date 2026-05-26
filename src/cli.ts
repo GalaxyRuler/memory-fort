@@ -27,6 +27,7 @@ import { runSync, formatSyncSuccess } from "./cli/commands/sync.js";
 import { runSyncBootstrap } from "./cli/commands/sync-bootstrap.js";
 import { runTailErrors } from "./cli/commands/tail-errors.js";
 import { formatVerifyResult, runVerify } from "./cli/commands/verify.js";
+import { formatWatchResult, runWatch } from "./cli/commands/watch.js";
 
 const program = new Command();
 
@@ -487,6 +488,28 @@ program
       process.exit(result.exitCode);
     } catch (err) {
       console.error(`memory verify failed: ${(err as Error).message}`);
+      process.exit(1);
+    }
+  });
+
+program
+  .command("watch")
+  .description("Run live capture watchers for supported local clients")
+  .option("--clients <list>", "comma-separated clients to watch")
+  .action(async (opts: { clients?: string }) => {
+    const shutdown = new Promise<void>((resolve) => {
+      process.once("SIGINT", resolve);
+      process.once("SIGTERM", resolve);
+    });
+    try {
+      const result = await runWatch({
+        clients: opts.clients,
+        shutdown,
+        onStatus: (line) => process.stderr.write(`${line}\n`),
+      });
+      process.stderr.write(formatWatchResult(result));
+    } catch (err) {
+      console.error(`memory watch failed: ${(err as Error).message}`);
       process.exit(1);
     }
   });
