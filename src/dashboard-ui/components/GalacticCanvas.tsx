@@ -396,12 +396,30 @@ function drawSystemLabel(ctx: CanvasRenderingContext2D, system: NonNullable<Gala
 }
 
 function drawEdge(ctx: CanvasRenderingContext2D, edge: GalacticLayout["edges"][number], camera: Camera, size: { width: number; height: number }, elapsed: number, selectedId: string | null): void {
-  const lens = edgeLensing(edge.source, edge.target, edge.source.galaxy, edge.weight);
   const source = worldToScreen(edge.source, camera, size);
   const target = worldToScreen(edge.target, camera, size);
-  const control = worldToScreen({ x: lens.controlX, y: lens.controlY }, camera, size);
   const highlighted = selectedId === edge.source.path || selectedId === edge.target.path;
   const crossGalaxy = edge.source.cognitiveType !== edge.target.cognitiveType;
+  // Cross-galaxy edges go nearly straight (slight bow toward world origin so
+  // they don't intersect dead-center). Within-galaxy edges keep the dramatic
+  // lensing toward their galactic anchor.
+  let control: { x: number; y: number };
+  if (crossGalaxy) {
+    const midX = (edge.source.x + edge.target.x) / 2;
+    const midY = (edge.source.y + edge.target.y) / 2;
+    // Tiny bow toward world origin keeps lines slightly curved (avoids
+    // overlapping straight lines when many edges share endpoints).
+    const dist = Math.hypot(midX, midY) || 1;
+    const bow = 40;
+    control = worldToScreen(
+      { x: midX - (midX / dist) * bow, y: midY - (midY / dist) * bow },
+      camera,
+      size,
+    );
+  } else {
+    const lens = edgeLensing(edge.source, edge.target, edge.source.galaxy, edge.weight);
+    control = worldToScreen({ x: lens.controlX, y: lens.controlY }, camera, size);
+  }
   const style = computeEdgeRenderStyle({
     highlighted,
     sourceCognitiveType: edge.source.cognitiveType,
