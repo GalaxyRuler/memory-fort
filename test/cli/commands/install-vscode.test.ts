@@ -100,4 +100,24 @@ describe("installVsCode", () => {
     const result = await installVsCode({ installed: true });
     expect(result.configPath).toBe(join(userDir, "mcp.json"));
   });
+
+  it("installs the bundled Memory Fort VS Code extension", async () => {
+    const extensionDir = join(tmp, "extensions");
+
+    const result = await installVsCode({
+      userDir,
+      extensionDir,
+      installed: true,
+    });
+
+    expect(result.extensionInstalled).toBe(true);
+    expect(result.extensionPath).toBe(join(extensionDir, "memory-fort.memory"));
+    const manifest = JSON.parse(
+      await readFile(join(result.extensionPath!, "package.json"), "utf-8"),
+    );
+    expect(manifest.name).toBe("memory");
+    expect(manifest.publisher).toBe("memory-fort");
+    expect(manifest.contributes.chatParticipants[0].id).toBe("memory-fort.memory");
+    expect(existsSync(join(result.extensionPath!, "src", "extension.ts"))).toBe(true);
+  });
 });

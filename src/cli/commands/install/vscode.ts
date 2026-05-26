@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { cp, readFile, rm } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { mcpServerPath, logPath } from "../../../storage/paths.js";
 import { atomicWrite, atomicAppend } from "../../../storage/atomic-write.js";
 
@@ -12,6 +12,10 @@ export interface InstallVsCodeOptions {
   workspace?: string;
   /** Test hook / explicit detection override. */
   installed?: boolean;
+  /** Override VS Code extensions dir for tests or portable installs. */
+  extensionDir?: string;
+  /** Override source repo root containing vscode-extension/. */
+  sourceRepoDir?: string;
   now?: Date;
 }
 
@@ -22,6 +26,8 @@ export interface InstallVsCodeResult {
   configCreated: boolean;
   memoryEntryAction: "created" | "updated" | "unchanged" | "skipped";
   preservedServerCount: number;
+  extensionInstalled?: boolean;
+  extensionPath?: string;
   reason?: string;
   log: string[];
 }
@@ -42,6 +48,13 @@ export function vscodeMcpConfigPath(opts: {
   return opts.workspace
     ? join(opts.workspace, ".vscode", "mcp.json")
     : join(vscodeUserDir(opts.userDir), "mcp.json");
+}
+
+export function vscodeExtensionDir(override?: string): string {
+  if (override) return override;
+  const envOverride = process.env["MEMORY_VSCODE_EXTENSION_DIR"];
+  if (envOverride && envOverride.trim().length > 0) return envOverride;
+  return join(homedir(), ".vscode", "extensions");
 }
 
 export async function installVsCode(
@@ -123,10 +136,16 @@ export async function installVsCode(
       : `${memoryEntryAction} memory MCP server in ${configPath}`,
   );
 
+  const extensionPath = await installBundledExtension({
+    extensionDir: vscodeExtensionDir(opts.extensionDir),
+    sourceRepoDir: opts.sourceRepoDir,
+  });
+  log.push(`installed Memory Fort VS Code extension at ${extensionPath}`);
+
   const now = opts.now ?? new Date();
   await atomicAppend(
     logPath(),
-    `## [${now.toISOString()}] install | vscode: MCP server in ${configPath}\n`,
+    `## [${now.toISOString()}] install | vscode: MCP server in ${configPath}; extension in ${extensionPath}\n`,
   );
 
   return {
@@ -136,6 +155,43 @@ export async function installVsCode(
     configCreated,
     memoryEntryAction,
     preservedServerCount,
+    extensionInstalled: true,
+    extensionPath,
     log,
   };
+}
+
+async function installBundledExtension(opts: {
+  extensionDir: string;
+  sourceRepoDir?: string;
+}): Promise<string> {
+  const source = join(opts.sourceRepoDir ?? resolveRepoDir(), "vscode-extension");
+  if (!existsSync(source)) {
+    throw new Error(`bundled VS Code extension not found: ${source}`);
+  }
+  const target = join(opts.extensionDir, "memory-fort.memory");
+  await rm(target, { recursive: true, force: true });
+  await cp(source, target, { recursive: true });
+  return target;
+}
+
+function resolveRepoDir(): string {
+  const candidates = [
+    process.cwd(),
+    dirname(new URL(import.meta.url).pathname).replace(/^\/(\w):/, "$1:"),
+  ];
+
+  for (const candidate of candidates) {
+    let dir = candidate;
+    for (let i = 0; i < 8; i++) {
+      if (existsSync(join(dir, "package.json")) && existsSync(join(dir, "vscode-extension"))) {
+        return dir;
+      }
+      const parent = dirname(dir);
+      if (parent === dir) break;
+      dir = parent;
+    }
+  }
+
+  throw new Error("Could not locate repo root containing vscode-extension/");
 }
