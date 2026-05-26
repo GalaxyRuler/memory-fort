@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runInit } from "../../../src/cli/commands/init.js";
 import { formatConnectResult, runConnect } from "../../../src/cli/commands/connect.js";
+import type { VerifyResult } from "../../../src/cli/commands/verify.js";
 
 describe("runConnect", () => {
   let tmp: string;
@@ -89,4 +90,49 @@ describe("runConnect", () => {
     });
     expect(result.clients[0]!.detail).toContain(".vscode");
   });
+
+  it("runs verify after a successful connect and appends the report", async () => {
+    let verifyCalls = 0;
+    const result = await runConnect({
+      client: "vscode",
+      vscodeInstalled: true,
+      verifyFn: async () => {
+        verifyCalls += 1;
+        return verifyReport();
+      },
+    });
+
+    expect(verifyCalls).toBe(1);
+    expect(result.verify?.overallStatus).toBe("pass");
+    expect(formatConnectResult(result)).toContain("memory verify");
+  });
+
+  it("skips post-connect verify when disabled", async () => {
+    let verifyCalls = 0;
+    const result = await runConnect({
+      client: "vscode",
+      vscodeInstalled: true,
+      noVerify: true,
+      verifyFn: async () => {
+        verifyCalls += 1;
+        return verifyReport();
+      },
+    });
+
+    expect(verifyCalls).toBe(0);
+    expect(result.verify).toBeUndefined();
+  });
 });
+
+function verifyReport(): VerifyResult {
+  return {
+    startedAt: "2026-05-26T03:30:00.000Z",
+    finishedAt: "2026-05-26T03:30:00.000Z",
+    overallStatus: "pass",
+    checks: [{ id: "vault.read-write", label: "vault read/write", status: "pass", durationMs: 1 }],
+    passed: 1,
+    failed: 0,
+    warnings: 0,
+    exitCode: 0,
+  };
+}

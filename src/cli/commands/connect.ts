@@ -4,12 +4,15 @@ import { runInstallClaudeDesktop } from "./install/claude-desktop.js";
 import { installCodex } from "./install/codex.js";
 import { installVsCode } from "./install/vscode.js";
 import { CLIENTS, type ClientName } from "./client-status.js";
+import { formatVerifyResult, runVerify, type VerifyResult } from "./verify.js";
 
 export interface ConnectOptions {
   all?: boolean;
   client?: ClientName;
   workspace?: string;
   vscodeInstalled?: boolean;
+  noVerify?: boolean;
+  verifyFn?: () => Promise<VerifyResult>;
 }
 
 export interface ConnectClientResult {
@@ -20,6 +23,7 @@ export interface ConnectClientResult {
 
 export interface ConnectResult {
   clients: ConnectClientResult[];
+  verify?: VerifyResult;
   exitCode: number;
 }
 
@@ -46,13 +50,19 @@ export async function runConnect(opts: ConnectOptions = {}): Promise<ConnectResu
   }
 
   const exitCode = clients.every((client) => !client.ok) ? 1 : 0;
-  return { clients, exitCode };
+  const verify = exitCode === 0 && !opts.noVerify
+    ? await (opts.verifyFn ?? (() => runVerify()))()
+    : undefined;
+  return { clients, verify, exitCode };
 }
 
 export function formatConnectResult(result: ConnectResult): string {
-  return result.clients
+  const installOutput = result.clients
     .map((client) => `${client.ok ? "✓" : "✗"} ${client.client.padEnd(18)} ${client.detail}`)
     .join("\n") + "\n";
+  return result.verify
+    ? `${installOutput}\n${formatVerifyResult(result.verify)}`
+    : installOutput;
 }
 
 async function installClient(

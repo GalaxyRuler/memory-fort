@@ -65,12 +65,13 @@ program
   .description("Install hooks + MCP for a platform (claude-code, codex, antigravity, claude-desktop, vscode)")
   .option("--workspace <path>", "workspace path for clients that support workspace-scoped MCP")
   .option("--surface <surface>", "Antigravity surface: workspace | ide | both")
+  .option("--no-verify", "skip post-install memory verify")
   .action(async (
     platform: string,
-    opts: { workspace?: string; surface?: "workspace" | "ide" | "both" },
+    opts: { workspace?: string; surface?: "workspace" | "ide" | "both"; verify?: boolean },
   ) => {
     try {
-      await runInstall(platform, opts);
+      await runInstall(platform, { ...opts, noVerify: opts.verify === false });
     } catch (err) {
       console.error(`memory install ${platform} failed: ${(err as Error).message}`);
       process.exit(1);
@@ -82,15 +83,17 @@ program
   .description("Install MCP/hooks for one client or every supported client")
   .option("--all", "install every supported client")
   .option("--workspace <path>", "workspace path for clients that support workspace-scoped MCP")
+  .option("--no-verify", "skip post-connect memory verify")
   .action(async (
     client: string | undefined,
-    opts: { all?: boolean; workspace?: string },
+    opts: { all?: boolean; workspace?: string; verify?: boolean },
   ) => {
     try {
       const result = await runConnect({
         all: opts.all,
         client: client as never,
         workspace: opts.workspace,
+        noVerify: opts.verify === false,
       });
       process.stdout.write(formatConnectResult(result));
       process.exit(result.exitCode);

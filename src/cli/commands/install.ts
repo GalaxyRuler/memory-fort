@@ -3,6 +3,7 @@ import { installClaudeCode } from "./install/claude-code.js";
 import { runInstallClaudeDesktop } from "./install/claude-desktop.js";
 import { installCodex } from "./install/codex.js";
 import { installVsCode } from "./install/vscode.js";
+import { formatVerifyResult, runVerify, type VerifyResult } from "./verify.js";
 
 export type Platform =
   | "claude-code"
@@ -14,6 +15,8 @@ export type Platform =
 export interface RunInstallOptions {
   workspace?: string;
   surface?: "workspace" | "ide" | "both";
+  noVerify?: boolean;
+  verifyFn?: () => Promise<VerifyResult>;
 }
 
 export async function runInstall(
@@ -34,6 +37,7 @@ export async function runInstall(
       console.log(
         `  3. Plugin MCP config is at: ${result.pluginMcpConfigPath}`,
       );
+      await printVerify(opts);
       return;
     }
     case "codex": {
@@ -49,6 +53,7 @@ export async function runInstall(
         "  2. Both Codex desktop and Codex CLI share ~/.codex/config.toml — one install covers both.",
       );
       console.log("  3. Verify with: codex config show");
+      await printVerify(opts);
       return;
     }
     case "antigravity": {
@@ -70,6 +75,7 @@ export async function runInstall(
       console.log(
         "  3. Hooks ARE active for Claude Code and Codex sessions if you ran their installs.",
       );
+      await printVerify(opts);
       return;
     }
     case "vscode": {
@@ -84,6 +90,7 @@ export async function runInstall(
       console.log("Next steps:");
       console.log("  1. Restart VS Code or run 'MCP: List Servers' from the Command Palette.");
       console.log("  2. Confirm the memory server is listed.");
+      await printVerify(opts);
       return;
     }
     case "claude-desktop": {
@@ -101,6 +108,7 @@ export async function runInstall(
       console.log(
         "  3. Claude Desktop is MCP-only — no hooks are installed for passive capture.",
       );
+      await printVerify(opts);
       return;
     }
     default:
@@ -109,4 +117,11 @@ export async function runInstall(
       );
       process.exit(2);
   }
+}
+
+async function printVerify(opts: RunInstallOptions): Promise<void> {
+  if (opts.noVerify) return;
+  const result = await (opts.verifyFn ?? (() => runVerify()))();
+  console.log("");
+  console.log(formatVerifyResult(result).trimEnd());
 }
