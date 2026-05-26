@@ -21,6 +21,7 @@ type CheckFn = () => Promise<VerifyCheckResult | VerifyCheckResult[]>;
 
 export interface VerifyOptions {
   offline?: boolean;
+  includeSearch?: boolean;
   now?: () => Date;
   checkFns?: CheckFn[];
 }
@@ -45,6 +46,7 @@ export async function runVerify(opts: VerifyOptions = {}): Promise<VerifyResult>
         vaultRoot: memoryRoot(),
         now,
         offline: opts.offline,
+        includeSearch: opts.includeSearch ?? true,
       });
 
   const passed = checks.filter((check) => check.status === "pass").length;
@@ -80,6 +82,7 @@ async function runDefaultChecks(ctx: {
   vaultRoot: string;
   now: () => Date;
   offline?: boolean;
+  includeSearch: boolean;
 }): Promise<VerifyCheckResult[]> {
   const checks: VerifyCheckResult[] = [];
   checks.push(await checkVaultReadWrite(ctx));
@@ -88,7 +91,9 @@ async function runDefaultChecks(ctx: {
   const dashboard = await checkDashboard(ctx);
   checks.push(dashboard);
 
-  checks.push(await checkSearch(ctx));
+  if (ctx.includeSearch) {
+    checks.push(await checkSearch(ctx));
+  }
   checks.push(...await checkClients(ctx));
   checks.push(await checkAutoPush(ctx));
   checks.push(

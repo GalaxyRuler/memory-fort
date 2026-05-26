@@ -2,6 +2,7 @@ import { createServer as createHttpServer, type Server as HttpServer, type Serve
 import { readFile, stat } from "node:fs/promises";
 import { extname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { runVerify, type VerifyResult } from "../cli/commands/verify.js";
 import { runSearch } from "../retrieval/search.js";
 import type { SearchScope } from "../retrieval/corpus.js";
 import type { EmbedClient } from "../retrieval/refresh.js";
@@ -43,6 +44,7 @@ export interface ServerOptions {
   port?: number;
   host?: string;
   loader?: (vaultRoot: string) => Promise<DashboardStatus>;
+  verifyRunner?: (opts: { includeSearch: boolean }) => Promise<VerifyResult>;
   voyageClient?: VoyageClient | null;
   dashboardDistRoot?: string | null;
 }
@@ -218,6 +220,12 @@ function parseLineCount(value: string | null): number {
 }
 
 const SEARCH_SCOPES = new Set<SearchScope>(["wiki", "raw", "crystals", "all"]);
+const HEALTH_CACHE_MS = 25_000;
+
+interface HealthCacheEntry {
+  atMs: number;
+  report: VerifyResult;
+}
 
 function parseSearchBoolean(value: string | null): boolean {
   return value === "true";
@@ -295,9 +303,12 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
   const port = opts.port ?? 4410;
   const host = opts.host ?? "127.0.0.1";
   const loader = opts.loader ?? loadDashboardStatus;
+  const verifyRunner = opts.verifyRunner ?? ((runnerOpts) =>
+    runVerify({ offline: false, includeSearch: runnerOpts.includeSearch }));
   const voyageClient = opts.voyageClient ?? null;
   const embedClient = makeEmbedClient(voyageClient);
   const staticAssets = await resolveStaticAssetsRoot(opts.dashboardDistRoot);
+  const healthCache = new Map<string, HealthCacheEntry>();
 
   const server = createHttpServer(async (req, res) => {
     const method = req.method ?? "GET";
@@ -334,6 +345,25 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
       } catch (err) {
         res.writeHead(500, { "Content-Type": "text/plain; charset=utf-8" });
         res.end(`dashboard failed: ${(err as Error).message}`);
+      }
+      return;
+    }
+
+    if (path === "/api/health") {
+      try {
+        const includeSearch = url.searchParams.get("deep") === "true";
+        const cacheKey = includeSearch ? "deep" : "shallow";
+        const cached = healthCache.get(cacheKey);
+        const nowMs = Date.now();
+        const report = cached && nowMs - cached.atMs < HEALTH_CACHE_MS
+          ? cached.report
+          : await verifyRunner({ includeSearch });
+        if (!cached || nowMs - cached.atMs >= HEALTH_CACHE_MS) {
+          healthCache.set(cacheKey, { atMs: nowMs, report });
+        }
+        writeJson(res, report, report.overallStatus === "fail" ? 503 : 200);
+      } catch (err) {
+        writeJsonError(res, 500, (err as Error).message);
       }
       return;
     }

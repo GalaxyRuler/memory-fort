@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { DashboardStatus } from "../../src/dashboard/loaders.js";
 import { createServer } from "../../src/dashboard/server.js";
+import type { VerifyResult } from "../../src/cli/commands/verify.js";
 import type { VoyageClient } from "../../src/retrieval/voyage-client.js";
 
 function fixture(): DashboardStatus {
@@ -178,6 +179,55 @@ describe("dashboard server", () => {
       expect(response.status).toBe(200);
       expect(response.headers.get("content-type")).toContain("application/json");
       await expect(response.json()).resolves.toEqual(status);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("GET /api/health returns cached shallow verify JSON with monitor-friendly status", async () => {
+    const calls: Array<{ includeSearch?: boolean }> = [];
+    const report = verifyReport("warn");
+    const server = await createServer({
+      vaultRoot: tmp,
+      port: 0,
+      verifyRunner: async (opts) => {
+        calls.push({ includeSearch: opts.includeSearch });
+        return report;
+      },
+    });
+
+    try {
+      const first = await fetch(`http://${server.host}:${server.port}/api/health`);
+      const second = await fetch(`http://${server.host}:${server.port}/api/health`);
+
+      expect(first.status).toBe(200);
+      expect(second.status).toBe(200);
+      await expect(first.json()).resolves.toEqual(report);
+      await expect(second.json()).resolves.toEqual(report);
+      expect(calls).toEqual([{ includeSearch: false }]);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("GET /api/health?deep=true includes search checks and returns 503 for failures", async () => {
+    const calls: Array<{ includeSearch?: boolean }> = [];
+    const report = verifyReport("fail");
+    const server = await createServer({
+      vaultRoot: tmp,
+      port: 0,
+      verifyRunner: async (opts) => {
+        calls.push({ includeSearch: opts.includeSearch });
+        return report;
+      },
+    });
+
+    try {
+      const response = await fetch(`http://${server.host}:${server.port}/api/health?deep=true`);
+
+      expect(response.status).toBe(503);
+      await expect(response.json()).resolves.toEqual(report);
+      expect(calls).toEqual([{ includeSearch: true }]);
     } finally {
       await server.close();
     }
@@ -896,3 +946,24 @@ describe("dashboard server", () => {
     }
   });
 });
+
+function verifyReport(overallStatus: VerifyResult["overallStatus"]): VerifyResult {
+  return {
+    startedAt: "2026-05-26T03:30:00.000Z",
+    finishedAt: "2026-05-26T03:30:01.000Z",
+    overallStatus,
+    checks: [
+      {
+        id: "vault.read-write",
+        label: "vault read/write",
+        status: overallStatus === "fail" ? "fail" : "pass",
+        durationMs: 1,
+        suggestedFix: overallStatus === "fail" ? "run `memory init`" : undefined,
+      },
+    ],
+    passed: overallStatus === "fail" ? 0 : 1,
+    failed: overallStatus === "fail" ? 1 : 0,
+    warnings: overallStatus === "warn" ? 1 : 0,
+    exitCode: overallStatus === "fail" ? 1 : 0,
+  };
+}
