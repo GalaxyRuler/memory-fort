@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 import { Command } from "commander";
 import { runCompile } from "./cli/commands/compile.js";
+import { formatConnectResult, runConnect } from "./cli/commands/connect.js";
 import { runDoctor, formatDoctorResult } from "./cli/commands/doctor.js";
 import { runGrep, type GrepScope } from "./cli/commands/grep.js";
 import { runInit } from "./cli/commands/init.js";
+import { runImportAgentMemory } from "./cli/commands/import-agentmemory.js";
 import { runInstall } from "./cli/commands/install.js";
 import { runInstallTailscaleRoute } from "./cli/commands/install-tailscale-route.js";
 import { runInstallVps } from "./cli/commands/install-vps.js";
@@ -50,12 +52,40 @@ program
 
 program
   .command("install <platform>")
-  .description("Install hooks + MCP for a platform (claude-code, codex, antigravity)")
-  .action(async (platform: string) => {
+  .description("Install hooks + MCP for a platform (claude-code, codex, antigravity, claude-desktop, vscode)")
+  .option("--workspace <path>", "workspace path for clients that support workspace-scoped MCP")
+  .option("--surface <surface>", "Antigravity surface: workspace | ide | both")
+  .action(async (
+    platform: string,
+    opts: { workspace?: string; surface?: "workspace" | "ide" | "both" },
+  ) => {
     try {
-      await runInstall(platform);
+      await runInstall(platform, opts);
     } catch (err) {
       console.error(`memory install ${platform} failed: ${(err as Error).message}`);
+      process.exit(1);
+    }
+  });
+
+program
+  .command("connect [client]")
+  .description("Install MCP/hooks for one client or every supported client")
+  .option("--all", "install every supported client")
+  .option("--workspace <path>", "workspace path for clients that support workspace-scoped MCP")
+  .action(async (
+    client: string | undefined,
+    opts: { all?: boolean; workspace?: string },
+  ) => {
+    try {
+      const result = await runConnect({
+        all: opts.all,
+        client: client as never,
+        workspace: opts.workspace,
+      });
+      process.stdout.write(formatConnectResult(result));
+      process.exit(result.exitCode);
+    } catch (err) {
+      console.error(`memory connect failed: ${(err as Error).message}`);
       process.exit(1);
     }
   });
@@ -352,6 +382,30 @@ program
   });
 
 program
+  .command("import-agentmemory")
+  .description("Plan or apply a one-shot migration from legacy agentmemory data")
+  .requiredOption("--from <path>", "path to agentmemory data/ or state_store.db/")
+  .option("--plan", "dry-run report")
+  .option("--apply", "write imported pages and audit log")
+  .action(async (opts: { from: string; plan?: boolean; apply?: boolean }) => {
+    const modes = [opts.plan, opts.apply].filter(Boolean);
+    if (modes.length !== 1) {
+      console.error("memory import-agentmemory: choose exactly one of --plan or --apply");
+      process.exit(2);
+    }
+    try {
+      const result = await runImportAgentMemory({
+        from: opts.from,
+        mode: opts.apply ? "apply" : "plan",
+      });
+      process.stdout.write(result.report);
+    } catch (err) {
+      console.error((err as Error).message);
+      process.exit(1);
+    }
+  });
+
+program
   .command("stats")
   .description("Summarize memory state — file counts, install status, git state")
   .action(async () => {
@@ -450,7 +504,7 @@ registerStub("backup", 6, "git commit + push memory state to remote");
 registerStub(
   "import-from-agentmemory",
   5,
-  "One-shot migration from GalaxyRuler/agentmemory",
+  "Deprecated alias; use import-agentmemory",
 );
 registerStub(
   "retain",

@@ -2,10 +2,24 @@ import { installAntigravity } from "./install/antigravity.js";
 import { installClaudeCode } from "./install/claude-code.js";
 import { runInstallClaudeDesktop } from "./install/claude-desktop.js";
 import { installCodex } from "./install/codex.js";
+import { installVsCode } from "./install/vscode.js";
 
-export type Platform = "claude-code" | "codex" | "antigravity" | "claude-desktop";
+export type Platform =
+  | "claude-code"
+  | "codex"
+  | "antigravity"
+  | "claude-desktop"
+  | "vscode";
 
-export async function runInstall(platform: string): Promise<void> {
+export interface RunInstallOptions {
+  workspace?: string;
+  surface?: "workspace" | "ide" | "both";
+}
+
+export async function runInstall(
+  platform: string,
+  opts: RunInstallOptions = {},
+): Promise<void> {
   switch (platform) {
     case "claude-code": {
       const result = await installClaudeCode();
@@ -41,9 +55,10 @@ export async function runInstall(platform: string): Promise<void> {
       return;
     }
     case "antigravity": {
-      const result = await installAntigravity();
+      const result = await installAntigravity({ surface: opts.surface });
       console.log(`Installed memory MCP for Antigravity at ${result.mcpConfigPath}`);
       for (const line of result.log) console.log(`  ${line}`);
+      console.log(`  surfaces: ${result.surfaces.join(", ")}`);
       console.log("");
       console.log("Next steps:");
       console.log(
@@ -58,6 +73,20 @@ export async function runInstall(platform: string): Promise<void> {
       console.log(
         "  3. Hooks ARE active for Claude Code and Codex sessions if you ran their installs.",
       );
+      return;
+    }
+    case "vscode": {
+      const result = await installVsCode({ workspace: opts.workspace });
+      if (result.status === "skipped") {
+        console.log(result.reason);
+        return;
+      }
+      console.log(`Installed memory MCP for VS Code at ${result.configPath}`);
+      for (const line of result.log) console.log(`  ${line}`);
+      console.log("");
+      console.log("Next steps:");
+      console.log("  1. Restart VS Code or run 'MCP: List Servers' from the Command Palette.");
+      console.log("  2. Confirm the memory server is listed.");
       return;
     }
     case "claude-desktop": {
@@ -78,7 +107,7 @@ export async function runInstall(platform: string): Promise<void> {
     }
     default:
       console.error(
-        `Unknown platform: ${platform}. Valid: claude-code, codex, antigravity, claude-desktop`,
+        `Unknown platform: ${platform}. Valid: claude-code, codex, antigravity, claude-desktop, vscode`,
       );
       process.exit(2);
   }

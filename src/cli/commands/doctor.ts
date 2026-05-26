@@ -9,6 +9,11 @@ import {
   configPath,
   errorsLogPath,
 } from "../../storage/paths.js";
+import {
+  formatClientStatus,
+  getClientStatuses,
+  type ClientStatus,
+} from "./client-status.js";
 
 export interface DoctorCheck {
   name: string;
@@ -18,6 +23,7 @@ export interface DoctorCheck {
 
 export interface DoctorResult {
   checks: DoctorCheck[];
+  clients: ClientStatus[];
   passed: number;
   failed: number;
 }
@@ -107,13 +113,19 @@ export async function runDoctor(): Promise<DoctorResult> {
 
   const passed = checks.filter((check) => check.ok).length;
   const failed = checks.length - passed;
-  return { checks, passed, failed };
+  const clients = await getClientStatuses();
+  return { checks, clients, passed, failed };
 }
 
 export function formatDoctorResult(result: DoctorResult): string {
   const lines = result.checks.map(
     (check) => `${check.ok ? "ok" : "fail"} ${check.name}${check.hint ? ` - ${check.hint}` : ""}`,
   );
+  lines.push("");
+  lines.push("clients:");
+  for (const client of result.clients) {
+    lines.push(`  ${formatClientStatus(client)}`);
+  }
   lines.push("");
   lines.push(
     `${result.passed}/${result.checks.length} checks passed${

@@ -1,0 +1,92 @@
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { mkdtemp, rm, mkdir, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { runInit } from "../../../src/cli/commands/init.js";
+import { formatConnectResult, runConnect } from "../../../src/cli/commands/connect.js";
+
+describe("runConnect", () => {
+  let tmp: string;
+  let memDir: string;
+  let repoDir: string;
+  let origEnv: Record<string, string | undefined>;
+
+  beforeEach(async () => {
+    tmp = await mkdtemp(join(tmpdir(), "connect-"));
+    memDir = join(tmp, ".memory");
+    repoDir = join(tmp, "repo");
+    await mkdir(join(repoDir, "dist", "hooks"), { recursive: true });
+    await writeFile(join(repoDir, "package.json"), "{}");
+    for (const hook of [
+      "session-start",
+      "prompt-submit",
+      "post-tool-use",
+      "pre-compact",
+      "session-end",
+      "mcp-server",
+    ]) {
+      await writeFile(join(repoDir, "dist", "hooks", `${hook}.mjs`), "// stub\n");
+    }
+    origEnv = {
+      MEMORY_ROOT: process.env["MEMORY_ROOT"],
+      MEMORY_REPO_DIR: process.env["MEMORY_REPO_DIR"],
+      MEMORY_CLAUDE_DIR: process.env["MEMORY_CLAUDE_DIR"],
+      MEMORY_CLAUDE_DESKTOP_DIR: process.env["MEMORY_CLAUDE_DESKTOP_DIR"],
+      MEMORY_CODEX_DIR: process.env["MEMORY_CODEX_DIR"],
+      MEMORY_ANTIGRAVITY_DIR: process.env["MEMORY_ANTIGRAVITY_DIR"],
+      MEMORY_VSCODE_USER_DIR: process.env["MEMORY_VSCODE_USER_DIR"],
+    };
+    process.env["MEMORY_ROOT"] = memDir;
+    process.env["MEMORY_REPO_DIR"] = repoDir;
+    process.env["MEMORY_CLAUDE_DIR"] = join(tmp, ".claude");
+    process.env["MEMORY_CLAUDE_DESKTOP_DIR"] = join(tmp, "Claude");
+    process.env["MEMORY_CODEX_DIR"] = join(tmp, ".codex");
+    process.env["MEMORY_ANTIGRAVITY_DIR"] = join(tmp, ".gemini", "antigravity");
+    process.env["MEMORY_VSCODE_USER_DIR"] = join(tmp, "Code", "User");
+    await runInit({ sourceRepoDir: process.cwd() });
+  });
+
+  afterEach(async () => {
+    for (const [key, value] of Object.entries(origEnv)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    await rm(tmp, { recursive: true, force: true });
+  });
+
+  it("runs all installers and reports partial failures as warnings", async () => {
+    const result = await runConnect({ all: true, vscodeInstalled: false });
+    expect(result.exitCode).toBe(0);
+    expect(result.clients.map((client) => client.client)).toEqual([
+      "claude-code",
+      "claude-desktop",
+      "codex",
+      "antigravity",
+      "antigravity-ide",
+      "vscode",
+    ]);
+    expect(result.clients.find((client) => client.client === "vscode")!.ok).toBe(false);
+    expect(formatConnectResult(result)).toContain("antigravity-ide");
+  });
+
+  it("runs one selected client", async () => {
+    const result = await runConnect({
+      client: "vscode",
+      vscodeInstalled: true,
+    });
+    expect(result.exitCode).toBe(0);
+    expect(result.clients).toHaveLength(1);
+    expect(result.clients[0]!.client).toBe("vscode");
+    expect(result.clients[0]!.ok).toBe(true);
+  });
+
+  it("passes workspace path to VS Code installer", async () => {
+    const workspace = join(tmp, "workspace");
+    const result = await runConnect({
+      client: "vscode",
+      workspace,
+      vscodeInstalled: true,
+    });
+    expect(result.clients[0]!.detail).toContain(".vscode");
+  });
+});
