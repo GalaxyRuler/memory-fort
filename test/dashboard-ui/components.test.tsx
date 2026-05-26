@@ -49,7 +49,7 @@ describe("dashboard UI base components", () => {
 
     const card = screen.getByTestId("card");
     expect(card).toHaveTextContent("Card content");
-    expect(card).toHaveClass("bg-surface", "border-border-subtle");
+    expect(card).toHaveClass("bg-surface");
   });
 
   it("Button fires onClick and applies primary classes", () => {

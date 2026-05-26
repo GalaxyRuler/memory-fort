@@ -20,25 +20,75 @@
 
 @layer base {
   :root {
-    --color-accent: #cebdff;
+    --color-accent: #06b6d4; /* Cyan 500 */
   }
 
   :focus-visible {
     outline: 2px solid var(--color-accent);
     outline-offset: 2px;
-    border-radius: 2px;
+    border-radius: 4px;
   }
 }
 
 @layer utilities {
   .glass-blur {
-    background: rgba(15, 15, 20, 0.65);
-    backdrop-filter: blur(20px) saturate(180%);
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(15, 17, 23, 0.75);
+    backdrop-filter: blur(16px) saturate(1.2);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
   }
 
   .gradient-accent {
-    background: linear-gradient(135deg, #8b5fff, #5b8bff);
+    background: linear-gradient(135deg, #8b5cf6, #22d3ee); /* Violet-500 to Cyan-400 */
+  }
+
+  /* Asymmetric Corner Brackets (length: 16px, stroke: 1px solid rgba(6, 182, 212, 0.25)) */
+  .bracket-tl {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 16px;
+    height: 16px;
+    border-top: 1px solid rgba(6, 182, 212, 0.25);
+    border-left: 1px solid rgba(6, 182, 212, 0.25);
+    border-top-left-radius: inherit;
+    pointer-events: none;
+  }
+
+  .bracket-br {
+    position: absolute;
+    bottom: 0;
+    right: 0;
+    width: 16px;
+    height: 16px;
+    border-bottom: 1px solid rgba(6, 182, 212, 0.25);
+    border-right: 1px solid rgba(6, 182, 212, 0.25);
+    border-bottom-right-radius: inherit;
+    pointer-events: none;
+  }
+
+  /* Semantic Glow Effects */
+  .glow-subtle {
+    box-shadow: 0 0 16px rgba(6, 182, 212, 0.10);
+  }
+  .glow-medium {
+    box-shadow: 0 0 24px rgba(6, 182, 212, 0.20);
+  }
+  .glow-strong {
+    box-shadow: 0 0 40px rgba(6, 182, 212, 0.30);
+  }
+
+  @keyframes glow-pulse-anim {
+    0%, 100% {
+      box-shadow: 0 0 16px rgba(6, 182, 212, 0.15);
+    }
+    50% {
+      box-shadow: 0 0 28px rgba(6, 182, 212, 0.30);
+    }
+  }
+
+  .glow-pulse {
+    animation: glow-pulse-anim 2s ease-in-out infinite;
   }
 
   @keyframes spin-slow {
@@ -71,8 +121,8 @@
 html,
 body {
   min-height: 100vh;
-  background: #09090b;
-  color: #ededed;
+  background: #0a0a0f; /* Base app background - near black with cool blue undertone */
+  color: #e8ecf4;     /* Primary text color */
   font-family: "Inter", system-ui, sans-serif;
 }
 

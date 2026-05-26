@@ -7,31 +7,51 @@ export default {
   theme: {
     extend: {
       colors: {
-        background: "#09090b",
-        surface: "#111114",
-        "surface-2": "#18181c",
-        "border-subtle": "rgba(255,255,255,0.06)",
-        "border-emphasis": "rgba(255,255,255,0.12)",
-        "text-primary": "#ededed",
-        "text-secondary": "rgba(237,237,237,0.7)",
-        "text-muted": "rgba(237,237,237,0.45)",
-        accent: { from: "#8b5fff", to: "#5b8bff" },
-        primary: "#cebdff",
+        background: "#0a0a0f", // app background — near-black, cool blue undertone
+        surface: "#0f1117",    // surface-1
+        "surface-1": "#0f1117",
+        "surface-2": "#161a24",
+        "surface-3": "#1e2333",
+        "surface-4": "#2a3040",
+        "border-subtle": "rgba(255, 255, 255, 0.06)",
+        "border-emphasis": "rgba(255, 255, 255, 0.12)",
+        "text-primary": "#e8ecf4",
+        "text-secondary": "#9ba4b8",
+        "text-muted": "#5c6478",
+        "text-ghost": "#2e3444",
+        primary: "#06b6d4", // cyan-500 as primary
+        cyan: {
+          50: "#ecfeff",
+          100: "#cffafe",
+          200: "#a5f3fc",
+          300: "#67e8f9",
+          400: "#22d3ee",
+          500: "#06b6d4",
+          600: "#0891b2",
+        },
+        violet: {
+          400: "#a78bfa",
+          500: "#8b5cf6",
+        },
+        amber: {
+          400: "#fbbf24",
+          500: "#f59e0b",
+        },
         status: {
-          green: "#4ade80",
-          amber: "#fbbf24",
-          red: "#f87171",
-          blue: "#5b8bff",
+          green: "#10b981", // success
+          amber: "#f59e0b", // warning
+          red: "#ef4444",   // error
+          blue: "#3b82f6",  // info
         },
         entity: {
-          projects: "#5b8bff",
-          decisions: "#8b5fff",
-          lessons: "#fbbf24",
-          references: "#22d3ee",
-          tools: "#34d399",
+          projects: "#4ade80",
+          decisions: "#f472b6",
+          lessons: "#a78bfa",
+          references: "#60a5fa",
+          tools: "#fbbf24",
+          crystals: "#22d3ee",
           people: "#f472b6",
-          crystals: "#fcd34d",
-          "raw-session": "#52525b",
+          "raw-session": "#5c6478",
         },
       },
       fontFamily: {
@@ -39,10 +59,12 @@ export default {
         mono: ['"JetBrains Mono"', "ui-monospace", "SF Mono", "monospace"],
       },
       borderRadius: {
-        DEFAULT: "0.25rem",
-        md: "0.375rem",
-        lg: "0.5rem",
-        xl: "0.75rem",
+        DEFAULT: "6px",
+        sm: "6px",
+        md: "10px",
+        lg: "14px",
+        xl: "20px",
+        full: "9999px",
       },
     },
   },
