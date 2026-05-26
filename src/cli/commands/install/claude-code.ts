@@ -23,9 +23,15 @@ export interface InstallClaudeCodeResult {
   pluginDir: string;
   scriptsLink: string;
   pluginMcpConfigPath: string;
+  settingsPath: string;
+  enabledPluginKey: string;
   legacyMigrated: boolean;
   log: string[];
 }
+
+export const CLAUDE_CODE_MARKETPLACE_NAME = "memory-local";
+export const CLAUDE_CODE_PLUGIN_NAME = "memory";
+export const CLAUDE_CODE_ENABLED_PLUGIN_KEY = `${CLAUDE_CODE_PLUGIN_NAME}@${CLAUDE_CODE_MARKETPLACE_NAME}`;
 
 const HOOKS_JSON = {
   hooks: {
@@ -92,6 +98,16 @@ const PLUGIN_MANIFEST = {
   },
 };
 
+const MARKETPLACE_MANIFEST = {
+  name: CLAUDE_CODE_MARKETPLACE_NAME,
+  plugins: [
+    {
+      name: CLAUDE_CODE_PLUGIN_NAME,
+      source: "./claude-code-plugin",
+    },
+  ],
+};
+
 export async function installClaudeCode(
   opts: InstallClaudeCodeOptions = {},
 ): Promise<InstallClaudeCodeResult> {
@@ -102,6 +118,7 @@ export async function installClaudeCode(
   const log: string[] = [];
 
   const pluginDir = join(root, "claude-code-plugin");
+  const marketplacePath = join(root, ".claude-plugin", "marketplace.json");
   const manifestPath = join(pluginDir, ".claude-plugin", "plugin.json");
   const hooksPath = join(pluginDir, "hooks", "hooks.json");
   const pluginMcpConfigPath = join(pluginDir, ".mcp.json");
@@ -110,6 +127,12 @@ export async function installClaudeCode(
 
   await atomicWrite(manifestPath, JSON.stringify(PLUGIN_MANIFEST, null, 2) + "\n");
   log.push(`wrote plugin manifest at ${manifestPath}`);
+
+  await atomicWrite(
+    marketplacePath,
+    JSON.stringify(MARKETPLACE_MANIFEST, null, 2) + "\n",
+  );
+  log.push(`wrote local marketplace catalog at ${marketplacePath}`);
 
   await atomicWrite(hooksPath, JSON.stringify(HOOKS_JSON, null, 2) + "\n");
   log.push(`wrote hooks.json at ${hooksPath}`);
@@ -135,19 +158,51 @@ export async function installClaudeCode(
   await atomicWrite(pluginMcpConfigPath, JSON.stringify(pluginMcpConfig, null, 2) + "\n");
   log.push(`wrote plugin MCP config at ${pluginMcpConfigPath}`);
 
+  const settingsPath = await enableClaudeCodePlugin(claudeDir, root, log);
+
   const now = opts.now ?? new Date();
   await atomicAppend(
     logPath(),
-    `## [${now.toISOString()}] install | claude-code: plugin + hooks + MCP\n`,
+    `## [${now.toISOString()}] install | claude-code: plugin + hooks + MCP + enabled\n`,
   );
 
   return {
     pluginDir,
     scriptsLink: pluginScriptsDir,
     pluginMcpConfigPath,
+    settingsPath,
+    enabledPluginKey: CLAUDE_CODE_ENABLED_PLUGIN_KEY,
     legacyMigrated,
     log,
   };
+}
+
+export function claudeCodeSettingsPath(claudeDir?: string): string {
+  return join(
+    claudeDir ?? process.env["MEMORY_CLAUDE_DIR"] ?? join(homedir(), ".claude"),
+    "settings.json",
+  );
+}
+
+export async function isClaudeCodePluginEnabled(
+  claudeDir?: string,
+): Promise<boolean> {
+  const settingsPath = claudeCodeSettingsPath(claudeDir);
+  if (!existsSync(settingsPath)) return false;
+  try {
+    const settings = JSON.parse(await readFile(settingsPath, "utf-8")) as Record<
+      string,
+      unknown
+    >;
+    const enabledPlugins = settings["enabledPlugins"];
+    if (typeof enabledPlugins !== "object" || enabledPlugins === null) return false;
+    return (
+      (enabledPlugins as Record<string, unknown>)[CLAUDE_CODE_ENABLED_PLUGIN_KEY] ===
+      true
+    );
+  } catch {
+    return false;
+  }
 }
 
 function resolveRepoDir(): string {
@@ -206,4 +261,73 @@ async function migrateLegacyUserMcp(
   }
 
   return true;
+}
+
+async function enableClaudeCodePlugin(
+  claudeDir: string,
+  marketplaceRoot: string,
+  log: string[],
+): Promise<string> {
+  const settingsPath = claudeCodeSettingsPath(claudeDir);
+  const settings = await readClaudeSettings(settingsPath);
+  const enabledPlugins = ensureRecord(settings, "enabledPlugins");
+  const marketplaces = ensureRecord(settings, "extraKnownMarketplaces");
+  const desiredMarketplace = {
+    source: {
+      source: "directory",
+      path: marketplaceRoot,
+    },
+  };
+
+  let changed = false;
+  if (enabledPlugins[CLAUDE_CODE_ENABLED_PLUGIN_KEY] !== true) {
+    enabledPlugins[CLAUDE_CODE_ENABLED_PLUGIN_KEY] = true;
+    changed = true;
+  }
+
+  if (!jsonEqual(marketplaces[CLAUDE_CODE_MARKETPLACE_NAME], desiredMarketplace)) {
+    marketplaces[CLAUDE_CODE_MARKETPLACE_NAME] = desiredMarketplace;
+    changed = true;
+  }
+
+  if (changed) {
+    await atomicWrite(settingsPath, JSON.stringify(settings, null, 2) + "\n");
+    log.push(
+      `enabled ${CLAUDE_CODE_ENABLED_PLUGIN_KEY} in Claude Code settings at ${settingsPath}`,
+    );
+  } else {
+    log.push(
+      `${CLAUDE_CODE_ENABLED_PLUGIN_KEY} already enabled in Claude Code settings`,
+    );
+  }
+
+  return settingsPath;
+}
+
+async function readClaudeSettings(
+  settingsPath: string,
+): Promise<Record<string, unknown>> {
+  if (!existsSync(settingsPath)) return {};
+  const parsed = JSON.parse(await readFile(settingsPath, "utf-8")) as unknown;
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    return {};
+  }
+  return parsed as Record<string, unknown>;
+}
+
+function ensureRecord(
+  target: Record<string, unknown>,
+  key: string,
+): Record<string, unknown> {
+  const value = target[key];
+  if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  const next: Record<string, unknown> = {};
+  target[key] = next;
+  return next;
+}
+
+function jsonEqual(a: unknown, b: unknown): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
 }

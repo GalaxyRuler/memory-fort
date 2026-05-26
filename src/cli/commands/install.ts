@@ -27,12 +27,9 @@ export async function runInstall(
       for (const line of result.log) console.log(`  ${line}`);
       console.log("");
       console.log("Next steps:");
+      console.log("  1. Restart Claude Code or start a new session to load the plugin.");
       console.log(
-        "  1. Open Claude Code and run: /plugin marketplace add ~/.memory/claude-code-plugin",
-      );
-      console.log("     Then: /plugin install memory@local");
-      console.log(
-        "  2. OR start a session with: claude --plugin-dir ~/.memory/claude-code-plugin",
+        `  2. Confirm ${result.enabledPluginKey} is enabled in ${result.settingsPath}.`,
       );
       console.log(
         `  3. Plugin MCP config is at: ${result.pluginMcpConfigPath}`,

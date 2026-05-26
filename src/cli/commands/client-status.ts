@@ -6,6 +6,7 @@ import {
   claudeDesktopConfigPath,
   memoryRoot,
 } from "../../storage/paths.js";
+import { isClaudeCodePluginEnabled } from "./install/claude-code.js";
 import { vscodeMcpConfigPath } from "./install/vscode.js";
 
 export type ClientName =
@@ -73,10 +74,19 @@ async function readClaudeCodeStatus(): Promise<ClientStatus> {
       configPath: mcpConfig,
     };
   }
+  const enabled = await isClaudeCodePluginEnabled();
+  if (!enabled) {
+    return {
+      client: "claude-code",
+      state: "stale",
+      detail: "plugin installed but not enabled in Claude Code settings",
+      configPath: mcpConfig,
+    };
+  }
   return {
     client: "claude-code",
     state: "installed",
-    detail: "installed (manifest fresh)",
+    detail: "installed and enabled",
     configPath: mcpConfig,
   };
 }

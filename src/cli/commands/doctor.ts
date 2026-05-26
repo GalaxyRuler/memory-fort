@@ -14,6 +14,7 @@ import {
   getClientStatuses,
   type ClientStatus,
 } from "./client-status.js";
+import { isClaudeCodePluginEnabled } from "./install/claude-code.js";
 
 export interface DoctorCheck {
   name: string;
@@ -109,6 +110,15 @@ export async function runDoctor(): Promise<DoctorResult> {
     hint: existsSync(pluginScripts)
       ? undefined
       : "scripts/ symlink broken. Run: npm run build && memory install claude-code",
+  });
+
+  const claudePluginEnabled = await isClaudeCodePluginEnabled();
+  checks.push({
+    name: "claude-code plugin enabled",
+    ok: claudePluginEnabled,
+    hint: claudePluginEnabled
+      ? undefined
+      : "Run: memory install claude-code",
   });
 
   const passed = checks.filter((check) => check.ok).length;

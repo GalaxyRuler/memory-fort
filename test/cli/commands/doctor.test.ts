@@ -15,11 +15,13 @@ describe("runDoctor", () => {
     origMem = process.env["MEMORY_ROOT"];
     origEnv = {
       MEMORY_CLAUDE_DESKTOP_DIR: process.env["MEMORY_CLAUDE_DESKTOP_DIR"],
+      MEMORY_CLAUDE_DIR: process.env["MEMORY_CLAUDE_DIR"],
       MEMORY_CODEX_DIR: process.env["MEMORY_CODEX_DIR"],
       MEMORY_ANTIGRAVITY_DIR: process.env["MEMORY_ANTIGRAVITY_DIR"],
       MEMORY_VSCODE_USER_DIR: process.env["MEMORY_VSCODE_USER_DIR"],
     };
     process.env["MEMORY_ROOT"] = join(tmp, ".memory");
+    process.env["MEMORY_CLAUDE_DIR"] = join(tmp, ".claude");
     process.env["MEMORY_CLAUDE_DESKTOP_DIR"] = join(tmp, "Claude");
     process.env["MEMORY_CODEX_DIR"] = join(tmp, ".codex");
     process.env["MEMORY_ANTIGRAVITY_DIR"] = join(tmp, ".gemini", "antigravity");
@@ -58,6 +60,31 @@ describe("runDoctor", () => {
     );
     expect(pluginCheck!.ok).toBe(false);
     expect(pluginCheck!.hint).toContain("memory install claude-code");
+  });
+
+  it("reports claude-code enabled check fail when plugin is not enabled", async () => {
+    await runInit({ sourceRepoDir: process.cwd() });
+    const memRoot = process.env["MEMORY_ROOT"]!;
+    await mkdir(join(memRoot, "claude-code-plugin", ".claude-plugin"), {
+      recursive: true,
+    });
+    await writeFile(
+      join(memRoot, "claude-code-plugin", ".claude-plugin", "plugin.json"),
+      JSON.stringify({ name: "memory" }),
+    );
+    await mkdir(process.env["MEMORY_CLAUDE_DIR"]!, { recursive: true });
+    await writeFile(
+      join(process.env["MEMORY_CLAUDE_DIR"]!, "settings.json"),
+      JSON.stringify({ enabledPlugins: {} }),
+    );
+
+    const result = await runDoctor();
+
+    const enabledCheck = result.checks.find((check) =>
+      check.name.includes("claude-code plugin enabled"),
+    );
+    expect(enabledCheck!.ok).toBe(false);
+    expect(enabledCheck!.hint).toContain("memory install claude-code");
   });
 
   it("flags errors.log larger than 100KB", async () => {

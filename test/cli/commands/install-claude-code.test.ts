@@ -132,6 +132,63 @@ describe("installClaudeCode", () => {
     expect(args.some((arg) => arg.includes("${CLAUDE_PLUGIN_ROOT}"))).toBe(true);
   });
 
+  it("registers and enables the local Claude Code plugin without overwriting existing settings", async () => {
+    await mkdir(claudeDir, { recursive: true });
+    await writeFile(
+      join(claudeDir, "settings.json"),
+      JSON.stringify(
+        {
+          theme: "dark",
+          enabledPlugins: {
+            "formatter@team-tools": true,
+          },
+          extraKnownMarketplaces: {
+            "team-tools": {
+              source: {
+                source: "github",
+                repo: "team/tools",
+              },
+            },
+          },
+        },
+        null,
+        2,
+      ),
+    );
+
+    await installClaudeCode({ repoDir, claudeDir });
+
+    const settings = JSON.parse(
+      await readFile(join(claudeDir, "settings.json"), "utf-8"),
+    );
+    expect(settings.theme).toBe("dark");
+    expect(settings.enabledPlugins["formatter@team-tools"]).toBe(true);
+    expect(settings.enabledPlugins["memory@memory-local"]).toBe(true);
+    expect(settings.extraKnownMarketplaces["team-tools"].source.repo).toBe(
+      "team/tools",
+    );
+    expect(settings.extraKnownMarketplaces["memory-local"]).toEqual({
+      source: {
+        source: "directory",
+        path: memDir,
+      },
+    });
+  });
+
+  it("writes a local marketplace catalog that points at the plugin directory", async () => {
+    await installClaudeCode({ repoDir, claudeDir });
+    const marketplace = JSON.parse(
+      await readFile(join(memDir, ".claude-plugin", "marketplace.json"), "utf-8"),
+    );
+    expect(marketplace.name).toBe("memory-local");
+    expect(marketplace.plugins).toEqual([
+      expect.objectContaining({
+        name: "memory",
+        source: "./claude-code-plugin",
+      }),
+    ]);
+  });
+
   it("migrates legacy ~/.claude/.mcp.json by removing our entry and preserving others", async () => {
     await mkdir(claudeDir, { recursive: true });
     await writeFile(
