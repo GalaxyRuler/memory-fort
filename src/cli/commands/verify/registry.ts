@@ -20,6 +20,7 @@ import { dashboardStatusCheck } from "./dashboard.js";
 import { episodicRelationsCoverageCheck } from "./episodic-relations.js";
 import { freshnessStaleCheck } from "./freshness.js";
 import { gitRemoteCheck } from "./git.js";
+import { graphCohesionCheck } from "./graph-cohesion.js";
 import { searchPipelineCheck } from "./search.js";
 import type { CheckDescriptor } from "./types.js";
 import { vaultReadWriteCheck } from "./vault.js";
@@ -30,6 +31,7 @@ export const ALL_CHECKS: CheckDescriptor[] = [
   searchPipelineCheck,
   episodicRelationsCoverageCheck,
   freshnessStaleCheck,
+  graphCohesionCheck,
   compileRecentCheck,
   autoPushErrorsCheck,
   gitRemoteCheck,
