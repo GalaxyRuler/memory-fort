@@ -1,5 +1,5 @@
 ---
-schema_version: 1.1
+schema_version: 1.2
 updated: "{{install_date}}"
 applies_from_commit: "{{install_commit}}"
 ---
@@ -52,8 +52,9 @@ type: projects | people | decisions | lessons | references | tools | crystal | r
 title: "Human-readable title"
 created: 2026-05-21    # ISO 8601 date
 updated: 2026-05-21
-status: active | archived | superseded   # optional; defaults to active
-confidence: 0.0..1.0    # optional; default 1.0; pages with < 0.5 surface as DRAFT in lint
+status: active | archived | superseded   # optional; defaults to active; controls visibility
+lifecycle: observed | linked | proposed | consolidated | canonical | stale | disputed | dormant | archived   # optional; memory lifecycle
+confidence: 0.0..1.0    # optional legacy scalar; shorthand for confidence.extraction
 source: claude-code | codex | antigravity | manual | crystal   # who created this
 session: <id>            # optional; the session that produced this page
 relations:
@@ -78,6 +79,71 @@ tags: [tag1, tag2, ...]
 **Required body element:** the first line after frontmatter is a one-sentence summary of the page. This is what shows in `index.md` and search snippets. Lead with the summary; expand below.
 
 Cross-references inside the body use Obsidian-style `[[wiki/projects/agentmemory]]` or shorthand `[[agentmemory]]` when the slug is unambiguous.
+
+### Confidence vector
+
+`confidence` may be either the legacy scalar `0.0..1.0` or a structured vector:
+
+```yaml
+confidence:
+  extraction: 0.85
+  source: 1.0
+  validation: user
+  freshness: 2026-05-27
+  conflict: null
+```
+
+- `extraction`: how sure the parser or writer was when extracting the memory.
+- `source`: how reliable the originator is for this claim.
+- `validation`: `unvalidated`, `auto`, `user`, `challenged`, or `revoked`.
+- `freshness`: ISO date or datetime for the last review.
+- `conflict`: related page path that conflicts with this claim, or `null`.
+
+Scalar `confidence: 0.85` is backwards-compatible shorthand for `{ extraction: 0.85 }`. If `lifecycle` is missing, readers infer a sensible default: raw observations are `observed`, confident wiki pages are `canonical`, and other wiki pages are `proposed`.
+
+Legacy scalar example:
+
+```yaml
+---
+type: projects
+title: "Memory Fort"
+created: 2026-05-21
+updated: 2026-05-27
+status: active
+confidence: 0.85
+---
+```
+
+Vector example:
+
+```yaml
+---
+type: decisions
+title: "Confidence Vector Lifecycle"
+created: 2026-05-27
+updated: 2026-05-27
+status: active
+lifecycle: canonical
+confidence:
+  extraction: 0.86
+  source: 0.95
+  validation: user
+  freshness: 2026-05-27
+  conflict: null
+---
+```
+
+### Lifecycle stages
+
+- `observed`: raw observation captured but not curated.
+- `linked`: raw observation connected to wiki pages by consolidation.
+- `proposed`: candidate page or claim awaiting validation.
+- `consolidated`: promoted memory that is not yet user-validated.
+- `canonical`: user-validated stable memory.
+- `stale`: canonical memory past its freshness window.
+- `disputed`: memory with unresolved contradicting evidence.
+- `dormant`: memory not retrieved for a long time; kept but deboosted.
+- `archived`: explicitly retired from active use.
 
 ---
 

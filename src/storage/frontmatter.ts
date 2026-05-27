@@ -5,13 +5,40 @@ import type { SerializedRelationMap } from "../retrieval/relations.js";
 
 export type EntityType = PageType | "crystal" | "raw-session";
 
+export type ValidationState =
+  | "unvalidated"
+  | "auto"
+  | "user"
+  | "challenged"
+  | "revoked";
+
+export type LifecycleStage =
+  | "observed"
+  | "linked"
+  | "proposed"
+  | "consolidated"
+  | "canonical"
+  | "stale"
+  | "disputed"
+  | "dormant"
+  | "archived";
+
+export interface ConfidenceVector {
+  extraction?: number;
+  source?: number;
+  validation?: ValidationState;
+  freshness?: string;
+  conflict?: string | null;
+}
+
 export interface Frontmatter {
   type: EntityType;
   title: string;
   created: string;   // ISO 8601 date (YYYY-MM-DD)
   updated: string;
   status?: "active" | "archived" | "superseded";
-  confidence?: number;
+  confidence?: number | ConfidenceVector;
+  lifecycle?: LifecycleStage;
   source?: ToolName | "crystal";
   session?: string;
   relations?: SerializedRelationMap;
@@ -31,6 +58,24 @@ const KNOWN_TYPES: EntityType[] = [
 ];
 
 const KNOWN_STATUS = ["active", "archived", "superseded"] as const;
+export const KNOWN_VALIDATION_STATES = [
+  "unvalidated",
+  "auto",
+  "user",
+  "challenged",
+  "revoked",
+] as const satisfies readonly ValidationState[];
+export const KNOWN_LIFECYCLE_STAGES = [
+  "observed",
+  "linked",
+  "proposed",
+  "consolidated",
+  "canonical",
+  "stale",
+  "disputed",
+  "dormant",
+  "archived",
+] as const satisfies readonly LifecycleStage[];
 const KNOWN_COGNITIVE_TYPES = ["core", "semantic", "episodic", "procedural"] as const;
 
 const KNOWN_RELATIONS = [
@@ -114,6 +159,12 @@ export function validateFrontmatter(
     errors.push(`status must be one of: ${KNOWN_STATUS.join(", ")}`);
   }
   if (
+    f["lifecycle"] !== undefined &&
+    !KNOWN_LIFECYCLE_STAGES.includes(f["lifecycle"] as never)
+  ) {
+    errors.push(`lifecycle must be one of: ${KNOWN_LIFECYCLE_STAGES.join(", ")}`);
+  }
+  if (
     f["cognitive_type"] !== undefined &&
     !KNOWN_COGNITIVE_TYPES.includes(f["cognitive_type"] as never)
   ) {
@@ -121,7 +172,13 @@ export function validateFrontmatter(
   }
   if (f["confidence"] !== undefined) {
     const c = f["confidence"];
-    if (typeof c !== "number" || !Number.isFinite(c) || c < 0 || c > 1) {
+    if (typeof c === "number") {
+      if (!Number.isFinite(c) || c < 0 || c > 1) {
+        errors.push("confidence must be a number between 0 and 1");
+      }
+    } else if (typeof c === "object" && c !== null && !Array.isArray(c)) {
+      validateConfidenceVector(c as Record<string, unknown>, errors);
+    } else {
       errors.push("confidence must be a number between 0 and 1");
     }
   }
@@ -158,4 +215,46 @@ export function validateFrontmatter(
   }
   if (errors.length > 0) return { valid: false, errors };
   return { valid: true, fm: fm as Frontmatter };
+}
+
+function validateConfidenceVector(
+  confidence: Record<string, unknown>,
+  errors: string[],
+): void {
+  for (const field of ["extraction", "source"] as const) {
+    const value = confidence[field];
+    if (
+      value !== undefined &&
+      (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 1)
+    ) {
+      errors.push(`confidence.${field} must be a number between 0 and 1`);
+    }
+  }
+
+  const validation = confidence["validation"];
+  if (
+    validation !== undefined &&
+    !KNOWN_VALIDATION_STATES.includes(validation as never)
+  ) {
+    errors.push(
+      `confidence.validation must be one of: ${KNOWN_VALIDATION_STATES.join(", ")}`,
+    );
+  }
+
+  const freshness = confidence["freshness"];
+  if (
+    freshness !== undefined &&
+    (typeof freshness !== "string" || Number.isNaN(Date.parse(freshness)))
+  ) {
+    errors.push("confidence.freshness must be a parseable ISO date");
+  }
+
+  const conflict = confidence["conflict"];
+  if (
+    conflict !== undefined &&
+    conflict !== null &&
+    typeof conflict !== "string"
+  ) {
+    errors.push("confidence.conflict must be a string or null");
+  }
 }

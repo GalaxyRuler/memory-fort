@@ -26,6 +26,15 @@ describe("validateFrontmatter - confidence", () => {
     );
   });
 
+  it("accepts vector confidence with validation state", () => {
+    expect(
+      validateFrontmatter({
+        ...baseValid,
+        confidence: { extraction: 0.7, validation: "user" },
+      }).valid,
+    ).toBe(true);
+  });
+
   it("rejects confidence < 0", () => {
     const r = validateFrontmatter({ ...baseValid, confidence: -0.1 });
     expect(r.valid).toBe(false);
@@ -45,6 +54,46 @@ describe("validateFrontmatter - confidence", () => {
       confidence: "high" as unknown as number,
     });
     expect(r.valid).toBe(false);
+  });
+
+  it("rejects vector confidence with invalid validation state", () => {
+    const r = validateFrontmatter({
+      ...baseValid,
+      confidence: { extraction: 0.7, validation: "bogus" },
+    });
+    expect(r.valid).toBe(false);
+    if (!r.valid) {
+      expect(r.errors.some((e) => e.includes("confidence.validation"))).toBe(
+        true,
+      );
+    }
+  });
+
+  it("rejects vector confidence with out-of-range source score", () => {
+    const r = validateFrontmatter({
+      ...baseValid,
+      confidence: { source: 1.2 },
+    });
+    expect(r.valid).toBe(false);
+    if (!r.valid) {
+      expect(r.errors.some((e) => e.includes("confidence.source"))).toBe(true);
+    }
+  });
+});
+
+describe("validateFrontmatter - lifecycle", () => {
+  it("accepts known lifecycle stages", () => {
+    expect(validateFrontmatter({ ...baseValid, lifecycle: "canonical" }).valid).toBe(
+      true,
+    );
+  });
+
+  it("rejects unknown lifecycle stages", () => {
+    const r = validateFrontmatter({ ...baseValid, lifecycle: "bogus" });
+    expect(r.valid).toBe(false);
+    if (!r.valid) {
+      expect(r.errors.some((e) => e.includes("lifecycle"))).toBe(true);
+    }
   });
 });
 
