@@ -77,7 +77,24 @@ observation frontmatter:
 
 Fixture verification now covers consolidation-write -> corpus-read ->
 graph-feed -> graph-health and confirms mixed `uses` plus `derived_from` edges
-produce non-zero edge-type entropy. The live vault reclassification is still
-pending the operator step (`memory consolidate --apply --force`), so the
-previous live `graph.edge-type-entropy` value of `0.30` remains the last
-recorded empirical baseline here.
+produce non-zero edge-type entropy.
+
+### Live vault baseline (2026-05-27)
+
+After the operator ran `memory consolidate --apply --force` against
+`~/.memory/` and the resulting vault delta was pushed to the VPS and the
+dashboard restarted:
+
+- `graph.edge-type-entropy`: **0.30 (fail) → 0.62 (warn)**
+- 1398 edges across 5 edge types
+- 65 raw observations had at least one match reclassified from `mentions` to
+  `derived_from` (rule 4 — BM25-only matches against decisions/lessons)
+- Remaining matches kept `mentions` (rule 5 catch-all) and produced
+  byte-identical output, so atomic writes skipped them
+
+The remaining gap from 0.62 to the pass threshold (0.80) reflects that
+lexical and `both`-source matches still dominate, and rule 4's confidence
+ceiling (0.7) was deliberately conservative to avoid false `derived_from`
+classifications. Tightening rule 4 or adding rules that target `wiki/projects/`
+or `wiki/references/` are candidates for a future iteration if the warn becomes
+load-bearing for the HealthBadge.
