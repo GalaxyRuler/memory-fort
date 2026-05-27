@@ -24,8 +24,9 @@ function page(frontmatter: Record<string, unknown>, body: string): string {
       return [
         `${key}:`,
         ...Object.entries(value as Record<string, unknown>).flatMap(([childKey, childValue]) => [
-          `  ${childKey}:`,
-          ...(Array.isArray(childValue) ? childValue.map((item) => `    - ${item}`) : [`    - ${childValue}`]),
+          ...(Array.isArray(childValue)
+            ? [`  ${childKey}:`, ...childValue.map((item) => `    - ${item}`)]
+            : [`  ${childKey}: ${childValue}`]),
         ]),
       ];
     }
@@ -345,6 +346,33 @@ describe("dashboard loaders", () => {
         { path: "wiki/projects/dependent.md", title: "Dependent", updated: "2026-05-23", confidence: 0.9 },
       ],
       pruneCandidates: [],
+    });
+  });
+
+  it("loadMaintenanceScan classifies vector confidence by scalar score", async () => {
+    await mkdir(join(tmp, "wiki", "references"), { recursive: true });
+    await writeFile(
+      join(tmp, "wiki", "references", "low-vector.md"),
+      page(
+        {
+          type: "references",
+          title: "Low Vector",
+          created: "2026-05-20",
+          updated: "2026-05-23",
+          status: "active",
+          confidence: { extraction: 0.55 },
+        },
+        "Low confidence vector body.\n",
+      ),
+    );
+
+    const scan = await loadMaintenanceScan(tmp, new Date("2026-05-24T00:00:00.000Z"));
+
+    expect(scan.lowConfidence).toContainEqual({
+      path: "wiki/references/low-vector.md",
+      title: "Low Vector",
+      updated: "2026-05-23",
+      confidence: 0.55,
     });
   });
 

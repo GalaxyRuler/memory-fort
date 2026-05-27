@@ -10,6 +10,7 @@ import {
   type GalacticLayout,
   type GalacticNode,
 } from "../lib/galactic/layout.js";
+import { getConfidenceScore } from "../../storage/confidence.js";
 import { confidenceGlow, edgeLensing, zoomLevelForScale, clamp } from "../lib/galactic/physics.js";
 import { hexA, PLANET_RENDERERS } from "../lib/galactic/planets.js";
 
@@ -592,7 +593,10 @@ function drawPlanet(ctx: CanvasRenderingContext2D, node: GalacticNode, camera: C
   const point = worldToScreen(node, camera, size);
   const radius = node.size * camera.scale * 0.95;
   if (point.x < -50 || point.x > size.width + 50 || point.y < -50 || point.y > size.height + 50) return;
-  const glow = confidenceGlow(node.confidence, radius);
+  const glow = confidenceGlow(
+    node.confidence === null ? null : getConfidenceScore(node.confidence),
+    radius,
+  );
   const gradient = ctx.createRadialGradient(point.x, point.y, radius * 0.5, point.x, point.y, glow.radius);
   gradient.addColorStop(0, hexA(DOMAIN_META[node.domain].color, glow.opacity));
   gradient.addColorStop(1, hexA(DOMAIN_META[node.domain].color, 0));

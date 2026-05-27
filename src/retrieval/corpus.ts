@@ -1,6 +1,7 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import { basename, join, relative, resolve } from "node:path";
 import { canonicalizeRawObservation } from "../compile/canonicalize.js";
+import { getConfidenceScore } from "../storage/confidence.js";
 import { parseFrontmatter, type Frontmatter } from "../storage/frontmatter.js";
 import { buildGraph } from "./graph.js";
 import { readRelations, type RelationMap } from "./relations.js";
@@ -25,6 +26,7 @@ export interface SearchDocument {
   status: string;
   cognitiveType: CognitiveType;
   confidence: number | null;
+  confidenceFull?: Frontmatter["confidence"];
   tags: string[];
   relations: RelationMap;
   source: SearchSource;
@@ -196,7 +198,8 @@ async function loadDocument(file: MarkdownFile): Promise<SearchDocument> {
     type: readString(frontmatter.type) ?? defaultType(file),
     status: readString(frontmatter.status) ?? "active",
     cognitiveType: explicitCognitiveType ?? "semantic",
-    confidence: canonical?.confidence ?? readNumber(frontmatter.confidence),
+    confidence: canonical?.confidence ?? readConfidenceScore(frontmatter.confidence),
+    confidenceFull: frontmatter.confidence,
     tags: canonical?.tags ?? readStringArray(frontmatter.tags),
     relations: readRelations(frontmatter.relations, file.relPath),
     source:
@@ -325,8 +328,8 @@ function readUpdated(value: unknown): string | null {
   return readDate(value);
 }
 
-function readNumber(value: unknown): number | null {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
+function readConfidenceScore(value: Partial<Frontmatter>["confidence"]): number | null {
+  return value === undefined ? null : getConfidenceScore(value);
 }
 
 function readStringArray(value: unknown): string[] {

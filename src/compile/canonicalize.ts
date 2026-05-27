@@ -1,4 +1,6 @@
 import type { SearchSource } from "../retrieval/corpus.js";
+import { getConfidenceScore } from "../storage/confidence.js";
+import type { ConfidenceVector } from "../storage/frontmatter.js";
 
 export interface RawIdentity {
   source: SearchSource;
@@ -59,7 +61,10 @@ export function canonicalizeRawObservation(
     SESSION_KEYS.map((key) => readString(opts.frontmatter[key])).find(
       (value): value is string => value !== null,
     ) ?? opts.identity.session;
-  const confidence = readNumber(opts.frontmatter.confidence) ?? SOURCE_CONFIDENCE[source];
+  const confidence = readConfidenceScore(
+    opts.frontmatter.confidence,
+    SOURCE_CONFIDENCE[source],
+  );
   const h1 = firstHeading(opts.body);
   const title = readString(opts.frontmatter.title) ?? h1 ?? opts.filename;
   const frontmatterTags = readStringArray(opts.frontmatter.tags);
@@ -98,8 +103,14 @@ function readString(value: unknown): string | null {
     : null;
 }
 
-function readNumber(value: unknown): number | null {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
+function readConfidenceScore(value: unknown, defaultScore: number): number {
+  if (
+    typeof value === "number" ||
+    (typeof value === "object" && value !== null && !Array.isArray(value))
+  ) {
+    return getConfidenceScore(value as number | ConfidenceVector, defaultScore);
+  }
+  return defaultScore;
 }
 
 function readStringArray(value: unknown): string[] {

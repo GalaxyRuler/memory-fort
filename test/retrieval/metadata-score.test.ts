@@ -67,6 +67,27 @@ describe("retrieval metadata scoring", () => {
     expect(scored[0]!.score).toBeGreaterThan(scored[1]!.score);
   });
 
+  it("scoreByMetadata treats vector extraction like equivalent scalar confidence", () => {
+    const scalar = scoreByMetadata(
+      [doc("wiki/projects/scalar.md", { confidence: 0.85 })],
+      { now: new Date("2026-05-23T00:00:00.000Z") },
+    );
+    const vector = scoreByMetadata(
+      [
+        doc("wiki/projects/vector.md", {
+          confidence: null,
+          confidenceFull: { extraction: 0.85 },
+        } as Partial<SearchDocument>),
+      ],
+      { now: new Date("2026-05-23T00:00:00.000Z") },
+    );
+
+    expect(vector[0]!.components.confidenceFactor).toBe(
+      scalar[0]!.components.confidenceFactor,
+    );
+    expect(vector[0]!.score).toBe(scalar[0]!.score);
+  });
+
   it("scoreByMetadata applies recency boost", () => {
     const scored = scoreByMetadata(
       [

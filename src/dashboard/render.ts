@@ -6,6 +6,7 @@ import type {
   RawSession,
   WikiIndex,
 } from "./loaders.js";
+import { getConfidenceScore } from "../storage/confidence.js";
 
 function escapeHtml(value: unknown): string {
   return String(value)
@@ -161,7 +162,9 @@ export function renderWikiPage(page: PageDetail): string {
   const title = typeof page.frontmatter.title === "string" ? page.frontmatter.title : page.relPath;
   const category = page.relPath.split("/")[0] ?? "";
   const status = renderScalar(page.frontmatter.status ?? "active");
-  const confidence = renderScalar(page.frontmatter.confidence);
+  const confidence = page.frontmatter.confidence === undefined
+    ? "(unset)"
+    : String(getConfidenceScore(page.frontmatter.confidence));
   const tags = Array.isArray(page.frontmatter.tags) && page.frontmatter.tags.length > 0 ? page.frontmatter.tags.join(", ") : "(none)";
 
   return `${pageStart(title)}

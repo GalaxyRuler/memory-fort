@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs";
 import { loadWiki, type WikiPage } from "../../curation/checks.js";
+import { getConfidenceScore } from "../../storage/confidence.js";
 import { memoryRoot, wikiDir } from "../../storage/paths.js";
 
 export interface PageOptions {
@@ -188,7 +189,7 @@ function renderPage(
   const type = typeof fm.type === "string" ? fm.type : "?";
   const status = typeof fm.status === "string" ? fm.status : "active";
   const confidence =
-    typeof fm.confidence === "number" ? String(fm.confidence) : "(unset)";
+    fm.confidence === undefined ? "(unset)" : String(getConfidenceScore(fm.confidence));
   const created = renderScalar(fm.created);
   const updated = renderScalar(fm.updated);
   const tags =

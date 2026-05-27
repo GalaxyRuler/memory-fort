@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "../lib/api.js";
+import type { ConfidenceVector } from "../../storage/frontmatter.js";
 
 export interface PageRelation {
   key: string;
@@ -23,7 +24,7 @@ export interface PageDetail {
     created?: string;
     updated?: string;
     status?: string;
-    confidence?: number;
+    confidence?: number | ConfidenceVector;
     source?: string;
     session?: string;
     tags?: string[];

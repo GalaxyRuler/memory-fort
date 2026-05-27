@@ -10,6 +10,7 @@ import {
 } from "../curation/checks.js";
 import { loadSearchCorpus, type CognitiveType, type SearchScope } from "../retrieval/corpus.js";
 import { buildGraph } from "../retrieval/graph.js";
+import { getConfidenceScore } from "../storage/confidence.js";
 import { loadMemoryConfig } from "../storage/config.js";
 import type { Frontmatter } from "../storage/frontmatter.js";
 
@@ -796,7 +797,9 @@ export async function loadConflicts(vaultRoot: string): Promise<ConflictsRespons
 function pageSummary(page: WikiPage): MaintenancePageSummary {
   const title = readTitle(page) ?? page.path;
   const updated = typeof page.frontmatter.updated === "string" ? page.frontmatter.updated : null;
-  const confidence = typeof page.frontmatter.confidence === "number" ? page.frontmatter.confidence : null;
+  const confidence = page.frontmatter.confidence === undefined
+    ? null
+    : getConfidenceScore(page.frontmatter.confidence);
   return { path: `wiki/${page.path}`, title, updated, confidence };
 }
 
@@ -858,7 +861,10 @@ export async function loadMaintenanceScan(vaultRoot: string, now: Date = new Dat
       orphans.push(pageSummary(page));
     }
 
-    if (typeof page.frontmatter.confidence === "number" && page.frontmatter.confidence < 0.6) {
+    if (
+      page.frontmatter.confidence !== undefined &&
+      getConfidenceScore(page.frontmatter.confidence) < 0.6
+    ) {
       lowConfidence.push(pageSummary(page));
     }
 

@@ -25,6 +25,13 @@ function sampleNode(): GraphNode {
   };
 }
 
+function vectorNode(): GraphNode {
+  return {
+    ...sampleNode(),
+    confidence: { extraction: 0.82 } as never,
+  };
+}
+
 function PanelHarness({ onCloseSpy }: { onCloseSpy: () => void }) {
   const [node, setNode] = useState<GraphNode | null>(null);
 
@@ -60,5 +67,11 @@ describe("GraphDetailPanel", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
     expect(screen.queryByText("Memory System")).not.toBeInTheDocument();
     expect(openButton).toHaveFocus();
+  });
+
+  it("renders vector confidence as a scalar score", () => {
+    render(<GraphDetailPanel node={vectorNode()} onClose={vi.fn()} />);
+
+    expect(screen.getByText("0.82")).toBeInTheDocument();
   });
 });

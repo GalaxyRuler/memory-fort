@@ -6,6 +6,7 @@ import {
   validateFrontmatter,
   type Frontmatter,
 } from "../storage/frontmatter.js";
+import { getConfidenceScore } from "../storage/confidence.js";
 import { wikiDir } from "../storage/paths.js";
 
 export interface WikiPage {
@@ -279,8 +280,8 @@ export function checkDrafts(pages: WikiPage[]): LintIssue[] {
   for (const page of pages) {
     const status = page.frontmatter.status ?? "active";
     if (status !== "active") continue;
-    const confidence = page.frontmatter.confidence;
-    if (typeof confidence !== "number") continue;
+    if (page.frontmatter.confidence === undefined) continue;
+    const confidence = getConfidenceScore(page.frontmatter.confidence);
     if (confidence < 0.5) {
       issues.push({
         category: "draft",
@@ -437,8 +438,9 @@ export function checkPruneCandidates(
     }
     if ((page.frontmatter.status ?? "active") !== "active") continue;
     if (!orphanPaths.has(page.path)) continue;
-    const confidence = page.frontmatter.confidence;
-    if (typeof confidence !== "number" || confidence >= 0.5) continue;
+    if (page.frontmatter.confidence === undefined) continue;
+    const confidence = getConfidenceScore(page.frontmatter.confidence);
+    if (confidence >= 0.5) continue;
     const updated = page.frontmatter.updated;
     if (typeof updated !== "string") continue;
     const updatedAt = Date.parse(updated);

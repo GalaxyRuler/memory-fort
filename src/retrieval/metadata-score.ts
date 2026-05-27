@@ -1,4 +1,5 @@
 import type { SearchDocument } from "./corpus.js";
+import { getConfidenceScore } from "../storage/confidence.js";
 
 export interface MetadataScoreOptions {
   now?: Date;
@@ -47,12 +48,10 @@ export function scoreByMetadata(
         supersededFactor,
         archivedFactor,
       });
-      const confidenceFactor =
-        typeof document.confidence === "number" &&
-        document.confidence >= 0 &&
-        document.confidence <= 1
-          ? document.confidence
-          : defaultConfidence;
+      const confidenceFactor = getConfidenceScore(
+        document.confidenceFull ?? document.confidence ?? undefined,
+        defaultConfidence,
+      );
       const recencyFactor =
         isRecent(documentDate(document), now, recencyDays) ? 1 + recencyBoost : 1;
       return {

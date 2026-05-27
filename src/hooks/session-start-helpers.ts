@@ -1,5 +1,6 @@
 import { readFile as readFsFile } from "node:fs/promises";
 import { join } from "node:path";
+import { getConfidenceScore } from "../storage/confidence.js";
 import { parseFrontmatter } from "../storage/frontmatter.js";
 import { indexPath, memoryRoot as defaultMemoryRoot } from "../storage/paths.js";
 
@@ -61,9 +62,9 @@ async function confidenceForIndexLine(
   try {
     const content = await deps.readFile(join(deps.root, relPath));
     const { frontmatter } = parseFrontmatter(content);
-    return typeof frontmatter.confidence === "number"
-      ? frontmatter.confidence
-      : DEFAULT_CONFIDENCE;
+    return frontmatter.confidence === undefined
+      ? DEFAULT_CONFIDENCE
+      : getConfidenceScore(frontmatter.confidence, DEFAULT_CONFIDENCE);
   } catch {
     return DEFAULT_CONFIDENCE;
   }

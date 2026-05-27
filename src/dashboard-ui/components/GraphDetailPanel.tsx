@@ -3,6 +3,7 @@ import { X } from "lucide-react";
 import { useEffect, useId, useRef } from "react";
 import { type GraphNode } from "../hooks/useGraph.js";
 import { useMediaQuery } from "../hooks/useMediaQuery.js";
+import { getConfidenceScore } from "../../storage/confidence.js";
 import { nodeColor } from "../lib/graph-colors.js";
 import { wikiPathToRouterParams } from "../lib/wikilinks.js";
 import { BottomSheet } from "./BottomSheet.js";
@@ -63,6 +64,8 @@ export function GraphDetailPanel({ node, onClose }: GraphDetailPanelProps) {
 
   const color = nodeColor(node);
   const routerParams = wikiPathToRouterParams(node.path);
+  const confidenceScore =
+    node.confidence === null ? null : getConfidenceScore(node.confidence);
 
   if (isMobile) {
     return (
@@ -105,10 +108,10 @@ export function GraphDetailPanel({ node, onClose }: GraphDetailPanelProps) {
           <dt className="text-text-muted">Out</dt>
           <dd className="font-mono">{node.outboundCount}</dd>
         </div>
-        {node.confidence !== null && (
+        {confidenceScore !== null && (
           <div>
             <dt className="text-text-muted">Conf</dt>
-            <dd className="font-mono">{node.confidence.toFixed(2)}</dd>
+            <dd className="font-mono">{confidenceScore.toFixed(2)}</dd>
           </div>
         )}
         {node.updated && (
@@ -150,6 +153,9 @@ function GraphNodeDetails({
   node: GraphNode;
   routerParams: { category: string; slug: string } | null;
 }) {
+  const confidenceScore =
+    node.confidence === null ? null : getConfidenceScore(node.confidence);
+
   return (
     <div>
       <div className="mb-3 flex min-w-0 items-center gap-2">
@@ -168,10 +174,10 @@ function GraphNodeDetails({
           <dt className="text-text-muted">Out</dt>
           <dd className="font-mono">{node.outboundCount}</dd>
         </div>
-        {node.confidence !== null && (
+        {confidenceScore !== null && (
           <div>
             <dt className="text-text-muted">Conf</dt>
-            <dd className="font-mono">{node.confidence.toFixed(2)}</dd>
+            <dd className="font-mono">{confidenceScore.toFixed(2)}</dd>
           </div>
         )}
         {node.updated && (

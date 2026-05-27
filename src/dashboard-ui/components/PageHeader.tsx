@@ -1,4 +1,5 @@
 import { type PageDetail } from "../hooks/usePageDetail.js";
+import { getConfidenceScore } from "../../storage/confidence.js";
 import { EntityIcon, type EntityType } from "./EntityIcon.js";
 import { StatusPill, type StatusKind } from "./StatusPill.js";
 
@@ -34,8 +35,8 @@ export function PageHeader({ page }: { page: PageDetail }) {
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 font-mono text-xs text-text-muted">
         <span>created {frontmatter.created ?? "?"}</span>
         <span>updated {frontmatter.updated ?? "?"}</span>
-        {typeof frontmatter.confidence === "number" ? (
-          <span>confidence {frontmatter.confidence.toFixed(2)}</span>
+        {frontmatter.confidence !== undefined ? (
+          <span>confidence {getConfidenceScore(frontmatter.confidence).toFixed(2)}</span>
         ) : null}
         {frontmatter.source ? <span>via {frontmatter.source}</span> : null}
       </div>
