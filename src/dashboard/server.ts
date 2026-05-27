@@ -7,7 +7,12 @@ import { detectRole } from "../cli/commands/verify/role.js";
 import { runSearch } from "../retrieval/search.js";
 import { loadSearchCorpus, type SearchScope } from "../retrieval/corpus.js";
 import type { EmbedClient } from "../retrieval/refresh.js";
+import {
+  createEmbedderFromConfig,
+  getActiveEmbedderConfig,
+} from "../retrieval/embedder/factory.js";
 import type { VoyageClient } from "../retrieval/voyage-client.js";
+import { loadMemoryConfig } from "../storage/config.js";
 import { computeGraphHealth, type GraphHealthReport } from "./graph-health.js";
 import {
   loadActivityEvents,
@@ -48,6 +53,7 @@ export interface ServerOptions {
   loader?: (vaultRoot: string) => Promise<DashboardStatus>;
   verifyRunner?: (opts: { includeSearch: boolean; role: VerifyRole; vaultRoot: string }) => Promise<VerifyResult>;
   voyageClient?: VoyageClient | null;
+  embedClient?: EmbedClient | null;
   dashboardDistRoot?: string | null;
 }
 
@@ -323,7 +329,7 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
       vaultRoot: runnerOpts.vaultRoot,
     }));
   const voyageClient = opts.voyageClient ?? null;
-  const embedClient = makeEmbedClient(voyageClient);
+  const embedClient = opts.embedClient ?? await makeConfiguredEmbedClient(opts.vaultRoot, voyageClient);
   const staticAssets = await resolveStaticAssetsRoot(opts.dashboardDistRoot);
   const healthCache = new Map<string, HealthCacheEntry>();
   const graphHealthCache = new Map<string, GraphHealthCacheEntry>();
@@ -653,6 +659,21 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
     host,
     close: () => closeServer(server),
   };
+}
+
+async function makeConfiguredEmbedClient(
+  vaultRoot: string,
+  voyageClient: VoyageClient | null,
+): Promise<EmbedClient> {
+  if (voyageClient) return makeEmbedClient(voyageClient);
+  try {
+    return createEmbedderFromConfig(
+      getActiveEmbedderConfig(await loadMemoryConfig(vaultRoot)),
+      process.env,
+    );
+  } catch {
+    return makeEmbedClient(null);
+  }
 }
 
 async function loadGraphHealthReport(vaultRoot: string): Promise<GraphHealthReport> {

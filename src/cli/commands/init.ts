@@ -69,8 +69,12 @@ retention:
   crystals_never_auto_delete: true
   archive_before_delete: true
 
+embedder:
+  provider: voyage
+  model: voyage-4-large
+
 embedding:
-  # Phase 3 will read this. Phase 1 ignores it.
+  # Legacy fallback. New writes should use embedder above.
   provider: voyage
   model: voyage-4-large
   dim: 2048

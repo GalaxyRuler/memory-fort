@@ -3,6 +3,16 @@ import { join } from "node:path";
 import { memoryRoot as defaultMemoryRoot } from "./paths.js";
 
 export interface MemoryConfig {
+  embedder?: {
+    provider?: string;
+    model?: string;
+    options?: Record<string, unknown>;
+  };
+  embedding?: {
+    provider?: string;
+    model?: string;
+    dim?: number;
+  };
   voyage?: {
     api_key?: string;
   };
