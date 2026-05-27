@@ -8,7 +8,7 @@ import { EmptyState } from "./EmptyState.js";
 export function CrystalsPage() {
   const wiki = useWikiIndex();
   const navigate = useNavigate({ from: "/crystals" });
-  const crystals = wiki.data?.byCategory.crystal ?? [];
+  const crystals = wiki.data?.byCategory.crystals ?? [];
   const listNav = useListKeyNav({
     items: crystals,
     getKey: (crystal) => crystal.relPath,
