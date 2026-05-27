@@ -283,6 +283,7 @@ export function inferCognitiveType(
   if (document.source === "crystal" || category === "crystals") return "semantic";
   if (category === "prospective") return "prospective";
   if (category === "threads") return "episodic";
+  if (category === "procedures") return "procedural";
 
   if (
     imported?.system === "agentmemory" &&
@@ -406,6 +407,8 @@ function categoryForDocument(
   if (document.kind === "crystal") return "crystals";
   if (document.type === "crystal") return "crystals";
   if (document.relPath.startsWith("wiki/threads-proposed/")) return "threads";
+  if (document.relPath.startsWith("wiki/procedures/")) return "procedures";
+  if (document.relPath.startsWith("wiki/procedures-proposed/")) return "procedures";
   return document.type || document.relPath.split("/")[1] || document.kind;
 }
 

@@ -62,6 +62,7 @@ const KNOWN_TYPES: EntityType[] = [
   "decisions",
   "lessons",
   "prospective",
+  "procedures",
   "threads",
   "references",
   "tools",

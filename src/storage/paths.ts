@@ -8,6 +8,7 @@ export type PageType =
   | "decisions"
   | "lessons"
   | "prospective"
+  | "procedures"
   | "threads"
   | "references"
   | "tools";
@@ -64,6 +65,14 @@ export function threadsDir(vaultRoot = memoryRoot()): string {
 
 export function threadsProposedDir(vaultRoot = memoryRoot()): string {
   return join(vaultRoot, "wiki", "threads-proposed");
+}
+
+export function proceduresDir(vaultRoot = memoryRoot()): string {
+  return join(vaultRoot, "wiki", "procedures");
+}
+
+export function proceduresProposedDir(vaultRoot = memoryRoot()): string {
+  return join(vaultRoot, "wiki", "procedures-proposed");
 }
 
 export function crystalsDir(): string {

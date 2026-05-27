@@ -204,6 +204,26 @@ describe("cognitive type inference", () => {
     });
   });
 
+  it("infers procedural for canonical and proposed procedure pages", async () => {
+    await writeMarkdown(
+      tmp,
+      "wiki/procedures/deploy-dashboard.md",
+      page({ type: "procedures", title: "Deploy Dashboard" }),
+    );
+    await writeMarkdown(
+      tmp,
+      "wiki/procedures-proposed/deploy-dashboard.md",
+      page({ type: "procedures", title: "Deploy Dashboard Draft", lifecycle: "proposed" }),
+    );
+
+    const result = await loadSearchCorpus({ vaultRoot: tmp, scope: "wiki" });
+
+    expect(Object.fromEntries(result.documents.map((document) => [document.relPath, document.cognitiveType]))).toEqual({
+      "wiki/procedures-proposed/deploy-dashboard.md": "procedural",
+      "wiki/procedures/deploy-dashboard.md": "procedural",
+    });
+  });
+
   it("infers prospective for pages in wiki/prospective", async () => {
     await writeMarkdown(
       tmp,

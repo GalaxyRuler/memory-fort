@@ -37,6 +37,8 @@ const SUBDIRS = [
   "wiki/people",
   "wiki/decisions",
   "wiki/lessons",
+  "wiki/procedures",
+  "wiki/procedures-proposed",
   "wiki/threads",
   "wiki/threads-proposed",
   "wiki/references",
