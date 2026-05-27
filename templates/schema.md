@@ -35,6 +35,7 @@ The wiki is organized by entity category. Every page declares one `type:` in fro
 | `decisions` | `wiki/decisions/` | `<YYYY-MM-DD>-<short-slug>.md` | A choice made with alternatives considered and reasons recorded |
 | `lessons` | `wiki/lessons/` | `<short-slug>.md` (no date — lessons are timeless) | A reusable fact learned from a specific incident |
 | `prospective` | `wiki/prospective/` | `<short-slug>.md` | A future-oriented reminder, trigger, or pending memory to revisit |
+| `procedures` | `wiki/procedures/` | `<short-slug>.md` | A reusable workflow with preconditions, ordered steps, verification, and failure cases |
 | `threads` | `wiki/threads/` | `<short-slug>.md` | A narrative thread that groups raw observations into a temporal arc |
 | `references` | `wiki/references/` | `<short-slug>.md` | External knowledge: papers, blog posts, docs, talks |
 | `tools` | `wiki/tools/` | `<package-or-binary-name>.md` | A software dependency or service used by a project |
@@ -50,7 +51,7 @@ Every wiki page (and every raw session file) begins with YAML frontmatter:
 
 ```yaml
 ---
-type: projects | people | decisions | lessons | prospective | threads | references | tools | crystal | raw-session
+type: projects | people | decisions | lessons | prospective | procedures | threads | references | tools | crystal | raw-session
 title: "Human-readable title"
 created: 2026-05-21    # ISO 8601 date
 updated: 2026-05-21
@@ -166,6 +167,8 @@ Pages under `wiki/prospective/*.md` infer `cognitive_type: prospective` when the
 
 Pages under `wiki/threads/*.md` infer `cognitive_type: episodic` when the field is absent. An explicit `cognitive_type` override remains valid on non-raw thread pages when a thread is being used as a stable semantic summary.
 
+Pages under `wiki/procedures/*.md` and `wiki/procedures-proposed/*.md` infer `cognitive_type: procedural` when the field is absent. Proposed procedures stay review-only until the operator promotes them.
+
 ### Prospective memories
 
 Prospective memories use normal lifecycle stages. New pending items should be `lifecycle: proposed`; once handled, promote or retire them by changing lifecycle and/or status rather than adding new lifecycle states.
@@ -243,6 +246,31 @@ hand-authored thread.
 ~$0.001 per proposal with `openai/gpt-4o-mini` via OpenRouter.
 Default `--max-proposals 10` per run. Free with OpenRouter free-tier
 models (`qwen/qwen-2.5-7b-instruct:free`).
+
+---
+
+## Procedural memory (cognitive type)
+
+Procedural memories live at `wiki/procedures/<slug>.md` with `cognitive_type: procedural`. A procedure is a reusable workflow - preconditions, ordered steps, verification, and failure cases - that the operator runs more than once.
+
+### Schema additions
+
+| Section | Type | Required | Meaning |
+|---|---|---|---|
+| Preconditions | bulleted list | yes | Required state before running |
+| Steps | numbered list, optional fenced commands | yes | Ordered actions |
+| Verification | bulleted list | yes | How to confirm success |
+| Failure cases | definition list (condition -> remedy) | optional | Recovery paths for known failure modes |
+
+All other Brief A/B fields apply normally.
+
+### Auto-extract proposing
+
+`memory procedure propose` detects clusters of raw observations sharing command-line signatures across multiple sessions and asks the configured LLM to draft procedure pages. Drafts land at `wiki/procedures-proposed/<slug>.md` with `lifecycle: proposed` and `source: auto-procedural-extract`. The operator validates and promotes via `memory procedure promote <slug>`.
+
+Same propose -> review -> promote workflow as auto-thread-proposing. Cost ~$0.001 per proposal on `openai/gpt-4o-mini`, default `--max-proposals 10`. Free with `qwen/qwen-2.5-7b-instruct:free`.
+
+Detection requires at least 3 observations from at least 2 distinct sessions with a successful outcome. One-off solutions are lessons, not procedures.
 
 ---
 
