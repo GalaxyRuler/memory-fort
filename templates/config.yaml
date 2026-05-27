@@ -13,6 +13,12 @@ embedder:
   provider: voyage
   model: voyage-4-large
 
+# llm:
+#   provider: openrouter   # openrouter | ollama
+#   model: openai/gpt-4o-mini
+#   max_tokens: 4096
+#   temperature: 0.2
+
 embedding:
   # Legacy fallback. New writes should use embedder above.
   provider: voyage

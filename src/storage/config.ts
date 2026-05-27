@@ -3,6 +3,13 @@ import { join } from "node:path";
 import { memoryRoot as defaultMemoryRoot } from "./paths.js";
 
 export interface MemoryConfig {
+  llm?: {
+    provider?: string;
+    model?: string;
+    max_tokens?: number;
+    temperature?: number;
+    options?: Record<string, unknown>;
+  };
   embedder?: {
     provider?: string;
     model?: string;
