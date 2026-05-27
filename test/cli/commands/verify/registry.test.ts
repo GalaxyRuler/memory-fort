@@ -9,6 +9,7 @@ const EXPECTED_ROLES = new Map<string, VerifyRole[]>([
   ["episodic.relations.coverage", ["operator", "server"]],
   ["freshness.staleness", ["operator", "server"]],
   ["graph.cohesion", ["operator", "server"]],
+  ["frontmatter.source", ["operator", "server"]],
   ["compile.recent", ["operator", "server"]],
   ["autopush.errors", ["operator"]],
   ["git.remote", ["operator"]],
