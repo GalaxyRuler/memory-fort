@@ -132,11 +132,37 @@ describe("graph health metrics", () => {
       }),
     );
 
-    expect(result.status).toBe("warn");
+    expect(result.status).toBe("pass");
     expect(result.value).toBe(99);
-    expect(result.threshold).toEqual({ warn: 95, fail: 99, rule: "warn > 95%, fail > 99%" });
+    expect(result.threshold).toEqual({ warn: 99, fail: 99.5, rule: "warn > 99%, fail > 99.5%" });
     expect(result.detail).toContain("top crossings: episodic→semantic 97");
     expect(result.detail).toContain("semantic→core 1");
+  });
+
+  it.each([
+    [99, "pass"],
+    [99.2, "warn"],
+    [99.6, "fail"],
+  ] as const)("classifies cross-galaxy ratio %f as %s", (ratio, status) => {
+    const total = 500;
+    const crossCount = Math.round((ratio / 100) * total);
+    const sameCount = total - crossCount;
+    const result = metricCrossGalaxyRatio(
+      graphFeed({
+        nodes: [
+          node("raw/episode.md", { kind: "raw", cognitiveType: "episodic" }),
+          node("wiki/tools/b.md", { cognitiveType: "semantic" }),
+          node("wiki/tools/c.md", { cognitiveType: "semantic" }),
+        ],
+        edges: [
+          ...Array.from({ length: crossCount }, () => edge("raw/episode.md", "wiki/tools/b.md")),
+          ...Array.from({ length: sameCount }, () => edge("wiki/tools/b.md", "wiki/tools/c.md")),
+        ],
+      }),
+    );
+
+    expect(result.value).toBe(ratio);
+    expect(result.status).toBe(status);
   });
 
   it("exempts project hubs from the hub-overload value while surfacing them as offenders", () => {

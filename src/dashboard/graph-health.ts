@@ -63,6 +63,12 @@ const EXEMPT_HUB_PATTERNS = [
 const HUB_OVERLOAD_WARN = 200;
 const HUB_OVERLOAD_FAIL = 650;
 const PROJECT_HUB_EXEMPTION_REASON = "project hub - by-design anchor";
+// Calibrated against Memory Fort's consolidation-heavy graph shape on
+// 2026-05-27: raw episodic/semantic nodes linking to wiki semantic/core pages
+// produce about 98% cross-galaxy edges as the architectural norm. These
+// thresholds catch near-total crossings without false-alarming on consolidation.
+const CROSS_GALAXY_WARN = 99;
+const CROSS_GALAXY_FAIL = 99.5;
 
 export function computeGraphHealth(input: GraphHealthInput): GraphHealthReport {
   const { feed } = input;
@@ -221,8 +227,8 @@ export function metricCrossGalaxyRatio(feed: GraphFeed): MetricResult {
     label: "Cross-galaxy ratio",
     value,
     unit: "%",
-    threshold: { warn: 95, fail: 99, rule: "warn > 95%, fail > 99%" },
-    status: statusAbove(value, 95, 99),
+    threshold: { warn: CROSS_GALAXY_WARN, fail: CROSS_GALAXY_FAIL, rule: "warn > 99%, fail > 99.5%" },
+    status: statusAbove(value, CROSS_GALAXY_WARN, CROSS_GALAXY_FAIL),
     detail: `${value}% (${cross.length}/${feed.edges.length}) edges connect different cognitive galaxies${topCrossings ? `; top crossings: ${topCrossings}` : ""}`,
     topOffenders: recentEdges(cross, nodes, 5).map(edgeOffender),
   };
