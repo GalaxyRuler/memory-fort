@@ -16,6 +16,8 @@ export interface MetricResult {
     pair?: [string, string];
     value?: number | string;
     note?: string;
+    exempt?: boolean;
+    reason?: string;
   }>;
 }
 
@@ -52,6 +54,15 @@ const STATUS_RANK: Record<HealthStatus, number> = {
   warn: 2,
   fail: 3,
 };
+const EXEMPT_HUB_PATTERNS = [
+  /^wiki\/projects\/[^/]+\.md$/,
+];
+// HUB_OVERLOAD_WARN/FAIL calibrated against live vault distribution as of
+// Phase 3.3 (2026-05-27): 1398 edges / ~22 active wiki pages -> avg inbound 65.
+// Warn at 3x avg, fail at 10x avg. Revisit if graph shape changes substantially.
+const HUB_OVERLOAD_WARN = 200;
+const HUB_OVERLOAD_FAIL = 650;
+const PROJECT_HUB_EXEMPTION_REASON = "project hub - by-design anchor";
 
 export function computeGraphHealth(input: GraphHealthInput): GraphHealthReport {
   const { feed } = input;
@@ -218,23 +229,37 @@ export function metricCrossGalaxyRatio(feed: GraphFeed): MetricResult {
 }
 
 export function metricHubOverload(feed: GraphFeed): MetricResult {
-  const sorted = [...feed.nodes]
-    .sort((a, b) => degree(b) - degree(a) || a.path.localeCompare(b.path));
-  const maxDegree = degree(sorted[0]);
+  const allNodes = feed.nodes.map((node) => ({
+    node,
+    degree: degree(node),
+    exempt: isExemptHub(node.path),
+  }));
+  const nonExempt = allNodes.filter((entry) => !entry.exempt);
+  const maxDegree = nonExempt.length === 0
+    ? 0
+    : Math.max(...nonExempt.map((entry) => entry.degree));
 
   return {
     id: "graph.hub-overload",
-    label: "Hub overload",
+    label: "Hub overload (non-project nodes)",
     value: maxDegree,
     unit: "count",
-    threshold: { warn: 30, fail: 60, rule: "warn > 30 edges, fail > 60 edges" },
-    status: statusAbove(maxDegree, 30, 60),
-    detail: `highest single-node degree is ${maxDegree}`,
-    topOffenders: sorted.slice(0, 5).filter((node) => degree(node) > 0).map((node) => ({
-      path: node.path,
-      value: degree(node),
-      note: `${node.inboundCount} inbound, ${node.outboundCount} outbound`,
-    })),
+    threshold: { warn: HUB_OVERLOAD_WARN, fail: HUB_OVERLOAD_FAIL, rule: "warn > 200 edges, fail > 650 edges" },
+    status: statusAbove(maxDegree, HUB_OVERLOAD_WARN, HUB_OVERLOAD_FAIL),
+    detail: `highest non-exempt single-node degree is ${maxDegree}`,
+    topOffenders: allNodes
+      .sort((a, b) => b.degree - a.degree || a.node.path.localeCompare(b.node.path))
+      .slice(0, 5)
+      .filter((entry) => entry.degree > 0)
+      .map((entry) => ({
+        path: entry.node.path,
+        value: entry.degree,
+        note: entry.exempt
+          ? `exempt (${PROJECT_HUB_EXEMPTION_REASON}); ${entry.node.inboundCount} inbound, ${entry.node.outboundCount} outbound`
+          : `${entry.node.inboundCount} inbound, ${entry.node.outboundCount} outbound`,
+        exempt: entry.exempt || undefined,
+        reason: entry.exempt ? PROJECT_HUB_EXEMPTION_REASON : undefined,
+      })),
   };
 }
 
@@ -525,6 +550,10 @@ function round(value: number, digits: number): number {
 function degree(node: GraphNode | undefined): number {
   if (!node) return 0;
   return node.inboundCount + node.outboundCount;
+}
+
+function isExemptHub(path: string): boolean {
+  return EXEMPT_HUB_PATTERNS.some((pattern) => pattern.test(path));
 }
 
 function hasText(value: string | null | undefined): value is string {

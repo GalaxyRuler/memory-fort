@@ -139,19 +139,61 @@ describe("graph health metrics", () => {
     expect(result.detail).toContain("semantic→core 1");
   });
 
-  it("flags hub overload by maximum total node degree", () => {
+  it("exempts project hubs from the hub-overload value while surfacing them as offenders", () => {
     const result = metricHubOverload(
       graphFeed({
         nodes: [
-          node("wiki/projects/hub.md", { inboundCount: 61, outboundCount: 0 }),
-          node("wiki/tools/small.md", { inboundCount: 2, outboundCount: 3 }),
+          node("wiki/projects/agentmemory.md", { inboundCount: 1016, outboundCount: 0 }),
+          node("wiki/lessons/mcp-plugin.md", { inboundCount: 157, outboundCount: 0 }),
         ],
       }),
     );
 
-    expect(result.status).toBe("fail");
-    expect(result.value).toBe(61);
-    expect(result.topOffenders[0]).toMatchObject({ path: "wiki/projects/hub.md", value: 61 });
+    expect(result.status).toBe("pass");
+    expect(result.value).toBe(157);
+    expect(result.threshold).toEqual({ warn: 200, fail: 650, rule: "warn > 200 edges, fail > 650 edges" });
+    expect(result.detail).toBe("highest non-exempt single-node degree is 157");
+    expect(result.topOffenders[0]).toMatchObject({
+      path: "wiki/projects/agentmemory.md",
+      value: 1016,
+      note: "exempt (project hub - by-design anchor); 1016 inbound, 0 outbound",
+      exempt: true,
+      reason: "project hub - by-design anchor",
+    });
+  });
+
+  it.each([
+    [199, "pass"],
+    [250, "warn"],
+    [700, "fail"],
+  ] as const)("classifies non-exempt hub degree %i as %s", (degree, status) => {
+    const result = metricHubOverload(
+      graphFeed({
+        nodes: [
+          node("wiki/lessons/hub.md", { inboundCount: degree, outboundCount: 0 }),
+        ],
+      }),
+    );
+
+    expect(result.status).toBe(status);
+    expect(result.value).toBe(degree);
+  });
+
+  it("passes with value 0 when every node is exempt or the feed is empty", () => {
+    const allExempt = metricHubOverload(
+      graphFeed({
+        nodes: [
+          node("wiki/projects/a.md", { inboundCount: 900, outboundCount: 20 }),
+          node("wiki/projects/b.md", { inboundCount: 700, outboundCount: 10 }),
+        ],
+      }),
+    );
+    const empty = metricHubOverload(graphFeed());
+
+    expect(allExempt.status).toBe("pass");
+    expect(allExempt.value).toBe(0);
+    expect(empty.status).toBe("pass");
+    expect(empty.value).toBe(0);
   });
 
   it("flags low temporal coverage for edges missing validFrom", () => {

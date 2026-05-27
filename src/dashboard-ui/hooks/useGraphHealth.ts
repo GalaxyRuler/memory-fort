@@ -17,6 +17,8 @@ export interface GraphHealthMetric {
     pair?: [string, string];
     value?: number | string;
     note?: string;
+    exempt?: boolean;
+    reason?: string;
   }>;
 }
 
