@@ -202,6 +202,7 @@ These are small, one-off maintenance items that don't fit the phased model. Pick
 | 2026-05-27 | Entity registry uses existing wiki pages as entity records (not a parallel `entities/` directory) | One source of truth; avoid parallel hierarchy churn |
 | 2026-05-27 | Edge confidence stays rule-based until ≥ 1000 labeled events | Premature calibration overfits; rule-based is honest about what we know |
 | 2026-05-27 | Measurement (Phase 2) precedes targeted optimization (Phase 3) | Avoid guessing the next bottleneck |
+| 2026-05-27 | Embedder providers are abstracted before Settings editability | Phase 4.3.A makes Voyage, OpenAI, and Ollama selectable from config/CLI first; LLM providers and Settings writes remain the next briefs |
 
 ---
 

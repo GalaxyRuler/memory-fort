@@ -19,6 +19,14 @@ import { runInstallVps } from "./cli/commands/install-vps.js";
 import { runLint } from "./cli/commands/lint.js";
 import { runLog } from "./cli/commands/log.js";
 import { runPage } from "./cli/commands/page.js";
+import {
+  formatListEmbeddersResult,
+  formatReindexEmbeddingsResult,
+  formatTestEmbedderResult,
+  runListEmbedders,
+  runReindexEmbeddings,
+  runTestEmbedder,
+} from "./cli/commands/provider.js";
 import { runPull, formatPullSuccess } from "./cli/commands/pull.js";
 import { runPush, formatPushSuccess } from "./cli/commands/push.js";
 import { runPrune } from "./cli/commands/prune.js";
@@ -435,6 +443,58 @@ program
       process.stdout.write(result.report);
     } catch (err) {
       console.error((err as Error).message);
+      process.exit(1);
+    }
+  });
+
+const provider = program
+  .command("provider")
+  .description("Inspect and test embedding providers");
+
+provider
+  .command("list-embedders")
+  .description("List supported embedding providers and current configuration")
+  .action(async () => {
+    try {
+      process.stdout.write(formatListEmbeddersResult(await runListEmbedders()));
+    } catch (err) {
+      console.error(`memory provider list-embedders failed: ${(err as Error).message}`);
+      process.exit(1);
+    }
+  });
+
+provider
+  .command("test-embedder")
+  .description("Run a one-call embedding smoke test")
+  .option("--provider <provider>", "voyage | openai | ollama")
+  .action(async (opts: { provider?: "voyage" | "openai" | "ollama" }) => {
+    if (opts.provider && !["voyage", "openai", "ollama"].includes(opts.provider)) {
+      console.error("memory provider test-embedder: --provider must be voyage, openai, or ollama");
+      process.exit(2);
+    }
+    const result = await runTestEmbedder({ provider: opts.provider });
+    process.stdout.write(formatTestEmbedderResult(result));
+    process.exit(result.exitCode);
+  });
+
+provider
+  .command("reindex-embeddings")
+  .description("Plan or apply a full embedding reindex for the active provider")
+  .option("--plan", "report what would be re-embedded")
+  .option("--apply", "re-embed the full vault")
+  .action(async (opts: { plan?: boolean; apply?: boolean }) => {
+    if ([opts.plan, opts.apply].filter(Boolean).length !== 1) {
+      console.error("memory provider reindex-embeddings: choose exactly one of --plan or --apply");
+      process.exit(2);
+    }
+    try {
+      const result = await runReindexEmbeddings({
+        mode: opts.apply ? "apply" : "plan",
+      });
+      process.stdout.write(formatReindexEmbeddingsResult(result));
+      process.exit(result.exitCode);
+    } catch (err) {
+      console.error(`memory provider reindex-embeddings failed: ${(err as Error).message}`);
       process.exit(1);
     }
   });
