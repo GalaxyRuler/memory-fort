@@ -1,0 +1,213 @@
+import { Check, Pencil, X } from "lucide-react";
+import { useState } from "react";
+import { useConfig, type ConfigObject } from "../hooks/useConfig.js";
+import { type ProviderCatalogEntry, useProvidersCatalog } from "../hooks/useProvidersCatalog.js";
+import { useUpdateConfig } from "../hooks/useUpdateConfig.js";
+import { Button } from "./Button.js";
+import { Card } from "./Card.js";
+import { ConfigStatusPill } from "./ConfigStatusPill.js";
+import { Input } from "./Input.js";
+
+type EmbedderProvider = "voyage" | "openai" | "ollama";
+
+interface EmbedderDraft {
+  provider: EmbedderProvider;
+  model: string;
+}
+
+export function EmbedderConfigCard() {
+  const config = useConfig();
+  const providers = useProvidersCatalog();
+  const mutation = useUpdateConfig();
+  const active = readActiveEmbedder(config.data);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState<EmbedderDraft>(active);
+  const [message, setMessage] = useState<string | null>(null);
+  const providerEntries = providers.data?.embedders ?? [];
+  const selectedProvider = providerEntries.find((entry) => entry.provider === draft.provider);
+  const activeProviderEntry = providerEntries.find((entry) => entry.provider === active.provider);
+
+  const selectedModels = selectedProvider?.models ?? [];
+  const activeDim = activeProviderEntry?.models.find((model) => model.id === active.model)?.dim;
+
+  function startEditing() {
+    setDraft(active);
+    setMessage(null);
+    setEditing(true);
+  }
+
+  function changeProvider(provider: string) {
+    if (!isEmbedderProvider(provider)) return;
+    const entry = providerEntries.find((item) => item.provider === provider);
+    setDraft({
+      provider,
+      model: defaultModel(entry) ?? (provider === "ollama" ? "nomic-embed-text" : ""),
+    });
+  }
+
+  function save() {
+    const providerChanged = draft.provider !== active.provider;
+    mutation.mutate(
+      { embedder: { provider: draft.provider, model: draft.model } },
+      {
+        onSuccess: () => {
+          setEditing(false);
+          setMessage(providerChanged
+            ? "Config saved. Dashboard will pick up changes on next request. Note: switching embedder provider requires memory provider reindex-embeddings --apply to migrate existing vectors."
+            : "Config saved. Dashboard will pick up changes on next request.");
+        },
+      },
+    );
+  }
+
+  return (
+    <Card hasBrackets className="border-border-emphasis">
+      <div className="mb-4 flex items-start justify-between gap-3">
+        <div>
+          <h2 className="text-base font-semibold">Embedder</h2>
+          <p className="text-xs text-text-muted">Vector provider for search embeddings.</p>
+        </div>
+        {!editing && (
+          <Button type="button" onClick={startEditing} aria-label="Edit embedder">
+            <Pencil size={15} strokeWidth={1.5} />
+            Edit
+          </Button>
+        )}
+      </div>
+
+      {editing ? (
+        <div className="space-y-3">
+          <label className="block text-sm">
+            <span className="mb-1 block text-xs uppercase tracking-wide text-text-muted">Provider</span>
+            <select
+              aria-label="Embedder provider"
+              className="min-h-11 w-full rounded-md border border-border-subtle bg-surface px-3 py-1.5 text-sm md:min-h-8"
+              value={draft.provider}
+              onChange={(event) => changeProvider(event.target.value)}
+            >
+              {providerEntries.map((entry) => (
+                <option key={entry.provider} value={entry.provider}>{entry.provider}</option>
+              ))}
+            </select>
+          </label>
+
+          <ModelControl
+            label="Embedder model"
+            provider={draft.provider}
+            value={draft.model}
+            placeholder="nomic-embed-text"
+            providers={selectedModels}
+            onChange={(model) => setDraft((current) => ({ ...current, model }))}
+          />
+
+          <KeyStatus provider={selectedProvider} loading={providers.isLoading} />
+
+          <div className="flex flex-wrap justify-end gap-2 pt-2">
+            <Button type="button" variant="ghost" onClick={() => setEditing(false)}>
+              <X size={15} strokeWidth={1.5} />
+              Cancel
+            </Button>
+            <Button type="button" variant="primary" onClick={save} disabled={mutation.isPending || draft.model.trim().length === 0} aria-label="Save embedder changes">
+              <Check size={15} strokeWidth={1.5} />
+              Save Changes
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-2 text-sm">
+          <p>Provider: {active.provider}</p>
+          <p>Model: {active.model}{activeDim ? ` (${activeDim}-dim)` : ""}</p>
+          <KeyStatus provider={activeProviderEntry} loading={providers.isLoading} />
+          {message && <p className="rounded-md border border-status-green/30 bg-status-green/10 p-2 text-xs text-status-green">{message}</p>}
+        </div>
+      )}
+
+      {mutation.error && (
+        <p className="mt-3 rounded-md border border-status-red/30 bg-status-red/10 p-2 text-xs text-status-red">
+          {mutation.error instanceof Error ? mutation.error.message : "Failed to save config."}
+        </p>
+      )}
+    </Card>
+  );
+}
+
+function ModelControl(props: {
+  label: string;
+  provider: string;
+  value: string;
+  placeholder: string;
+  providers: Array<{ id: string; dim?: number }>;
+  onChange: (model: string) => void;
+}) {
+  if (props.provider === "ollama") {
+    return (
+      <label className="block text-sm">
+        <span className="mb-1 block text-xs uppercase tracking-wide text-text-muted">Model</span>
+        <Input
+          aria-label={props.label}
+          value={props.value}
+          placeholder={props.placeholder}
+          onChange={(event) => props.onChange(event.target.value)}
+          className="w-full"
+        />
+      </label>
+    );
+  }
+  return (
+    <label className="block text-sm">
+      <span className="mb-1 block text-xs uppercase tracking-wide text-text-muted">Model</span>
+      <select
+        aria-label={props.label}
+        className="min-h-11 w-full rounded-md border border-border-subtle bg-surface px-3 py-1.5 text-sm md:min-h-8"
+        value={props.value}
+        onChange={(event) => props.onChange(event.target.value)}
+      >
+        {props.providers.map((model) => (
+          <option key={model.id} value={model.id}>
+            {model.id}{model.dim ? ` (${model.dim}-dim)` : ""}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+function KeyStatus({ provider, loading }: { provider?: ProviderCatalogEntry; loading?: boolean }) {
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-sm">
+      <span className="text-text-muted">Key:</span>
+      <code className="rounded bg-surface-2 px-1.5 py-0.5 font-mono text-xs">{provider?.envVar ?? "provider env"}</code>
+      <ConfigStatusPill status={loading || !provider ? "checking" : provider.envVarStatus} />
+    </div>
+  );
+}
+
+function readActiveEmbedder(config: ConfigObject | undefined): EmbedderDraft {
+  const embedder = asRecord(config?.embedder) ?? asRecord(config?.embedding);
+  return {
+    provider: readEmbedderProvider(embedder?.provider) ?? "voyage",
+    model: readString(embedder?.model) ?? "voyage-4-large",
+  };
+}
+
+function defaultModel(provider: ProviderCatalogEntry | undefined): string | undefined {
+  return provider?.models.find((model) => model.default)?.id ?? provider?.models[0]?.id;
+}
+
+function readEmbedderProvider(value: unknown): EmbedderProvider | null {
+  return isEmbedderProvider(value) ? value : null;
+}
+
+function isEmbedderProvider(value: unknown): value is EmbedderProvider {
+  return value === "voyage" || value === "openai" || value === "ollama";
+}
+
+function readString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
