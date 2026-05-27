@@ -19,7 +19,7 @@ export type SearchScope = "wiki" | "raw" | "crystals" | "all";
 // "unknown" is reserved for the legacy sentinel "no source set" case.
 export type SearchSource = string;
 export type SearchKind = "wiki" | "raw" | "crystal";
-export type CognitiveType = "core" | "semantic" | "episodic" | "procedural";
+export type CognitiveType = "core" | "semantic" | "episodic" | "procedural" | "prospective";
 
 export interface SearchDocument {
   kind: SearchKind;
@@ -32,6 +32,9 @@ export interface SearchDocument {
   confidence: number | null;
   confidenceFull?: Frontmatter["confidence"];
   lifecycle?: LifecycleStage | null;
+  due?: string | null;
+  triggers?: string[];
+  expires?: string | null;
   tags: string[];
   relations: RelationMap;
   source: SearchSource;
@@ -206,6 +209,9 @@ async function loadDocument(file: MarkdownFile): Promise<SearchDocument> {
     confidence: canonical?.confidence ?? readConfidenceScore(frontmatter.confidence),
     confidenceFull: frontmatter.confidence,
     lifecycle: readLifecycle(frontmatter.lifecycle),
+    due: readOptionalDateString(frontmatter.due),
+    triggers: readStringArray(frontmatter.triggers),
+    expires: readOptionalDateString(frontmatter.expires),
     tags: canonical?.tags ?? readStringArray(frontmatter.tags),
     relations: readRelations(frontmatter.relations, file.relPath),
     source:
@@ -275,6 +281,7 @@ export function inferCognitiveType(
     return "core";
   }
   if (document.source === "crystal" || category === "crystals") return "semantic";
+  if (category === "prospective") return "prospective";
 
   if (
     imported?.system === "agentmemory" &&
@@ -334,6 +341,13 @@ function readUpdated(value: unknown): string | null {
   return readDate(value);
 }
 
+function readOptionalDateString(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  return typeof value === "string" && !Number.isNaN(Date.parse(value))
+    ? value
+    : null;
+}
+
 function readConfidenceScore(value: Partial<Frontmatter>["confidence"]): number | null {
   return value === undefined ? null : getConfidenceScore(value);
 }
@@ -377,7 +391,8 @@ function readCognitiveType(value: unknown): CognitiveType | null {
     value === "core" ||
     value === "semantic" ||
     value === "episodic" ||
-    value === "procedural"
+    value === "procedural" ||
+    value === "prospective"
   ) {
     return value;
   }

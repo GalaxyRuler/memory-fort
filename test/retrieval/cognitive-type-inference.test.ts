@@ -56,6 +56,22 @@ describe("cognitive type inference", () => {
     expect(result.documents[0]?.cognitiveType).toBe("core");
   });
 
+  it("accepts explicit prospective cognitive_type before inference", async () => {
+    await writeMarkdown(
+      tmp,
+      "wiki/references/explicit-prospective.md",
+      page({
+        type: "references",
+        title: "Explicit Prospective",
+        cognitive_type: "prospective",
+      }),
+    );
+
+    const result = await loadSearchCorpus({ vaultRoot: tmp, scope: "wiki" });
+
+    expect(result.documents[0]?.cognitiveType).toBe("prospective");
+  });
+
   it("infers semantic for crystal source or crystal category", async () => {
     await writeMarkdown(
       tmp,
@@ -186,6 +202,18 @@ describe("cognitive type inference", () => {
       "wiki/lessons/lesson.md": "procedural",
       "wiki/tools/tool.md": "procedural",
     });
+  });
+
+  it("infers prospective for pages in wiki/prospective", async () => {
+    await writeMarkdown(
+      tmp,
+      "wiki/prospective/check-dashboard.md",
+      page({ type: "prospective", title: "Check Dashboard" }),
+    );
+
+    const result = await loadSearchCorpus({ vaultRoot: tmp, scope: "wiki" });
+
+    expect(result.documents[0]?.cognitiveType).toBe("prospective");
   });
 
   it("infers core for active projects with at least five inbound edges", async () => {

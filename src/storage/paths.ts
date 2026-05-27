@@ -7,6 +7,7 @@ export type PageType =
   | "people"
   | "decisions"
   | "lessons"
+  | "prospective"
   | "references"
   | "tools";
 
