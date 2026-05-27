@@ -219,6 +219,31 @@ Thread pages should use existing `mentions` and `derived_from` relations to cite
 
 The `graph.narrative-thread-coverage` dashboard metric is `n/a` until at least one live thread exists. Once threads exist, it passes when at least 50% of raw observations are referenced by live thread pages, warns below 50%, and fails below 25%.
 
+## Auto-thread proposing
+
+`memory thread propose` clusters raw observations and asks the configured LLM
+to draft thread pages. Drafts land at `wiki/threads-proposed/<slug>.md` with
+`lifecycle: proposed` and `source: auto-thread-propose`. They are NOT counted
+toward `graph.narrative-thread-coverage` until the operator validates them.
+
+### Operator workflow
+
+1. `memory thread propose --apply` (default: weekly cadence)
+2. `ls ~/.memory/wiki/threads-proposed/` - review drafts
+3. Edit any drafts that need adjustment (open in your editor of choice)
+4. `memory thread promote <slug>` - moves to `wiki/threads/`, updates
+   `lifecycle: consolidated`, `source: auto-thread-propose-validated`
+5. OR `memory thread reject <slug>` - deletes the draft
+
+The promoted thread counts toward `narrative-thread-coverage` like any
+hand-authored thread.
+
+### Cost
+
+~$0.001 per proposal with `openai/gpt-4o-mini` via OpenRouter.
+Default `--max-proposals 10` per run. Free with OpenRouter free-tier
+models (`qwen/qwen-2.5-7b-instruct:free`).
+
 ---
 
 ## 4. Naming rules

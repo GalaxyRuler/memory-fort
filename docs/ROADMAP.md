@@ -145,7 +145,7 @@ This phase is intentionally **not pre-sequenced**. The order depends on which me
 
 **Briefs:**
 1. **Prospective memory + event segmentation** (the Brief C we previously roadmapped). New `prospective` kind for pending obligations with `due:`, `triggers:`, `expires:`. Session capture splits on goal/entity/tool boundaries instead of monolithic per-session files. Adds `wiki/prospective/` directory.
-2. **Narrative threads.** Explicit thread records connecting episodes, decisions, open questions. Enables the twelfth health metric from Phase 2.
+2. **Narrative threads.** Explicit thread records connecting episodes, decisions, open questions. Enables the twelfth health metric from Phase 2. Auto-thread proposing is shipped as the CLI-only propose -> promote workflow, with LLM drafts isolated under `wiki/threads-proposed/` until operator validation.
 3. **Procedural extraction.** Detect repeated successful workflows and propose procedural memories. Requires user approval before promotion to canonical.
 
 **Dependencies:** Phase 3. (Brief C explicitly depends on lifecycle states from Phase 1; narrative threads are most useful once we have the entity registry from Phase 3 if duplicate metric drove that.)
@@ -203,6 +203,7 @@ These are small, one-off maintenance items that don't fit the phased model. Pick
 | 2026-05-27 | Edge confidence stays rule-based until ≥ 1000 labeled events | Premature calibration overfits; rule-based is honest about what we know |
 | 2026-05-27 | Measurement (Phase 2) precedes targeted optimization (Phase 3) | Avoid guessing the next bottleneck |
 | 2026-05-27 | Embedder providers are abstracted before Settings editability | Phase 4.3.A makes Voyage, OpenAI, and Ollama selectable from config/CLI first; LLM providers and Settings writes remain the next briefs |
+| 2026-05-28 | Auto-thread proposing keeps narrative coverage honest | LLM drafts land in `wiki/threads-proposed/` and only count toward coverage after `memory thread promote` moves them to `wiki/threads/` |
 
 ---
 
