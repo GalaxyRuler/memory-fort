@@ -4,6 +4,12 @@
   "private": true,
   "type": "module",
   "description": "Memory Fort: cross-tool memory for Claude Code, Codex, and Antigravity",
+  "author": {
+    "name": "Abdullah Al Kulaib",
+    "email": "Abdullah@alkulaib.io",
+    "url": "https://github.com/GalaxyRuler"
+  },
+  "license": "SEE LICENSE IN LICENSE",
   "scripts": {
     "build": "node --max-old-space-size=8192 ./node_modules/tsdown/dist/run.mjs",
     "build:ui": "vite build",
