@@ -73,7 +73,11 @@ describe("runImportAgentMemory", () => {
     const imported = await readFile(join(memDir, "raw", "2026-05-25", "agentmemory-obs_2.md"), "utf-8");
     expect(parseFrontmatter(imported).frontmatter.observed_at).toBe("2026-05-20");
 
-    const second = await runImportAgentMemory({ from: dataDir, mode: "apply" });
+    const second = await runImportAgentMemory({
+      from: dataDir,
+      mode: "apply",
+      now: new Date("2026-05-26T00:00:00.000Z"),
+    });
     expect(second.report).toContain("dedup-skipped: 2");
   });
 
