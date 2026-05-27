@@ -11,6 +11,8 @@ ExecStart=${NODE_PATH} ${INSTALL_ROOT}/services/dashboard.mjs
 Restart=on-failure
 RestartSec=5
 Environment=MEMORY_INSTALL_ROOT=${INSTALL_ROOT}
+Environment=MEMORY_ROLE=server
+Environment=MEMORY_ROOT=${INSTALL_ROOT}/vault
 Environment=NODE_ENV=production
 EnvironmentFile=-${INSTALL_ROOT}/env/voyage.env
 StandardOutput=append:${INSTALL_ROOT}/logs/dashboard.log

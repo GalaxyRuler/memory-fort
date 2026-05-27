@@ -37,6 +37,10 @@ function commands(runner: { calls: RecordedCall[] }): string[] {
   return runner.calls.map((call) => call.command.command);
 }
 
+function countOccurrences(value: string, needle: string): number {
+  return value.split(needle).length - 1;
+}
+
 function activeRunner(): SshRunner & { calls: RecordedCall[] } {
   return makeRunner((call) => ({
     stdout: call.command.command.includes("test -d")
@@ -212,6 +216,36 @@ describe("runInstallVps", () => {
     expect(upload).toBeDefined();
     expect(upload).toContain("WorkingDirectory=/tmp/mem");
     expect(upload).not.toContain("${INSTALL_ROOT}");
+  });
+
+  it("Installer uploads dashboard unit with server role and vault root environment", async () => {
+    const runner = activeRunner();
+
+    await runInstallVps({ runner });
+
+    const upload = commands(runner).find((command) =>
+      command.startsWith("cat > /etc/systemd/system/memory-dashboard.service"),
+    );
+    expect(upload).toBeDefined();
+    expect(upload).toContain("Environment=MEMORY_ROLE=server");
+    expect(upload).toContain("Environment=MEMORY_ROOT=/root/memory-system/vault");
+    expect(commands(runner).some((command) => command.includes("role.conf"))).toBe(false);
+  });
+
+  it("Installer reruns do not duplicate dashboard environment lines", async () => {
+    const runner = activeRunner();
+
+    await runInstallVps({ runner });
+    await runInstallVps({ runner });
+
+    const uploads = commands(runner).filter((command) =>
+      command.startsWith("cat > /etc/systemd/system/memory-dashboard.service"),
+    );
+    expect(uploads).toHaveLength(2);
+    for (const upload of uploads) {
+      expect(countOccurrences(upload, "Environment=MEMORY_ROLE=server")).toBe(1);
+      expect(countOccurrences(upload, "Environment=MEMORY_ROOT=/root/memory-system/vault")).toBe(1);
+    }
   });
 
   it("Installer uploads backup script with executable bit", async () => {
