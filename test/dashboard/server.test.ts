@@ -729,6 +729,62 @@ describe("dashboard server", () => {
     }
   });
 
+  it("GET /api/graph-health returns a cached graph health report", async () => {
+    await mkdir(join(tmp, "wiki", "tools"), { recursive: true });
+    await writeFile(
+      join(tmp, "wiki", "tools", "a.md"),
+      page({
+        type: "tools",
+        title: "A",
+        created: "2026-05-23",
+        updated: "2026-05-23",
+        source: "codex",
+        confidence: 0.9,
+      }, "A body.\n"),
+    );
+    const server = await createServer({ vaultRoot: tmp, port: 0 });
+
+    try {
+      const first = await fetch(`http://${server.host}:${server.port}/api/graph-health`);
+      const firstBody = await first.json();
+      const second = await fetch(`http://${server.host}:${server.port}/api/graph-health`);
+      const secondBody = await second.json();
+
+      expect(first.status).toBe(200);
+      expect(second.status).toBe(200);
+      expect(firstBody.metrics).toHaveLength(12);
+      expect(firstBody.overallStatus).toBe("pass");
+      expect(secondBody).toEqual(firstBody);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("GET /api/graph-health returns 503 when graph health fails", async () => {
+    await mkdir(join(tmp, "wiki", "tools"), { recursive: true });
+    await writeFile(
+      join(tmp, "wiki", "tools", "missing-metadata.md"),
+      page({
+        type: "tools",
+        title: "Missing metadata",
+        created: "2026-05-23",
+        updated: "2026-05-23",
+      }, "A body.\n"),
+    );
+    const server = await createServer({ vaultRoot: tmp, port: 0 });
+
+    try {
+      const response = await fetch(`http://${server.host}:${server.port}/api/graph-health`);
+      const body = await response.json();
+
+      expect(response.status).toBe(503);
+      expect(body.overallStatus).toBe("fail");
+      expect(body.metrics.map((metric: { id: string }) => metric.id)).toContain("graph.confidence-coverage");
+    } finally {
+      await server.close();
+    }
+  });
+
   it("GET /api/sync-state returns checkout-log-derived state", async () => {
     await mkdir(join(tmp, "logs"), { recursive: true });
     // Use a fixture timestamp anchored to the current clock so the staleness

@@ -8,6 +8,7 @@ import { runSearch } from "../retrieval/search.js";
 import type { SearchScope } from "../retrieval/corpus.js";
 import type { EmbedClient } from "../retrieval/refresh.js";
 import type { VoyageClient } from "../retrieval/voyage-client.js";
+import { computeGraphHealth, type GraphHealthReport } from "./graph-health.js";
 import {
   loadActivityEvents,
   loadCompileState,
@@ -228,6 +229,11 @@ interface HealthCacheEntry {
   report: VerifyResult;
 }
 
+interface GraphHealthCacheEntry {
+  atMs: number;
+  report: GraphHealthReport;
+}
+
 function parseSearchBoolean(value: string | null): boolean {
   return value === "true";
 }
@@ -320,6 +326,7 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
   const embedClient = makeEmbedClient(voyageClient);
   const staticAssets = await resolveStaticAssetsRoot(opts.dashboardDistRoot);
   const healthCache = new Map<string, HealthCacheEntry>();
+  const graphHealthCache = new Map<string, GraphHealthCacheEntry>();
 
   const server = createHttpServer(async (req, res) => {
     const method = req.method ?? "GET";
@@ -441,6 +448,20 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
           return;
         }
         writeJson(res, await loadGraphFeed(opts.vaultRoot, scope));
+        return;
+      }
+
+      if (segments.length === 2 && segments[0] === "api" && segments[1] === "graph-health") {
+        const cacheKey = "all";
+        const cached = graphHealthCache.get(cacheKey);
+        const nowMs = Date.now();
+        const report = cached && nowMs - cached.atMs < HEALTH_CACHE_MS
+          ? cached.report
+          : computeGraphHealth(await loadGraphFeed(opts.vaultRoot, "all"));
+        if (!cached || nowMs - cached.atMs >= HEALTH_CACHE_MS) {
+          graphHealthCache.set(cacheKey, { atMs: nowMs, report });
+        }
+        writeJson(res, report, report.overallStatus === "fail" ? 503 : 200);
         return;
       }
 
