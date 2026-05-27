@@ -2,7 +2,12 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import { basename, join, relative, resolve } from "node:path";
 import { canonicalizeRawObservation } from "../compile/canonicalize.js";
 import { getConfidenceScore } from "../storage/confidence.js";
-import { parseFrontmatter, type Frontmatter } from "../storage/frontmatter.js";
+import {
+  KNOWN_LIFECYCLE_STAGES,
+  parseFrontmatter,
+  type Frontmatter,
+  type LifecycleStage,
+} from "../storage/frontmatter.js";
 import { buildGraph } from "./graph.js";
 import { readRelations, type RelationMap } from "./relations.js";
 
@@ -27,6 +32,7 @@ export interface SearchDocument {
   cognitiveType: CognitiveType;
   confidence: number | null;
   confidenceFull?: Frontmatter["confidence"];
+  lifecycle?: LifecycleStage | null;
   tags: string[];
   relations: RelationMap;
   source: SearchSource;
@@ -200,6 +206,7 @@ async function loadDocument(file: MarkdownFile): Promise<SearchDocument> {
     cognitiveType: explicitCognitiveType ?? "semantic",
     confidence: canonical?.confidence ?? readConfidenceScore(frontmatter.confidence),
     confidenceFull: frontmatter.confidence,
+    lifecycle: readLifecycle(frontmatter.lifecycle),
     tags: canonical?.tags ?? readStringArray(frontmatter.tags),
     relations: readRelations(frontmatter.relations, file.relPath),
     source:
@@ -330,6 +337,12 @@ function readUpdated(value: unknown): string | null {
 
 function readConfidenceScore(value: Partial<Frontmatter>["confidence"]): number | null {
   return value === undefined ? null : getConfidenceScore(value);
+}
+
+function readLifecycle(value: unknown): LifecycleStage | null {
+  return KNOWN_LIFECYCLE_STAGES.includes(value as never)
+    ? value as LifecycleStage
+    : null;
 }
 
 function readStringArray(value: unknown): string[] {

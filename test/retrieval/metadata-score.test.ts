@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { scoreByMetadata } from "../../src/retrieval/metadata-score.js";
+import {
+  factorForStatusAndLifecycle,
+  scoreByMetadata,
+} from "../../src/retrieval/metadata-score.js";
 import type { SearchDocument } from "../../src/retrieval/corpus.js";
 
 function doc(
@@ -46,8 +49,8 @@ describe("retrieval metadata scoring", () => {
     ]);
     expect(scored.map((item) => item.score)).toEqual([
       0.8800000000000001,
-      0.44000000000000006,
-      0.264,
+      0.08800000000000002,
+      0,
     ]);
   });
 
@@ -120,4 +123,83 @@ describe("retrieval metadata scoring", () => {
 
     expect(scored[0]!.components.confidenceFactor).toBe(0.5);
   });
+
+  it("factorForStatusAndLifecycle composes lifecycle multipliers", () => {
+    const factors = defaultLifecycleFactors();
+    expect(factorForStatusAndLifecycle("active", "canonical", "unvalidated", factors)).toBe(1);
+    expect(factorForStatusAndLifecycle("active", "consolidated", "unvalidated", factors)).toBe(0.9);
+    expect(factorForStatusAndLifecycle("active", "proposed", "unvalidated", factors)).toBe(0.7);
+    expect(factorForStatusAndLifecycle("active", "observed", "unvalidated", factors)).toBe(0.85);
+    expect(factorForStatusAndLifecycle("active", "linked", "unvalidated", factors)).toBe(0.85);
+    expect(factorForStatusAndLifecycle("active", "stale", "unvalidated", factors)).toBe(0.5);
+    expect(factorForStatusAndLifecycle("active", "disputed", "unvalidated", factors)).toBe(0.3);
+    expect(factorForStatusAndLifecycle("active", "dormant", "unvalidated", factors)).toBe(0.4);
+    expect(factorForStatusAndLifecycle("active", "archived", "unvalidated", factors)).toBe(0);
+  });
+
+  it("factorForStatusAndLifecycle composes validation multipliers", () => {
+    const factors = defaultLifecycleFactors();
+    expect(factorForStatusAndLifecycle("active", "canonical", "user", factors)).toBe(1.2);
+    expect(factorForStatusAndLifecycle("active", "canonical", "auto", factors)).toBe(1.05);
+    expect(factorForStatusAndLifecycle("active", "canonical", "challenged", factors)).toBe(0.4);
+    expect(factorForStatusAndLifecycle("active", "canonical", "revoked", factors)).toBe(0);
+  });
+
+  it("scoreByMetadata deboosts explicit lifecycle but not legacy missing lifecycle", () => {
+    const scored = scoreByMetadata(
+      [
+        doc("wiki/projects/legacy.md", { confidence: 0.8 }),
+        doc("wiki/projects/proposed.md", {
+          confidence: 0.8,
+          lifecycle: "proposed",
+        } as Partial<SearchDocument>),
+      ],
+      {
+        now: new Date("2026-05-23T00:00:00.000Z"),
+        recencyBoost: 0,
+      },
+    );
+
+    expect(scored.find((item) => item.path.endsWith("legacy.md"))!.score).toBe(0.8);
+    expect(scored.find((item) => item.path.endsWith("proposed.md"))!.score).toBeCloseTo(0.56);
+  });
+
+  it("scoreByMetadata boosts user validation while capping final score at one", () => {
+    const scored = scoreByMetadata(
+      [
+        doc("wiki/projects/user.md", {
+          confidence: null,
+          confidenceFull: { extraction: 0.9, validation: "user" },
+          lifecycle: "canonical",
+        } as Partial<SearchDocument>),
+      ],
+      {
+        now: new Date("2026-05-23T00:00:00.000Z"),
+        recencyBoost: 0,
+      },
+    );
+
+    expect(scored[0]!.components.statusFactor).toBe(1.2);
+    expect(scored[0]!.score).toBe(1);
+  });
 });
+
+function defaultLifecycleFactors() {
+  return {
+    activeFactor: 1,
+    archivedFactor: 0,
+    supersededFactor: 0.1,
+    canonicalFactor: 1,
+    consolidatedFactor: 0.9,
+    proposedFactor: 0.7,
+    observedFactor: 0.85,
+    linkedFactor: 0.85,
+    staleFactor: 0.5,
+    disputedFactor: 0.3,
+    dormantFactor: 0.4,
+    userValidationFactor: 1.2,
+    autoValidationFactor: 1.05,
+    challengedValidationFactor: 0.4,
+    revokedValidationFactor: 0,
+  };
+}
