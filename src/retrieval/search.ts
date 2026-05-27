@@ -20,6 +20,7 @@ import {
   shouldUseHyde,
 } from "./hyde.js";
 import { refreshEmbeddings, type EmbedClient } from "./refresh.js";
+import { embedWithClient } from "./embedder/types.js";
 import type { VoyageClient } from "./voyage-client.js";
 
 export interface SearchOptions {
@@ -85,13 +86,6 @@ export interface SearchResponse {
   hyde: HydeStatus;
   corpusErrorCount: number;
 }
-
-type QueryEmbedClient = {
-  embed(
-    texts: string[],
-    opts?: { inputType?: "document" | "query"; signal?: AbortSignal },
-  ): Promise<{ vectors: number[][]; model: string; dim: number }>;
-};
 
 interface VectorScore {
   relPath: string;
@@ -235,10 +229,11 @@ export async function runSearch(opts: SearchOptions): Promise<SearchResponse> {
   let queryVector: number[] | null = null;
   const embedStarted = Date.now();
   try {
-    const response = await (opts.embedClient as QueryEmbedClient).embed(
-      [embeddingInput],
-      { inputType: "query", signal: opts.signal },
-    );
+    const response = await embedWithClient(opts.embedClient, {
+      texts: [embeddingInput],
+      inputType: "query",
+      signal: opts.signal,
+    });
     queryVector = response.vectors[0] ?? null;
     if (!queryVector) {
       degraded = true;

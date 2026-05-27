@@ -8,10 +8,13 @@ import {
   type EmbeddingKind,
   type EmbeddingRecord,
 } from "./embeddings-store.js";
+import {
+  embedWithClient,
+  isEmbedder,
+  type EmbedClient,
+} from "./embedder/types.js";
 
-export interface EmbedClient {
-  embed(texts: string[]): Promise<{ vectors: number[][]; model: string; dim: number }>;
-}
+export { type EmbedClient } from "./embedder/types.js";
 
 export interface RefreshOptions {
   memoryRoot: string;
@@ -102,7 +105,9 @@ export async function refreshEmbeddings(opts: RefreshOptions): Promise<RefreshRe
     for (const batch of buildEmbeddingBatches(pending, batchSize)) {
       try {
         const response = await withTimeout(
-          opts.embedClient.embed(batch.map((item) => item.text)),
+          embedWithClient(opts.embedClient, {
+            texts: batch.map((item) => item.text),
+          }),
           timeoutMs,
         );
         if (response.vectors.length !== batch.length) {
@@ -148,7 +153,7 @@ export async function refreshEmbeddings(opts: RefreshOptions): Promise<RefreshRe
   if (result.embedded > 0) {
     const updatedAt = now().toISOString();
     await saveEmbeddingsMeta(opts.memoryRoot, {
-      provider: "voyage",
+      provider: providerName(opts.embedClient),
       model: expectedModel,
       dim: expectedDim,
       sdkVersion: "injected",
@@ -158,6 +163,10 @@ export async function refreshEmbeddings(opts: RefreshOptions): Promise<RefreshRe
   }
 
   return result;
+}
+
+function providerName(embedClient: EmbedClient): string {
+  return isEmbedder(embedClient) ? embedClient.providerName : "voyage";
 }
 
 function groupDocumentsByKind(documents: SearchDocument[]): Map<EmbeddingKind, SearchDocument[]> {
