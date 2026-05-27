@@ -45,6 +45,7 @@ import { runStats, formatStatsResult } from "./cli/commands/stats.js";
 import { runSync, formatSyncSuccess } from "./cli/commands/sync.js";
 import { runSyncBootstrap } from "./cli/commands/sync-bootstrap.js";
 import { runTailErrors } from "./cli/commands/tail-errors.js";
+import { registerProcedureCommand } from "./cli/commands/procedure.js";
 import { registerThreadCommand } from "./cli/commands/thread.js";
 import { formatVerifyResult, parseVerifyRole, runVerify } from "./cli/commands/verify.js";
 import {
@@ -63,6 +64,7 @@ program
   .version("0.1.0");
 
 registerEvalCommand(program);
+registerProcedureCommand(program);
 registerThreadCommand(program);
 
 program
