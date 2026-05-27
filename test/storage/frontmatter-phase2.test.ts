@@ -1,5 +1,7 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
+  parseFrontmatter,
+  serializeFrontmatter,
   validateFrontmatter,
   type Frontmatter,
 } from "../../src/storage/frontmatter.js";
@@ -176,6 +178,51 @@ describe("validateFrontmatter - relations", () => {
 
   it("accepts frontmatter without a relations field (optional)", () => {
     expect(validateFrontmatter(baseValid).valid).toBe(true);
+  });
+});
+
+describe("frontmatter - time_range", () => {
+  it("round-trips valid time_range metadata", () => {
+    const original: Frontmatter = {
+      ...baseValid,
+      type: "threads",
+      time_range: {
+        start: "2026-05-22",
+        end: null,
+      },
+    };
+
+    const { frontmatter } = parseFrontmatter(
+      serializeFrontmatter(original, "Thread body.\n"),
+    );
+
+    expect(frontmatter.time_range).toEqual({
+      start: "2026-05-22",
+      end: null,
+    });
+    expect(validateFrontmatter(frontmatter).valid).toBe(true);
+  });
+
+  it("drops malformed time_range values with a warning", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const { frontmatter } = parseFrontmatter(
+      [
+        "---",
+        "type: threads",
+        "title: Bad Thread",
+        "created: 2026-05-22",
+        "updated: 2026-05-22",
+        "time_range:",
+        "  end: 2026-05-27",
+        "---",
+        "body",
+      ].join("\n"),
+    );
+
+    expect(frontmatter.time_range).toBeUndefined();
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("Dropped malformed time_range"));
+    warn.mockRestore();
   });
 });
 

@@ -282,6 +282,7 @@ export function inferCognitiveType(
   }
   if (document.source === "crystal" || category === "crystals") return "semantic";
   if (category === "prospective") return "prospective";
+  if (category === "threads") return "episodic";
 
   if (
     imported?.system === "agentmemory" &&

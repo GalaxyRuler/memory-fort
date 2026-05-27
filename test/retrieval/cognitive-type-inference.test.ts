@@ -216,6 +216,34 @@ describe("cognitive type inference", () => {
     expect(result.documents[0]?.cognitiveType).toBe("prospective");
   });
 
+  it("infers episodic for narrative thread pages", async () => {
+    await writeMarkdown(
+      tmp,
+      "wiki/threads/memory-fort-arc.md",
+      page({ type: "threads", title: "Memory Fort Arc" }),
+    );
+
+    const result = await loadSearchCorpus({ vaultRoot: tmp, scope: "wiki" });
+
+    expect(result.documents[0]?.cognitiveType).toBe("episodic");
+  });
+
+  it("honors explicit cognitive_type on narrative thread pages", async () => {
+    await writeMarkdown(
+      tmp,
+      "wiki/threads/retrospective.md",
+      page({
+        type: "threads",
+        title: "Retrospective",
+        cognitive_type: "semantic",
+      }),
+    );
+
+    const result = await loadSearchCorpus({ vaultRoot: tmp, scope: "wiki" });
+
+    expect(result.documents[0]?.cognitiveType).toBe("semantic");
+  });
+
   it("infers core for active projects with at least five inbound edges", async () => {
     await writeMarkdown(
       tmp,

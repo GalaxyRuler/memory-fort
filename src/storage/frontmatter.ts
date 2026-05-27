@@ -31,6 +31,11 @@ export interface ConfidenceVector {
   conflict?: string | null;
 }
 
+export interface TimeRange {
+  start: string;
+  end?: string | null;
+}
+
 export interface Frontmatter {
   type: EntityType;
   title: string;
@@ -43,6 +48,7 @@ export interface Frontmatter {
   due?: string | null;
   triggers?: string[];
   expires?: string | null;
+  time_range?: TimeRange;
   source?: string;
   session?: string;
   relations?: SerializedRelationMap;
@@ -56,6 +62,7 @@ const KNOWN_TYPES: EntityType[] = [
   "decisions",
   "lessons",
   "prospective",
+  "threads",
   "references",
   "tools",
   "crystal",
@@ -91,6 +98,7 @@ const KNOWN_RELATIONS = [
   "caused_by",
   "fixed_by",
   "derived_from",
+  "mentions",
   "mentioned_in",
   "linked",
 ] as const;
@@ -115,7 +123,7 @@ export function parseFrontmatter(content: string): {
 } {
   const parsed = matter(content, { engines: { yaml: YAML_ENGINE } });
   return {
-    frontmatter: parsed.data as Frontmatter,
+    frontmatter: sanitizeFrontmatter(parsed.data as Record<string, unknown>),
     body: parsed.content,
   };
 }
@@ -177,6 +185,7 @@ export function validateFrontmatter(
   }
   validateOptionalDateString(f, "due", errors);
   validateOptionalDateString(f, "expires", errors);
+  validateTimeRange(f["time_range"], errors);
   if (f["triggers"] !== undefined) {
     if (!Array.isArray(f["triggers"])) {
       errors.push("triggers must be an array of strings");
@@ -236,6 +245,21 @@ export function validateFrontmatter(
   return { valid: true, fm: fm as Frontmatter };
 }
 
+function sanitizeFrontmatter(data: Record<string, unknown>): Frontmatter {
+  if (!Object.hasOwn(data, "time_range")) {
+    return data as Frontmatter;
+  }
+
+  const timeRange = normalizeTimeRange(data["time_range"]);
+  if (timeRange) {
+    return { ...data, time_range: timeRange } as Frontmatter;
+  }
+
+  const { time_range: _dropped, ...rest } = data;
+  console.warn("Dropped malformed time_range frontmatter field");
+  return rest as Frontmatter;
+}
+
 function validateOptionalDateString(
   frontmatter: Record<string, unknown>,
   field: "due" | "expires",
@@ -246,6 +270,33 @@ function validateOptionalDateString(
   if (typeof value !== "string" || Number.isNaN(Date.parse(value))) {
     errors.push(`${field} must be a parseable date string or null`);
   }
+}
+
+function validateTimeRange(value: unknown, errors: string[]): void {
+  if (value === undefined) return;
+  if (!normalizeTimeRange(value)) {
+    errors.push("time_range must be an object with a parseable start date and optional parseable end date or null");
+  }
+}
+
+function normalizeTimeRange(value: unknown): TimeRange | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  const start = record["start"];
+  if (typeof start !== "string" || Number.isNaN(Date.parse(start))) {
+    return null;
+  }
+
+  const end = record["end"];
+  if (end === undefined) return { start };
+  if (end === null) return { start, end: null };
+  if (typeof end === "string" && !Number.isNaN(Date.parse(end))) {
+    return { start, end };
+  }
+  return null;
 }
 
 function validateConfidenceVector(

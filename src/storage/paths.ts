@@ -8,6 +8,7 @@ export type PageType =
   | "decisions"
   | "lessons"
   | "prospective"
+  | "threads"
   | "references"
   | "tools";
 
