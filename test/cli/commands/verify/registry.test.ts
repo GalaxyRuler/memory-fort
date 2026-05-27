@@ -8,6 +8,7 @@ const EXPECTED_ROLES = new Map<string, VerifyRole[]>([
   ["search.pipeline", ["operator", "server"]],
   ["episodic.relations.coverage", ["operator", "server"]],
   ["freshness.staleness", ["operator", "server"]],
+  ["prospective.overdue", ["operator", "server"]],
   ["graph.cohesion", ["operator", "server"]],
   ["frontmatter.source", ["operator", "server"]],
   ["compile.recent", ["operator", "server"]],
