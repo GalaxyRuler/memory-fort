@@ -19,8 +19,21 @@ export interface EdgeRenderStyleOptions {
   highlighted: boolean;
   sourceCognitiveType: CognitiveType;
   targetCognitiveType: CognitiveType;
+  type?: string | null;
+  validTo?: string | null;
   weight: number;
   zoomLevel: GalacticZoomLevel;
+}
+
+export interface EdgeRenderStyle {
+  lineWidth: number;
+  opacity: number;
+  strokeColor?: string;
+  dash: number[];
+  arrowhead: boolean;
+  glow: boolean;
+  particleColor?: string;
+  useDomainGradient: boolean;
 }
 
 export interface GalacticCanvasHandle {
@@ -424,37 +437,43 @@ function drawEdge(ctx: CanvasRenderingContext2D, edge: GalacticLayout["edges"][n
     highlighted,
     sourceCognitiveType: edge.source.cognitiveType,
     targetCognitiveType: edge.target.cognitiveType,
+    type: edge.type ?? edge.relationType ?? "mentions",
+    validTo: edge.validTo,
     weight: edge.weight,
     zoomLevel: zoomLevelForScale(camera.scale),
   });
   ctx.save();
   ctx.lineCap = "round";
   ctx.lineWidth = style.lineWidth;
+  ctx.setLineDash(style.dash);
 
-  if (crossGalaxy) {
+  if (style.glow && style.strokeColor) {
     // Cross-galaxy edges are the most informative connections. Render them
     // as bright cyan filaments with a glow shadow so they read as
     // first-class lines against the galaxy halos. Same lensing curve.
-    ctx.shadowColor = `rgba(34, 211, 238, ${style.opacity})`;
+    ctx.shadowColor = style.strokeColor;
     ctx.shadowBlur = 6;
-    ctx.strokeStyle = `rgba(165, 243, 252, ${style.opacity})`;
-  } else {
+  }
+  if (style.useDomainGradient) {
     const gradient = ctx.createLinearGradient(source.x, source.y, target.x, target.y);
     gradient.addColorStop(0, hexA(DOMAIN_META[edge.source.domain].color, style.opacity));
     gradient.addColorStop(1, hexA(DOMAIN_META[edge.target.domain].color, style.opacity));
     ctx.strokeStyle = gradient;
+  } else if (style.strokeColor) {
+    ctx.strokeStyle = style.strokeColor;
   }
   ctx.beginPath();
   ctx.moveTo(source.x, source.y);
   ctx.quadraticCurveTo(control.x, control.y, target.x, target.y);
   ctx.stroke();
+  if (style.arrowhead) drawArrowhead(ctx, source, control, target, style);
   if (camera.scale > 0.4) {
     const flowRate = 0.00018 + edge.weight * 0.00035;
     const tFlow = (elapsed * flowRate) % 1;
     const count = highlighted ? 3 : Math.max(1, Math.round(edge.weight * 2.2));
     for (let index = 0; index < count; index += 1) {
       const t = (tFlow + index / count) % 1;
-      ctx.fillStyle = highlighted ? "#fff" : hexA(DOMAIN_META[edge.source.domain].color, 0.9);
+      ctx.fillStyle = highlighted ? "#fff" : style.particleColor ?? hexA(DOMAIN_META[edge.source.domain].color, 0.9);
       ctx.beginPath();
       ctx.arc(quad(source.x, control.x, target.x, t), quad(source.y, control.y, target.y, t), highlighted ? 1.6 : 1 + edge.weight * 0.3, 0, Math.PI * 2);
       ctx.fill();
@@ -463,27 +482,110 @@ function drawEdge(ctx: CanvasRenderingContext2D, edge: GalacticLayout["edges"][n
   ctx.restore();
 }
 
+const EDGE_TYPE_TREATMENTS: Record<string, { rgb: string; dash: number[]; arrowhead: boolean }> = {
+  supports: { rgb: "110, 231, 183", dash: [], arrowhead: false },
+  contradicts: { rgb: "252, 165, 165", dash: [6, 4], arrowhead: false },
+  supersedes: { rgb: "156, 163, 175", dash: [], arrowhead: true },
+  derived_from: { rgb: "165, 180, 252", dash: [2, 3], arrowhead: false },
+  uses: { rgb: "253, 224, 71", dash: [], arrowhead: false },
+  depends_on: { rgb: "253, 224, 71", dash: [], arrowhead: false },
+  caused_by: { rgb: "196, 181, 253", dash: [], arrowhead: false },
+  fixed_by: { rgb: "196, 181, 253", dash: [], arrowhead: false },
+};
+
 export function computeEdgeRenderStyle({
   highlighted,
   sourceCognitiveType,
   targetCognitiveType,
+  type,
+  validTo,
   weight,
   zoomLevel,
-}: EdgeRenderStyleOptions): { lineWidth: number; opacity: number } {
+}: EdgeRenderStyleOptions): EdgeRenderStyle {
   const crossGalaxy = sourceCognitiveType !== targetCognitiveType;
+  const treatment = EDGE_TYPE_TREATMENTS[normalizeEdgeType(type)];
   const baseLineWidth = highlighted ? 1.4 + weight * 0.6 : 0.4 + weight * 0.6;
   const baseOpacity = (highlighted ? 0.55 : 0.2) + weight * 0.35;
+  let lineWidth: number;
+  let opacity: number;
   if (crossGalaxy) {
     // Cross-galaxy edges: visually dominant. Higher floors at galactic zoom
     // so they punch through galaxy halos; thicker boost (2x); cap opacity
     // near full brightness so the cyan reads cleanly.
-    const lineWidth = Math.max(zoomLevel === 0 ? 1.6 : 1.2, baseLineWidth * 2);
-    const opacity = Math.min(1, Math.max(zoomLevel === 0 ? 0.65 : 0.5, baseOpacity * 1.8));
-    return { lineWidth, opacity };
+    lineWidth = Math.max(zoomLevel === 0 ? 1.6 : 1.2, baseLineWidth * 2);
+    opacity = Math.min(1, Math.max(zoomLevel === 0 ? 0.65 : 0.5, baseOpacity * 1.8));
+  } else {
+    lineWidth = zoomLevel === 0 ? Math.max(0.8, baseLineWidth) : baseLineWidth;
+    opacity = zoomLevel === 0 ? Math.max(0.35, baseOpacity) : baseOpacity;
   }
-  const lineWidth = zoomLevel === 0 ? Math.max(0.8, baseLineWidth) : baseLineWidth;
-  const opacity = zoomLevel === 0 ? Math.max(0.35, baseOpacity) : baseOpacity;
-  return { lineWidth, opacity };
+  const historical = Boolean(validTo);
+  const visibleOpacity = historical ? opacity * 0.4 : opacity;
+  if (treatment) {
+    return {
+      lineWidth,
+      opacity: visibleOpacity,
+      strokeColor: rgba(treatment.rgb, visibleOpacity),
+      dash: treatment.dash,
+      arrowhead: treatment.arrowhead,
+      glow: false,
+      particleColor: rgba(treatment.rgb, Math.max(0.45, visibleOpacity)),
+      useDomainGradient: false,
+    };
+  }
+  if (crossGalaxy) {
+    return {
+      lineWidth,
+      opacity: visibleOpacity,
+      strokeColor: rgba("165, 243, 252", visibleOpacity),
+      dash: [],
+      arrowhead: false,
+      glow: !historical,
+      particleColor: rgba("165, 243, 252", Math.max(0.45, visibleOpacity)),
+      useDomainGradient: false,
+    };
+  }
+  return {
+    lineWidth,
+    opacity: visibleOpacity,
+    dash: [],
+    arrowhead: false,
+    glow: false,
+    useDomainGradient: true,
+  };
+}
+
+function normalizeEdgeType(type?: string | null): string {
+  return (type ?? "mentions").trim().toLowerCase();
+}
+
+function rgba(rgb: string, opacity: number): string {
+  return `rgba(${rgb}, ${Number(opacity.toFixed(4))})`;
+}
+
+function drawArrowhead(
+  ctx: CanvasRenderingContext2D,
+  source: { x: number; y: number },
+  control: { x: number; y: number },
+  target: { x: number; y: number },
+  style: EdgeRenderStyle,
+): void {
+  const t = 0.92;
+  const x = quad(source.x, control.x, target.x, t);
+  const y = quad(source.y, control.y, target.y, t);
+  const dx = 2 * (1 - t) * (control.x - source.x) + 2 * t * (target.x - control.x);
+  const dy = 2 * (1 - t) * (control.y - source.y) + 2 * t * (target.y - control.y);
+  const angle = Math.atan2(dy, dx);
+  const size = Math.max(5, style.lineWidth * 3.2);
+  ctx.save();
+  ctx.setLineDash([]);
+  ctx.fillStyle = style.strokeColor ?? `rgba(156, 163, 175, ${style.opacity})`;
+  ctx.beginPath();
+  ctx.moveTo(x, y);
+  ctx.lineTo(x - Math.cos(angle - Math.PI / 6) * size, y - Math.sin(angle - Math.PI / 6) * size);
+  ctx.lineTo(x - Math.cos(angle + Math.PI / 6) * size, y - Math.sin(angle + Math.PI / 6) * size);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
 }
 
 function drawPlanet(ctx: CanvasRenderingContext2D, node: GalacticNode, camera: Camera, size: { width: number; height: number }, hoverId: string | null, selectedId: string | null): void {

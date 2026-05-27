@@ -47,4 +47,82 @@ describe("galactic edge rendering", () => {
     expect(style.lineWidth).toBeCloseTo(0.46);
     expect(style.opacity).toBeCloseTo(0.235);
   });
+
+  it("renders typed relation edges with stable semantic treatments", () => {
+    expect(styleFor("supports")).toMatchObject({
+      strokeColor: "rgba(110, 231, 183, 0.76)",
+      dash: [],
+      arrowhead: false,
+      glow: false,
+    });
+    expect(styleFor("contradicts")).toMatchObject({
+      strokeColor: "rgba(252, 165, 165, 0.76)",
+      dash: [6, 4],
+      arrowhead: false,
+      glow: false,
+    });
+    expect(styleFor("supersedes")).toMatchObject({
+      strokeColor: "rgba(156, 163, 175, 0.76)",
+      dash: [],
+      arrowhead: true,
+      glow: false,
+    });
+    expect(styleFor("derived_from")).toMatchObject({
+      strokeColor: "rgba(165, 180, 252, 0.76)",
+      dash: [2, 3],
+      arrowhead: false,
+      glow: false,
+    });
+  });
+
+  it("lets typed edges override the cross-galaxy cyan fallback", () => {
+    const style = computeEdgeRenderStyle({
+      highlighted: false,
+      sourceCognitiveType: "semantic",
+      targetCognitiveType: "episodic",
+      weight: 0.6,
+      zoomLevel: 0,
+      type: "supports",
+    });
+
+    expect(style.strokeColor).toBe("rgba(110, 231, 183, 0.738)");
+    expect(style.glow).toBe(false);
+  });
+
+  it("keeps cross-galaxy mentions bright and fades historical edges", () => {
+    const active = computeEdgeRenderStyle({
+      highlighted: false,
+      sourceCognitiveType: "semantic",
+      targetCognitiveType: "episodic",
+      weight: 0.6,
+      zoomLevel: 0,
+      type: "mentions",
+    });
+    const historical = computeEdgeRenderStyle({
+      highlighted: false,
+      sourceCognitiveType: "semantic",
+      targetCognitiveType: "episodic",
+      weight: 0.6,
+      zoomLevel: 0,
+      type: "mentions",
+      validTo: "2026-05-23",
+    });
+
+    expect(active.strokeColor).toBe("rgba(165, 243, 252, 0.738)");
+    expect(active.glow).toBe(true);
+    expect(historical.opacity).toBeCloseTo(active.opacity * 0.4);
+    expect(historical.strokeColor).toBe("rgba(165, 243, 252, 0.2952)");
+    expect(historical.glow).toBe(false);
+  });
 });
+
+function styleFor(type: string) {
+  return computeEdgeRenderStyle({
+    highlighted: true,
+    sourceCognitiveType: "semantic",
+    targetCognitiveType: "semantic",
+    weight: 0.6,
+    zoomLevel: 1,
+    type,
+  });
+}

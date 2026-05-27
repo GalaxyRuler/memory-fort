@@ -1,7 +1,7 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import { basename, join, relative, resolve } from "node:path";
 import { canonicalizeRawObservation } from "../compile/canonicalize.js";
-import type { Frontmatter } from "../storage/frontmatter.js";
+import { parseFrontmatter, type Frontmatter } from "../storage/frontmatter.js";
 import { buildGraph } from "./graph.js";
 import { readRelations, type RelationMap } from "./relations.js";
 
@@ -306,106 +306,7 @@ function parseMarkdown(content: string): ParsedMarkdown {
     throw new Error("malformed frontmatter: missing closing --- marker");
   }
 
-  const frontmatterText = rest.slice(0, closing.index);
-  const body = rest.slice(closing.index + closing[0].length);
-  return { frontmatter: parseMinimalYaml(frontmatterText), body };
-}
-
-function parseMinimalYaml(text: string): Partial<Frontmatter> {
-  const result: Record<string, unknown> = {};
-  let currentKey: string | null = null;
-  let currentNestedKey: string | null = null;
-
-  for (const line of text.split(/\r?\n/)) {
-    if (line.trim().length === 0 || line.trimStart().startsWith("#")) {
-      continue;
-    }
-
-    const nestedArrayItem = /^ {4}- (.*)$/.exec(line);
-    if (nestedArrayItem && currentKey && currentNestedKey) {
-      const parent = ensureObject(result, currentKey);
-      const values = ensureArray(parent, currentNestedKey);
-      values.push(parseScalar(nestedArrayItem[1]!));
-      continue;
-    }
-
-    const nestedKey = /^ {2}([A-Za-z0-9_-]+):(?:\s*(.*))?$/.exec(line);
-    if (nestedKey && currentKey) {
-      const parent = ensureObject(result, currentKey);
-      currentNestedKey = nestedKey[1]!;
-      const value = nestedKey[2]?.trim() ?? "";
-      parent[currentNestedKey] = value.length === 0 ? [] : parseScalar(value);
-      continue;
-    }
-
-    const arrayItem = /^ {2}- (.*)$/.exec(line);
-    if (arrayItem && currentKey) {
-      const values = ensureArray(result, currentKey);
-      values.push(parseScalar(arrayItem[1]!));
-      continue;
-    }
-
-    const topLevel = /^([A-Za-z0-9_-]+):(?:\s*(.*))?$/.exec(line);
-    if (!topLevel) {
-      throw new Error(`malformed frontmatter: unsupported line "${line}"`);
-    }
-    currentKey = topLevel[1]!;
-    currentNestedKey = null;
-    const value = topLevel[2]?.trim() ?? "";
-    result[currentKey] = value.length === 0 ? [] : parseScalar(value);
-  }
-
-  return result as Partial<Frontmatter>;
-}
-
-function parseScalar(value: string): unknown {
-  const trimmed = value.trim();
-  if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
-    const inner = trimmed.slice(1, -1).trim();
-    return inner.length === 0 ? [] : inner.split(",").map(parseScalar);
-  }
-  if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
-    return parseInlineObject(trimmed.slice(1, -1));
-  }
-  const unquoted = trimmed.replace(/^"(.*)"$/, "$1").replace(/^'(.*)'$/, "$1");
-  if (/^-?\d+(\.\d+)?$/.test(unquoted)) return Number(unquoted);
-  return unquoted;
-}
-
-function parseInlineObject(text: string): Record<string, unknown> {
-  const result: Record<string, unknown> = {};
-  for (const part of text.split(",")) {
-    const separator = part.indexOf(":");
-    if (separator === -1) continue;
-    const key = part.slice(0, separator).trim();
-    const value = part.slice(separator + 1).trim();
-    result[key] = parseScalar(value);
-  }
-  return result;
-}
-
-function ensureArray(
-  target: Record<string, unknown>,
-  key: string,
-): unknown[] {
-  const current = target[key];
-  if (Array.isArray(current)) return current;
-  const values: unknown[] = [];
-  target[key] = values;
-  return values;
-}
-
-function ensureObject(
-  target: Record<string, unknown>,
-  key: string,
-): Record<string, unknown> {
-  const current = target[key];
-  if (typeof current === "object" && current !== null && !Array.isArray(current)) {
-    return current as Record<string, unknown>;
-  }
-  const next: Record<string, unknown> = {};
-  target[key] = next;
-  return next;
+  return parseFrontmatter(content);
 }
 
 function readString(value: unknown): string | null {

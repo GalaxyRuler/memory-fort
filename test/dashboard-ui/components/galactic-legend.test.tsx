@@ -19,6 +19,14 @@ describe("Galactic legend", () => {
     expect(screen.getByText("References")).toBeInTheDocument();
     expect(screen.getByText("Tools")).toBeInTheDocument();
     expect(screen.getByText("Crystals")).toBeInTheDocument();
+    expect(screen.getByText("Edge Types")).toBeInTheDocument();
+    expect(screen.getByText("Mentions")).toBeInTheDocument();
+    expect(screen.getByText("Supports")).toBeInTheDocument();
+    expect(screen.getByText("Contradicts")).toBeInTheDocument();
+    expect(screen.getByText("Supersedes")).toBeInTheDocument();
+    expect(screen.getByText("Derived From")).toBeInTheDocument();
+    expect(screen.getByText("Uses / Depends On")).toBeInTheDocument();
+    expect(screen.getByText("Caused / Fixed By")).toBeInTheDocument();
     // Physics section: each row is split into label + detail spans now.
     expect(screen.getByText(/Physics/i)).toBeInTheDocument();
     expect(screen.getByText("orbit pull")).toBeInTheDocument();

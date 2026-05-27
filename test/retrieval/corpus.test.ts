@@ -184,6 +184,42 @@ describe("retrieval corpus loader", () => {
     expect(document?.snippetSource).toMatch(/^First summary line\./);
   });
 
+  it("parses block-style typed temporal relation frontmatter", async () => {
+    await writeMarkdown(
+      tmp,
+      "wiki/projects/rich.md",
+      `---
+type: projects
+title: Rich Relations
+created: "2026-05-20"
+updated: "2026-05-21"
+relations:
+  uses:
+    - target: wiki/tools/old.md
+      valid_from: "2026-05-20"
+      valid_to: "2026-05-23"
+      superseded_by: wiki/tools/new.md
+      confidence: 0.9
+---
+
+Body.
+`,
+    );
+
+    const result = await loadSearchCorpus({ vaultRoot: tmp, scope: "wiki" });
+
+    expect(result.errors).toEqual([]);
+    expect(result.documents[0]?.relations).toEqual({
+      uses: [{
+        target: "wiki/tools/old.md",
+        valid_from: "2026-05-20",
+        valid_to: "2026-05-23",
+        superseded_by: "wiki/tools/new.md",
+        confidence: 0.9,
+      }],
+    });
+  });
+
   it("Raw source detection from filename pattern", async () => {
     await writeMarkdown(tmp, "raw/2026-05-22/claude-code-abc.md", "A\n");
     await writeMarkdown(tmp, "raw/2026-05-22/codex-xyz.md", "B\n");
