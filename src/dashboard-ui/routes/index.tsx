@@ -84,9 +84,9 @@ function OverviewScreen() {
       const node = graph.data?.nodes.find((n) => n.path === entry.relPath);
       return {
         ...entry,
-        confidence: node?.confidence ?? 0.75,
-        inboundCount: node?.inboundCount ?? 0,
-        outboundCount: node?.outboundCount ?? 0,
+        confidence: node?.confidence ?? null,
+        inboundCount: node?.inboundCount ?? null,
+        outboundCount: node?.outboundCount ?? null,
       };
     });
 
@@ -313,29 +313,35 @@ function OverviewScreen() {
                 {page.summary}
               </p>
               <div className="flex items-center justify-between gap-2 border-t border-border-subtle/20 pt-2.5">
-                <div className="flex items-center gap-1.5 min-w-0">
-                  <span className="text-[9px] font-mono text-text-muted">conf:</span>
-                  <div className="h-1 w-16 overflow-hidden rounded-full bg-surface-4">
-                    <div
-                      className="h-full rounded-full"
-                      style={{
-                        width: `${page.confidence * 100}%`,
-                        backgroundColor:
-                          page.confidence >= 0.8
-                            ? "#10b981"
-                            : page.confidence >= 0.5
-                              ? "#f59e0b"
-                              : "#ef4444",
-                      }}
-                    />
+                {page.confidence !== null ? (
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <span className="text-[9px] font-mono text-text-muted">conf:</span>
+                    <div className="h-1 w-16 overflow-hidden rounded-full bg-surface-4">
+                      <div
+                        className="h-full rounded-full"
+                        style={{
+                          width: `${page.confidence * 100}%`,
+                          backgroundColor:
+                            page.confidence >= 0.8
+                              ? "#10b981"
+                              : page.confidence >= 0.5
+                                ? "#f59e0b"
+                                : "#ef4444",
+                        }}
+                      />
+                    </div>
+                    <span className="text-[9px] font-mono text-text-muted">
+                      {page.confidence.toFixed(2)}
+                    </span>
                   </div>
-                  <span className="text-[9px] font-mono text-text-muted">
-                    {(page.confidence ?? 0).toFixed(2)}
+                ) : (
+                  <span />
+                )}
+                {page.inboundCount !== null && page.outboundCount !== null ? (
+                  <span className="text-[9px] font-mono text-text-muted flex-shrink-0">
+                    in:{page.inboundCount} out:{page.outboundCount}
                   </span>
-                </div>
-                <span className="text-[9px] font-mono text-text-muted flex-shrink-0">
-                  in:{page.inboundCount} out:{page.outboundCount}
-                </span>
+                ) : null}
               </div>
             </Link>
           ))}
