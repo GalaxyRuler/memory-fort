@@ -12,7 +12,6 @@ export function classifyEdgeType(relation: ProposedRelation): EdgeType {
   if (/deprecated|superseded-by/i.test(relation.title)) return "supersedes";
   if (
     relation.source === "bm25" &&
-    relation.confidence < 0.7 &&
     (isPathInSection(relation.relPath, "decisions") || isPathInSection(relation.relPath, "lessons"))
   ) {
     return "derived_from";

@@ -16,7 +16,7 @@ describe("classifyEdgeType", () => {
     expect(classifyEdgeType(relation({ title: "superseded-by new route" }))).toBe("supersedes");
   });
 
-  it("classifies low-confidence BM25-only decision and lesson matches as derived_from", () => {
+  it("classifies all BM25-only decision and lesson matches as derived_from", () => {
     expect(classifyEdgeType(relation({
       relPath: "wiki/decisions/embedding-provider.md",
       confidence: 0.65,
@@ -24,17 +24,17 @@ describe("classifyEdgeType", () => {
     }))).toBe("derived_from");
     expect(classifyEdgeType(relation({
       relPath: "wiki/lessons/runner-timeouts.md",
-      confidence: 0.65,
+      confidence: 0.95,
       source: "bm25",
     }))).toBe("derived_from");
-  });
-
-  it("leaves high-confidence, lexical, and combined decision matches as mentions", () => {
     expect(classifyEdgeType(relation({
       relPath: "wiki/decisions/embedding-provider.md",
       confidence: 0.85,
       source: "bm25",
-    }))).toBe("mentions");
+    }))).toBe("derived_from");
+  });
+
+  it("leaves lexical and combined decision matches as mentions", () => {
     expect(classifyEdgeType(relation({
       relPath: "wiki/decisions/embedding-provider.md",
       confidence: 0.65,

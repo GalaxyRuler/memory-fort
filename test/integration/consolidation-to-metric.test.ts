@@ -46,6 +46,18 @@ describe("consolidation to graph health integration", () => {
       `${topicalText()} ${topicalText()} ${topicalText()}\n`,
     );
     await writePage(
+      "wiki/lessons/runner-timeouts.md",
+      {
+        type: "lessons",
+        title: "Runner Timeout Handling",
+        created: "2026-05-27",
+        updated: "2026-05-27",
+        status: "active",
+        source: "codex",
+      },
+      `${timeoutText()} ${timeoutText()} ${timeoutText()}\n`,
+    );
+    await writePage(
       "raw/2026-05-27/codex-typed-edge.md",
       {
         type: "raw-session",
@@ -54,10 +66,10 @@ describe("consolidation to graph health integration", () => {
         updated: "2026-05-27",
         source: "codex",
       },
-      `Vitest covered the route. ${topicalText()}\n`,
+      `Vitest covered the route. ${topicalText()} ${timeoutText()}\n`,
     );
 
-    await runConsolidate({
+    const result = await runConsolidate({
       plan: false,
       corpusRoot: tmp,
       minConfidence: 0.5,
@@ -67,12 +79,23 @@ describe("consolidation to graph health integration", () => {
 
     const raw = parseFrontmatter(await readFile(join(tmp, "raw", "2026-05-27", "codex-typed-edge.md"), "utf-8"));
     expect(raw.frontmatter.relations?.uses).toEqual(["wiki/tools/vitest.md"]);
-    expect(raw.frontmatter.relations?.derived_from).toEqual(["wiki/decisions/embedding-provider.md"]);
+    expect(raw.frontmatter.relations?.derived_from).toEqual([
+      "wiki/decisions/embedding-provider.md",
+      "wiki/lessons/runner-timeouts.md",
+    ]);
+    const lessonRelation = result.plans
+      .flatMap((plan) => plan.proposedRelations)
+      .find((relation) => relation.relPath === "wiki/lessons/runner-timeouts.md");
+    expect(lessonRelation?.source).toBe("bm25");
+    expect(lessonRelation?.confidence).toBeGreaterThan(0.7);
 
     const corpus = await loadSearchCorpus({ vaultRoot: tmp, scope: "all" });
     const rawDocument = corpus.documents.find((document) => document.relPath === "raw/2026-05-27/codex-typed-edge.md");
     expect(rawDocument?.relations.uses?.map((edge) => edge.target)).toEqual(["wiki/tools/vitest.md"]);
-    expect(rawDocument?.relations.derived_from?.map((edge) => edge.target)).toEqual(["wiki/decisions/embedding-provider.md"]);
+    expect(rawDocument?.relations.derived_from?.map((edge) => edge.target)).toEqual([
+      "wiki/decisions/embedding-provider.md",
+      "wiki/lessons/runner-timeouts.md",
+    ]);
 
     const feed = await loadGraphFeed(tmp, "all");
     expect(feed.edges).toEqual(expect.arrayContaining([
@@ -84,6 +107,11 @@ describe("consolidation to graph health integration", () => {
       expect.objectContaining({
         fromPath: "raw/2026-05-27/codex-typed-edge.md",
         toPath: "wiki/decisions/embedding-provider.md",
+        type: "derived_from",
+      }),
+      expect.objectContaining({
+        fromPath: "raw/2026-05-27/codex-typed-edge.md",
+        toPath: "wiki/lessons/runner-timeouts.md",
         type: "derived_from",
       }),
     ]));
@@ -107,4 +135,8 @@ describe("consolidation to graph health integration", () => {
 
 function topicalText(): string {
   return Array.from({ length: 320 }, (_, index) => `semantic${index}`).join(" ");
+}
+
+function timeoutText(): string {
+  return Array.from({ length: 320 }, (_, index) => `timeout${index}`).join(" ");
 }
