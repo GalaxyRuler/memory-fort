@@ -11,6 +11,7 @@ import { registerEvalCommand } from "./cli/commands/eval.js";
 import { runGrep, type GrepScope } from "./cli/commands/grep.js";
 import { runInit } from "./cli/commands/init.js";
 import { runBackfill } from "./cli/commands/backfill.js";
+import { runBackfillSource } from "./cli/commands/backfill-source.js";
 import { runImportAgentMemory } from "./cli/commands/import-agentmemory.js";
 import { runInstall } from "./cli/commands/install.js";
 import { runInstallTailscaleRoute } from "./cli/commands/install-tailscale-route.js";
@@ -493,6 +494,29 @@ program
         plan: opts.plan,
         apply: opts.apply,
         consolidateAfter: opts.consolidateAfter,
+      });
+      process.stdout.write(result.report);
+    } catch (err) {
+      console.error((err as Error).message);
+      process.exit(1);
+    }
+  });
+
+program
+  .command("backfill-source")
+  .description("Backfill missing source frontmatter on live wiki pages")
+  .option("--plan", "dry-run report (default)")
+  .option("--apply", "write inferred source fields")
+  .option("--force", "reprocess pages that already have a non-unknown source")
+  .action(async (opts: { plan?: boolean; apply?: boolean; force?: boolean }) => {
+    if (opts.plan && opts.apply) {
+      console.error("memory backfill-source: choose at most one of --plan or --apply");
+      process.exit(2);
+    }
+    try {
+      const result = await runBackfillSource({
+        mode: opts.apply ? "apply" : "plan",
+        force: opts.force,
       });
       process.stdout.write(result.report);
     } catch (err) {
