@@ -61,3 +61,23 @@ excluded because they are operational records, not semantic wiki targets.
 The warning threshold in `memory verify` is intentionally separate: it warns
 when fewer than `30%` of episodic observations have at least one relation, which
 corresponds to an orphan rate above `70%`.
+
+## Typed Edge Proposing
+
+The typed-edge classifier keeps the matcher thresholds above unchanged, but
+routes proposed matches into more specific relation buckets before writing raw
+observation frontmatter:
+
+- `wiki/tools/*.md` targets write as `uses`.
+- `wiki/crystals/*.md` targets write as `derived_from`.
+- Titles containing `deprecated` or `superseded-by` write as `supersedes`.
+- BM25-only matches with confidence `< 0.7` against `wiki/decisions/*.md` or
+  `wiki/lessons/*.md` write as `derived_from`.
+- Everything else writes as `mentions`.
+
+Fixture verification now covers consolidation-write -> corpus-read ->
+graph-feed -> graph-health and confirms mixed `uses` plus `derived_from` edges
+produce non-zero edge-type entropy. The live vault reclassification is still
+pending the operator step (`memory consolidate --apply --force`), so the
+previous live `graph.edge-type-entropy` value of `0.30` remains the last
+recorded empirical baseline here.

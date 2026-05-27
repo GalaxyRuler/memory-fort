@@ -221,7 +221,25 @@ is equivalent to:
 - target: wiki/tools/voyage.md
 ```
 
-The consolidation pipeline continues to auto-write string shorthand under `relations.mentions` by default. Humans and future tools may write rich object entries when relation metadata matters.
+The consolidation pipeline auto-writes string shorthand under the classified
+`relations.<type>` key. Humans and future tools may write rich object entries
+when relation metadata matters.
+
+### Consolidation edge-type classification
+
+The `memory consolidate` pipeline assigns each proposed match an edge type
+based on these rules, evaluated in order with the first match winning:
+
+1. Target in `wiki/tools/*.md` -> `uses`
+2. Target in `wiki/crystals/*.md` -> `derived_from`
+3. Title contains `deprecated` or `superseded-by` -> `supersedes`
+4. BM25-only match with confidence `< 0.7` against a decision or lesson ->
+   `derived_from`
+5. Catch-all -> `mentions`
+
+Lexical matches, where the raw observation body literally contains the wiki
+page title, stay as `mentions` unless overridden by rules 1-3. A literal
+mention is treated as a stronger semantic signal than topical overlap.
 
 ### Temporal fields
 
