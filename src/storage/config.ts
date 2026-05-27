@@ -56,6 +56,7 @@ type YamlObject = Record<string, unknown>;
 function parseYamlSubset(text: string): MemoryConfig {
   const root: YamlObject = {};
   let currentSection: YamlObject | null = null;
+  let currentNestedSection: YamlObject | null = null;
 
   for (const [index, rawLine] of text.split(/\r?\n/).entries()) {
     if (rawLine.trim().length === 0 || rawLine.trimStart().startsWith("#")) {
@@ -73,21 +74,41 @@ function parseYamlSubset(text: string): MemoryConfig {
         const section: YamlObject = {};
         root[key] = section;
         currentSection = section;
+        currentNestedSection = null;
       } else {
         root[key] = parseScalar(value, index + 1);
         currentSection = null;
+        currentNestedSection = null;
       }
       continue;
     }
 
-    if (indent !== 2 || currentSection === null) {
+    if (indent === 2 && currentSection !== null) {
+      const { key, value } = splitKeyValue(line, index + 1);
+      if (value === "") {
+        const section: YamlObject = {};
+        currentSection[key] = section;
+        currentNestedSection = section;
+      } else {
+        currentSection[key] = parseScalar(value, index + 1);
+        currentNestedSection = null;
+      }
+      continue;
+    }
+
+    if (indent === 4 && currentNestedSection !== null) {
+      const { key, value } = splitKeyValue(line, index + 1);
+      if (value === "") {
+        throw new Error(`line ${index + 1}: nested sections beyond two levels are not supported`);
+      }
+      currentNestedSection[key] = parseScalar(value, index + 1);
+      continue;
+    }
+
+    if (currentSection === null) {
       throw new Error(`line ${index + 1}: unsupported indentation`);
     }
-    const { key, value } = splitKeyValue(line, index + 1);
-    if (value === "") {
-      throw new Error(`line ${index + 1}: nested sections are not supported`);
-    }
-    currentSection[key] = parseScalar(value, index + 1);
+    throw new Error(`line ${index + 1}: unsupported indentation`);
   }
 
   return root as MemoryConfig;
