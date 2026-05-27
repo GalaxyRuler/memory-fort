@@ -257,27 +257,15 @@ The endpoint needs to pick the right default role without operator intervention.
 import type { VerifyRole } from './types.js';
 
 export function detectRole(env: NodeJS.ProcessEnv = process.env): VerifyRole {
-  // 1. Explicit override always wins
   const override = env.MEMORY_ROLE?.toLowerCase();
   if (override === 'server') return 'server';
   if (override === 'operator') return 'operator';
 
-  // 2. Server fingerprint: install root is the VPS path AND no operator-side configs exist
-  const installRoot = env.MEMORY_INSTALL_ROOT;
-  const isVpsInstall = installRoot === '/root/memory-system';
-  const codexConfigExists = existsSync(join(homedir(), '.codex', 'config.toml'));
-  const claudeSettingsExists = existsSync(join(homedir(), '.claude', 'settings.json'));
-
-  if (isVpsInstall && !codexConfigExists && !claudeSettingsExists) {
-    return 'server';
-  }
-
-  // 3. Default to operator
   return 'operator';
 }
 ```
 
-`MEMORY_ROLE` is the explicit escape hatch (case-insensitive). The auto-detection logic mirrors the brief context exactly: VPS install root AND no operator-side configs.
+`MEMORY_ROLE` is the explicit escape hatch (case-insensitive). With no explicit override, default to `operator`.
 
 ### Files
 
@@ -286,9 +274,6 @@ export function detectRole(env: NodeJS.ProcessEnv = process.env): VerifyRole {
   - `MEMORY_ROLE=server` returns `server`
   - `MEMORY_ROLE=operator` returns `operator`
   - `MEMORY_ROLE=SERVER` (uppercase) returns `server`
-  - VPS install root + no configs returns `server` (mock `existsSync`)
-  - VPS install root + a Codex config present returns `operator`
-  - Non-VPS install root returns `operator`
   - Empty env returns `operator`
 
 ---
