@@ -1,0 +1,25 @@
+﻿{
+    "schemaVersion":  1,
+    "projectName":  "memory-system",
+    "homelabRootEnv":  "CODEX_HOMELAB_ROOT",
+    "homelabRootFallback":  "C:\\Users\\Admin\\Documents\\Codex\\Homelab\\codex-isolated-test-runners",
+    "allowedClasses":  [
+                           "container",
+                           "headless"
+                       ],
+    "preferredRoutes":  {
+                            "container":  "container",
+                            "headless":  "container"
+                        },
+    "profiles":  {
+
+                 },
+    "secretRefs":  {
+
+                   },
+    "forbidden":  [
+                      "Do not run GUI smoke tests on active WHITEDRAGON",
+                      "Do not install or uninstall MSI packages on active WHITEDRAGON",
+                      "Do not store project-specific runner profiles in Homelab core"
+                  ]
+}
