@@ -16,17 +16,20 @@ import {
   findBM25Mentions,
   type ConsolidationMention,
 } from "./bm25-augment.js";
+import { classifyEdgeType } from "./classify-edge-type.js";
 import { buildTitleIndex, findTitleMentions } from "./title-index.js";
+
+export interface ProposedRelation {
+  relPath: string;
+  title: string;
+  confidence: number;
+  source: "lexical" | "bm25" | "both";
+}
 
 export interface ConsolidatePlan {
   observation: string;
   currentRelations: string[];
-  proposedRelations: Array<{
-    relPath: string;
-    title: string;
-    confidence: number;
-    source: "lexical" | "bm25" | "both";
-  }>;
+  proposedRelations: ProposedRelation[];
   willWrite: boolean;
 }
 
@@ -64,7 +67,7 @@ export async function runConsolidatePlan(
   const titleIndex = buildTitleIndex(corpus.documents);
   const observations = corpus.documents.filter((doc) => doc.kind === "raw");
   const plans = observations.map((observation) => {
-    const currentRelations = (observation.relations["mentions"] ?? []).map((edge) => edge.target);
+    const currentRelations = relationTargets(observation.relations);
     const skipForIdempotency = currentRelations.length > 0 && !opts.force;
     const proposedRelations = skipForIdempotency
       ? []
@@ -87,7 +90,7 @@ export async function runConsolidatePlan(
     for (const plan of plans) {
       if (!plan.willWrite) continue;
       const observation = observations.find((doc) => doc.relPath === plan.observation)!;
-      await writeObservationMentions(observation, plan.proposedRelations.map((relation) => relation.relPath));
+      await writeObservationRelations(observation, plan.proposedRelations);
       updated += 1;
       newEdges += plan.proposedRelations.length;
     }
@@ -134,7 +137,7 @@ export async function runConsolidatePlan(
   }
 }
 
-function toProposedRelation(match: ConsolidationMention): ConsolidatePlan["proposedRelations"][number] {
+function toProposedRelation(match: ConsolidationMention): ProposedRelation {
   return {
     relPath: match.relPath,
     title: match.title,
@@ -143,30 +146,31 @@ function toProposedRelation(match: ConsolidationMention): ConsolidatePlan["propo
   };
 }
 
-async function writeObservationMentions(
+async function writeObservationRelations(
   observation: SearchDocument,
-  mentions: string[],
+  proposed: ProposedRelation[],
 ): Promise<void> {
   const content = await readFile(observation.fullPath, "utf-8");
   const parsed = parseFrontmatter(content);
   const nextFrontmatter: Frontmatter = {
     ...parsed.frontmatter,
-    relations: writeRelations({
-      ...readExistingRelationMap(parsed.frontmatter.relations),
-      mentions: mentions.map((target) => ({ target })),
-    }),
+    relations: writeRelations(buildRelationMap(proposed)),
   };
   await atomicWrite(observation.fullPath, serializeFrontmatter(nextFrontmatter, parsed.body));
 }
 
-function readExistingRelationMap(relations: Frontmatter["relations"]): RelationMap {
-  if (!relations || typeof relations !== "object") return {};
+function buildRelationMap(proposed: ProposedRelation[]): RelationMap {
   const result: RelationMap = {};
-  for (const [key, entries] of Object.entries(relations)) {
-    if (!Array.isArray(entries)) continue;
-    result[key] = entries.flatMap((entry) => typeof entry === "string" ? [{ target: entry }] : []);
+  for (const relation of proposed) {
+    const type = classifyEdgeType(relation);
+    result[type] ??= [];
+    result[type]!.push({ target: relation.relPath });
   }
   return result;
+}
+
+function relationTargets(relations: RelationMap): string[] {
+  return Object.values(relations).flatMap((edges) => edges.map((edge) => edge.target));
 }
 
 function formatConsolidateAudit(
@@ -190,7 +194,7 @@ function formatConsolidateAudit(
     lines.push(`## ${plan.observation}`, "");
     lines.push(`new relations: ${plan.willWrite ? plan.proposedRelations.length : 0}`);
     for (const relation of plan.proposedRelations) {
-      lines.push(`- ${relation.title} -> ${relation.relPath} (${relation.source}, ${relation.confidence.toFixed(2)})`);
+      lines.push(`- ${relation.title} -> ${relation.relPath} (${relation.source}, ${classifyEdgeType(relation)}, ${relation.confidence.toFixed(2)})`);
     }
     if (plan.proposedRelations.length === 0) {
       lines.push("- no proposed relations");

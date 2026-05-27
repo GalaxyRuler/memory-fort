@@ -92,6 +92,40 @@ describe("runConsolidate", () => {
     expect(parseFrontmatter(audit).frontmatter.source).toBe("consolidate");
   });
 
+  it("writes mixed typed relation buckets and force overwrites the old relation map", async () => {
+    await writePage(
+      "wiki/tools/vitest.md",
+      "Vitest",
+      "Fast local test runner for TypeScript projects.",
+    );
+    await writePage(
+      "wiki/crystals/validation-is-key.md",
+      "Validation is key",
+      "Verification evidence should survive through the graph.",
+    );
+    await writeRaw(
+      "raw/2026-05-27/typed-session.md",
+      "Typed session",
+      "Vitest helped. Validation is key.\n",
+      ["wiki/projects/memory-fort.md"],
+    );
+
+    const result = await runConsolidate({
+      plan: false,
+      force: true,
+      corpusRoot: tmp,
+      minConfidence: 0.6,
+      maxLinksPerObservation: 5,
+      now: new Date("2026-05-27T10:03:00.000Z"),
+    });
+
+    expect(result.plans.find((plan) => plan.observation.endsWith("typed-session.md"))?.willWrite).toBe(true);
+    const raw = parseFrontmatter(await readFile(join(tmp, "raw", "2026-05-27", "typed-session.md"), "utf-8"));
+    expect(raw.frontmatter.relations?.uses).toEqual(["wiki/tools/vitest.md"]);
+    expect(raw.frontmatter.relations?.derived_from).toEqual(["wiki/crystals/validation-is-key.md"]);
+    expect(raw.frontmatter.relations?.mentions).toBeUndefined();
+  });
+
   it("is idempotent unless force is enabled", async () => {
     const first = await runConsolidate({
       plan: false,
@@ -115,6 +149,40 @@ describe("runConsolidate", () => {
     expect(forced.plans.find((plan) => plan.observation.endsWith("already-linked.md"))?.willWrite).toBe(true);
   });
 
+  it("skips observations with any existing relation type unless force is enabled", async () => {
+    await writeRaw(
+      "raw/2026-05-27/already-typed.md",
+      "Already typed",
+      "Vitest appears here after the typed relation was curated.\n",
+      [],
+      { uses: ["wiki/tools/vitest.md"] },
+    );
+    await writePage(
+      "wiki/tools/vitest.md",
+      "Vitest",
+      "Fast local test runner for TypeScript projects.",
+    );
+
+    const result = await runConsolidate({
+      plan: true,
+      corpusRoot: tmp,
+      minConfidence: 0.6,
+      maxLinksPerObservation: 5,
+      now: new Date("2026-05-27T10:04:00.000Z"),
+    });
+    const forced = await runConsolidate({
+      plan: true,
+      force: true,
+      corpusRoot: tmp,
+      minConfidence: 0.6,
+      maxLinksPerObservation: 5,
+      now: new Date("2026-05-27T10:05:00.000Z"),
+    });
+
+    expect(result.plans.find((plan) => plan.observation.endsWith("already-typed.md"))?.willWrite).toBe(false);
+    expect(forced.plans.find((plan) => plan.observation.endsWith("already-typed.md"))?.willWrite).toBe(true);
+  });
+
   async function writePage(relPath: string, title: string, body: string): Promise<void> {
     await writeMarkdown(relPath, [
       "---",
@@ -133,12 +201,19 @@ describe("runConsolidate", () => {
     title: string,
     body: string,
     mentions: string[] = [],
+    relations: Record<string, string[]> = {},
   ): Promise<void> {
-    const relationLines = mentions.length > 0
+    const allRelations = {
+      ...(mentions.length > 0 ? { mentions } : {}),
+      ...relations,
+    };
+    const relationLines = Object.keys(allRelations).length > 0
       ? [
           "relations:",
-          "  mentions:",
-          ...mentions.map((mention) => `    - ${mention}`),
+          ...Object.entries(allRelations).flatMap(([key, targets]) => [
+            `  ${key}:`,
+            ...targets.map((target) => `    - ${target}`),
+          ]),
         ]
       : [];
     await writeMarkdown(relPath, [

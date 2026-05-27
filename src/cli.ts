@@ -341,8 +341,8 @@ program
   .command("consolidate")
   .description("Link raw episodic observations to existing wiki pages")
   .option("--plan", "dry-run proposed relations")
-  .option("--apply", "write relations.mentions to raw observations")
-  .option("--force", "process observations that already have relations.mentions")
+  .option("--apply", "write typed relations to raw observations")
+  .option("--force", "process observations that already have relations")
   .option("--min-confidence <n>", "minimum match confidence (default: 0.6)", parseFloat)
   .option("--max-links-per-observation <n>", "max links per observation (default: 5)", parseInteger)
   .action(async (opts: {
