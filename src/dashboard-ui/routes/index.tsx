@@ -81,7 +81,10 @@ function OverviewScreen() {
     .sort((a, b) => b.updated.localeCompare(a.updated))
     .slice(0, 6)
     .map((entry) => {
-      const node = graph.data?.nodes.find((n) => n.path === entry.relPath);
+      // /api/wiki returns relPath without the "wiki/" prefix; /api/graph uses the
+      // full vault-relative path. Prepend so the lookup actually matches.
+      const graphPath = `wiki/${entry.relPath}`;
+      const node = graph.data?.nodes.find((n) => n.path === graphPath);
       return {
         ...entry,
         confidence: node?.confidence ?? null,

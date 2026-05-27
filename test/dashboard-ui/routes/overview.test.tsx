@@ -124,7 +124,8 @@ describe("Overview route", () => {
             {
               category: "projects",
               slug: "connected",
-              relPath: "wiki/projects/connected.md",
+              // /api/wiki returns relPath without the "wiki/" prefix
+              relPath: "projects/connected.md",
               title: "Connected Project",
               summary: "A graph-connected page.",
               updated: "2026-05-27",
@@ -134,7 +135,7 @@ describe("Overview route", () => {
             {
               category: ".audit",
               slug: "orphan",
-              relPath: "wiki/.audit/orphan.md",
+              relPath: ".audit/orphan.md",
               title: "Audit Orphan",
               summary: "An audit page without graph data.",
               updated: "2026-05-26",
