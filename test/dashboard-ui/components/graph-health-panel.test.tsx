@@ -34,6 +34,16 @@ describe("GraphHealthPanel", () => {
     expect(screen.getByText("missing source")).toBeInTheDocument();
   });
 
+  it("renders exempt offender notes", () => {
+    mockUseGraphHealth.mockReturnValue(query(report()));
+
+    render(<GraphHealthPanel />);
+    fireEvent.click(screen.getByRole("button", { name: /details for Hub overload/i }));
+
+    expect(screen.getByText("wiki/projects/hub.md")).toBeInTheDocument();
+    expect(screen.getByText("exempt (project hub - by-design anchor); 250 inbound, 0 outbound")).toBeInTheDocument();
+  });
+
   it("renders n/a metrics compactly with Phase 4 detail text", () => {
     mockUseGraphHealth.mockReturnValue(query(report()));
 
@@ -80,13 +90,17 @@ function report(): GraphHealthReport {
       },
       {
         id: "graph.hub-overload",
-        label: "Hub overload",
-        value: 42,
+        label: "Hub overload (non-project nodes)",
+        value: 250,
         unit: "count",
-        threshold: { warn: 30, fail: 60, rule: "warn > 30 edges" },
+        threshold: { warn: 200, fail: 650, rule: "warn > 200 edges, fail > 650 edges" },
         status: "warn",
-        detail: "highest single-node degree is 42",
-        topOffenders: [{ path: "wiki/projects/hub.md", value: 42, note: "42 inbound, 0 outbound" }],
+        detail: "highest non-exempt single-node degree is 250",
+        topOffenders: [{
+          path: "wiki/projects/hub.md",
+          value: 250,
+          note: "exempt (project hub - by-design anchor); 250 inbound, 0 outbound",
+        }],
       },
       {
         id: "graph.agent-attribution",
