@@ -34,6 +34,28 @@ describe("frontmatter", () => {
     expect(body.trim()).toBe("body content");
   });
 
+  it("round-trips prospective scheduling fields", () => {
+    const md = serializeFrontmatter(
+      {
+        ...valid,
+        type: "prospective",
+        cognitive_type: "prospective",
+        due: "2026-06-01",
+        triggers: ["next verify run", "weekly review"],
+        expires: null,
+      },
+      "body content\n",
+    );
+
+    const { frontmatter } = parseFrontmatter(md);
+
+    expect(frontmatter.type).toBe("prospective");
+    expect(frontmatter.cognitive_type).toBe("prospective");
+    expect(frontmatter.due).toBe("2026-06-01");
+    expect(frontmatter.triggers).toEqual(["next verify run", "weekly review"]);
+    expect(frontmatter.expires).toBeNull();
+  });
+
   it("validates a correct frontmatter", () => {
     const r = validateFrontmatter(valid);
     expect(r.valid).toBe(true);
@@ -54,6 +76,36 @@ describe("frontmatter", () => {
       type: "frobnicate" as unknown,
     });
     expect(r.valid).toBe(false);
+  });
+
+  it("accepts prospective type and cognitive_type", () => {
+    const r = validateFrontmatter({
+      ...valid,
+      type: "prospective",
+      cognitive_type: "prospective",
+      due: "2026-06-01",
+      triggers: ["next verify run"],
+      expires: null,
+    });
+
+    expect(r.valid).toBe(true);
+  });
+
+  it("rejects malformed prospective fields", () => {
+    const r = validateFrontmatter({
+      ...valid,
+      type: "prospective",
+      due: ["2026-06-01"],
+      triggers: ["ok", 42],
+      expires: { after: "launch" },
+    });
+
+    expect(r.valid).toBe(false);
+    if (!r.valid) {
+      expect(r.errors.some((e) => e.includes("due"))).toBe(true);
+      expect(r.errors.some((e) => e.includes("triggers"))).toBe(true);
+      expect(r.errors.some((e) => e.includes("expires"))).toBe(true);
+    }
   });
 
   it("rejects malformed date", () => {

@@ -38,7 +38,11 @@ export interface Frontmatter {
   updated: string;
   status?: "active" | "archived" | "superseded";
   confidence?: number | ConfidenceVector;
+  cognitive_type?: "core" | "semantic" | "episodic" | "procedural" | "prospective";
   lifecycle?: LifecycleStage;
+  due?: string | null;
+  triggers?: string[];
+  expires?: string | null;
   source?: string;
   session?: string;
   relations?: SerializedRelationMap;
@@ -51,6 +55,7 @@ const KNOWN_TYPES: EntityType[] = [
   "people",
   "decisions",
   "lessons",
+  "prospective",
   "references",
   "tools",
   "crystal",
@@ -76,7 +81,7 @@ export const KNOWN_LIFECYCLE_STAGES = [
   "dormant",
   "archived",
 ] as const satisfies readonly LifecycleStage[];
-const KNOWN_COGNITIVE_TYPES = ["core", "semantic", "episodic", "procedural"] as const;
+const KNOWN_COGNITIVE_TYPES = ["core", "semantic", "episodic", "procedural", "prospective"] as const;
 
 const KNOWN_RELATIONS = [
   "uses",
@@ -170,6 +175,20 @@ export function validateFrontmatter(
   ) {
     errors.push(`cognitive_type must be one of: ${KNOWN_COGNITIVE_TYPES.join(", ")}`);
   }
+  validateOptionalDateString(f, "due", errors);
+  validateOptionalDateString(f, "expires", errors);
+  if (f["triggers"] !== undefined) {
+    if (!Array.isArray(f["triggers"])) {
+      errors.push("triggers must be an array of strings");
+    } else {
+      const allStrings = (f["triggers"] as unknown[]).every(
+        (t) => typeof t === "string",
+      );
+      if (!allStrings) {
+        errors.push("triggers must contain only strings");
+      }
+    }
+  }
   if (f["confidence"] !== undefined) {
     const c = f["confidence"];
     if (typeof c === "number") {
@@ -215,6 +234,18 @@ export function validateFrontmatter(
   }
   if (errors.length > 0) return { valid: false, errors };
   return { valid: true, fm: fm as Frontmatter };
+}
+
+function validateOptionalDateString(
+  frontmatter: Record<string, unknown>,
+  field: "due" | "expires",
+  errors: string[],
+): void {
+  const value = frontmatter[field];
+  if (value === undefined || value === null) return;
+  if (typeof value !== "string" || Number.isNaN(Date.parse(value))) {
+    errors.push(`${field} must be a parseable date string or null`);
+  }
 }
 
 function validateConfidenceVector(
