@@ -9,6 +9,7 @@ import {
   parseSourceFromFilename,
   type RawSource,
 } from "../lib/raw-helpers.js";
+import { decodeUuidV7Time } from "../lib/uuidv7.js";
 
 const SOURCE_ICON = {
   "claude-code": Terminal,
@@ -45,6 +46,7 @@ export function SessionTile({
 }) {
   const source = parseSourceFromFilename(file.filename);
   const sessionId = parseSessionIdFromFilename(file.filename);
+  const captureTime = decodeUuidV7Time(sessionId);
   const Icon = SOURCE_ICON[source];
   const truncatedId = sessionId.length > 18 ? `${sessionId.slice(0, 8)}...${sessionId.slice(-6)}` : sessionId;
 
@@ -65,7 +67,9 @@ export function SessionTile({
       <p className="break-words font-mono text-xs text-text-muted">{date}</p>
       <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-border-subtle pt-3 font-mono text-xs text-text-muted">
         <span>{formatBytes(file.sizeBytes)}</span>
-        <span>{new Date(file.mtime).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+        {captureTime ? (
+          <span>{captureTime.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+        ) : null}
       </div>
     </Link>
   );

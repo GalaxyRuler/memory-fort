@@ -117,7 +117,41 @@ describe("sessions, crystals, and audit secondary screens", () => {
     expect(screen.getByText("claude-code")).toBeInTheDocument();
     expect(screen.getByText(/019e4bf7/)).toBeInTheDocument();
     expect(screen.getByText("2.0KB")).toBeInTheDocument();
-    expect(screen.getByText(/34/)).toBeInTheDocument();
+    expect(
+      screen.queryByText(
+        new Date("2026-05-24T12:34:00.000Z").toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+        }),
+      ),
+    ).not.toBeInTheDocument();
+  });
+
+  test("SessionTile renders capture time decoded from Codex UUIDv7 filenames", () => {
+    const captureTime = new Date(parseInt("019e4bf7d7b8", 16));
+    const expectedTime = captureTime.toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+    const mtimeTime = new Date("2026-05-24T12:34:00.000Z").toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+
+    render(
+      <SessionTile
+        date="2026-05-24"
+        file={{
+          filename: "codex-019e4bf7-d7b8-7a57-8000-000000000000.md",
+          mtime: "2026-05-24T12:34:00.000Z",
+          sizeBytes: 2048,
+        }}
+      />,
+    );
+
+    expect(screen.getByText("codex")).toBeInTheDocument();
+    expect(screen.getByText(expectedTime)).toBeInTheDocument();
+    expect(screen.queryByText(mtimeTime)).not.toBeInTheDocument();
   });
 
   test("SessionsPage filters by source", () => {
@@ -165,6 +199,59 @@ describe("sessions, crystals, and audit secondary screens", () => {
 
     expect(screen.getByText("No crystals yet")).toBeInTheDocument();
     expect(screen.getByText("memory crystallize")).toBeInTheDocument();
+  });
+
+  test("CrystalsPage renders entries from the plural crystals category", () => {
+    wikiHook.useWikiIndex.mockReturnValue({
+      data: {
+        byCategory: {
+          crystals: [
+            {
+              category: "crystals",
+              slug: "one",
+              relPath: "crystals/one.md",
+              title: "Crystal One",
+              summary: "First distilled thread.",
+              updated: "2026-05-24",
+            },
+            {
+              category: "crystals",
+              slug: "two",
+              relPath: "crystals/two.md",
+              title: "Crystal Two",
+              summary: "Second distilled thread.",
+              updated: "2026-05-25",
+            },
+            {
+              category: "crystals",
+              slug: "three",
+              relPath: "crystals/three.md",
+              title: "Crystal Three",
+              summary: "Third distilled thread.",
+              updated: "2026-05-26",
+            },
+            {
+              category: "crystals",
+              slug: "four",
+              relPath: "crystals/four.md",
+              title: "Crystal Four",
+              summary: "Fourth distilled thread.",
+              updated: "2026-05-27",
+            },
+          ],
+        },
+        total: 4,
+      },
+      isLoading: false,
+    });
+
+    render(<CrystalsPage />);
+
+    expect(screen.getByText("Crystal One")).toBeInTheDocument();
+    expect(screen.getByText("Crystal Two")).toBeInTheDocument();
+    expect(screen.getByText("Crystal Three")).toBeInTheDocument();
+    expect(screen.getByText("Crystal Four")).toBeInTheDocument();
+    expect(screen.queryByText("No crystals yet")).not.toBeInTheDocument();
   });
 
   test("AuditRow uses the correct level color class", () => {
