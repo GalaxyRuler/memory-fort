@@ -1,5 +1,5 @@
 ---
-schema_version: 1
+schema_version: 1.1
 updated: "{{install_date}}"
 applies_from_commit: "{{install_commit}}"
 ---
@@ -57,15 +57,18 @@ confidence: 0.0..1.0    # optional; default 1.0; pages with < 0.5 surface as DRA
 source: claude-code | codex | antigravity | manual | crystal   # who created this
 session: <id>            # optional; the session that produced this page
 relations:
-  uses: [page-slug, ...]
-  depends_on: [page-slug, ...]
-  supersedes: [page-slug, ...]
-  contradicts: [page-slug, ...]
-  caused_by: [page-slug, ...]
-  fixed_by: [page-slug, ...]
-  derived_from: [page-slug, ...]
-  mentioned_in: [page-slug, ...]
-  linked: [page-slug, ...]
+  uses:
+    - page-slug
+  depends_on:
+    - target: page-slug
+      confidence: 0.85
+      valid_from: 2026-05-21
+      valid_to: null
+      superseded_by: replacement-page-slug
+      source:
+        agent: codex
+        session_id: session-id
+        captured_at: 2026-05-21T12:00:00.000Z
 tags: [tag1, tag2, ...]
 ---
 ```
@@ -91,7 +94,7 @@ Cross-references inside the body use Obsidian-style `[[wiki/projects/agentmemory
 
 ## 5. Edge types (knowledge graph)
 
-The graph is derived on-demand from `relations:` frontmatter (and inline `[[wikilinks]]` which create implicit `linked` edges). Nine edge types are defined; use them precisely.
+The graph is derived on-demand from `relations:` frontmatter (and inline `[[wikilinks]]` which create implicit `linked` edges). Nine canonical edge types are supported; use them precisely.
 
 | Type | Direction | Semantics | Example |
 |---|---|---|---|
@@ -105,7 +108,68 @@ The graph is derived on-demand from `relations:` frontmatter (and inline `[[wiki
 | `mentioned_in` | A → B | A appears in B (often auto-extracted by implicit graph) | `voyage-3.5` mentioned_in `2026-05-20-embedding-provider-choice` |
 | `linked` | A → B | Generic association; least specific. Inline `[[wikilinks]]` create implicit linked edges. | Use only when no more-specific type applies |
 
-When in doubt, pick the more specific edge. `linked` is the fallback.
+When in doubt, pick the more specific edge. `linked` is the fallback. `mentions` is also accepted as a backwards-compatible auto-write key for raw observations and is treated as a generic mention edge.
+
+### Relation entry shapes
+
+Each `relations.<type>` value is an array. Entries can use either string shorthand or object form:
+
+```yaml
+relations:
+  mentions:
+    - wiki/projects/memory-system.md
+    - wiki/tools/voyage.md
+  uses:
+    - wiki/tools/typescript.md
+  linked:
+    - wiki/references/dashboard-notes.md
+```
+
+```yaml
+relations:
+  mentions:
+    - wiki/projects/memory-system.md
+    - target: wiki/tools/voyage.md
+      confidence: 0.85
+      valid_from: 2026-05-22
+      source:
+        agent: codex
+        session_id: codex-abc123
+        captured_at: 2026-05-22T14:15:00.000Z
+  supersedes:
+    - target: wiki/decisions/old-dashboard-port.md
+      valid_from: 2026-05-23
+      valid_to: null
+      superseded_by: wiki/decisions/new-dashboard-port.md
+```
+
+String shorthand is exactly equivalent to object form with only `target` set:
+
+```yaml
+- wiki/tools/voyage.md
+```
+
+is equivalent to:
+
+```yaml
+- target: wiki/tools/voyage.md
+```
+
+The consolidation pipeline continues to auto-write string shorthand under `relations.mentions` by default. Humans and future tools may write rich object entries when relation metadata matters.
+
+### Temporal fields
+
+- `valid_from`: ISO date or datetime when the edge became valid. If omitted, readers may default to the source document's `created` date.
+- `valid_to`: ISO date or datetime when the edge stopped being current. `null` or omission means the edge is currently valid.
+- `superseded_by`: target page path for the edge that replaced this one.
+
+### Source fields
+
+Object-form edges may include `source` metadata:
+
+- `source.agent`: tool or agent that captured the edge (`codex`, `claude-code`, `antigravity`, `manual`, etc.).
+- `source.session_id`: session that produced the relation.
+- `source.captured_at`: ISO datetime when the relation was captured.
 
 ---
 
