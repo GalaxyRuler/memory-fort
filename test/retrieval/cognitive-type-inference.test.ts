@@ -228,6 +228,18 @@ describe("cognitive type inference", () => {
     expect(result.documents[0]?.cognitiveType).toBe("episodic");
   });
 
+  it("infers episodic for proposed narrative thread pages", async () => {
+    await writeMarkdown(
+      tmp,
+      "wiki/threads-proposed/memory-fort-arc.md",
+      page({ type: "threads", title: "Memory Fort Arc", lifecycle: "proposed" }),
+    );
+
+    const result = await loadSearchCorpus({ vaultRoot: tmp, scope: "wiki" });
+
+    expect(result.documents[0]?.cognitiveType).toBe("episodic");
+  });
+
   it("honors explicit cognitive_type on narrative thread pages", async () => {
     await writeMarkdown(
       tmp,

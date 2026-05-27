@@ -471,6 +471,31 @@ describe("graph health metrics", () => {
     expect(result.value).toBe(25);
     expect(result.detail).toContain("1/4 raw observations referenced by 1 thread");
   });
+
+  it("excludes proposed thread drafts from narrative thread coverage", () => {
+    const result = metricNarrativeThreadCoverage(
+      graphInput({
+        feed: graphFeed({
+          nodes: [
+            node("raw/one.md", { kind: "raw" }),
+            node("raw/two.md", { kind: "raw" }),
+          ],
+        }),
+        wikiPages: [
+          wikiPage("wiki/threads/live.md", {
+            relations: { mentions: [{ target: "raw/one.md" }] },
+          }),
+          wikiPage("wiki/threads-proposed/draft.md", {
+            lifecycle: "proposed",
+            relations: { mentions: [{ target: "raw/two.md" }] },
+          }),
+        ],
+      }),
+    );
+
+    expect(result.value).toBe(50);
+    expect(result.detail).toContain("1/2 raw observations referenced by 1 thread");
+  });
 });
 
 function graphFeed(overrides: Partial<GraphFeed> = {}): GraphFeed {

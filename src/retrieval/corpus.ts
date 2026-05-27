@@ -405,6 +405,7 @@ function categoryForDocument(
 ): string {
   if (document.kind === "crystal") return "crystals";
   if (document.type === "crystal") return "crystals";
+  if (document.relPath.startsWith("wiki/threads-proposed/")) return "threads";
   return document.type || document.relPath.split("/")[1] || document.kind;
 }
 

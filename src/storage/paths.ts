@@ -58,6 +58,14 @@ export function wikiDir(category?: PageType): string {
   return category ? join(base, category) : base;
 }
 
+export function threadsDir(vaultRoot = memoryRoot()): string {
+  return join(vaultRoot, "wiki", "threads");
+}
+
+export function threadsProposedDir(vaultRoot = memoryRoot()): string {
+  return join(vaultRoot, "wiki", "threads-proposed");
+}
+
 export function crystalsDir(): string {
   return join(memoryRoot(), "crystals");
 }

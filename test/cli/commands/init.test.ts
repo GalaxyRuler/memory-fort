@@ -30,6 +30,8 @@ describe("runInit", () => {
     expect(existsSync(join(result.root, "raw"))).toBe(true);
     expect(existsSync(join(result.root, "wiki", "projects"))).toBe(true);
     expect(existsSync(join(result.root, "wiki", "lessons"))).toBe(true);
+    expect(existsSync(join(result.root, "wiki", "threads"))).toBe(true);
+    expect(existsSync(join(result.root, "wiki", "threads-proposed"))).toBe(true);
     expect(existsSync(join(result.root, "crystals"))).toBe(true);
     expect(existsSync(join(result.root, "embeddings"))).toBe(true);
     expect(existsSync(join(result.root, ".archive"))).toBe(true);
