@@ -10,6 +10,7 @@ import {
   loadSearchCorpus,
   type SearchDocument,
 } from "../retrieval/corpus.js";
+import { writeRelations, type RelationMap } from "../retrieval/relations.js";
 import {
   combineMentions,
   findBM25Mentions,
@@ -63,7 +64,7 @@ export async function runConsolidatePlan(
   const titleIndex = buildTitleIndex(corpus.documents);
   const observations = corpus.documents.filter((doc) => doc.kind === "raw");
   const plans = observations.map((observation) => {
-    const currentRelations = observation.relations["mentions"] ?? [];
+    const currentRelations = (observation.relations["mentions"] ?? []).map((edge) => edge.target);
     const skipForIdempotency = currentRelations.length > 0 && !opts.force;
     const proposedRelations = skipForIdempotency
       ? []
@@ -150,12 +151,22 @@ async function writeObservationMentions(
   const parsed = parseFrontmatter(content);
   const nextFrontmatter: Frontmatter = {
     ...parsed.frontmatter,
-    relations: {
-      ...(parsed.frontmatter.relations ?? {}),
-      mentions,
-    },
+    relations: writeRelations({
+      ...readExistingRelationMap(parsed.frontmatter.relations),
+      mentions: mentions.map((target) => ({ target })),
+    }),
   };
   await atomicWrite(observation.fullPath, serializeFrontmatter(nextFrontmatter, parsed.body));
+}
+
+function readExistingRelationMap(relations: Frontmatter["relations"]): RelationMap {
+  if (!relations || typeof relations !== "object") return {};
+  const result: RelationMap = {};
+  for (const [key, entries] of Object.entries(relations)) {
+    if (!Array.isArray(entries)) continue;
+    result[key] = entries.flatMap((entry) => typeof entry === "string" ? [{ target: entry }] : []);
+  }
+  return result;
 }
 
 function formatConsolidateAudit(

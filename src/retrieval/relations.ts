@@ -15,6 +15,22 @@ export interface RelationEdge {
 }
 
 export type RelationMap = Record<string, RelationEdge[]>;
+export type SerializedRelationEdge = string | Record<string, unknown>;
+export type SerializedRelationMap = Record<string, SerializedRelationEdge[]>;
+
+const SCHEMA_RELATION_ORDER = [
+  "mentions",
+  "supports",
+  "contradicts",
+  "supersedes",
+  "derived_from",
+  "uses",
+  "depends_on",
+  "caused_by",
+  "fixed_by",
+  "mentioned_in",
+  "linked",
+];
 
 const KNOWN_EDGE_FIELDS = new Set([
   "target",
@@ -42,6 +58,14 @@ export function readRelations(value: unknown, sourcePath = "<unknown>"): Relatio
     relations[key] = edges;
   }
   return relations;
+}
+
+export function writeRelations(relations: RelationMap): SerializedRelationMap {
+  const result: SerializedRelationMap = {};
+  for (const key of orderedRelationKeys(relations)) {
+    result[key] = sortedRelationEdges(relations[key] ?? []).map(serializeRelationEdge);
+  }
+  return result;
 }
 
 function readRelationEntry(entry: unknown): RelationEdge | null {
@@ -88,4 +112,44 @@ function readRelationSource(value: unknown): RelationEdgeSource | undefined {
   if (typeof record["session_id"] === "string") source.session_id = record["session_id"];
   if (typeof record["captured_at"] === "string") source.captured_at = record["captured_at"];
   return Object.keys(source).length > 0 ? source : undefined;
+}
+
+function orderedRelationKeys(relations: RelationMap): string[] {
+  const keys = Object.keys(relations);
+  const schemaKeys = SCHEMA_RELATION_ORDER.filter((key) => keys.includes(key));
+  const userKeys = keys
+    .filter((key) => !SCHEMA_RELATION_ORDER.includes(key))
+    .sort((a, b) => a.localeCompare(b));
+  return [...schemaKeys, ...userKeys];
+}
+
+function sortedRelationEdges(edges: RelationEdge[]): RelationEdge[] {
+  return edges
+    .map((edge, index) => ({ edge, index }))
+    .sort((a, b) => {
+      const aConfidence = a.edge.confidence;
+      const bConfidence = b.edge.confidence;
+      if (aConfidence !== undefined && bConfidence !== undefined && aConfidence !== bConfidence) {
+        return bConfidence - aConfidence;
+      }
+      if (aConfidence !== undefined && bConfidence === undefined) return -1;
+      if (aConfidence === undefined && bConfidence !== undefined) return 1;
+      return a.index - b.index;
+    })
+    .map(({ edge }) => edge);
+}
+
+function serializeRelationEdge(edge: RelationEdge): SerializedRelationEdge {
+  const extra = edge._extra ?? {};
+  const source = edge.source ? { source: edge.source } : {};
+  const record: Record<string, unknown> = {
+    target: edge.target,
+    ...(edge.confidence !== undefined ? { confidence: edge.confidence } : {}),
+    ...(edge.valid_from !== undefined ? { valid_from: edge.valid_from } : {}),
+    ...(edge.valid_to !== undefined ? { valid_to: edge.valid_to } : {}),
+    ...(edge.superseded_by !== undefined ? { superseded_by: edge.superseded_by } : {}),
+    ...source,
+    ...extra,
+  };
+  return Object.keys(record).length === 1 ? edge.target : record;
 }
