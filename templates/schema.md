@@ -1,5 +1,5 @@
 ---
-schema_version: 1.2
+schema_version: 1.3
 updated: "{{install_date}}"
 applies_from_commit: "{{install_commit}}"
 ---
@@ -34,6 +34,7 @@ The wiki is organized by entity category. Every page declares one `type:` in fro
 | `people` | `wiki/people/` | `<lowercase-first-name>.md` (collisions: `-lastname`) | Someone the user works with, gets feedback from, or builds for |
 | `decisions` | `wiki/decisions/` | `<YYYY-MM-DD>-<short-slug>.md` | A choice made with alternatives considered and reasons recorded |
 | `lessons` | `wiki/lessons/` | `<short-slug>.md` (no date — lessons are timeless) | A reusable fact learned from a specific incident |
+| `prospective` | `wiki/prospective/` | `<short-slug>.md` | A future-oriented reminder, trigger, or pending memory to revisit |
 | `references` | `wiki/references/` | `<short-slug>.md` | External knowledge: papers, blog posts, docs, talks |
 | `tools` | `wiki/tools/` | `<package-or-binary-name>.md` | A software dependency or service used by a project |
 | `crystal` | `crystals/` | `<YYYY-MM-DD>-<thread-slug>.md` | A long-form distillation of a completed work thread (Wiki v2 addition) |
@@ -48,12 +49,16 @@ Every wiki page (and every raw session file) begins with YAML frontmatter:
 
 ```yaml
 ---
-type: projects | people | decisions | lessons | references | tools | crystal | raw-session
+type: projects | people | decisions | lessons | prospective | references | tools | crystal | raw-session
 title: "Human-readable title"
 created: 2026-05-21    # ISO 8601 date
 updated: 2026-05-21
 status: active | archived | superseded   # optional; defaults to active; controls visibility
+cognitive_type: core | semantic | episodic | procedural | prospective   # optional; inferred when absent
 lifecycle: observed | linked | proposed | consolidated | canonical | stale | disputed | dormant | archived   # optional; memory lifecycle
+due: 2026-06-01 | null  # optional; prospective memory deadline
+triggers: [event, context, ...]  # optional; prospective memory cues
+expires: 2026-07-01 | null  # optional; prospective memory expiry
 confidence: 0.0..1.0    # optional legacy scalar; shorthand for confidence.extraction
 source: claude-code | codex | antigravity | manual | crystal   # who created this
 session: <id>            # optional; the session that produced this page
@@ -144,6 +149,38 @@ confidence:
 - `disputed`: memory with unresolved contradicting evidence.
 - `dormant`: memory not retrieved for a long time; kept but deboosted.
 - `archived`: explicitly retired from active use.
+
+### Cognitive types
+
+- `core`: stable identity, project, or preference memory that should stay highly retrievable.
+- `semantic`: factual knowledge, references, decisions, and distilled claims.
+- `episodic`: recent raw observations or session-specific events.
+- `procedural`: reusable how-to knowledge, tools, and lessons.
+- `prospective`: future-oriented memory that should be revisited when a due date, trigger, or context arrives.
+
+Pages under `wiki/prospective/*.md` infer `cognitive_type: prospective` when the field is absent. An explicit `cognitive_type: prospective` is also valid on any non-raw wiki page when a future-oriented memory naturally lives in another category.
+
+### Prospective memories
+
+Prospective memories use normal lifecycle stages. New pending items should be `lifecycle: proposed`; once handled, promote or retire them by changing lifecycle and/or status rather than adding new lifecycle states.
+
+```yaml
+---
+type: prospective
+title: "Review Graph Health Calibration"
+created: 2026-05-27
+updated: 2026-05-27
+status: active
+lifecycle: proposed
+due: 2026-06-03
+triggers:
+  - weekly verify run
+expires: null
+source: codex
+---
+```
+
+The `prospective.overdue` verify check warns at one or two overdue proposed prospective memories and fails at three or more. Archive retired prospective pages or move handled items out of `lifecycle: proposed`.
 
 ---
 
@@ -310,6 +347,7 @@ The LLM doing compile is whichever agent the user is in (Claude Code / Codex / A
 | Orphan pages | Pages with no inbound `[[wikilinks]]` AND no inbound `relations:` references |
 | Broken links | `[[wikilinks]]` whose target page does not exist |
 | Stale pages | `status: active` AND `updated` > 180 days ago |
+| Overdue prospective memories | `cognitive_type: prospective`, `lifecycle: proposed`, and `due` before the verify run date |
 | Contradictions | Pages whose `relations.contradicts` resolves to another page, unresolved |
 | Low-confidence drafts | `confidence: < 0.5` AND `status: active` |
 | Naming violations | Filenames not matching lowercase-kebab-case or the type's prefix pattern |
