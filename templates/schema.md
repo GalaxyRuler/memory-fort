@@ -233,8 +233,7 @@ based on these rules, evaluated in order with the first match winning:
 1. Target in `wiki/tools/*.md` -> `uses`
 2. Target in `wiki/crystals/*.md` -> `derived_from`
 3. Title contains `deprecated` or `superseded-by` -> `supersedes`
-4. BM25-only match with confidence `< 0.7` against a decision or lesson ->
-   `derived_from`
+4. BM25-only match against a decision or lesson -> `derived_from`
 5. Catch-all -> `mentions`
 
 Lexical matches, where the raw observation body literally contains the wiki
