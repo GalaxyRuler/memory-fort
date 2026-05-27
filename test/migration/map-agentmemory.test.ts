@@ -8,6 +8,7 @@ import {
   planAgentMemoryImport,
 } from "../../src/migration/map-agentmemory.js";
 import type { AgentMemoryKvEntry } from "../../src/migration/agentmemory-kv-reader.js";
+import { parseFrontmatter } from "../../src/storage/frontmatter.js";
 
 describe("map agentmemory entries", () => {
   let tmp: string;
@@ -77,6 +78,8 @@ describe("map agentmemory entries", () => {
       "wiki/decisions/use-memory-fort.md",
       "wiki/crystals/migration-pressure.md",
     ]);
+    expect(parseFrontmatter(plan.actions[0]!.content).frontmatter.source).toBe("import-agentmemory");
+    expect(parseFrontmatter(plan.actions[1]!.content).frontmatter.source).toBe("crystal-extraction");
   });
 
   it("dedupes by title and writes imported suffix for newer incoming content", async () => {
@@ -163,6 +166,8 @@ describe("map agentmemory entries", () => {
     expect(await readFile(join(memDir, "wiki", "references", "legacy-format.md"), "utf-8"))
       .toContain("Files contain JSON");
     expect(result.auditLogPath).toContain("wiki\\.audit");
+    const audit = parseFrontmatter(await readFile(result.auditLogPath!, "utf-8"));
+    expect(audit.frontmatter.source).toBe("import-agentmemory");
   });
 
   it("preserves unknown auxiliary stores as legacy reference pages", async () => {
@@ -180,6 +185,7 @@ describe("map agentmemory entries", () => {
     expect(plan.actions[0]!.action).toBe("write");
     expect(plan.actions[0]!.relPath).toBe("wiki/references/agentmemory-mem-access-obs-1.md");
     expect(plan.actions[0]!.content).toContain('"lastAccessed": "2026-05-25T00:00:00.000Z"');
+    expect(parseFrontmatter(plan.actions[0]!.content).frontmatter.source).toBe("import-agentmemory");
   });
 });
 

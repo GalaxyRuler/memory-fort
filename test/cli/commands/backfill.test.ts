@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { runBackfill } from "../../../src/cli/commands/backfill.js";
 import type { ConsolidateResult } from "../../../src/consolidate/runner.js";
 import { runInit } from "../../../src/cli/commands/init.js";
+import { parseFrontmatter } from "../../../src/storage/frontmatter.js";
 
 describe("runBackfill", () => {
   let tmp: string;
@@ -60,6 +61,7 @@ describe("runBackfill", () => {
     expect(existsSync(join(memoryDir, "raw", "2026-05-24", "claude-code-session-a.md"))).toBe(true);
     const audit = await readFile(first.auditLogPath!, "utf-8");
     expect(audit).toContain("[write] raw/2026-05-24/claude-code-session-a.md");
+    expect(parseFrontmatter(audit).frontmatter.source).toBe("backfill");
 
     const second = await runBackfill({
       from: "claude-code",

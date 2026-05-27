@@ -130,9 +130,10 @@ export async function applyAgentMemoryImportPlan(
     }
   }
 
-  const ts = (opts.now ?? new Date()).toISOString().replace(/[:.]/g, "-");
+  const now = opts.now ?? new Date();
+  const ts = now.toISOString().replace(/[:.]/g, "-");
   const auditLogPath = join(root, "wiki", ".audit", `agentmemory-migration-${ts}.md`);
-  await atomicWrite(auditLogPath, formatAuditLog(plan));
+  await atomicWrite(auditLogPath, formatAuditLog(plan, now));
 
   return { written, skipped, conflicts, flagged, auditLogPath };
 }
@@ -218,7 +219,7 @@ function mapObservation(
       title,
       created: date,
       updated: date,
-      source: "agentmemory" as never,
+      source: "agentmemory",
       session: entry.scope.replace(/^mem:obs:/, ""),
       confidence: numberField(value, "confidence") ?? undefined,
       tags: arrayField(value, "concepts"),
@@ -265,6 +266,7 @@ function mapMemory(
       created,
       updated,
       status: "active",
+      source: "import-agentmemory",
       confidence: numberField(value, "confidence") ?? undefined,
       tags: arrayField(value, "tags").concat(arrayField(value, "concepts")),
       imported_from: {
@@ -305,6 +307,7 @@ function mapCrystal(
       created,
       updated,
       status: "active",
+      source: "crystal-extraction",
       confidence: numberField(value, "confidence") ?? undefined,
       tags: arrayField(value, "tags").concat(arrayField(value, "concepts")),
       imported_from: {
@@ -346,6 +349,7 @@ function mapLegacyReference(
       created: date,
       updated: date,
       status: "active",
+      source: "import-agentmemory",
       tags: ["agentmemory", "legacy-store", safeSlug(entry.scope)],
       imported_from: {
         system: "agentmemory",
@@ -412,14 +416,25 @@ function existingPageFromMapped(
   };
 }
 
-function formatAuditLog(plan: AgentMemoryImportPlan): string {
+function formatAuditLog(plan: AgentMemoryImportPlan, now: Date): string {
   const lines = ["# agentmemory migration audit", ""];
   for (const action of plan.actions) {
     const target = action.relPath ? ` -> ${action.relPath}` : "";
     const reason = action.reason ? ` (${action.reason})` : "";
     lines.push(`- [${action.action}] ${action.sourceKey}${target}${reason}`);
   }
-  return `${lines.join("\n")}\n`;
+  return serializeFrontmatter(
+    {
+      type: "references",
+      title: "agentmemory migration audit",
+      created: formatIsoDate(now),
+      updated: formatIsoDate(now),
+      status: "active",
+      source: "import-agentmemory",
+      cognitive_type: "semantic",
+    },
+    `${lines.join("\n")}\n`,
+  );
 }
 
 function countActions(actions: AgentMemoryImportAction[]): Record<string, number> {

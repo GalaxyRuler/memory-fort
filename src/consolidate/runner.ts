@@ -198,5 +198,16 @@ function formatConsolidateAudit(
     lines.push("");
   }
 
-  return `${lines.join("\n")}`;
+  return serializeFrontmatter(
+    {
+      type: "references",
+      title: "consolidate audit",
+      created: now.toISOString().slice(0, 10),
+      updated: now.toISOString().slice(0, 10),
+      status: "active",
+      source: "consolidate",
+      cognitive_type: "semantic",
+    },
+    `${lines.join("\n")}\n`,
+  );
 }

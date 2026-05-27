@@ -4,6 +4,7 @@ import { ClaudeCodeSniffer } from "../../sniffers/claude-code.js";
 import { rawSessionRelPath, runSniffer, type RunSnifferResult } from "../../sniffers/run-sniffer.js";
 import type { RawSession, Sniffer } from "../../sniffers/types.js";
 import { join } from "node:path";
+import { serializeFrontmatter } from "../../storage/frontmatter.js";
 import {
   formatConsolidateResult,
   runConsolidate,
@@ -168,7 +169,18 @@ function formatBackfillAudit(results: RunSnifferResult[], since: Date, now: Date
     }
     lines.push("");
   }
-  return `${lines.join("\n")}`;
+  return serializeFrontmatter(
+    {
+      type: "references",
+      title: "backfill audit",
+      created: now.toISOString().slice(0, 10),
+      updated: now.toISOString().slice(0, 10),
+      status: "active",
+      source: "backfill",
+      cognitive_type: "semantic",
+    },
+    `${lines.join("\n")}\n`,
+  );
 }
 
 function plural(count: number, noun: string): string {

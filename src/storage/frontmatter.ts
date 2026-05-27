@@ -1,6 +1,6 @@
 import matter from "gray-matter";
 import yaml from "js-yaml";
-import type { PageType, ToolName } from "./paths.js";
+import type { PageType } from "./paths.js";
 import type { SerializedRelationMap } from "../retrieval/relations.js";
 
 export type EntityType = PageType | "crystal" | "raw-session";
@@ -39,7 +39,7 @@ export interface Frontmatter {
   status?: "active" | "archived" | "superseded";
   confidence?: number | ConfidenceVector;
   lifecycle?: LifecycleStage;
-  source?: ToolName | "crystal";
+  source?: string;
   session?: string;
   relations?: SerializedRelationMap;
   tags?: string[];

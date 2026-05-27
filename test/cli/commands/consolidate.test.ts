@@ -89,6 +89,7 @@ describe("runConsolidate", () => {
     expect(audit).toContain("total proposed edges: 2");
     expect(audit).toContain("total updated: 1");
     expect(audit).toContain("Voyage AI");
+    expect(parseFrontmatter(audit).frontmatter.source).toBe("consolidate");
   });
 
   it("is idempotent unless force is enabled", async () => {
