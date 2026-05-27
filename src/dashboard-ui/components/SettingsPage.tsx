@@ -1,6 +1,8 @@
 import { FileText, Terminal } from "lucide-react";
 import { type ConfigValue, useConfig } from "../hooks/useConfig.js";
 import { Card } from "./Card.js";
+import { EmbedderConfigCard } from "./EmbedderConfigCard.js";
+import { LLMConfigCard } from "./LLMConfigCard.js";
 import { SettingsSection } from "./SettingsSection.js";
 
 function isSection(value: ConfigValue): value is Record<string, ConfigValue> {
@@ -23,13 +25,17 @@ export function SettingsPage() {
       <header className="mb-6">
         <h1 className="break-words text-2xl font-semibold tracking-tight">Settings</h1>
         <p className="text-sm text-text-secondary">
-          Read-only view of{" "}
-          <code className="rounded bg-surface-2 px-1.5 py-0.5 font-mono text-xs">~/.memory/config.yaml</code>. Edit via
-          CLI.
+          Provider settings can be edited here. Other fields are a read-only view of{" "}
+          <code className="rounded bg-surface-2 px-1.5 py-0.5 font-mono text-xs">~/.memory/config.yaml</code>.
         </p>
       </header>
 
       <div className="space-y-4">
+        <div className="grid gap-4 lg:grid-cols-2">
+          <EmbedderConfigCard />
+          <LLMConfigCard />
+        </div>
+
         {scalars.length > 0 && <SettingsSection title="general" data={generalData} />}
         {sections.map(([sectionKey, sectionValue]) => (
           <SettingsSection key={sectionKey} title={sectionKey} data={sectionValue as Record<string, ConfigValue>} />
@@ -41,7 +47,10 @@ export function SettingsPage() {
             Editing settings
           </h2>
           <p className="mb-3 text-sm text-text-secondary">
-            Phase 4 dashboard is read-only. To edit settings, open the config file directly on a creator machine:
+            Provider settings (embedder + LLM) can now be edited directly via the cards above. Other config fields
+            remain read-only. To edit retention, privacy, or other fields, open{" "}
+            <code className="rounded bg-surface-2 px-1.5 py-0.5 font-mono text-xs">~/.memory/config.yaml</code> on your
+            creator machine.
           </p>
           <div className="flex items-start gap-2 rounded-md bg-surface-2 p-3 font-mono text-xs text-text-primary">
             <FileText size={14} strokeWidth={1.5} className="flex-shrink-0 text-text-muted" />

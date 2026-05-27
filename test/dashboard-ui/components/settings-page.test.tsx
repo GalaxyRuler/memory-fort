@@ -10,6 +10,14 @@ const configHook = vi.hoisted(() => ({
   useConfig: vi.fn(),
 }));
 
+const providerHook = vi.hoisted(() => ({
+  useProvidersCatalog: vi.fn(),
+}));
+
+const updateHook = vi.hoisted(() => ({
+  useUpdateConfig: vi.fn(),
+}));
+
 vi.mock("../../../src/dashboard-ui/hooks/useConfig.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../../src/dashboard-ui/hooks/useConfig.js")>();
   return {
@@ -17,6 +25,14 @@ vi.mock("../../../src/dashboard-ui/hooks/useConfig.js", async (importOriginal) =
     useConfig: configHook.useConfig,
   };
 });
+
+vi.mock("../../../src/dashboard-ui/hooks/useProvidersCatalog.js", () => ({
+  useProvidersCatalog: providerHook.useProvidersCatalog,
+}));
+
+vi.mock("../../../src/dashboard-ui/hooks/useUpdateConfig.js", () => ({
+  useUpdateConfig: updateHook.useUpdateConfig,
+}));
 
 function renderWithQueryClient(ui: ReactNode) {
   const client = new QueryClient({
@@ -28,6 +44,31 @@ function renderWithQueryClient(ui: ReactNode) {
 describe("settings page", () => {
   beforeEach(() => {
     configHook.useConfig.mockReset();
+    providerHook.useProvidersCatalog.mockReset();
+    updateHook.useUpdateConfig.mockReset();
+    providerHook.useProvidersCatalog.mockReturnValue({
+      data: {
+        embedders: [
+          {
+            provider: "voyage",
+            envVar: "VOYAGE_API_KEY",
+            envVarStatus: "missing",
+            models: [{ id: "voyage-4-large", dim: 2048, default: true }],
+          },
+        ],
+        llms: [
+          {
+            provider: "openrouter",
+            envVar: "OPENROUTER_API_KEY",
+            envVarStatus: "missing",
+            models: [{ id: "openai/gpt-4o-mini", default: true }],
+          },
+        ],
+      },
+      isLoading: false,
+      error: null,
+    });
+    updateHook.useUpdateConfig.mockReturnValue({ mutate: vi.fn(), isPending: false, error: null });
   });
 
   afterEach(() => {
@@ -115,5 +156,26 @@ describe("settings page", () => {
     expect(screen.getByText("raw_window_days")).toBeInTheDocument();
     expect(screen.getByText("provider")).toBeInTheDocument();
     expect(screen.getByText("voyage-4-large")).toBeInTheDocument();
+  });
+
+  test("SettingsPage renders editable provider cards above read-only sections", () => {
+    configHook.useConfig.mockReturnValue({
+      data: {
+        embedder: { provider: "voyage", model: "voyage-4-large" },
+        llm: { provider: "openrouter", model: "openai/gpt-4o-mini" },
+        retention: { raw_window_days: 90 },
+      },
+      error: null,
+      isLoading: false,
+    });
+
+    render(<SettingsPage />);
+
+    expect(screen.getByRole("heading", { name: "Embedder" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "LLM" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /edit embedder/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /edit llm/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "retention" })).toBeInTheDocument();
+    expect(screen.getByText(/Provider settings .* can now be edited directly/i)).toBeInTheDocument();
   });
 });
