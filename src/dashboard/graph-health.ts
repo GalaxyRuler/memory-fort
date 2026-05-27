@@ -1,4 +1,5 @@
 import type { GraphFeed } from "./loaders.js";
+import type { RelationMap } from "../retrieval/relations.js";
 
 export type HealthStatus = "pass" | "warn" | "fail" | "n/a";
 
@@ -40,6 +41,7 @@ export interface WikiHealthPage {
   confidenceFull?: unknown;
   created?: string | null;
   updated?: string | null;
+  relations?: RelationMap;
   importedFrom?: { system: string | null; originalKey: string | null } | null;
 }
 
@@ -85,7 +87,7 @@ export function computeGraphHealth(input: GraphHealthInput): GraphHealthReport {
     metricProjectSubgraphDensity(feed),
     metricAgentAttribution(input),
     metricGraphParticipationRate(input),
-    metricNarrativeThreadCoverage(feed),
+    metricNarrativeThreadCoverage(input),
   ];
 
   return {
@@ -500,16 +502,51 @@ export function metricGraphParticipationRate(input: GraphHealthInput): MetricRes
   };
 }
 
-export function metricNarrativeThreadCoverage(_feed: GraphFeed): MetricResult {
+export function metricNarrativeThreadCoverage(input: GraphHealthInput): MetricResult {
+  const threadPages = input.wikiPages.filter(isLiveNarrativeThread);
+  if (threadPages.length === 0) {
+    return {
+      id: "graph.narrative-thread-coverage",
+      label: "Narrative thread coverage",
+      value: null,
+      threshold: { rule: "n/a until first thread authored" },
+      status: "n/a",
+      detail: "no narrative threads in vault yet",
+      topOffenders: [],
+    };
+  }
+
+  const rawNodes = input.feed.nodes.filter((node) => node.kind === "raw");
+  const referencedRawPaths = new Set<string>();
+  for (const page of threadPages) {
+    for (const relations of Object.values(page.relations ?? {})) {
+      for (const relation of relations) {
+        if (relation.target.startsWith("raw/")) {
+          referencedRawPaths.add(relation.target);
+        }
+      }
+    }
+  }
+
+  const coverage = rawNodes.length === 0
+    ? 100
+    : (referencedRawPaths.size / rawNodes.length) * 100;
+  const value = round(coverage, 2);
+
   return {
     id: "graph.narrative-thread-coverage",
     label: "Narrative thread coverage",
-    value: null,
-    threshold: { rule: "pending narrative threads in Phase 4" },
-    status: "n/a",
-    detail: "pending narrative threads in Phase 4",
+    value,
+    unit: "%",
+    threshold: { warn: 50, fail: 25, rule: "pass >= 50%, warn >= 25%, fail < 25%" },
+    status: coverage < 25 ? "fail" : coverage < 50 ? "warn" : "pass",
+    detail: `${referencedRawPaths.size}/${rawNodes.length} raw observations referenced by ${threadPages.length} thread(s) (${coverage.toFixed(1)}%)`,
     topOffenders: [],
   };
+}
+
+function isLiveNarrativeThread(page: WikiHealthPage): boolean {
+  return page.relPath.startsWith("wiki/threads/") && !page.relPath.includes("/archive/");
 }
 
 function metric(result: Omit<MetricResult, "topOffenders"> & { topOffenders?: Offender[] }): MetricResult {

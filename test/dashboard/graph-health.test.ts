@@ -391,13 +391,85 @@ describe("graph health metrics", () => {
     expect(result.topOffenders).toEqual([]);
   });
 
-  it("returns the narrative thread coverage Phase 4 stub", () => {
-    const result = metricNarrativeThreadCoverage(graphFeed());
+  it("returns n/a for narrative thread coverage before threads exist", () => {
+    const result = metricNarrativeThreadCoverage(
+      graphInput({
+        feed: graphFeed({
+          nodes: [node("raw/one.md", { kind: "raw" })],
+        }),
+      }),
+    );
 
     expect(result.status).toBe("n/a");
     expect(result.value).toBeNull();
-    expect(result.detail).toBe("pending narrative threads in Phase 4");
+    expect(result.detail).toBe("no narrative threads in vault yet");
     expect(result.topOffenders).toEqual([]);
+  });
+
+  it.each([
+    [6, 10, "pass", 60],
+    [3, 10, "warn", 30],
+    [1, 10, "fail", 10],
+  ] as const)(
+    "classifies narrative thread coverage %i/%i as %s",
+    (referenced, totalRaw, status, expectedValue) => {
+      const rawPaths = Array.from({ length: totalRaw }, (_, index) => `raw/episode-${index}.md`);
+      const result = metricNarrativeThreadCoverage(
+        graphInput({
+          feed: graphFeed({
+            nodes: rawPaths.map((path) => node(path, { kind: "raw" })),
+          }),
+          wikiPages: [
+            wikiPage("wiki/threads/phase.md", {
+              relations: {
+                mentions: rawPaths.slice(0, referenced).map((target) => ({ target })),
+              },
+            }),
+          ],
+        }),
+      );
+
+      expect(result.status).toBe(status);
+      expect(result.value).toBe(expectedValue);
+      expect(result.detail).toContain(`${referenced}/${totalRaw} raw observations`);
+    },
+  );
+
+  it("ignores non-raw targets and archived threads for narrative thread coverage", () => {
+    const result = metricNarrativeThreadCoverage(
+      graphInput({
+        feed: graphFeed({
+          nodes: [
+            node("raw/one.md", { kind: "raw" }),
+            node("raw/two.md", { kind: "raw" }),
+            node("raw/three.md", { kind: "raw" }),
+            node("raw/four.md", { kind: "raw" }),
+          ],
+        }),
+        wikiPages: [
+          wikiPage("wiki/threads/live.md", {
+            relations: {
+              mentions: [
+                { target: "raw/one.md" },
+                { target: "wiki/decisions/one.md" },
+              ],
+            },
+          }),
+          wikiPage("wiki/archive/threads/old.md", {
+            relations: {
+              mentions: [
+                { target: "raw/two.md" },
+                { target: "raw/three.md" },
+              ],
+            },
+          }),
+        ],
+      }),
+    );
+
+    expect(result.status).toBe("warn");
+    expect(result.value).toBe(25);
+    expect(result.detail).toContain("1/4 raw observations referenced by 1 thread");
   });
 });
 
