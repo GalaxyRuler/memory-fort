@@ -1,4 +1,4 @@
-import { createServer as createHttpServer, type Server as HttpServer, type ServerResponse } from "node:http";
+import { createServer as createHttpServer, type IncomingMessage, type Server as HttpServer, type ServerResponse } from "node:http";
 import { readFile, stat } from "node:fs/promises";
 import { extname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13,6 +13,8 @@ import {
 } from "../retrieval/embedder/factory.js";
 import type { VoyageClient } from "../retrieval/voyage-client.js";
 import { loadMemoryConfig } from "../storage/config.js";
+import { applyConfigPatch, ConfigPatchError, validateConfigPatch } from "./config-patch.js";
+import { buildProvidersCatalog } from "./providers-catalog.js";
 import { computeGraphHealth, type GraphHealthReport } from "./graph-health.js";
 import {
   loadActivityEvents,
@@ -220,6 +222,21 @@ function writeJsonError(res: ServerResponse, status: number, message: string): v
   writeJson(res, { error: message }, status);
 }
 
+async function readJsonBody(req: IncomingMessage): Promise<unknown> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of req) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  const text = Buffer.concat(chunks).toString("utf-8");
+  if (text.trim().length === 0) return {};
+  return JSON.parse(text) as unknown;
+}
+
+function sameOriginAllowed(reqOrigin: string | undefined, requestUrl: URL): boolean {
+  if (!reqOrigin) return true;
+  return reqOrigin === requestUrl.origin;
+}
+
 function parseLineCount(value: string | null): number {
   if (!value) return 100;
   const parsed = Number.parseInt(value, 10);
@@ -338,6 +355,30 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
     const method = req.method ?? "GET";
     const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
     const path = normalizeDashboardPath(url.pathname);
+
+    if (method === "PATCH" && path === "/api/config") {
+      if (!sameOriginAllowed(req.headers.origin, url)) {
+        writeJson(res, { ok: false, error: "cross-origin config updates are not allowed" }, 403);
+        return;
+      }
+      try {
+        const body = await readJsonBody(req);
+        const validation = validateConfigPatch(body);
+        if (!validation.ok) {
+          writeJson(res, { ok: false, errors: validation.errors }, 400);
+          return;
+        }
+        const result = await applyConfigPatch(opts.vaultRoot, body as Record<string, unknown>);
+        writeJson(res, { ok: true, applied: result.applied });
+      } catch (err) {
+        if (err instanceof ConfigPatchError) {
+          writeJson(res, { ok: false, errors: err.errors }, 400);
+          return;
+        }
+        writeJson(res, { ok: false, error: (err as Error).message }, 500);
+      }
+      return;
+    }
 
     if (method !== "GET") {
       if (path.startsWith("/api/")) {
@@ -478,6 +519,11 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
 
       if (segments.length === 2 && segments[0] === "api" && segments[1] === "config") {
         writeJson(res, await loadRedactedConfig(opts.vaultRoot));
+        return;
+      }
+
+      if (segments.length === 2 && segments[0] === "api" && segments[1] === "providers") {
+        writeJson(res, buildProvidersCatalog(process.env));
         return;
       }
 
