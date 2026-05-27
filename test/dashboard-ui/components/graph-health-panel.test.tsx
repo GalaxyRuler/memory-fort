@@ -1,0 +1,103 @@
+import { fireEvent, render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
+import { GraphHealthPanel } from "../../../src/dashboard-ui/components/GraphHealthPanel.js";
+import { useGraphHealth, type GraphHealthReport } from "../../../src/dashboard-ui/hooks/useGraphHealth.js";
+
+vi.mock("../../../src/dashboard-ui/hooks/useGraphHealth.js", () => ({
+  useGraphHealth: vi.fn(),
+}));
+
+const mockUseGraphHealth = vi.mocked(useGraphHealth);
+
+describe("GraphHealthPanel", () => {
+  it("renders all metric cards sorted fail, warn, pass, n/a", () => {
+    mockUseGraphHealth.mockReturnValue(query(report()));
+
+    render(<GraphHealthPanel />);
+
+    expect(screen.getByText("Graph Health")).toBeInTheDocument();
+    expect(screen.getAllByTestId("graph-health-card").map((card) => card.getAttribute("data-metric-id"))).toEqual([
+      "graph.agent-attribution",
+      "graph.hub-overload",
+      "graph.edge-type-entropy",
+      "graph.narrative-thread-coverage",
+    ]);
+  });
+
+  it("expands offender details inline", () => {
+    mockUseGraphHealth.mockReturnValue(query(report()));
+
+    render(<GraphHealthPanel />);
+    fireEvent.click(screen.getByRole("button", { name: /details for Agent attribution/i }));
+
+    expect(screen.getByText("wiki/tools/missing-source.md")).toBeInTheDocument();
+    expect(screen.getByText("missing source")).toBeInTheDocument();
+  });
+
+  it("renders n/a metrics compactly with Phase 4 detail text", () => {
+    mockUseGraphHealth.mockReturnValue(query(report()));
+
+    render(<GraphHealthPanel />);
+
+    expect(screen.getByText("Narrative thread coverage")).toBeInTheDocument();
+    expect(screen.getByText("pending narrative threads in Phase 4")).toBeInTheDocument();
+  });
+});
+
+function query(data: GraphHealthReport): ReturnType<typeof useGraphHealth> {
+  return {
+    data,
+    isLoading: false,
+    isError: false,
+    error: null,
+    refetch: vi.fn(),
+  } as unknown as ReturnType<typeof useGraphHealth>;
+}
+
+function report(): GraphHealthReport {
+  return {
+    computedAt: "2026-05-27T00:00:00.000Z",
+    overallStatus: "fail",
+    metrics: [
+      {
+        id: "graph.edge-type-entropy",
+        label: "Edge type entropy",
+        value: 1.2,
+        unit: "bits",
+        threshold: { warn: 0.8, fail: 0.4, rule: "warn < 0.8 bits" },
+        status: "pass",
+        detail: "healthy type distribution",
+        topOffenders: [],
+      },
+      {
+        id: "graph.narrative-thread-coverage",
+        label: "Narrative thread coverage",
+        value: null,
+        threshold: { rule: "pending narrative threads in Phase 4" },
+        status: "n/a",
+        detail: "pending narrative threads in Phase 4",
+        topOffenders: [],
+      },
+      {
+        id: "graph.hub-overload",
+        label: "Hub overload",
+        value: 42,
+        unit: "count",
+        threshold: { warn: 30, fail: 60, rule: "warn > 30 edges" },
+        status: "warn",
+        detail: "highest single-node degree is 42",
+        topOffenders: [{ path: "wiki/projects/hub.md", value: 42, note: "42 inbound, 0 outbound" }],
+      },
+      {
+        id: "graph.agent-attribution",
+        label: "Agent attribution",
+        value: 50,
+        unit: "%",
+        threshold: { warn: 90, fail: 70, rule: "warn < 90%" },
+        status: "fail",
+        detail: "1/2 wiki pages have source",
+        topOffenders: [{ path: "wiki/tools/missing-source.md", note: "missing source" }],
+      },
+    ],
+  };
+}
