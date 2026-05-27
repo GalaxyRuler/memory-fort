@@ -49,20 +49,6 @@ function CompileRunSummary({ lastRun }: { lastRun: CompileLastRun }) {
   );
 }
 
-function CompileSourceNodes() {
-  const nodes = ["node_38a1", "node_9b4f", "node_2c7e"];
-  return (
-    <div className="flex flex-col gap-4 text-sm sm:gap-5">
-      {nodes.map((node) => (
-        <div key={node} className="flex items-center gap-3 text-text-secondary">
-          <span className="h-3 w-3 rounded-full bg-entity-raw-session shadow-[0_0_10px_rgba(82,82,91,0.7)]" />
-          <span className="font-mono">{node}</span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 function CompileGraphPreview({ isRunning, hasLastRun }: { isRunning: boolean; hasLastRun: boolean }) {
   return (
     <GlassPanel className="relative min-h-[18rem] overflow-hidden bg-surface/35 p-0 md:min-h-[22rem]">
@@ -73,13 +59,12 @@ function CompileGraphPreview({ isRunning, hasLastRun }: { isRunning: boolean; ha
           backgroundSize: "24px 24px",
         }}
       />
-      <div className="relative z-10 grid h-full min-h-[18rem] grid-cols-1 items-center gap-8 p-4 md:min-h-[22rem] md:grid-cols-[1fr_1.5fr] md:p-6">
-        <CompileSourceNodes />
+      <div className="relative z-10 flex h-full min-h-[18rem] items-center justify-center p-4 md:min-h-[22rem] md:p-6">
         <div className="flex flex-col items-center gap-4 text-center">
           <div className="flex h-20 w-20 items-center justify-center rounded-full border border-entity-decisions/70 bg-entity-decisions/20 text-entity-decisions shadow-[0_0_24px_rgba(139,95,255,0.35)]">
             <Network size={30} strokeWidth={1.5} />
           </div>
-        <div className="rounded-lg border border-border-emphasis bg-surface/80 px-4 py-3 backdrop-blur md:px-5">
+          <div className="rounded-lg border border-border-emphasis bg-surface/80 px-4 py-3 backdrop-blur md:px-5">
             <p className="text-xs font-semibold uppercase tracking-wide text-entity-decisions">
               {isRunning ? "Synthesizing graph" : hasLastRun ? "Digest ready" : "Awaiting compile"}
             </p>
