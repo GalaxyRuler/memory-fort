@@ -26,6 +26,10 @@ export interface GraphEdge {
   toPath: string;
   kind: "relation" | "wikilink";
   relationType: string | null;
+  type: string;
+  validFrom?: string;
+  validTo?: string | null;
+  supersededBy?: string;
 }
 
 export interface GraphResponse {

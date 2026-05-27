@@ -197,6 +197,10 @@ export interface GraphFeed {
     toPath: string;
     kind: "relation" | "wikilink";
     relationType: string | null;
+    type: string;
+    validFrom?: string;
+    validTo?: string | null;
+    supersededBy?: string;
   }>;
   unresolvedTargets: Array<{ fromPath: string; raw: string; reason: string }>;
 }
@@ -1149,7 +1153,16 @@ export async function loadGraphFeed(vaultRoot: string, scope: SearchScope = "wik
 
   return {
     nodes,
-    edges: graph.edges,
+    edges: graph.edges.map((edge) => {
+      const source = docsByPath.get(edge.fromPath);
+      return {
+        ...edge,
+        type: edge.relationType ?? "linked",
+        validFrom: edge.validFrom ?? source?.created ?? undefined,
+        validTo: edge.validTo,
+        supersededBy: edge.supersededBy,
+      };
+    }),
     unresolvedTargets: graph.unresolvedTargets,
   };
 }

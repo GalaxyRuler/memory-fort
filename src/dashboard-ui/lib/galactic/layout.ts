@@ -78,6 +78,10 @@ export interface GalacticEdge {
   target: GalacticNode;
   kind: GraphEdge["kind"];
   relationType: string | null;
+  type: string;
+  validFrom?: string;
+  validTo?: string | null;
+  supersededBy?: string;
   weight: number;
 }
 
@@ -128,6 +132,10 @@ export function buildGalacticLayout(nodes: GraphNode[], edges: GraphEdge[] = [])
       target,
       kind: edge.kind,
       relationType: edge.relationType,
+      type: edge.type,
+      validFrom: edge.validFrom,
+      validTo: edge.validTo,
+      supersededBy: edge.supersededBy,
       weight: edgeWeight(source.inboundCount, target.inboundCount),
     }];
   });
