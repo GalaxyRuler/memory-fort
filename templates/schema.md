@@ -1,5 +1,5 @@
 ---
-schema_version: 1.3
+schema_version: 1.4
 updated: "{{install_date}}"
 applies_from_commit: "{{install_commit}}"
 ---
@@ -35,6 +35,7 @@ The wiki is organized by entity category. Every page declares one `type:` in fro
 | `decisions` | `wiki/decisions/` | `<YYYY-MM-DD>-<short-slug>.md` | A choice made with alternatives considered and reasons recorded |
 | `lessons` | `wiki/lessons/` | `<short-slug>.md` (no date — lessons are timeless) | A reusable fact learned from a specific incident |
 | `prospective` | `wiki/prospective/` | `<short-slug>.md` | A future-oriented reminder, trigger, or pending memory to revisit |
+| `threads` | `wiki/threads/` | `<short-slug>.md` | A narrative thread that groups raw observations into a temporal arc |
 | `references` | `wiki/references/` | `<short-slug>.md` | External knowledge: papers, blog posts, docs, talks |
 | `tools` | `wiki/tools/` | `<package-or-binary-name>.md` | A software dependency or service used by a project |
 | `crystal` | `crystals/` | `<YYYY-MM-DD>-<thread-slug>.md` | A long-form distillation of a completed work thread (Wiki v2 addition) |
@@ -49,7 +50,7 @@ Every wiki page (and every raw session file) begins with YAML frontmatter:
 
 ```yaml
 ---
-type: projects | people | decisions | lessons | prospective | references | tools | crystal | raw-session
+type: projects | people | decisions | lessons | prospective | threads | references | tools | crystal | raw-session
 title: "Human-readable title"
 created: 2026-05-21    # ISO 8601 date
 updated: 2026-05-21
@@ -59,6 +60,9 @@ lifecycle: observed | linked | proposed | consolidated | canonical | stale | dis
 due: 2026-06-01 | null  # optional; prospective memory deadline
 triggers: [event, context, ...]  # optional; prospective memory cues
 expires: 2026-07-01 | null  # optional; prospective memory expiry
+time_range:  # optional; narrative thread time span
+  start: 2026-05-22
+  end: 2026-05-27 | null
 confidence: 0.0..1.0    # optional legacy scalar; shorthand for confidence.extraction
 source: claude-code | codex | antigravity | manual | crystal   # who created this
 session: <id>            # optional; the session that produced this page
@@ -160,6 +164,8 @@ confidence:
 
 Pages under `wiki/prospective/*.md` infer `cognitive_type: prospective` when the field is absent. An explicit `cognitive_type: prospective` is also valid on any non-raw wiki page when a future-oriented memory naturally lives in another category.
 
+Pages under `wiki/threads/*.md` infer `cognitive_type: episodic` when the field is absent. An explicit `cognitive_type` override remains valid on non-raw thread pages when a thread is being used as a stable semantic summary.
+
 ### Prospective memories
 
 Prospective memories use normal lifecycle stages. New pending items should be `lifecycle: proposed`; once handled, promote or retire them by changing lifecycle and/or status rather than adding new lifecycle states.
@@ -181,6 +187,37 @@ source: codex
 ```
 
 The `prospective.overdue` verify check warns at one or two overdue proposed prospective memories and fails at three or more. Archive retired prospective pages or move handled items out of `lifecycle: proposed`.
+
+### Narrative threads
+
+Narrative threads are wiki pages under `wiki/threads/*.md` that turn scattered raw observations into a coherent arc. They are meant to answer "what happened across this stretch of work?" without replacing canonical project, decision, or lesson pages.
+
+Thread pages use `type: threads` and may include a `time_range` object:
+
+```yaml
+---
+type: threads
+title: "Dashboard Health Calibration"
+created: 2026-05-27
+updated: 2026-05-27
+status: active
+time_range:
+  start: 2026-05-22
+  end: null
+relations:
+  mentions:
+    - raw/2026-05-22/codex-dashboard.md
+  derived_from:
+    - raw/2026-05-23/codex-health-metrics.md
+source: codex
+---
+```
+
+`time_range.start` is required when `time_range` is present and must be a parseable ISO date string. `time_range.end` may be omitted or `null` for an active thread. Malformed `time_range` metadata is dropped with a warning during frontmatter parsing.
+
+Thread pages should use existing `mentions` and `derived_from` relations to cite raw observations. Do not add new edge types for narrative arcs.
+
+The `graph.narrative-thread-coverage` dashboard metric is `n/a` until at least one live thread exists. Once threads exist, it passes when at least 50% of raw observations are referenced by live thread pages, warns below 50%, and fails below 25%.
 
 ---
 
@@ -348,6 +385,7 @@ The LLM doing compile is whichever agent the user is in (Claude Code / Codex / A
 | Broken links | `[[wikilinks]]` whose target page does not exist |
 | Stale pages | `status: active` AND `updated` > 180 days ago |
 | Overdue prospective memories | `cognitive_type: prospective`, `lifecycle: proposed`, and `due` before the verify run date |
+| Narrative thread coverage | Raw observations not referenced by any live `wiki/threads/*.md` page once threads exist |
 | Contradictions | Pages whose `relations.contradicts` resolves to another page, unresolved |
 | Low-confidence drafts | `confidence: < 0.5` AND `status: active` |
 | Naming violations | Filenames not matching lowercase-kebab-case or the type's prefix pattern |
