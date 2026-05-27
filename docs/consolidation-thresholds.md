@@ -98,3 +98,31 @@ ceiling (0.7) was deliberately conservative to avoid false `derived_from`
 classifications. Tightening rule 4 or adding rules that target `wiki/projects/`
 or `wiki/references/` are candidates for a future iteration if the warn becomes
 load-bearing for the HealthBadge.
+
+## Hub Overload Thresholds (Phase 3.3)
+
+The `graph.hub-overload` metric in `src/dashboard/graph-health.ts` measures
+the maximum inbound + outbound degree across non-exempt wiki nodes.
+
+### Exempt patterns
+
+- `wiki/projects/*.md` - project pages are by-design anchors; high inbound on
+  them is expected. They appear in `topOffenders` with `exempt: true`, a
+  `reason`, and a note so the operator can see their degree without
+  false-alarm escalation.
+
+### Thresholds
+
+- `warn > 200` (3x the average inbound per active wiki page)
+- `fail > 650` (10x the average inbound per active wiki page)
+
+Calibrated against live vault distribution on 2026-05-27: 1398 edges across
+~22 active wiki pages. Average inbound is approximately 65.
+
+### When to revisit
+
+- If the wiki grows 10x, the graph average may shrink and these thresholds may
+  become too loose. Recalibrate against the new average.
+- If a new wiki category, such as `wiki/personas/`, emerges as a by-design
+  anchor, add it to `EXEMPT_HUB_PATTERNS`. Stop and ask before doing so; do not
+  expand the exemption list to chase green badges.
