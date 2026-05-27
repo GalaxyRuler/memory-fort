@@ -12,13 +12,12 @@ import { buildGraph } from "./graph.js";
 import { readRelations, type RelationMap } from "./relations.js";
 
 export type SearchScope = "wiki" | "raw" | "crystals" | "all";
-export type SearchSource =
-  | "claude-code"
-  | "codex"
-  | "antigravity"
-  | "manual"
-  | "crystal"
-  | "unknown";
+// Source identifier for a memory document. Originally a strict union of agent
+// identifiers; widened to plain string in Phase 3.1 so process names like
+// import-agentmemory, backfill, consolidate, crystal-extraction, and
+// codex-fork-smoke are first-class values alongside the original agent ids.
+// "unknown" is reserved for the legacy sentinel "no source set" case.
+export type SearchSource = string;
 export type SearchKind = "wiki" | "raw" | "crystal";
 export type CognitiveType = "core" | "semantic" | "episodic" | "procedural";
 
@@ -367,13 +366,7 @@ function readStringOrFirst(value: unknown): string | null {
 }
 
 function readSearchSource(value: unknown): SearchSource {
-  if (
-    value === "claude-code" ||
-    value === "codex" ||
-    value === "antigravity" ||
-    value === "manual" ||
-    value === "crystal"
-  ) {
+  if (typeof value === "string" && value.trim().length > 0) {
     return value;
   }
   return "unknown";
