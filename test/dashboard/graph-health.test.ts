@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { GraphFeed } from "../../src/dashboard/loaders.js";
 import {
   computeGraphHealth,
+  type GraphHealthInput,
   metricAgentAttribution,
   metricConfidenceCoverage,
   metricContradictionCoverage,
@@ -11,6 +12,7 @@ import {
   metricHubOverload,
   metricNarrativeThreadCoverage,
   metricOrphanEpisodic,
+  metricGraphParticipationRate,
   metricProjectSubgraphDensity,
   metricProvenanceCoverage,
   metricTemporalCoverage,
@@ -18,23 +20,26 @@ import {
 
 describe("graph health metrics", () => {
   it("handles an empty feed without throwing", () => {
-    const feed = graphFeed();
+    const input = graphInput();
 
-    expect(() => computeGraphHealth(feed)).not.toThrow();
-    expect(computeGraphHealth(feed).metrics).toHaveLength(12);
-    expect(metricProvenanceCoverage(feed).status).toBe("pass");
-    expect(metricConfidenceCoverage(feed).status).toBe("pass");
-    expect(metricAgentAttribution(feed).status).toBe("pass");
+    expect(() => computeGraphHealth(input)).not.toThrow();
+    expect(computeGraphHealth(input).metrics).toHaveLength(13);
+    expect(metricProvenanceCoverage(input).status).toBe("pass");
+    expect(metricConfidenceCoverage(input).status).toBe("pass");
+    expect(metricAgentAttribution(input).status).toBe("pass");
   });
 
   it("aggregates overall status from the worst non-n/a metric", () => {
     const report = computeGraphHealth(
-      graphFeed({
-        nodes: [
-          node("raw/old.md", { kind: "raw", cognitiveType: "episodic", created: "2026-01-01" }),
-          node("raw/new.md", { kind: "raw", cognitiveType: "episodic", created: "2026-01-02" }),
-          node("wiki/projects/a.md", { kind: "wiki", title: "A", source: "codex", confidence: 0.8 }),
-        ],
+      graphInput({
+        feed: graphFeed({
+          nodes: [
+            node("raw/old.md", { kind: "raw", cognitiveType: "episodic", created: "2026-01-01" }),
+            node("raw/new.md", { kind: "raw", cognitiveType: "episodic", created: "2026-01-02" }),
+            node("wiki/projects/a.md", { kind: "wiki", title: "A", source: "codex", confidence: 0.8 }),
+          ],
+        }),
+        wikiPages: [wikiPage("wiki/projects/a.md", { source: "codex", confidence: 0.8 })],
       }),
     );
 
@@ -65,12 +70,17 @@ describe("graph health metrics", () => {
 
   it("finds duplicate entities by normalized and near-match titles", () => {
     const result = metricDuplicateEntities(
-      graphFeed({
-        nodes: [
-          node("wiki/projects/memory-fort.md", { title: "Memory Fort" }),
-          node("wiki/tools/memory-fort-copy.md", { title: "memory fort" }),
-          node("wiki/references/memory-fort-punctuation.md", { title: "Memory-Fort" }),
-          node("raw/memory-fort.md", { kind: "raw", title: "Memory Fort" }),
+      graphInput({
+        feed: graphFeed({
+          nodes: [
+            node("wiki/projects/memory-fort.md", { title: "Memory Fort" }),
+            node("raw/memory-fort.md", { kind: "raw", title: "Memory Fort" }),
+          ],
+        }),
+        wikiPages: [
+          wikiPage("wiki/projects/memory-fort.md", { title: "Memory Fort" }),
+          wikiPage("wiki/tools/memory-fort-copy.md", { title: "memory fort" }),
+          wikiPage("wiki/references/memory-fort-punctuation.md", { title: "Memory-Fort" }),
         ],
       }),
     );
@@ -101,17 +111,21 @@ describe("graph health metrics", () => {
     expect(result.topOffenders[0]).toMatchObject({ value: "90.0%", note: "mentions" });
   });
 
-  it("uses endpoint cognitiveType values for cross-galaxy ratio", () => {
+  it("uses recalibrated cross-galaxy thresholds and reports direction breakdown", () => {
     const result = metricCrossGalaxyRatio(
       graphFeed({
         nodes: [
+          node("raw/episode-1.md", { kind: "raw", cognitiveType: "episodic" }),
+          node("raw/episode-2.md", { kind: "raw", cognitiveType: "episodic" }),
+          node("raw/episode-3.md", { kind: "raw", cognitiveType: "episodic" }),
           node("wiki/projects/a.md", { cognitiveType: "core" }),
           node("wiki/tools/b.md", { cognitiveType: "semantic" }),
           node("wiki/lessons/c.md", { cognitiveType: "core" }),
         ],
         edges: [
-          edge("wiki/projects/a.md", "wiki/tools/b.md"),
-          edge("wiki/tools/b.md", "wiki/lessons/c.md"),
+          ...Array.from({ length: 96 }, () => edge("raw/episode-1.md", "wiki/tools/b.md")),
+          edge("raw/episode-2.md", "wiki/tools/b.md"),
+          edge("wiki/tools/b.md", "wiki/projects/a.md"),
           edge("wiki/lessons/c.md", "wiki/tools/b.md"),
           edge("wiki/projects/a.md", "wiki/lessons/c.md"),
         ],
@@ -119,7 +133,10 @@ describe("graph health metrics", () => {
     );
 
     expect(result.status).toBe("warn");
-    expect(result.value).toBe(75);
+    expect(result.value).toBe(99);
+    expect(result.threshold).toEqual({ warn: 95, fail: 99, rule: "warn > 95%, fail > 99%" });
+    expect(result.detail).toContain("top crossings: episodic→semantic 97");
+    expect(result.detail).toContain("semantic→core 1");
   });
 
   it("flags hub overload by maximum total node degree", () => {
@@ -155,30 +172,46 @@ describe("graph health metrics", () => {
 
   it("flags low provenance coverage from existing source metadata", () => {
     const result = metricProvenanceCoverage(
-      graphFeed({
-        nodes: [
-          node("wiki/projects/a.md", { source: "codex" }),
-          node("wiki/tools/b.md", { source: "unknown" }),
+      graphInput({
+        feed: graphFeed({
+          nodes: [
+            node("wiki/projects/a.md", { source: "codex" }),
+          ],
+        }),
+        wikiPages: [
+          wikiPage("wiki/projects/a.md", { source: "codex" }),
+          wikiPage("wiki/tools/b.md", { source: "unknown" }),
+          wikiPage("wiki/lessons/imported.md", { source: "unknown", importedFrom: { system: "agentmemory", originalKey: "lesson" } }),
+          wikiPage("wiki/references/c.md", { source: "unknown" }),
         ],
       }),
     );
 
     expect(result.status).toBe("warn");
     expect(result.value).toBe(50);
+    expect(result.detail).toContain("2/4");
   });
 
   it("flags low confidence coverage across wiki pages", () => {
     const result = metricConfidenceCoverage(
-      graphFeed({
-        nodes: [
-          node("wiki/projects/a.md", { confidence: 0.9 }),
-          node("wiki/tools/b.md", { confidence: null, confidenceFull: null }),
+      graphInput({
+        feed: graphFeed({
+          nodes: [
+            node("wiki/projects/a.md", { confidence: 0.9 }),
+          ],
+        }),
+        wikiPages: [
+          wikiPage("wiki/projects/a.md", { confidence: 0.9 }),
+          wikiPage("wiki/tools/b.md", { confidence: null, confidenceFull: null }),
+          wikiPage("wiki/references/c.md", { confidence: { source: 0.8 } }),
+          wikiPage("wiki/lessons/d.md", { confidence: null, confidenceFull: null }),
         ],
       }),
     );
 
     expect(result.status).toBe("warn");
     expect(result.value).toBe(50);
+    expect(result.detail).toContain("2/4");
   });
 
   it("flags contradiction edges over the fail threshold", () => {
@@ -229,16 +262,65 @@ describe("graph health metrics", () => {
 
   it("flags low agent attribution from non-empty source fields", () => {
     const result = metricAgentAttribution(
-      graphFeed({
-        nodes: [
-          node("wiki/projects/a.md", { source: "codex" }),
-          node("wiki/tools/b.md", { source: "" }),
+      graphInput({
+        feed: graphFeed({
+          nodes: [
+            node("wiki/projects/a.md", { source: "codex" }),
+          ],
+        }),
+        wikiPages: [
+          wikiPage("wiki/projects/a.md", { source: "codex" }),
+          wikiPage("wiki/tools/b.md", { source: "" }),
+          wikiPage("wiki/references/c.md", { source: "unknown" }),
+          wikiPage("wiki/lessons/d.md", { source: "manual" }),
         ],
       }),
     );
 
     expect(result.status).toBe("fail");
     expect(result.value).toBe(50);
+    expect(result.detail).toContain("2/4");
+  });
+
+  it("fails participation rate when wiki pages are isolated from graph edges", () => {
+    const result = metricGraphParticipationRate(
+      graphInput({
+        feed: graphFeed({
+          nodes: [node("wiki/projects/a.md"), node("wiki/tools/b.md")],
+          edges: [edge("wiki/projects/a.md", "wiki/tools/b.md")],
+        }),
+        wikiPages: [
+          wikiPage("wiki/projects/a.md"),
+          wikiPage("wiki/tools/b.md"),
+          ...Array.from({ length: 14 }, (_, index) => wikiPage(`wiki/references/isolated-${index}.md`)),
+        ],
+      }),
+    );
+
+    expect(result.status).toBe("fail");
+    expect(result.value).toBe(12.5);
+    expect(result.detail).toBe("2/16 wiki pages participate in at least one edge (12.5%)");
+    expect(result.topOffenders).toHaveLength(5);
+    expect(result.topOffenders.every((offender) => offender.path?.includes("isolated"))).toBe(true);
+  });
+
+  it("passes participation rate when all wiki pages have an edge", () => {
+    const result = metricGraphParticipationRate(
+      graphInput({
+        feed: graphFeed({
+          nodes: [node("wiki/projects/a.md"), node("wiki/tools/b.md")],
+          edges: [edge("wiki/projects/a.md", "wiki/tools/b.md")],
+        }),
+        wikiPages: [
+          wikiPage("wiki/projects/a.md"),
+          wikiPage("wiki/tools/b.md"),
+        ],
+      }),
+    );
+
+    expect(result.status).toBe("pass");
+    expect(result.value).toBe(100);
+    expect(result.topOffenders).toEqual([]);
   });
 
   it("returns the narrative thread coverage Phase 4 stub", () => {
@@ -256,6 +338,30 @@ function graphFeed(overrides: Partial<GraphFeed> = {}): GraphFeed {
     nodes: [],
     edges: [],
     unresolvedTargets: [],
+    ...overrides,
+  };
+}
+
+function graphInput(overrides: Partial<GraphHealthInput> = {}): GraphHealthInput {
+  return {
+    feed: graphFeed(),
+    wikiPages: [],
+    ...overrides,
+  };
+}
+
+function wikiPage(
+  relPath: string,
+  overrides: Partial<GraphHealthInput["wikiPages"][number]> = {},
+): GraphHealthInput["wikiPages"][number] {
+  return {
+    relPath,
+    title: relPath.split("/").at(-1)?.replace(/\.md$/, "") ?? relPath,
+    source: "unknown",
+    confidence: null,
+    confidenceFull: null,
+    updated: "2026-01-01",
+    importedFrom: null,
     ...overrides,
   };
 }

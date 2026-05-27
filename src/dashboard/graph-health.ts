@@ -25,6 +25,22 @@ export interface GraphHealthReport {
   overallStatus: HealthStatus;
 }
 
+export interface GraphHealthInput {
+  feed: GraphFeed;
+  wikiPages: ReadonlyArray<WikiHealthPage>;
+}
+
+export interface WikiHealthPage {
+  relPath: string;
+  title: string;
+  source?: string | null;
+  confidence?: number | object | null;
+  confidenceFull?: unknown;
+  created?: string | null;
+  updated?: string | null;
+  importedFrom?: { system: string | null; originalKey: string | null } | null;
+}
+
 type GraphNode = GraphFeed["nodes"][number];
 type GraphEdge = GraphFeed["edges"][number];
 type Offender = MetricResult["topOffenders"][number];
@@ -37,19 +53,21 @@ const STATUS_RANK: Record<HealthStatus, number> = {
   fail: 3,
 };
 
-export function computeGraphHealth(feed: GraphFeed): GraphHealthReport {
+export function computeGraphHealth(input: GraphHealthInput): GraphHealthReport {
+  const { feed } = input;
   const metrics = [
     metricOrphanEpisodic(feed),
-    metricDuplicateEntities(feed),
+    metricDuplicateEntities(input),
     metricEdgeTypeEntropy(feed),
     metricCrossGalaxyRatio(feed),
     metricHubOverload(feed),
     metricTemporalCoverage(feed),
-    metricProvenanceCoverage(feed),
-    metricConfidenceCoverage(feed),
+    metricProvenanceCoverage(input),
+    metricConfidenceCoverage(input),
     metricContradictionCoverage(feed),
     metricProjectSubgraphDensity(feed),
-    metricAgentAttribution(feed),
+    metricAgentAttribution(input),
+    metricGraphParticipationRate(input),
     metricNarrativeThreadCoverage(feed),
   ];
 
@@ -81,22 +99,21 @@ export function metricOrphanEpisodic(feed: GraphFeed): MetricResult {
   };
 }
 
-export function metricDuplicateEntities(feed: GraphFeed): MetricResult {
-  const wikiNodes = feed.nodes.filter((node) => node.kind === "wiki");
-  const normalized = wikiNodes.map((node) => ({
-    node,
-    title: normalizeTitle(node.title),
+export function metricDuplicateEntities(input: GraphHealthInput): MetricResult {
+  const normalized = input.wikiPages.map((page) => ({
+    page,
+    title: normalizeTitle(page.title),
   })).filter((entry) => entry.title.length > 0);
 
-  const pairs = new Map<string, { pair: [GraphNode, GraphNode]; similarity: number }>();
-  const buckets = new Map<string, GraphNode[]>();
+  const pairs = new Map<string, { pair: [WikiHealthPage, WikiHealthPage]; similarity: number }>();
+  const buckets = new Map<string, WikiHealthPage[]>();
   for (const entry of normalized) {
-    buckets.set(entry.title, [...(buckets.get(entry.title) ?? []), entry.node]);
+    buckets.set(entry.title, [...(buckets.get(entry.title) ?? []), entry.page]);
   }
 
   for (const nodes of buckets.values()) {
     forEachPair(nodes, (left, right) => {
-      addDuplicatePair(pairs, left, right, 1);
+      addDuplicatePagePair(pairs, left, right, 1);
     });
   }
 
@@ -105,14 +122,14 @@ export function metricDuplicateEntities(feed: GraphFeed): MetricResult {
     const distance = levenshtein(left.title, right.title);
     if (distance > 2) return;
     const maxLength = Math.max(left.title.length, right.title.length, 1);
-    addDuplicatePair(pairs, left.node, right.node, 1 - distance / maxLength);
+    addDuplicatePagePair(pairs, left.page, right.page, 1 - distance / maxLength);
   });
 
   const sortedPairs = [...pairs.values()]
     .sort((a, b) =>
       b.similarity - a.similarity ||
-      a.pair[0].path.localeCompare(b.pair[0].path) ||
-      a.pair[1].path.localeCompare(b.pair[1].path),
+      a.pair[0].relPath.localeCompare(b.pair[0].relPath) ||
+      a.pair[1].relPath.localeCompare(b.pair[1].relPath),
     );
 
   return {
@@ -124,7 +141,7 @@ export function metricDuplicateEntities(feed: GraphFeed): MetricResult {
     status: statusAtLeast(sortedPairs.length, 3, 10),
     detail: `${sortedPairs.length} duplicate wiki entity candidate pairs found`,
     topOffenders: sortedPairs.slice(0, 5).map(({ pair, similarity }) => ({
-      pair: [pair[0].path, pair[1].path],
+      pair: [pair[0].relPath, pair[1].relPath],
       value: round(similarity, 3),
       note: `${pair[0].title} ~ ${pair[1].title}`,
     })),
@@ -177,15 +194,25 @@ export function metricCrossGalaxyRatio(feed: GraphFeed): MetricResult {
     return Boolean(from && to && from.cognitiveType !== to.cognitiveType);
   });
   const value = percentage(cross.length, feed.edges.length);
+  const directions = countBy(cross, (edge) => {
+    const from = nodes.get(edge.fromPath)?.cognitiveType ?? "unknown";
+    const to = nodes.get(edge.toPath)?.cognitiveType ?? "unknown";
+    return `${from}→${to}`;
+  });
+  const topCrossings = [...directions.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, 3)
+    .map(([direction, count]) => `${direction} ${count}`)
+    .join(", ");
 
   return {
     id: "graph.cross-galaxy-ratio",
     label: "Cross-galaxy ratio",
     value,
     unit: "%",
-    threshold: { warn: 70, fail: 90, rule: "warn > 70%, fail > 90%" },
-    status: statusAbove(value, 70, 90),
-    detail: `${cross.length}/${feed.edges.length} edges connect different cognitive galaxies`,
+    threshold: { warn: 95, fail: 99, rule: "warn > 95%, fail > 99%" },
+    status: statusAbove(value, 95, 99),
+    detail: `${value}% (${cross.length}/${feed.edges.length}) edges connect different cognitive galaxies${topCrossings ? `; top crossings: ${topCrossings}` : ""}`,
     topOffenders: recentEdges(cross, nodes, 5).map(edgeOffender),
   };
 }
@@ -241,8 +268,8 @@ export function metricTemporalCoverage(feed: GraphFeed): MetricResult {
   };
 }
 
-export function metricProvenanceCoverage(feed: GraphFeed): MetricResult {
-  const pages = feed.nodes.filter((node) => node.kind === "wiki");
+export function metricProvenanceCoverage(input: GraphHealthInput): MetricResult {
+  const pages = input.wikiPages;
   if (pages.length === 0) {
     return metric({
       id: "graph.provenance-coverage",
@@ -255,8 +282,8 @@ export function metricProvenanceCoverage(feed: GraphFeed): MetricResult {
     });
   }
 
-  const covered = pages.filter((node) => hasKnownSource(node.source));
-  const missing = pages.filter((node) => !hasKnownSource(node.source));
+  const covered = pages.filter((page) => hasKnownSource(page.source) || hasImportedFrom(page.importedFrom));
+  const missing = pages.filter((page) => !hasKnownSource(page.source) && !hasImportedFrom(page.importedFrom));
   const value = percentage(covered.length, pages.length);
 
   return {
@@ -266,17 +293,17 @@ export function metricProvenanceCoverage(feed: GraphFeed): MetricResult {
     unit: "%",
     threshold: { warn: 80, fail: 50, rule: "warn < 80%, fail < 50%" },
     status: statusBelow(value, 80, 50),
-    detail: `${covered.length}/${pages.length} wiki pages expose source provenance in the graph feed`,
-    topOffenders: recentNodes(missing, 5).map((node) => ({
-      path: node.path,
-      value: node.updated ?? node.created ?? "unknown",
+    detail: `${covered.length}/${pages.length} wiki pages expose source or imported_from provenance`,
+    topOffenders: recentWikiPages(missing, 5).map((page) => ({
+      path: page.relPath,
+      value: page.updated ?? page.created ?? "unknown",
       note: "missing source",
     })),
   };
 }
 
-export function metricConfidenceCoverage(feed: GraphFeed): MetricResult {
-  const pages = feed.nodes.filter((node) => node.kind === "wiki");
+export function metricConfidenceCoverage(input: GraphHealthInput): MetricResult {
+  const pages = input.wikiPages;
   if (pages.length === 0) {
     return metric({
       id: "graph.confidence-coverage",
@@ -289,8 +316,8 @@ export function metricConfidenceCoverage(feed: GraphFeed): MetricResult {
     });
   }
 
-  const covered = pages.filter((node) => node.confidence !== null || node.confidenceFull !== null);
-  const missing = pages.filter((node) => node.confidence === null && node.confidenceFull === null);
+  const covered = pages.filter(hasConfidenceMetadata);
+  const missing = pages.filter((page) => !hasConfidenceMetadata(page));
   const value = percentage(covered.length, pages.length);
 
   return {
@@ -301,8 +328,8 @@ export function metricConfidenceCoverage(feed: GraphFeed): MetricResult {
     threshold: { warn: 70, fail: 40, rule: "warn < 70%, fail < 40%" },
     status: statusBelow(value, 70, 40),
     detail: `${covered.length}/${pages.length} wiki pages include confidence metadata`,
-    topOffenders: missing.slice(0, 5).map((node) => ({
-      path: node.path,
+    topOffenders: missing.slice(0, 5).map((page) => ({
+      path: page.relPath,
       note: "missing confidence",
     })),
   };
@@ -370,8 +397,8 @@ export function metricProjectSubgraphDensity(feed: GraphFeed): MetricResult {
   };
 }
 
-export function metricAgentAttribution(feed: GraphFeed): MetricResult {
-  const pages = feed.nodes.filter((node) => node.kind === "wiki");
+export function metricAgentAttribution(input: GraphHealthInput): MetricResult {
+  const pages = input.wikiPages;
   if (pages.length === 0) {
     return metric({
       id: "graph.agent-attribution",
@@ -384,8 +411,8 @@ export function metricAgentAttribution(feed: GraphFeed): MetricResult {
     });
   }
 
-  const covered = pages.filter((node) => hasKnownSource(node.source));
-  const missing = pages.filter((node) => !hasKnownSource(node.source));
+  const covered = pages.filter((page) => hasKnownSource(page.source));
+  const missing = pages.filter((page) => !hasKnownSource(page.source));
   const value = percentage(covered.length, pages.length);
 
   return {
@@ -396,9 +423,48 @@ export function metricAgentAttribution(feed: GraphFeed): MetricResult {
     threshold: { warn: 90, fail: 70, rule: "warn < 90%, fail < 70%" },
     status: statusBelow(value, 90, 70),
     detail: `${covered.length}/${pages.length} wiki pages have a non-empty source field`,
-    topOffenders: missing.slice(0, 5).map((node) => ({
-      path: node.path,
+    topOffenders: missing.slice(0, 5).map((page) => ({
+      path: page.relPath,
       note: "missing source",
+    })),
+  };
+}
+
+export function metricGraphParticipationRate(input: GraphHealthInput): MetricResult {
+  const pages = input.wikiPages;
+  if (pages.length === 0) {
+    return metric({
+      id: "graph.participation-rate",
+      label: "Graph participation rate",
+      value: 0,
+      unit: "%",
+      threshold: { warn: 50, fail: 25, rule: "warn < 50%, fail < 25%" },
+      status: "pass",
+      detail: "no wiki pages available for graph participation measurement",
+    });
+  }
+
+  const participatingPaths = new Set<string>();
+  for (const edge of input.feed.edges) {
+    if (edge.fromPath.startsWith("wiki/")) participatingPaths.add(edge.fromPath);
+    if (edge.toPath.startsWith("wiki/")) participatingPaths.add(edge.toPath);
+  }
+
+  const participating = pages.filter((page) => participatingPaths.has(page.relPath));
+  const isolated = pages.filter((page) => !participatingPaths.has(page.relPath));
+  const value = percentage(participating.length, pages.length);
+
+  return {
+    id: "graph.participation-rate",
+    label: "Graph participation rate",
+    value,
+    unit: "%",
+    threshold: { warn: 50, fail: 25, rule: "warn < 50%, fail < 25%" },
+    status: statusBelow(value, 50, 25),
+    detail: `${participating.length}/${pages.length} wiki pages participate in at least one edge (${value}%)`,
+    topOffenders: randomSample(isolated, 5).map((page) => ({
+      path: page.relPath,
+      note: "isolated wiki page",
     })),
   };
 }
@@ -469,6 +535,15 @@ function hasKnownSource(value: string | null | undefined): boolean {
   return hasText(value) && value !== "unknown";
 }
 
+function hasImportedFrom(value: WikiHealthPage["importedFrom"]): boolean {
+  return Boolean(value && (hasText(value.system) || hasText(value.originalKey)));
+}
+
+function hasConfidenceMetadata(page: WikiHealthPage): boolean {
+  return page.confidence !== null && page.confidence !== undefined ||
+    page.confidenceFull !== null && page.confidenceFull !== undefined;
+}
+
 function nodeMap(feed: GraphFeed): Map<string, GraphNode> {
   return new Map(feed.nodes.map((node) => [node.path, node]));
 }
@@ -479,10 +554,17 @@ function oldestNodes(nodes: GraphNode[], limit: number): GraphNode[] {
     .slice(0, limit);
 }
 
-function recentNodes(nodes: GraphNode[], limit: number): GraphNode[] {
-  return [...nodes]
-    .sort((a, b) => timestamp(b, "recent") - timestamp(a, "recent") || a.path.localeCompare(b.path))
+function recentWikiPages(pages: ReadonlyArray<WikiHealthPage>, limit: number): WikiHealthPage[] {
+  return [...pages]
+    .sort((a, b) => wikiPageTimestamp(b) - wikiPageTimestamp(a) || a.relPath.localeCompare(b.relPath))
     .slice(0, limit);
+}
+
+function wikiPageTimestamp(page: WikiHealthPage): number {
+  const raw = page.updated ?? page.created;
+  if (!raw) return 0;
+  const parsed = Date.parse(raw);
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 function recentEdges(edges: GraphEdge[], nodes: Map<string, GraphNode>, limit: number): GraphEdge[] {
@@ -571,18 +653,26 @@ function forEachPair<T>(items: T[], callback: (left: T, right: T) => void): void
   }
 }
 
-function addDuplicatePair(
-  pairs: Map<string, { pair: [GraphNode, GraphNode]; similarity: number }>,
-  left: GraphNode,
-  right: GraphNode,
+function addDuplicatePagePair(
+  pairs: Map<string, { pair: [WikiHealthPage, WikiHealthPage]; similarity: number }>,
+  left: WikiHealthPage,
+  right: WikiHealthPage,
   similarity: number,
 ): void {
-  const ordered: [GraphNode, GraphNode] = left.path.localeCompare(right.path) <= 0 ? [left, right] : [right, left];
-  const key = `${ordered[0].path}\0${ordered[1].path}`;
+  const ordered: [WikiHealthPage, WikiHealthPage] = left.relPath.localeCompare(right.relPath) <= 0 ? [left, right] : [right, left];
+  const key = `${ordered[0].relPath}\0${ordered[1].relPath}`;
   const existing = pairs.get(key);
   if (!existing || similarity > existing.similarity) {
     pairs.set(key, { pair: ordered, similarity });
   }
+}
+
+function randomSample<T>(items: ReadonlyArray<T>, limit: number): T[] {
+  return [...items]
+    .map((item) => ({ item, rank: Math.random() }))
+    .sort((a, b) => a.rank - b.rank)
+    .slice(0, limit)
+    .map(({ item }) => item);
 }
 
 function adjacencyMap(edges: GraphEdge[]): Map<string, Set<string>> {

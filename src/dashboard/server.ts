@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { runVerify, type VerifyResult, type VerifyRole } from "../cli/commands/verify.js";
 import { detectRole } from "../cli/commands/verify/role.js";
 import { runSearch } from "../retrieval/search.js";
-import type { SearchScope } from "../retrieval/corpus.js";
+import { loadSearchCorpus, type SearchScope } from "../retrieval/corpus.js";
 import type { EmbedClient } from "../retrieval/refresh.js";
 import type { VoyageClient } from "../retrieval/voyage-client.js";
 import { computeGraphHealth, type GraphHealthReport } from "./graph-health.js";
@@ -457,7 +457,7 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
         const nowMs = Date.now();
         const report = cached && nowMs - cached.atMs < HEALTH_CACHE_MS
           ? cached.report
-          : computeGraphHealth(await loadGraphFeed(opts.vaultRoot, "all"));
+          : await loadGraphHealthReport(opts.vaultRoot);
         if (!cached || nowMs - cached.atMs >= HEALTH_CACHE_MS) {
           graphHealthCache.set(cacheKey, { atMs: nowMs, report });
         }
@@ -653,4 +653,12 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
     host,
     close: () => closeServer(server),
   };
+}
+
+async function loadGraphHealthReport(vaultRoot: string): Promise<GraphHealthReport> {
+  const [feed, corpus] = await Promise.all([
+    loadGraphFeed(vaultRoot, "all"),
+    loadSearchCorpus({ vaultRoot, scope: "wiki" }),
+  ]);
+  return computeGraphHealth({ feed, wikiPages: corpus.documents });
 }

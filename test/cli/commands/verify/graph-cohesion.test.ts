@@ -3,9 +3,14 @@ import type { GraphHealthReport } from "../../../../src/dashboard/graph-health.j
 import { graphCohesionCheck } from "../../../../src/cli/commands/verify/graph-cohesion.js";
 import { computeGraphHealth } from "../../../../src/dashboard/graph-health.js";
 import { loadGraphFeed } from "../../../../src/dashboard/loaders.js";
+import { loadSearchCorpus } from "../../../../src/retrieval/corpus.js";
 
 vi.mock("../../../../src/dashboard/loaders.js", () => ({
   loadGraphFeed: vi.fn(),
+}));
+
+vi.mock("../../../../src/retrieval/corpus.js", () => ({
+  loadSearchCorpus: vi.fn(),
 }));
 
 vi.mock("../../../../src/dashboard/graph-health.js", () => ({
@@ -13,11 +18,17 @@ vi.mock("../../../../src/dashboard/graph-health.js", () => ({
 }));
 
 const mockLoadGraphFeed = vi.mocked(loadGraphFeed);
+const mockLoadSearchCorpus = vi.mocked(loadSearchCorpus);
 const mockComputeGraphHealth = vi.mocked(computeGraphHealth);
 
 describe("graphCohesionCheck", () => {
   beforeEach(() => {
     mockLoadGraphFeed.mockResolvedValue({ nodes: [], edges: [], unresolvedTargets: [] });
+    mockLoadSearchCorpus.mockResolvedValue({
+      documents: [],
+      errors: [],
+      scannedCounts: { wiki: 0, raw: 0, crystals: 0 },
+    });
   });
 
   it("passes when all graph metrics pass", async () => {
@@ -29,6 +40,11 @@ describe("graphCohesionCheck", () => {
     const result = await graphCohesionCheck.run({ vaultRoot: "/vault", now: () => new Date() });
 
     expect(mockLoadGraphFeed).toHaveBeenCalledWith("/vault", "all");
+    expect(mockLoadSearchCorpus).toHaveBeenCalledWith({ vaultRoot: "/vault", scope: "wiki" });
+    expect(mockComputeGraphHealth).toHaveBeenCalledWith({
+      feed: { nodes: [], edges: [], unresolvedTargets: [] },
+      wikiPages: [],
+    });
     expect(result).toMatchObject({
       id: "graph.cohesion",
       label: "graph cohesion: all metrics passing",

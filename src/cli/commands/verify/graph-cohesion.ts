@@ -1,5 +1,6 @@
 import { computeGraphHealth } from "../../../dashboard/graph-health.js";
 import { loadGraphFeed } from "../../../dashboard/loaders.js";
+import { loadSearchCorpus } from "../../../retrieval/corpus.js";
 import { fail, pass, warn, type CheckDescriptor } from "./types.js";
 
 export const graphCohesionCheck: CheckDescriptor = {
@@ -7,8 +8,11 @@ export const graphCohesionCheck: CheckDescriptor = {
   label: "graph cohesion metrics",
   roles: ["operator", "server"],
   run: async (ctx) => {
-    const feed = await loadGraphFeed(ctx.vaultRoot, "all");
-    const report = computeGraphHealth(feed);
+    const [feed, corpus] = await Promise.all([
+      loadGraphFeed(ctx.vaultRoot, "all"),
+      loadSearchCorpus({ vaultRoot: ctx.vaultRoot, scope: "wiki" }),
+    ]);
+    const report = computeGraphHealth({ feed, wikiPages: corpus.documents });
 
     if (report.overallStatus === "fail") {
       const failingIds = report.metrics

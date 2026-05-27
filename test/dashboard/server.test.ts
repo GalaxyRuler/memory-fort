@@ -740,7 +740,20 @@ describe("dashboard server", () => {
         updated: "2026-05-23",
         source: "codex",
         confidence: 0.9,
+        relations: { uses: ["b"] },
       }, "A body.\n"),
+    );
+    await writeFile(
+      join(tmp, "wiki", "tools", "b.md"),
+      page({
+        type: "tools",
+        title: "B",
+        created: "2026-05-23",
+        updated: "2026-05-23",
+        source: "codex",
+        confidence: 0.8,
+        relations: { depends_on: ["a"] },
+      }, "B body.\n"),
     );
     const server = await createServer({ vaultRoot: tmp, port: 0 });
 
@@ -752,8 +765,9 @@ describe("dashboard server", () => {
 
       expect(first.status).toBe(200);
       expect(second.status).toBe(200);
-      expect(firstBody.metrics).toHaveLength(12);
+      expect(firstBody.metrics).toHaveLength(13);
       expect(firstBody.overallStatus).toBe("pass");
+      expect(firstBody.metrics.map((metric: { id: string }) => metric.id)).toContain("graph.participation-rate");
       expect(secondBody).toEqual(firstBody);
     } finally {
       await server.close();
@@ -780,6 +794,7 @@ describe("dashboard server", () => {
       expect(response.status).toBe(503);
       expect(body.overallStatus).toBe("fail");
       expect(body.metrics.map((metric: { id: string }) => metric.id)).toContain("graph.confidence-coverage");
+      expect(body.metrics.map((metric: { id: string }) => metric.id)).toContain("graph.participation-rate");
     } finally {
       await server.close();
     }
