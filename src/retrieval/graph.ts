@@ -8,6 +8,9 @@ export interface Edge {
   toPath: string;
   kind: EdgeKind;
   relationType: string | null;
+  validFrom?: string;
+  validTo?: string | null;
+  supersededBy?: string;
 }
 
 export interface GraphNode {
@@ -69,7 +72,7 @@ export function buildGraph(documents: SearchDocument[]): SearchGraph {
   const unresolvedTargets: SearchGraph["unresolvedTargets"] = [];
 
   function addResolvedEdge(edge: Edge): void {
-    const key = `${edge.fromPath}\0${edge.toPath}\0${edge.kind}\0${edge.relationType ?? ""}`;
+    const key = `${edge.fromPath}\0${edge.toPath}\0${edge.kind}\0${edge.relationType ?? ""}\0${edge.validFrom ?? ""}\0${edge.validTo ?? ""}\0${edge.supersededBy ?? ""}`;
     if (edgeKeys.has(key)) return;
     edgeKeys.add(key);
     edges.push(edge);
@@ -77,12 +80,7 @@ export function buildGraph(documents: SearchDocument[]): SearchGraph {
     nodes.get(edge.toPath)?.inbound.push(edge);
   }
 
-  function addTarget(
-    fromPath: string,
-    raw: string,
-    kind: EdgeKind,
-    relationType: string | null,
-  ): void {
+  function addTarget(fromPath: string, raw: string, kind: EdgeKind, relationType: string | null, metadata: Partial<Edge> = {}): void {
     const resolution = resolver(raw);
     if (resolution.path !== null) {
       addResolvedEdge({
@@ -90,6 +88,7 @@ export function buildGraph(documents: SearchDocument[]): SearchGraph {
         toPath: resolution.path,
         kind,
         relationType,
+        ...metadata,
       });
       return;
     }
@@ -98,8 +97,15 @@ export function buildGraph(documents: SearchDocument[]): SearchGraph {
 
   for (const document of documents) {
     for (const [relationType, targets] of Object.entries(document.relations)) {
-      for (const target of targets) {
-        addTarget(document.relPath, target, "relation", relationType);
+      for (const edge of targets) {
+        const target = typeof edge === "string" ? edge : edge.target;
+        addTarget(document.relPath, target, "relation", relationType, typeof edge === "string"
+          ? {}
+          : {
+              validFrom: edge.valid_from,
+              validTo: edge.valid_to,
+              supersededBy: edge.superseded_by,
+            });
       }
     }
 

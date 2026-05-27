@@ -3,6 +3,7 @@ import { basename, join, relative, resolve } from "node:path";
 import { canonicalizeRawObservation } from "../compile/canonicalize.js";
 import type { Frontmatter } from "../storage/frontmatter.js";
 import { buildGraph } from "./graph.js";
+import { readRelations, type RelationMap } from "./relations.js";
 
 export type SearchScope = "wiki" | "raw" | "crystals" | "all";
 export type SearchSource =
@@ -25,7 +26,7 @@ export interface SearchDocument {
   cognitiveType: CognitiveType;
   confidence: number | null;
   tags: string[];
-  relations: Record<string, string[]>;
+  relations: RelationMap;
   source: SearchSource;
   session: string | null;
   agentSessionId?: string | null;
@@ -197,7 +198,7 @@ async function loadDocument(file: MarkdownFile): Promise<SearchDocument> {
     cognitiveType: explicitCognitiveType ?? "semantic",
     confidence: canonical?.confidence ?? readNumber(frontmatter.confidence),
     tags: canonical?.tags ?? readStringArray(frontmatter.tags),
-    relations: readRelations(frontmatter.relations),
+    relations: readRelations(frontmatter.relations, file.relPath),
     source:
       canonical?.source ??
       (file.kind === "raw"
@@ -431,18 +432,6 @@ function readStringArray(value: unknown): string[] {
   return Array.isArray(value)
     ? value.filter((item): item is string => typeof item === "string")
     : [];
-}
-
-function readRelations(value: unknown): Record<string, string[]> {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    return {};
-  }
-
-  const relations: Record<string, string[]> = {};
-  for (const [key, targets] of Object.entries(value)) {
-    relations[key] = readStringArray(targets);
-  }
-  return relations;
 }
 
 function readImportedFrom(value: unknown): SearchDocument["importedFrom"] {

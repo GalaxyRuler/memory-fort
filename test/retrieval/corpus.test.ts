@@ -176,7 +176,7 @@ describe("retrieval corpus loader", () => {
       status: "active",
       confidence: 0.8,
       tags: ["a", "b"],
-      relations: { uses: ["bar"] },
+      relations: { uses: [{ target: "bar" }] },
       source: "claude-code",
       session: "abc123",
       updated: "2026-05-22",
