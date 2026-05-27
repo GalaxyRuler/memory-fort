@@ -1,5 +1,15 @@
 import { loadSearchCorpus } from "../../retrieval/corpus.js";
 import { refreshEmbeddings, type RefreshResult } from "../../retrieval/refresh.js";
+import { chatWithAudit, readLLMAuditSummary, type LLMAuditSummary } from "../../llm/audit.js";
+import {
+  createLLMFromConfig,
+  getActiveLLMConfig,
+  listLLMProviders,
+  type LLMConfig,
+  type LLMProviderInfo,
+  type LLMProviderName,
+} from "../../llm/factory.js";
+import type { LLMFinishReason, LLMProvider } from "../../llm/types.js";
 import {
   createEmbedderFromConfig,
   estimateEmbeddingCostUsd,
@@ -56,6 +66,47 @@ export interface ReindexEmbeddingsResult {
   refresh?: RefreshResult;
 }
 
+export interface ListLLMsOptions {
+  configLoader?: () => Promise<MemoryConfig>;
+  env?: NodeJS.ProcessEnv;
+}
+
+export interface ListLLMsResult {
+  active: LLMConfig | null;
+  providers: LLMProviderInfo[];
+}
+
+export interface TestLLMOptions extends ListLLMsOptions {
+  memoryRoot?: string;
+  provider?: LLMProviderName;
+  llmFactory?: (config: LLMConfig | null, env: NodeJS.ProcessEnv) => LLMProvider;
+  nowMs?: () => number;
+}
+
+export interface TestLLMResult {
+  exitCode: number;
+  provider: string;
+  model: string;
+  tokensIn: number | null;
+  tokensOut: number | null;
+  latencyMs: number;
+  finishReason: LLMFinishReason | null;
+  status: "OK" | "ERROR";
+  error?: string;
+}
+
+export interface AuditSummaryOptions {
+  memoryRoot?: string;
+  days?: number;
+  now?: Date;
+  auditWriter?: () => Promise<void>;
+}
+
+export interface AuditSummaryResult extends LLMAuditSummary {
+  exitCode: number;
+  days: number;
+}
+
 const CHARS_PER_TOKEN_ESTIMATE = 4;
 
 export async function runListEmbedders(
@@ -79,6 +130,28 @@ export function formatListEmbeddersResult(result: ListEmbeddersResult): string {
       ? `active, model=${provider.model}, dim=${provider.dim}`
       : `available, ${availability}`;
     return `${provider.provider.padEnd(8)} (${provider.requiredEnv}) ${stateBracket(state)}`;
+  }).join("\n")}\n`;
+}
+
+export async function runListLLMs(opts: ListLLMsOptions = {}): Promise<ListLLMsResult> {
+  const env = opts.env ?? process.env;
+  const config = await (opts.configLoader ?? loadMemoryConfig)();
+  const active = getActiveLLMConfig(config);
+  return {
+    active,
+    providers: listLLMProviders(active, env),
+  };
+}
+
+export function formatListLLMsResult(result: ListLLMsResult): string {
+  return `${result.providers.map((provider) => {
+    const availability = provider.provider === "ollama"
+      ? `host=${process.env["OLLAMA_HOST"] ?? "http://localhost:11434"}`
+      : provider.keyAvailable ? "key set" : "key missing";
+    const state = provider.active
+      ? `active, model=${provider.model}`
+      : `available, ${availability}`;
+    return `${provider.provider.padEnd(10)} (${provider.requiredEnv}) ${stateBracket(state)}`;
   }).join("\n")}\n`;
 }
 
@@ -130,6 +203,108 @@ export function formatTestEmbedderResult(result: TestEmbedderResult): string {
     `Status: ${result.status}`,
   ];
   if (result.error) lines.push(`Error: ${result.error}`);
+  return `${lines.join("\n")}\n`;
+}
+
+export async function runTestLLM(opts: TestLLMOptions = {}): Promise<TestLLMResult> {
+  const env = opts.env ?? process.env;
+  const root = opts.memoryRoot ?? defaultMemoryRoot();
+  const config = await (opts.configLoader ?? (() => loadMemoryConfig(root)))();
+  const active = getActiveLLMConfig(config);
+  const selected: LLMConfig | null = opts.provider ? { provider: opts.provider } : active;
+  const nowMs = opts.nowMs ?? (() => Date.now());
+  const started = nowMs();
+
+  try {
+    const llm = (opts.llmFactory ?? createLLMFromConfig)(selected, env);
+    const response = await chatWithAudit({
+      llm,
+      vaultRoot: root,
+      consumer: "provider-test",
+      request: {
+        messages: [{ role: "user", content: "Reply with exactly: pong" }],
+        maxTokens: 16,
+        temperature: 0,
+      },
+    });
+    return {
+      exitCode: 0,
+      provider: llm.providerName,
+      model: response.model,
+      tokensIn: response.tokensUsed?.prompt ?? null,
+      tokensOut: response.tokensUsed?.completion ?? null,
+      latencyMs: Math.max(0, nowMs() - started),
+      finishReason: response.finishReason,
+      status: "OK",
+    };
+  } catch (error) {
+    return {
+      exitCode: 1,
+      provider: selected?.provider ?? "",
+      model: selected?.model ?? "",
+      tokensIn: null,
+      tokensOut: null,
+      latencyMs: Math.max(0, nowMs() - started),
+      finishReason: null,
+      status: "ERROR",
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+export function formatTestLLMResult(result: TestLLMResult): string {
+  const lines = [
+    `Provider: ${result.provider}`,
+    `Model: ${result.model}`,
+    `Tokens: ${result.tokensIn ?? "unknown"}/${result.tokensOut ?? "unknown"}`,
+    `Latency: ${result.latencyMs}ms`,
+    `Finish: ${result.finishReason ?? "unknown"}`,
+    `Status: ${result.status}`,
+  ];
+  if (result.error) lines.push(`Error: ${result.error}`);
+  return `${lines.join("\n")}\n`;
+}
+
+export async function runAuditSummary(
+  opts: AuditSummaryOptions = {},
+): Promise<AuditSummaryResult> {
+  if (opts.auditWriter) await opts.auditWriter();
+  const days = opts.days ?? 7;
+  const summary = await readLLMAuditSummary(opts.memoryRoot ?? defaultMemoryRoot(), {
+    days,
+    now: opts.now,
+  });
+  return {
+    ...summary,
+    exitCode: 0,
+    days,
+  };
+}
+
+export function formatAuditSummaryResult(result: AuditSummaryResult): string {
+  const lines = [
+    `Window: ${result.days} day${result.days === 1 ? "" : "s"}`,
+    `Total calls: ${result.totalCalls}`,
+    `Total cost: $${result.totalCostUsd.toFixed(4)}`,
+  ];
+  if (result.byConsumer.length > 0) {
+    lines.push(
+      "",
+      "By consumer:",
+      ...result.byConsumer.map((item) =>
+        `  ${item.consumer}: ${item.calls} call${item.calls === 1 ? "" : "s"}, $${item.costUsd.toFixed(4)}`
+      ),
+    );
+  }
+  if (result.byProviderModel.length > 0) {
+    lines.push(
+      "",
+      "By provider/model:",
+      ...result.byProviderModel.map((item) =>
+        `  ${item.provider}/${item.model}: ${item.calls} call${item.calls === 1 ? "" : "s"}, tokens ${item.tokensIn}/${item.tokensOut}, $${item.costUsd.toFixed(4)}`
+      ),
+    );
+  }
   return `${lines.join("\n")}\n`;
 }
 

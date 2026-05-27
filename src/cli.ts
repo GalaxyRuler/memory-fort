@@ -20,12 +20,18 @@ import { runLint } from "./cli/commands/lint.js";
 import { runLog } from "./cli/commands/log.js";
 import { runPage } from "./cli/commands/page.js";
 import {
+  formatAuditSummaryResult,
   formatListEmbeddersResult,
+  formatListLLMsResult,
   formatReindexEmbeddingsResult,
   formatTestEmbedderResult,
+  formatTestLLMResult,
+  runAuditSummary,
   runListEmbedders,
+  runListLLMs,
   runReindexEmbeddings,
   runTestEmbedder,
+  runTestLLM,
 } from "./cli/commands/provider.js";
 import { runPull, formatPullSuccess } from "./cli/commands/pull.js";
 import { runPush, formatPushSuccess } from "./cli/commands/push.js";
@@ -449,7 +455,7 @@ program
 
 const provider = program
   .command("provider")
-  .description("Inspect and test embedding providers");
+  .description("Inspect and test embedding and LLM providers");
 
 provider
   .command("list-embedders")
@@ -495,6 +501,47 @@ provider
       process.exit(result.exitCode);
     } catch (err) {
       console.error(`memory provider reindex-embeddings failed: ${(err as Error).message}`);
+      process.exit(1);
+    }
+  });
+
+provider
+  .command("list-llms")
+  .description("List supported LLM providers and current configuration")
+  .action(async () => {
+    try {
+      process.stdout.write(formatListLLMsResult(await runListLLMs()));
+    } catch (err) {
+      console.error(`memory provider list-llms failed: ${(err as Error).message}`);
+      process.exit(1);
+    }
+  });
+
+provider
+  .command("test-llm")
+  .description("Run a one-call LLM smoke test and audit it")
+  .option("--provider <provider>", "openrouter | ollama")
+  .action(async (opts: { provider?: "openrouter" | "ollama" }) => {
+    if (opts.provider && !["openrouter", "ollama"].includes(opts.provider)) {
+      console.error("memory provider test-llm: --provider must be openrouter or ollama");
+      process.exit(2);
+    }
+    const result = await runTestLLM({ provider: opts.provider });
+    process.stdout.write(formatTestLLMResult(result));
+    process.exit(result.exitCode);
+  });
+
+provider
+  .command("audit-summary")
+  .description("Summarize recent LLM audit calls")
+  .option("--days <n>", "days to include (default: 7)", parseInteger)
+  .action(async (opts: { days?: number }) => {
+    try {
+      const result = await runAuditSummary({ days: opts.days });
+      process.stdout.write(formatAuditSummaryResult(result));
+      process.exit(result.exitCode);
+    } catch (err) {
+      console.error(`memory provider audit-summary failed: ${(err as Error).message}`);
       process.exit(1);
     }
   });
