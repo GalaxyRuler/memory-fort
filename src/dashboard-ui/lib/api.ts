@@ -35,3 +35,24 @@ export async function apiGet<T>(
 
   return response.json() as Promise<T>;
 }
+
+export async function apiPatch<T>(path: string, body: unknown): Promise<T> {
+  const response = await fetch(`${API_BASE}${path}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: response.statusText })) as {
+      error?: string;
+      message?: string;
+      errors?: Array<{ path?: string; message?: string }>;
+    };
+    const fieldError = error.errors?.[0];
+    const message = error.error ||
+      error.message ||
+      (fieldError ? `${fieldError.path}: ${fieldError.message}` : response.statusText);
+    throw new ApiError(response.status, message);
+  }
+  return response.json() as Promise<T>;
+}
