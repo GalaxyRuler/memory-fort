@@ -18,6 +18,7 @@ import {
 import { compileRecentCheck } from "./compile.js";
 import { dashboardStatusCheck } from "./dashboard.js";
 import { episodicRelationsCoverageCheck } from "./episodic-relations.js";
+import { freshnessStaleCheck } from "./freshness.js";
 import { gitRemoteCheck } from "./git.js";
 import { searchPipelineCheck } from "./search.js";
 import type { CheckDescriptor } from "./types.js";
@@ -28,6 +29,7 @@ export const ALL_CHECKS: CheckDescriptor[] = [
   dashboardStatusCheck,
   searchPipelineCheck,
   episodicRelationsCoverageCheck,
+  freshnessStaleCheck,
   compileRecentCheck,
   autoPushErrorsCheck,
   gitRemoteCheck,
