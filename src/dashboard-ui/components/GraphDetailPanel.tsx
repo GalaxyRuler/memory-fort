@@ -1,12 +1,19 @@
 import { Link } from "@tanstack/react-router";
 import { X } from "lucide-react";
+import type { ReactNode } from "react";
 import { useEffect, useId, useRef } from "react";
 import { type GraphNode } from "../hooks/useGraph.js";
 import { useMediaQuery } from "../hooks/useMediaQuery.js";
-import { getConfidenceScore } from "../../storage/confidence.js";
+import {
+  getConfidenceScore,
+  getLifecycle,
+} from "../../storage/confidence.js";
+import type { ConfidenceVector } from "../../storage/frontmatter.js";
 import { nodeColor } from "../lib/graph-colors.js";
+import { formatRelative } from "../lib/relative-time.js";
 import { wikiPathToRouterParams } from "../lib/wikilinks.js";
 import { BottomSheet } from "./BottomSheet.js";
+import { TrustBadge } from "./TrustBadge.js";
 
 export interface GraphDetailPanelProps {
   node: GraphNode | null;
@@ -64,13 +71,11 @@ export function GraphDetailPanel({ node, onClose }: GraphDetailPanelProps) {
 
   const color = nodeColor(node);
   const routerParams = wikiPathToRouterParams(node.path);
-  const confidenceScore =
-    node.confidence === null ? null : getConfidenceScore(node.confidence);
 
   if (isMobile) {
     return (
       <BottomSheet isOpen={true} onClose={onClose} title={node.title}>
-        <GraphNodeDetails color={color} node={node} routerParams={routerParams} />
+      <GraphNodeDetails color={color} node={node} routerParams={routerParams} />
       </BottomSheet>
     );
   }
@@ -108,12 +113,6 @@ export function GraphDetailPanel({ node, onClose }: GraphDetailPanelProps) {
           <dt className="text-text-muted">Out</dt>
           <dd className="font-mono">{node.outboundCount}</dd>
         </div>
-        {confidenceScore !== null && (
-          <div>
-            <dt className="text-text-muted">Conf</dt>
-            <dd className="font-mono">{confidenceScore.toFixed(2)}</dd>
-          </div>
-        )}
         {node.updated && (
           <div>
             <dt className="text-text-muted">Updated</dt>
@@ -121,6 +120,8 @@ export function GraphDetailPanel({ node, onClose }: GraphDetailPanelProps) {
           </div>
         )}
       </dl>
+
+      <TrustSummary node={node} />
 
       {routerParams && (
         <Link
@@ -153,9 +154,6 @@ function GraphNodeDetails({
   node: GraphNode;
   routerParams: { category: string; slug: string } | null;
 }) {
-  const confidenceScore =
-    node.confidence === null ? null : getConfidenceScore(node.confidence);
-
   return (
     <div>
       <div className="mb-3 flex min-w-0 items-center gap-2">
@@ -174,12 +172,6 @@ function GraphNodeDetails({
           <dt className="text-text-muted">Out</dt>
           <dd className="font-mono">{node.outboundCount}</dd>
         </div>
-        {confidenceScore !== null && (
-          <div>
-            <dt className="text-text-muted">Conf</dt>
-            <dd className="font-mono">{confidenceScore.toFixed(2)}</dd>
-          </div>
-        )}
         {node.updated && (
           <div>
             <dt className="text-text-muted">Updated</dt>
@@ -187,6 +179,8 @@ function GraphNodeDetails({
           </div>
         )}
       </dl>
+
+      <TrustSummary node={node} />
 
       {routerParams && (
         <Link
@@ -199,4 +193,80 @@ function GraphNodeDetails({
       )}
     </div>
   );
+}
+
+function TrustSummary({ node }: { node: GraphNode }) {
+  const confidenceValue = node.confidenceFull ?? node.confidence ?? undefined;
+  const vector = isConfidenceVector(confidenceValue) ? confidenceValue : null;
+  const confidenceScore =
+    confidenceValue === undefined ? null : getConfidenceScore(confidenceValue);
+  const lifecycle = getLifecycle(
+    {
+      confidence: confidenceValue,
+      lifecycle: node.lifecycle ?? undefined,
+    },
+    node.path,
+  );
+
+  return (
+    <section className="mt-4 border-t border-border-subtle/70 pt-3">
+      <h4 className="mb-2 text-xs font-semibold text-text-primary">Trust</h4>
+      <dl className="space-y-1.5 text-xs">
+        {confidenceScore !== null && (
+          <TrustRow label="Score">
+            <span className="font-mono">{confidenceScore.toFixed(2)}</span>
+          </TrustRow>
+        )}
+        {vector?.validation && (
+          <TrustRow label="Validation">
+            <TrustBadge kind="validation" value={vector.validation} />
+          </TrustRow>
+        )}
+        {typeof vector?.source === "number" && (
+          <TrustRow label="Source">
+            <span className="font-mono">
+              {node.source} ({vector.source.toFixed(2)})
+            </span>
+          </TrustRow>
+        )}
+        {vector?.freshness && (
+          <TrustRow label="Freshness">
+            <span className="font-mono">{formatRelative(vector.freshness)}</span>
+          </TrustRow>
+        )}
+        {typeof vector?.conflict === "string" && vector.conflict.length > 0 && (
+          <TrustRow label="Conflict">
+            <span className="break-all font-mono">{vector.conflict}</span>
+          </TrustRow>
+        )}
+        <TrustRow label="Lifecycle">
+          <TrustBadge kind="lifecycle" value={lifecycle} />
+        </TrustRow>
+        <TrustRow label="Status">
+          <span className="font-mono uppercase">{node.status}</span>
+        </TrustRow>
+      </dl>
+    </section>
+  );
+}
+
+function TrustRow({
+  children,
+  label,
+}: {
+  children: ReactNode;
+  label: string;
+}) {
+  return (
+    <div className="grid grid-cols-[5rem_minmax(0,1fr)] items-center gap-2">
+      <dt className="text-text-muted">{label}</dt>
+      <dd className="min-w-0 text-text-secondary">{children}</dd>
+    </div>
+  );
+}
+
+function isConfidenceVector(
+  value: GraphNode["confidenceFull"] | GraphNode["confidence"] | undefined,
+): value is ConfidenceVector {
+  return typeof value === "object" && value !== null;
 }

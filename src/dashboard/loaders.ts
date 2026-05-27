@@ -12,7 +12,7 @@ import { loadSearchCorpus, type CognitiveType, type SearchScope } from "../retri
 import { buildGraph } from "../retrieval/graph.js";
 import { getConfidenceScore } from "../storage/confidence.js";
 import { loadMemoryConfig } from "../storage/config.js";
-import type { Frontmatter } from "../storage/frontmatter.js";
+import type { ConfidenceVector, Frontmatter, LifecycleStage } from "../storage/frontmatter.js";
 
 export interface DashboardStatus {
   vaultRoot: string;
@@ -187,6 +187,8 @@ export interface GraphFeed {
     source: string;
     created: string | null;
     confidence: number | null;
+    confidenceFull?: number | ConfidenceVector | null;
+    lifecycle?: LifecycleStage | null;
     tags: string[];
     description: string;
     updated: string | null;
@@ -1148,6 +1150,8 @@ export async function loadGraphFeed(vaultRoot: string, scope: SearchScope = "wik
         source: document?.source ?? "unknown",
         created: document?.created ?? null,
         confidence: document?.confidence ?? null,
+        confidenceFull: document?.confidenceFull ?? document?.confidence ?? null,
+        lifecycle: document?.lifecycle ?? null,
         tags: document?.tags ?? [],
         description: document?.snippetSource ?? "",
         updated: document?.updated ?? null,

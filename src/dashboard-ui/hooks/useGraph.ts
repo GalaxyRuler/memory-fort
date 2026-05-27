@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "../lib/api.js";
+import type { ConfidenceVector, LifecycleStage } from "../../storage/frontmatter.js";
 
 export type GraphScope = "wiki" | "raw" | "crystals" | "all";
 export type CognitiveType = "core" | "semantic" | "episodic" | "procedural";
@@ -14,6 +15,8 @@ export interface GraphNode {
   source: string;
   created: string | null;
   confidence: number | null;
+  confidenceFull?: number | ConfidenceVector | null;
+  lifecycle?: LifecycleStage | null;
   tags: string[];
   description: string;
   updated: string | null;
