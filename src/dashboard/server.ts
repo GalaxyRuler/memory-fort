@@ -45,7 +45,7 @@ export interface ServerOptions {
   port?: number;
   host?: string;
   loader?: (vaultRoot: string) => Promise<DashboardStatus>;
-  verifyRunner?: (opts: { includeSearch: boolean; role: VerifyRole }) => Promise<VerifyResult>;
+  verifyRunner?: (opts: { includeSearch: boolean; role: VerifyRole; vaultRoot: string }) => Promise<VerifyResult>;
   voyageClient?: VoyageClient | null;
   dashboardDistRoot?: string | null;
 }
@@ -310,7 +310,12 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
   const host = opts.host ?? "127.0.0.1";
   const loader = opts.loader ?? loadDashboardStatus;
   const verifyRunner = opts.verifyRunner ?? ((runnerOpts) =>
-    runVerify({ offline: false, includeSearch: runnerOpts.includeSearch, role: runnerOpts.role }));
+    runVerify({
+      offline: false,
+      includeSearch: runnerOpts.includeSearch,
+      role: runnerOpts.role,
+      vaultRoot: runnerOpts.vaultRoot,
+    }));
   const voyageClient = opts.voyageClient ?? null;
   const embedClient = makeEmbedClient(voyageClient);
   const staticAssets = await resolveStaticAssetsRoot(opts.dashboardDistRoot);
@@ -368,7 +373,7 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
         const nowMs = Date.now();
         const report = cached && nowMs - cached.atMs < HEALTH_CACHE_MS
           ? cached.report
-          : await verifyRunner({ includeSearch, role });
+          : await verifyRunner({ includeSearch, role, vaultRoot: opts.vaultRoot });
         if (!cached || nowMs - cached.atMs >= HEALTH_CACHE_MS) {
           healthCache.set(cacheKey, { atMs: nowMs, report });
         }

@@ -20,6 +20,7 @@ type CheckFn = () => Promise<VerifyCheckResult | VerifyCheckResult[]>;
 export interface VerifyOptions {
   offline?: boolean;
   includeSearch?: boolean;
+  vaultRoot?: string;
   now?: () => Date;
   role?: VerifyRole;
   detectRoleFn?: () => VerifyRole;
@@ -48,6 +49,7 @@ export function parseVerifyRole(value: string | undefined): VerifyRole | undefin
 export async function runVerify(opts: VerifyOptions = {}): Promise<VerifyResult> {
   const now = opts.now ?? (() => new Date());
   const role = opts.role ?? opts.detectRoleFn?.() ?? detectRole();
+  const vaultRoot = opts.vaultRoot ?? memoryRoot();
   const startedAt = now().toISOString();
   const checks = opts.checkFns
     ? await runInjectedChecks(opts.checkFns)
@@ -55,7 +57,7 @@ export async function runVerify(opts: VerifyOptions = {}): Promise<VerifyResult>
       opts.checkDescriptors ?? ALL_CHECKS,
       role,
       {
-          vaultRoot: memoryRoot(),
+          vaultRoot,
           now,
           offline: opts.offline,
           includeSearch: opts.includeSearch ?? true,

@@ -6,6 +6,7 @@ import {
   type CheckDescriptor,
   type CheckResult,
 } from "../../../src/cli/commands/verify.js";
+import { memoryRoot } from "../../../src/storage/paths.js";
 
 describe("runVerify", () => {
   it("returns exit 0 when every check passes", async () => {
@@ -141,6 +142,27 @@ describe("runVerify", () => {
     expect(parseVerifyRole("operator")).toBe("operator");
     expect(() => parseVerifyRole("bogus")).toThrow("invalid role");
   });
+
+  it("passes an explicit vaultRoot to descriptor checks", async () => {
+    const seen: string[] = [];
+    await runVerify({
+      vaultRoot: "C:/tmp/memory-vault",
+      now: () => new Date("2026-05-26T03:30:00.000Z"),
+      checkDescriptors: [vaultRootDescriptor(seen)],
+    });
+
+    expect(seen).toEqual(["C:/tmp/memory-vault"]);
+  });
+
+  it("uses memoryRoot when no explicit vaultRoot is provided", async () => {
+    const seen: string[] = [];
+    await runVerify({
+      now: () => new Date("2026-05-26T03:30:00.000Z"),
+      checkDescriptors: [vaultRootDescriptor(seen)],
+    });
+
+    expect(seen).toEqual([memoryRoot()]);
+  });
 });
 
 function pass(label: string): CheckResult {
@@ -167,6 +189,18 @@ function descriptor(
     async run() {
       seen.push(id);
       return pass(id);
+    },
+  };
+}
+
+function vaultRootDescriptor(seen: string[]): CheckDescriptor {
+  return {
+    id: "vault-root-capture",
+    label: "vault root capture",
+    roles: ["operator", "server"],
+    async run(opts) {
+      seen.push(opts.vaultRoot);
+      return pass("vault-root-capture");
     },
   };
 }

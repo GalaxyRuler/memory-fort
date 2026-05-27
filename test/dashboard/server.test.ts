@@ -185,13 +185,13 @@ describe("dashboard server", () => {
   });
 
   it("GET /api/health returns cached shallow verify JSON with monitor-friendly status", async () => {
-    const calls: Array<{ includeSearch?: boolean; role?: VerifyRole }> = [];
+    const calls: Array<{ includeSearch?: boolean; role?: VerifyRole; vaultRoot?: string }> = [];
     const report = verifyReport("warn");
     const server = await createServer({
       vaultRoot: tmp,
       port: 0,
       verifyRunner: async (opts) => {
-        calls.push({ includeSearch: opts.includeSearch, role: opts.role });
+        calls.push({ includeSearch: opts.includeSearch, role: opts.role, vaultRoot: opts.vaultRoot });
         return report;
       },
     });
@@ -204,20 +204,20 @@ describe("dashboard server", () => {
       expect(second.status).toBe(200);
       await expect(first.json()).resolves.toEqual(report);
       await expect(second.json()).resolves.toEqual(report);
-      expect(calls).toEqual([{ includeSearch: false, role: "operator" }]);
+      expect(calls).toEqual([{ includeSearch: false, role: "operator", vaultRoot: tmp }]);
     } finally {
       await server.close();
     }
   });
 
   it("GET /api/health?deep=true includes search checks and returns 503 for failures", async () => {
-    const calls: Array<{ includeSearch?: boolean; role?: VerifyRole }> = [];
+    const calls: Array<{ includeSearch?: boolean; role?: VerifyRole; vaultRoot?: string }> = [];
     const report = verifyReport("fail");
     const server = await createServer({
       vaultRoot: tmp,
       port: 0,
       verifyRunner: async (opts) => {
-        calls.push({ includeSearch: opts.includeSearch, role: opts.role });
+        calls.push({ includeSearch: opts.includeSearch, role: opts.role, vaultRoot: opts.vaultRoot });
         return report;
       },
     });
@@ -227,7 +227,7 @@ describe("dashboard server", () => {
 
       expect(response.status).toBe(503);
       await expect(response.json()).resolves.toEqual(report);
-      expect(calls).toEqual([{ includeSearch: true, role: "operator" }]);
+      expect(calls).toEqual([{ includeSearch: true, role: "operator", vaultRoot: tmp }]);
     } finally {
       await server.close();
     }
