@@ -30,7 +30,7 @@ export function Sidebar({
       )}
     >
       <div className="px-3 py-4">
-        <h1 className="text-lg font-semibold tracking-tight">Memory Fort</h1>
+        <div className="text-lg font-semibold tracking-tight">Memory Fort</div>
         <p className="text-xs text-text-muted">v0.4.0-dev</p>
       </div>
       <nav className="flex flex-col gap-0.5" aria-label="Primary navigation">
@@ -72,7 +72,9 @@ export function Sidebar({
             variant="line"
           />
         ) : (
-          <StatusPill kind={sidebarStatus.kind}>{sidebarStatus.label}</StatusPill>
+          <a href={sidebarStatus.href} aria-label={sidebarStatus.ariaLabel} title={sidebarStatus.title}>
+            <StatusPill kind={sidebarStatus.kind}>{sidebarStatus.label}</StatusPill>
+          </a>
         )}
       </div>
     </aside>
@@ -85,29 +87,49 @@ type SyncStateQuery = ReturnType<typeof useSyncState>;
 function statusPillState(
   status: StatusQuery,
   syncState: SyncStateQuery,
-): "loading" | { kind: StatusKind; label: string } {
+): "loading" | { kind: StatusKind; label: string; href: string; ariaLabel: string; title: string } {
   if (status.isLoading && !status.data) return "loading";
-  if (status.isError || status.data?.errorsLog?.isClean === false) {
+  if (status.isError || hasRecentErrorLog(status.data)) {
     return {
       kind: "error",
       label: statusLabel("error", statusTimestamp(status.data)),
+      href: "/memory/audit?level=error&source=errors",
+      ariaLabel: "View recent errors in the audit log",
+      title: "View recent errors in the audit log",
+    };
+  }
+
+  if (status.data?.errorsLog?.isClean === false) {
+    return {
+      kind: "synced",
+      label: "healthy",
+      href: "/memory/audit?level=error&source=errors",
+      ariaLabel: "View historical error log entries",
+      title: "No errors in the last 24 hours",
     };
   }
 
   if (syncState.isLoading && !syncState.data) return "loading";
   if (syncState.isError || !syncState.data) {
-    return { kind: "unknown", label: "unknown" };
+    return statusLink("unknown", "unknown", "/memory/");
   }
 
   const checkoutSyncState = syncState.data;
   if (checkoutSyncState.status !== "synced" && checkoutSyncState.status !== "stale") {
-    return { kind: "unknown", label: "unknown" };
+    return statusLink("unknown", "unknown", "/memory/");
   }
 
   const label = checkoutSyncState.status;
+  return statusLink(checkoutSyncState.status, statusLabel(label, syncTimestamp(checkoutSyncState)), "/memory/");
+}
+
+function statusLink(kind: StatusKind, label: string, href: string) {
   return {
-    kind: checkoutSyncState.status,
-    label: statusLabel(label, syncTimestamp(checkoutSyncState)),
+    kind,
+    label,
+    href,
+    ariaLabel: `Open ${label} status details`,
+    title: `Open ${label} status details`,
   };
 }
 
@@ -127,4 +149,19 @@ function syncTimestamp(syncState: CheckoutSyncState): string | null {
 
 function statusLabel(label: string, timestamp: string | null): string {
   return timestamp ? `${label} ${relativeTime(timestamp)}` : label;
+}
+
+function hasRecentErrorLog(status: DashboardStatus | undefined): boolean {
+  if (status?.errorsLog?.isClean !== false) return false;
+  const timestamp = parseTimestamp(status.errorsLog.lastLine);
+  if (!timestamp) return false;
+  return Date.now() - timestamp.getTime() < 24 * 60 * 60 * 1000;
+}
+
+function parseTimestamp(line: string | null): Date | null {
+  if (!line) return null;
+  const match = line.match(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z/);
+  if (!match) return null;
+  const parsed = new Date(match[0]);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
 }

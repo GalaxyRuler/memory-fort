@@ -82,6 +82,14 @@ describe("Sidebar status pill", () => {
     const pill = screen.getByText(/synced/);
     expect(pill).toHaveTextContent(/synced .*ago/);
     expect(pill.closest("span")).toHaveClass("text-status-green");
+    expect(pill.closest("a")).toHaveAttribute("href", "/memory/");
+  });
+
+  test("demotes the brand heading so pages keep a single h1", () => {
+    renderWithQueryClient(<Sidebar />);
+
+    expect(screen.queryByRole("heading", { name: "Memory Fort", level: 1 })).not.toBeInTheDocument();
+    expect(screen.getByText("Memory Fort")).toBeInTheDocument();
   });
 
   test("renders stale status from checkout sync-state data", () => {
@@ -115,6 +123,46 @@ describe("Sidebar status pill", () => {
 
     expect(screen.queryByText(/synced/)).not.toBeInTheDocument();
     expect(container.querySelector('[data-variant="line"]')).toBeInTheDocument();
+  });
+
+  test("links recent error state to filtered audit entries", () => {
+    mockUseStatus.mockReturnValue(statusQuery({
+      ...makeStatusWithoutSidecar(),
+      errorsLog: {
+        sizeBytes: 120,
+        lastLine: "2026-05-28T10:00:00.000Z fatal compile error",
+        isClean: false,
+      },
+    }));
+
+    renderWithQueryClient(<Sidebar />);
+
+    const link = screen.getByRole("link", { name: /error/i });
+    expect(link).toHaveAttribute("href", "/memory/audit?level=error&source=errors");
+    expect(link).toHaveAttribute("aria-label", expect.stringMatching(/View recent errors/i));
+    expect(link).toHaveAttribute("title", expect.stringMatching(/View recent errors/i));
+  });
+
+  test("renders stale error logs as healthy when no recent error line exists", () => {
+    mockUseStatus.mockReturnValue(statusQuery({
+      ...makeStatusWithoutSidecar(),
+      errorsLog: {
+        sizeBytes: 120,
+        lastLine: "2026-05-24T10:00:00.000Z old compile error",
+        isClean: false,
+      },
+    }));
+    mockUseSyncState.mockReturnValue(syncStateQuery({
+      status: "synced",
+      lastCheckoutAt: new Date(Date.now() - 8_000).toISOString(),
+      lastCommit: "60d9f22",
+    }));
+
+    renderWithQueryClient(<Sidebar />);
+
+    const pill = screen.getByText("healthy");
+    expect(pill.closest("span")).toHaveClass("text-status-green");
+    expect(screen.queryByText(/error/)).not.toBeInTheDocument();
   });
 });
 

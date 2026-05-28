@@ -80,9 +80,10 @@ describe("dashboard app shell", () => {
     render(<Sidebar />);
 
     const sidebar = screen.getByRole("complementary");
-    expect(within(sidebar).getAllByRole("link")).toHaveLength(NAV_ITEMS.length);
+    const nav = within(sidebar).getByRole("navigation", { name: "Primary navigation" });
+    expect(within(nav).getAllByRole("link")).toHaveLength(NAV_ITEMS.length);
     for (const item of NAV_ITEMS) {
-      expect(within(sidebar).getByRole("link", { name: item.label })).toBeInTheDocument();
+      expect(within(nav).getByRole("link", { name: item.label })).toBeInTheDocument();
     }
   });
 
