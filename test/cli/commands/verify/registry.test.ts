@@ -12,6 +12,7 @@ const EXPECTED_ROLES = new Map<string, VerifyRole[]>([
   ["graph.cohesion", ["operator", "server"]],
   ["retrieval.intent-classifier-health", ["operator", "server"]],
   ["frontmatter.source", ["operator", "server"]],
+  ["storage.atomic-write-retries", ["operator", "server"]],
   ["compile.recent", ["operator", "server"]],
   ["autopush.errors", ["operator"]],
   ["git.remote", ["operator"]],
