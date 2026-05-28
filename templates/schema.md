@@ -274,6 +274,26 @@ Detection requires at least 3 observations from at least 2 distinct sessions wit
 
 ---
 
+## Retrieval intent classification
+
+Dashboard search runs queries through an intent classifier before retrieval. Seven intent buckets:
+
+| Intent | Meaning | Example query |
+|---|---|---|
+| decision | What was decided / why X over Y | "what did we decide about embeddings" |
+| procedure | How to do something | "how do I deploy the dashboard" |
+| episodic | What happened / when | "when did we add prospective memory" |
+| preference | User/operator preferences | "what does the user prefer about Voyage" |
+| current-truth | Current state of something | "what is the current vault size" |
+| code-context | Code, implementations, files | "where is the consolidation runner" |
+| open-ended | Catch-all | anything not matching above |
+
+Heuristic-first classification handles obvious queries with no LLM call. Remaining queries fall through to the configured LLM, when available, at about $0.0001 per call on `openai/gpt-4o-mini`. Each intent maps to per-stream weight multipliers applied before RRF fusion. The `open-ended` weights are uniform (1.0 across all streams), reproducing baseline behavior.
+
+Operators can override with `?intent=<bucket>` on the `/api/search` URL query, or inspect one query via `memory provider test-classifier "<query>"`. The classifier honors `MEMORY_LLM_DISABLED=true`; when disabled, every query takes the `open-ended` path.
+
+---
+
 ## 4. Naming rules
 
 - All filenames are **lowercase kebab-case**: `lisan-studio.md`, not `LisanStudio.md` or `lisan_studio.md`.
