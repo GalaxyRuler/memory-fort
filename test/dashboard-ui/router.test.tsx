@@ -9,6 +9,13 @@ describe("dashboard router", () => {
     expect(router.options.basepath).toBe("/memory");
   });
 
+  it("registers the graph health drill-down route", () => {
+    const testDir = dirname(fileURLToPath(import.meta.url));
+    const routeTree = readFileSync(resolve(testDir, "../../src/dashboard-ui/routeTree.gen.ts"), "utf8");
+
+    expect(routeTree).toContain("'/health': typeof HealthRoute");
+  });
+
   it("sets the browser tab title to Memory Fort", () => {
     const testDir = dirname(fileURLToPath(import.meta.url));
     const indexHtml = readFileSync(resolve(testDir, "../../src/dashboard-ui/index.html"), "utf8");
