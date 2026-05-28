@@ -4,6 +4,8 @@ import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   extractProposalCandidates,
+  filterProsePathLeaksFromStrings,
+  stripProsePathLeaksFromText,
   filterStepCommands,
   filterWikiReferencesToExisting,
 } from "../../src/llm/proposal-grounding.js";
@@ -117,6 +119,38 @@ describe("proposal grounding", () => {
       "memory frobnicate now",
       "run-automation daily-review",
     ]);
+  });
+
+  it("strips only bare wiki/raw paths from prose strings", () => {
+    const result = filterProsePathLeaksFromStrings([
+      "wiki/projects/agentmemory.md",
+      "raw/2026-05-28/codex-session.md",
+      "We updated wiki/projects/agentmemory.md during the session.",
+      "Keep provider settings editable without exposing secrets.",
+    ]);
+
+    expect(result.filtered).toEqual([
+      "We updated wiki/projects/agentmemory.md during the session.",
+      "Keep provider settings editable without exposing secrets.",
+    ]);
+    expect(result.stripped).toEqual([
+      "wiki/projects/agentmemory.md",
+      "raw/2026-05-28/codex-session.md",
+    ]);
+  });
+
+  it("removes bare path lines from multi-line prose while preserving surrounding prose", () => {
+    const result = stripProsePathLeaksFromText([
+      "The work made the settings flow safer.",
+      "wiki/projects/agentmemory.md",
+      "Follow-up review stayed manual.",
+    ].join("\n"));
+
+    expect(result.text).toBe([
+      "The work made the settings flow safer.",
+      "Follow-up review stayed manual.",
+    ].join("\n"));
+    expect(result.stripped).toEqual(["wiki/projects/agentmemory.md"]);
   });
 
   async function writeMarkdown(relPath: string): Promise<void> {

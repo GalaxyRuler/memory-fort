@@ -11,6 +11,8 @@ export interface ProposalGroundingStats {
   strippedReferenceCount: number;
   stripReasons: string[];
   strippedSamples: string[];
+  prosePathLeaksCount: number;
+  prosePathLeakSamples: string[];
 }
 
 export interface ProposalObservation {
@@ -59,6 +61,7 @@ export const MEMORY_CLI_SUBCOMMANDS = [
 const MAX_CANDIDATES = 50;
 const ALLOWED_SHELL_COMMANDS = new Set(["git", "npm", "ssh", "scp", "curl", "cd", "ls", "cat"]);
 const MEMORY_SUBCOMMAND_SET = new Set<string>(MEMORY_CLI_SUBCOMMANDS);
+const BARE_MEMORY_PATH_PATTERN = /^(?:wiki|raw)\/[a-z0-9-]+\/\S+$/;
 
 export async function extractProposalCandidates(opts: {
   vaultRoot: string;
@@ -133,12 +136,45 @@ export function filterStepCommands<T extends { command?: string; description: st
   return { steps: filtered, stripped };
 }
 
+export function stripProsePathLeaksFromText(value: string): { text: string; stripped: string[] } {
+  const stripped: string[] = [];
+  const kept = value
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => {
+      if (isBareMemoryPath(line)) {
+        stripped.push(line);
+        return false;
+      }
+      return true;
+    });
+  return {
+    text: kept.join("\n").trim(),
+    stripped,
+  };
+}
+
+export function filterProsePathLeaksFromStrings(values: string[]): FilterResult<string> {
+  const filtered: string[] = [];
+  const stripped: string[] = [];
+  for (const value of values) {
+    const cleaned = stripProsePathLeaksFromText(value);
+    stripped.push(...cleaned.stripped);
+    if (cleaned.text.length > 0) {
+      filtered.push(cleaned.text);
+    }
+  }
+  return { filtered, stripped };
+}
+
 export function emptyGroundingStats(): ProposalGroundingStats {
   return {
     originalReferenceCount: 0,
     strippedReferenceCount: 0,
     stripReasons: [],
     strippedSamples: [],
+    prosePathLeaksCount: 0,
+    prosePathLeakSamples: [],
   };
 }
 
@@ -152,6 +188,8 @@ export function groundingStatsFromStripped(input: {
     strippedReferenceCount: input.stripped.length,
     stripReasons: input.stripped.map((item) => `${input.reason}: ${item}`),
     strippedSamples: input.stripped.slice(0, 3),
+    prosePathLeaksCount: 0,
+    prosePathLeakSamples: [],
   };
 }
 
@@ -179,6 +217,11 @@ function isAllowedCommand(command: string): boolean {
     return Boolean(subcommand && MEMORY_SUBCOMMAND_SET.has(subcommand));
   }
   return Boolean(name && ALLOWED_SHELL_COMMANDS.has(name));
+}
+
+function isBareMemoryPath(value: string): boolean {
+  const trimmed = value.trim();
+  return trimmed.length > 0 && !/\s/.test(trimmed) && BARE_MEMORY_PATH_PATTERN.test(trimmed);
 }
 
 function isWikiMarkdownPath(value: string): boolean {
