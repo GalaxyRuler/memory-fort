@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { Command } from "commander";
+import { printDebugLogBanner } from "./cli/debug-banner.js";
 import { runCompile } from "./cli/commands/compile.js";
 import {
   formatConsolidateResult,
@@ -833,6 +834,7 @@ registerStub(
   "Install OS-level scheduled tasks (Windows Task Scheduler / cron)",
 );
 
+printDebugLogBanner();
 program.parseAsync(process.argv);
 
 function parseInteger(value: string): number {
