@@ -36,6 +36,16 @@ After this lands, the propose pipelines stop polluting the vault. Drafts contain
 
 Phase 4.3.D and 4.3.E ship with this gap by design — the brief I drafted didn't anticipate the hallucination scale. The fix lives in one brief that touches both consumers.
 
+### External validation of the approach
+
+The candidate-list + post-process design is not a guess; it matches the 2026 production consensus on hallucination prevention in structured-extraction pipelines:
+
+- **Anchor-constrained generation (MDPI Computers 2026)** — for grounded knowledge-graph extraction, "discovered anchors are presented as a closed vocabulary and explicit grounding is required for each element. Hallucinations arise from the unconstrained generation space of LLMs; by establishing a closed vocabulary of text-grounded elements before extraction, the model's ability to fabricate information is fundamentally limited." That is exactly Task 2 below
+- **Citation forcing + verification (ACL Findings 2025)** — best-of-N reranking with a faithfulness judge, plus mandatory citation back to the retrieved chunk. Task 3's post-process filter is the lightweight equivalent — citations that don't resolve get stripped
+- **Agentmemory's gap** — GalaxyRuler/agentmemory (sibling project) validates only LLM output **shape** (Zod schema, XML structure, retry on parse failure). It does not validate that referenced entities exist. Memory Fort needs the extra layer that agentmemory skipped
+
+The brief lands the layer that the research and the sibling project both lack: pre-extraction anchor injection + post-process existence check.
+
 ---
 
 ## Scope guard
@@ -60,7 +70,7 @@ You will:
 
 You will **not**:
 
-- Re-write the existing draft files in the vault. The 11 currently-proposed drafts are confabulated; the operator already knows to reject them. After this brief lands, the operator re-runs propose to get grounded drafts
+- Re-write the existing draft files in the vault. Operator decides per-draft whether to reject or wait-and-re-run after this lands. Live-vault re-audit (2026-05-28) showed the draft hallucination is mixed: the `perform-daily-personal-skill-review` procedure and `tauri-desktop-integration-and-web-preview` thread invent real-sounding content (commands, wiki paths) that doesn't exist. The iAqar bilingual-RTL drafts on the other hand summarize *real* PRs (`#19 Fix bilingual RTL audit findings`, `#20 Fix Pass 18 bilingual RTL regressions`) with real components (`apps/web/src/components/results/ComparisonTable.tsx`, `apps/web/src/i18n/{en,ar}.json`) — those drafts are real-but-imprecise (stale branch names in prose). The grounding fix targets the structural-reference layer where confabulation does material harm; prose imprecision is a separate, lower-priority concern
 - Constrain free-form text fields (summary, open_questions, preconditions, step descriptions). The LLM is creative there and we have no factual ground truth to check against. Free-form text in proposals is ALREADY caveat-prefixed with "auto-generated proposal — operator validates"
 - Add per-relation type validation beyond existence (e.g., "is this really a decision-type page"). The wiki page just has to exist; whether it semantically fits the relation type is operator judgment at promote time
 - Change the propose → review → promote workflow. Two-stage gating remains the operator-validation backstop
