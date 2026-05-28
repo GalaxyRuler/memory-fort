@@ -1040,6 +1040,48 @@ describe("dashboard server", () => {
     }
   });
 
+  it("GET /api/config redacts secret-named fields outside voyage.api_key", async () => {
+    await writeFile(
+      join(tmp, "config.yaml"),
+      [
+        "llm:",
+        '  provider: "openrouter"',
+        '  model: "openai/gpt-4o-mini"',
+        "  max_tokens: 4096",
+        '  api_key: "sk-FAKE12345"',
+        "  options:",
+        '    access_token: "nested-secret"',
+        "voyage:",
+        "  dim: 2048",
+        "",
+      ].join("\n"),
+    );
+    const server = await createServer({ vaultRoot: tmp, port: 0 });
+
+    try {
+      const response = await fetch(`http://${server.host}:${server.port}/api/config`);
+      const text = await response.text();
+      const body = JSON.parse(text);
+      expect(response.status).toBe(200);
+      expect(text).not.toContain("sk-FAKE12345");
+      expect(text).not.toContain("nested-secret");
+      expect(body).toEqual({
+        llm: {
+          provider: "openrouter",
+          model: "openai/gpt-4o-mini",
+          max_tokens: 4096,
+          api_key: "[REDACTED]",
+          options: {
+            access_token: "[REDACTED]",
+          },
+        },
+        voyage: { dim: 2048 },
+      });
+    } finally {
+      await server.close();
+    }
+  });
+
   it("GET /api/config returns an empty object when config.yaml is missing", async () => {
     const server = await createServer({ vaultRoot: tmp, port: 0 });
 
