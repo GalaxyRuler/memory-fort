@@ -43,6 +43,8 @@ The wiki is organized by entity category. Every page declares one `type:` in fro
 
 Raw session files (`raw/<date>/<tool>-<session-id>.md`) carry `type: raw-session` and are not part of the wiki proper — they're the source observations the compile workflow distills into wiki pages.
 
+Dashboard browse views group curated wiki pages in this order when showing all categories: Decisions, Projects, Lessons, References, Tools, People, Threads, Procedures, Crystals. Empty groups are omitted. The category grouping is presentation-only and does not change the canonical directory layout above.
+
 ---
 
 ## 3. Frontmatter contract
@@ -221,6 +223,8 @@ source: codex
 Thread pages should use existing `mentions` and `derived_from` relations to cite raw observations. Do not add new edge types for narrative arcs.
 
 The `graph.narrative-thread-coverage` dashboard metric is `n/a` until at least one live thread exists. Once threads exist, it passes when at least 50% of raw observations are referenced by live thread pages, warns below 50%, and fails below 25%.
+
+The dashboard Overview treats graph health as a compact status summary. Metric tiles expand on demand and link to `/memory/health#<metric-id>` for the detailed drill-down, where thresholds and offender records are shown.
 
 ## Auto-thread proposing
 
