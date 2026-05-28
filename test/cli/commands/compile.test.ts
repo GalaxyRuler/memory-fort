@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { spawnSync } from "node:child_process";
 import {
   mkdir,
@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { mkdtemp } from "node:fs/promises";
 import { runCompile } from "../../../src/cli/commands/compile.js";
+import type { LLMProvider } from "../../../src/llm/types.js";
 
 const CLI = resolve(process.cwd(), "dist", "cli.mjs");
 
@@ -167,6 +168,30 @@ describe("runCompile", () => {
     expect(await readFile(outputPath, "utf-8")).toBe(result.prompt);
   });
 
+  it("executes compile-ops via audited LLM response when explicitly requested", async () => {
+    await writeFile(join(root, "raw", "2026-05-21", "manual-a.md"), "raw for execute a");
+    await writeFile(join(root, "raw", "2026-05-21", "manual-b.md"), "raw for execute b");
+
+    const result = await runCompile({
+      vaultRoot: root,
+      execute: true,
+      configLoader: async () => ({ llm: { provider: "ollama", model: "llama3.2" } }),
+      llmFactory: () => fakeExecuteLLM(),
+      env: {},
+    });
+
+    expect(result.execution).toMatchObject({
+      mode: "execute",
+      applied: ["wiki/lessons/compile-execute.md"],
+      proposed: [],
+      planned: [],
+    });
+    expect(await readFile(join(root, "wiki", "lessons", "compile-execute.md"), "utf-8"))
+      .toContain("Compile execute body");
+    expect(await readFile(join(root, "wiki", ".audit", `llm-${new Date().toISOString().slice(0, 10)}.md`), "utf-8"))
+      .toContain("| compile-execute |");
+  });
+
   it("--output writes file and suppresses prompt on stdout", async () => {
     const rawPath = join(root, "raw", "2026-05-21", "manual-a.md");
     const outputPath = join(tmp, "compile-cli-prompt.md");
@@ -184,3 +209,36 @@ describe("runCompile", () => {
     expect(await readFile(outputPath, "utf-8")).toContain("SCHEMA=# Schema");
   });
 });
+
+function fakeExecuteLLM(): LLMProvider {
+  return {
+    providerName: "ollama",
+    modelName: "llama3.2",
+    chat: vi.fn(async () => ({
+      model: "llama3.2",
+      finishReason: "stop",
+      rawProviderName: "ollama",
+      content: [
+        "```compile-ops",
+        JSON.stringify({
+          operations: [{
+            kind: "write_page",
+            path: "wiki/lessons/compile-execute.md",
+            frontmatter: {
+              type: "lessons",
+              title: "Compile Execute",
+              relations: {
+                derived_from: [
+                  "raw/2026-05-21/manual-a.md",
+                  "raw/2026-05-21/manual-b.md",
+                ],
+              },
+            },
+            body: "Compile execute body.",
+          }],
+        }),
+        "```",
+      ].join("\n"),
+    })),
+  };
+}

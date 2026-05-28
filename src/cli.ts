@@ -328,12 +328,16 @@ program
   .option("--per-file-max-bytes <n>", "max raw bytes per file", parseInteger)
   .option("--total-max-bytes <n>", "max total raw bytes", parseInteger)
   .option("-o, --output <path>", "also write the assembled prompt to a file")
+  .option("--execute", "send the prompt to the configured LLM and apply grounded compile-ops")
+  .option("--plan", "with --execute, preview compile-ops without writing")
   .action(
     async (opts: {
       since?: string;
       perFileMaxBytes?: number;
       totalMaxBytes?: number;
       output?: string;
+      execute?: boolean;
+      plan?: boolean;
     }) => {
       try {
         const result = await runCompile({
@@ -341,8 +345,18 @@ program
           perFileMaxBytes: opts.perFileMaxBytes,
           totalMaxBytes: opts.totalMaxBytes,
           outputPath: opts.output,
+          execute: opts.execute,
+          plan: opts.plan,
         });
-        if (opts.output) {
+        if (opts.execute && result.execution) {
+          console.error(`Compile ${result.execution.mode} complete`);
+          console.error(`  raw files included: ${result.rawFilesIncluded.length}`);
+          console.error(`  raw files skipped:  ${result.rawFilesSkipped.length}`);
+          console.error(`  operations applied: ${result.execution.applied.length}`);
+          console.error(`  operations proposed: ${result.execution.proposed.length}`);
+          console.error(`  operations planned: ${result.execution.planned.length}`);
+          console.error(`  operations rejected: ${result.execution.rejected.length}`);
+        } else if (opts.output) {
           console.error(`Compile prompt written to ${opts.output}`);
           console.error(`  raw files included: ${result.rawFilesIncluded.length}`);
           console.error(`  raw files skipped:  ${result.rawFilesSkipped.length}`);

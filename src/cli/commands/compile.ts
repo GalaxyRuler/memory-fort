@@ -7,11 +7,17 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { applyCompileOperations, parseCompileOperationsBlock, type ApplyCompileOperationsResult } from "../../compile/execute.js";
+import { chatWithAudit } from "../../llm/audit.js";
 import {
-  indexPath,
-  logPath,
+  createLLMFromConfig,
+  getActiveLLMConfig,
+  type LLMConfig,
+} from "../../llm/factory.js";
+import { type LLMProvider } from "../../llm/types.js";
+import { loadMemoryConfig, type MemoryConfig } from "../../storage/config.js";
+import {
   memoryRoot,
-  schemaPath,
 } from "../../storage/paths.js";
 
 export interface CompileOptions {
@@ -20,6 +26,11 @@ export interface CompileOptions {
   perFileMaxBytes?: number;
   totalMaxBytes?: number;
   outputPath?: string;
+  execute?: boolean;
+  plan?: boolean;
+  env?: NodeJS.ProcessEnv;
+  configLoader?: () => Promise<MemoryConfig>;
+  llmFactory?: (config: LLMConfig | null, env: NodeJS.ProcessEnv) => LLMProvider;
 }
 
 export interface CompileResult {
@@ -28,6 +39,9 @@ export interface CompileResult {
   rawFilesSkipped: { path: string; reason: string }[];
   sinceCutoff: string;
   truncatedAtTotalCap: boolean;
+  execution?: {
+    mode: "plan" | "execute";
+  } & ApplyCompileOperationsResult;
 }
 
 interface RawCandidate {
@@ -58,9 +72,9 @@ export async function runCompile(
     join(root, "prompts", "compile.md"),
     "compile prompt",
   );
-  const schema = await readRequiredFile(schemaPath(), "schema.md");
-  const index = await readOptionalFile(indexPath());
-  const log = await readOptionalFile(logPath());
+  const schema = await readRequiredFile(join(root, "schema.md"), "schema.md");
+  const index = await readOptionalFile(join(root, "index.md"));
+  const log = await readOptionalFile(join(root, "log.md"));
   const sinceDate = opts.since
     ? parseCutoff(opts.since)
     : detectSinceFromLog(log) ?? new Date(0);
@@ -138,12 +152,65 @@ export async function runCompile(
     await writeFile(opts.outputPath, prompt);
   }
 
+  const execution = opts.execute
+    ? await executeCompilePrompt({ ...opts, root, prompt })
+    : undefined;
+
   return {
     prompt,
     rawFilesIncluded,
     rawFilesSkipped,
     sinceCutoff: sinceDate.toISOString(),
     truncatedAtTotalCap,
+    execution,
+  };
+}
+
+async function executeCompilePrompt(opts: CompileOptions & {
+  root: string;
+  prompt: string;
+}): Promise<CompileResult["execution"]> {
+  const env = opts.env ?? process.env;
+  const config = await (opts.configLoader ?? (() => loadMemoryConfig(opts.root)))();
+  const llmConfig = getActiveLLMConfig(config);
+  const llm = (opts.llmFactory ?? createLLMFromConfig)(llmConfig, env);
+  const response = await chatWithAudit({
+    llm,
+    vaultRoot: opts.root,
+    consumer: "compile-execute",
+    request: {
+      messages: [
+        {
+          role: "system",
+          content: "Return only a fenced compile-ops JSON block describing append-only memory mutations.",
+        },
+        { role: "user", content: opts.prompt },
+      ],
+      maxTokens: llmConfig?.max_tokens,
+      temperature: llmConfig?.temperature,
+    },
+    env,
+  });
+  const parsed = parseCompileOperationsBlock(response.content);
+  if (!parsed.ok) {
+    return {
+      mode: opts.plan ? "plan" : "execute",
+      applied: [],
+      proposed: [],
+      planned: [],
+      rejected: [{ path: "(response)", reason: parsed.reason }],
+      referencesStripped: 0,
+      prosePathLeaks: 0,
+    };
+  }
+  const applied = await applyCompileOperations({
+    vaultRoot: opts.root,
+    operations: parsed.operations,
+    plan: opts.plan,
+  });
+  return {
+    mode: opts.plan ? "plan" : "execute",
+    ...applied,
   };
 }
 
