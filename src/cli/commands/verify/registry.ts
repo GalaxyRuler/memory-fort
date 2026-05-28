@@ -1,4 +1,5 @@
 import { autoPushErrorsCheck } from "./autopush.js";
+import { atomicWriteRetriesCheck } from "./atomic-write-retries.js";
 import {
   antigravityCaptureCheck,
   antigravityConfigCheck,
@@ -38,6 +39,7 @@ export const ALL_CHECKS: CheckDescriptor[] = [
   graphCohesionCheck,
   intentClassifierHealthCheck,
   sourceFieldCheck,
+  atomicWriteRetriesCheck,
   compileRecentCheck,
   autoPushErrorsCheck,
   gitRemoteCheck,
