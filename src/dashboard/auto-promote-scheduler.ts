@@ -16,7 +16,7 @@ export interface AutoPromoteSchedulerOptions {
   intervalFactory?: (handler: () => void, ms: number) => NodeJS.Timeout;
   clearIntervalFactory?: (handle: NodeJS.Timeout) => void;
   runner?: () => Promise<void>;
-  compileRunner?: () => Promise<DashboardCompileRunResult>;
+  compileRunner?: (opts?: { execute?: boolean }) => Promise<DashboardCompileRunResult>;
   autoPromoteRunner?: () => Promise<void>;
 }
 
@@ -46,7 +46,7 @@ export async function createAutoPromoteScheduler(
     intervals.push(intervalFactory(() => {
       if (running) return;
       running = true;
-      void (opts.compileRunner ?? (() => runScheduledCompileOnce(opts.vaultRoot)))()
+      void (opts.compileRunner ?? ((runOpts) => runScheduledCompileOnce(opts.vaultRoot, runOpts)))({ execute: compile.execute })
         .catch((error) => logSchedulerFailure(opts.vaultRoot, "compile scheduler failed", error))
         .finally(() => {
           running = false;
@@ -61,7 +61,9 @@ export async function createAutoPromoteScheduler(
       const autoRunner = opts.autoPromoteRunner ?? opts.runner ?? (() => runAutoPromoteOnce(opts.vaultRoot));
       const task = compile.scheduled
         ? runScheduledVaultTasksOnce(opts.vaultRoot, {
-            compileRunner: opts.compileRunner ?? (() => runScheduledCompileOnce(opts.vaultRoot)),
+            compileRunner: opts.compileRunner
+              ? () => opts.compileRunner!({ execute: compile.execute })
+              : () => runScheduledCompileOnce(opts.vaultRoot, { execute: compile.execute }),
             autoPromoteRunner: autoRunner,
           })
         : autoRunner().catch((error) => logSchedulerFailure(opts.vaultRoot, "auto-promote scheduler failed", error));
@@ -97,14 +99,17 @@ export async function runScheduledVaultTasksOnce(
   }
 }
 
-export async function runScheduledCompileOnce(vaultRoot: string): Promise<DashboardCompileRunResult> {
+export async function runScheduledCompileOnce(
+  vaultRoot: string,
+  opts: { execute?: boolean } = {},
+): Promise<DashboardCompileRunResult> {
   const startedAt = new Date();
   const outputPath = join(vaultRoot, "state", "scheduled-compile-prompt.md");
   await atomicWrite(join(vaultRoot, "state", "compile-state.json"), `${JSON.stringify({
     status: "running",
     lastRun: null,
   }, null, 2)}\n`);
-  const result = await runCompile({ vaultRoot, outputPath });
+  const result = await runCompile({ vaultRoot, outputPath, execute: opts.execute });
   const finishedAt = new Date();
   await atomicWrite(join(vaultRoot, "state", "compile-state.json"), `${JSON.stringify({
     status: "completed",
@@ -114,6 +119,9 @@ export async function runScheduledCompileOnce(vaultRoot: string): Promise<Dashbo
       durationMs: finishedAt.getTime() - startedAt.getTime(),
       pagesCompiled: result.rawFilesIncluded.length,
       digestPath: "state/scheduled-compile-prompt.md",
+      execute: opts.execute === true,
+      operationsApplied: result.execution?.applied.length ?? 0,
+      operationsProposed: result.execution?.proposed.length ?? 0,
     },
   }, null, 2)}\n`);
   await appendFile(
@@ -154,6 +162,7 @@ function readAutoPromoteConfig(config: MemoryConfig): {
 function readCompileConfig(config: MemoryConfig): {
   scheduled: boolean;
   cadence: "daily" | "weekly" | "manual";
+  execute: boolean;
 } {
   const record = typeof config.compile === "object" && config.compile !== null
     ? config.compile as Record<string, unknown>
@@ -162,6 +171,7 @@ function readCompileConfig(config: MemoryConfig): {
   return {
     scheduled: record["scheduled"] !== false,
     cadence: cadence === "weekly" || cadence === "manual" ? cadence : "daily",
+    execute: record["execute"] === true,
   };
 }
 

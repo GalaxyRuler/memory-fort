@@ -159,6 +159,8 @@ This phase is intentionally **not pre-sequenced**. The order depends on which me
 13. **Scheduled compile cadence.** Shipped 2026-05-28. Dashboard startup schedules daily compile prompt generation by default, Settings exposes compile cadence, `/memory/compile` shows scheduler state, and `POST /api/compile/run` supports a guarded manual trigger.
 14. **Typecheck cleanup + gate.** Shipped 2026-05-28. Pre-existing verify/eval/migration type drift is cleaned up, `npm run typecheck` runs `tsc --noEmit`, and development docs include the pre-merge gate.
 15. **Audit logs excluded from entity enumeration.** Shipped 2026-05-28. `wiki/.audit/` and other wiki dot-directories are treated as operational space, so graph-health duplicate-entity checks and entity-dedup plans no longer propose audit-log merges.
+16. **Vault mutation auto-commit.** Shipped 2026-05-29. Reviewed thread/procedure/entity mutations commit explicit vault paths after successful writes, failures log to `errors.log` without blocking the operator action, debounced auto-push is scheduled, and `sync.uncommitted-vault` warns on stale uncommitted vault changes.
+17. **Autonomous compile execution.** Shipped 2026-05-29. `memory compile --execute` is opt-in, audited as `compile-execute`, requires fenced JSON `compile-ops`, grounds references, redacts secrets, stages low-confidence operations in `wiki/compile-proposed/`, and exposes scheduler/API execute controls plus `compile.execute-health`.
 
 **Dependencies:** Phase 3. (Brief C explicitly depends on lifecycle states from Phase 1; narrative threads are most useful once we have the entity registry from Phase 3 if duplicate metric drove that.)
 

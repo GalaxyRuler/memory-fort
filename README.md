@@ -34,6 +34,23 @@ npm run build
 npm run build:ui
 ```
 
+## Compile and sync safety
+
+`memory compile` still defaults to artifact mode: it assembles the prompt and
+prints it, or writes it with `--output`. `memory compile --execute` is the
+opt-in autonomous path: it sends the prompt to the configured LLM, requires a
+fenced `compile-ops` JSON block, grounds wiki/raw references, redacts secret
+patterns, and only applies append-only/create operations. Low-confidence
+operations are staged in `wiki/compile-proposed/`; `--execute --plan` previews
+the operations without writing.
+
+Reviewed vault mutations now auto-commit explicit paths and schedule the
+existing debounced auto-push. This covers thread/procedure promote and reject,
+thread/procedure proposal apply, and entity review/merge/reject actions. The
+`sync.uncommitted-vault` verify check warns when vault changes sit uncommitted
+past the debounce window, and `compile.execute-health` reports the last
+executed compile operation counts.
+
 ## Pruning
 
 `memory prune --plan` reports archive-ready candidates without writing files.

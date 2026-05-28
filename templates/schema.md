@@ -43,7 +43,7 @@ The wiki is organized by entity category. Every page declares one `type:` in fro
 
 Raw session files (`raw/<date>/<tool>-<session-id>.md`) carry `type: raw-session` and are not part of the wiki proper — they're the source observations the compile workflow distills into wiki pages.
 
-Wiki dot-directories such as `wiki/.audit/` are operational space, not entity space. They may contain audit logs or runtime metadata, but they are excluded from entity deduplication and graph-health wiki-page metrics. Intentional audit readers may still inspect these files directly.
+Wiki dot-directories such as `wiki/.audit/` are operational space, not entity space. They may contain audit logs or runtime metadata, but they are excluded from entity deduplication and graph-health wiki-page metrics. Intentional audit readers may still inspect these files directly. `wiki/compile-proposed/` is also review space for low-confidence autonomous compile operations; its files are not canonical memory until manually reviewed and applied.
 
 Dashboard browse views group curated wiki pages in this order when showing all categories: Decisions, Projects, Lessons, References, Tools, People, Threads, Procedures, Crystals. Empty groups are omitted. The category grouping is presentation-only and does not change the canonical directory layout above.
 

@@ -75,6 +75,26 @@ describe("auto-promote scheduler", () => {
     expect(clearIntervalFactory).toHaveBeenCalledWith(handle);
   });
 
+  it("passes compile.execute to scheduled compile runners", async () => {
+    const handle = Symbol("interval") as unknown as NodeJS.Timeout;
+    const intervalFactory = vi.fn(() => handle);
+    const compileRunner = vi.fn(async () => ({
+      rawFilesIncluded: [],
+      rawFilesSkipped: [],
+      outputPath: "state/scheduled-compile-prompt.md",
+    }));
+    await createAutoPromoteScheduler({
+      vaultRoot: tmp,
+      configLoader: async () => ({ compile: { scheduled: true, cadence: "daily", execute: true } }),
+      intervalFactory,
+      compileRunner,
+    });
+
+    intervalFactory.mock.calls[0]![0]();
+
+    expect(compileRunner).toHaveBeenCalledWith({ execute: true });
+  });
+
   it("runs scheduled compile before auto-promote work", async () => {
     const calls: string[] = [];
 

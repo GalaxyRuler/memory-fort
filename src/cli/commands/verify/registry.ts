@@ -17,6 +17,7 @@ import {
   vscodeConfigCheck,
 } from "./clients.js";
 import { compileRecentCheck } from "./compile.js";
+import { compileExecuteHealthCheck } from "./compile-execute-health.js";
 import { dashboardStatusCheck } from "./dashboard.js";
 import { episodicRelationsCoverageCheck } from "./episodic-relations.js";
 import { freshnessStaleCheck } from "./freshness.js";
@@ -27,6 +28,7 @@ import { prospectiveOverdueCheck } from "./prospective-overdue.js";
 import { searchPipelineCheck } from "./search.js";
 import { sourceFieldCheck } from "./source-field.js";
 import type { CheckDescriptor } from "./types.js";
+import { uncommittedVaultCheck } from "./uncommitted-vault.js";
 import { vaultReadWriteCheck } from "./vault.js";
 
 export const ALL_CHECKS: CheckDescriptor[] = [
@@ -41,7 +43,9 @@ export const ALL_CHECKS: CheckDescriptor[] = [
   sourceFieldCheck,
   atomicWriteRetriesCheck,
   compileRecentCheck,
+  compileExecuteHealthCheck,
   autoPushErrorsCheck,
+  uncommittedVaultCheck,
   gitRemoteCheck,
   claudeCodeEnabledCheck,
   claudeCodeCaptureCheck,
