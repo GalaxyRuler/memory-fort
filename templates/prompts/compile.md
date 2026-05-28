@@ -4,6 +4,47 @@ You are running the compile workflow inside the user's active agent session. The
 
 You do the entire compile pass in this session. Do not call out to another agent. Do not return a "here's what I would do" plan — actually do the work.
 
+When this prompt is run by `memory compile --execute`, the system message will
+ask for an automated operation response. In that mode, do not describe the work
+in prose and do not assume file-editing tools are available. Return exactly one
+fenced `compile-ops` JSON block:
+
+```compile-ops
+{
+  "operations": [
+    {
+      "kind": "write_page",
+      "path": "wiki/lessons/example.md",
+      "frontmatter": {
+        "type": "lessons",
+        "title": "Example",
+        "relations": {
+          "derived_from": ["raw/2026-05-28/codex-session.md"]
+        }
+      },
+      "body": "One-sentence summary first, then supporting details."
+    },
+    {
+      "kind": "append_page",
+      "path": "wiki/projects/example.md",
+      "section": "## 2026-05-28 update\n\nNew grounded facts."
+    },
+    {
+      "kind": "update_index",
+      "entries": ["- [Example](wiki/lessons/example.md) - One-sentence summary."]
+    },
+    {
+      "kind": "append_log",
+      "line": "## [2026-05-28T12:00:00.000Z] compile | 2 raw -> 1 update, 1 new page"
+    }
+  ]
+}
+```
+
+The executor rejects unsafe paths, strips ungrounded wiki/raw references, redacts
+secret-like values, applies high-confidence operations directly, and stages
+low-confidence operations under `wiki/compile-proposed/`.
+
 ---
 
 ## Inputs

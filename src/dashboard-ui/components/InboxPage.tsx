@@ -6,6 +6,7 @@ import { EmptyState } from "./EmptyState.js";
 import {
   type ProposedDraft,
   useProposedAction,
+  useProposedCompile,
   useProposedProcedures,
   useProposedSummary,
   useProposedThreads,
@@ -15,6 +16,7 @@ import { cn } from "../lib/cn.js";
 export function InboxPage() {
   const threads = useProposedThreads();
   const procedures = useProposedProcedures();
+  const compile = useProposedCompile();
   const summary = useProposedSummary();
   const action = useProposedAction();
   const [hidden, setHidden] = useState<Set<string>>(() => new Set());
@@ -28,11 +30,19 @@ export function InboxPage() {
     () => (procedures.data ?? []).filter((draft) => !hidden.has(draftKey(draft))),
     [procedures.data, hidden],
   );
-  const isLoading = threads.isLoading || procedures.isLoading;
-  const hasError = threads.error || procedures.error;
-  const total = threadDrafts.length + procedureDrafts.length;
+  const compileDrafts = useMemo(
+    () => (compile.data ?? []).filter((draft) => !hidden.has(draftKey(draft))),
+    [compile.data, hidden],
+  );
+  const isLoading = threads.isLoading || procedures.isLoading || compile.isLoading;
+  const hasError = threads.error || procedures.error || compile.error;
+  const total = threadDrafts.length + procedureDrafts.length + compileDrafts.length;
 
   const runAction = (draft: ProposedDraft, nextAction: "promote" | "reject") => {
+    if (draft.kind === "compile") {
+      setNotice("Compile proposals are staged for manual review.");
+      return;
+    }
     if (nextAction === "reject" && !window.confirm(`Reject ${draft.title}?`)) return;
     setHidden((current) => new Set(current).add(draftKey(draft)));
     action.mutate(
@@ -87,6 +97,12 @@ export function InboxPage() {
           <DraftSection
             title="Procedures awaiting review"
             drafts={procedureDrafts}
+            onPromote={(draft) => runAction(draft, "promote")}
+            onReject={(draft) => runAction(draft, "reject")}
+          />
+          <DraftSection
+            title="Compile proposals"
+            drafts={compileDrafts}
             onPromote={(draft) => runAction(draft, "promote")}
             onReject={(draft) => runAction(draft, "reject")}
           />
@@ -146,16 +162,18 @@ function DraftCard({
           </div>
           <p className="text-sm text-text-secondary">{draft.prosePreview}</p>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <Button className="border-status-green/60 text-status-green hover:bg-status-green/10" onClick={() => onPromote(draft)}>
-            <Check size={14} strokeWidth={1.5} />
-            Promote
-          </Button>
-          <Button className="border-status-red/60 text-status-red hover:bg-status-red/10" onClick={() => onReject(draft)}>
-            <Trash2 size={14} strokeWidth={1.5} />
-            Reject
-          </Button>
-        </div>
+        {draft.kind !== "compile" && (
+          <div className="flex flex-wrap gap-2">
+            <Button className="border-status-green/60 text-status-green hover:bg-status-green/10" onClick={() => onPromote(draft)}>
+              <Check size={14} strokeWidth={1.5} />
+              Promote
+            </Button>
+            <Button className="border-status-red/60 text-status-red hover:bg-status-red/10" onClick={() => onReject(draft)}>
+              <Trash2 size={14} strokeWidth={1.5} />
+              Reject
+            </Button>
+          </div>
+        )}
       </div>
       <div className="mt-3 flex flex-wrap gap-2 text-xs text-text-muted">
         <span>{draft.observationCount} observations</span>
@@ -164,6 +182,7 @@ function DraftCard({
           <span>{draft.timeRange.start}{draft.timeRange.end ? ` to ${draft.timeRange.end}` : ""}</span>
         )}
         {draft.kind === "procedure" && <span>{draft.steps} steps</span>}
+        {draft.kind === "compile" && draft.targetPath && <span>{draft.targetPath}</span>}
       </div>
       <details className="mt-3">
         <summary className="cursor-pointer text-sm text-text-secondary">Expand draft</summary>

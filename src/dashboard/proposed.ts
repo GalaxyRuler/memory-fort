@@ -46,9 +46,15 @@ export interface ProposedProcedureDraft extends ProposedDraftBase {
   steps: number;
 }
 
+export interface ProposedCompileDraft extends ProposedDraftBase {
+  kind: "compile";
+  targetPath: string | null;
+}
+
 export interface ProposedSummary {
   threads: { total: number; high: number; low: number };
   procedures: { total: number; high: number; low: number };
+  compile: { total: number; high: number; low: number };
   total: number;
   recentAutoPromoted: number;
 }
@@ -101,18 +107,36 @@ export async function listProposedProcedures(vaultRoot: string): Promise<Propose
   });
 }
 
+export async function listProposedCompile(vaultRoot: string): Promise<ProposedCompileDraft[]> {
+  const drafts = await readProposedFiles(join(vaultRoot, "wiki", "compile-proposed"));
+  return drafts.map(({ slug, frontmatter, body }) => ({
+    kind: "compile" as const,
+    slug,
+    title: frontmatter.title || slug,
+    observationCount: 0,
+    distinctSessions: 0,
+    confidence: { level: "low" as const, reasons: ["compile execute staged for review"] },
+    prosePreview: firstParagraph(body),
+    body,
+    targetPath: /# Compile proposal:\s*(.+)$/m.exec(body)?.[1]?.trim() ?? null,
+  }));
+}
+
 export async function loadProposedSummary(vaultRoot: string): Promise<ProposedSummary> {
-  const [threads, procedures, recentAutoPromoted] = await Promise.all([
+  const [threads, procedures, compile, recentAutoPromoted] = await Promise.all([
     listProposedThreads(vaultRoot),
     listProposedProcedures(vaultRoot),
+    listProposedCompile(vaultRoot),
     countRecentAutoPromoted(vaultRoot),
   ]);
   const threadCounts = confidenceCounts(threads);
   const procedureCounts = confidenceCounts(procedures);
+  const compileCounts = confidenceCounts(compile);
   return {
     threads: threadCounts,
     procedures: procedureCounts,
-    total: threadCounts.total + procedureCounts.total,
+    compile: compileCounts,
+    total: threadCounts.total + procedureCounts.total + compileCounts.total,
     recentAutoPromoted,
   };
 }

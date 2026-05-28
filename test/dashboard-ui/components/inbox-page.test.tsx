@@ -6,6 +6,7 @@ import { InboxPage } from "../../../src/dashboard-ui/components/InboxPage.js";
 const proposedHooks = vi.hoisted(() => ({
   useProposedThreads: vi.fn(),
   useProposedProcedures: vi.fn(),
+  useProposedCompile: vi.fn(),
   useProposedSummary: vi.fn(),
   useProposedAction: vi.fn(),
 }));
@@ -16,8 +17,10 @@ describe("InboxPage", () => {
   beforeEach(() => {
     proposedHooks.useProposedThreads.mockReset();
     proposedHooks.useProposedProcedures.mockReset();
+    proposedHooks.useProposedCompile.mockReset();
     proposedHooks.useProposedSummary.mockReset();
     proposedHooks.useProposedAction.mockReset();
+    proposedHooks.useProposedCompile.mockReturnValue({ data: [] });
     proposedHooks.useProposedSummary.mockReturnValue({
       data: { total: 0, recentAutoPromoted: 2, threads: { total: 0, high: 0, low: 0 }, procedures: { total: 0, high: 0, low: 0 } },
     });

@@ -31,11 +31,24 @@ export interface ProposedProcedureDraft {
   steps: number;
 }
 
-export type ProposedDraft = ProposedThreadDraft | ProposedProcedureDraft;
+export interface ProposedCompileDraft {
+  kind: "compile";
+  slug: string;
+  title: string;
+  observationCount: number;
+  distinctSessions: number;
+  confidence: ProposalConfidence;
+  prosePreview: string;
+  body: string;
+  targetPath: string | null;
+}
+
+export type ProposedDraft = ProposedThreadDraft | ProposedProcedureDraft | ProposedCompileDraft;
 
 export interface ProposedSummary {
   threads: { total: number; high: number; low: number };
   procedures: { total: number; high: number; low: number };
+  compile: { total: number; high: number; low: number };
   total: number;
   recentAutoPromoted: number;
 }
@@ -52,6 +65,14 @@ export function useProposedProcedures() {
   return useQuery({
     queryKey: ["proposed", "procedures"],
     queryFn: () => apiGet<ProposedProcedureDraft[]>("/proposed/procedures"),
+    staleTime: 15_000,
+  });
+}
+
+export function useProposedCompile() {
+  return useQuery({
+    queryKey: ["proposed", "compile"],
+    queryFn: () => apiGet<ProposedCompileDraft[]>("/proposed/compile"),
     staleTime: 15_000,
   });
 }

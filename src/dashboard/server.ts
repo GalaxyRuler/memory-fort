@@ -23,6 +23,7 @@ import { applyConfigPatch, ConfigPatchError, validateConfigPatch } from "./confi
 import { buildProvidersCatalog } from "./providers-catalog.js";
 import { computeGraphHealth, type GraphHealthReport } from "./graph-health.js";
 import {
+  listProposedCompile,
   listProposedProcedures,
   listProposedThreads,
   loadProposedSummary,
@@ -72,7 +73,7 @@ export interface ServerOptions {
   embedClient?: EmbedClient | null;
   llmProvider?: LLMProvider | null;
   dashboardDistRoot?: string | null;
-  compileRunner?: () => Promise<DashboardCompileRunResult>;
+  compileRunner?: (opts?: { execute?: boolean }) => Promise<DashboardCompileRunResult>;
 }
 
 export interface RunningServer {
@@ -444,13 +445,16 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
       }
       compileRunActive = true;
       try {
-        const result = await (opts.compileRunner ?? (() => runScheduledCompileOnce(opts.vaultRoot)))();
+        const body = await readJsonBody(req);
+        const execute = typeof body === "object" && body !== null && (body as Record<string, unknown>).execute === true;
+        const result = await (opts.compileRunner ?? ((runOpts) => runScheduledCompileOnce(opts.vaultRoot, runOpts)))({ execute });
         writeJson(res, {
           ok: true,
           summary: {
             rawIncluded: result.rawFilesIncluded.length,
             rawSkipped: result.rawFilesSkipped.length,
             outputPath: result.outputPath,
+            execute,
           },
         });
       } catch (error) {
@@ -615,6 +619,11 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
 
       if (segments.length === 3 && segments[0] === "api" && segments[1] === "proposed" && segments[2] === "procedures") {
         writeJson(res, await listProposedProcedures(opts.vaultRoot));
+        return;
+      }
+
+      if (segments.length === 3 && segments[0] === "api" && segments[1] === "proposed" && segments[2] === "compile") {
+        writeJson(res, await listProposedCompile(opts.vaultRoot));
         return;
       }
 

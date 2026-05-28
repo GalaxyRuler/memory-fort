@@ -912,6 +912,33 @@ describe("dashboard server", () => {
     }
   });
 
+  it("POST /api/compile/run forwards execute requests to the compile runner", async () => {
+    const compileRunner = vi.fn(async () => ({
+      rawFilesIncluded: ["raw/a.md"],
+      rawFilesSkipped: [],
+      outputPath: "state/scheduled-compile-prompt.md",
+    }));
+    const server = await createServer({ vaultRoot: tmp, port: 0, compileRunner });
+
+    try {
+      const response = await fetch(`http://${server.host}:${server.port}/api/compile/run`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ execute: true }),
+      });
+      const body = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(body).toMatchObject({
+        ok: true,
+        summary: { execute: true },
+      });
+      expect(compileRunner).toHaveBeenCalledWith({ execute: true });
+    } finally {
+      await server.close();
+    }
+  });
+
   it("GET /api/conflicts returns an empty list on a clean vault and parses a populated store", async () => {
     const server = await createServer({ vaultRoot: tmp, port: 0 });
 

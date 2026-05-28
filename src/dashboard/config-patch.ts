@@ -47,6 +47,7 @@ const SAFELISTED_PATHS = new Set([
   "auto_promote.confidence_threshold",
   "compile.scheduled",
   "compile.cadence",
+  "compile.execute",
 ]);
 
 const VALID_TOP_LEVEL_KEYS = new Set(["embedder", "llm", "auto_promote", "compile"]);
@@ -160,6 +161,9 @@ function validateValue(
   }
   if (path === "compile.scheduled" && typeof value !== "boolean") {
     errors.push({ path, message: "scheduled must be a boolean" });
+  }
+  if (path === "compile.execute" && typeof value !== "boolean") {
+    errors.push({ path, message: "execute must be a boolean" });
   }
   if (path === "compile.cadence" && !VALID_COMPILE_CADENCES.has(String(value))) {
     errors.push({ path, message: "cadence must be daily, weekly, or manual" });
