@@ -152,6 +152,7 @@ This phase is intentionally **not pre-sequenced**. The order depends on which me
 6. **LLM debug logging.** Shipped 2026-05-28. Strict opt-in plaintext prompt/response logs are available through `MEMORY_LLM_DEBUG_LOG=1`; parser failures now retain specific rejection reasons and optional hashes for diagnostics.
 7. **Prompt field clarification.** Shipped 2026-05-28. Auto-propose prompts now keep candidate wiki paths scoped to relation context, and post-process grounding strips bare `wiki/...` or `raw/...` leaks from prose fields while auditing `prosePathLeaks`.
 8. **Overview redesign UX fixes.** Shipped 2026-05-28. Overview graph health is collapsed by default with persisted expansion, `/memory/health` provides the drill-down view, status/errors link to filtered audit entries, provider settings show real controls immediately, high-volume browse pages load in 50-row increments, and wiki browse groups pages by memory category.
+9. **Dashboard inbox + auto-promote.** Shipped 2026-05-28. High-confidence thread/procedure proposals can auto-promote from scheduled or CLI runs, while low-confidence drafts appear in `/memory/inbox` with one-click promote/reject actions and a header badge.
 
 **Dependencies:** Phase 3. (Brief C explicitly depends on lifecycle states from Phase 1; narrative threads are most useful once we have the entity registry from Phase 3 if duplicate metric drove that.)
 
@@ -215,6 +216,7 @@ These are small, one-off maintenance items that don't fit the phased model. Pick
 | 2026-05-28 | Plaintext LLM debug logging is strict opt-in | Hashed audit rows stay canonical; sensitive prompt/response files are written only for `MEMORY_LLM_DEBUG_LOG=1` and ignored by runtime vault git |
 | 2026-05-28 | Candidate paths are relation context, not prose | Thread/procedure prompts forbid path strings in prose fields; bare path leaks are stripped and counted separately from unresolved reference stripping |
 | 2026-05-28 | Overview is a summary, health is a drill-down | Graph-health cards stay collapsed on Overview and navigate to `/memory/health#<metric>`; detailed offender lists live on the dedicated route to keep the first screen scannable |
+| 2026-05-28 | Auto-promote is confidence-gated, dashboard review handles the rest | Clean drafts need zero stripped references, zero prose path leaks, zero stripped commands, at least 5 observations, and at least 2 sessions; anything else stays proposed until the operator promotes or rejects it |
 
 ---
 

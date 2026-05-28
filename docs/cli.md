@@ -37,6 +37,22 @@ node dist/cli.mjs compile --output compile-prompt.md
 
 ---
 
+## proposal review
+
+`memory thread propose --apply --auto-promote` and
+`memory procedure propose --apply --auto-promote` score each generated draft
+before routing it. Clean high-confidence drafts are promoted directly into
+`wiki/threads/` or `wiki/procedures/`; drafts with grounding issues or too little
+cluster evidence stay under the matching `*-proposed/` directory for review.
+Without `--auto-promote`, propose behavior is unchanged and every draft remains
+review-gated.
+
+The dashboard inbox at `/memory/inbox` shows proposed thread and procedure
+drafts with confidence reasons and one-click Promote/Reject actions. Those
+actions call the same promote/reject logic as the CLI commands.
+
+---
+
 ## lint
 
 **Synopsis:**

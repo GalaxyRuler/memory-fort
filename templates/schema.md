@@ -276,6 +276,42 @@ strip rate and `prosePathLeaks` rate are tracked in the LLM audit log per call.
 high strip rate (>3 per call sustained) or non-zero prose leak rate signals that
 the prompt needs tuning or the model is unsuitable for the task.
 
+### Auto-promote and inbox
+
+`memory thread propose --apply --auto-promote` and
+`memory procedure propose --apply --auto-promote` route high-confidence drafts
+directly into `wiki/threads/` or `wiki/procedures/`. Low-confidence drafts stay
+under `wiki/threads-proposed/` or `wiki/procedures-proposed/` for review. Without
+`--auto-promote`, all drafts keep the existing review-gated behavior.
+
+High confidence requires all of these signals:
+
+- `strippedReferenceCount === 0`
+- `prosePathLeaksCount === 0`
+- `commandsStripped.length === 0`
+- at least 5 observations
+- at least 2 distinct sessions
+
+Each proposed draft carries `proposal_confidence` frontmatter with the level,
+reasons, observation count, and distinct session count. The dashboard reads this
+for `/memory/inbox`, where the operator can promote or reject drafts with the
+same backend actions as the CLI commands. The top bar shows an inbox badge when
+drafts are awaiting review.
+
+Dashboard startup can schedule propose runs from `config.yaml`:
+
+```yaml
+auto_promote:
+  enabled: false
+  cadence: "weekly" # weekly | daily | manual
+  confidence_threshold: high
+```
+
+`enabled: false` is the default. `manual` disables scheduling but keeps the
+settings visible. `confidence_threshold: none` is accepted in config for manual
+operator experiments but is not exposed in the dashboard settings UI; the
+recommended and default threshold is `high`.
+
 ### Diagnostic env vars
 
 `MEMORY_LLM_DEBUG_LOG=1` enables plaintext LLM prompt/response logging for
@@ -306,7 +342,7 @@ All other Brief A/B fields apply normally.
 
 ### Auto-extract proposing
 
-`memory procedure propose` detects clusters of raw observations sharing command-line signatures across multiple sessions and asks the configured LLM to draft procedure pages. Drafts land at `wiki/procedures-proposed/<slug>.md` with `lifecycle: proposed` and `source: auto-procedural-extract`. The operator validates and promotes via `memory procedure promote <slug>`.
+`memory procedure propose` detects clusters of raw observations sharing command-line signatures across multiple sessions and asks the configured LLM to draft procedure pages. Drafts land at `wiki/procedures-proposed/<slug>.md` with `lifecycle: proposed` and `source: auto-procedural-extract`. The operator validates and promotes via `memory procedure promote <slug>` or the dashboard inbox at `/memory/inbox`.
 
 Same propose -> review -> promote workflow as auto-thread-proposing. Cost ~$0.001 per proposal on `openai/gpt-4o-mini`, default `--max-proposals 10`. Free with `qwen/qwen-2.5-7b-instruct:free`.
 
