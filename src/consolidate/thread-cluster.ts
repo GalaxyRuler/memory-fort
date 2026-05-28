@@ -1,6 +1,9 @@
+import type { RelationMap } from "../retrieval/relations.js";
+
 export interface RawObservationRef {
   relPath: string;
   created: string;
+  relations?: RelationMap;
   entities: string[];
   source: string;
   title: string;

@@ -1,6 +1,9 @@
+import type { RelationMap } from "../retrieval/relations.js";
+
 export interface RawProcedureObservationRef {
   relPath: string;
   created: string;
+  relations?: RelationMap;
   session: string | null;
   source: string;
   title: string;
