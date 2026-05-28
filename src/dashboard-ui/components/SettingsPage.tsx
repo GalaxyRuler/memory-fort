@@ -9,6 +9,8 @@ function isSection(value: ConfigValue): value is Record<string, ConfigValue> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
+const DEDICATED_PROVIDER_SECTIONS = new Set(["embedder", "embedding", "llm"]);
+
 export function SettingsPage() {
   const config = useConfig();
 
@@ -16,7 +18,7 @@ export function SettingsPage() {
   if (config.error || !config.data) return <div className="p-4 text-sm text-status-red md:p-6">Failed to load config.</div>;
 
   const entries = Object.entries(config.data);
-  const sections = entries.filter(([, value]) => isSection(value));
+  const sections = entries.filter(([key, value]) => isSection(value) && !DEDICATED_PROVIDER_SECTIONS.has(key));
   const scalars = entries.filter(([, value]) => !isSection(value));
   const generalData = Object.fromEntries(scalars) as Record<string, ConfigValue>;
 

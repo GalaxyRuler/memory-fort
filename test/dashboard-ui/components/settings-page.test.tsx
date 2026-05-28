@@ -152,10 +152,10 @@ describe("settings page", () => {
     render(<SettingsPage />);
 
     expect(screen.getByRole("heading", { name: "retention" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "embedding" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "embedding" })).not.toBeInTheDocument();
     expect(screen.getByText("raw_window_days")).toBeInTheDocument();
-    expect(screen.getByText("provider")).toBeInTheDocument();
-    expect(screen.getByText("voyage-4-large")).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Embedder provider" })).toBeVisible();
+    expect(screen.getByRole("combobox", { name: "Embedder model" })).toBeVisible();
   });
 
   test("SettingsPage renders editable provider cards above read-only sections", () => {
@@ -173,6 +173,10 @@ describe("settings page", () => {
 
     expect(screen.getByRole("heading", { name: "Embedder" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "LLM" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "embedder" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "llm" })).not.toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "LLM provider" })).toBeVisible();
+    expect(screen.getByRole("combobox", { name: "LLM model" })).toBeVisible();
     expect(screen.getByRole("button", { name: /edit embedder/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /edit llm/i })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "retention" })).toBeInTheDocument();

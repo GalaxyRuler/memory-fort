@@ -115,8 +115,30 @@ export function EmbedderConfigCard() {
         </div>
       ) : (
         <div className="space-y-2 text-sm">
-          <p>Provider: {active.provider}</p>
-          <p>Model: {active.model}{activeDim ? ` (${activeDim}-dim)` : ""}</p>
+          <p className="sr-only">Provider: {active.provider}</p>
+          <p className="sr-only">Model: {active.model}{activeDim ? ` (${activeDim}-dim)` : ""}</p>
+          <label className="block text-sm">
+            <span className="mb-1 block text-xs uppercase tracking-wide text-text-muted">Provider</span>
+            <select
+              aria-label="Embedder provider"
+              disabled
+              className="min-h-11 w-full rounded-md border border-border-subtle bg-surface px-3 py-1.5 text-sm opacity-80 md:min-h-8"
+              value={active.provider}
+            >
+              {providerEntries.some((entry) => entry.provider === active.provider) ? null : (
+                <option value={active.provider}>{active.provider}</option>
+              )}
+              {providerEntries.map((entry) => (
+                <option key={entry.provider} value={entry.provider}>{entry.provider}</option>
+              ))}
+            </select>
+          </label>
+          <ReadonlyModelControl
+            provider={active.provider}
+            value={active.model}
+            displayValue={activeDim ? `${active.model} (${activeDim}-dim)` : active.model}
+            providers={activeProviderEntry?.models ?? []}
+          />
           <KeyStatus provider={activeProviderEntry} loading={providers.isLoading} />
           {message && <p className="rounded-md border border-status-green/30 bg-status-green/10 p-2 text-xs text-status-green">{message}</p>}
         </div>
@@ -128,6 +150,42 @@ export function EmbedderConfigCard() {
         </p>
       )}
     </Card>
+  );
+}
+
+function ReadonlyModelControl(props: {
+  provider: string;
+  value: string;
+  displayValue: string;
+  providers: Array<{ id: string; dim?: number }>;
+}) {
+  if (props.provider === "ollama") {
+    return (
+      <label className="block text-sm">
+        <span className="mb-1 block text-xs uppercase tracking-wide text-text-muted">Model</span>
+        <Input aria-label="Embedder model" disabled value={props.value} className="w-full opacity-80" />
+      </label>
+    );
+  }
+  return (
+    <label className="block text-sm">
+      <span className="mb-1 block text-xs uppercase tracking-wide text-text-muted">Model</span>
+      <select
+        aria-label="Embedder model"
+        disabled
+        className="min-h-11 w-full rounded-md border border-border-subtle bg-surface px-3 py-1.5 text-sm opacity-80 md:min-h-8"
+        value={props.value}
+      >
+        {props.providers.some((model) => model.id === props.value) ? null : (
+          <option value={props.value}>{props.displayValue}</option>
+        )}
+        {props.providers.map((model) => (
+          <option key={model.id} value={model.id}>
+            {model.id}{model.dim ? ` (${model.dim}-dim)` : ""}
+          </option>
+        ))}
+      </select>
+    </label>
   );
 }
 
