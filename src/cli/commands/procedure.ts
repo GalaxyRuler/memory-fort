@@ -43,6 +43,7 @@ export interface ProcedureProposeRunResult {
   clustered: number;
   proposed: number;
   written: number;
+  referencesStripped: number;
   skipped: Array<{ clusterIndex: number; reason: string }>;
   proposals: Array<{
     slug: string;
@@ -82,6 +83,7 @@ export async function runProcedurePropose(
   const proposals: ProcedureProposeRunResult["proposals"] = [];
   const skipped: ProcedureProposeRunResult["skipped"] = [];
   let written = 0;
+  let referencesStripped = 0;
 
   for (const [clusterIndex, cluster] of selected.entries()) {
     const proposal = await proposeProcedure({ llm, vaultRoot: opts.vaultRoot, cluster });
@@ -89,6 +91,7 @@ export async function runProcedurePropose(
       skipped.push({ clusterIndex, reason: "proposal skipped or malformed" });
       continue;
     }
+    referencesStripped += proposal.grounding.strippedReferenceCount;
 
     const slug = uniqueProposalSlug(opts.vaultRoot, proposal.proposedSlug);
     const relPath = `wiki/procedures-proposed/${slug}.md`;
@@ -103,7 +106,7 @@ export async function runProcedurePropose(
     if (opts.apply) {
       await atomicWrite(
         join(opts.vaultRoot, ...relPath.split("/")),
-        formatProcedureProposalFile({ proposal, cluster, slug, now }),
+        formatProcedureProposalFile({ proposal, cluster, slug, now, vaultRoot: opts.vaultRoot }),
       );
       written += 1;
     }
@@ -124,6 +127,7 @@ export async function runProcedurePropose(
     proposals,
     skipped,
     written,
+    referencesStripped,
   }));
 
   return {
@@ -131,6 +135,7 @@ export async function runProcedurePropose(
     clustered: clusters.length,
     proposed: proposals.length,
     written,
+    referencesStripped,
     skipped,
     proposals,
     auditLogPath,
@@ -186,6 +191,7 @@ export function formatProcedureProposeResult(result: ProcedureProposeRunResult):
     `Scanned raw observations: ${result.scanned}`,
     `Clusters found: ${result.clustered}`,
     `Proposals accepted: ${result.proposed}`,
+    `References stripped: ${result.referencesStripped} (avg ${averageStripped(result.referencesStripped, result.proposed)} per proposal)`,
     `Drafts written: ${result.written}`,
     `Audit: ${result.auditLogPath}`,
   ];
@@ -278,6 +284,7 @@ function toRawProcedureObservationRef(document: SearchDocument): RawProcedureObs
   return {
     relPath: document.relPath,
     created: documentDate(document),
+    relations: document.relations,
     session: document.session,
     source: document.source,
     title: document.title || basename(document.relPath, ".md"),
@@ -302,8 +309,12 @@ function formatProcedureProposalFile(opts: {
   cluster: ProcedureCluster;
   slug: string;
   now: Date;
+  vaultRoot: string;
 }): string {
   const date = opts.now.toISOString().slice(0, 10);
+  const derivedFrom = opts.cluster.observations
+    .map((observation) => observation.relPath)
+    .filter((relPath) => relationTargetExists(opts.vaultRoot, relPath));
   return serializeFrontmatter(
     {
       type: "procedures",
@@ -323,7 +334,7 @@ function formatProcedureProposalFile(opts: {
       updated: date,
       tags: uniqueSorted([...opts.proposal.tags, "auto-proposed", "procedure-draft"]),
       relations: {
-        derived_from: opts.cluster.observations.map((observation) => observation.relPath),
+        derived_from: derivedFrom,
       },
     },
     [
@@ -381,6 +392,7 @@ function formatProcedureRunAudit(input: {
   proposals: ProcedureProposeRunResult["proposals"];
   skipped: ProcedureProposeRunResult["skipped"];
   written: number;
+  referencesStripped: number;
 }): string {
   const date = input.now.toISOString().slice(0, 10);
   const lines = [
@@ -392,6 +404,7 @@ function formatProcedureRunAudit(input: {
     `clusters found: ${input.clustered}`,
     `clusters selected: ${input.selected}`,
     `proposals accepted: ${input.proposals.length}`,
+    `references stripped: ${input.referencesStripped} (avg ${averageStripped(input.referencesStripped, input.proposals.length)} per proposal)`,
     `drafts written: ${input.written}`,
     "",
     "## Proposals",
@@ -449,6 +462,16 @@ function listOrNone(items: string[]): string[] {
 function uniqueSorted(items: string[]): string[] {
   return [...new Set(items.filter((item) => item.trim().length > 0))]
     .sort((a, b) => a.localeCompare(b));
+}
+
+function averageStripped(stripped: number, proposals: number): string {
+  return proposals > 0 ? (stripped / proposals).toFixed(1) : "0.0";
+}
+
+function relationTargetExists(vaultRoot: string, relPath: string): boolean {
+  if (relPath.includes("..")) return false;
+  if (!relPath.startsWith("wiki/") && !relPath.startsWith("raw/")) return false;
+  return existsSync(join(vaultRoot, ...relPath.split("/")));
 }
 
 function parseInteger(value: string): number {

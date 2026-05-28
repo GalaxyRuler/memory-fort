@@ -45,6 +45,7 @@ describe("procedure commands", () => {
     expect(result.clustered).toBe(1);
     expect(result.proposed).toBe(1);
     expect(result.written).toBe(0);
+    expect(result.referencesStripped).toBe(0);
     expect(result.proposals[0]).toMatchObject({
       slug: "deploy-dashboard-to-vps",
       relPath: "wiki/procedures-proposed/deploy-dashboard-to-vps.md",
@@ -54,6 +55,7 @@ describe("procedure commands", () => {
     expect(existsSync(join(tmp, "wiki", "procedures-proposed", "deploy-dashboard-to-vps.md"))).toBe(false);
     expect(existsSync(result.auditLogPath)).toBe(true);
     expect(formatProcedureProposeResult(result)).toContain("Mode: plan");
+    expect(formatProcedureProposeResult(result)).toContain("References stripped: 0 (avg 0.0 per proposal)");
   });
 
   it("applies proposals to wiki/procedures-proposed and handles slug collisions", async () => {
@@ -88,6 +90,25 @@ describe("procedure commands", () => {
     expect(draft.body).toContain("## Preconditions");
     expect(draft.body).toContain("```bash");
     expect(existsSync(join(tmp, "wiki", "procedures", "deploy-dashboard-to-vps-2.md"))).toBe(false);
+  });
+
+  it("does not write invented commands to proposed procedure drafts", async () => {
+    const result = await runProcedurePropose({
+      vaultRoot: tmp,
+      apply: true,
+      days: 30,
+      maxProposals: 1,
+      now: new Date("2026-05-28T12:00:00.000Z"),
+      configLoader: async () => ({ llm: { provider: "ollama", model: "llama3.2" } }),
+      llmFactory: () => fakeLLM("deploy-dashboard-to-vps", "run-automation daily-review"),
+      env: {},
+    });
+
+    expect(result.referencesStripped).toBe(1);
+    const draft = await readFile(join(tmp, "wiki", "procedures-proposed", "deploy-dashboard-to-vps.md"), "utf-8");
+    expect(draft).toContain("Build the bundle");
+    expect(draft).not.toContain("run-automation daily-review");
+    expect(await readFile(result.auditLogPath, "utf-8")).toContain("references stripped: 1 (avg 1.0 per proposal)");
   });
 
   it("skips malformed LLM proposals and writes the run audit", async () => {
@@ -174,7 +195,7 @@ describe("procedure commands", () => {
   }
 });
 
-function fakeLLM(slug: string): LLMProvider {
+function fakeLLM(slug: string, firstCommand = "npm run build"): LLMProvider {
   return {
     providerName: "ollama",
     modelName: "llama3.2",
@@ -187,7 +208,7 @@ function fakeLLM(slug: string): LLMProvider {
         "  - VPS SSH access is available",
         "steps:",
         "  - description: Build the bundle",
-        "    command: npm run build",
+        `    command: ${firstCommand}`,
         "  - description: Copy the server bundle",
         "    command: scp dist/dashboard/server.mjs root@srv:/root/memory-system/services/dashboard-bundle.mjs",
         "verification:",
