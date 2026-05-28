@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  collectEntityMergeProposals,
   findDuplicateEntityPairs,
   mergeEntityAliases,
 } from "../../src/consolidate/entity-dedup.js";
@@ -53,6 +54,29 @@ describe("entity dedup", () => {
       { name: "OpenRouter", referenceCount: 2 },
       { name: "OpenAI", referenceCount: 2 },
     ])).toEqual([]);
+  });
+
+  it("does not enumerate wiki dot-directory operational logs as merge candidates", async () => {
+    await writePage("wiki/.audit/procedure-propose-1.md", {
+      type: "references",
+      title: "procedure propose audit",
+      created: "2026-05-28",
+      updated: "2026-05-28",
+    });
+    await writePage("wiki/.audit/procedure-propose-2.md", {
+      type: "references",
+      title: "procedure propose audit",
+      created: "2026-05-28",
+      updated: "2026-05-28",
+    });
+    await writePage("wiki/.scratch/procedure-propose-3.md", {
+      type: "references",
+      title: "procedure propose audit",
+      created: "2026-05-28",
+      updated: "2026-05-28",
+    });
+
+    await expect(collectEntityMergeProposals(tmp)).resolves.toEqual([]);
   });
 
   it("rewrites alias relation targets, records aliases, and is idempotent", async () => {

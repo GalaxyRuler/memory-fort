@@ -1,5 +1,6 @@
 import type { GraphFeed } from "./loaders.js";
 import type { RelationMap } from "../retrieval/relations.js";
+import { isEntityWikiPath } from "../retrieval/wiki-paths.js";
 
 export type HealthStatus = "pass" | "warn" | "fail" | "n/a";
 
@@ -119,7 +120,7 @@ export function metricOrphanEpisodic(feed: GraphFeed): MetricResult {
 }
 
 export function metricDuplicateEntities(input: GraphHealthInput): MetricResult {
-  const normalized = input.wikiPages.map((page) => ({
+  const normalized = graphHealthWikiPages(input).map((page) => ({
     page,
     title: normalizeTitle(page.title),
   })).filter((entry) => entry.title.length > 0);
@@ -302,7 +303,7 @@ export function metricTemporalCoverage(feed: GraphFeed): MetricResult {
 }
 
 export function metricProvenanceCoverage(input: GraphHealthInput): MetricResult {
-  const pages = input.wikiPages;
+  const pages = graphHealthWikiPages(input);
   if (pages.length === 0) {
     return metric({
       id: "graph.provenance-coverage",
@@ -336,7 +337,7 @@ export function metricProvenanceCoverage(input: GraphHealthInput): MetricResult 
 }
 
 export function metricConfidenceCoverage(input: GraphHealthInput): MetricResult {
-  const pages = input.wikiPages;
+  const pages = graphHealthWikiPages(input);
   if (pages.length === 0) {
     return metric({
       id: "graph.confidence-coverage",
@@ -431,7 +432,7 @@ export function metricProjectSubgraphDensity(feed: GraphFeed): MetricResult {
 }
 
 export function metricAgentAttribution(input: GraphHealthInput): MetricResult {
-  const pages = input.wikiPages;
+  const pages = graphHealthWikiPages(input);
   if (pages.length === 0) {
     return metric({
       id: "graph.agent-attribution",
@@ -464,7 +465,7 @@ export function metricAgentAttribution(input: GraphHealthInput): MetricResult {
 }
 
 export function metricGraphParticipationRate(input: GraphHealthInput): MetricResult {
-  const pages = input.wikiPages;
+  const pages = graphHealthWikiPages(input);
   if (pages.length === 0) {
     return metric({
       id: "graph.participation-rate",
@@ -503,7 +504,7 @@ export function metricGraphParticipationRate(input: GraphHealthInput): MetricRes
 }
 
 export function metricNarrativeThreadCoverage(input: GraphHealthInput): MetricResult {
-  const threadPages = input.wikiPages.filter(isLiveNarrativeThread);
+  const threadPages = graphHealthWikiPages(input).filter(isLiveNarrativeThread);
   if (threadPages.length === 0) {
     return {
       id: "graph.narrative-thread-coverage",
@@ -547,6 +548,10 @@ export function metricNarrativeThreadCoverage(input: GraphHealthInput): MetricRe
 
 function isLiveNarrativeThread(page: WikiHealthPage): boolean {
   return page.relPath.startsWith("wiki/threads/") && !page.relPath.includes("/archive/");
+}
+
+function graphHealthWikiPages(input: GraphHealthInput): WikiHealthPage[] {
+  return input.wikiPages.filter((page) => isEntityWikiPath(page.relPath));
 }
 
 function metric(result: Omit<MetricResult, "topOffenders"> & { topOffenders?: Offender[] }): MetricResult {

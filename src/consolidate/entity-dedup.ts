@@ -3,6 +3,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { loadSearchCorpus } from "../retrieval/corpus.js";
 import { readRelations, writeRelations, type RelationMap } from "../retrieval/relations.js";
+import { isEntityWikiPath } from "../retrieval/wiki-paths.js";
 import { atomicWrite } from "../storage/atomic-write.js";
 import { parseFrontmatter, serializeFrontmatter } from "../storage/frontmatter.js";
 
@@ -104,7 +105,9 @@ export function findDuplicateEntityPairs(entities: EntityRecord[]): DuplicatePai
 
 export async function collectEntityMergeProposals(vaultRoot: string): Promise<EntityMergeProposal[]> {
   const corpus = await loadSearchCorpus({ vaultRoot, scope: "all" });
-  const wikiDocs = corpus.documents.filter((document) => document.kind === "wiki");
+  const wikiDocs = corpus.documents.filter((document) =>
+    document.kind === "wiki" && isEntityWikiPath(document.relPath)
+  );
   const counts = new Map<string, number>();
   const records = wikiDocs.map((document): EntityRecord => {
     counts.set(document.relPath, 1);

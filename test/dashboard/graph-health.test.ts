@@ -93,6 +93,22 @@ describe("graph health metrics", () => {
     ]);
   });
 
+  it("excludes wiki dot-directory operational logs from duplicate entity metrics", () => {
+    const result = metricDuplicateEntities(
+      graphInput({
+        wikiPages: [
+          wikiPage("wiki/.audit/procedure-propose-1.md", { title: "procedure propose audit" }),
+          wikiPage("wiki/.audit/procedure-propose-2.md", { title: "procedure propose audit" }),
+          wikiPage("wiki/.scratch/procedure-propose-3.md", { title: "procedure propose audit" }),
+          wikiPage("wiki/projects/procedure-propose-audit.md", { title: "procedure propose audit" }),
+        ],
+      }),
+    );
+
+    expect(result.value).toBe(0);
+    expect(result.topOffenders).toEqual([]);
+  });
+
   it("flags low edge type entropy and reports dominant edge types", () => {
     const result = metricEdgeTypeEntropy(
       graphFeed({

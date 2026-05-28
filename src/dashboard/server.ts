@@ -6,6 +6,7 @@ import { runVerify, type VerifyResult, type VerifyRole } from "../cli/commands/v
 import { detectRole } from "../cli/commands/verify/role.js";
 import { runSearch } from "../retrieval/search.js";
 import { loadSearchCorpus, type SearchScope } from "../retrieval/corpus.js";
+import { isEntityWikiPath } from "../retrieval/wiki-paths.js";
 import { isIntentLabel, type IntentLabel } from "../retrieval/query-intent.js";
 import type { EmbedClient } from "../retrieval/refresh.js";
 import {
@@ -844,7 +845,10 @@ async function loadGraphHealthReport(vaultRoot: string): Promise<GraphHealthRepo
     loadGraphFeed(vaultRoot, "all"),
     loadSearchCorpus({ vaultRoot, scope: "wiki" }),
   ]);
-  return computeGraphHealth({ feed, wikiPages: corpus.documents });
+  return computeGraphHealth({
+    feed,
+    wikiPages: corpus.documents.filter((document) => isEntityWikiPath(document.relPath)),
+  });
 }
 
 function compileScheduleForResponse(config: Awaited<ReturnType<typeof loadMemoryConfig>>): {
