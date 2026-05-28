@@ -42,11 +42,16 @@ const SAFELISTED_PATHS = new Set([
   "llm.max_tokens",
   "llm.temperature",
   "llm.options",
+  "auto_promote.enabled",
+  "auto_promote.cadence",
+  "auto_promote.confidence_threshold",
 ]);
 
-const VALID_TOP_LEVEL_KEYS = new Set(["embedder", "llm"]);
+const VALID_TOP_LEVEL_KEYS = new Set(["embedder", "llm", "auto_promote"]);
 const VALID_EMBEDDER_PROVIDERS = new Set(["voyage", "openai", "ollama"]);
 const VALID_LLM_PROVIDERS = new Set(["openrouter", "ollama"]);
+const VALID_AUTO_PROMOTE_CADENCES = new Set(["weekly", "daily", "manual"]);
+const VALID_AUTO_PROMOTE_THRESHOLDS = new Set(["high", "none"]);
 
 export function validateConfigPatch(body: unknown): ConfigPatchValidation {
   const errors: ConfigPatchValidationError[] = [];
@@ -123,7 +128,10 @@ function validateValue(
   if ((path === "embedder.model" || path === "llm.model") && !isNonEmptyString(value)) {
     errors.push({ path, message: "model must be a non-empty string" });
   }
-  if (path === "llm.max_tokens" && (!Number.isInteger(value) || value < 1 || value > 32000)) {
+  if (
+    path === "llm.max_tokens" &&
+    (typeof value !== "number" || !Number.isInteger(value) || value < 1 || value > 32000)
+  ) {
     errors.push({ path, message: "max_tokens must be an integer between 1 and 32000" });
   }
   if (path === "llm.temperature" && (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 2)) {
@@ -134,6 +142,18 @@ function validateValue(
   }
   if (path === "embedder.options" || path === "llm.options") {
     rejectSecretLikeKeys(path, value, errors);
+  }
+  if (path === "auto_promote.enabled" && typeof value !== "boolean") {
+    errors.push({ path, message: "enabled must be a boolean" });
+  }
+  if (path === "auto_promote.cadence" && !VALID_AUTO_PROMOTE_CADENCES.has(String(value))) {
+    errors.push({ path, message: "cadence must be weekly, daily, or manual" });
+  }
+  if (
+    path === "auto_promote.confidence_threshold" &&
+    !VALID_AUTO_PROMOTE_THRESHOLDS.has(String(value))
+  ) {
+    errors.push({ path, message: "confidence_threshold must be high or none" });
   }
 }
 
@@ -164,7 +184,7 @@ function mergeAtSafelistedPaths(
   patch: Record<string, unknown>,
 ): MemoryConfig {
   const next: MemoryConfig = clonePlain(current);
-  for (const sectionKey of ["embedder", "llm"] as const) {
+  for (const sectionKey of ["embedder", "llm", "auto_promote"] as const) {
     const sectionPatch = asPlainObject(patch[sectionKey]);
     if (!sectionPatch) continue;
     const target = asPlainObject(next[sectionKey]) ?? {};
@@ -175,7 +195,7 @@ function mergeAtSafelistedPaths(
 
 function listAppliedPaths(patch: Record<string, unknown>): string[] {
   const paths: string[] = [];
-  for (const sectionKey of ["embedder", "llm"] as const) {
+  for (const sectionKey of ["embedder", "llm", "auto_promote"] as const) {
     const sectionPatch = asPlainObject(patch[sectionKey]);
     if (!sectionPatch) continue;
     for (const fieldKey of Object.keys(sectionPatch)) {

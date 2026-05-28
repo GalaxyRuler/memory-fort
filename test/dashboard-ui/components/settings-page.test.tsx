@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { SettingsField } from "../../../src/dashboard-ui/components/SettingsField.js";
@@ -181,5 +181,27 @@ describe("settings page", () => {
     expect(screen.getByRole("button", { name: /edit llm/i })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "retention" })).toBeInTheDocument();
     expect(screen.getByText(/Provider settings .* can now be edited directly/i)).toBeInTheDocument();
+  });
+
+  test("SettingsPage renders auto-promote controls and patches safelisted fields", () => {
+    const mutate = vi.fn();
+    configHook.useConfig.mockReturnValue({
+      data: {
+        auto_promote: { enabled: false, cadence: "weekly", confidence_threshold: "high" },
+      },
+      error: null,
+      isLoading: false,
+    });
+    updateHook.useUpdateConfig.mockReturnValue({ mutate, isPending: false, error: null });
+
+    render(<SettingsPage />);
+
+    expect(screen.getByRole("heading", { name: "Auto-promote" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("checkbox", { name: /enable auto-promote/i }));
+    expect(mutate).toHaveBeenCalledWith({ auto_promote: { enabled: true } });
+
+    fireEvent.click(screen.getByRole("radio", { name: "daily" }));
+    expect(mutate).toHaveBeenCalledWith({ auto_promote: { cadence: "daily" } });
+    expect(screen.queryByRole("heading", { name: "auto_promote" })).not.toBeInTheDocument();
   });
 });

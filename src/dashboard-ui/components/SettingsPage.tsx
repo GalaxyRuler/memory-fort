@@ -1,5 +1,6 @@
-import { FileText, Terminal } from "lucide-react";
+import { FileText, Inbox, Terminal } from "lucide-react";
 import { type ConfigValue, useConfig } from "../hooks/useConfig.js";
+import { useUpdateConfig } from "../hooks/useUpdateConfig.js";
 import { Card } from "./Card.js";
 import { EmbedderConfigCard } from "./EmbedderConfigCard.js";
 import { LLMConfigCard } from "./LLMConfigCard.js";
@@ -9,7 +10,7 @@ function isSection(value: ConfigValue): value is Record<string, ConfigValue> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-const DEDICATED_PROVIDER_SECTIONS = new Set(["embedder", "embedding", "llm"]);
+const DEDICATED_PROVIDER_SECTIONS = new Set(["embedder", "embedding", "llm", "auto_promote"]);
 
 export function SettingsPage() {
   const config = useConfig();
@@ -37,6 +38,7 @@ export function SettingsPage() {
           <EmbedderConfigCard />
           <LLMConfigCard />
         </div>
+        <AutoPromoteConfigCard autoPromote={config.data.auto_promote} />
 
         {scalars.length > 0 && <SettingsSection title="general" data={generalData} />}
         {sections.map(([sectionKey, sectionValue]) => (
@@ -77,5 +79,76 @@ export function SettingsPage() {
         </Card>
       </div>
     </div>
+  );
+}
+
+function AutoPromoteConfigCard({ autoPromote }: { autoPromote: ConfigValue | undefined }) {
+  const updateConfig = useUpdateConfig();
+  const section = isSection(autoPromote) ? autoPromote : {};
+  const enabled = section.enabled === true;
+  const cadence = section.cadence === "daily" || section.cadence === "manual" ? section.cadence : "weekly";
+
+  return (
+    <Card>
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="flex items-center gap-2 text-base font-semibold">
+            <Inbox size={16} strokeWidth={1.5} />
+            Auto-promote
+          </h2>
+          <p className="mt-1 text-sm text-text-secondary">
+            High-confidence proposal runs can promote clean drafts automatically.
+          </p>
+        </div>
+        <a href="/memory/inbox" className="text-sm font-medium text-primary hover:underline">
+          View inbox
+        </a>
+      </div>
+
+      <label className="mb-4 flex items-center justify-between gap-3 rounded-md border border-border-subtle bg-surface-2 p-3">
+        <span>
+          <span className="block text-sm font-medium">Enable auto-promote</span>
+          <span className="block text-xs text-text-muted">Runs only inside the dashboard process.</span>
+        </span>
+        <input
+          type="checkbox"
+          checked={enabled}
+          disabled={updateConfig.isPending}
+          onChange={(event) => updateConfig.mutate({ auto_promote: { enabled: event.target.checked } })}
+          className="h-5 w-5 accent-primary"
+        />
+      </label>
+
+      <fieldset className="mb-4">
+        <legend className="mb-2 text-sm font-medium">Cadence</legend>
+        <div className="flex flex-wrap gap-2">
+          {(["weekly", "daily", "manual"] as const).map((option) => (
+            <label
+              key={option}
+              className="flex cursor-pointer items-center gap-2 rounded-md border border-border-subtle px-3 py-2 text-sm"
+            >
+              <input
+                type="radio"
+                name="auto-promote-cadence"
+                checked={cadence === option}
+                disabled={updateConfig.isPending}
+                onChange={() => updateConfig.mutate({ auto_promote: { cadence: option } })}
+                className="accent-primary"
+              />
+              {option}
+            </label>
+          ))}
+        </div>
+      </fieldset>
+
+      <div className="rounded-md bg-surface-2 p-3 text-sm text-text-secondary">
+        <span className="font-medium text-text-primary">Confidence threshold:</span>{" "}
+        high. Clean drafts need zero stripped references, zero prose path leaks, zero stripped commands,
+        at least 5 observations, and at least 2 sessions.
+      </div>
+      {updateConfig.error && (
+        <p className="mt-3 text-sm text-status-red">{updateConfig.error.message}</p>
+      )}
+    </Card>
   );
 }

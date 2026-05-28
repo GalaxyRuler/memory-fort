@@ -40,6 +40,7 @@ describe("dashboard config patch", () => {
     expect(validateConfigPatch({
       embedder: { provider: "openai", model: "text-embedding-3-small", options: {} },
       llm: { provider: "openrouter", model: "openai/gpt-4o-mini", max_tokens: 4096, temperature: 0.2 },
+      auto_promote: { enabled: true, cadence: "weekly", confidence_threshold: "high" },
     })).toEqual({ ok: true, errors: [] });
   });
 

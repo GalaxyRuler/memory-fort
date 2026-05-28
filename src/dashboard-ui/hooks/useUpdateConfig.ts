@@ -14,6 +14,11 @@ export interface ConfigPatchBody {
     temperature?: number;
     options?: Record<string, unknown>;
   };
+  auto_promote?: {
+    enabled?: boolean;
+    cadence?: "weekly" | "daily" | "manual";
+    confidence_threshold?: "high" | "none";
+  };
 }
 
 export function useUpdateConfig() {
