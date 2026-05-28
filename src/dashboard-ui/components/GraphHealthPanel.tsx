@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { AlertTriangle, CheckCircle2, ChevronRight, CircleDashed, RefreshCw, XCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, CircleDashed, RefreshCw, XCircle } from "lucide-react";
 import { GlassPanel } from "./GlassPanel.js";
 import { cn } from "../lib/cn.js";
 import { relativeTime } from "../lib/time-helpers.js";
@@ -44,15 +44,41 @@ const STATUS_META: Record<GraphHealthStatus, {
   },
 };
 
-export function GraphHealthPanel() {
+const OVERVIEW_EXPANDED_KEY = "mf:overview:graph-health-expanded";
+
+export function GraphHealthPanel({
+  defaultExpanded = false,
+  persistExpansion = true,
+  detailMode = false,
+}: {
+  defaultExpanded?: boolean;
+  persistExpansion?: boolean;
+  detailMode?: boolean;
+}) {
   const graphHealth = useGraphHealth();
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [panelExpanded, setPanelExpanded] = useState(() => {
+    if (!persistExpansion || typeof window === "undefined") return defaultExpanded;
+    const stored = window.localStorage.getItem(OVERVIEW_EXPANDED_KEY);
+    return stored === null ? defaultExpanded : stored === "true";
+  });
+  const [expandedMetrics, setExpandedMetrics] = useState<Record<string, boolean>>({});
 
   const metrics = useMemo(() => {
     return [...(graphHealth.data?.metrics ?? [])].sort((a, b) =>
       STATUS_ORDER[a.status] - STATUS_ORDER[b.status] || a.id.localeCompare(b.id),
     );
   }, [graphHealth.data?.metrics]);
+  const summary = useMemo(() => summarizeMetrics(metrics), [metrics]);
+
+  function togglePanel() {
+    setPanelExpanded((current) => {
+      const next = !current;
+      if (persistExpansion && typeof window !== "undefined") {
+        window.localStorage.setItem(OVERVIEW_EXPANDED_KEY, String(next));
+      }
+      return next;
+    });
+  }
 
   return (
     <GlassPanel hasBrackets={true} className="space-y-4 p-5">
@@ -73,6 +99,16 @@ export function GraphHealthPanel() {
         </button>
       </header>
 
+      <button
+        type="button"
+        aria-expanded={panelExpanded}
+        onClick={togglePanel}
+        className="flex w-full items-center justify-between gap-3 rounded border border-border-subtle/35 bg-surface-2/45 px-3 py-2 text-left transition-colors hover:bg-surface-2"
+      >
+        <span className="font-mono text-xs text-text-primary">Graph health: {summary}</span>
+        <ChevronDown size={15} className={cn("flex-shrink-0 text-text-muted transition-transform", panelExpanded && "rotate-180")} />
+      </button>
+
       {graphHealth.isLoading ? (
         <p className="text-sm text-text-muted">Loading graph health...</p>
       ) : null}
@@ -81,16 +117,19 @@ export function GraphHealthPanel() {
         <p className="text-sm text-status-red">{graphHealth.error?.message ?? "Unable to load graph health."}</p>
       ) : null}
 
-      <div className="grid gap-2">
-        {metrics.map((metric) => (
-          <MetricCard
-            key={metric.id}
-            metric={metric}
-            expanded={Boolean(expanded[metric.id])}
-            onToggle={() => setExpanded((current) => ({ ...current, [metric.id]: !current[metric.id] }))}
-          />
-        ))}
-      </div>
+      {panelExpanded ? (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          {metrics.map((metric) => (
+            <MetricCard
+              key={metric.id}
+              metric={metric}
+              expanded={Boolean(expandedMetrics[metric.id])}
+              detailMode={detailMode}
+              onToggle={() => setExpandedMetrics((current) => ({ ...current, [metric.id]: !current[metric.id] }))}
+            />
+          ))}
+        </div>
+      ) : null}
     </GlassPanel>
   );
 }
@@ -98,23 +137,43 @@ export function GraphHealthPanel() {
 function MetricCard({
   metric,
   expanded,
+  detailMode,
   onToggle,
 }: {
   metric: GraphHealthMetric;
   expanded: boolean;
+  detailMode: boolean;
   onToggle: () => void;
 }) {
   const meta = STATUS_META[metric.status];
   const Icon = meta.icon;
   const compact = metric.status === "pass" || metric.status === "n/a";
   const hasOffenders = metric.topOffenders.length > 0;
+  const healthHref = `/memory/health#${metric.id}`;
+
+  function openHealthDetails() {
+    if (detailMode || typeof window === "undefined") return;
+    window.location.href = healthHref;
+  }
 
   return (
     <section
       data-testid="graph-health-card"
       data-metric-id={metric.id}
+      data-health-href={healthHref}
+      id={detailMode ? metric.id : undefined}
+      role={detailMode ? undefined : "link"}
+      tabIndex={detailMode ? undefined : 0}
+      onClick={openHealthDetails}
+      onKeyDown={(event) => {
+        if (!detailMode && (event.key === "Enter" || event.key === " ")) {
+          event.preventDefault();
+          openHealthDetails();
+        }
+      }}
       className={cn(
         "rounded border border-border-subtle/30 bg-surface-2/45 px-3 py-2.5",
+        !detailMode && "cursor-pointer transition-colors hover:bg-surface-2",
         metric.status === "fail" && "border-status-red/30 bg-status-red/5",
         metric.status === "warn" && "border-status-amber/30 bg-status-amber/5",
       )}
@@ -143,12 +202,15 @@ function MetricCard({
         </span>
       </div>
 
-      {!compact && hasOffenders ? (
+      {detailMode && !compact && hasOffenders ? (
         <button
           type="button"
           aria-expanded={expanded}
           aria-label={`Details for ${metric.label}`}
-          onClick={onToggle}
+          onClick={(event) => {
+            event.stopPropagation();
+            onToggle();
+          }}
           className="mt-2 flex items-center gap-1 font-mono text-[11px] text-text-muted transition-colors hover:text-text-primary"
         >
           <ChevronRight size={13} className={cn("transition-transform", expanded && "rotate-90")} />
@@ -173,6 +235,17 @@ function MetricCard({
       ) : null}
     </section>
   );
+}
+
+function summarizeMetrics(metrics: GraphHealthMetric[]): string {
+  const counts = metrics.reduce(
+    (acc, metric) => {
+      acc[metric.status] += 1;
+      return acc;
+    },
+    { pass: 0, warn: 0, fail: 0, "n/a": 0 } satisfies Record<GraphHealthStatus, number>,
+  );
+  return `${counts.pass}/${metrics.length} passing · ${counts.warn} warn · ${counts.fail} fail`;
 }
 
 function formatValue(metric: GraphHealthMetric): string {

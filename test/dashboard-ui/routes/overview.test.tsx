@@ -189,4 +189,18 @@ describe("Overview route", () => {
     expect(within(orphanCard!).queryByText("0.75")).not.toBeInTheDocument();
     expect(within(orphanCard!).queryByText("in:0 out:0")).not.toBeInTheDocument();
   });
+
+  test("shows a useful recent activity empty state with a link to the activity page", async () => {
+    const { Route } = await import("../../../src/dashboard-ui/routes/index.js");
+    const Overview = Route.options.component as () => ReactNode;
+
+    wikiHook.useWikiIndex.mockReturnValue({ data: { byCategory: {}, total: 0 }, isLoading: false });
+    graphHook.useGraph.mockReturnValue({ data: { nodes: [], edges: [], unresolvedTargets: [] } });
+
+    render(<Overview />);
+
+    expect(screen.getByText("No recent activity yet")).toBeInTheDocument();
+    expect(screen.getByText(/Compile, sync, or capture a session/i)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /open activity/i })).toHaveAttribute("href", "/activity");
+  });
 });

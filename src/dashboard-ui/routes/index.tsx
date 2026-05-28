@@ -1,5 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { GlassPanel } from "../components/GlassPanel.js";
+import { EmptyState } from "../components/EmptyState.js";
 import { GraphHealthPanel } from "../components/GraphHealthPanel.js";
 import { HealthBadge } from "../components/HealthBadge.js";
 import { NeedsAttention } from "../components/NeedsAttention.js";
@@ -175,7 +176,20 @@ function OverviewScreen() {
               <div className="text-sm text-text-muted py-6">Loading activity log...</div>
             ) : null}
             {activity.data?.events.length === 0 ? (
-              <div className="text-sm text-text-muted py-6">No recent events.</div>
+              <EmptyState
+                icon={Activity}
+                title="No recent activity yet"
+                description="Compile, sync, or capture a session to populate this feed."
+                className="border-0 bg-transparent py-6"
+                action={
+                  <Link
+                    to="/activity"
+                    className="inline-flex min-h-11 items-center justify-center rounded-md border border-border-subtle px-3 py-2 text-sm text-text-secondary transition-colors hover:bg-surface-2 hover:text-text-primary md:min-h-8"
+                  >
+                    Open activity
+                  </Link>
+                }
+              />
             ) : null}
             <div className="flex-1 overflow-y-auto max-h-[340px] pr-2 space-y-3 scrollbar-thin scrollbar-thumb-surface-4">
               {activity.data?.events.slice(0, 10).map((event, index) => (
