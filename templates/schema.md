@@ -312,6 +312,19 @@ settings visible. `confidence_threshold: none` is accepted in config for manual
 operator experiments but is not exposed in the dashboard settings UI; the
 recommended and default threshold is `high`.
 
+### Config secrets
+
+Provider secrets are env-var-only. `config.yaml` must never contain API keys,
+tokens, passwords, private keys, credentials, or provider secrets of any kind.
+Use `VOYAGE_API_KEY`, `OPENROUTER_API_KEY`, `OPENAI_API_KEY`, or the provider's
+documented environment variable instead of adding secret fields to config.
+
+The dashboard defensively redacts any secret-named field returned by
+`GET /api/config` at any depth, including fields named `api_key`, `apiKey`,
+`secret`, `access_token`, `password`, `credential`, or `private_key`. This is a
+leak guard only; it does not make `config.yaml` an approved place to store
+secrets.
+
 ### Diagnostic env vars
 
 `MEMORY_LLM_DEBUG_LOG=1` enables plaintext LLM prompt/response logging for
