@@ -247,6 +247,29 @@ hand-authored thread.
 Default `--max-proposals 10` per run. Free with OpenRouter free-tier
 models (`qwen/qwen-2.5-7b-instruct:free`).
 
+### LLM output grounding
+
+Auto-propose pipelines must not invent references. Two layers keep structural
+output grounded:
+
+1. The LLM prompt includes an explicit candidate list of existing wiki page
+   paths derived from the cluster's observations. The LLM is instructed to
+   reference only paths from this list, and to leave reference arrays empty
+   rather than invent.
+
+2. Post-process verification strips any `wiki/<category>/<slug>.md` reference
+   whose target file does not resolve. Draft writers run a final filesystem
+   check on frontmatter relations before serializing the proposed page.
+
+Procedure proposals also strip unsupported step commands. `memory <subcommand>`
+values must name a real Memory Fort subcommand; otherwise the command field is
+dropped while the prose step remains.
+
+The strip rate is tracked in the LLM audit log per call. `memory provider
+audit-summary` surfaces the rate per consumer. A persistently high strip rate
+(>3 per call sustained) signals that the prompt needs tuning or the model is
+unsuitable for the task.
+
 ---
 
 ## Procedural memory (cognitive type)

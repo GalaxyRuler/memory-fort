@@ -147,7 +147,8 @@ This phase is intentionally **not pre-sequenced**. The order depends on which me
 1. **Prospective memory + event segmentation** (the Brief C we previously roadmapped). New `prospective` kind for pending obligations with `due:`, `triggers:`, `expires:`. Session capture splits on goal/entity/tool boundaries instead of monolithic per-session files. Adds `wiki/prospective/` directory.
 2. **Narrative threads.** Explicit thread records connecting episodes, decisions, open questions. Enables the twelfth health metric from Phase 2. Auto-thread proposing is shipped as the CLI-only propose -> promote workflow, with LLM drafts isolated under `wiki/threads-proposed/` until operator validation.
 3. **Procedural extraction.** Shipped 2026-05-28. Detects repeated successful command workflows across raw observations, drafts review-gated procedure pages under `wiki/procedures-proposed/`, and promotes validated keepers to `wiki/procedures/`.
-4. **Query intent classifier.** Shipped 2026-05-28. Classifies retrieval queries into decision, procedure, episodic, preference, current-truth, code-context, or open-ended so search can adapt stream weights per question. This closes the Phase 4.3 LLM-consumer sequence.
+4. **Query intent classifier.** Shipped 2026-05-28. Classifies retrieval queries into decision, procedure, episodic, preference, current-truth, code-context, or open-ended so search can adapt stream weights per question.
+5. **LLM output grounding.** Shipped 2026-05-28. Auto-thread and auto-procedure prompts now include real candidate wiki paths; post-process filters remove invented wiki references and unsupported procedure commands before draft files are written. This closes the Phase 4.3 LLM-consumer hardening sequence.
 
 **Dependencies:** Phase 3. (Brief C explicitly depends on lifecycle states from Phase 1; narrative threads are most useful once we have the entity registry from Phase 3 if duplicate metric drove that.)
 
@@ -206,7 +207,8 @@ These are small, one-off maintenance items that don't fit the phased model. Pick
 | 2026-05-27 | Embedder providers are abstracted before Settings editability | Phase 4.3.A makes Voyage, OpenAI, and Ollama selectable from config/CLI first; LLM providers and Settings writes remain the next briefs |
 | 2026-05-28 | Auto-thread proposing keeps narrative coverage honest | LLM drafts land in `wiki/threads-proposed/` and only count toward coverage after `memory thread promote` moves them to `wiki/threads/` |
 | 2026-05-28 | Procedural extraction uses the same review gate as threads | LLM drafts land in `wiki/procedures-proposed/`; only `memory procedure promote` moves reviewed workflows into canonical procedural memory |
-| 2026-05-28 | Query intent classification closes Phase 4.3 | Search now applies heuristic-first intent labels and per-intent stream weights, with `open-ended` preserving uniform baseline retrieval |
+| 2026-05-28 | Query intent classification ships retrieval adaptation | Search now applies heuristic-first intent labels and per-intent stream weights, with `open-ended` preserving uniform baseline retrieval |
+| 2026-05-28 | LLM proposal outputs require grounding | Auto-propose consumers get candidate wiki paths in prompt and strip unresolved structural references before draft write; audit summary surfaces strip rates |
 
 ---
 
