@@ -145,7 +145,7 @@ describe("Voyage client wrapper", () => {
     );
   });
 
-  it("resolveVoyageApiKey precedence: env > config > error", async () => {
+  it("resolveVoyageApiKey reads env only and ignores config.yaml secrets", async () => {
     const tmp = await mkdtemp(join(tmpdir(), "voyage-key-"));
     try {
       process.env["VOYAGE_API_KEY"] = "env-key";
@@ -153,14 +153,20 @@ describe("Voyage client wrapper", () => {
       await expect(resolveVoyageApiKey(tmp)).resolves.toBe("env-key");
 
       delete process.env["VOYAGE_API_KEY"];
-      await expect(resolveVoyageApiKey(tmp)).resolves.toBe("config-key");
-
-      await rm(join(tmp, "config.yaml"), { force: true });
-      await expect(resolveVoyageApiKey(tmp)).rejects.toBeInstanceOf(
-        VoyageUnavailableError,
+      await expect(resolveVoyageApiKey(tmp)).rejects.toThrow(
+        "VOYAGE_API_KEY not set in env",
       );
     } finally {
       await rm(tmp, { recursive: true, force: true });
     }
+  });
+
+  it("resolveVoyageApiKey errors when VOYAGE_API_KEY is missing", async () => {
+    await expect(resolveVoyageApiKey()).rejects.toBeInstanceOf(
+      VoyageUnavailableError,
+    );
+    await expect(resolveVoyageApiKey()).rejects.toThrow(
+      "VOYAGE_API_KEY not set in env",
+    );
   });
 });

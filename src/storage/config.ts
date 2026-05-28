@@ -20,9 +20,8 @@ export interface MemoryConfig {
     model?: string;
     dim?: number;
   };
-  voyage?: {
-    api_key?: string;
-  };
+  // Provider secrets are env-var-only; config.yaml must not define API key fields.
+  voyage?: Record<string, unknown>;
   vps?: {
     host?: string;
     install_root?: string;

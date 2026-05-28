@@ -1,5 +1,4 @@
 import { createRequire } from "node:module";
-import { loadMemoryConfig } from "../../storage/config.js";
 import type { Embedder, EmbedResult } from "./types.js";
 
 export interface VoyageClientOptions {
@@ -141,15 +140,11 @@ export function makeVoyageClient(opts: VoyageClientOptions): VoyageClient {
   };
 }
 
-export async function resolveVoyageApiKey(memoryRoot?: string): Promise<string> {
+export async function resolveVoyageApiKey(_memoryRoot?: string): Promise<string> {
   const envKey = process.env["VOYAGE_API_KEY"]?.trim();
   if (envKey) return envKey;
 
-  const config = await loadMemoryConfig(memoryRoot);
-  const configKey = config.voyage?.api_key?.trim();
-  if (configKey) return configKey;
-
-  throw new VoyageUnavailableError("VOYAGE_API_KEY not set in env or config.yaml");
+  throw new VoyageUnavailableError("VOYAGE_API_KEY not set in env");
 }
 
 function loadVoyageSdkConstructor(): VoyageSdkConstructor {

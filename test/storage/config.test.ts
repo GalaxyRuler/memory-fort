@@ -19,12 +19,13 @@ describe("memory config reader", () => {
     await expect(loadMemoryConfig(tmp)).resolves.toEqual({});
   });
 
-  it("loadMemoryConfig parses voyage + vps sections", async () => {
+  it("loadMemoryConfig parses provider + vps sections without a config API key slot", async () => {
     await writeFile(
       join(tmp, "config.yaml"),
       [
-        "voyage:",
-        '  api_key: "test-key-123"',
+        "embedder:",
+        '  provider: "voyage"',
+        '  model: "voyage-4-large"',
         "vps:",
         '  host: "srv1317946"',
         '  install_root: "/root/memory-system"',
@@ -32,7 +33,7 @@ describe("memory config reader", () => {
     );
 
     await expect(loadMemoryConfig(tmp)).resolves.toEqual({
-      voyage: { api_key: "test-key-123" },
+      embedder: { provider: "voyage", model: "voyage-4-large" },
       vps: { host: "srv1317946", install_root: "/root/memory-system" },
     });
   });
