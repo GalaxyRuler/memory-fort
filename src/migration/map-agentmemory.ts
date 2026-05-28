@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readdir, readFile, stat } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
 import { atomicWrite } from "../storage/atomic-write.js";
-import { parseFrontmatter, serializeFrontmatter } from "../storage/frontmatter.js";
+import { parseFrontmatter, serializeFrontmatter, type Frontmatter } from "../storage/frontmatter.js";
 import { formatIsoDate, memoryRoot } from "../storage/paths.js";
 import type { AgentMemoryKvEntry } from "./agentmemory-kv-reader.js";
 import { observedDateFromAgentMemoryKey } from "./uuidv7-timestamp.js";
@@ -214,7 +214,7 @@ function mapObservation(
       ? ["## Files", "", ...arrayField(value, "files").map((file) => `- ${file}`), ""]
       : []),
   ].join("\n");
-  const frontmatter = {
+  const frontmatter: Frontmatter = {
       type: "raw-session",
       title,
       created: date,

@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { fail, pass, type CheckDescriptor, type VerifyCheckContext, type VerifyCheckResult } from "./types.js";
+import { fail, pass, type CheckDescriptor, type RunCheckOptions, type VerifyCheckContext, type VerifyCheckResult } from "./types.js";
 import type { VerifyDashboardStatus } from "./dashboard.js";
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
@@ -18,11 +18,12 @@ export const compileRecentCheck: CheckDescriptor = {
 };
 
 export async function checkCompile(
-  opts: CompileVerifyOptions,
+  opts: RunCheckOptions,
 ): Promise<VerifyCheckResult> {
+  const dashboardStatus = readDashboardStatus(opts.dashboardStatus);
   const timestamp =
-    opts.dashboardStatus?.lastCompile?.timestamp ??
-    latestSuccessfulCompileHistory(opts.dashboardStatus) ??
+    dashboardStatus?.lastCompile?.timestamp ??
+    latestSuccessfulCompileHistory(dashboardStatus) ??
     (await latestLocalCompile(opts.vaultRoot));
 
   if (!timestamp) {
@@ -63,8 +64,18 @@ function latestSuccessfulCompileHistory(
 ): string | null {
   const history = status?.compile?.history;
   if (!Array.isArray(history)) return null;
-  const success = history.findLast((entry) => entry.status === "success");
-  return typeof success?.finishedAt === "string" ? success.finishedAt : null;
+  for (let index = history.length - 1; index >= 0; index -= 1) {
+    const entry = history[index];
+    if (entry?.status === "success" && typeof entry.finishedAt === "string") {
+      return entry.finishedAt;
+    }
+  }
+  return null;
+}
+
+function readDashboardStatus(value: unknown): VerifyDashboardStatus | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  return value as VerifyDashboardStatus;
 }
 
 async function latestLocalCompile(vaultRoot: string): Promise<string | null> {

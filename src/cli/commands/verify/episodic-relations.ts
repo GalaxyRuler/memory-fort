@@ -1,4 +1,5 @@
 import { loadSearchCorpus } from "../../../retrieval/corpus.js";
+import type { RelationMap } from "../../../retrieval/relations.js";
 import { pass, warn, type CheckDescriptor, type VerifyCheckContext, type VerifyCheckResult } from "./types.js";
 
 const MIN_LINKED_RATIO = 0.3;
@@ -37,6 +38,6 @@ export async function checkEpisodicRelations(
   return pass("episodic.relations.coverage", label, detail);
 }
 
-function hasAnyRelation(relations: Record<string, string[]>): boolean {
-  return Object.values(relations).some((targets) => targets.length > 0);
+function hasAnyRelation(relations: RelationMap): boolean {
+  return Object.values(relations).some((edges) => edges.length > 0);
 }

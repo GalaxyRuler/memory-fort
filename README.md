@@ -24,6 +24,16 @@ node dist/cli.mjs install antigravity
 node dist/cli.mjs stats
 ```
 
+## Development checks
+
+Before merging changes, run the focused tests for the touched area, then:
+
+```bash
+npm run typecheck
+npm run build
+npm run build:ui
+```
+
 ## Pruning
 
 `memory prune --plan` reports archive-ready candidates without writing files.

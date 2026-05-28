@@ -53,7 +53,7 @@ async function runDefaultSearch(vaultRoot: string): Promise<SearchResponse> {
     noHyde: true,
     vaultRoot,
     embedClient: {
-      async embed(texts) {
+      async embed(texts: string[]) {
         return {
           vectors: texts.map(() => [1, 0, 0]),
           model: "memory-verify-local",
@@ -62,8 +62,22 @@ async function runDefaultSearch(vaultRoot: string): Promise<SearchResponse> {
       },
     },
     voyageClient: {
+      async embed(texts: string[]) {
+        return {
+          vectors: texts.map(() => [1, 0, 0]),
+          model: "memory-verify-local",
+          dim: 3,
+        };
+      },
       async rerank(_query, documents) {
-        return documents.map((_, index) => ({ index, relevanceScore: 1 }));
+        return {
+          ranked: documents.map((document, index) => ({
+            index,
+            score: 1,
+            document,
+          })),
+          model: "memory-verify-local-rerank",
+        };
       },
     },
   });

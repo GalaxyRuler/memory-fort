@@ -134,7 +134,7 @@ function withDefaultSearchConfig(
 
 function defaultEmbedClient(): EmbedClient {
   return {
-    async embed(texts) {
+    async embed(texts: string[]) {
       return {
         vectors: texts.map(hashVector),
         model: "longmemeval-local-hash",

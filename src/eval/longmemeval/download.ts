@@ -73,6 +73,7 @@ export async function downloadLongMemEvalDataset(
   const existingManifest = await readManifest(manifestPath);
 
   if (
+    existingManifest &&
     manifestMatches(existingManifest, expectedSha256, sourceUrl) &&
     existsSync(questionsPath)
   ) {
