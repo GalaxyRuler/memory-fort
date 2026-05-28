@@ -153,6 +153,7 @@ This phase is intentionally **not pre-sequenced**. The order depends on which me
 7. **Prompt field clarification.** Shipped 2026-05-28. Auto-propose prompts now keep candidate wiki paths scoped to relation context, and post-process grounding strips bare `wiki/...` or `raw/...` leaks from prose fields while auditing `prosePathLeaks`.
 8. **Overview redesign UX fixes.** Shipped 2026-05-28. Overview graph health is collapsed by default with persisted expansion, `/memory/health` provides the drill-down view, status/errors link to filtered audit entries, provider settings show real controls immediately, high-volume browse pages load in 50-row increments, and wiki browse groups pages by memory category.
 9. **Dashboard inbox + auto-promote.** Shipped 2026-05-28. High-confidence thread/procedure proposals can auto-promote from scheduled or CLI runs, while low-confidence drafts appear in `/memory/inbox` with one-click promote/reject actions and a header badge.
+10. **Windows-safe atomic writes.** Shipped 2026-05-28. `atomicWrite` now retries transient Windows rename races (`EPERM`, `EACCES`, `EBUSY`, `ENOENT`) with short backoff and exposes `storage.atomic-write-retries` in verify/health reports.
 
 **Dependencies:** Phase 3. (Brief C explicitly depends on lifecycle states from Phase 1; narrative threads are most useful once we have the entity registry from Phase 3 if duplicate metric drove that.)
 
@@ -217,6 +218,7 @@ These are small, one-off maintenance items that don't fit the phased model. Pick
 | 2026-05-28 | Candidate paths are relation context, not prose | Thread/procedure prompts forbid path strings in prose fields; bare path leaks are stripped and counted separately from unresolved reference stripping |
 | 2026-05-28 | Overview is a summary, health is a drill-down | Graph-health cards stay collapsed on Overview and navigate to `/memory/health#<metric>`; detailed offender lists live on the dedicated route to keep the first screen scannable |
 | 2026-05-28 | Auto-promote is confidence-gated, dashboard review handles the rest | Clean drafts need zero stripped references, zero prose path leaks, zero stripped commands, at least 5 observations, and at least 2 sessions; anything else stays proposed until the operator promotes or rejects it |
+| 2026-05-28 | Windows rename races are retried at the storage primitive | Readers can briefly block rename on Windows, so `atomicWrite` retries transient rename errors locally while preserving rename-based atomic writes and surfacing exhaustion through verify |
 
 ---
 

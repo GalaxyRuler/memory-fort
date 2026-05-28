@@ -560,7 +560,15 @@ Do NOT:
 
 ---
 
-## 11. User identity & preferences
+## 11. Operational storage behavior
+
+Writes that replace existing files use the repo's atomic write primitive: write a sibling `.tmp` file, fsync it, close it, then rename it over the canonical path. On Windows, the final rename may briefly fail when another local process is reading the target file. The writer retries only transient Windows rename errors (`EPERM`, `EACCES`, `EBUSY`, `ENOENT`) with 50 ms, 150 ms, and 400 ms backoff before surfacing the original error.
+
+The `storage.atomic-write-retries` verify check reports process-local retry counters. A retry rate below 1% passes, 1% to under 10% warns, and 10% or higher fails because it usually points to a stuck file handle, Defender interference, OneDrive sync, or another host-level file-system issue.
+
+---
+
+## 12. User identity & preferences
 
 (Ported from agentmemory's slice-7 `personalize galaxyruler` plan, distilled here so the LLM doing curation knows who it's curating for.)
 
@@ -596,7 +604,7 @@ Do NOT:
 
 ---
 
-## 12. Versioning
+## 13. Versioning
 
 This file's frontmatter declares `schema_version`. When the schema changes in a way that affects existing wiki pages (new required fields, removed entity types, renamed edge types), increment the version:
 
