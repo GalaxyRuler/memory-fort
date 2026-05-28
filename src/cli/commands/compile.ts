@@ -15,6 +15,7 @@ import {
 } from "../../storage/paths.js";
 
 export interface CompileOptions {
+  vaultRoot?: string;
   since?: string;
   perFileMaxBytes?: number;
   totalMaxBytes?: number;
@@ -52,7 +53,7 @@ export async function runCompile(
     DEFAULT_TOTAL_MAX_BYTES,
     "totalMaxBytes",
   );
-  const root = memoryRoot();
+  const root = opts.vaultRoot ?? memoryRoot();
   const promptTemplate = await readRequiredFile(
     join(root, "prompts", "compile.md"),
     "compile prompt",

@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createAutoPromoteScheduler,
   runAutoPromoteOnce,
+  runScheduledVaultTasksOnce,
 } from "../../src/dashboard/auto-promote-scheduler.js";
 
 describe("auto-promote scheduler", () => {
@@ -22,12 +23,12 @@ describe("auto-promote scheduler", () => {
     const intervalFactory = vi.fn();
     await createAutoPromoteScheduler({
       vaultRoot: tmp,
-      configLoader: async () => ({ auto_promote: { enabled: false, cadence: "weekly" } }),
+      configLoader: async () => ({ auto_promote: { enabled: false, cadence: "weekly" }, compile: { scheduled: false } }),
       intervalFactory,
     });
     await createAutoPromoteScheduler({
       vaultRoot: tmp,
-      configLoader: async () => ({ auto_promote: { enabled: true, cadence: "manual" } }),
+      configLoader: async () => ({ auto_promote: { enabled: true, cadence: "manual" }, compile: { scheduled: false } }),
       intervalFactory,
     });
 
@@ -41,7 +42,7 @@ describe("auto-promote scheduler", () => {
     const runner = vi.fn(async () => undefined);
     const scheduler = await createAutoPromoteScheduler({
       vaultRoot: tmp,
-      configLoader: async () => ({ auto_promote: { enabled: true, cadence: "weekly" } }),
+      configLoader: async () => ({ auto_promote: { enabled: true, cadence: "weekly" }, compile: { scheduled: false } }),
       intervalFactory,
       clearIntervalFactory,
       runner,
@@ -52,6 +53,41 @@ describe("auto-promote scheduler", () => {
     expect(runner).toHaveBeenCalledOnce();
     scheduler.close();
     expect(clearIntervalFactory).toHaveBeenCalledWith(handle);
+  });
+
+  it("registers scheduled compile by default on the daily cadence", async () => {
+    const handle = Symbol("interval") as unknown as NodeJS.Timeout;
+    const intervalFactory = vi.fn(() => handle);
+    const clearIntervalFactory = vi.fn();
+    const compileRunner = vi.fn(async () => undefined);
+    const scheduler = await createAutoPromoteScheduler({
+      vaultRoot: tmp,
+      configLoader: async () => ({}),
+      intervalFactory,
+      clearIntervalFactory,
+      compileRunner,
+    });
+
+    expect(intervalFactory).toHaveBeenCalledWith(expect.any(Function), 24 * 60 * 60 * 1000);
+    intervalFactory.mock.calls[0]![0]();
+    expect(compileRunner).toHaveBeenCalledOnce();
+    scheduler.close();
+    expect(clearIntervalFactory).toHaveBeenCalledWith(handle);
+  });
+
+  it("runs scheduled compile before auto-promote work", async () => {
+    const calls: string[] = [];
+
+    await runScheduledVaultTasksOnce(tmp, {
+      compileRunner: async () => {
+        calls.push("compile");
+      },
+      autoPromoteRunner: async () => {
+        calls.push("auto-promote");
+      },
+    });
+
+    expect(calls).toEqual(["compile", "auto-promote"]);
   });
 
   it("logs scheduler failures without throwing", async () => {

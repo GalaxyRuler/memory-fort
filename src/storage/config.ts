@@ -35,6 +35,10 @@ export interface MemoryConfig {
     cadence?: "weekly" | "daily" | "manual";
     confidence_threshold?: "high" | "none";
   };
+  compile?: {
+    scheduled?: boolean;
+    cadence?: "daily" | "weekly" | "manual";
+  };
   [key: string]: unknown;
 }
 
