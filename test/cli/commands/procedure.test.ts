@@ -279,8 +279,9 @@ describe("procedure commands", () => {
       page("procedures", "Reject Me", "Draft body."),
     );
 
-    const promoted = await runProcedurePromote({ vaultRoot: tmp, slug: "deploy-dashboard-to-vps" });
-    const rejected = await runProcedureReject({ vaultRoot: tmp, slug: "reject-me" });
+    const commitVaultChange = vi.fn(async () => ({ kind: "committed" as const, commitSha: "abc1234" }));
+    const promoted = await runProcedurePromote({ vaultRoot: tmp, slug: "deploy-dashboard-to-vps", commitVaultChange });
+    const rejected = await runProcedureReject({ vaultRoot: tmp, slug: "reject-me", commitVaultChange });
 
     expect(promoted).toEqual({
       from: "wiki/procedures-proposed/deploy-dashboard-to-vps.md",
@@ -294,6 +295,16 @@ describe("procedure commands", () => {
     expect(canonical.frontmatter.lifecycle).toBe("consolidated");
     expect(canonical.frontmatter.source).toBe("auto-procedural-extract-validated");
     expect(canonical.body).toContain("Draft body.");
+    expect(commitVaultChange).toHaveBeenCalledWith({
+      memoryRoot: tmp,
+      paths: ["wiki/procedures-proposed/deploy-dashboard-to-vps.md", "wiki/procedures/deploy-dashboard-to-vps.md"],
+      message: "promote procedure: deploy-dashboard-to-vps",
+    });
+    expect(commitVaultChange).toHaveBeenCalledWith({
+      memoryRoot: tmp,
+      paths: ["wiki/procedures-proposed/reject-me.md"],
+      message: "reject procedure: reject-me",
+    });
   });
 
   async function writeMarkdown(relPath: string, content: string): Promise<void> {

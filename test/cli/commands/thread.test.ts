@@ -275,8 +275,9 @@ describe("thread commands", () => {
       page("threads", "Reject Me", "Draft body."),
     );
 
-    const promoted = await runThreadPromote({ vaultRoot: tmp, slug: "memory-fort-settings" });
-    const rejected = await runThreadReject({ vaultRoot: tmp, slug: "reject-me" });
+    const commitVaultChange = vi.fn(async () => ({ kind: "committed" as const, commitSha: "abc1234" }));
+    const promoted = await runThreadPromote({ vaultRoot: tmp, slug: "memory-fort-settings", commitVaultChange });
+    const rejected = await runThreadReject({ vaultRoot: tmp, slug: "reject-me", commitVaultChange });
 
     expect(promoted).toEqual({
       from: "wiki/threads-proposed/memory-fort-settings.md",
@@ -290,6 +291,16 @@ describe("thread commands", () => {
     expect(canonical.frontmatter.lifecycle).toBe("consolidated");
     expect(canonical.frontmatter.source).toBe("auto-thread-propose-validated");
     expect(canonical.body).toContain("Draft body.");
+    expect(commitVaultChange).toHaveBeenCalledWith({
+      memoryRoot: tmp,
+      paths: ["wiki/threads-proposed/memory-fort-settings.md", "wiki/threads/memory-fort-settings.md"],
+      message: "promote thread: memory-fort-settings",
+    });
+    expect(commitVaultChange).toHaveBeenCalledWith({
+      memoryRoot: tmp,
+      paths: ["wiki/threads-proposed/reject-me.md"],
+      message: "reject thread: reject-me",
+    });
   });
 
   async function writeMarkdown(relPath: string, content: string): Promise<void> {

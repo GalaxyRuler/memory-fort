@@ -1,12 +1,18 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   collectEntityMergeProposals,
   findDuplicateEntityPairs,
   mergeEntityAliases,
+  writeEntityMergeProposals,
 } from "../../src/consolidate/entity-dedup.js";
+import {
+  runEntityDedup,
+  runEntityMerge,
+  runEntityReject,
+} from "../../src/cli/commands/entity.js";
 import { readRelations } from "../../src/retrieval/relations.js";
 import { parseFrontmatter, serializeFrontmatter, type Frontmatter } from "../../src/storage/frontmatter.js";
 
@@ -121,6 +127,60 @@ describe("entity dedup", () => {
     await expect(readFile(join(tmp, "wiki", ".entity-aliases.json"), "utf-8")).resolves.toContain('"Lisan Studio": "wiki/projects/lisan-studio.md"');
     expect(await relationTargets("wiki/tools/vitest.md", "linked")).toEqual(["wiki/projects/lisan-studio.md"]);
     expect(await relationTargets("raw/2026-05-28/codex-session.md", "mentions")).toEqual(["wiki/projects/lisan-studio.md"]);
+  });
+
+  it("commits entity review, merge, and reject mutations with explicit vault paths", async () => {
+    const commitVaultChange = vi.fn(async () => ({ kind: "committed" as const, commitSha: "abc1234" }));
+    await writePage("wiki/projects/lisan-studio.md", {
+      type: "projects",
+      title: "Lisan Studio",
+      created: "2026-05-28",
+      updated: "2026-05-28",
+    });
+    await writePage("wiki/projects/lisanstudio.md", {
+      type: "projects",
+      title: "lisan-studio",
+      created: "2026-05-28",
+      updated: "2026-05-28",
+    });
+
+    await runEntityDedup({ vaultRoot: tmp, apply: true, commitVaultChange });
+    await writeEntityMergeProposals(tmp, [{
+      canonical: "Lisan Studio",
+      canonicalTarget: "wiki/projects/lisan-studio.md",
+      aliases: ["lisan-studio", "wiki/projects/lisanstudio.md"],
+      normalized: "lisanstudio",
+      reason: "exact-normalized",
+      referenceCounts: { "Lisan Studio": 1, "lisan-studio": 1 },
+    }]);
+    const merged = await runEntityMerge({ vaultRoot: tmp, canonical: "Lisan Studio", commitVaultChange });
+    await writeEntityMergeProposals(tmp, [{
+      canonical: "Lisan Studio",
+      canonicalTarget: "wiki/projects/lisan-studio.md",
+      aliases: ["lisan-studio"],
+      normalized: "lisanstudio",
+      reason: "exact-normalized",
+      referenceCounts: {},
+    }]);
+    const rejected = await runEntityReject({ vaultRoot: tmp, canonical: "Lisan Studio", commitVaultChange });
+
+    expect(merged.aliasMapPath).toBe("wiki/.entity-aliases.json");
+    expect(rejected.canonical).toBe("Lisan Studio");
+    expect(commitVaultChange).toHaveBeenCalledWith({
+      memoryRoot: tmp,
+      paths: ["wiki/entity-merges-proposed.json"],
+      message: "propose entity merges: 1",
+    });
+    expect(commitVaultChange).toHaveBeenCalledWith({
+      memoryRoot: tmp,
+      paths: ["wiki/.entity-aliases.json"],
+      message: "merge entity: Lisan Studio",
+    });
+    expect(commitVaultChange).toHaveBeenCalledWith({
+      memoryRoot: tmp,
+      paths: ["wiki/entity-merges-proposed.json"],
+      message: "reject entity: Lisan Studio",
+    });
   });
 
   async function writePage(relPath: string, frontmatter: Frontmatter): Promise<void> {

@@ -10,6 +10,9 @@ import {
   type EntityMergeResult,
 } from "../../consolidate/entity-dedup.js";
 import { memoryRoot as defaultMemoryRoot } from "../../storage/paths.js";
+import { commitVaultChange as defaultCommitVaultChange } from "../../sync/commit-vault-change.js";
+
+type CommitVaultChange = typeof defaultCommitVaultChange;
 
 export interface EntityDedupResult {
   mode: "plan" | "apply";
@@ -20,16 +23,52 @@ export interface EntityDedupResult {
 export async function runEntityDedup(opts: {
   vaultRoot: string;
   apply?: boolean;
+  commitVaultChange?: CommitVaultChange;
 }): Promise<EntityDedupResult> {
   const proposals = await collectEntityMergeProposals(opts.vaultRoot);
   const reviewPath = opts.apply
     ? await writeEntityMergeProposals(opts.vaultRoot, proposals)
     : undefined;
+  if (reviewPath) {
+    await (opts.commitVaultChange ?? defaultCommitVaultChange)({
+      memoryRoot: opts.vaultRoot,
+      paths: [reviewPath],
+      message: `propose entity merges: ${proposals.length}`,
+    });
+  }
   return {
     mode: opts.apply ? "apply" : "plan",
     proposals,
     reviewPath,
   };
+}
+
+export async function runEntityMerge(opts: {
+  vaultRoot: string;
+  canonical: string;
+  commitVaultChange?: CommitVaultChange;
+}): Promise<EntityMergeResult> {
+  const result = await mergeEntityProposal(opts.vaultRoot, opts.canonical);
+  await (opts.commitVaultChange ?? defaultCommitVaultChange)({
+    memoryRoot: opts.vaultRoot,
+    paths: [...result.changedFiles, result.aliasMapPath],
+    message: `merge entity: ${opts.canonical}`,
+  });
+  return result;
+}
+
+export async function runEntityReject(opts: {
+  vaultRoot: string;
+  canonical: string;
+  commitVaultChange?: CommitVaultChange;
+}): Promise<EntityMergeProposal> {
+  const rejected = await rejectEntityMergeProposal(opts.vaultRoot, opts.canonical);
+  await (opts.commitVaultChange ?? defaultCommitVaultChange)({
+    memoryRoot: opts.vaultRoot,
+    paths: ["wiki/entity-merges-proposed.json"],
+    message: `reject entity: ${rejected.canonical}`,
+  });
+  return rejected;
 }
 
 export function formatEntityDedupResult(result: EntityDedupResult): string {
@@ -92,7 +131,7 @@ export function registerEntityCommand(program: Command): void {
     .description("Apply one reviewed entity merge")
     .action(async (canonical: string) => {
       try {
-        const result = await mergeEntityProposal(defaultMemoryRoot(), canonical);
+        const result = await runEntityMerge({ vaultRoot: defaultMemoryRoot(), canonical });
         process.stdout.write(formatEntityMergeResult(result));
       } catch (error) {
         console.error(`memory entity merge failed: ${(error as Error).message}`);
@@ -105,7 +144,7 @@ export function registerEntityCommand(program: Command): void {
     .description("Remove one proposed entity merge from the review file")
     .action(async (canonical: string) => {
       try {
-        const rejected = await rejectEntityMergeProposal(defaultMemoryRoot(), canonical);
+        const rejected = await runEntityReject({ vaultRoot: defaultMemoryRoot(), canonical });
         console.log(`Rejected entity merge: ${rejected.canonical}`);
       } catch (error) {
         console.error(`memory entity reject failed: ${(error as Error).message}`);

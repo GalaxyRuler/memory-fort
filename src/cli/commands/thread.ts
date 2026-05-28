@@ -28,6 +28,9 @@ import {
   memoryRoot as defaultMemoryRoot,
   threadsProposedDir,
 } from "../../storage/paths.js";
+import { commitVaultChange as defaultCommitVaultChange } from "../../sync/commit-vault-change.js";
+
+type CommitVaultChange = typeof defaultCommitVaultChange;
 
 export interface ThreadProposeRunOptions {
   vaultRoot: string;
@@ -40,6 +43,7 @@ export interface ThreadProposeRunOptions {
   env?: NodeJS.ProcessEnv;
   configLoader?: () => Promise<MemoryConfig>;
   llmFactory?: (config: LLMConfig | null, env: NodeJS.ProcessEnv) => LLMProvider;
+  commitVaultChange?: CommitVaultChange;
 }
 
 export interface ThreadProposeRunResult {
@@ -97,6 +101,7 @@ export async function runThreadPropose(
   let autoPromoted = 0;
   let awaitingReview = 0;
   let referencesStripped = 0;
+  const writtenReviewPaths: string[] = [];
 
   for (const [clusterIndex, cluster] of selected.entries()) {
     const proposalResult = await proposeThread({ llm, vaultRoot: opts.vaultRoot, cluster, env });
@@ -130,11 +135,12 @@ export async function runThreadPropose(
       written += 1;
 
       if (opts.autoPromote && confidence.level === "high") {
-        const promoted = await runThreadPromote({ vaultRoot: opts.vaultRoot, slug });
+        const promoted = await runThreadPromote({ vaultRoot: opts.vaultRoot, slug, commitVaultChange: opts.commitVaultChange });
         relPath = promoted.to;
         proposalAutoPromoted = true;
         autoPromoted += 1;
       } else {
+        writtenReviewPaths.push(relPath);
         awaitingReview += 1;
       }
     }
@@ -150,12 +156,8 @@ export async function runThreadPropose(
     });
   }
 
-  const auditLogPath = join(
-    opts.vaultRoot,
-    "wiki",
-    ".audit",
-    `thread-propose-${now.toISOString().replace(/[:.]/g, "-")}.md`,
-  );
+  const auditRelPath = `wiki/.audit/thread-propose-${now.toISOString().replace(/[:.]/g, "-")}.md`;
+  const auditLogPath = join(opts.vaultRoot, ...auditRelPath.split("/"));
   await atomicWrite(auditLogPath, formatThreadRunAudit({
     now,
     mode: opts.apply ? "apply" : "plan",
@@ -169,6 +171,13 @@ export async function runThreadPropose(
     awaitingReview,
     referencesStripped,
   }));
+  if (opts.apply) {
+    await (opts.commitVaultChange ?? defaultCommitVaultChange)({
+      memoryRoot: opts.vaultRoot,
+      paths: [...writtenReviewPaths, auditRelPath],
+      message: `propose thread drafts: ${written}`,
+    });
+  }
 
   return {
     scanned: observations.length,
@@ -188,6 +197,7 @@ export async function runThreadPropose(
 export async function runThreadPromote(opts: {
   vaultRoot: string;
   slug: string;
+  commitVaultChange?: CommitVaultChange;
 }): Promise<{ from: string; to: string }> {
   const slug = sanitizeSlug(opts.slug);
   const from = `wiki/threads-proposed/${slug}.md`;
@@ -209,12 +219,18 @@ export async function runThreadPromote(opts: {
   };
   await atomicWrite(toPath, serializeFrontmatter(frontmatter, parsed.body));
   await rm(fromPath);
+  await (opts.commitVaultChange ?? defaultCommitVaultChange)({
+    memoryRoot: opts.vaultRoot,
+    paths: [from, to],
+    message: `promote thread: ${slug}`,
+  });
   return { from, to };
 }
 
 export async function runThreadReject(opts: {
   vaultRoot: string;
   slug: string;
+  commitVaultChange?: CommitVaultChange;
 }): Promise<{ deleted: string }> {
   const slug = sanitizeSlug(opts.slug);
   const deleted = `wiki/threads-proposed/${slug}.md`;
@@ -223,6 +239,11 @@ export async function runThreadReject(opts: {
     throw new Error(`proposed thread not found: ${deleted}`);
   }
   await rm(fullPath);
+  await (opts.commitVaultChange ?? defaultCommitVaultChange)({
+    memoryRoot: opts.vaultRoot,
+    paths: [deleted],
+    message: `reject thread: ${slug}`,
+  });
   return { deleted };
 }
 

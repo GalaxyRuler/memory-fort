@@ -28,6 +28,9 @@ import {
   memoryRoot as defaultMemoryRoot,
   proceduresProposedDir,
 } from "../../storage/paths.js";
+import { commitVaultChange as defaultCommitVaultChange } from "../../sync/commit-vault-change.js";
+
+type CommitVaultChange = typeof defaultCommitVaultChange;
 
 export interface ProcedureProposeRunOptions {
   vaultRoot: string;
@@ -39,6 +42,7 @@ export interface ProcedureProposeRunOptions {
   env?: NodeJS.ProcessEnv;
   configLoader?: () => Promise<MemoryConfig>;
   llmFactory?: (config: LLMConfig | null, env: NodeJS.ProcessEnv) => LLMProvider;
+  commitVaultChange?: CommitVaultChange;
 }
 
 export interface ProcedureProposeRunResult {
@@ -93,6 +97,7 @@ export async function runProcedurePropose(
   let autoPromoted = 0;
   let awaitingReview = 0;
   let referencesStripped = 0;
+  const writtenReviewPaths: string[] = [];
 
   for (const [clusterIndex, cluster] of selected.entries()) {
     const proposalResult = await proposeProcedure({ llm, vaultRoot: opts.vaultRoot, cluster, env });
@@ -127,11 +132,12 @@ export async function runProcedurePropose(
       written += 1;
 
       if (opts.autoPromote && confidence.level === "high") {
-        const promoted = await runProcedurePromote({ vaultRoot: opts.vaultRoot, slug });
+        const promoted = await runProcedurePromote({ vaultRoot: opts.vaultRoot, slug, commitVaultChange: opts.commitVaultChange });
         relPath = promoted.to;
         proposalAutoPromoted = true;
         autoPromoted += 1;
       } else {
+        writtenReviewPaths.push(relPath);
         awaitingReview += 1;
       }
     }
@@ -147,12 +153,8 @@ export async function runProcedurePropose(
     });
   }
 
-  const auditLogPath = join(
-    opts.vaultRoot,
-    "wiki",
-    ".audit",
-    `procedure-propose-${now.toISOString().replace(/[:.]/g, "-")}.md`,
-  );
+  const auditRelPath = `wiki/.audit/procedure-propose-${now.toISOString().replace(/[:.]/g, "-")}.md`;
+  const auditLogPath = join(opts.vaultRoot, ...auditRelPath.split("/"));
   await atomicWrite(auditLogPath, formatProcedureRunAudit({
     now,
     mode: opts.apply ? "apply" : "plan",
@@ -166,6 +168,13 @@ export async function runProcedurePropose(
     awaitingReview,
     referencesStripped,
   }));
+  if (opts.apply) {
+    await (opts.commitVaultChange ?? defaultCommitVaultChange)({
+      memoryRoot: opts.vaultRoot,
+      paths: [...writtenReviewPaths, auditRelPath],
+      message: `propose procedure drafts: ${written}`,
+    });
+  }
 
   return {
     scanned: observations.length,
@@ -185,6 +194,7 @@ export async function runProcedurePropose(
 export async function runProcedurePromote(opts: {
   vaultRoot: string;
   slug: string;
+  commitVaultChange?: CommitVaultChange;
 }): Promise<{ from: string; to: string }> {
   const slug = sanitizeSlug(opts.slug);
   const from = `wiki/procedures-proposed/${slug}.md`;
@@ -206,12 +216,18 @@ export async function runProcedurePromote(opts: {
   };
   await atomicWrite(toPath, serializeFrontmatter(frontmatter, parsed.body));
   await rm(fromPath);
+  await (opts.commitVaultChange ?? defaultCommitVaultChange)({
+    memoryRoot: opts.vaultRoot,
+    paths: [from, to],
+    message: `promote procedure: ${slug}`,
+  });
   return { from, to };
 }
 
 export async function runProcedureReject(opts: {
   vaultRoot: string;
   slug: string;
+  commitVaultChange?: CommitVaultChange;
 }): Promise<{ deleted: string }> {
   const slug = sanitizeSlug(opts.slug);
   const deleted = `wiki/procedures-proposed/${slug}.md`;
@@ -220,6 +236,11 @@ export async function runProcedureReject(opts: {
     throw new Error(`proposed procedure not found: ${deleted}`);
   }
   await rm(fullPath);
+  await (opts.commitVaultChange ?? defaultCommitVaultChange)({
+    memoryRoot: opts.vaultRoot,
+    paths: [deleted],
+    message: `reject procedure: ${slug}`,
+  });
   return { deleted };
 }
 
