@@ -11,6 +11,7 @@ import {
   loadMaintenanceScan,
   loadPageDetail,
   loadRawIndex,
+  redactConfig,
   loadSyncState,
   loadWikiIndex,
 } from "../../src/dashboard/loaders.js";
@@ -73,6 +74,62 @@ describe("dashboard loaders", () => {
       wikiPages: 2,
       rawObservations: 5,
       crystals: 0,
+    });
+  });
+
+  it("redactConfig redacts secret-named strings anywhere while preserving non-secret settings", () => {
+    const raw = {
+      voyage: {
+        api_key: "voyage-secret",
+        dim: 2048,
+      },
+      llm: {
+        api_key: "llm-secret",
+        model: "openai/gpt-4o-mini",
+        max_tokens: 4096,
+        options: {
+          access_token: "nested-token",
+          temperature: 0.2,
+        },
+      },
+      openrouter: {
+        api_key: "openrouter-secret",
+      },
+      providers: [
+        {
+          name: "provider-a",
+          secret: "array-secret",
+        },
+      ],
+      apiKey: "camel-secret",
+      cadence: "weekly",
+    };
+
+    expect(redactConfig(raw)).toEqual({
+      voyage: {
+        api_key: "[REDACTED]",
+        dim: 2048,
+      },
+      llm: {
+        api_key: "[REDACTED]",
+        model: "openai/gpt-4o-mini",
+        max_tokens: 4096,
+        options: {
+          access_token: "[REDACTED]",
+          temperature: 0.2,
+        },
+      },
+      openrouter: {
+        api_key: "[REDACTED]",
+      },
+      providers: [
+        {
+          name: "provider-a",
+          secret: "[REDACTED]",
+        },
+      ],
+      apiKey: "[REDACTED]",
+      cadence: "weekly",
     });
   });
 

@@ -1328,19 +1328,26 @@ function parseIsoFromText(value: string): string | null {
   return match ? normalizeIso(match[0]!) : null;
 }
 
-function redactConfig(value: unknown, path: string[] = []): unknown {
+const SECRET_CONFIG_KEY_RE = /(?:^|[_-])(api[_-]?key|apikey|secret|token|password|passwd|credential|private[_-]?key)s?$/i;
+const NON_SECRET_CONFIG_KEYS = new Set(["max_token", "max_tokens"]);
+
+export function redactConfig(value: unknown): unknown {
   if (Array.isArray(value)) {
-    return value.map((item) => redactConfig(item, path));
+    return value.map((item) => redactConfig(item));
   }
   if (!value || typeof value !== "object") return value;
 
   const result: Record<string, unknown> = {};
   for (const [key, child] of Object.entries(value)) {
-    if (path.length === 1 && path[0] === "voyage" && key === "api_key" && typeof child === "string" && child.length > 0) {
+    if (isSecretConfigKey(key) && typeof child === "string" && child.length > 0) {
       result[key] = "[REDACTED]";
     } else {
-      result[key] = redactConfig(child, [...path, key]);
+      result[key] = redactConfig(child);
     }
   }
   return result;
+}
+
+function isSecretConfigKey(key: string): boolean {
+  return !NON_SECRET_CONFIG_KEYS.has(key.toLowerCase()) && SECRET_CONFIG_KEY_RE.test(key);
 }
