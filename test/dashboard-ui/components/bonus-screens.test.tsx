@@ -9,6 +9,7 @@ import type { ConflictsResponse } from "../../../src/dashboard-ui/hooks/useConfl
 
 const compileHook = vi.hoisted(() => ({
   useCompileState: vi.fn(),
+  useRunCompileNow: vi.fn(),
 }));
 
 const conflictsHook = vi.hoisted(() => ({
@@ -20,6 +21,7 @@ vi.mock("../../../src/dashboard-ui/hooks/useCompileState.js", async (importOrigi
   return {
     ...actual,
     useCompileState: compileHook.useCompileState,
+    useRunCompileNow: compileHook.useRunCompileNow,
   };
 });
 
@@ -41,6 +43,13 @@ function renderWithQueryClient(ui: ReactNode) {
 describe("bonus dashboard screens", () => {
   beforeEach(() => {
     compileHook.useCompileState.mockReset();
+    compileHook.useRunCompileNow.mockReset();
+    compileHook.useRunCompileNow.mockReturnValue({
+      mutate: vi.fn(),
+      isPending: false,
+      data: null,
+      error: null,
+    });
     conflictsHook.useConflicts.mockReset();
   });
 

@@ -19,6 +19,10 @@ export interface ConfigPatchBody {
     cadence?: "weekly" | "daily" | "manual";
     confidence_threshold?: "high" | "none";
   };
+  compile?: {
+    scheduled?: boolean;
+    cadence?: "daily" | "weekly" | "manual";
+  };
 }
 
 export function useUpdateConfig() {

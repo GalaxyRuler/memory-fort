@@ -4,6 +4,7 @@ import { CompilePage } from "../../../src/dashboard-ui/components/CompilePage.js
 
 const compileHook = vi.hoisted(() => ({
   useCompileState: vi.fn(),
+  useRunCompileNow: vi.fn(),
 }));
 
 vi.mock("../../../src/dashboard-ui/hooks/useCompileState.js", async (importOriginal) => {
@@ -11,12 +12,20 @@ vi.mock("../../../src/dashboard-ui/hooks/useCompileState.js", async (importOrigi
   return {
     ...actual,
     useCompileState: compileHook.useCompileState,
+    useRunCompileNow: compileHook.useRunCompileNow,
   };
 });
 
 describe("CompilePage", () => {
   beforeEach(() => {
     compileHook.useCompileState.mockReset();
+    compileHook.useRunCompileNow.mockReset();
+    compileHook.useRunCompileNow.mockReturnValue({
+      mutate: vi.fn(),
+      isPending: false,
+      data: null,
+      error: null,
+    });
   });
 
   test("does not render decorative mock node identifiers", () => {

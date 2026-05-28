@@ -183,11 +183,12 @@ describe("settings page", () => {
     expect(screen.getByText(/Provider settings .* can now be edited directly/i)).toBeInTheDocument();
   });
 
-  test("SettingsPage renders auto-promote controls and patches safelisted fields", () => {
+  test("SettingsPage renders auto-promote and compile controls and patches safelisted fields", () => {
     const mutate = vi.fn();
     configHook.useConfig.mockReturnValue({
       data: {
         auto_promote: { enabled: false, cadence: "weekly", confidence_threshold: "high" },
+        compile: { scheduled: true, cadence: "daily" },
       },
       error: null,
       isLoading: false,
@@ -197,11 +198,15 @@ describe("settings page", () => {
     render(<SettingsPage />);
 
     expect(screen.getByRole("heading", { name: "Auto-promote" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Compile" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("checkbox", { name: /enable auto-promote/i }));
     expect(mutate).toHaveBeenCalledWith({ auto_promote: { enabled: true } });
 
-    fireEvent.click(screen.getByRole("radio", { name: "daily" }));
+    fireEvent.click(screen.getAllByRole("radio", { name: "daily" })[0]!);
     expect(mutate).toHaveBeenCalledWith({ auto_promote: { cadence: "daily" } });
+    fireEvent.click(screen.getByRole("checkbox", { name: /schedule compile/i }));
+    expect(mutate).toHaveBeenCalledWith({ compile: { scheduled: false } });
     expect(screen.queryByRole("heading", { name: "auto_promote" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "compile" })).not.toBeInTheDocument();
   });
 });

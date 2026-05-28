@@ -1,4 +1,4 @@
-import { FileText, Inbox, Terminal } from "lucide-react";
+import { FileCog, FileText, Inbox, Terminal } from "lucide-react";
 import { type ConfigValue, useConfig } from "../hooks/useConfig.js";
 import { useUpdateConfig } from "../hooks/useUpdateConfig.js";
 import { Card } from "./Card.js";
@@ -10,7 +10,7 @@ function isSection(value: ConfigValue): value is Record<string, ConfigValue> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-const DEDICATED_PROVIDER_SECTIONS = new Set(["embedder", "embedding", "llm", "auto_promote"]);
+const DEDICATED_PROVIDER_SECTIONS = new Set(["embedder", "embedding", "llm", "auto_promote", "compile"]);
 
 export function SettingsPage() {
   const config = useConfig();
@@ -39,6 +39,7 @@ export function SettingsPage() {
           <LLMConfigCard />
         </div>
         <AutoPromoteConfigCard autoPromote={config.data.auto_promote} />
+        <CompileConfigCard compile={config.data.compile} />
 
         {scalars.length > 0 && <SettingsSection title="general" data={generalData} />}
         {sections.map(([sectionKey, sectionValue]) => (
@@ -79,6 +80,72 @@ export function SettingsPage() {
         </Card>
       </div>
     </div>
+  );
+}
+
+function CompileConfigCard({ compile }: { compile: ConfigValue | undefined }) {
+  const updateConfig = useUpdateConfig();
+  const section = isSection(compile) ? compile : {};
+  const scheduled = section.scheduled !== false;
+  const cadence = section.cadence === "weekly" || section.cadence === "manual" ? section.cadence : "daily";
+
+  return (
+    <Card>
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="flex items-center gap-2 text-base font-semibold">
+            <FileCog size={16} strokeWidth={1.5} />
+            Compile
+          </h2>
+          <p className="mt-1 text-sm text-text-secondary">
+            Scheduled consolidation prompt generation for raw observations.
+          </p>
+        </div>
+        <a href="/memory/compile" className="text-sm font-medium text-primary hover:underline">
+          View compile
+        </a>
+      </div>
+
+      <label className="mb-4 flex items-center justify-between gap-3 rounded-md border border-border-subtle bg-surface-2 p-3">
+        <span>
+          <span className="block text-sm font-medium">Schedule compile</span>
+          <span className="block text-xs text-text-muted">Runs inside the dashboard scheduler.</span>
+        </span>
+        <input
+          type="checkbox"
+          checked={scheduled}
+          disabled={updateConfig.isPending}
+          onChange={(event) => updateConfig.mutate({ compile: { scheduled: event.target.checked } })}
+          className="h-5 w-5 accent-primary"
+        />
+      </label>
+
+      <fieldset>
+        <legend className="mb-2 text-sm font-medium">Cadence</legend>
+        <div className="flex flex-wrap gap-2">
+          {(["daily", "weekly", "manual"] as const).map((option) => (
+            <label
+              key={option}
+              className="flex cursor-pointer items-center gap-2 rounded-md border border-border-subtle px-3 py-2 text-sm"
+            >
+              <input
+                type="radio"
+                name="compile-cadence"
+                checked={cadence === option}
+                disabled={updateConfig.isPending}
+                onChange={() => updateConfig.mutate({ compile: { cadence: option } })}
+                className="accent-primary"
+              />
+              {option}
+            </label>
+          ))}
+        </div>
+      </fieldset>
+
+      {updateConfig.error && (
+        <p className="mt-3 text-sm text-status-red">{updateConfig.error.message}</p>
+      )}
+    </Card>
   );
 }
 

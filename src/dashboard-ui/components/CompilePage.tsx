@@ -1,5 +1,5 @@
 import { CheckCircle2, Clock, Cpu, FileText, Network, Play, Terminal } from "lucide-react";
-import { type CompileLastRun, useCompileState } from "../hooks/useCompileState.js";
+import { type CompileLastRun, useCompileState, useRunCompileNow } from "../hooks/useCompileState.js";
 import { Button } from "./Button.js";
 import { GlassPanel } from "./GlassPanel.js";
 import { StatusPill } from "./StatusPill.js";
@@ -115,7 +115,7 @@ function CompileLogPanel({ isRunning, lastRun }: { isRunning: boolean; lastRun: 
   );
 }
 
-function CompilePagesPanel({ lastRun }: { lastRun: CompileLastRun | null }) {
+function CompilePagesPanel({ lastRun, onRun, isRunning }: { lastRun: CompileLastRun | null; onRun: () => void; isRunning: boolean }) {
   const pagesCompiled = lastRun?.pagesCompiled ?? 0;
   const percent = Math.max(0, Math.min(100, pagesCompiled === 0 ? 0 : 100));
 
@@ -134,22 +134,24 @@ function CompilePagesPanel({ lastRun }: { lastRun: CompileLastRun | null }) {
       <Button
         type="button"
         variant="primary"
-        disabled
+        disabled={isRunning}
+        onClick={onRun}
         className="mt-5 w-full justify-center disabled:cursor-not-allowed disabled:opacity-45"
       >
         <Play size={15} strokeWidth={1.5} />
-        Run compile
+        {isRunning ? "Compile running" : "Run compile now"}
       </Button>
-      <p className="mt-2 text-center text-xs text-text-muted">CLI: memory compile</p>
     </GlassPanel>
   );
 }
 
 export function CompilePage() {
   const compile = useCompileState();
+  const runCompile = useRunCompileNow();
   const state = compile.data;
   const lastRun = state?.lastRun ?? null;
-  const isRunning = state?.status === "running";
+  const isRunning = state?.status === "running" || runCompile.isPending;
+  const schedule = state?.schedule;
 
   return (
     <div className="relative mx-auto min-h-[calc(100vh-5rem)] max-w-7xl overflow-hidden p-4 md:p-6">
@@ -161,7 +163,7 @@ export function CompilePage() {
           <div>
             <h1 className="break-words text-2xl font-semibold tracking-tight">Compilation Phase</h1>
             <p className="max-w-2xl text-sm text-text-secondary">
-              Read-only curation status from the local memory state. Triggering compile remains a CLI-only operation.
+              Curation status from the local memory state with scheduler cadence and manual compile controls.
             </p>
           </div>
         </div>
@@ -169,13 +171,19 @@ export function CompilePage() {
           <Button
             type="button"
             variant="primary"
-            disabled
+            disabled={isRunning}
+            onClick={() => runCompile.mutate()}
             className="disabled:cursor-not-allowed disabled:opacity-45"
           >
             <Play size={15} strokeWidth={1.5} />
-            Run compile
+            {isRunning ? "Compile running" : "Run compile now"}
           </Button>
-          <p className="text-xs text-text-muted">CLI: memory compile</p>
+          {schedule ? (
+            <p className="text-xs text-text-muted">
+              {schedule.scheduled ? `Scheduled ${schedule.cadence}` : "Scheduling off"}
+              {schedule.nextRunAt ? ` · next ${formatTimestamp(schedule.nextRunAt)}` : ""}
+            </p>
+          ) : null}
         </div>
       </header>
 
@@ -208,8 +216,19 @@ export function CompilePage() {
 
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
             <CompileLogPanel isRunning={isRunning} lastRun={lastRun} />
-            <CompilePagesPanel lastRun={lastRun} />
+            <CompilePagesPanel lastRun={lastRun} isRunning={isRunning} onRun={() => runCompile.mutate()} />
           </div>
+
+          {runCompile.data ? (
+            <GlassPanel className="border-primary/30 bg-primary/5 text-sm text-text-secondary">
+              Compile prompt generated from {runCompile.data.summary.rawIncluded} raw files; {runCompile.data.summary.rawSkipped} skipped.
+            </GlassPanel>
+          ) : null}
+          {runCompile.error ? (
+            <GlassPanel className="border-status-red/30 bg-status-red/5 text-sm text-status-red">
+              {runCompile.error.message}
+            </GlassPanel>
+          ) : null}
 
           {lastRun ? <CompileRunSummary lastRun={lastRun} /> : null}
 
