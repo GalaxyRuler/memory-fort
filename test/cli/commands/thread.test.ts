@@ -19,6 +19,8 @@ describe("thread commands", () => {
     tmp = await mkdtemp(join(tmpdir(), "memory-thread-"));
     await mkdir(join(tmp, "wiki", "projects"), { recursive: true });
     await writeMarkdown("wiki/projects/memory-fort.md", page("projects", "Memory Fort", "Shared project page."));
+    await writeMarkdown("wiki/decisions/settings-ui.md", page("decisions", "Settings UI", "Decision."));
+    await writeMarkdown("wiki/lessons/env-secrets.md", page("lessons", "Env Secrets", "Lesson."));
     for (let index = 1; index <= 3; index += 1) {
       await writeMarkdown(
         `raw/2026-05-2${index}/codex-${index}.md`,
@@ -47,6 +49,7 @@ describe("thread commands", () => {
     expect(result.clustered).toBe(1);
     expect(result.proposed).toBe(1);
     expect(result.written).toBe(0);
+    expect(result.referencesStripped).toBe(0);
     expect(result.proposals[0]).toMatchObject({
       slug: "memory-fort-settings",
       relPath: "wiki/threads-proposed/memory-fort-settings.md",
@@ -55,6 +58,7 @@ describe("thread commands", () => {
     expect(existsSync(join(tmp, "wiki", "threads-proposed", "memory-fort-settings.md"))).toBe(false);
     expect(existsSync(result.auditLogPath)).toBe(true);
     expect(formatThreadProposeResult(result)).toContain("Mode: plan");
+    expect(formatThreadProposeResult(result)).toContain("References stripped: 0 (avg 0.0 per proposal)");
   });
 
   it("applies proposals to wiki/threads-proposed and handles slug collisions", async () => {
@@ -86,6 +90,28 @@ describe("thread commands", () => {
       "raw/2026-05-23/codex-3.md",
     ]);
     expect(existsSync(join(tmp, "wiki", "threads", "memory-fort-settings-2.md"))).toBe(false);
+  });
+
+  it("does not write invented references to proposed thread drafts", async () => {
+    const result = await runThreadPropose({
+      vaultRoot: tmp,
+      apply: true,
+      days: 30,
+      maxProposals: 1,
+      now: new Date("2026-05-28T12:00:00.000Z"),
+      configLoader: async () => ({ llm: { provider: "ollama", model: "llama3.2" } }),
+      llmFactory: () => fakeLLM("memory-fort-settings", {
+        decision: "wiki/decisions/invented.md",
+        lesson: "wiki/lessons/env-secrets.md",
+      }),
+      env: {},
+    });
+
+    expect(result.referencesStripped).toBe(1);
+    const draft = await readFile(join(tmp, "wiki", "threads-proposed", "memory-fort-settings.md"), "utf-8");
+    expect(draft).not.toContain("wiki/decisions/invented.md");
+    expect(draft).toContain("wiki/lessons/env-secrets.md");
+    expect(await readFile(result.auditLogPath, "utf-8")).toContain("references stripped: 1 (avg 1.0 per proposal)");
   });
 
   it("skips malformed LLM proposals and continues writing the run audit", async () => {
@@ -172,7 +198,10 @@ describe("thread commands", () => {
   }
 });
 
-function fakeLLM(slug: string): LLMProvider {
+function fakeLLM(
+  slug: string,
+  refs: { decision?: string; lesson?: string } = {},
+): LLMProvider {
   return {
     providerName: "ollama",
     modelName: "llama3.2",
@@ -183,9 +212,9 @@ function fakeLLM(slug: string): LLMProvider {
         "  The settings work became an operator-facing configuration arc.",
         "  It kept secrets outside the UI while making model choices editable.",
         "key_decisions:",
-        "  - wiki/decisions/settings-ui.md",
+        `  - ${refs.decision ?? "wiki/decisions/settings-ui.md"}`,
         "key_lessons:",
-        "  - wiki/lessons/env-secrets.md",
+        `  - ${refs.lesson ?? "wiki/lessons/env-secrets.md"}`,
         "open_questions:",
         "  - Should review move into the dashboard?",
         `proposed_slug: ${slug}`,

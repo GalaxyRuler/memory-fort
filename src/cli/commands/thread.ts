@@ -44,6 +44,7 @@ export interface ThreadProposeRunResult {
   clustered: number;
   proposed: number;
   written: number;
+  referencesStripped: number;
   skipped: Array<{ clusterIndex: number; reason: string }>;
   proposals: Array<{
     slug: string;
@@ -85,6 +86,7 @@ export async function runThreadPropose(
   const proposals: ThreadProposeRunResult["proposals"] = [];
   const skipped: ThreadProposeRunResult["skipped"] = [];
   let written = 0;
+  let referencesStripped = 0;
 
   for (const [clusterIndex, cluster] of selected.entries()) {
     const proposal = await proposeThread({ llm, vaultRoot: opts.vaultRoot, cluster });
@@ -92,6 +94,7 @@ export async function runThreadPropose(
       skipped.push({ clusterIndex, reason: "proposal skipped or malformed" });
       continue;
     }
+    referencesStripped += proposal.grounding.strippedReferenceCount;
 
     const slug = uniqueProposalSlug(opts.vaultRoot, proposal.proposedSlug);
     const relPath = `wiki/threads-proposed/${slug}.md`;
@@ -105,7 +108,7 @@ export async function runThreadPropose(
     if (opts.apply) {
       await atomicWrite(
         join(opts.vaultRoot, ...relPath.split("/")),
-        formatThreadProposalFile({ proposal, cluster, slug, now }),
+        formatThreadProposalFile({ proposal, cluster, slug, now, vaultRoot: opts.vaultRoot }),
       );
       written += 1;
     }
@@ -126,6 +129,7 @@ export async function runThreadPropose(
     proposals,
     skipped,
     written,
+    referencesStripped,
   }));
 
   return {
@@ -133,6 +137,7 @@ export async function runThreadPropose(
     clustered: clusters.length,
     proposed: proposals.length,
     written,
+    referencesStripped,
     skipped,
     proposals,
     auditLogPath,
@@ -188,6 +193,7 @@ export function formatThreadProposeResult(result: ThreadProposeRunResult): strin
     `Scanned raw observations: ${result.scanned}`,
     `Clusters found: ${result.clustered}`,
     `Proposals accepted: ${result.proposed}`,
+    `References stripped: ${result.referencesStripped} (avg ${averageStripped(result.referencesStripped, result.proposed)} per proposal)`,
     `Drafts written: ${result.written}`,
     `Audit: ${result.auditLogPath}`,
   ];
@@ -279,6 +285,7 @@ function toRawObservationRef(document: SearchDocument): RawObservationRef {
   return {
     relPath: document.relPath,
     created: documentDate(document),
+    relations: document.relations,
     entities: relationTargets(document),
     source: document.source,
     title: document.title || basename(document.relPath, ".md"),
@@ -308,11 +315,18 @@ function formatThreadProposalFile(opts: {
   cluster: ThreadCluster;
   slug: string;
   now: Date;
+  vaultRoot: string;
 }): string {
   const date = opts.now.toISOString().slice(0, 10);
   const decisions = listOrNone(opts.proposal.keyDecisions);
   const lessons = listOrNone(opts.proposal.keyLessons);
   const questions = listOrNone(opts.proposal.openQuestions);
+  const mentions = opts.cluster.observations
+    .map((observation) => observation.relPath)
+    .filter((relPath) => relationTargetExists(opts.vaultRoot, relPath));
+  const derivedFrom = opts.cluster.sharedEntities
+    .filter((entity) => entity.startsWith("wiki/") || entity.startsWith("raw/"))
+    .filter((relPath) => relationTargetExists(opts.vaultRoot, relPath));
   return serializeFrontmatter(
     {
       type: "threads",
@@ -333,8 +347,8 @@ function formatThreadProposalFile(opts: {
       time_range: opts.cluster.timeRange,
       tags: ["auto-proposed", "thread-draft"],
       relations: {
-        mentions: opts.cluster.observations.map((observation) => observation.relPath),
-        derived_from: opts.cluster.sharedEntities.filter((entity) => entity.startsWith("wiki/")),
+        mentions,
+        derived_from: derivedFrom,
       },
     },
     [
@@ -373,6 +387,7 @@ function formatThreadRunAudit(input: {
   proposals: ThreadProposeRunResult["proposals"];
   skipped: ThreadProposeRunResult["skipped"];
   written: number;
+  referencesStripped: number;
 }): string {
   const date = input.now.toISOString().slice(0, 10);
   const lines = [
@@ -384,6 +399,7 @@ function formatThreadRunAudit(input: {
     `clusters found: ${input.clustered}`,
     `clusters selected: ${input.selected}`,
     `proposals accepted: ${input.proposals.length}`,
+    `references stripped: ${input.referencesStripped} (avg ${averageStripped(input.referencesStripped, input.proposals.length)} per proposal)`,
     `drafts written: ${input.written}`,
     "",
     "## Proposals",
@@ -436,6 +452,16 @@ function sanitizeSlug(slug: string): string {
 
 function listOrNone(items: string[]): string[] {
   return items.length > 0 ? items : ["none"];
+}
+
+function averageStripped(stripped: number, proposals: number): string {
+  return proposals > 0 ? (stripped / proposals).toFixed(1) : "0.0";
+}
+
+function relationTargetExists(vaultRoot: string, relPath: string): boolean {
+  if (relPath.includes("..")) return false;
+  if (!relPath.startsWith("wiki/") && !relPath.startsWith("raw/")) return false;
+  return existsSync(join(vaultRoot, ...relPath.split("/")));
 }
 
 function parseInteger(value: string): number {

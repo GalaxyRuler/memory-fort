@@ -1,6 +1,14 @@
 import yaml from "js-yaml";
 import type { ThreadCluster } from "../consolidate/thread-cluster.js";
 import { chatWithAudit } from "./audit.js";
+import {
+  emptyGroundingStats,
+  extractProposalCandidates,
+  filterWikiReferencesToExisting,
+  formatCandidateList,
+  type ProposalCandidates,
+  type ProposalGroundingStats,
+} from "./proposal-grounding.js";
 import type { LLMProvider } from "./types.js";
 
 export interface ThreadProposal {
@@ -10,12 +18,14 @@ export interface ThreadProposal {
   keyLessons: string[];
   openQuestions: string[];
   proposedSlug: string;
+  grounding: ProposalGroundingStats;
 }
 
 export interface ThreadProposeOptions {
   llm: LLMProvider;
   vaultRoot: string;
   cluster: ThreadCluster;
+  candidates?: ProposalCandidates;
 }
 
 const SYSTEM_PROMPT = `You draft narrative thread pages for Memory Fort, a personal agent-memory system. A thread aggregates raw observations from a coherent stretch of work - usually 3-30 sessions sharing entities and a time window.
@@ -40,21 +50,33 @@ If the cluster doesn't represent a coherent arc, output: "skip: <reason>" instea
 export async function proposeThread(
   opts: ThreadProposeOptions,
 ): Promise<ThreadProposal | null> {
-  const response = await chatWithAudit({
+  const candidates = opts.candidates ?? await extractProposalCandidates({
+    vaultRoot: opts.vaultRoot,
+    observations: opts.cluster.observations,
+  });
+  let proposal: ThreadProposal | null = null;
+  await chatWithAudit({
     llm: opts.llm,
     vaultRoot: opts.vaultRoot,
     consumer: "auto-thread-propose",
     request: {
       messages: [
-        { role: "system", content: SYSTEM_PROMPT },
+        { role: "system", content: systemPrompt(candidates) },
         { role: "user", content: userPrompt(opts.cluster) },
       ],
       maxTokens: 1200,
       temperature: 0.2,
     },
+    auditMetadata: async (response) => {
+      proposal = await groundThreadProposal(opts.vaultRoot, parseThreadProposal(response.content));
+      return {
+        referencesStripped: proposal?.grounding.strippedReferenceCount ?? 0,
+        strippedSamples: proposal?.grounding.strippedSamples ?? [],
+      };
+    },
   });
 
-  return parseThreadProposal(response.content);
+  return proposal;
 }
 
 export function parseThreadProposal(content: string): ThreadProposal | null {
@@ -84,7 +106,42 @@ export function parseThreadProposal(content: string): ThreadProposal | null {
     keyLessons: readStringArray(parsed["key_lessons"]).slice(0, 10),
     openQuestions: readStringArray(parsed["open_questions"]).slice(0, 10),
     proposedSlug,
+    grounding: emptyGroundingStats(),
   };
+}
+
+async function groundThreadProposal(
+  vaultRoot: string,
+  proposal: ThreadProposal | null,
+): Promise<ThreadProposal | null> {
+  if (!proposal) return null;
+  const originalReferenceCount = proposal.keyDecisions.length + proposal.keyLessons.length;
+  const decisions = await filterWikiReferencesToExisting(vaultRoot, proposal.keyDecisions);
+  const lessons = await filterWikiReferencesToExisting(vaultRoot, proposal.keyLessons);
+  const stripped = [...decisions.stripped, ...lessons.stripped];
+  return {
+    ...proposal,
+    keyDecisions: decisions.filtered,
+    keyLessons: lessons.filtered,
+    grounding: {
+      originalReferenceCount,
+      strippedReferenceCount: stripped.length,
+      stripReasons: stripped.map((path) => `missing wiki reference: ${path}`),
+      strippedSamples: stripped.slice(0, 3),
+    },
+  };
+}
+
+function systemPrompt(candidates: ProposalCandidates): string {
+  return `${SYSTEM_PROMPT}
+
+Existing wiki pages you may reference (do not invent paths beyond these):
+
+${formatCandidateList(candidates)}
+
+If you cannot find a fitting existing page for a key_decision or key_lesson,
+leave the array empty rather than inventing one. Empty lists are honest;
+invented references are harmful.`;
 }
 
 function userPrompt(cluster: ThreadCluster): string {
