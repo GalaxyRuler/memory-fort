@@ -6,6 +6,7 @@ export interface RankedItem {
 export interface RankedList {
   source: string;
   items: RankedItem[];
+  weight?: number;
 }
 
 export interface RrfSource {
@@ -30,6 +31,7 @@ export function rrfFuse(lists: RankedList[], opts: RrfOptions = {}): RrfResult[]
   const byPath = new Map<string, RrfResult>();
 
   for (const list of lists) {
+    const weight = list.weight ?? 1;
     for (const item of list.items) {
       const existing =
         byPath.get(item.relPath) ??
@@ -38,7 +40,7 @@ export function rrfFuse(lists: RankedList[], opts: RrfOptions = {}): RrfResult[]
           score: 0,
           sources: [],
         } satisfies RrfResult);
-      existing.score += 1 / (k + item.rank);
+      existing.score += weight * (1 / (k + item.rank));
       existing.sources.push({ source: list.source, rank: item.rank });
       byPath.set(item.relPath, existing);
     }

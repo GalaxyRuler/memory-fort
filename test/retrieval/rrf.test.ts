@@ -50,4 +50,15 @@ describe("RRF fusion", () => {
     expect(result.map((item) => item.relPath)).toEqual(["a", "z"]);
     expect(result[0]?.score).toBe(result[1]?.score);
   });
+
+  it("rrfFuse applies optional per-stream weights", () => {
+    const result = rrfFuse([
+      { ...list("bm25", ["a"]), weight: 0.5 },
+      { ...list("exact", ["b"]), weight: 2 },
+    ]);
+
+    expect(result.map((item) => item.relPath)).toEqual(["b", "a"]);
+    expect(result.find((item) => item.relPath === "a")?.score).toBeCloseTo(0.5 / 61);
+    expect(result.find((item) => item.relPath === "b")?.score).toBeCloseTo(2 / 61);
+  });
 });

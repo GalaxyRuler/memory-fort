@@ -12,6 +12,12 @@ import { exactBoosts } from "./exact.js";
 import { buildGraph, expandGraph, spreadingActivation } from "./graph.js";
 import { scoreByMetadata } from "./metadata-score.js";
 import { rrfFuse, type RankedItem, type RrfResult } from "./rrf.js";
+import { applyIntentWeights } from "./intent-weights.js";
+import {
+  classifyQuery,
+  type IntentClassification,
+  type IntentLabel,
+} from "./query-intent.js";
 import { rerankCandidates } from "./rerank.js";
 import {
   applyHydeExpansion,
@@ -22,6 +28,7 @@ import {
 import { refreshEmbeddings, type EmbedClient } from "./refresh.js";
 import { embedWithClient } from "./embedder/types.js";
 import type { VoyageClient } from "./voyage-client.js";
+import type { LLMProvider } from "../llm/types.js";
 
 export interface SearchOptions {
   query: string;
@@ -30,11 +37,13 @@ export interface SearchOptions {
   minScore?: number;
   noRerank?: boolean;
   noHyde?: boolean;
+  intent?: IntentLabel;
   hydeExpansion?: string;
   signal?: AbortSignal;
   vaultRoot: string;
   embedClient: EmbedClient;
   voyageClient: VoyageClient;
+  llmProvider?: LLMProvider | null;
   corpusLoader?: () => Promise<{
     documents: SearchDocument[];
     errors: Array<{ path: string; reason: string }>;
@@ -65,6 +74,7 @@ export interface SearchTimings {
   rrfMs: number;
   rerankMs: number;
   totalMs: number;
+  intentClassification: IntentClassification;
 }
 
 export interface HydeStatus {
@@ -183,6 +193,7 @@ export async function runSearch(opts: SearchOptions): Promise<SearchResponse> {
   const documents = filterByScope(loaded.documents, scope);
   if (documents.length === 0 || resultLimit === 0) {
     timings.totalMs = Date.now() - started;
+    timings.intentClassification = explicitOrFallbackIntent(opts.intent);
     return {
       query: opts.query,
       results: [],
@@ -302,8 +313,17 @@ export async function runSearch(opts: SearchOptions): Promise<SearchResponse> {
   });
   timings.metadataMs = Date.now() - metadataStarted;
 
+  const classification = opts.intent
+    ? explicitIntent(opts.intent)
+    : await classifyQuery({
+        query: opts.query,
+        llm: opts.llmProvider,
+        vaultRoot: opts.vaultRoot,
+      });
+  timings.intentClassification = classification;
+
   const rrfStarted = Date.now();
-  const fused = rrfFuse([
+  const fused = rrfFuse(applyIntentWeights(classification.label, [
     { source: "bm25", items: toRankedItems(bm25) },
     { source: "vector", items: toRankedItems(vector) },
     { source: "exact", items: toRankedItems(exact) },
@@ -316,7 +336,7 @@ export async function runSearch(opts: SearchOptions): Promise<SearchResponse> {
         rank: index + 1,
       })),
     },
-  ]);
+  ]));
   const fusedFiltered = fused.filter((item) =>
     item.sources.some((source) => source.source !== "metadata"),
   );
@@ -595,6 +615,30 @@ function emptyTimings(): SearchTimings {
     rrfMs: 0,
     rerankMs: 0,
     totalMs: 0,
+    intentClassification: {
+      label: "open-ended",
+      confidence: 0.5,
+      method: "fallback",
+      latencyMs: 0,
+    },
+  };
+}
+
+function explicitOrFallbackIntent(intent: IntentLabel | undefined): IntentClassification {
+  return intent ? explicitIntent(intent) : {
+    label: "open-ended",
+    confidence: 0.5,
+    method: "fallback",
+    latencyMs: 0,
+  };
+}
+
+function explicitIntent(label: IntentLabel): IntentClassification {
+  return {
+    label,
+    confidence: 1,
+    method: "explicit",
+    latencyMs: 0,
   };
 }
 

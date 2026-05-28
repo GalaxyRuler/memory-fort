@@ -78,6 +78,10 @@ describe("search core", () => {
     ] as const) {
       expect(response.timings[key]).toEqual(expect.any(Number));
     }
+    expect(response.timings.intentClassification).toMatchObject({
+      label: "open-ended",
+      method: "fallback",
+    });
   });
 
   it("Voyage failure sets degraded=true and falls back to RRF", async () => {
@@ -206,6 +210,27 @@ describe("search core", () => {
     });
 
     expect(response.results).toEqual([]);
+  });
+
+  it("accepts explicit intent and exposes it in timings", async () => {
+    const { embedClient, voyageClient } = clients();
+
+    const response = await runSearch({
+      query: "deploy dashboard",
+      intent: "procedure",
+      noHyde: true,
+      noRerank: true,
+      vaultRoot: tmp,
+      embedClient,
+      voyageClient,
+      corpusLoader: async () => ({ documents: sampleDocs(), errors: [] }),
+    });
+
+    expect(response.timings.intentClassification).toMatchObject({
+      label: "procedure",
+      method: "explicit",
+      confidence: 1,
+    });
   });
 
   it("noHyde skips HyDE even for short query", async () => {
