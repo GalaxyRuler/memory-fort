@@ -17,6 +17,8 @@ export interface LLMAuditEntry {
   estimatedCostUSD?: number | null;
   referencesStripped?: number | null;
   strippedSamples?: string[];
+  prosePathLeaks?: number | null;
+  prosePathLeakSamples?: string[];
   finishReason: LLMFinishReason;
   error?: string;
 }
@@ -24,6 +26,8 @@ export interface LLMAuditEntry {
 export interface LLMAuditMetadata {
   referencesStripped?: number | null;
   strippedSamples?: string[];
+  prosePathLeaks?: number | null;
+  prosePathLeakSamples?: string[];
 }
 
 export interface ChatWithAuditOptions {
@@ -31,6 +35,7 @@ export interface ChatWithAuditOptions {
   vaultRoot: string;
   consumer: string;
   request: LLMRequest;
+  env?: NodeJS.ProcessEnv;
   auditMetadata?: (response: LLMResponse) => LLMAuditMetadata | Promise<LLMAuditMetadata>;
 }
 
@@ -39,6 +44,7 @@ export interface LLMAuditConsumerSummary {
   calls: number;
   costUsd: number;
   referencesStripped: number;
+  prosePathLeaks: number;
 }
 
 export interface LLMAuditProviderModelSummary {
@@ -58,8 +64,8 @@ export interface LLMAuditSummary {
 }
 
 const HEADER = [
-  "| ts | consumer | provider | model | prompt_hash | response_hash | tokens_in | tokens_out | duration_ms | cost_usd | references_stripped | stripped_samples | finish | error |",
-  "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+  "| ts | consumer | provider | model | prompt_hash | response_hash | tokens_in | tokens_out | duration_ms | cost_usd | references_stripped | stripped_samples | prose_path_leaks | prose_path_leak_samples | finish | error |",
+  "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
 ].join("\n");
 
 export function hashPrompt(messages: LLMMessage[]): string {
@@ -68,6 +74,10 @@ export function hashPrompt(messages: LLMMessage[]): string {
 
 export function hashResponse(content: string): string {
   return hash16(content);
+}
+
+export function isDebugLogEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env["MEMORY_LLM_DEBUG_LOG"] === "1";
 }
 
 export async function writeLLMAuditEntry(vaultRoot: string, entry: LLMAuditEntry): Promise<void> {
@@ -87,8 +97,9 @@ export async function chatWithAudit(opts: ChatWithAuditOptions) {
   try {
     const response = await opts.llm.chat(opts.request);
     const auditMetadata = opts.auditMetadata ? await opts.auditMetadata(response) : {};
-    await writeLLMAuditEntry(opts.vaultRoot, {
-      ts: new Date(),
+    const ts = new Date();
+    const entry = {
+      ts,
       consumer: opts.consumer,
       provider: opts.llm.providerName,
       model: response.model,
@@ -100,11 +111,20 @@ export async function chatWithAudit(opts: ChatWithAuditOptions) {
       costUsd: 0,
       ...auditMetadata,
       finishReason: response.finishReason,
-    });
+    } satisfies LLMAuditEntry;
+    await writeLLMAuditEntry(opts.vaultRoot, entry);
+    if (isDebugLogEnabled(opts.env)) {
+      await writeLLMDebugEntry(opts.vaultRoot, {
+        entry,
+        request: opts.request,
+        response,
+      });
+    }
     return response;
   } catch (error) {
-    await writeLLMAuditEntry(opts.vaultRoot, {
-      ts: new Date(),
+    const ts = new Date();
+    const entry = {
+      ts,
       consumer: opts.consumer,
       provider: opts.llm.providerName,
       model: opts.llm.modelName,
@@ -116,7 +136,15 @@ export async function chatWithAudit(opts: ChatWithAuditOptions) {
       costUsd: null,
       finishReason: "error",
       error: error instanceof Error ? error.message : String(error),
-    });
+    } satisfies LLMAuditEntry;
+    await writeLLMAuditEntry(opts.vaultRoot, entry);
+    if (isDebugLogEnabled(opts.env)) {
+      await writeLLMDebugEntry(opts.vaultRoot, {
+        entry,
+        request: opts.request,
+        error: entry.error ?? "unknown error",
+      });
+    }
     throw error;
   }
 }
@@ -152,6 +180,7 @@ export async function readLLMAuditSummary(
       totalCalls += 1;
       const costUsd = parseOptionalNumber(row.costUsd) ?? 0;
       const referencesStripped = parseOptionalNumber(row.referencesStripped) ?? 0;
+      const prosePathLeaks = parseOptionalNumber(row.prosePathLeaks) ?? 0;
       const tokensIn = parseOptionalNumber(row.tokensIn) ?? 0;
       const tokensOut = parseOptionalNumber(row.tokensOut) ?? 0;
       totalCostUsd += costUsd;
@@ -161,10 +190,12 @@ export async function readLLMAuditSummary(
         calls: 0,
         costUsd: 0,
         referencesStripped: 0,
+        prosePathLeaks: 0,
       };
       consumer.calls += 1;
       consumer.costUsd += costUsd;
       consumer.referencesStripped += referencesStripped;
+      consumer.prosePathLeaks += prosePathLeaks;
       consumers.set(row.consumer, consumer);
 
       const providerModelKey = `${row.provider}\0${row.model}`;
@@ -214,6 +245,8 @@ function formatEntry(entry: LLMAuditEntry): string {
     formatOptionalNumber(costUsd),
     formatOptionalNumber(entry.referencesStripped),
     escapeCell((entry.strippedSamples ?? []).join("; ")),
+    formatOptionalNumber(entry.prosePathLeaks),
+    escapeCell((entry.prosePathLeakSamples ?? []).join("; ")),
     entry.finishReason,
     escapeCell(entry.error ?? ""),
   ].join(" | ")} |`;
@@ -227,6 +260,7 @@ function parseAuditRows(text: string): Array<{
   tokensOut: string;
   costUsd: string;
   referencesStripped: string;
+  prosePathLeaks: string;
 }> {
   const rows = [];
   for (const line of text.split(/\r?\n/)) {
@@ -235,7 +269,8 @@ function parseAuditRows(text: string): Array<{
     }
     const cells = line.split("|").slice(1, -1).map((cell) => cell.trim());
     if (cells.length < 12) continue;
-    const isNewShape = cells.length >= 14;
+    const hasGroundingShape = cells.length >= 14;
+    const hasProseLeakShape = cells.length >= 16;
     rows.push({
       consumer: unescapeCell(cells[1] ?? ""),
       provider: unescapeCell(cells[2] ?? ""),
@@ -243,7 +278,8 @@ function parseAuditRows(text: string): Array<{
       tokensIn: cells[6] ?? "",
       tokensOut: cells[7] ?? "",
       costUsd: cells[9] ?? "",
-      referencesStripped: isNewShape ? cells[10] ?? "" : "",
+      referencesStripped: hasGroundingShape ? cells[10] ?? "" : "",
+      prosePathLeaks: hasProseLeakShape ? cells[12] ?? "" : "",
     });
   }
   return rows;
@@ -269,6 +305,64 @@ function unescapeCell(value: string): string {
 
 function dateKey(date: Date): string {
   return date.toISOString().slice(0, 10);
+}
+
+async function writeLLMDebugEntry(
+  vaultRoot: string,
+  input: {
+    entry: LLMAuditEntry;
+    request: LLMRequest;
+    response?: LLMResponse;
+    error?: string;
+  },
+): Promise<void> {
+  const ts = toDate(input.entry.ts);
+  const auditDir = join(vaultRoot, "wiki", ".audit");
+  await mkdir(auditDir, { recursive: true });
+  const path = join(auditDir, `llm-debug-${dateKey(ts)}.md`);
+  if (!(await exists(path))) {
+    await writeFile(
+      path,
+      `# LLM debug log ${dateKey(ts)}\n\n` +
+        "WARNING: contains plaintext prompts and responses. Treat as sensitive local diagnostic data.\n\n",
+      { encoding: "utf-8", mode: 0o600 },
+    );
+  }
+
+  await appendFile(
+    path,
+    [
+      `## ${ts.toISOString()} - ${input.entry.consumer}`,
+      "",
+      `provider: ${input.entry.provider}`,
+      `model: ${input.entry.model}`,
+      `tokens: ${formatDebugTokenPair(input.entry.tokensIn, input.entry.tokensOut)}`,
+      `duration_ms: ${input.entry.durationMs}`,
+      `finish: ${input.entry.finishReason}`,
+      `error: ${input.error ?? input.entry.error ?? ""}`,
+      "",
+      "### prompt",
+      "",
+      "```json",
+      JSON.stringify(input.request.messages, null, 2),
+      "```",
+      "",
+      "### response",
+      "",
+      "```text",
+      input.response?.content ?? "",
+      "```",
+      "",
+    ].join("\n"),
+    "utf-8",
+  );
+}
+
+function formatDebugTokenPair(
+  tokensIn: number | null | undefined,
+  tokensOut: number | null | undefined,
+): string {
+  return `${formatOptionalNumber(tokensIn) || "unknown"}/${formatOptionalNumber(tokensOut) || "unknown"}`;
 }
 
 function toDate(value: Date | string): Date {

@@ -54,6 +54,7 @@ const GITIGNORE_CONTENT = `# Memory runtime artifacts not stored in git
 errors.log
 .archive/
 embeddings/
+wiki/.audit/llm-debug-*.md
 claude-code-plugin/
 `;
 

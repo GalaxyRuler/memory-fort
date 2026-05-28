@@ -55,6 +55,7 @@ describe("runInit", () => {
     expect(gitignore).toContain("errors.log");
     expect(gitignore).toContain(".archive/");
     expect(gitignore).toContain("embeddings/");
+    expect(gitignore).toContain("wiki/.audit/llm-debug-*.md");
     expect(gitignore).not.toContain(".gitattributes");
     expect(gitignore).toContain("claude-code-plugin/");
     expect(gitignore).not.toContain("embeddings/raw.*.jsonl");
