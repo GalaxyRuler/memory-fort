@@ -861,7 +861,52 @@ describe("dashboard server", () => {
       const body = await response.json();
       expect(response.status).toBe(200);
       expect(response.headers.get("content-type")).toContain("application/json");
-      expect(body).toEqual({ status: "idle", lastRun: null });
+      expect(body).toMatchObject({
+        status: "idle",
+        lastRun: null,
+        schedule: { scheduled: true, cadence: "daily" },
+      });
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("POST /api/compile/run runs compile and returns 409 while a run is active", async () => {
+    let resolveRun: ((value: { rawFilesIncluded: string[]; rawFilesSkipped: unknown[]; outputPath: string }) => void) | null = null;
+    let markStarted: (() => void) | null = null;
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve;
+    });
+    const compileRunner = vi.fn(() => new Promise<{ rawFilesIncluded: string[]; rawFilesSkipped: unknown[]; outputPath: string }>((resolve) => {
+      markStarted?.();
+      resolveRun = resolve;
+    }));
+    const server = await createServer({ vaultRoot: tmp, port: 0, compileRunner });
+
+    try {
+      const first = fetch(`http://${server.host}:${server.port}/api/compile/run`, { method: "POST" });
+      await started;
+      const conflict = await fetch(`http://${server.host}:${server.port}/api/compile/run`, { method: "POST" });
+      expect(conflict.status).toBe(409);
+      await expect(conflict.json()).resolves.toEqual({ error: "compile already running" });
+
+      resolveRun?.({
+        rawFilesIncluded: ["raw/a.md", "raw/b.md"],
+        rawFilesSkipped: [{ path: "raw/old.md", reason: "before since cutoff" }],
+        outputPath: "state/scheduled-compile-prompt.md",
+      });
+      const response = await first;
+      const body = await response.json();
+      expect(response.status).toBe(200);
+      expect(body).toMatchObject({
+        ok: true,
+        summary: {
+          rawIncluded: 2,
+          rawSkipped: 1,
+          outputPath: "state/scheduled-compile-prompt.md",
+        },
+      });
+      expect(compileRunner).toHaveBeenCalledOnce();
     } finally {
       await server.close();
     }

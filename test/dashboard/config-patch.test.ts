@@ -41,6 +41,7 @@ describe("dashboard config patch", () => {
       embedder: { provider: "openai", model: "text-embedding-3-small", options: {} },
       llm: { provider: "openrouter", model: "openai/gpt-4o-mini", max_tokens: 4096, temperature: 0.2 },
       auto_promote: { enabled: true, cadence: "weekly", confidence_threshold: "high" },
+      compile: { scheduled: true, cadence: "daily" },
     })).toEqual({ ok: true, errors: [] });
   });
 

@@ -17,6 +17,7 @@ import { loadMemoryConfig } from "../storage/config.js";
 import { createLLMFromConfig, getActiveLLMConfig } from "../llm/factory.js";
 import type { LLMProvider } from "../llm/types.js";
 import { createAutoPromoteScheduler } from "./auto-promote-scheduler.js";
+import { runScheduledCompileOnce, type DashboardCompileRunResult } from "./auto-promote-scheduler.js";
 import { applyConfigPatch, ConfigPatchError, validateConfigPatch } from "./config-patch.js";
 import { buildProvidersCatalog } from "./providers-catalog.js";
 import { computeGraphHealth, type GraphHealthReport } from "./graph-health.js";
@@ -70,6 +71,7 @@ export interface ServerOptions {
   embedClient?: EmbedClient | null;
   llmProvider?: LLMProvider | null;
   dashboardDistRoot?: string | null;
+  compileRunner?: () => Promise<DashboardCompileRunResult>;
 }
 
 export interface RunningServer {
@@ -372,6 +374,7 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
   const graphHealthCache = new Map<string, GraphHealthCacheEntry>();
   const autoPromoteScheduler = await createAutoPromoteScheduler({ vaultRoot: opts.vaultRoot });
   const closeAutoPromoteScheduler = () => autoPromoteScheduler.close();
+  let compileRunActive = false;
   process.once("SIGTERM", closeAutoPromoteScheduler);
 
   const server = createHttpServer(async (req, res) => {
@@ -425,6 +428,34 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
       } catch (err) {
         const message = (err as Error).message;
         writeJsonError(res, message.includes("not found") ? 404 : 500, message);
+      }
+      return;
+    }
+
+    if (method === "POST" && path === "/api/compile/run") {
+      if (!sameOriginAllowed(req.headers.origin, url)) {
+        writeJsonError(res, 403, "cross-origin compile runs are not allowed");
+        return;
+      }
+      if (compileRunActive) {
+        writeJsonError(res, 409, "compile already running");
+        return;
+      }
+      compileRunActive = true;
+      try {
+        const result = await (opts.compileRunner ?? (() => runScheduledCompileOnce(opts.vaultRoot)))();
+        writeJson(res, {
+          ok: true,
+          summary: {
+            rawIncluded: result.rawFilesIncluded.length,
+            rawSkipped: result.rawFilesSkipped.length,
+            outputPath: result.outputPath,
+          },
+        });
+      } catch (error) {
+        writeJsonError(res, 500, error instanceof Error ? error.message : String(error));
+      } finally {
+        compileRunActive = false;
       }
       return;
     }
@@ -592,7 +623,14 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
       }
 
       if (segments.length === 3 && segments[0] === "api" && segments[1] === "compile" && segments[2] === "state") {
-        writeJson(res, await loadCompileState(opts.vaultRoot));
+        const [state, config] = await Promise.all([
+          loadCompileState(opts.vaultRoot),
+          loadMemoryConfig(opts.vaultRoot),
+        ]);
+        writeJson(res, {
+          ...state,
+          schedule: compileScheduleForResponse(config),
+        });
         return;
       }
 
@@ -807,4 +845,25 @@ async function loadGraphHealthReport(vaultRoot: string): Promise<GraphHealthRepo
     loadSearchCorpus({ vaultRoot, scope: "wiki" }),
   ]);
   return computeGraphHealth({ feed, wikiPages: corpus.documents });
+}
+
+function compileScheduleForResponse(config: Awaited<ReturnType<typeof loadMemoryConfig>>): {
+  scheduled: boolean;
+  cadence: "daily" | "weekly" | "manual";
+  nextRunAt: string | null;
+} {
+  const record = typeof config.compile === "object" && config.compile !== null
+    ? config.compile as Record<string, unknown>
+    : {};
+  const cadence = record["cadence"] === "weekly" || record["cadence"] === "manual"
+    ? record["cadence"]
+    : "daily";
+  const scheduled = record["scheduled"] !== false;
+  return {
+    scheduled,
+    cadence,
+    nextRunAt: scheduled && cadence !== "manual"
+      ? new Date(Date.now() + (cadence === "weekly" ? 7 : 1) * 24 * 60 * 60 * 1000).toISOString()
+      : null,
+  };
 }

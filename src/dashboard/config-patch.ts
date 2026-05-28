@@ -45,13 +45,16 @@ const SAFELISTED_PATHS = new Set([
   "auto_promote.enabled",
   "auto_promote.cadence",
   "auto_promote.confidence_threshold",
+  "compile.scheduled",
+  "compile.cadence",
 ]);
 
-const VALID_TOP_LEVEL_KEYS = new Set(["embedder", "llm", "auto_promote"]);
+const VALID_TOP_LEVEL_KEYS = new Set(["embedder", "llm", "auto_promote", "compile"]);
 const VALID_EMBEDDER_PROVIDERS = new Set(["voyage", "openai", "ollama"]);
 const VALID_LLM_PROVIDERS = new Set(["openrouter", "ollama"]);
 const VALID_AUTO_PROMOTE_CADENCES = new Set(["weekly", "daily", "manual"]);
 const VALID_AUTO_PROMOTE_THRESHOLDS = new Set(["high", "none"]);
+const VALID_COMPILE_CADENCES = new Set(["daily", "weekly", "manual"]);
 
 export function validateConfigPatch(body: unknown): ConfigPatchValidation {
   const errors: ConfigPatchValidationError[] = [];
@@ -155,6 +158,12 @@ function validateValue(
   ) {
     errors.push({ path, message: "confidence_threshold must be high or none" });
   }
+  if (path === "compile.scheduled" && typeof value !== "boolean") {
+    errors.push({ path, message: "scheduled must be a boolean" });
+  }
+  if (path === "compile.cadence" && !VALID_COMPILE_CADENCES.has(String(value))) {
+    errors.push({ path, message: "cadence must be daily, weekly, or manual" });
+  }
 }
 
 function rejectSecretLikeKeys(
@@ -184,7 +193,7 @@ function mergeAtSafelistedPaths(
   patch: Record<string, unknown>,
 ): MemoryConfig {
   const next: MemoryConfig = clonePlain(current);
-  for (const sectionKey of ["embedder", "llm", "auto_promote"] as const) {
+  for (const sectionKey of ["embedder", "llm", "auto_promote", "compile"] as const) {
     const sectionPatch = asPlainObject(patch[sectionKey]);
     if (!sectionPatch) continue;
     const target = asPlainObject(next[sectionKey]) ?? {};
@@ -195,7 +204,7 @@ function mergeAtSafelistedPaths(
 
 function listAppliedPaths(patch: Record<string, unknown>): string[] {
   const paths: string[] = [];
-  for (const sectionKey of ["embedder", "llm", "auto_promote"] as const) {
+  for (const sectionKey of ["embedder", "llm", "auto_promote", "compile"] as const) {
     const sectionPatch = asPlainObject(patch[sectionKey]);
     if (!sectionPatch) continue;
     for (const fieldKey of Object.keys(sectionPatch)) {
