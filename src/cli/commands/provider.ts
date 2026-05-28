@@ -380,7 +380,10 @@ export function formatAuditSummaryResult(result: AuditSummaryResult): string {
       "",
       "By consumer:",
       ...result.byConsumer.map((item) =>
-        `  ${item.consumer}: ${item.calls} call${item.calls === 1 ? "" : "s"}, $${item.costUsd.toFixed(4)}`
+        [
+          `  ${item.consumer}: ${item.calls} call${item.calls === 1 ? "" : "s"}, $${item.costUsd.toFixed(4)}`,
+          `    References stripped: ${item.referencesStripped} (avg ${averageReferencesStripped(item.referencesStripped, item.calls)} per call)`,
+        ].join("\n")
       ),
     );
   }
@@ -456,6 +459,10 @@ function estimateCorpusTokens(texts: string[]): number {
     (sum, text) => sum + Math.ceil(text.length / CHARS_PER_TOKEN_ESTIMATE),
     0,
   );
+}
+
+function averageReferencesStripped(referencesStripped: number, calls: number): string {
+  return calls > 0 ? (referencesStripped / calls).toFixed(1) : "0.0";
 }
 
 function stateBracket(value: string): string {

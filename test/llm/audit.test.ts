@@ -44,6 +44,8 @@ describe("LLM audit log", () => {
       durationMs: 100,
       estimatedCostUSD: 0.00012,
       finishReason: "stop",
+      referencesStripped: 3,
+      strippedSamples: ["wiki/decisions/invented.md"],
     });
 
     const content = await readFile(
@@ -52,6 +54,8 @@ describe("LLM audit log", () => {
     );
     expect(content).toContain("# LLM audit log 2026-05-27");
     expect(content).toContain("auto-thread-propose");
+    expect(content).toContain("| references_stripped |");
+    expect(content).toContain("wiki/decisions/invented.md");
     expect(content).not.toContain("secret prompt");
     expect(content).not.toContain("secret response");
   });
@@ -82,7 +86,12 @@ describe("LLM audit log", () => {
       now: new Date("2026-05-28T00:00:00.000Z"),
     });
     expect(summary.totalCalls).toBe(1);
-    expect(summary.byConsumer).toEqual([{ consumer: "provider-test", calls: 1, costUsd: 0 }]);
+    expect(summary.byConsumer).toEqual([{
+      consumer: "provider-test",
+      calls: 1,
+      costUsd: 0,
+      referencesStripped: 0,
+    }]);
     vi.useRealTimers();
   });
 });

@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { mkdir, readFile, readdir, stat, writeFile, appendFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { LLMFinishReason, LLMMessage, LLMProvider, LLMRequest } from "./types.js";
+import type { LLMFinishReason, LLMMessage, LLMProvider, LLMRequest, LLMResponse } from "./types.js";
 
 export interface LLMAuditEntry {
   ts: Date | string;
@@ -15,8 +15,15 @@ export interface LLMAuditEntry {
   durationMs: number;
   costUsd?: number | null;
   estimatedCostUSD?: number | null;
+  referencesStripped?: number | null;
+  strippedSamples?: string[];
   finishReason: LLMFinishReason;
   error?: string;
+}
+
+export interface LLMAuditMetadata {
+  referencesStripped?: number | null;
+  strippedSamples?: string[];
 }
 
 export interface ChatWithAuditOptions {
@@ -24,12 +31,14 @@ export interface ChatWithAuditOptions {
   vaultRoot: string;
   consumer: string;
   request: LLMRequest;
+  auditMetadata?: (response: LLMResponse) => LLMAuditMetadata | Promise<LLMAuditMetadata>;
 }
 
 export interface LLMAuditConsumerSummary {
   consumer: string;
   calls: number;
   costUsd: number;
+  referencesStripped: number;
 }
 
 export interface LLMAuditProviderModelSummary {
@@ -49,8 +58,8 @@ export interface LLMAuditSummary {
 }
 
 const HEADER = [
-  "| ts | consumer | provider | model | prompt_hash | response_hash | tokens_in | tokens_out | duration_ms | cost_usd | finish | error |",
-  "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+  "| ts | consumer | provider | model | prompt_hash | response_hash | tokens_in | tokens_out | duration_ms | cost_usd | references_stripped | stripped_samples | finish | error |",
+  "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
 ].join("\n");
 
 export function hashPrompt(messages: LLMMessage[]): string {
@@ -77,6 +86,7 @@ export async function chatWithAudit(opts: ChatWithAuditOptions) {
   const promptHash = hashPrompt(opts.request.messages);
   try {
     const response = await opts.llm.chat(opts.request);
+    const auditMetadata = opts.auditMetadata ? await opts.auditMetadata(response) : {};
     await writeLLMAuditEntry(opts.vaultRoot, {
       ts: new Date(),
       consumer: opts.consumer,
@@ -88,6 +98,7 @@ export async function chatWithAudit(opts: ChatWithAuditOptions) {
       tokensOut: response.tokensUsed?.completion ?? null,
       durationMs: Math.max(0, Date.now() - started),
       costUsd: 0,
+      ...auditMetadata,
       finishReason: response.finishReason,
     });
     return response;
@@ -140,6 +151,7 @@ export async function readLLMAuditSummary(
     for (const row of rows) {
       totalCalls += 1;
       const costUsd = parseOptionalNumber(row.costUsd) ?? 0;
+      const referencesStripped = parseOptionalNumber(row.referencesStripped) ?? 0;
       const tokensIn = parseOptionalNumber(row.tokensIn) ?? 0;
       const tokensOut = parseOptionalNumber(row.tokensOut) ?? 0;
       totalCostUsd += costUsd;
@@ -148,9 +160,11 @@ export async function readLLMAuditSummary(
         consumer: row.consumer,
         calls: 0,
         costUsd: 0,
+        referencesStripped: 0,
       };
       consumer.calls += 1;
       consumer.costUsd += costUsd;
+      consumer.referencesStripped += referencesStripped;
       consumers.set(row.consumer, consumer);
 
       const providerModelKey = `${row.provider}\0${row.model}`;
@@ -198,6 +212,8 @@ function formatEntry(entry: LLMAuditEntry): string {
     formatOptionalNumber(entry.tokensOut),
     String(entry.durationMs),
     formatOptionalNumber(costUsd),
+    formatOptionalNumber(entry.referencesStripped),
+    escapeCell((entry.strippedSamples ?? []).join("; ")),
     entry.finishReason,
     escapeCell(entry.error ?? ""),
   ].join(" | ")} |`;
@@ -210,6 +226,7 @@ function parseAuditRows(text: string): Array<{
   tokensIn: string;
   tokensOut: string;
   costUsd: string;
+  referencesStripped: string;
 }> {
   const rows = [];
   for (const line of text.split(/\r?\n/)) {
@@ -218,6 +235,7 @@ function parseAuditRows(text: string): Array<{
     }
     const cells = line.split("|").slice(1, -1).map((cell) => cell.trim());
     if (cells.length < 12) continue;
+    const isNewShape = cells.length >= 14;
     rows.push({
       consumer: unescapeCell(cells[1] ?? ""),
       provider: unescapeCell(cells[2] ?? ""),
@@ -225,6 +243,7 @@ function parseAuditRows(text: string): Array<{
       tokensIn: cells[6] ?? "",
       tokensOut: cells[7] ?? "",
       costUsd: cells[9] ?? "",
+      referencesStripped: isNewShape ? cells[10] ?? "" : "",
     });
   }
   return rows;

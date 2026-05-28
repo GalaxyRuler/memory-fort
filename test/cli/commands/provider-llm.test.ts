@@ -10,6 +10,7 @@ import {
   runListLLMs,
   runTestLLM,
 } from "../../../src/cli/commands/provider.js";
+import { hashPrompt, hashResponse, writeLLMAuditEntry } from "../../../src/llm/audit.js";
 
 describe("provider LLM commands", () => {
   let tmp: string;
@@ -67,10 +68,36 @@ describe("provider LLM commands", () => {
       memoryRoot: tmp,
       days: 7,
       now: new Date("2026-05-27T23:00:00.000Z"),
-      auditWriter: async () => undefined,
+      auditWriter: async () => {
+        await writeLLMAuditEntry(tmp, auditEntry("auto-thread-propose", 3));
+        await writeLLMAuditEntry(tmp, auditEntry("auto-thread-propose", 1));
+        await writeLLMAuditEntry(tmp, auditEntry("auto-procedural-extract", 2));
+      },
     });
 
     expect(result.exitCode).toBe(0);
-    expect(formatAuditSummaryResult(result)).toContain("Total calls: 0");
+    expect(result.totalCalls).toBe(3);
+    expect(formatAuditSummaryResult(result)).toContain("Total calls: 3");
+    expect(formatAuditSummaryResult(result)).toContain("auto-thread-propose: 2 calls");
+    expect(formatAuditSummaryResult(result)).toContain("References stripped: 4 (avg 2.0 per call)");
+    expect(formatAuditSummaryResult(result)).toContain("auto-procedural-extract: 1 call");
+    expect(formatAuditSummaryResult(result)).toContain("References stripped: 2 (avg 2.0 per call)");
   });
 });
+
+function auditEntry(consumer: string, referencesStripped: number) {
+  return {
+    ts: "2026-05-27T22:14:03.000Z",
+    consumer,
+    provider: "openrouter",
+    model: "openai/gpt-4o-mini",
+    promptHash: hashPrompt([{ role: "user" as const, content: consumer }]),
+    responseHash: hashResponse(String(referencesStripped)),
+    tokensIn: 10,
+    tokensOut: 5,
+    durationMs: 12,
+    costUsd: 0.001,
+    finishReason: "stop" as const,
+    referencesStripped,
+  };
+}
