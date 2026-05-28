@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ThreadCluster } from "../../src/consolidate/thread-cluster.js";
-import { proposeThread } from "../../src/llm/thread-propose.js";
+import { parseThreadProposal, proposeThread } from "../../src/llm/thread-propose.js";
 import type { LLMProvider } from "../../src/llm/types.js";
 
 describe("proposeThread", () => {
@@ -28,9 +28,9 @@ describe("proposeThread", () => {
         "  A short arc about making provider settings editable.",
         "  It preserved env-var-only secrets while adding operator controls.",
         "key_decisions:",
-        "  - wiki/decisions/settings-ui.md",
+        "  - Provider settings became editable while secrets stayed in env vars.",
         "key_lessons:",
-        "  - wiki/lessons/env-secrets.md",
+        "  - Env-var-only secrets pair well with dashboard-visible non-secret config.",
         "open_questions:",
         "  - Should proposal review get a dashboard surface?",
         "proposed_slug: memory-fort-settings-ui",
@@ -42,21 +42,29 @@ describe("proposeThread", () => {
     }));
     const llm = fakeLLM(chat);
 
-    const proposal = await proposeThread({ llm, vaultRoot: tmp, cluster: cluster() });
+    const result = await proposeThread({ llm, vaultRoot: tmp, cluster: cluster() });
 
     expect(chat).toHaveBeenCalledOnce();
     expect(chat.mock.calls[0]?.[0].messages[0]).toMatchObject({
       role: "system",
       content: expect.stringContaining("Output exactly this shape"),
     });
-    expect(chat.mock.calls[0]?.[0].messages[0]?.content).toContain("Existing wiki pages you may reference");
-    expect(chat.mock.calls[0]?.[0].messages[0]?.content).toContain("wiki/decisions/settings-ui.md");
+    const system = chat.mock.calls[0]?.[0].messages[0]?.content ?? "";
+    expect(system).toContain("Existing wiki pages you may reference");
+    expect(system).toContain("wiki/decisions/settings-ui.md");
+    expect(promptGuardSection(system)).toMatchInlineSnapshot(`
+      "Free-form field guardrails:
+      Never put wiki/<category>/<slug> or raw/<date>/<file> path strings into free-form fields (summary, key_decisions, key_lessons, open_questions). Those fields are human-readable prose. The wiki path list applies to relations only.
+      Wrong free-form bullet: - wiki/decisions/example-decision-page.md
+      Correct free-form bullet: - Chose the dashboard validation workflow after comparing the CLI-only option."
+    `);
     expect(chat.mock.calls[0]?.[0].messages[1]?.content).toContain("Cluster: 3 observations");
-    expect(proposal).toEqual({
+    expect(result.ok).toBe(true);
+    expect(result.ok ? result.proposal : null).toEqual({
       title: "Memory Fort Settings UI",
       summary: "A short arc about making provider settings editable.\nIt preserved env-var-only secrets while adding operator controls.",
-      keyDecisions: ["wiki/decisions/settings-ui.md"],
-      keyLessons: ["wiki/lessons/env-secrets.md"],
+      keyDecisions: ["Provider settings became editable while secrets stayed in env vars."],
+      keyLessons: ["Env-var-only secrets pair well with dashboard-visible non-secret config."],
       openQuestions: ["Should proposal review get a dashboard surface?"],
       proposedSlug: "memory-fort-settings-ui",
       grounding: {
@@ -64,6 +72,8 @@ describe("proposeThread", () => {
         strippedReferenceCount: 0,
         stripReasons: [],
         strippedSamples: [],
+        prosePathLeaksCount: 0,
+        prosePathLeakSamples: [],
       },
     });
 
@@ -72,8 +82,8 @@ describe("proposeThread", () => {
     expect(audit).toContain("| references_stripped |");
   });
 
-  it("strips invented wiki references before returning and audits samples", async () => {
-    const proposal = await proposeThread({
+  it("strips path strings from thread prose fields before returning and audits samples", async () => {
+    const result = await proposeThread({
       llm: fakeLLM(async () => ({
         content: [
           "title: Memory Fort Settings UI",
@@ -95,23 +105,73 @@ describe("proposeThread", () => {
       cluster: cluster(),
     });
 
-    expect(proposal?.keyDecisions).toEqual(["wiki/decisions/settings-ui.md"]);
+    expect(result.ok).toBe(true);
+    const proposal = result.ok ? result.proposal : null;
+    expect(proposal?.keyDecisions).toEqual([]);
     expect(proposal?.keyLessons).toEqual([]);
     expect(proposal?.grounding).toMatchObject({
       originalReferenceCount: 3,
-      strippedReferenceCount: 2,
-      strippedSamples: [
+      strippedReferenceCount: 0,
+      strippedSamples: [],
+      prosePathLeaksCount: 3,
+      prosePathLeakSamples: [
+        "wiki/decisions/settings-ui.md",
         "wiki/decisions/invented-path.md",
         "wiki/lessons/missing-lesson.md",
       ],
     });
     const audit = await readFile(join(tmp, "wiki", ".audit", `llm-${new Date().toISOString().slice(0, 10)}.md`), "utf-8");
     expect(audit).toContain("wiki/decisions/invented-path.md");
-    expect(audit).toContain("| 2 |");
+    expect(audit).toContain("| 3 |");
+  });
+
+  it("strips prose path leaks from thread fields and audits the leak count", async () => {
+    const result = await proposeThread({
+      llm: fakeLLM(async () => ({
+        content: [
+          "title: Memory Fort Settings UI",
+          "summary: |",
+          "  Provider settings became safer.",
+          "  wiki/projects/agentmemory.md",
+          "key_decisions:",
+          "  - wiki/decisions/settings-ui.md",
+          "  - Keep editable settings separate from secrets.",
+          "key_lessons:",
+          "  - wiki/lessons/env-secrets.md",
+          "open_questions:",
+          "  - raw/2026-05-28/codex-c.md",
+          "  - Should review move into the dashboard?",
+          "proposed_slug: memory-fort-settings-ui",
+        ].join("\n"),
+        model: "openai/gpt-4o-mini",
+        finishReason: "stop",
+        rawProviderName: "openrouter",
+      })),
+      vaultRoot: tmp,
+      cluster: cluster(),
+    });
+
+    expect(result.ok).toBe(true);
+    const proposal = result.ok ? result.proposal : null;
+    expect(proposal?.summary).toBe("Provider settings became safer.");
+    expect(proposal?.keyDecisions).toEqual(["Keep editable settings separate from secrets."]);
+    expect(proposal?.keyLessons).toEqual([]);
+    expect(proposal?.openQuestions).toEqual(["Should review move into the dashboard?"]);
+    expect(proposal?.grounding).toMatchObject({
+      prosePathLeaksCount: 4,
+      prosePathLeakSamples: [
+        "wiki/projects/agentmemory.md",
+        "wiki/decisions/settings-ui.md",
+        "wiki/lessons/env-secrets.md",
+      ],
+    });
+    const audit = await readFile(join(tmp, "wiki", ".audit", `llm-${new Date().toISOString().slice(0, 10)}.md`), "utf-8");
+    expect(audit).toContain("| prose_path_leaks |");
+    expect(audit).toContain("wiki/projects/agentmemory.md");
   });
 
   it("returns null for malformed YAML responses without throwing", async () => {
-    const proposal = await proposeThread({
+    const result = await proposeThread({
       llm: fakeLLM(async () => ({
         content: "title: [not valid",
         model: "openai/gpt-4o-mini",
@@ -122,11 +182,11 @@ describe("proposeThread", () => {
       cluster: cluster(),
     });
 
-    expect(proposal).toBeNull();
+    expect(result).toMatchObject({ ok: false, reason: expect.stringContaining("yaml parse error:") });
   });
 
-  it("returns null when the model elects to skip the cluster", async () => {
-    const proposal = await proposeThread({
+  it("returns a specific reason when the model elects to skip the cluster", async () => {
+    const result = await proposeThread({
       llm: fakeLLM(async () => ({
         content: "skip: not coherent enough",
         model: "openai/gpt-4o-mini",
@@ -137,7 +197,24 @@ describe("proposeThread", () => {
       cluster: cluster(),
     });
 
-    expect(proposal).toBeNull();
+    expect(result).toEqual({
+      ok: false,
+      reason: "model skipped: not coherent enough",
+      promptHash: expect.stringMatching(/^[a-f0-9]{16}$/),
+      responseHash: expect.stringMatching(/^[a-f0-9]{16}$/),
+    });
+  });
+
+  it("parseThreadProposal returns specific rejection reasons", () => {
+    expect(parseThreadProposal("")).toEqual({ ok: false, reason: "empty content" });
+    expect(parseThreadProposal("title: Short\nsummary: nope\nproposed_slug: nope")).toEqual({
+      ok: false,
+      reason: "title length out of bounds (got 5, expected 10-80)",
+    });
+    expect(parseThreadProposal("title: Valid Thread Title\nsummary: nope")).toEqual({
+      ok: false,
+      reason: "missing required field: proposed_slug",
+    });
   });
 });
 
@@ -190,4 +267,9 @@ async function writeMarkdown(root: string, relPath: string): Promise<void> {
   const fullPath = join(root, ...relPath.split("/"));
   await mkdir(dirname(fullPath), { recursive: true });
   await writeFile(fullPath, "---\ntitle: Fixture\n---\n\nBody.\n", "utf-8");
+}
+
+function promptGuardSection(prompt: string): string {
+  const match = /Free-form field guardrails:[\s\S]*?Correct free-form bullet: .*/.exec(prompt);
+  return match?.[0] ?? "";
 }

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ProcedureCluster } from "../../src/consolidate/procedure-detect.js";
-import { proposeProcedure } from "../../src/llm/procedure-propose.js";
+import { parseProcedureProposal, proposeProcedure } from "../../src/llm/procedure-propose.js";
 import type { LLMProvider } from "../../src/llm/types.js";
 
 describe("proposeProcedure", () => {
@@ -47,7 +47,7 @@ describe("proposeProcedure", () => {
       rawProviderName: "openrouter",
     }));
 
-    const proposal = await proposeProcedure({
+    const result = await proposeProcedure({
       llm: fakeLLM(chat),
       vaultRoot: tmp,
       cluster: cluster(),
@@ -58,13 +58,21 @@ describe("proposeProcedure", () => {
       role: "system",
       content: expect.stringContaining("preconditions"),
     });
-    expect(chat.mock.calls[0]?.[0].messages[0]?.content).toContain("Existing wiki pages you may reference");
-    expect(chat.mock.calls[0]?.[0].messages[0]?.content).toContain("wiki/projects/memory-fort.md");
-    expect(chat.mock.calls[0]?.[0].messages[0]?.content).toContain("Real memory CLI commands");
-    expect(chat.mock.calls[0]?.[0].messages[0]?.content).toContain("verify");
+    const system = chat.mock.calls[0]?.[0].messages[0]?.content ?? "";
+    expect(system).toContain("Existing wiki pages you may reference");
+    expect(system).toContain("wiki/projects/memory-fort.md");
+    expect(system).toContain("Real memory CLI commands");
+    expect(system).toContain("verify");
+    expect(promptGuardSection(system)).toMatchInlineSnapshot(`
+      "Free-form field guardrails:
+      Never put wiki/<category>/<slug> or raw/<date>/<file> path strings into free-form fields (summary, preconditions, steps[].description, verification, failure_cases). Those fields are human-readable prose. The wiki path list applies to relations only.
+      Wrong free-form bullet: - wiki/procedures/example-procedure-page.md
+      Correct free-form bullet: - Confirm the dashboard health endpoint after copying the bundle."
+    `);
     expect(chat.mock.calls[0]?.[0].messages[1]?.content).toContain("Command signature: scp, ssh, curl");
     expect(chat.mock.calls[0]?.[0].messages[1]?.content).toContain("[1] 2026-05-26");
-    expect(proposal).toEqual({
+    expect(result.ok).toBe(true);
+    expect(result.ok ? result.proposal : null).toEqual({
       title: "Deploy dashboard to VPS",
       summary: "Build and deploy the Memory Fort dashboard bundle to the VPS.",
       preconditions: ["VPS SSH access is available"],
@@ -89,6 +97,8 @@ describe("proposeProcedure", () => {
         strippedReferenceCount: 0,
         stripReasons: [],
         strippedSamples: [],
+        prosePathLeaksCount: 0,
+        prosePathLeakSamples: [],
       },
     });
 
@@ -98,7 +108,7 @@ describe("proposeProcedure", () => {
   });
 
   it("drops invented commands before returning and audits samples", async () => {
-    const proposal = await proposeProcedure({
+    const result = await proposeProcedure({
       llm: fakeLLM(async () => ({
         content: [
           "title: Perform daily skill review",
@@ -125,6 +135,8 @@ describe("proposeProcedure", () => {
       cluster: cluster(),
     });
 
+    expect(result.ok).toBe(true);
+    const proposal = result.ok ? result.proposal : null;
     expect(proposal?.steps).toEqual([
       { description: "Run the invented helper" },
       { description: "Verify memory health", command: "memory verify --offline" },
@@ -139,8 +151,69 @@ describe("proposeProcedure", () => {
     expect(audit).toContain("| 1 |");
   });
 
+  it("strips prose path leaks from procedure fields and audits the leak count", async () => {
+    const result = await proposeProcedure({
+      llm: fakeLLM(async () => ({
+        content: [
+          "title: Deploy dashboard to VPS",
+          "summary: |",
+          "  Build and deploy the dashboard bundle.",
+          "  wiki/projects/memory-fort.md",
+          "preconditions:",
+          "  - wiki/projects/memory-fort.md",
+          "  - VPS SSH access is available",
+          "steps:",
+          "  - description: wiki/procedures/deploy-dashboard.md",
+          "    command: npm run build",
+          "  - description: Copy the server bundle to the VPS",
+          "    command: scp dist/dashboard/server.mjs root@srv:/root/memory-system/services/dashboard-bundle.mjs",
+          "verification:",
+          "  - raw/2026-05-28/codex-session.md",
+          "  - curl /memory/api/health returns ok",
+          "failure_cases:",
+          "  - condition: wiki/references/missing-dependency.md",
+          "    remedy: Install the package on the VPS",
+          "  - condition: Dashboard service is down",
+          "    remedy: wiki/procedures/restart-service.md",
+          "tags:",
+          "  - dashboard",
+          "proposed_slug: deploy-dashboard-to-vps",
+        ].join("\n"),
+        model: "openai/gpt-4o-mini",
+        finishReason: "stop",
+        rawProviderName: "openrouter",
+      })),
+      vaultRoot: tmp,
+      cluster: cluster(),
+    });
+
+    expect(result.ok).toBe(true);
+    const proposal = result.ok ? result.proposal : null;
+    expect(proposal?.summary).toBe("Build and deploy the dashboard bundle.");
+    expect(proposal?.preconditions).toEqual(["VPS SSH access is available"]);
+    expect(proposal?.steps).toEqual([
+      {
+        description: "Copy the server bundle to the VPS",
+        command: "scp dist/dashboard/server.mjs root@srv:/root/memory-system/services/dashboard-bundle.mjs",
+      },
+    ]);
+    expect(proposal?.verification).toEqual(["curl /memory/api/health returns ok"]);
+    expect(proposal?.failureCases).toEqual([]);
+    expect(proposal?.grounding).toMatchObject({
+      prosePathLeaksCount: 6,
+      prosePathLeakSamples: [
+        "wiki/projects/memory-fort.md",
+        "wiki/projects/memory-fort.md",
+        "wiki/procedures/deploy-dashboard.md",
+      ],
+    });
+    const audit = await readFile(join(tmp, "wiki", ".audit", `llm-${new Date().toISOString().slice(0, 10)}.md`), "utf-8");
+    expect(audit).toContain("| prose_path_leaks |");
+    expect(audit).toContain("wiki/procedures/deploy-dashboard.md");
+  });
+
   it("returns null for malformed responses", async () => {
-    const proposal = await proposeProcedure({
+    const result = await proposeProcedure({
       llm: fakeLLM(async () => ({
         content: "title: [not valid",
         model: "openai/gpt-4o-mini",
@@ -151,11 +224,11 @@ describe("proposeProcedure", () => {
       cluster: cluster(),
     });
 
-    expect(proposal).toBeNull();
+    expect(result).toMatchObject({ ok: false, reason: expect.stringContaining("yaml parse error:") });
   });
 
-  it("returns null for skip responses", async () => {
-    const proposal = await proposeProcedure({
+  it("returns a specific reason for skip responses", async () => {
+    const result = await proposeProcedure({
       llm: fakeLLM(async () => ({
         content: "skip: shared commands are coincidental",
         model: "openai/gpt-4o-mini",
@@ -166,7 +239,24 @@ describe("proposeProcedure", () => {
       cluster: cluster(),
     });
 
-    expect(proposal).toBeNull();
+    expect(result).toEqual({
+      ok: false,
+      reason: "model skipped: shared commands are coincidental",
+      promptHash: expect.stringMatching(/^[a-f0-9]{16}$/),
+      responseHash: expect.stringMatching(/^[a-f0-9]{16}$/),
+    });
+  });
+
+  it("parseProcedureProposal returns specific rejection reasons", () => {
+    expect(parseProcedureProposal("")).toEqual({ ok: false, reason: "empty content" });
+    expect(parseProcedureProposal("title: Valid Procedure Title\nsummary: nope\nproposed_slug: valid-procedure-title")).toEqual({
+      ok: false,
+      reason: "steps array empty",
+    });
+    expect(parseProcedureProposal("title: Valid Procedure Title\nsummary: nope")).toEqual({
+      ok: false,
+      reason: "missing required field: proposed_slug",
+    });
   });
 });
 
@@ -211,4 +301,9 @@ async function writeMarkdown(root: string, relPath: string): Promise<void> {
   const fullPath = join(root, ...relPath.split("/"));
   await mkdir(dirname(fullPath), { recursive: true });
   await writeFile(fullPath, "---\ntitle: Fixture\n---\n\nBody.\n", "utf-8");
+}
+
+function promptGuardSection(prompt: string): string {
+  const match = /Free-form field guardrails:[\s\S]*?Correct free-form bullet: .*/.exec(prompt);
+  return match?.[0] ?? "";
 }
