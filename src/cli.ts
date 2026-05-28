@@ -25,12 +25,14 @@ import {
   formatListLLMsResult,
   formatReindexEmbeddingsResult,
   formatTestEmbedderResult,
+  formatTestClassifierResult,
   formatTestLLMResult,
   runAuditSummary,
   runListEmbedders,
   runListLLMs,
   runReindexEmbeddings,
   runTestEmbedder,
+  runTestClassifier,
   runTestLLM,
 } from "./cli/commands/provider.js";
 import { runPull, formatPullSuccess } from "./cli/commands/pull.js";
@@ -533,6 +535,20 @@ provider
     const result = await runTestLLM({ provider: opts.provider });
     process.stdout.write(formatTestLLMResult(result));
     process.exit(result.exitCode);
+  });
+
+provider
+  .command("test-classifier <query>")
+  .description("Run a one-query retrieval intent classification smoke test")
+  .action(async (query: string) => {
+    try {
+      const result = await runTestClassifier({ query });
+      process.stdout.write(formatTestClassifierResult(result));
+      process.exit(result.exitCode);
+    } catch (err) {
+      console.error(`memory provider test-classifier failed: ${(err as Error).message}`);
+      process.exit(1);
+    }
   });
 
 provider

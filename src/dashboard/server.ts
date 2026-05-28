@@ -6,6 +6,7 @@ import { runVerify, type VerifyResult, type VerifyRole } from "../cli/commands/v
 import { detectRole } from "../cli/commands/verify/role.js";
 import { runSearch } from "../retrieval/search.js";
 import { loadSearchCorpus, type SearchScope } from "../retrieval/corpus.js";
+import { isIntentLabel, type IntentLabel } from "../retrieval/query-intent.js";
 import type { EmbedClient } from "../retrieval/refresh.js";
 import {
   createEmbedderFromConfig,
@@ -13,6 +14,8 @@ import {
 } from "../retrieval/embedder/factory.js";
 import type { VoyageClient } from "../retrieval/voyage-client.js";
 import { loadMemoryConfig } from "../storage/config.js";
+import { createLLMFromConfig, getActiveLLMConfig } from "../llm/factory.js";
+import type { LLMProvider } from "../llm/types.js";
 import { applyConfigPatch, ConfigPatchError, validateConfigPatch } from "./config-patch.js";
 import { buildProvidersCatalog } from "./providers-catalog.js";
 import { computeGraphHealth, type GraphHealthReport } from "./graph-health.js";
@@ -56,6 +59,7 @@ export interface ServerOptions {
   verifyRunner?: (opts: { includeSearch: boolean; role: VerifyRole; vaultRoot: string }) => Promise<VerifyResult>;
   voyageClient?: VoyageClient | null;
   embedClient?: EmbedClient | null;
+  llmProvider?: LLMProvider | null;
   dashboardDistRoot?: string | null;
 }
 
@@ -279,6 +283,12 @@ function parseSearchScope(value: string | null): SearchScope {
   return value && SEARCH_SCOPES.has(value as SearchScope) ? (value as SearchScope) : "all";
 }
 
+function parseSearchIntent(value: string | null): IntentLabel | undefined {
+  if (!value) return undefined;
+  const normalized = value.trim().toLowerCase();
+  return isIntentLabel(normalized) ? normalized : undefined;
+}
+
 function parseGraphScope(value: string | null): SearchScope | null {
   if (!value) return "wiki";
   return SEARCH_SCOPES.has(value as SearchScope) ? (value as SearchScope) : null;
@@ -347,6 +357,7 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
     }));
   const voyageClient = opts.voyageClient ?? null;
   const embedClient = opts.embedClient ?? await makeConfiguredEmbedClient(opts.vaultRoot, voyageClient);
+  const llmProvider = opts.llmProvider ?? await makeConfiguredLLMProvider(opts.vaultRoot);
   const staticAssets = await resolveStaticAssetsRoot(opts.dashboardDistRoot);
   const healthCache = new Map<string, HealthCacheEntry>();
   const graphHealthCache = new Map<string, GraphHealthCacheEntry>();
@@ -584,10 +595,12 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
             minScore: parseClampedFloat(url.searchParams.get("minScore"), 0, 0, 1),
             noRerank: noRerank || !voyageClient,
             noHyde: parseSearchBoolean(url.searchParams.get("noHyde")),
+            intent: parseSearchIntent(url.searchParams.get("intent")),
             hydeExpansion,
             vaultRoot: opts.vaultRoot,
             embedClient,
             voyageClient: voyageClient ?? unavailableVoyageClient,
+            llmProvider,
           });
           writeJson(res, result);
         } catch (err) {
@@ -719,6 +732,15 @@ async function makeConfiguredEmbedClient(
     );
   } catch {
     return makeEmbedClient(null);
+  }
+}
+
+async function makeConfiguredLLMProvider(vaultRoot: string): Promise<LLMProvider | null> {
+  try {
+    const config = await loadMemoryConfig(vaultRoot);
+    return createLLMFromConfig(getActiveLLMConfig(config), process.env);
+  } catch {
+    return null;
   }
 }
 

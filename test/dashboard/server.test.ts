@@ -434,12 +434,37 @@ describe("dashboard server", () => {
         query: "foo",
         results: expect.any(Array),
         warnings: expect.any(Array),
-        timings: expect.any(Object),
+        timings: expect.objectContaining({
+          intentClassification: expect.objectContaining({
+            label: expect.any(String),
+          }),
+        }),
         degraded: expect.any(Boolean),
         hyde: expect.any(Object),
         corpusErrorCount: expect.any(Number),
       });
       expect(body.results.length).toBeGreaterThan(0);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("GET /api/search accepts an explicit intent override", async () => {
+    await writeSearchWiki(tmp);
+    const server = await createServer({
+      vaultRoot: tmp,
+      port: 0,
+      voyageClient: mockVoyageClient(),
+    });
+
+    try {
+      const response = await fetch(`http://${server.host}:${server.port}/api/search?q=foo&intent=procedure`);
+      const body = await response.json();
+      expect(response.status).toBe(200);
+      expect(body.timings.intentClassification).toMatchObject({
+        label: "procedure",
+        method: "explicit",
+      });
     } finally {
       await server.close();
     }

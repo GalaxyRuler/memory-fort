@@ -21,6 +21,7 @@ import { episodicRelationsCoverageCheck } from "./episodic-relations.js";
 import { freshnessStaleCheck } from "./freshness.js";
 import { gitRemoteCheck } from "./git.js";
 import { graphCohesionCheck } from "./graph-cohesion.js";
+import { intentClassifierHealthCheck } from "./intent-classifier.js";
 import { prospectiveOverdueCheck } from "./prospective-overdue.js";
 import { searchPipelineCheck } from "./search.js";
 import { sourceFieldCheck } from "./source-field.js";
@@ -35,6 +36,7 @@ export const ALL_CHECKS: CheckDescriptor[] = [
   freshnessStaleCheck,
   prospectiveOverdueCheck,
   graphCohesionCheck,
+  intentClassifierHealthCheck,
   sourceFieldCheck,
   compileRecentCheck,
   autoPushErrorsCheck,

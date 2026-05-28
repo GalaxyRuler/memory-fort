@@ -1,4 +1,9 @@
 import { loadSearchCorpus } from "../../retrieval/corpus.js";
+import {
+  classifyQuery,
+  classifyQueryHeuristic,
+  type IntentClassification,
+} from "../../retrieval/query-intent.js";
 import { refreshEmbeddings, type RefreshResult } from "../../retrieval/refresh.js";
 import { chatWithAudit, readLLMAuditSummary, type LLMAuditSummary } from "../../llm/audit.js";
 import {
@@ -92,6 +97,20 @@ export interface TestLLMResult {
   latencyMs: number;
   finishReason: LLMFinishReason | null;
   status: "OK" | "ERROR";
+  error?: string;
+}
+
+export interface TestClassifierOptions extends ListLLMsOptions {
+  query: string;
+  memoryRoot?: string;
+  llmFactory?: (config: LLMConfig | null, env: NodeJS.ProcessEnv) => LLMProvider;
+  nowMs?: () => number;
+}
+
+export interface TestClassifierResult extends IntentClassification {
+  exitCode: number;
+  query: string;
+  costUsd: number;
   error?: string;
 }
 
@@ -261,6 +280,75 @@ export function formatTestLLMResult(result: TestLLMResult): string {
     `Finish: ${result.finishReason ?? "unknown"}`,
     `Status: ${result.status}`,
   ];
+  if (result.error) lines.push(`Error: ${result.error}`);
+  return `${lines.join("\n")}\n`;
+}
+
+export async function runTestClassifier(
+  opts: TestClassifierOptions,
+): Promise<TestClassifierResult> {
+  const env = opts.env ?? process.env;
+  const root = opts.memoryRoot ?? defaultMemoryRoot();
+  const nowMs = opts.nowMs ?? (() => Date.now());
+
+  try {
+    const heuristic = classifyQueryHeuristic(opts.query);
+    if (env["MEMORY_LLM_DISABLED"]?.trim().toLowerCase() === "true" || heuristic) {
+      const classification = await classifyQuery({
+        query: opts.query,
+        vaultRoot: root,
+        env,
+        nowMs,
+      });
+      return {
+        ...classification,
+        exitCode: 0,
+        query: opts.query,
+        costUsd: 0,
+      };
+    }
+
+    const config = await (opts.configLoader ?? (() => loadMemoryConfig(root)))();
+    const llm = (opts.llmFactory ?? createLLMFromConfig)(getActiveLLMConfig(config), env);
+    const classification = await classifyQuery({
+      query: opts.query,
+      llm,
+      vaultRoot: root,
+      env,
+      nowMs,
+    });
+    return {
+      ...classification,
+      exitCode: 0,
+      query: opts.query,
+      costUsd: classification.method === "llm" ? 0.0001 : 0,
+    };
+  } catch (error) {
+    return {
+      exitCode: 1,
+      query: opts.query,
+      label: "open-ended",
+      confidence: 0.5,
+      method: "fallback",
+      latencyMs: 0,
+      costUsd: 0,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+export function formatTestClassifierResult(result: TestClassifierResult): string {
+  const lines = [
+    `Query: ${result.query}`,
+    `Label: ${result.label}`,
+    `Confidence: ${result.confidence.toFixed(2)}`,
+    `Method: ${result.method}`,
+    `Latency: ${result.latencyMs}ms`,
+  ];
+  if (result.method === "llm") {
+    lines.push(`Tokens: ${result.tokensIn ?? "unknown"}/${result.tokensOut ?? "unknown"}`);
+  }
+  lines.push(`Cost: ${result.costUsd === 0 ? "$0.00" : `$${result.costUsd.toFixed(4)}`}`);
   if (result.error) lines.push(`Error: ${result.error}`);
   return `${lines.join("\n")}\n`;
 }
