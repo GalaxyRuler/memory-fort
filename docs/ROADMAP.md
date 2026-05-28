@@ -149,6 +149,8 @@ This phase is intentionally **not pre-sequenced**. The order depends on which me
 3. **Procedural extraction.** Shipped 2026-05-28. Detects repeated successful command workflows across raw observations, drafts review-gated procedure pages under `wiki/procedures-proposed/`, and promotes validated keepers to `wiki/procedures/`.
 4. **Query intent classifier.** Shipped 2026-05-28. Classifies retrieval queries into decision, procedure, episodic, preference, current-truth, code-context, or open-ended so search can adapt stream weights per question.
 5. **LLM output grounding.** Shipped 2026-05-28. Auto-thread and auto-procedure prompts now include real candidate wiki paths; post-process filters remove invented wiki references and unsupported procedure commands before draft files are written. This closes the Phase 4.3 LLM-consumer hardening sequence.
+6. **LLM debug logging.** Shipped 2026-05-28. Strict opt-in plaintext prompt/response logs are available through `MEMORY_LLM_DEBUG_LOG=1`; parser failures now retain specific rejection reasons and optional hashes for diagnostics.
+7. **Prompt field clarification.** Shipped 2026-05-28. Auto-propose prompts now keep candidate wiki paths scoped to relation context, and post-process grounding strips bare `wiki/...` or `raw/...` leaks from prose fields while auditing `prosePathLeaks`.
 
 **Dependencies:** Phase 3. (Brief C explicitly depends on lifecycle states from Phase 1; narrative threads are most useful once we have the entity registry from Phase 3 if duplicate metric drove that.)
 
@@ -209,6 +211,8 @@ These are small, one-off maintenance items that don't fit the phased model. Pick
 | 2026-05-28 | Procedural extraction uses the same review gate as threads | LLM drafts land in `wiki/procedures-proposed/`; only `memory procedure promote` moves reviewed workflows into canonical procedural memory |
 | 2026-05-28 | Query intent classification ships retrieval adaptation | Search now applies heuristic-first intent labels and per-intent stream weights, with `open-ended` preserving uniform baseline retrieval |
 | 2026-05-28 | LLM proposal outputs require grounding | Auto-propose consumers get candidate wiki paths in prompt and strip unresolved structural references before draft write; audit summary surfaces strip rates |
+| 2026-05-28 | Plaintext LLM debug logging is strict opt-in | Hashed audit rows stay canonical; sensitive prompt/response files are written only for `MEMORY_LLM_DEBUG_LOG=1` and ignored by runtime vault git |
+| 2026-05-28 | Candidate paths are relation context, not prose | Thread/procedure prompts forbid path strings in prose fields; bare path leaks are stripped and counted separately from unresolved reference stripping |
 
 ---
 

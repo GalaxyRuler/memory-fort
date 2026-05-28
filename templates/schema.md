@@ -253,9 +253,9 @@ Auto-propose pipelines must not invent references. Two layers keep structural
 output grounded:
 
 1. The LLM prompt includes an explicit candidate list of existing wiki page
-   paths derived from the cluster's observations. The LLM is instructed to
-   reference only paths from this list, and to leave reference arrays empty
-   rather than invent.
+   paths derived from the cluster's observations. The prompt scopes those
+   paths to relation context only; free-form fields such as summaries,
+   decisions, lessons, steps, and verification must stay human-readable prose.
 
 2. Post-process verification strips any `wiki/<category>/<slug>.md` reference
    whose target file does not resolve. Draft writers run a final filesystem
@@ -265,10 +265,23 @@ Procedure proposals also strip unsupported step commands. `memory <subcommand>`
 values must name a real Memory Fort subcommand; otherwise the command field is
 dropped while the prose step remains.
 
-The strip rate is tracked in the LLM audit log per call. `memory provider
-audit-summary` surfaces the rate per consumer. A persistently high strip rate
-(>3 per call sustained) signals that the prompt needs tuning or the model is
-unsuitable for the task.
+Prose-field path leaks are stripped separately when a field is just a bare
+`wiki/...` or `raw/...` path, while embedded prose mentions are preserved. The
+strip rate and `prosePathLeaks` rate are tracked in the LLM audit log per call.
+`memory provider audit-summary` surfaces both rates per consumer. A persistently
+high strip rate (>3 per call sustained) or non-zero prose leak rate signals that
+the prompt needs tuning or the model is unsuitable for the task.
+
+### Diagnostic env vars
+
+`MEMORY_LLM_DEBUG_LOG=1` enables plaintext LLM prompt/response logging for
+local diagnostics. The switch is strict: only the exact string `1` enables it.
+When enabled, each audited LLM call also appends the full prompt and response
+to `wiki/.audit/llm-debug-YYYY-MM-DD.md`.
+
+These files are sensitive and are ignored by runtime vault git by default.
+Disable the mode with `unset MEMORY_LLM_DEBUG_LOG` on POSIX shells or
+`Remove-Item Env:MEMORY_LLM_DEBUG_LOG` in PowerShell.
 
 ---
 
