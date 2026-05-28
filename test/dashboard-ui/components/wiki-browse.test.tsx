@@ -2,8 +2,18 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, test, vi } from "vitest";
 import { CategorySidebar } from "../../../src/dashboard-ui/components/CategorySidebar.js";
+import { WikiBrowsePage } from "../../../src/dashboard-ui/components/WikiBrowsePage.js";
 import { WikiCard } from "../../../src/dashboard-ui/components/WikiCard.js";
 import type { WikiIndex, WikiIndexEntry } from "../../../src/dashboard-ui/hooks/useWikiIndex.js";
+
+const routerState = vi.hoisted(() => ({
+  search: {} as Record<string, unknown>,
+  navigate: vi.fn(),
+}));
+
+const wikiHook = vi.hoisted(() => ({
+  useWikiIndex: vi.fn(),
+}));
 
 vi.mock("@tanstack/react-router", () => ({
   Link: ({
@@ -24,7 +34,17 @@ vi.mock("@tanstack/react-router", () => ({
       </a>
     );
   },
+  useNavigate: () => routerState.navigate,
+  useSearch: () => routerState.search,
 }));
+
+vi.mock("../../../src/dashboard-ui/hooks/useWikiIndex.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../../src/dashboard-ui/hooks/useWikiIndex.js")>();
+  return {
+    ...actual,
+    useWikiIndex: wikiHook.useWikiIndex,
+  };
+});
 
 const INDEX: WikiIndex = {
   byCategory: {
@@ -78,5 +98,27 @@ describe("wiki browse components", () => {
     const link = screen.getByRole("link", { name: /memory-system/ });
     expect(link).toHaveAttribute("href", "/wiki/projects/memory-system");
     expect(within(link).getByText("Project page")).toBeInTheDocument();
+  });
+
+  test("WikiBrowsePage groups all pages by known categories and skips empty groups", () => {
+    wikiHook.useWikiIndex.mockReturnValue({
+      data: {
+        byCategory: {
+          projects: INDEX.byCategory.projects,
+          decisions: INDEX.byCategory.decisions,
+          lessons: [],
+        },
+        total: 2,
+      },
+      isLoading: false,
+    });
+
+    render(<WikiBrowsePage />);
+
+    expect(screen.getByRole("heading", { name: "Projects", level: 2 })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Decisions", level: 2 })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Lessons", level: 2 })).not.toBeInTheDocument();
+    expect(screen.getByText("memory-system")).toBeInTheDocument();
+    expect(screen.getByText("Voyage")).toBeInTheDocument();
   });
 });

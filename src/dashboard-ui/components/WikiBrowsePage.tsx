@@ -7,6 +7,30 @@ import { EmptyState } from "./EmptyState.js";
 import { Skeleton } from "./Skeleton.js";
 import { WikiCard } from "./WikiCard.js";
 
+const CATEGORY_ORDER = [
+  "decisions",
+  "projects",
+  "lessons",
+  "references",
+  "tools",
+  "people",
+  "threads",
+  "procedures",
+  "crystals",
+];
+
+const CATEGORY_LABELS: Record<string, string> = {
+  decisions: "Decisions",
+  projects: "Projects",
+  lessons: "Lessons",
+  references: "References",
+  tools: "Tools",
+  people: "People",
+  threads: "Threads",
+  procedures: "Procedures",
+  crystals: "Crystals",
+};
+
 export function WikiBrowsePage() {
   const wiki = useWikiIndex();
   const params = useSearch({ from: "/wiki/" }) as { category?: string };
@@ -15,6 +39,7 @@ export function WikiBrowsePage() {
   const entries = selectedCategory
     ? wiki.data?.byCategory[selectedCategory] ?? []
     : Object.values(wiki.data?.byCategory ?? {}).flat();
+  const groups = selectedCategory ? [] : groupedEntries(wiki.data?.byCategory ?? {});
   const listNav = useListKeyNav({
     items: entries,
     getKey: (entry) => entry.relPath,
@@ -58,13 +83,55 @@ export function WikiBrowsePage() {
               description="Try another category to browse curated wiki pages."
             />
           ) : null}
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3" {...listNav.listProps}>
-            {entries.map((entry, index) => (
-              <WikiCard entry={entry} key={entry.relPath} keyboardProps={listNav.getItemProps(index)} />
-            ))}
-          </div>
+          {selectedCategory ? (
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3" {...listNav.listProps}>
+              {entries.map((entry, index) => (
+                <WikiCard entry={entry} key={entry.relPath} keyboardProps={listNav.getItemProps(index)} />
+              ))}
+            </div>
+          ) : (
+            <div className="space-y-8" {...listNav.listProps}>
+              {groups.map((group) => (
+                <section key={group.category}>
+                  <h2 className="mb-3 break-words text-lg font-semibold tracking-tight">
+                    {CATEGORY_LABELS[group.category] ?? titleCase(group.category)}
+                  </h2>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    {group.entries.map((entry) => (
+                      <WikiCard
+                        entry={entry}
+                        key={entry.relPath}
+                        keyboardProps={listNav.getItemProps(entries.findIndex((item) => item.relPath === entry.relPath))}
+                      />
+                    ))}
+                  </div>
+                </section>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>
   );
+}
+
+function groupedEntries(byCategory: NonNullable<ReturnType<typeof useWikiIndex>["data"]>["byCategory"]) {
+  const categoryKeys = [
+    ...CATEGORY_ORDER,
+    ...Object.keys(byCategory).filter((category) => !CATEGORY_ORDER.includes(category)).sort(),
+  ];
+  return categoryKeys
+    .map((category) => ({
+      category,
+      entries: byCategory[category] ?? [],
+    }))
+    .filter((group) => group.entries.length > 0);
+}
+
+function titleCase(value: string): string {
+  return value
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    .map((part) => `${part.slice(0, 1).toUpperCase()}${part.slice(1)}`)
+    .join(" ");
 }
