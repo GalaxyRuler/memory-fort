@@ -16,9 +16,18 @@ import type { VoyageClient } from "../retrieval/voyage-client.js";
 import { loadMemoryConfig } from "../storage/config.js";
 import { createLLMFromConfig, getActiveLLMConfig } from "../llm/factory.js";
 import type { LLMProvider } from "../llm/types.js";
+import { createAutoPromoteScheduler } from "./auto-promote-scheduler.js";
 import { applyConfigPatch, ConfigPatchError, validateConfigPatch } from "./config-patch.js";
 import { buildProvidersCatalog } from "./providers-catalog.js";
 import { computeGraphHealth, type GraphHealthReport } from "./graph-health.js";
+import {
+  listProposedProcedures,
+  listProposedThreads,
+  loadProposedSummary,
+  parseProposedActionBody,
+  promoteProposedDraft,
+  rejectProposedDraft,
+} from "./proposed.js";
 import {
   loadActivityEvents,
   loadCompileState,
@@ -361,6 +370,9 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
   const staticAssets = await resolveStaticAssetsRoot(opts.dashboardDistRoot);
   const healthCache = new Map<string, HealthCacheEntry>();
   const graphHealthCache = new Map<string, GraphHealthCacheEntry>();
+  const autoPromoteScheduler = await createAutoPromoteScheduler({ vaultRoot: opts.vaultRoot });
+  const closeAutoPromoteScheduler = () => autoPromoteScheduler.close();
+  process.once("SIGTERM", closeAutoPromoteScheduler);
 
   const server = createHttpServer(async (req, res) => {
     const method = req.method ?? "GET";
@@ -387,6 +399,32 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
           return;
         }
         writeJson(res, { ok: false, error: (err as Error).message }, 500);
+      }
+      return;
+    }
+
+    if ((method === "POST" && path === "/api/proposed/promote") || (method === "POST" && path === "/api/proposed/reject")) {
+      if (!sameOriginAllowed(req.headers.origin, url)) {
+        writeJson(res, { ok: false, error: "cross-origin proposed draft updates are not allowed" }, 403);
+        return;
+      }
+      try {
+        const body = await readJsonBody(req);
+        const action = parseProposedActionBody(body);
+        if (!action.ok) {
+          writeJsonError(res, 400, action.message);
+          return;
+        }
+        if (path.endsWith("/promote")) {
+          const result = await promoteProposedDraft(opts.vaultRoot, action.kind, action.slug);
+          writeJson(res, { ok: true, promotedPath: result.promotedPath });
+        } else {
+          const result = await rejectProposedDraft(opts.vaultRoot, action.kind, action.slug);
+          writeJson(res, { ok: true, rejectedPath: result.rejectedPath });
+        }
+      } catch (err) {
+        const message = (err as Error).message;
+        writeJsonError(res, message.includes("not found") ? 404 : 500, message);
       }
       return;
     }
@@ -535,6 +573,21 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
 
       if (segments.length === 2 && segments[0] === "api" && segments[1] === "providers") {
         writeJson(res, buildProvidersCatalog(process.env));
+        return;
+      }
+
+      if (segments.length === 3 && segments[0] === "api" && segments[1] === "proposed" && segments[2] === "threads") {
+        writeJson(res, await listProposedThreads(opts.vaultRoot));
+        return;
+      }
+
+      if (segments.length === 3 && segments[0] === "api" && segments[1] === "proposed" && segments[2] === "procedures") {
+        writeJson(res, await listProposedProcedures(opts.vaultRoot));
+        return;
+      }
+
+      if (segments.length === 3 && segments[0] === "api" && segments[1] === "proposed" && segments[2] === "summary") {
+        writeJson(res, await loadProposedSummary(opts.vaultRoot));
         return;
       }
 
@@ -716,7 +769,11 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
   return {
     port: actualPort,
     host,
-    close: () => closeServer(server),
+    close: async () => {
+      process.off("SIGTERM", closeAutoPromoteScheduler);
+      autoPromoteScheduler.close();
+      await closeServer(server);
+    },
   };
 }
 

@@ -1054,6 +1054,109 @@ describe("dashboard server", () => {
     }
   });
 
+  it("GET /api/proposed endpoints list drafts and summary counts", async () => {
+    await writeProposedDrafts(tmp);
+    const server = await createServer({ vaultRoot: tmp, port: 0 });
+
+    try {
+      const threadsResponse = await fetch(`http://${server.host}:${server.port}/api/proposed/threads`);
+      const proceduresResponse = await fetch(`http://${server.host}:${server.port}/api/proposed/procedures`);
+      const summaryResponse = await fetch(`http://${server.host}:${server.port}/api/proposed/summary`);
+
+      expect(threadsResponse.status).toBe(200);
+      await expect(threadsResponse.json()).resolves.toMatchObject([
+        {
+          kind: "thread",
+          slug: "memory-thread",
+          title: "Memory Thread",
+          observationCount: 5,
+          distinctSessions: 2,
+          confidence: { level: "high", reasons: ["all signals clean"] },
+          prosePreview: "Thread summary paragraph.",
+        },
+      ]);
+      expect(proceduresResponse.status).toBe(200);
+      await expect(proceduresResponse.json()).resolves.toMatchObject([
+        {
+          kind: "procedure",
+          slug: "review-procedure",
+          title: "Review Procedure",
+          observationCount: 3,
+          distinctSessions: 1,
+          confidence: { level: "low" },
+          steps: 2,
+        },
+      ]);
+      await expect(summaryResponse.json()).resolves.toMatchObject({
+        total: 2,
+        threads: { total: 1, high: 1, low: 0 },
+        procedures: { total: 1, high: 0, low: 1 },
+      });
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("POST /api/proposed/promote and reject are same-origin gated", async () => {
+    await writeProposedDrafts(tmp);
+    const server = await createServer({ vaultRoot: tmp, port: 0 });
+
+    try {
+      const blocked = await fetch(`http://${server.host}:${server.port}/api/proposed/promote`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Origin: "http://evil.test" },
+        body: JSON.stringify({ kind: "thread", slug: "memory-thread" }),
+      });
+      expect(blocked.status).toBe(403);
+
+      const promoted = await fetch(`http://${server.host}:${server.port}/api/proposed/promote`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind: "thread", slug: "memory-thread" }),
+      });
+      expect(promoted.status).toBe(200);
+      await expect(promoted.json()).resolves.toEqual({
+        ok: true,
+        promotedPath: "wiki/threads/memory-thread.md",
+      });
+
+      const rejected = await fetch(`http://${server.host}:${server.port}/api/proposed/reject`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind: "procedure", slug: "review-procedure" }),
+      });
+      expect(rejected.status).toBe(200);
+      await expect(rejected.json()).resolves.toEqual({
+        ok: true,
+        rejectedPath: "wiki/procedures-proposed/review-procedure.md",
+      });
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("POST /api/proposed actions validate body and report missing drafts", async () => {
+    const server = await createServer({ vaultRoot: tmp, port: 0 });
+
+    try {
+      const malformed = await fetch(`http://${server.host}:${server.port}/api/proposed/promote`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind: "bad", slug: "x" }),
+      });
+      expect(malformed.status).toBe(400);
+
+      const missing = await fetch(`http://${server.host}:${server.port}/api/proposed/promote`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind: "thread", slug: "missing" }),
+      });
+      expect(missing.status).toBe(404);
+    } finally {
+      await server.close();
+    }
+  });
+
   it("GET static asset returns content type and immutable cache-control", async () => {
     const dashboardDistRoot = await writeDashboardDist(tmp);
     const server = await createServer({ vaultRoot: tmp, port: 0, dashboardDistRoot });
@@ -1138,6 +1241,78 @@ describe("dashboard server", () => {
     }
   });
 });
+
+async function writeProposedDrafts(root: string): Promise<void> {
+  await mkdir(join(root, "wiki", "threads-proposed"), { recursive: true });
+  await mkdir(join(root, "wiki", "procedures-proposed"), { recursive: true });
+  await writeFile(
+    join(root, "wiki", "threads-proposed", "memory-thread.md"),
+    [
+      "---",
+      'type: "threads"',
+      'title: "Memory Thread"',
+      'created: "2026-05-28"',
+      'updated: "2026-05-28"',
+      'lifecycle: "proposed"',
+      "time_range:",
+      '  start: "2026-05-24"',
+      '  end: "2026-05-28"',
+      "relations:",
+      "  mentions:",
+      '    - "raw/2026-05-24/codex-a.md"',
+      '    - "raw/2026-05-25/codex-b.md"',
+      "proposal_confidence:",
+      '  level: "high"',
+      "  reasons:",
+      '    - "all signals clean"',
+      "  observation_count: 5",
+      "  distinct_sessions: 2",
+      "---",
+      "",
+      "# Memory Thread",
+      "",
+      "Thread summary paragraph.",
+      "",
+      "## Key decisions",
+      "",
+    ].join("\n"),
+  );
+  await writeFile(
+    join(root, "wiki", "procedures-proposed", "review-procedure.md"),
+    [
+      "---",
+      'type: "procedures"',
+      'title: "Review Procedure"',
+      'created: "2026-05-28"',
+      'updated: "2026-05-28"',
+      'lifecycle: "proposed"',
+      "relations:",
+      "  derived_from:",
+      '    - "raw/2026-05-24/codex-a.md"',
+      "proposal_confidence:",
+      '  level: "low"',
+      "  reasons:",
+      '    - "observationCount=3 below threshold 5"',
+      "  observation_count: 3",
+      "  distinct_sessions: 1",
+      "---",
+      "",
+      "# Review Procedure",
+      "",
+      "Procedure summary paragraph.",
+      "",
+      "## Steps",
+      "",
+      "1. Run the review.",
+      "",
+      "```bash",
+      "memory search review",
+      "```",
+      "2. Record the result.",
+      "",
+    ].join("\n"),
+  );
+}
 
 function verifyReport(
   overallStatus: VerifyResult["overallStatus"],
