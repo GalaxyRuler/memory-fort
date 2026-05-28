@@ -31,6 +31,11 @@ export interface MemoryConfig {
   search?: {
     hyde?: boolean;
   };
+  auto_promote?: {
+    enabled?: boolean;
+    cadence?: "weekly" | "daily" | "manual";
+    confidence_threshold?: "high" | "none";
+  };
   [key: string]: unknown;
 }
 
