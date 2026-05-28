@@ -69,9 +69,9 @@ describe("provider LLM commands", () => {
       days: 7,
       now: new Date("2026-05-27T23:00:00.000Z"),
       auditWriter: async () => {
-        await writeLLMAuditEntry(tmp, auditEntry("auto-thread-propose", 3));
-        await writeLLMAuditEntry(tmp, auditEntry("auto-thread-propose", 1));
-        await writeLLMAuditEntry(tmp, auditEntry("auto-procedural-extract", 2));
+        await writeLLMAuditEntry(tmp, auditEntry("auto-thread-propose", 3, 2));
+        await writeLLMAuditEntry(tmp, auditEntry("auto-thread-propose", 1, 0));
+        await writeLLMAuditEntry(tmp, auditEntry("auto-procedural-extract", 2, 1));
       },
     });
 
@@ -80,12 +80,14 @@ describe("provider LLM commands", () => {
     expect(formatAuditSummaryResult(result)).toContain("Total calls: 3");
     expect(formatAuditSummaryResult(result)).toContain("auto-thread-propose: 2 calls");
     expect(formatAuditSummaryResult(result)).toContain("References stripped: 4 (avg 2.0 per call)");
+    expect(formatAuditSummaryResult(result)).toContain("Prose path leaks: 2 (avg 1.0 per call)");
     expect(formatAuditSummaryResult(result)).toContain("auto-procedural-extract: 1 call");
     expect(formatAuditSummaryResult(result)).toContain("References stripped: 2 (avg 2.0 per call)");
+    expect(formatAuditSummaryResult(result)).toContain("Prose path leaks: 1 (avg 1.0 per call)");
   });
 });
 
-function auditEntry(consumer: string, referencesStripped: number) {
+function auditEntry(consumer: string, referencesStripped: number, prosePathLeaks: number) {
   return {
     ts: "2026-05-27T22:14:03.000Z",
     consumer,
@@ -99,5 +101,7 @@ function auditEntry(consumer: string, referencesStripped: number) {
     costUsd: 0.001,
     finishReason: "stop" as const,
     referencesStripped,
+    prosePathLeaks,
+    prosePathLeakSamples: prosePathLeaks > 0 ? ["wiki/projects/agentmemory.md"] : [],
   };
 }

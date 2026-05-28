@@ -383,6 +383,7 @@ export function formatAuditSummaryResult(result: AuditSummaryResult): string {
         [
           `  ${item.consumer}: ${item.calls} call${item.calls === 1 ? "" : "s"}, $${item.costUsd.toFixed(4)}`,
           `    References stripped: ${item.referencesStripped} (avg ${averageReferencesStripped(item.referencesStripped, item.calls)} per call)`,
+          `    Prose path leaks: ${item.prosePathLeaks} (avg ${averageReferencesStripped(item.prosePathLeaks, item.calls)} per call)`,
         ].join("\n")
       ),
     );

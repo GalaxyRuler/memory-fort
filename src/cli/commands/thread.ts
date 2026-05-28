@@ -13,6 +13,7 @@ import {
   getActiveLLMConfig,
   type LLMConfig,
 } from "../../llm/factory.js";
+import { isDebugLogEnabled } from "../../llm/audit.js";
 import { LLMDisabledError, type LLMProvider } from "../../llm/types.js";
 import { proposeThread, type ThreadProposal } from "../../llm/thread-propose.js";
 import { loadMemoryConfig, type MemoryConfig } from "../../storage/config.js";
@@ -45,7 +46,7 @@ export interface ThreadProposeRunResult {
   proposed: number;
   written: number;
   referencesStripped: number;
-  skipped: Array<{ clusterIndex: number; reason: string }>;
+  skipped: Array<{ clusterIndex: number; reason: string; promptHash?: string; responseHash?: string }>;
   proposals: Array<{
     slug: string;
     title: string;
@@ -89,11 +90,12 @@ export async function runThreadPropose(
   let referencesStripped = 0;
 
   for (const [clusterIndex, cluster] of selected.entries()) {
-    const proposal = await proposeThread({ llm, vaultRoot: opts.vaultRoot, cluster });
-    if (!proposal) {
-      skipped.push({ clusterIndex, reason: "proposal skipped or malformed" });
+    const proposalResult = await proposeThread({ llm, vaultRoot: opts.vaultRoot, cluster, env });
+    if (!proposalResult.ok) {
+      skipped.push(formatSkippedProposal(clusterIndex, proposalResult, env));
       continue;
     }
+    const proposal = proposalResult.proposal;
     referencesStripped += proposal.grounding.strippedReferenceCount;
 
     const slug = uniqueProposalSlug(opts.vaultRoot, proposal.proposedSlug);
@@ -210,7 +212,7 @@ export function formatThreadProposeResult(result: ThreadProposeRunResult): strin
     lines.push(
       "",
       "Skipped:",
-      ...result.skipped.map((skip) => `  - cluster ${skip.clusterIndex}: ${skip.reason}`),
+      ...result.skipped.map(formatSkippedLine),
     );
   }
   return `${lines.join("\n")}\n`;
@@ -414,7 +416,7 @@ function formatThreadRunAudit(input: {
     "",
     ...(input.skipped.length === 0
       ? ["- none"]
-      : input.skipped.map((skip) => `- cluster ${skip.clusterIndex}: ${skip.reason}`)),
+      : input.skipped.map(formatSkippedAuditLine)),
     "",
   ];
 
@@ -456,6 +458,31 @@ function listOrNone(items: string[]): string[] {
 
 function averageStripped(stripped: number, proposals: number): string {
   return proposals > 0 ? (stripped / proposals).toFixed(1) : "0.0";
+}
+
+function formatSkippedProposal(
+  clusterIndex: number,
+  result: { reason: string; promptHash: string; responseHash: string },
+  env: NodeJS.ProcessEnv,
+): ThreadProposeRunResult["skipped"][number] {
+  return {
+    clusterIndex,
+    reason: result.reason,
+    ...(isDebugLogEnabled(env)
+      ? { promptHash: result.promptHash, responseHash: result.responseHash }
+      : {}),
+  };
+}
+
+function formatSkippedLine(skip: ThreadProposeRunResult["skipped"][number]): string {
+  const hashes = skip.promptHash && skip.responseHash
+    ? ` (hashes prompt=${skip.promptHash}, response=${skip.responseHash})`
+    : "";
+  return `  - cluster ${skip.clusterIndex}: ${skip.reason}${hashes}`;
+}
+
+function formatSkippedAuditLine(skip: ThreadProposeRunResult["skipped"][number]): string {
+  return formatSkippedLine(skip).trim();
 }
 
 function relationTargetExists(vaultRoot: string, relPath: string): boolean {

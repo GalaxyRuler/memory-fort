@@ -92,7 +92,7 @@ describe("thread commands", () => {
     expect(existsSync(join(tmp, "wiki", "threads", "memory-fort-settings-2.md"))).toBe(false);
   });
 
-  it("does not write invented references to proposed thread drafts", async () => {
+  it("does not write path-leaked prose fields to proposed thread drafts", async () => {
     const result = await runThreadPropose({
       vaultRoot: tmp,
       apply: true,
@@ -107,14 +107,16 @@ describe("thread commands", () => {
       env: {},
     });
 
-    expect(result.referencesStripped).toBe(1);
+    expect(result.referencesStripped).toBe(0);
     const draft = await readFile(join(tmp, "wiki", "threads-proposed", "memory-fort-settings.md"), "utf-8");
     expect(draft).not.toContain("wiki/decisions/invented.md");
-    expect(draft).toContain("wiki/lessons/env-secrets.md");
-    expect(await readFile(result.auditLogPath, "utf-8")).toContain("references stripped: 1 (avg 1.0 per proposal)");
+    expect(draft).not.toContain("wiki/lessons/env-secrets.md");
+    const llmAudit = await readFile(join(tmp, "wiki", ".audit", "llm-2026-05-28.md"), "utf-8");
+    expect(llmAudit).toContain("| prose_path_leaks |");
+    expect(llmAudit).toContain("wiki/decisions/invented.md");
   });
 
-  it("skips malformed LLM proposals and continues writing the run audit", async () => {
+  it("skips malformed LLM proposals with parser reasons and continues writing the run audit", async () => {
     const result = await runThreadPropose({
       vaultRoot: tmp,
       apply: true,
@@ -137,8 +139,46 @@ describe("thread commands", () => {
 
     expect(result.proposed).toBe(0);
     expect(result.written).toBe(0);
-    expect(result.skipped).toEqual([{ clusterIndex: 0, reason: "proposal skipped or malformed" }]);
-    expect(await readFile(result.auditLogPath, "utf-8")).toContain("proposal skipped or malformed");
+    expect(result.skipped).toEqual([{
+      clusterIndex: 0,
+      reason: expect.stringContaining("yaml parse error:"),
+    }]);
+    expect(formatThreadProposeResult(result)).toContain("cluster 0: yaml parse error:");
+    expect(await readFile(result.auditLogPath, "utf-8")).toContain("yaml parse error:");
+  });
+
+  it("includes prompt and response hashes for skipped clusters when debug logging is enabled", async () => {
+    const result = await runThreadPropose({
+      vaultRoot: tmp,
+      apply: false,
+      days: 30,
+      maxProposals: 1,
+      now: new Date("2026-05-28T12:00:00.000Z"),
+      configLoader: async () => ({ llm: { provider: "ollama", model: "llama3.2" } }),
+      llmFactory: () => ({
+        providerName: "ollama",
+        modelName: "llama3.2",
+        chat: vi.fn(async () => ({
+          content: [
+            "title: Memory Fort Settings",
+            "summary: Missing proposed slug.",
+          ].join("\n"),
+          model: "llama3.2",
+          finishReason: "stop",
+          rawProviderName: "ollama",
+        })),
+      }),
+      env: { MEMORY_LLM_DEBUG_LOG: "1" },
+    });
+
+    expect(result.skipped).toEqual([{
+      clusterIndex: 0,
+      reason: "missing required field: proposed_slug",
+      promptHash: expect.stringMatching(/^[a-f0-9]{16}$/),
+      responseHash: expect.stringMatching(/^[a-f0-9]{16}$/),
+    }]);
+    expect(formatThreadProposeResult(result)).toContain("hashes prompt=");
+    expect(formatThreadProposeResult(result)).toContain("response=");
   });
 
   it("honors the MEMORY_LLM_DISABLED kill switch", async () => {
@@ -212,9 +252,9 @@ function fakeLLM(
         "  The settings work became an operator-facing configuration arc.",
         "  It kept secrets outside the UI while making model choices editable.",
         "key_decisions:",
-        `  - ${refs.decision ?? "wiki/decisions/settings-ui.md"}`,
+        `  - ${refs.decision ?? "Provider settings became editable while secrets stayed outside the UI."}`,
         "key_lessons:",
-        `  - ${refs.lesson ?? "wiki/lessons/env-secrets.md"}`,
+        `  - ${refs.lesson ?? "Env-only secret handling remains compatible with operator-visible config."}`,
         "open_questions:",
         "  - Should review move into the dashboard?",
         `proposed_slug: ${slug}`,

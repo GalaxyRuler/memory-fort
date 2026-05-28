@@ -111,7 +111,7 @@ describe("procedure commands", () => {
     expect(await readFile(result.auditLogPath, "utf-8")).toContain("references stripped: 1 (avg 1.0 per proposal)");
   });
 
-  it("skips malformed LLM proposals and writes the run audit", async () => {
+  it("skips malformed LLM proposals with parser reasons and writes the run audit", async () => {
     const result = await runProcedurePropose({
       vaultRoot: tmp,
       apply: true,
@@ -134,8 +134,48 @@ describe("procedure commands", () => {
 
     expect(result.proposed).toBe(0);
     expect(result.written).toBe(0);
-    expect(result.skipped).toEqual([{ clusterIndex: 0, reason: "proposal skipped or malformed" }]);
-    expect(await readFile(result.auditLogPath, "utf-8")).toContain("proposal skipped or malformed");
+    expect(result.skipped).toEqual([{
+      clusterIndex: 0,
+      reason: expect.stringContaining("yaml parse error:"),
+    }]);
+    expect(formatProcedureProposeResult(result)).toContain("cluster 0: yaml parse error:");
+    expect(await readFile(result.auditLogPath, "utf-8")).toContain("yaml parse error:");
+  });
+
+  it("includes prompt and response hashes for skipped clusters when debug logging is enabled", async () => {
+    const result = await runProcedurePropose({
+      vaultRoot: tmp,
+      apply: false,
+      days: 30,
+      maxProposals: 1,
+      now: new Date("2026-05-28T12:00:00.000Z"),
+      configLoader: async () => ({ llm: { provider: "ollama", model: "llama3.2" } }),
+      llmFactory: () => ({
+        providerName: "ollama",
+        modelName: "llama3.2",
+        chat: vi.fn(async () => ({
+          content: [
+            "title: Deploy dashboard to VPS",
+            "summary: Missing proposed slug.",
+            "steps:",
+            "  - description: Build the bundle",
+          ].join("\n"),
+          model: "llama3.2",
+          finishReason: "stop",
+          rawProviderName: "ollama",
+        })),
+      }),
+      env: { MEMORY_LLM_DEBUG_LOG: "1" },
+    });
+
+    expect(result.skipped).toEqual([{
+      clusterIndex: 0,
+      reason: "missing required field: proposed_slug",
+      promptHash: expect.stringMatching(/^[a-f0-9]{16}$/),
+      responseHash: expect.stringMatching(/^[a-f0-9]{16}$/),
+    }]);
+    expect(formatProcedureProposeResult(result)).toContain("hashes prompt=");
+    expect(formatProcedureProposeResult(result)).toContain("response=");
   });
 
   it("honors the MEMORY_LLM_DISABLED kill switch", async () => {
