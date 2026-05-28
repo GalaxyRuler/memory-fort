@@ -1,7 +1,9 @@
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { Activity } from "lucide-react";
+import { useEffect, useState } from "react";
 import { useListKeyNav } from "../hooks/useListKeyNav.js";
 import { useActivity, type ActivityEvent } from "../hooks/useActivity.js";
+import { readPageSize } from "../lib/pagination.js";
 import { ActivityEventRow } from "./ActivityEventRow.js";
 import { ActivityFilters } from "./ActivityFilters.js";
 import { EmptyState } from "./EmptyState.js";
@@ -18,10 +20,12 @@ function readLevel(value: string | undefined): ActivityEvent["level"] | "all" {
 }
 
 export function ActivityFeedPage() {
-  const params = useSearch({ from: "/activity" }) as { source?: string; level?: string };
+  const params = useSearch({ from: "/activity" }) as { source?: string; level?: string; per?: string };
   const navigate = useNavigate({ from: "/activity" });
   const sourceFilter = readSource(params.source);
   const levelFilter = readLevel(params.level);
+  const pageSize = readPageSize(params.per);
+  const [visibleCount, setVisibleCount] = useState(pageSize);
   const activity = useActivity(100);
 
   const filtered = (activity.data?.events ?? []).filter((event) => {
@@ -29,11 +33,16 @@ export function ActivityFeedPage() {
     if (levelFilter !== "all" && event.level !== levelFilter) return false;
     return true;
   });
+  const visibleEvents = filtered.slice(0, visibleCount);
   const listNav = useListKeyNav({
-    items: filtered,
+    items: visibleEvents,
     getKey: (event, index) => `${event.timestamp}-${index}`,
     onActivate: () => undefined,
   });
+
+  useEffect(() => {
+    setVisibleCount(pageSize);
+  }, [pageSize, sourceFilter, levelFilter]);
 
   return (
     <div className="mx-auto max-w-7xl p-4 md:p-6">
@@ -69,7 +78,7 @@ export function ActivityFeedPage() {
             />
           )}
           <ul {...listNav.listProps}>
-            {filtered.map((event, index) => (
+            {visibleEvents.map((event, index) => (
               <ActivityEventRow
                 key={`${event.timestamp}-${index}`}
                 event={event}
@@ -77,6 +86,18 @@ export function ActivityFeedPage() {
               />
             ))}
           </ul>
+          {filtered.length > visibleEvents.length ? (
+            <div className="mt-4 text-center">
+              <p className="mb-2 text-xs text-text-muted">Showing {visibleEvents.length} of {filtered.length}</p>
+              <button
+                type="button"
+                onClick={() => setVisibleCount((current) => Math.min(filtered.length, current + pageSize))}
+                className="min-h-11 rounded-md border border-border-subtle px-4 py-2 text-sm text-text-secondary transition-colors hover:bg-surface-2 hover:text-text-primary md:min-h-8"
+              >
+                Load more activity
+              </button>
+            </div>
+          ) : null}
         </div>
       </div>
     </div>

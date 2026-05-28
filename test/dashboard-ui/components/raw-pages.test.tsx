@@ -2,11 +2,21 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, test, vi } from "vitest";
 import { RawFilters } from "../../../src/dashboard-ui/components/RawFilters.js";
+import { RawBrowsePage } from "../../../src/dashboard-ui/components/RawBrowsePage.js";
 import { SessionRow } from "../../../src/dashboard-ui/components/SessionRow.js";
 import {
   parseSessionIdFromFilename,
   parseSourceFromFilename,
 } from "../../../src/dashboard-ui/lib/raw-helpers.js";
+
+const routerState = vi.hoisted(() => ({
+  search: {} as Record<string, unknown>,
+  navigate: vi.fn(),
+}));
+
+const rawHook = vi.hoisted(() => ({
+  useRawIndex: vi.fn(),
+}));
 
 vi.mock("@tanstack/react-router", () => ({
   Link: ({
@@ -27,7 +37,17 @@ vi.mock("@tanstack/react-router", () => ({
       </a>
     );
   },
+  useNavigate: () => routerState.navigate,
+  useSearch: () => routerState.search,
 }));
+
+vi.mock("../../../src/dashboard-ui/hooks/useRawIndex.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../../src/dashboard-ui/hooks/useRawIndex.js")>();
+  return {
+    ...actual,
+    useRawIndex: rawHook.useRawIndex,
+  };
+});
 
 describe("raw page helpers and components", () => {
   test("parseSourceFromFilename classifies session sources", () => {
@@ -72,5 +92,31 @@ describe("raw page helpers and components", () => {
       "/raw/2026-05-24/claude-code-019e4bf7-d7b8-4a57.md",
     );
     expect(container.querySelector(".bg-entity-projects")).not.toBeNull();
+  });
+
+  test("RawBrowsePage starts at the URL page size and loads more", () => {
+    routerState.search = { per: "2" };
+    rawHook.useRawIndex.mockReturnValue({
+      data: [
+        {
+          date: "2026-05-24",
+          files: [
+            { filename: "codex-alpha.md", mtime: "2026-05-24T10:00:00.000Z", sizeBytes: 100 },
+            { filename: "codex-beta.md", mtime: "2026-05-24T11:00:00.000Z", sizeBytes: 100 },
+            { filename: "codex-gamma.md", mtime: "2026-05-24T12:00:00.000Z", sizeBytes: 100 },
+          ],
+        },
+      ],
+      isLoading: false,
+    });
+
+    render(<RawBrowsePage />);
+
+    expect(screen.getByText("Showing 2 of 3")).toBeInTheDocument();
+    expect(screen.queryByText(/gamma/)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /load more raw sessions/i }));
+
+    expect(screen.getByText(/gamma/)).toBeInTheDocument();
   });
 });

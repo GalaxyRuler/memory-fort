@@ -1,8 +1,31 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
 import { ActivityEventRow } from "../../../src/dashboard-ui/components/ActivityEventRow.js";
+import { ActivityFeedPage } from "../../../src/dashboard-ui/components/ActivityFeedPage.js";
 import { ActivityFilters } from "../../../src/dashboard-ui/components/ActivityFilters.js";
 import type { ActivityEvent } from "../../../src/dashboard-ui/hooks/useActivity.js";
+
+const routerState = vi.hoisted(() => ({
+  search: {} as Record<string, unknown>,
+  navigate: vi.fn(),
+}));
+
+const activityHook = vi.hoisted(() => ({
+  useActivity: vi.fn(),
+}));
+
+vi.mock("@tanstack/react-router", () => ({
+  useNavigate: () => routerState.navigate,
+  useSearch: () => routerState.search,
+}));
+
+vi.mock("../../../src/dashboard-ui/hooks/useActivity.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../../src/dashboard-ui/hooks/useActivity.js")>();
+  return {
+    ...actual,
+    useActivity: activityHook.useActivity,
+  };
+});
 
 function event(overrides: Partial<ActivityEvent> = {}): ActivityEvent {
   return {
@@ -52,5 +75,28 @@ describe("activity page components", () => {
     fireEvent.click(screen.getByRole("button", { name: "Error" }));
 
     expect(onChange).toHaveBeenCalledWith({ level: "error" });
+  });
+
+  test("ActivityFeedPage starts at the URL page size and loads more", () => {
+    routerState.search = { per: "2" };
+    activityHook.useActivity.mockReturnValue({
+      data: {
+        events: [
+          event({ summary: "alpha activity event" }),
+          event({ summary: "beta activity event" }),
+          event({ summary: "gamma activity event" }),
+        ],
+      },
+      isLoading: false,
+    });
+
+    render(<ActivityFeedPage />);
+
+    expect(screen.getByText("Showing 2 of 3")).toBeInTheDocument();
+    expect(screen.queryByText("gamma activity event")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /load more activity/i }));
+
+    expect(screen.getByText("gamma activity event")).toBeInTheDocument();
   });
 });

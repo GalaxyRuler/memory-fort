@@ -1,9 +1,10 @@
 import { useNavigate, useSearch } from "@tanstack/react-router";
 import { ClipboardList } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useListKeyNav } from "../hooks/useListKeyNav.js";
 import { type ActivityEvent, useActivity } from "../hooks/useActivity.js";
 import { cn } from "../lib/cn.js";
+import { readPageSize } from "../lib/pagination.js";
 import { AuditRow } from "./AuditRow.js";
 import { Card } from "./Card.js";
 import { EmptyState } from "./EmptyState.js";
@@ -41,11 +42,13 @@ function readSource(value: unknown): ActivityEvent["source"] | "all" {
 }
 
 export function AuditPage() {
-  const params = useSearch({ from: "/audit" }) as { source?: string; level?: string };
+  const params = useSearch({ from: "/audit" }) as { source?: string; level?: string; per?: string };
   const navigate = useNavigate({ from: "/audit" });
   const sourceFilter = readSource(params.source);
   const levelFilter = readLevel(params.level);
+  const pageSize = readPageSize(params.per);
   const [search, setSearch] = useState("");
+  const [visibleCount, setVisibleCount] = useState(pageSize);
 
   const activity = useActivity(200);
 
@@ -55,11 +58,16 @@ export function AuditPage() {
     if (search && !event.summary.toLowerCase().includes(search.toLowerCase())) return false;
     return true;
   });
+  const visibleEvents = events.slice(0, visibleCount);
   const listNav = useListKeyNav({
-    items: events,
+    items: visibleEvents,
     getKey: (event, index) => `${event.timestamp}-${index}`,
     onActivate: () => undefined,
   });
+
+  useEffect(() => {
+    setVisibleCount(pageSize);
+  }, [pageSize, sourceFilter, levelFilter, search]);
 
   return (
     <div className="mx-auto max-w-7xl p-4 md:p-6">
@@ -136,10 +144,22 @@ export function AuditPage() {
           />
         )}
         <ul className="space-y-2 md:space-y-0" {...listNav.listProps}>
-          {events.map((event, index) => (
+          {visibleEvents.map((event, index) => (
             <AuditRow key={`${event.timestamp}-${index}`} event={event} keyboardProps={listNav.getItemProps(index)} />
           ))}
         </ul>
+        {events.length > visibleEvents.length ? (
+          <div className="mt-4 text-center">
+            <p className="mb-2 text-xs text-text-muted">Showing {visibleEvents.length} of {events.length}</p>
+            <button
+              type="button"
+              onClick={() => setVisibleCount((current) => Math.min(events.length, current + pageSize))}
+              className="min-h-11 rounded-md border border-border-subtle px-4 py-2 text-sm text-text-secondary transition-colors hover:bg-surface-2 hover:text-text-primary md:min-h-8"
+            >
+              Load more audit entries
+            </button>
+          </div>
+        ) : null}
       </Card>
     </div>
   );

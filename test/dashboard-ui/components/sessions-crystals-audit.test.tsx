@@ -183,6 +183,33 @@ describe("sessions, crystals, and audit secondary screens", () => {
     expect(screen.queryByText("claude-code")).not.toBeInTheDocument();
   });
 
+  test("SessionsPage starts at the URL page size and loads more", () => {
+    routerState.search = { per: "2" };
+    rawHook.useRawIndex.mockReturnValue({
+      data: [
+        {
+          date: "2026-05-24",
+          files: Array.from({ length: 3 }, (_, index) => ({
+            filename: `codex-session-${index}.md`,
+            mtime: `2026-05-24T1${index}:00:00.000Z`,
+            sizeBytes: 1024,
+          })),
+        },
+      ],
+      isLoading: false,
+    });
+
+    render(<SessionsPage />);
+
+    expect(screen.getByText("Showing 2 of 3")).toBeInTheDocument();
+    expect(screen.getAllByText("codex")).toHaveLength(2);
+
+    fireEvent.click(screen.getByRole("button", { name: /load more sessions/i }));
+
+    expect(screen.getAllByText("codex")).toHaveLength(3);
+    expect(screen.queryByRole("button", { name: /load more sessions/i })).not.toBeInTheDocument();
+  });
+
   test("CrystalRotatingIcon has rotation animation class", () => {
     const { container } = render(<CrystalRotatingIcon />);
 
@@ -289,5 +316,28 @@ describe("sessions, crystals, and audit secondary screens", () => {
     expect(screen.getByText("beta compile event")).toBeInTheDocument();
     expect(screen.queryByText("alpha sync event")).not.toBeInTheDocument();
     expect(screen.queryByText("gamma error event")).not.toBeInTheDocument();
+  });
+
+  test("AuditPage starts at the URL page size and loads more", () => {
+    routerState.search = { per: "2" };
+    activityHook.useActivity.mockReturnValue({
+      data: {
+        events: [
+          activityEvent({ summary: "alpha audit event" }),
+          activityEvent({ summary: "beta audit event" }),
+          activityEvent({ summary: "gamma audit event" }),
+        ],
+      },
+      isLoading: false,
+    });
+
+    render(<AuditPage />);
+
+    expect(screen.getByText("Showing 2 of 3")).toBeInTheDocument();
+    expect(screen.queryByText("gamma audit event")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /load more audit entries/i }));
+
+    expect(screen.getByText("gamma audit event")).toBeInTheDocument();
   });
 });
