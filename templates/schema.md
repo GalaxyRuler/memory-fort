@@ -490,6 +490,35 @@ Object-form edges may include `source` metadata:
 - `source.session_id`: session that produced the relation.
 - `source.captured_at`: ISO datetime when the relation was captured.
 
+### Entity alias map
+
+Entity deduplication records reviewed aliases in `wiki/.entity-aliases.json`.
+The file maps each alias string or legacy relation target to the canonical
+entity target. For example:
+
+```json
+{
+  "version": 1,
+  "updatedAt": "2026-05-28T00:00:00.000Z",
+  "aliases": {
+    "LisanStudio": "wiki/projects/lisan-studio.md",
+    "wiki/projects/lisanstudio.md": "wiki/projects/lisan-studio.md"
+  }
+}
+```
+
+Duplicate detection normalizes candidate entity names by lowercasing and
+stripping non-alphanumeric separators, so `Lisan Studio`, `lisan-studio`, and
+`LisanStudio` share the normalized form `lisanstudio`. It also surfaces
+near-matches with high string similarity for review. Detection is automatic,
+but merges are never automatic: run `memory entity dedup --plan`, review the
+proposals, write them with `memory entity dedup --apply`, then approve one
+canonical target at a time with `memory entity merge <canonical>`. Rejected
+proposals are removed with `memory entity reject <canonical>`.
+
+Merging rewrites relation targets from aliases to the canonical target and
+records the alias map. It never deletes raw observations or wiki pages.
+
 ---
 
 ## 6. Quality standards
@@ -521,7 +550,8 @@ If a regex flags something that *should* be in the wiki (e.g., a public commit h
 
 ## 8. Ingest workflow
 
-When `memory compile` runs (manually or via scheduled task), the LLM performs:
+When `memory compile` runs (manually or via scheduled task), the compile prompt
+is assembled from raw observations and the LLM/operator performs:
 
 1. **Read raw observations** since the last compile (per `log.md`'s last `## [date] compile` entry).
 2. **Extract entities and themes.** For each candidate entity, check if a wiki page already exists.
@@ -532,7 +562,21 @@ When `memory compile` runs (manually or via scheduled task), the LLM performs:
 7. **Apply privacy filter** on every page mutation (§7).
 8. **Propose graph edges** (implicit graph extraction, Phase 3+): for each entity pair the LLM identifies, suggest an edge type with confidence; write proposals to `relations-proposals.md` for human review.
 
-The LLM doing compile is whichever agent the user is in (Claude Code / Codex / Antigravity) when `memory compile` is invoked. No separate "compile daemon."
+Dashboard scheduling is controlled by:
+
+```yaml
+compile:
+  scheduled: true
+  cadence: daily # daily | weekly | manual
+```
+
+`scheduled: true` and `cadence: daily` are the defaults. The dashboard
+scheduler invokes the same compile prompt assembly path as the CLI, writes the
+scheduled prompt artifact under `state/`, updates `state/compile-state.json`,
+and appends a compile line to `log.md`. The `/memory/compile` page shows the
+configured cadence and can trigger `POST /api/compile/run` to generate a prompt
+immediately. Scheduled compile work is serialized with auto-promote proposal
+runs so vault-writing operations do not overlap.
 
 ---
 

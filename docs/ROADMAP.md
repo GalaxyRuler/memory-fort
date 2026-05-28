@@ -155,6 +155,8 @@ This phase is intentionally **not pre-sequenced**. The order depends on which me
 9. **Dashboard inbox + auto-promote.** Shipped 2026-05-28. High-confidence thread/procedure proposals can auto-promote from scheduled or CLI runs, while low-confidence drafts appear in `/memory/inbox` with one-click promote/reject actions and a header badge.
 10. **Windows-safe atomic writes.** Shipped 2026-05-28. `atomicWrite` now retries transient Windows rename races (`EPERM`, `EACCES`, `EBUSY`, `ENOENT`) with short backoff and exposes `storage.atomic-write-retries` in verify/health reports.
 11. **Config secret redaction hardening.** Shipped 2026-05-28. `GET /api/config` now redacts secret-named fields at any depth, `max_tokens` remains visible, and Voyage credentials resolve from `VOYAGE_API_KEY` only.
+12. **Entity dedup workflow.** Shipped 2026-05-28. Duplicate entity candidates can be planned, written to a review file, merged one canonical target at a time, and audited through `wiki/.entity-aliases.json` without deleting pages or observations.
+13. **Scheduled compile cadence.** Shipped 2026-05-28. Dashboard startup schedules daily compile prompt generation by default, Settings exposes compile cadence, `/memory/compile` shows scheduler state, and `POST /api/compile/run` supports a guarded manual trigger.
 
 **Dependencies:** Phase 3. (Brief C explicitly depends on lifecycle states from Phase 1; narrative threads are most useful once we have the entity registry from Phase 3 if duplicate metric drove that.)
 
@@ -219,6 +221,8 @@ These are small, one-off maintenance items that don't fit the phased model. Pick
 | 2026-05-28 | Candidate paths are relation context, not prose | Thread/procedure prompts forbid path strings in prose fields; bare path leaks are stripped and counted separately from unresolved reference stripping |
 | 2026-05-28 | Overview is a summary, health is a drill-down | Graph-health cards stay collapsed on Overview and navigate to `/memory/health#<metric>`; detailed offender lists live on the dedicated route to keep the first screen scannable |
 | 2026-05-28 | Provider secrets are env-var-only | Dashboard config reads redact secret-named fields defensively, but `config.yaml` no longer advertises or resolves provider API keys |
+| 2026-05-28 | Entity dedup is review-gated | Duplicate detection can propose merges, but only `memory entity merge <canonical>` rewrites relations and records aliases; no content is deleted |
+| 2026-05-28 | Compile scheduling reuses the dashboard scheduler | Daily compile prompt generation is on by default and serialized with auto-promote so vault-writing maintenance jobs do not overlap |
 | 2026-05-28 | Auto-promote is confidence-gated, dashboard review handles the rest | Clean drafts need zero stripped references, zero prose path leaks, zero stripped commands, at least 5 observations, and at least 2 sessions; anything else stays proposed until the operator promotes or rejects it |
 | 2026-05-28 | Windows rename races are retried at the storage primitive | Readers can briefly block rename on Windows, so `atomicWrite` retries transient rename errors locally while preserving rename-based atomic writes and surfacing exhaustion through verify |
 
