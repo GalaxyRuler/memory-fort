@@ -92,6 +92,74 @@ describe("procedure commands", () => {
     expect(existsSync(join(tmp, "wiki", "procedures", "deploy-dashboard-to-vps-2.md"))).toBe(false);
   });
 
+  it("auto-promotes high-confidence procedure proposals when requested", async () => {
+    for (let index = 4; index <= 5; index += 1) {
+      await writeMarkdown(
+        `raw/2026-05-2${index}/codex-${index}.md`,
+        rawPage(`Deploy ${index}`, `session-${index}`, "$ scp dist/dashboard/server.mjs root@srv:/root/server.mjs\n$ ssh root@srv restart\n$ curl health\n"),
+      );
+    }
+
+    const result = await runProcedurePropose({
+      vaultRoot: tmp,
+      apply: true,
+      autoPromote: true,
+      days: 30,
+      maxProposals: 1,
+      now: new Date("2026-05-28T12:00:00.000Z"),
+      configLoader: async () => ({ llm: { provider: "ollama", model: "llama3.2" } }),
+      llmFactory: () => fakeLLM("deploy-dashboard-to-vps"),
+      env: {},
+    });
+
+    expect(result.written).toBe(1);
+    expect(result.autoPromoted).toBe(1);
+    expect(result.awaitingReview).toBe(0);
+    expect(result.proposals[0]).toMatchObject({
+      relPath: "wiki/procedures/deploy-dashboard-to-vps.md",
+      autoPromoted: true,
+      confidence: { level: "high", reasons: ["all signals clean"] },
+    });
+    expect(existsSync(join(tmp, "wiki", "procedures", "deploy-dashboard-to-vps.md"))).toBe(true);
+    expect(existsSync(join(tmp, "wiki", "procedures-proposed", "deploy-dashboard-to-vps.md"))).toBe(false);
+    expect(formatProcedureProposeResult(result)).toContain("Drafts auto-promoted: 1");
+    expect(formatProcedureProposeResult(result)).toContain("Drafts awaiting review: 0");
+    expect(await readFile(result.auditLogPath, "utf-8")).toContain("autoPromoted: true");
+  });
+
+  it("keeps proposals with stripped commands in review even with auto-promote enabled", async () => {
+    for (let index = 4; index <= 5; index += 1) {
+      await writeMarkdown(
+        `raw/2026-05-2${index}/codex-${index}.md`,
+        rawPage(`Deploy ${index}`, `session-${index}`, "$ scp dist/dashboard/server.mjs root@srv:/root/server.mjs\n$ ssh root@srv restart\n$ curl health\n"),
+      );
+    }
+
+    const result = await runProcedurePropose({
+      vaultRoot: tmp,
+      apply: true,
+      autoPromote: true,
+      days: 30,
+      maxProposals: 1,
+      now: new Date("2026-05-28T12:00:00.000Z"),
+      configLoader: async () => ({ llm: { provider: "ollama", model: "llama3.2" } }),
+      llmFactory: () => fakeLLM("deploy-dashboard-to-vps", "run-automation daily-review"),
+      env: {},
+    });
+
+    expect(result.autoPromoted).toBe(0);
+    expect(result.awaitingReview).toBe(1);
+    expect(result.proposals[0]).toMatchObject({
+      relPath: "wiki/procedures-proposed/deploy-dashboard-to-vps.md",
+      autoPromoted: false,
+      confidence: {
+        level: "low",
+        reasons: ["strippedReferenceCount=1", "commandsStripped=1"],
+      },
+    });
+    expect(existsSync(join(tmp, "wiki", "procedures-proposed", "deploy-dashboard-to-vps.md"))).toBe(true);
+  });
+
   it("does not write invented commands to proposed procedure drafts", async () => {
     const result = await runProcedurePropose({
       vaultRoot: tmp,

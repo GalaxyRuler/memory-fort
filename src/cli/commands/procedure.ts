@@ -14,6 +14,7 @@ import {
   type LLMConfig,
 } from "../../llm/factory.js";
 import { isDebugLogEnabled } from "../../llm/audit.js";
+import { scoreProposalConfidence, type ProposalConfidence } from "../../llm/proposal-confidence.js";
 import { proposeProcedure, type ProcedureProposal } from "../../llm/procedure-propose.js";
 import { LLMDisabledError, type LLMProvider } from "../../llm/types.js";
 import { loadMemoryConfig, type MemoryConfig } from "../../storage/config.js";
@@ -33,6 +34,7 @@ export interface ProcedureProposeRunOptions {
   days?: number;
   maxProposals?: number;
   apply?: boolean;
+  autoPromote?: boolean;
   now?: Date;
   env?: NodeJS.ProcessEnv;
   configLoader?: () => Promise<MemoryConfig>;
@@ -44,6 +46,8 @@ export interface ProcedureProposeRunResult {
   clustered: number;
   proposed: number;
   written: number;
+  autoPromoted: number;
+  awaitingReview: number;
   referencesStripped: number;
   skipped: Array<{ clusterIndex: number; reason: string; promptHash?: string; responseHash?: string }>;
   proposals: Array<{
@@ -52,6 +56,8 @@ export interface ProcedureProposeRunResult {
     relPath: string;
     observationCount: number;
     sessionCount: number;
+    confidence: ProposalConfidence;
+    autoPromoted: boolean;
   }>;
   auditLogPath: string;
   mode: "plan" | "apply";
@@ -84,6 +90,8 @@ export async function runProcedurePropose(
   const proposals: ProcedureProposeRunResult["proposals"] = [];
   const skipped: ProcedureProposeRunResult["skipped"] = [];
   let written = 0;
+  let autoPromoted = 0;
+  let awaitingReview = 0;
   let referencesStripped = 0;
 
   for (const [clusterIndex, cluster] of selected.entries()) {
@@ -96,22 +104,47 @@ export async function runProcedurePropose(
     referencesStripped += proposal.grounding.strippedReferenceCount;
 
     const slug = uniqueProposalSlug(opts.vaultRoot, proposal.proposedSlug);
-    const relPath = `wiki/procedures-proposed/${slug}.md`;
+    let relPath = `wiki/procedures-proposed/${slug}.md`;
+    let proposalAutoPromoted = false;
+    const strippedCommands = proposal.grounding.strippedSamples;
+    const confidence = scoreProposalConfidence({
+      grounding: {
+        strippedReferenceCount: proposal.grounding.strippedReferenceCount,
+        prosePathLeaksCount: proposal.grounding.prosePathLeaksCount,
+        commandsStripped: strippedCommands,
+      },
+      cluster: {
+        observationCount: cluster.observations.length,
+        distinctSessions: cluster.distinctSessions,
+      },
+    });
+
+    if (opts.apply) {
+      await atomicWrite(
+        join(opts.vaultRoot, ...relPath.split("/")),
+        formatProcedureProposalFile({ proposal, cluster, slug, now, vaultRoot: opts.vaultRoot, confidence }),
+      );
+      written += 1;
+
+      if (opts.autoPromote && confidence.level === "high") {
+        const promoted = await runProcedurePromote({ vaultRoot: opts.vaultRoot, slug });
+        relPath = promoted.to;
+        proposalAutoPromoted = true;
+        autoPromoted += 1;
+      } else {
+        awaitingReview += 1;
+      }
+    }
+
     proposals.push({
       slug,
       title: proposal.title,
       relPath,
       observationCount: cluster.observations.length,
       sessionCount: cluster.distinctSessions,
+      confidence,
+      autoPromoted: proposalAutoPromoted,
     });
-
-    if (opts.apply) {
-      await atomicWrite(
-        join(opts.vaultRoot, ...relPath.split("/")),
-        formatProcedureProposalFile({ proposal, cluster, slug, now, vaultRoot: opts.vaultRoot }),
-      );
-      written += 1;
-    }
   }
 
   const auditLogPath = join(
@@ -129,6 +162,8 @@ export async function runProcedurePropose(
     proposals,
     skipped,
     written,
+    autoPromoted,
+    awaitingReview,
     referencesStripped,
   }));
 
@@ -137,6 +172,8 @@ export async function runProcedurePropose(
     clustered: clusters.length,
     proposed: proposals.length,
     written,
+    autoPromoted,
+    awaitingReview,
     referencesStripped,
     skipped,
     proposals,
@@ -195,6 +232,8 @@ export function formatProcedureProposeResult(result: ProcedureProposeRunResult):
     `Proposals accepted: ${result.proposed}`,
     `References stripped: ${result.referencesStripped} (avg ${averageStripped(result.referencesStripped, result.proposed)} per proposal)`,
     `Drafts written: ${result.written}`,
+    `Drafts auto-promoted: ${result.autoPromoted}`,
+    `Drafts awaiting review: ${result.awaitingReview}`,
     `Audit: ${result.auditLogPath}`,
   ];
   if (result.proposals.length > 0) {
@@ -234,9 +273,10 @@ Notes:
   Estimated cost is about $0.001 per proposal on openai/gpt-4o-mini via OpenRouter.`)
     .option("--plan", "dry-run; do not write draft procedure pages")
     .option("--apply", "write draft procedure pages under wiki/procedures-proposed/")
+    .option("--auto-promote", "with --apply, promote high-confidence drafts directly to wiki/procedures/")
     .option("--days <n>", "days of raw observations to scan (default: 30)", parseInteger)
     .option("--max-proposals <n>", "maximum LLM proposals to request (default: 10)", parseInteger)
-    .action(async (opts: { plan?: boolean; apply?: boolean; days?: number; maxProposals?: number }) => {
+    .action(async (opts: { plan?: boolean; apply?: boolean; autoPromote?: boolean; days?: number; maxProposals?: number }) => {
       if (opts.plan && opts.apply) {
         console.error("memory procedure propose: choose at most one of --plan or --apply");
         process.exit(2);
@@ -245,6 +285,7 @@ Notes:
         const result = await runProcedurePropose({
           vaultRoot: defaultMemoryRoot(),
           apply: Boolean(opts.apply),
+          autoPromote: Boolean(opts.apply && opts.autoPromote),
           days: opts.days,
           maxProposals: opts.maxProposals,
         });
@@ -312,6 +353,7 @@ function formatProcedureProposalFile(opts: {
   slug: string;
   now: Date;
   vaultRoot: string;
+  confidence?: ProposalConfidence;
 }): string {
   const date = opts.now.toISOString().slice(0, 10);
   const derivedFrom = opts.cluster.observations
@@ -334,6 +376,14 @@ function formatProcedureProposalFile(opts: {
       },
       created: date,
       updated: date,
+      proposal_confidence: opts.confidence
+        ? {
+            level: opts.confidence.level,
+            reasons: opts.confidence.reasons,
+            observation_count: opts.cluster.observations.length,
+            distinct_sessions: opts.cluster.distinctSessions,
+          }
+        : undefined,
       tags: uniqueSorted([...opts.proposal.tags, "auto-proposed", "procedure-draft"]),
       relations: {
         derived_from: derivedFrom,
@@ -394,6 +444,8 @@ function formatProcedureRunAudit(input: {
   proposals: ProcedureProposeRunResult["proposals"];
   skipped: ProcedureProposeRunResult["skipped"];
   written: number;
+  autoPromoted: number;
+  awaitingReview: number;
   referencesStripped: number;
 }): string {
   const date = input.now.toISOString().slice(0, 10);
@@ -408,13 +460,15 @@ function formatProcedureRunAudit(input: {
     `proposals accepted: ${input.proposals.length}`,
     `references stripped: ${input.referencesStripped} (avg ${averageStripped(input.referencesStripped, input.proposals.length)} per proposal)`,
     `drafts written: ${input.written}`,
+    `drafts auto-promoted: ${input.autoPromoted}`,
+    `drafts awaiting review: ${input.awaitingReview}`,
     "",
     "## Proposals",
     "",
     ...(input.proposals.length === 0
       ? ["- none"]
       : input.proposals.map((proposal) =>
-          `- ${proposal.slug} -> ${proposal.relPath} (${proposal.observationCount} observations, ${proposal.sessionCount} sessions)`
+          `- ${proposal.slug} -> ${proposal.relPath} (${proposal.observationCount} observations, ${proposal.sessionCount} sessions, confidence: ${proposal.confidence.level}, reasons: ${proposal.confidence.reasons.join("; ")}, autoPromoted: ${proposal.autoPromoted})`
         )),
     "",
     "## Skipped",

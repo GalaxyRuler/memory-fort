@@ -4,6 +4,7 @@ export interface RawObservationRef {
   relPath: string;
   created: string;
   relations?: RelationMap;
+  session?: string | null;
   entities: string[];
   source: string;
   title: string;

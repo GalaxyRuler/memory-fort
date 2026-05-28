@@ -92,6 +92,67 @@ describe("thread commands", () => {
     expect(existsSync(join(tmp, "wiki", "threads", "memory-fort-settings-2.md"))).toBe(false);
   });
 
+  it("auto-promotes high-confidence thread proposals when requested", async () => {
+    for (let index = 4; index <= 5; index += 1) {
+      await writeMarkdown(
+        `raw/2026-05-2${index}/codex-${index}.md`,
+        rawPage(`Raw ${index}`, `Observation ${index} about Memory Fort settings.`, ["wiki/projects/memory-fort.md"]),
+      );
+    }
+
+    const result = await runThreadPropose({
+      vaultRoot: tmp,
+      apply: true,
+      autoPromote: true,
+      days: 30,
+      maxProposals: 1,
+      now: new Date("2026-05-28T12:00:00.000Z"),
+      configLoader: async () => ({ llm: { provider: "ollama", model: "llama3.2" } }),
+      llmFactory: () => fakeLLM("memory-fort-settings"),
+      env: {},
+    });
+
+    expect(result.written).toBe(1);
+    expect(result.autoPromoted).toBe(1);
+    expect(result.awaitingReview).toBe(0);
+    expect(result.proposals[0]).toMatchObject({
+      relPath: "wiki/threads/memory-fort-settings.md",
+      autoPromoted: true,
+      confidence: { level: "high", reasons: ["all signals clean"] },
+    });
+    expect(existsSync(join(tmp, "wiki", "threads", "memory-fort-settings.md"))).toBe(true);
+    expect(existsSync(join(tmp, "wiki", "threads-proposed", "memory-fort-settings.md"))).toBe(false);
+    expect(formatThreadProposeResult(result)).toContain("Drafts auto-promoted: 1");
+    expect(formatThreadProposeResult(result)).toContain("Drafts awaiting review: 0");
+    expect(await readFile(result.auditLogPath, "utf-8")).toContain("autoPromoted: true");
+  });
+
+  it("keeps low-confidence thread proposals in review even with auto-promote enabled", async () => {
+    const result = await runThreadPropose({
+      vaultRoot: tmp,
+      apply: true,
+      autoPromote: true,
+      days: 30,
+      maxProposals: 1,
+      now: new Date("2026-05-28T12:00:00.000Z"),
+      configLoader: async () => ({ llm: { provider: "ollama", model: "llama3.2" } }),
+      llmFactory: () => fakeLLM("memory-fort-settings"),
+      env: {},
+    });
+
+    expect(result.autoPromoted).toBe(0);
+    expect(result.awaitingReview).toBe(1);
+    expect(result.proposals[0]).toMatchObject({
+      relPath: "wiki/threads-proposed/memory-fort-settings.md",
+      autoPromoted: false,
+      confidence: {
+        level: "low",
+        reasons: ["observationCount=3 below threshold 5"],
+      },
+    });
+    expect(existsSync(join(tmp, "wiki", "threads-proposed", "memory-fort-settings.md"))).toBe(true);
+  });
+
   it("does not write path-leaked prose fields to proposed thread drafts", async () => {
     const result = await runThreadPropose({
       vaultRoot: tmp,

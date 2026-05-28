@@ -14,6 +14,7 @@ import {
   type LLMConfig,
 } from "../../llm/factory.js";
 import { isDebugLogEnabled } from "../../llm/audit.js";
+import { scoreProposalConfidence, type ProposalConfidence } from "../../llm/proposal-confidence.js";
 import { LLMDisabledError, type LLMProvider } from "../../llm/types.js";
 import { proposeThread, type ThreadProposal } from "../../llm/thread-propose.js";
 import { loadMemoryConfig, type MemoryConfig } from "../../storage/config.js";
@@ -34,6 +35,7 @@ export interface ThreadProposeRunOptions {
   maxProposals?: number;
   minClusterSize?: number;
   apply?: boolean;
+  autoPromote?: boolean;
   now?: Date;
   env?: NodeJS.ProcessEnv;
   configLoader?: () => Promise<MemoryConfig>;
@@ -45,6 +47,8 @@ export interface ThreadProposeRunResult {
   clustered: number;
   proposed: number;
   written: number;
+  autoPromoted: number;
+  awaitingReview: number;
   referencesStripped: number;
   skipped: Array<{ clusterIndex: number; reason: string; promptHash?: string; responseHash?: string }>;
   proposals: Array<{
@@ -52,6 +56,9 @@ export interface ThreadProposeRunResult {
     title: string;
     relPath: string;
     observationCount: number;
+    distinctSessions: number;
+    confidence: ProposalConfidence;
+    autoPromoted: boolean;
   }>;
   auditLogPath: string;
   mode: "plan" | "apply";
@@ -87,6 +94,8 @@ export async function runThreadPropose(
   const proposals: ThreadProposeRunResult["proposals"] = [];
   const skipped: ThreadProposeRunResult["skipped"] = [];
   let written = 0;
+  let autoPromoted = 0;
+  let awaitingReview = 0;
   let referencesStripped = 0;
 
   for (const [clusterIndex, cluster] of selected.entries()) {
@@ -99,21 +108,46 @@ export async function runThreadPropose(
     referencesStripped += proposal.grounding.strippedReferenceCount;
 
     const slug = uniqueProposalSlug(opts.vaultRoot, proposal.proposedSlug);
-    const relPath = `wiki/threads-proposed/${slug}.md`;
-    proposals.push({
-      slug,
-      title: proposal.title,
-      relPath,
-      observationCount: cluster.observations.length,
+    let relPath = `wiki/threads-proposed/${slug}.md`;
+    let proposalAutoPromoted = false;
+    const distinctSessions = distinctThreadSessions(cluster);
+    const confidence = scoreProposalConfidence({
+      grounding: {
+        strippedReferenceCount: proposal.grounding.strippedReferenceCount,
+        prosePathLeaksCount: proposal.grounding.prosePathLeaksCount,
+      },
+      cluster: {
+        observationCount: cluster.observations.length,
+        distinctSessions,
+      },
     });
 
     if (opts.apply) {
       await atomicWrite(
         join(opts.vaultRoot, ...relPath.split("/")),
-        formatThreadProposalFile({ proposal, cluster, slug, now, vaultRoot: opts.vaultRoot }),
+        formatThreadProposalFile({ proposal, cluster, slug, now, vaultRoot: opts.vaultRoot, confidence, distinctSessions }),
       );
       written += 1;
+
+      if (opts.autoPromote && confidence.level === "high") {
+        const promoted = await runThreadPromote({ vaultRoot: opts.vaultRoot, slug });
+        relPath = promoted.to;
+        proposalAutoPromoted = true;
+        autoPromoted += 1;
+      } else {
+        awaitingReview += 1;
+      }
     }
+
+    proposals.push({
+      slug,
+      title: proposal.title,
+      relPath,
+      observationCount: cluster.observations.length,
+      distinctSessions,
+      confidence,
+      autoPromoted: proposalAutoPromoted,
+    });
   }
 
   const auditLogPath = join(
@@ -131,6 +165,8 @@ export async function runThreadPropose(
     proposals,
     skipped,
     written,
+    autoPromoted,
+    awaitingReview,
     referencesStripped,
   }));
 
@@ -139,6 +175,8 @@ export async function runThreadPropose(
     clustered: clusters.length,
     proposed: proposals.length,
     written,
+    autoPromoted,
+    awaitingReview,
     referencesStripped,
     skipped,
     proposals,
@@ -197,6 +235,8 @@ export function formatThreadProposeResult(result: ThreadProposeRunResult): strin
     `Proposals accepted: ${result.proposed}`,
     `References stripped: ${result.referencesStripped} (avg ${averageStripped(result.referencesStripped, result.proposed)} per proposal)`,
     `Drafts written: ${result.written}`,
+    `Drafts auto-promoted: ${result.autoPromoted}`,
+    `Drafts awaiting review: ${result.awaitingReview}`,
     `Audit: ${result.auditLogPath}`,
   ];
   if (result.proposals.length > 0) {
@@ -235,9 +275,10 @@ Notes:
   Estimated cost is about $0.001 per proposal on openai/gpt-4o-mini via OpenRouter.`)
     .option("--plan", "dry-run; do not write draft thread pages")
     .option("--apply", "write draft thread pages under wiki/threads-proposed/")
+    .option("--auto-promote", "with --apply, promote high-confidence drafts directly to wiki/threads/")
     .option("--days <n>", "days of raw observations to scan (default: 30)", parseInteger)
     .option("--max-proposals <n>", "maximum LLM proposals to request (default: 10)", parseInteger)
-    .action(async (opts: { plan?: boolean; apply?: boolean; days?: number; maxProposals?: number }) => {
+    .action(async (opts: { plan?: boolean; apply?: boolean; autoPromote?: boolean; days?: number; maxProposals?: number }) => {
       if (opts.plan && opts.apply) {
         console.error("memory thread propose: choose at most one of --plan or --apply");
         process.exit(2);
@@ -246,6 +287,7 @@ Notes:
         const result = await runThreadPropose({
           vaultRoot: defaultMemoryRoot(),
           apply: Boolean(opts.apply),
+          autoPromote: Boolean(opts.apply && opts.autoPromote),
           days: opts.days,
           maxProposals: opts.maxProposals,
         });
@@ -288,6 +330,7 @@ function toRawObservationRef(document: SearchDocument): RawObservationRef {
     relPath: document.relPath,
     created: documentDate(document),
     relations: document.relations,
+    session: document.session,
     entities: relationTargets(document),
     source: document.source,
     title: document.title || basename(document.relPath, ".md"),
@@ -318,6 +361,8 @@ function formatThreadProposalFile(opts: {
   slug: string;
   now: Date;
   vaultRoot: string;
+  confidence?: ProposalConfidence;
+  distinctSessions?: number;
 }): string {
   const date = opts.now.toISOString().slice(0, 10);
   const decisions = listOrNone(opts.proposal.keyDecisions);
@@ -347,6 +392,14 @@ function formatThreadProposalFile(opts: {
       created: date,
       updated: date,
       time_range: opts.cluster.timeRange,
+      proposal_confidence: opts.confidence
+        ? {
+            level: opts.confidence.level,
+            reasons: opts.confidence.reasons,
+            observation_count: opts.cluster.observations.length,
+            distinct_sessions: opts.distinctSessions ?? distinctThreadSessions(opts.cluster),
+          }
+        : undefined,
       tags: ["auto-proposed", "thread-draft"],
       relations: {
         mentions,
@@ -389,6 +442,8 @@ function formatThreadRunAudit(input: {
   proposals: ThreadProposeRunResult["proposals"];
   skipped: ThreadProposeRunResult["skipped"];
   written: number;
+  autoPromoted: number;
+  awaitingReview: number;
   referencesStripped: number;
 }): string {
   const date = input.now.toISOString().slice(0, 10);
@@ -403,13 +458,15 @@ function formatThreadRunAudit(input: {
     `proposals accepted: ${input.proposals.length}`,
     `references stripped: ${input.referencesStripped} (avg ${averageStripped(input.referencesStripped, input.proposals.length)} per proposal)`,
     `drafts written: ${input.written}`,
+    `drafts auto-promoted: ${input.autoPromoted}`,
+    `drafts awaiting review: ${input.awaitingReview}`,
     "",
     "## Proposals",
     "",
     ...(input.proposals.length === 0
       ? ["- none"]
       : input.proposals.map((proposal) =>
-          `- ${proposal.slug} -> ${proposal.relPath} (${proposal.observationCount} observations)`
+          `- ${proposal.slug} -> ${proposal.relPath} (${proposal.observationCount} observations, ${proposal.distinctSessions} sessions, confidence: ${proposal.confidence.level}, reasons: ${proposal.confidence.reasons.join("; ")}, autoPromoted: ${proposal.autoPromoted})`
         )),
     "",
     "## Skipped",
@@ -450,6 +507,12 @@ function sanitizeSlug(slug: string): string {
     throw new Error(`invalid thread slug: ${slug}`);
   }
   return slug;
+}
+
+function distinctThreadSessions(cluster: ThreadCluster): number {
+  return new Set(cluster.observations.map((observation) =>
+    observation.session?.trim() || observation.relPath
+  )).size;
 }
 
 function listOrNone(items: string[]): string[] {
