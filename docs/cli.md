@@ -1,259 +1,147 @@
 # CLI reference
 
-`memory <subcommand> [options]` — single binary at `dist/cli.mjs`, installed as `memory` on PATH via npm-link or by running `node dist/cli.mjs` directly.
+`memory <subcommand> [options]` — single binary at `dist/cli.mjs`, installed as `memory` on PATH via npm-link, or run `node dist/cli.mjs` directly.
 
-## search
-
-`memory search <query> [--scope wiki|raw|crystals|all] [--k <n>] [--min-score <n>] [--no-rerank] [--json] [--vps-url <url>]` queries the VPS dashboard `/api/search` endpoint over Tailscale and prints ranked memory results. Use `--json` to emit the raw API response for debugging or scripts; otherwise the CLI prints the query, result count, latency, warnings, and a short snippet per result. This command does not run retrieval locally and does not need local Voyage credentials.
+> This reference tracks the live command tree in `src/cli.ts` + `src/cli/commands/`. Stubs (not yet implemented) are listed at the end and exit non-zero.
 
 ---
 
-## compile
-
-**Synopsis:**
-```bash
-memory compile [--since <iso>] [--per-file-max-bytes <bytes>] [--total-max-bytes <bytes>] [-o, --output <path>]
-```
-
-**Description:**
-Assemble an LLM prompt by substituting recent raw observations, schema, index, and log context into `~/.memory/prompts/compile.md`. This command is an orchestrator: the LLM in your active agent session reads the printed prompt and performs the actual wiki edits. `memory compile` never calls an LLM and never writes to `wiki/`.
-
-**Options:**
-
-| Flag | Default | Description |
-|---|---|---|
-| `--since <iso>` | Latest `compile` entry in `log.md`, or epoch if none | Only include raw files modified at or after this timestamp |
-| `--per-file-max-bytes <bytes>` | `10000` | Maximum content read from each raw file |
-| `--total-max-bytes <bytes>` | `200000` | Maximum raw content folded into the prompt across all files |
-| `-o, --output <path>` | stdout only | Also write the assembled prompt to a file |
-
-**Examples:**
-```bash
-node dist/cli.mjs compile
-node dist/cli.mjs compile --output compile-prompt.md
-```
-
-**Exit codes:** 0 success, 1 error. If `~/.memory/prompts/compile.md` is missing, run `memory init` first.
-
----
-
-## proposal review
-
-`memory thread propose --apply --auto-promote` and
-`memory procedure propose --apply --auto-promote` score each generated draft
-before routing it. Clean high-confidence drafts are promoted directly into
-`wiki/threads/` or `wiki/procedures/`; drafts with grounding issues or too little
-cluster evidence stay under the matching `*-proposed/` directory for review.
-Without `--auto-promote`, propose behavior is unchanged and every draft remains
-review-gated.
-
-The dashboard inbox at `/memory/inbox` shows proposed thread and procedure
-drafts with confidence reasons and one-click Promote/Reject actions. Those
-actions call the same promote/reject logic as the CLI commands.
-
----
-
-## lint
-
-**Synopsis:**
-```bash
-memory lint [--checks-only] [--stale-days <n>]
-```
-
-**Description:**
-Run the wiki lint workflow in one of two modes. By default, `memory lint` assembles an LLM prompt using the same orchestrator pattern as `compile`: the CLI prints context, and the user's active agent session does the judgment work. With `--checks-only`, the CLI skips the LLM and runs programmatic checks directly: frontmatter validity, broken `[[wikilinks]]`, broken `relations:` targets, orphan pages, stale active pages, and low-confidence drafts. `--checks-only` exits 1 if any frontmatter or broken-relation issues exist because those are data-integrity blockers; other categories are advisory and exit 0.
-
-**Options:**
-
-| Flag | Default | Description |
-|---|---|---|
-| `--checks-only` | off | Run programmatic checks and print a structured text report |
-| `--stale-days <n>` | `180` | Stale-page threshold used by `--checks-only` |
-
-**Examples:**
-```bash
-node dist/cli.mjs lint
-node dist/cli.mjs lint --checks-only
-```
-
-**Exit codes:** 0 success or no blocking issues, 1 if `--checks-only` finds frontmatter or broken-relation issues, 1 on internal error.
-
----
-
-## page
-
-**Synopsis:**
-```bash
-memory page <target> [--no-inbound]
-```
-
-**Description:**
-Pretty-print a single wiki page with frontmatter, body, resolved relations, and inbound references. Outbound `relations:` entries are resolved to page paths and titles. Inbound references are other pages that link to the target via `[[wikilinks]]` or `relations:` entries. The command is read-only.
-
-**Target resolution:**
-`<target>` may be a relative path such as `projects/agentmemory.md` or `projects/agentmemory`, or a filename without extension such as `agentmemory`. If a filename-only target matches multiple pages, the command prints an error listing the candidates and asks for a relative path.
-
-**Options:**
-
-| Flag | Default | Description |
-|---|---|---|
-| `--no-inbound` | off | Skip the inbound-references scan, which is faster on large wikis |
-
-**Examples:**
-```bash
-node dist/cli.mjs page agentmemory
-node dist/cli.mjs page projects/agentmemory.md --no-inbound
-```
-
-**Exit codes:** 0 success, 1 if the target does not resolve or `wiki/` is missing.
-
----
-
-## Phase 1 commands (implemented)
+## Setup & integration
 
 ### `memory init [--reset]`
+Lay out `~/.memory/`: `schema.md`, `index.md`, `log.md`, `config.yaml`, `wiki/` (incl. seeded `wiki/preferences.md`), `raw/`, `.gitignore`, and `git init`. `--reset` archives the existing vault first.
 
-Initialize `~/.memory/` with directory structure, schema template, baseline files, and git repository. Idempotent — re-running preserves existing files.
+### `memory install <platform> [--workspace <dir>] [--surface <s>] [--no-verify]`
+Install hooks + the `memory` MCP server for one platform: `claude-code` | `codex` | `antigravity` | `claude-desktop` | `vscode`. Edits shared config files between `# === BEGIN/END memory-system ===` sentinel markers. Runs `verify --role operator` afterward unless `--no-verify`.
 
-| Flag | Description |
-|---|---|
-| `--reset` | Destructive: archives existing `~/.memory/` to a sibling `~/.memory.reset-<timestamp>/` before re-init |
+### `memory connect [client] [--all] [--workspace <dir>] [--no-verify]`
+Install MCP/hooks for one client or, with `--all`, every detected client. Convenience wrapper over `install`.
 
-**Exit codes:** 0 success, 1 IO error.
+### `memory install-vps [--ssh-host <host>] [--install-root <path>] [--dry-run]`
+Lay out `/root/memory-system/` on the VPS over SSH (idempotent): `services/` (dashboard bundle), `dist/dashboard-ui/`, `env/` (chmod 0600), the `memory.git` bare repo + post-receive checkout hook, and the hardened `memory-dashboard.service` + `memory-backup.{service,timer}` systemd units. `--dry-run` prints the SSH commands.
 
-**Example:**
-```bash
-memory init
-# → creates ~/.memory/ with schema.md, index.md, log.md, config.yaml, .gitignore, .git/
-```
+### `memory install-tailscale-route [--ssh-host <host>] [--dashboard-port <n>] [--path-prefix <p>] [--dry-run]`
+Add a `tailscale serve <path> → http://127.0.0.1:<port>` route on the VPS, preserving existing routes.
 
----
-
-### `memory install <platform>`
-
-Wire hooks (where available) + MCP for one of the three platforms.
-
-| Platform | What it does |
-|---|---|
-| `claude-code` | Writes plugin manifest + hooks.json + plugin-scoped `.mcp.json` to `~/.memory/claude-code-plugin/`. Migrates legacy `~/.claude/.mcp.json` if present. |
-| `codex` | Appends sentinel-marker block to `~/.codex/config.toml` with `[[hooks.*]]` and `[mcp_servers.memory]`. Covers both Codex desktop and CLI. |
-| `antigravity` | Merges memory MCP entry into `~/.gemini/antigravity/mcp_config.json`. No hooks (Antigravity has no hook system). |
-
-**Exit codes:** 0 success, 1 IO error, 2 unknown platform.
-
-**Examples:**
-```bash
-memory install claude-code
-memory install codex
-memory install antigravity
-```
+### `memory sync-bootstrap [--remote-name <n>] [--ssh-host <h>] [--vps-install-root <p>] [--branch <b>] [--skip-initial-push]`
+Configure `~/.memory/` to use the VPS bare repo as a git remote (`vps`), install the post-receive hook, and do an initial push.
 
 ---
 
-### `memory grep <pattern> [--scope raw|wiki|both] [-C <n>]`
+## Memory operations
 
-Tier-1 retrieval via ripgrep wrapper. Searches markdown files under `~/.memory/raw/` and/or `~/.memory/wiki/`.
+### `memory search <query> [--scope wiki|raw|crystals|all] [--k <n>] [--min-score <n>] [--no-rerank] [--json] [--vps-url <url>]`
+Query the VPS dashboard `/api/search` over Tailscale; prints ranked results with provenance. Defaults to the fast `--no-rerank` path for bounded latency; omit it to add Voyage rerank. Runs no retrieval locally.
 
-| Flag | Default | Description |
-|---|---|---|
-| `--scope` | `both` | `raw`, `wiki`, or `both` |
-| `-C, --context <n>` | `2` | Lines of context |
+### `memory compile [--since <date>] [--per-file-max-bytes <n>] [--total-max-bytes <n>] [-o|--output <path>] [--execute] [--plan]`
+Assemble the consolidation prompt from raw observations since the last compile.
+- **Default (artifact mode):** prints the rendered prompt to stdout, or to `--output <path>` if given, for an agent to execute.
+- **`--execute`:** send the prompt to the configured LLM, parse the `compile-ops` JSON, ground references, redact secrets, and apply append-only operations (high-confidence directly; low-confidence staged to `wiki/compile-proposed/`). Opt-in; needs `OPENROUTER_API_KEY`; honors `MEMORY_LLM_DISABLED`.
+- **`--execute --plan`:** preview the operations without writing.
 
-**Exit codes:** 0 matches found, 1 no matches, 2 error or ripgrep missing.
+### `memory consolidate [--plan|--apply] [--force] [--min-confidence <n>] [--max-links-per-observation <n>]`
+Link raw episodic observations to existing wiki pages via deterministic matching (no LLM). `--plan` previews; `--apply` writes the relation edges.
 
-**Example:**
-```bash
-memory grep "stale ports"
-memory grep "windows" --scope wiki -C 5
-```
+### `memory lint [--checks-only] [--stale-days <n>]`
+With `--checks-only`, run programmatic wiki checks (frontmatter validity, broken links). Without it, assemble a lint prompt for an agent.
 
----
+### `memory page <target> [--no-inbound]`
+Pretty-print a wiki page with resolved relations and inbound references.
 
 ### `memory log "<text>" [--tag X --tag Y] [--confidence 0..1]`
+Append a deliberate observation to today's raw file (commits the raw file). Surfaces back at session-start and in lexical search.
 
-Append a manual observation to today's raw file (`source: manual`). CLI counterpart to the MCP `log_observation` tool — usable from any terminal without an open agent session.
-
-| Flag | Description |
-|---|---|
-| `--tag <tag>` | Tag (repeatable); each `--tag X` appends to the array |
-| `--confidence <n>` | 0..1 (0 = uncertain, 1 = certain) |
-
-**Exit codes:** 0 appended, 1 IO error, 2 bad input (empty text, invalid confidence).
-
-**Example:**
-```bash
-memory log "Reminder: Voyage 3.5 is $0.06/M, not $0.18/M"
-memory log "F3 closed" --tag windows --tag mcp --confidence 0.95
-```
+### `memory grep <pattern> [--scope raw|wiki|both] [-C <n>]`
+ripgrep over the vault with context lines.
 
 ---
+
+## Consolidation (review-gated)
+
+### `memory thread propose [--plan|--apply] [--auto-promote] [--days <n>] [--max-proposals <n>]`
+Cluster raw observations (Jaccard ≥0.5 over entities, 7-day window, ≥3 obs) and draft LLM narrative-thread proposals into `wiki/threads-proposed/`. `--auto-promote` promotes high-confidence drafts directly.
+### `memory thread promote <slug>` / `memory thread reject <slug>`
+Move a reviewed draft to `wiki/threads/` (promote) or archive it (reject). Both commit the vault change.
+
+### `memory procedure propose [--plan|--apply] [--auto-promote] [--days <n>] [--max-proposals <n>]`
+Detect repeated command workflows (command-set Jaccard ≥0.4, ≥3 obs across ≥2 sessions) and draft procedures into `wiki/procedures-proposed/`.
+### `memory procedure promote <slug>` / `memory procedure reject <slug>`
+Promote/reject a procedure draft (commits the vault change).
+
+### `memory entity dedup [--plan|--apply]`
+Detect duplicate entity pairs (normalized-form + high-similarity match; `wiki/.audit/` excluded). `--plan` lists; `--apply` stages proposals.
+### `memory entity merge <canonical>` / `memory entity reject <canonical>` / `memory entity aliases`
+Merge rewrites relation targets to the canonical name and records `wiki/.entity-aliases.json` (never deletes); reject drops a proposal; aliases lists the map.
+
+---
+
+## Providers (embedder + LLM)
+
+### `memory provider list-embedders` / `list-llms`
+List supported providers + current config (no secrets).
+### `memory provider test-embedder [--provider voyage|openai|ollama]` / `test-llm [--provider openrouter|ollama]`
+Smoke-test a provider call (needs the relevant env key).
+### `memory provider test-classifier "<query>"`
+Run the query-intent classifier on one query; prints label, method, latency, tokens.
+### `memory provider reindex-embeddings [--plan|--apply]`
+Plan or apply a full embedding reindex (needs `VOYAGE_API_KEY`).
+### `memory provider audit-summary [--days <n>]`
+Summarize LLM audit-log calls over a window: per-consumer counts, cost (or `unknown`), references stripped, prose-path leaks.
+### `memory provider audit-rotate [--plan|--apply] [--keep-days <n>]`
+Archive `.audit/` logs older than the keep window (default 30 days) under `wiki/.audit/archive/` (archive-by-default; no hard delete without `--apply`).
+
+---
+
+## Git sync (VPS)
+
+### `memory sync [--remote-name <n>] [--branch <b>]`
+Pull-rebase then push to the VPS remote; surfaces conflicts loudly (records `conflict_files` in `.sync-state.json`).
+### `memory pull` / `memory push`
+Pull-rebase only / push-with-retry only.
+
+---
+
+## Maintenance & migration
+
+### `memory prune [--plan|--apply] [--restore <path>]`
+Plan/archive raw observations past `retention.raw_window_days` (config-driven; archive-first, never hard-delete). `--restore` brings an archived file back.
+### `memory backfill [--from <client>] [--since <date>] [--plan|--apply] [--consolidate-after]`
+Import historical sessions from a local client store into `raw/`.
+### `memory backfill-source [--plan|--apply] [--force]`
+Add missing `source:` frontmatter to live wiki pages.
+### `memory rewrite-imported-timestamps`
+Add `observed_at` dates to imported agentmemory files from their UUIDv7 ids.
+### `memory import-agentmemory [--from <path>] [--plan|--apply] [--consolidate-after]`
+One-shot migration from the legacy agentmemory store. (`import-from-agentmemory` is a deprecated alias.)
+### `memory watch [--clients <list>]`
+Run live capture watchers for supported local clients.
+### `memory tail-errors`
+Live-tail `~/.memory/errors.log`.
+
+---
+
+## Diagnostics
 
 ### `memory stats`
-
-State summary: file counts per area, last activity, install status per platform, errors.log size, git state.
-
-**Exit codes:** 0 always (read-only).
-
----
-
+File counts, install status, git state.
 ### `memory doctor`
-
-Structural sanity check — verifies directories exist, baseline files present, plugin manifests readable, errors.log size. Exits non-zero on failures so it can gate scripts.
-
-**Exit codes:** 0 all checks pass, 1 one or more failed.
-
----
-
-### `memory tail-errors`
-
-Live `tail -f` on `~/.memory/errors.log`. Ctrl+C to exit.
-
-**Exit codes:** 0 normal exit (Ctrl+C), 1 IO error.
+Structural health check; non-zero exit if any check fails.
+### `memory verify [--role operator|server] [--offline] [--json] [--schedule install|uninstall|status] [--daily HH:MM] [--shell powershell|systemd]`
+End-to-end health: vault, sync, dashboard, search, client capture. `operator` adds client-capture checks; `server` is vault/sync/search/dashboard only. Notable checks: `vault.read-write`, `search.pipeline`, `graph.cohesion`, `frontmatter.source`, `storage.atomic-write-retries`, `sync.uncommitted-vault`, `compile.recent`, `compile.execute-health`, `config.valid`, `retrieval.intent-classifier-health`. `--schedule` installs/removes a daily verify task.
 
 ---
 
-## Phase 2-6 commands (stubs)
+## Stubs (registered, not yet implemented — exit 2)
 
-Each prints a "not yet implemented in Phase 1" message and exits 2. The CLI surface is locked; later phases fill in implementations without changing the surface.
+`crystallize`, `backup`, `retain`, `schedule` print a "not yet implemented" message. (VPS backups are handled by the deployed `memory-backup.timer`, not the CLI `backup` stub.)
 
-| Stub | Phase |
-|---|---|
-| `memory crystallize` | 4 — Distill a completed thread into a long-form digest |
-| `memory backup` | 6 — git commit + push memory state to remote |
-| `memory import-from-agentmemory` | 5 — One-shot migration from GalaxyRuler/agentmemory's binary state store |
-| `memory retain` | 6 — Run retention policy (archive expired raws, prune embeddings) |
-| `memory schedule` | 6 — Install OS-level scheduled tasks (Windows Task Scheduler / cron / launchd) |
-
-## Common patterns
-
-**Verify install after `memory install <platform>`:**
-```bash
-memory doctor
-memory stats
-```
-
-**Capture a thought from a terminal mid-day:**
-```bash
-memory log "Tried voyage-3.5 vs voyage-4-large — quality delta negligible at our scale"
-```
-
-**Search for something across all session data:**
-```bash
-memory grep "windows stale port" -C 5
-```
-
-**Watch hooks for breakage:**
-```bash
-memory tail-errors    # in a separate terminal while running Claude Code / Codex
-```
+---
 
 ## Environment variables
 
-| Variable | Purpose |
-|---|---|
-| `MEMORY_ROOT` | Override `~/.memory/` location. Used by tests to redirect to temp dirs; can be used to run multiple memory roots side by side. |
-| `MEMORY_CLAUDE_DIR` | Override `~/.claude/` location for `memory install claude-code` (test/safety) |
-| `MEMORY_CODEX_DIR` | Override `~/.codex/` location for `memory install codex` |
-| `MEMORY_ANTIGRAVITY_DIR` | Override `~/.gemini/antigravity/` location for `memory install antigravity` |
-| `MEMORY_REPO_DIR` | Override the source repo root for `memory install` (where compiled hook scripts live) |
-| `MEMORY_SDK_CHILD` / `AGENTMEMORY_SDK_CHILD` | Set to `1` to mark a hook invocation as SDK-internal — hooks early-exit without writing, preventing recursive observation loops |
+- `MEMORY_ROOT` — override the vault location (default `~/.memory`).
+- `VOYAGE_API_KEY` / `OPENAI_API_KEY` — embedder keys (env-only, never in config.yaml).
+- `OPENROUTER_API_KEY` — LLM key (env-only).
+- `OLLAMA_HOST` — local Ollama endpoint.
+- `MEMORY_LLM_DISABLED=true` — kill switch for all LLM features.
+- `MEMORY_LLM_DEBUG_LOG=1` — persist plaintext prompts/responses to `wiki/.audit/llm-debug-*.md` (default off; the only path to plaintext LLM logs).

@@ -467,10 +467,11 @@ Operators can override with `?intent=<bucket>` on the `/api/search` URL query, o
 
 ## 5. Edge types (knowledge graph)
 
-The graph is derived on-demand from `relations:` frontmatter (and inline `[[wikilinks]]` which create implicit `linked` edges). Nine canonical edge types are supported; use them precisely.
+The graph is derived on-demand from `relations:` frontmatter (and inline `[[wikilinks]]` which create implicit `linked` edges). Ten canonical edge types are supported — the exact set `validateFrontmatter` accepts; any other key is rejected. Use them precisely.
 
 | Type | Direction | Semantics | Example |
 |---|---|---|---|
+| `mentions` | A → B | A references B; the generic auto-write key for raw observations | `raw/2026-05-20/*` mentions `wiki/projects/agentmemory.md` |
 | `uses` | A → B | A is a project that uses B (a tool/library) | `agentmemory` uses `typescript` |
 | `depends_on` | A → B | A's functioning requires B | `lisan-studio` depends_on `qt6` |
 | `supersedes` | A → B | A replaces B; B is archived | `lisan-studio` supersedes `vs-code-arabic` |

@@ -6,7 +6,7 @@ Google Antigravity all read and write. No daemon, no ports,
 no database - just files + Karpathy LLM Wiki + a thin stdio
 MCP server spawned per-session by the host tool.
 
-**Status:** Phases 0–4.x shipped — provider abstractions, retrieval (6-stream RRF), propose/promote pipelines, dashboard + inbox, autonomous compile execution (opt-in), and the memory feedback loop. See
+**Status:** Phases 0–4.11 shipped — provider abstractions, retrieval (6-stream RRF), propose/promote pipelines, dashboard + inbox, autonomous compile execution (opt-in), memory feedback loop, secret redaction + leak-surface hardening, config validation, and fail-closed VPS backups. See
 [docs/MEMORY-FORT-SPEC.md](docs/MEMORY-FORT-SPEC.md)
 for the current full system specification.
 
