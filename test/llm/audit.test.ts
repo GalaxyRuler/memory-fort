@@ -105,9 +105,77 @@ describe("LLM audit log", () => {
       consumer: "provider-test",
       calls: 1,
       costUsd: 0,
+      unknownCostCalls: 0,
       referencesStripped: 0,
       prosePathLeaks: 0,
     }]);
+    vi.useRealTimers();
+  });
+
+  it("chatWithAudit writes estimated cost for known priced models", async () => {
+    vi.setSystemTime(new Date("2026-05-27T22:14:03.000Z"));
+    const llm: LLMProvider = {
+      providerName: "openrouter",
+      modelName: "openai/gpt-4o-mini",
+      chat: vi.fn(async () => ({
+        content: "pong",
+        model: "openai/gpt-4o-mini",
+        tokensUsed: { prompt: 1_000_000, completion: 1_000_000, total: 2_000_000 },
+        finishReason: "stop",
+        rawProviderName: "openrouter",
+      })),
+    };
+
+    await chatWithAudit({
+      llm,
+      vaultRoot: tmp,
+      consumer: "provider-test",
+      request: { messages: [{ role: "user", content: "secret prompt" }] },
+      env: {},
+    });
+
+    const audit = await readFile(join(tmp, "wiki", ".audit", "llm-2026-05-27.md"), "utf-8");
+    expect(audit).toContain("| 1000000 | 1000000 |");
+    expect(audit).toContain("| 0.75 |");
+    const summary = await readLLMAuditSummary(tmp, {
+      days: 7,
+      now: new Date("2026-05-28T00:00:00.000Z"),
+    });
+    expect(summary.totalCostUsd).toBe(0.75);
+    expect(summary.unknownCostCalls).toBe(0);
+    vi.useRealTimers();
+  });
+
+  it("chatWithAudit preserves unknown cost when pricing is unavailable", async () => {
+    vi.setSystemTime(new Date("2026-05-27T22:14:03.000Z"));
+    const llm: LLMProvider = {
+      providerName: "openrouter",
+      modelName: "unknown/model",
+      chat: vi.fn(async () => ({
+        content: "pong",
+        model: "unknown/model",
+        tokensUsed: { prompt: 10, completion: 5, total: 15 },
+        finishReason: "stop",
+        rawProviderName: "openrouter",
+      })),
+    };
+
+    await chatWithAudit({
+      llm,
+      vaultRoot: tmp,
+      consumer: "provider-test",
+      request: { messages: [{ role: "user", content: "secret prompt" }] },
+      env: {},
+    });
+
+    const summary = await readLLMAuditSummary(tmp, {
+      days: 7,
+      now: new Date("2026-05-28T00:00:00.000Z"),
+    });
+    expect(summary.totalCostUsd).toBe(0);
+    expect(summary.unknownCostCalls).toBe(1);
+    expect(summary.byConsumer[0]).toMatchObject({ unknownCostCalls: 1 });
+    expect(summary.byProviderModel[0]).toMatchObject({ unknownCostCalls: 1 });
     vi.useRealTimers();
   });
 

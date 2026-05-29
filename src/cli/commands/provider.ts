@@ -1,3 +1,5 @@
+import { mkdir, readdir, rename, stat } from "node:fs/promises";
+import { basename, extname, join } from "node:path";
 import { loadSearchCorpus } from "../../retrieval/corpus.js";
 import {
   classifyQuery,
@@ -124,6 +126,28 @@ export interface AuditSummaryOptions {
 export interface AuditSummaryResult extends LLMAuditSummary {
   exitCode: number;
   days: number;
+}
+
+export interface AuditRotateOptions {
+  memoryRoot?: string;
+  mode: "plan" | "apply";
+  keepDays?: number;
+  now?: Date;
+}
+
+export interface AuditRotateCandidate {
+  path: string;
+  archivePath: string;
+  family: string;
+  date: string;
+}
+
+export interface AuditRotateResult {
+  exitCode: number;
+  applied: boolean;
+  keepDays: number;
+  candidates: AuditRotateCandidate[];
+  archived: AuditRotateCandidate[];
 }
 
 const CHARS_PER_TOKEN_ESTIMATE = 4;
@@ -373,7 +397,7 @@ export function formatAuditSummaryResult(result: AuditSummaryResult): string {
   const lines = [
     `Window: ${result.days} day${result.days === 1 ? "" : "s"}`,
     `Total calls: ${result.totalCalls}`,
-    `Total cost: $${result.totalCostUsd.toFixed(4)}`,
+    `Total cost: ${formatCost(result.totalCostUsd, result.unknownCostCalls)}`,
   ];
   if (result.byConsumer.length > 0) {
     lines.push(
@@ -381,7 +405,7 @@ export function formatAuditSummaryResult(result: AuditSummaryResult): string {
       "By consumer:",
       ...result.byConsumer.map((item) =>
         [
-          `  ${item.consumer}: ${item.calls} call${item.calls === 1 ? "" : "s"}, $${item.costUsd.toFixed(4)}`,
+          `  ${item.consumer}: ${item.calls} call${item.calls === 1 ? "" : "s"}, ${formatCost(item.costUsd, item.unknownCostCalls)}`,
           `    References stripped: ${item.referencesStripped} (avg ${averageReferencesStripped(item.referencesStripped, item.calls)} per call)`,
           `    Prose path leaks: ${item.prosePathLeaks} (avg ${averageReferencesStripped(item.prosePathLeaks, item.calls)} per call)`,
         ].join("\n")
@@ -393,8 +417,55 @@ export function formatAuditSummaryResult(result: AuditSummaryResult): string {
       "",
       "By provider/model:",
       ...result.byProviderModel.map((item) =>
-        `  ${item.provider}/${item.model}: ${item.calls} call${item.calls === 1 ? "" : "s"}, tokens ${item.tokensIn}/${item.tokensOut}, $${item.costUsd.toFixed(4)}`
+        `  ${item.provider}/${item.model}: ${item.calls} call${item.calls === 1 ? "" : "s"}, tokens ${item.tokensIn}/${item.tokensOut}, ${formatCost(item.costUsd, item.unknownCostCalls)}`
       ),
+    );
+  }
+  return `${lines.join("\n")}\n`;
+}
+
+export async function runAuditRotate(
+  opts: AuditRotateOptions,
+): Promise<AuditRotateResult> {
+  const keepDays = opts.keepDays ?? 30;
+  const root = opts.memoryRoot ?? defaultMemoryRoot();
+  const auditDir = join(root, "wiki", ".audit");
+  const archiveDir = join(auditDir, "archive");
+  const candidates = await findAuditRotateCandidates(auditDir, keepDays, opts.now ?? new Date());
+  const result: AuditRotateResult = {
+    exitCode: 0,
+    applied: opts.mode === "apply",
+    keepDays,
+    candidates,
+    archived: [],
+  };
+
+  if (opts.mode === "plan" || candidates.length === 0) return result;
+
+  await mkdir(archiveDir, { recursive: true });
+  for (const candidate of candidates) {
+    const sourcePath = join(root, ...candidate.path.split("/"));
+    const archivePath = await uniqueArchivePath(join(root, ...candidate.archivePath.split("/")));
+    await rename(sourcePath, archivePath);
+    result.archived.push({
+      ...candidate,
+      archivePath: `wiki/.audit/archive/${basename(archivePath)}`,
+    });
+  }
+  return result;
+}
+
+export function formatAuditRotateResult(result: AuditRotateResult): string {
+  const lines = [
+    `Mode: ${result.applied ? "apply" : "plan"}`,
+    `Keep days: ${result.keepDays}`,
+    `Candidates: ${result.candidates.length}`,
+  ];
+  const rows = result.applied ? result.archived : result.candidates;
+  if (rows.length > 0) {
+    lines.push(
+      "",
+      ...(rows.map((candidate) => `  ${candidate.path} -> ${candidate.archivePath}`)),
     );
   }
   return `${lines.join("\n")}\n`;
@@ -466,6 +537,78 @@ function averageReferencesStripped(referencesStripped: number, calls: number): s
   return calls > 0 ? (referencesStripped / calls).toFixed(1) : "0.0";
 }
 
+function formatCost(costUsd: number, unknownCostCalls: number): string {
+  const base = `$${costUsd.toFixed(4)}`;
+  return unknownCostCalls > 0
+    ? `${base} (${unknownCostCalls} unknown)`
+    : base;
+}
+
 function stateBracket(value: string): string {
   return `[${value}]`;
+}
+
+async function findAuditRotateCandidates(
+  auditDir: string,
+  keepDays: number,
+  now: Date,
+): Promise<AuditRotateCandidate[]> {
+  if (!(await pathExists(auditDir))) return [];
+  const minTime = Date.UTC(
+    now.getUTCFullYear(),
+    now.getUTCMonth(),
+    now.getUTCDate(),
+  ) - Math.max(0, keepDays - 1) * 24 * 60 * 60 * 1000;
+  const candidates: AuditRotateCandidate[] = [];
+
+  for (const entry of await readdir(auditDir, { withFileTypes: true })) {
+    if (!entry.isFile()) continue;
+    const parsed = parseAuditLogName(entry.name);
+    if (!parsed) continue;
+    const fileTime = Date.parse(`${parsed.date}T00:00:00.000Z`);
+    if (!Number.isFinite(fileTime) || fileTime >= minTime) continue;
+    candidates.push({
+      path: `wiki/.audit/${entry.name}`,
+      archivePath: `wiki/.audit/archive/${entry.name}`,
+      family: parsed.family,
+      date: parsed.date,
+    });
+  }
+
+  return candidates.sort((a, b) => a.path.localeCompare(b.path));
+}
+
+function parseAuditLogName(name: string): { family: string; date: string } | null {
+  const llm = /^llm-(\d{4}-\d{2}-\d{2})\.md$/.exec(name);
+  if (llm) return { family: "llm", date: llm[1]! };
+  const runLog = /^(thread-propose|procedure-propose|consolidate|compile)-(\d{4}-\d{2}-\d{2})(?:.*)?\.md$/.exec(name);
+  if (runLog) return { family: runLog[1]!, date: runLog[2]! };
+  return null;
+}
+
+async function uniqueArchivePath(path: string): Promise<string> {
+  if (!(await pathExists(path))) return path;
+  const extension = extname(path);
+  const stem = path.slice(0, extension.length > 0 ? -extension.length : undefined);
+  for (let index = 1; ; index += 1) {
+    const candidate = `${stem}-${index}${extension}`;
+    if (!(await pathExists(candidate))) return candidate;
+  }
+}
+
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await stat(path);
+    return true;
+  } catch (error) {
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "code" in error &&
+      (error as { code?: unknown }).code === "ENOENT"
+    ) {
+      return false;
+    }
+    throw error;
+  }
 }

@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { mkdir, readFile, readdir, stat, writeFile, appendFile } from "node:fs/promises";
 import { join } from "node:path";
+import { estimateLLMCostUsd } from "./pricing.js";
 import type { LLMFinishReason, LLMMessage, LLMProvider, LLMRequest, LLMResponse } from "./types.js";
 
 export interface LLMAuditEntry {
@@ -43,6 +44,7 @@ export interface LLMAuditConsumerSummary {
   consumer: string;
   calls: number;
   costUsd: number;
+  unknownCostCalls: number;
   referencesStripped: number;
   prosePathLeaks: number;
 }
@@ -54,11 +56,13 @@ export interface LLMAuditProviderModelSummary {
   tokensIn: number;
   tokensOut: number;
   costUsd: number;
+  unknownCostCalls: number;
 }
 
 export interface LLMAuditSummary {
   totalCalls: number;
   totalCostUsd: number;
+  unknownCostCalls: number;
   byConsumer: LLMAuditConsumerSummary[];
   byProviderModel: LLMAuditProviderModelSummary[];
 }
@@ -108,7 +112,12 @@ export async function chatWithAudit(opts: ChatWithAuditOptions) {
       tokensIn: response.tokensUsed?.prompt ?? null,
       tokensOut: response.tokensUsed?.completion ?? null,
       durationMs: Math.max(0, Date.now() - started),
-      costUsd: 0,
+      costUsd: estimateLLMCostUsd({
+        provider: opts.llm.providerName,
+        model: response.model,
+        tokensIn: response.tokensUsed?.prompt ?? null,
+        tokensOut: response.tokensUsed?.completion ?? null,
+      }),
       ...auditMetadata,
       finishReason: response.finishReason,
     } satisfies LLMAuditEntry;
@@ -168,6 +177,7 @@ export async function readLLMAuditSummary(
   const providerModels = new Map<string, LLMAuditProviderModelSummary>();
   let totalCalls = 0;
   let totalCostUsd = 0;
+  let unknownCostCalls = 0;
 
   for (const entry of await readdir(auditDir, { withFileTypes: true })) {
     if (!entry.isFile()) continue;
@@ -178,22 +188,27 @@ export async function readLLMAuditSummary(
     const rows = parseAuditRows(await readFile(join(auditDir, entry.name), "utf-8"));
     for (const row of rows) {
       totalCalls += 1;
-      const costUsd = parseOptionalNumber(row.costUsd) ?? 0;
+      const parsedCostUsd = parseOptionalNumber(row.costUsd);
+      const costUsd = parsedCostUsd ?? 0;
+      const hasUnknownCost = parsedCostUsd === undefined;
       const referencesStripped = parseOptionalNumber(row.referencesStripped) ?? 0;
       const prosePathLeaks = parseOptionalNumber(row.prosePathLeaks) ?? 0;
       const tokensIn = parseOptionalNumber(row.tokensIn) ?? 0;
       const tokensOut = parseOptionalNumber(row.tokensOut) ?? 0;
       totalCostUsd += costUsd;
+      if (hasUnknownCost) unknownCostCalls += 1;
 
       const consumer = consumers.get(row.consumer) ?? {
         consumer: row.consumer,
         calls: 0,
         costUsd: 0,
+        unknownCostCalls: 0,
         referencesStripped: 0,
         prosePathLeaks: 0,
       };
       consumer.calls += 1;
       consumer.costUsd += costUsd;
+      if (hasUnknownCost) consumer.unknownCostCalls += 1;
       consumer.referencesStripped += referencesStripped;
       consumer.prosePathLeaks += prosePathLeaks;
       consumers.set(row.consumer, consumer);
@@ -206,11 +221,13 @@ export async function readLLMAuditSummary(
         tokensIn: 0,
         tokensOut: 0,
         costUsd: 0,
+        unknownCostCalls: 0,
       };
       providerModel.calls += 1;
       providerModel.tokensIn += tokensIn;
       providerModel.tokensOut += tokensOut;
       providerModel.costUsd += costUsd;
+      if (hasUnknownCost) providerModel.unknownCostCalls += 1;
       providerModels.set(providerModelKey, providerModel);
     }
   }
@@ -218,6 +235,7 @@ export async function readLLMAuditSummary(
   return {
     totalCalls,
     totalCostUsd,
+    unknownCostCalls,
     byConsumer: [...consumers.values()].sort(sortByCallsThenName("consumer")),
     byProviderModel: [...providerModels.values()].sort((a, b) =>
       b.calls - a.calls || a.provider.localeCompare(b.provider) || a.model.localeCompare(b.model)
@@ -373,6 +391,7 @@ function emptySummary(): LLMAuditSummary {
   return {
     totalCalls: 0,
     totalCostUsd: 0,
+    unknownCostCalls: 0,
     byConsumer: [],
     byProviderModel: [],
   };

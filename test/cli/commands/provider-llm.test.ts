@@ -1,11 +1,14 @@
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   formatAuditSummaryResult,
+  formatAuditRotateResult,
   formatListLLMsResult,
   formatTestLLMResult,
+  runAuditRotate,
   runAuditSummary,
   runListLLMs,
   runTestLLM,
@@ -84,6 +87,63 @@ describe("provider LLM commands", () => {
     expect(formatAuditSummaryResult(result)).toContain("auto-procedural-extract: 1 call");
     expect(formatAuditSummaryResult(result)).toContain("References stripped: 2 (avg 2.0 per call)");
     expect(formatAuditSummaryResult(result)).toContain("Prose path leaks: 1 (avg 1.0 per call)");
+  });
+
+  it("renders unknown audit costs distinctly from zero-cost calls", async () => {
+    const result = await runAuditSummary({
+      memoryRoot: tmp,
+      days: 7,
+      now: new Date("2026-05-27T23:00:00.000Z"),
+      auditWriter: async () => {
+        await writeLLMAuditEntry(tmp, {
+          ...auditEntry("provider-test", 0, 0),
+          costUsd: null,
+          model: "unknown/model",
+        });
+      },
+    });
+
+    expect(result.unknownCostCalls).toBe(1);
+    expect(formatAuditSummaryResult(result)).toContain("Total cost: $0.0000 (1 unknown)");
+    expect(formatAuditSummaryResult(result)).toContain("provider-test: 1 call, $0.0000 (1 unknown)");
+    expect(formatAuditSummaryResult(result)).toContain("openrouter/unknown/model: 1 call, tokens 10/5, $0.0000 (1 unknown)");
+  });
+
+  it("plans and applies audit log rotation by archiving old log families", async () => {
+    await mkdir(join(tmp, "wiki", ".audit"), { recursive: true });
+    await writeFile(join(tmp, "wiki", ".audit", "llm-2026-04-01.md"), "old llm");
+    await writeFile(join(tmp, "wiki", ".audit", "thread-propose-2026-04-01.md"), "old thread");
+    await writeFile(join(tmp, "wiki", ".audit", "compile-2026-04-01T10-00-00.md"), "old compile");
+    await writeFile(join(tmp, "wiki", ".audit", "llm-2026-05-20.md"), "fresh llm");
+
+    const plan = await runAuditRotate({
+      memoryRoot: tmp,
+      mode: "plan",
+      keepDays: 30,
+      now: new Date("2026-05-29T00:00:00.000Z"),
+    });
+
+    expect(plan.applied).toBe(false);
+    expect(plan.candidates.map((candidate) => candidate.path).sort()).toEqual([
+      "wiki/.audit/compile-2026-04-01T10-00-00.md",
+      "wiki/.audit/llm-2026-04-01.md",
+      "wiki/.audit/thread-propose-2026-04-01.md",
+    ]);
+    expect(formatAuditRotateResult(plan)).toContain("Mode: plan");
+    expect(existsSync(join(tmp, "wiki", ".audit", "llm-2026-04-01.md"))).toBe(true);
+
+    const applied = await runAuditRotate({
+      memoryRoot: tmp,
+      mode: "apply",
+      keepDays: 30,
+      now: new Date("2026-05-29T00:00:00.000Z"),
+    });
+
+    expect(applied.applied).toBe(true);
+    expect(applied.archived).toHaveLength(3);
+    expect(existsSync(join(tmp, "wiki", ".audit", "llm-2026-04-01.md"))).toBe(false);
+    expect(existsSync(join(tmp, "wiki", ".audit", "archive", "llm-2026-04-01.md"))).toBe(true);
+    expect(existsSync(join(tmp, "wiki", ".audit", "llm-2026-05-20.md"))).toBe(true);
   });
 });
 

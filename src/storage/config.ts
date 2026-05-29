@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import yaml from "js-yaml";
 import { memoryRoot as defaultMemoryRoot } from "./paths.js";
 
 export interface MemoryConfig {
@@ -50,7 +51,7 @@ export async function loadMemoryConfig(
 ): Promise<MemoryConfig> {
   const root = memoryRoot ?? defaultMemoryRoot();
   try {
-    return parseYamlSubset(await readFile(join(root, "config.yaml"), "utf-8"));
+    return parseMemoryConfigYaml(await readFile(join(root, "config.yaml"), "utf-8"));
   } catch (error) {
     if (isMissingFile(error)) return {};
     console.warn(
@@ -62,159 +63,12 @@ export async function loadMemoryConfig(
   }
 }
 
-type YamlObject = Record<string, unknown>;
-
-function parseYamlSubset(text: string): MemoryConfig {
-  const root: YamlObject = {};
-  let currentSection: YamlObject | null = null;
-  let currentNestedSection: YamlObject | null = null;
-  let currentNestedKey: string | null = null;
-
-  for (const [index, rawLine] of text.split(/\r?\n/).entries()) {
-    if (rawLine.trim().length === 0 || rawLine.trimStart().startsWith("#")) {
-      continue;
-    }
-    if (rawLine.includes("\t")) {
-      throw new Error(`line ${index + 1}: tabs are not supported`);
-    }
-
-    const indent = rawLine.length - rawLine.trimStart().length;
-    const line = rawLine.trim();
-    if (indent === 0) {
-      const { key, value } = splitKeyValue(line, index + 1);
-      if (value === "") {
-        const section: YamlObject = {};
-        root[key] = section;
-        currentSection = section;
-        currentNestedSection = null;
-        currentNestedKey = null;
-      } else {
-        root[key] = parseScalar(value, index + 1);
-        currentSection = null;
-        currentNestedSection = null;
-        currentNestedKey = null;
-      }
-      continue;
-    }
-
-    if (indent === 2 && currentSection !== null) {
-      const { key, value } = splitKeyValue(line, index + 1);
-      if (value === "") {
-        const section: YamlObject = {};
-        currentSection[key] = section;
-        currentNestedSection = section;
-        currentNestedKey = key;
-      } else {
-        currentSection[key] = parseScalar(value, index + 1);
-        currentNestedSection = null;
-        currentNestedKey = null;
-      }
-      continue;
-    }
-
-    if (
-      indent === 4 &&
-      currentSection !== null &&
-      (currentNestedSection !== null || (currentNestedKey !== null && Array.isArray(currentSection[currentNestedKey])))
-    ) {
-      if (line.startsWith("- ")) {
-        if (currentNestedKey === null || currentSection === null) {
-          throw new Error(`line ${index + 1}: list item without a list key`);
-        }
-        const existing = currentSection[currentNestedKey];
-        if (!Array.isArray(existing)) {
-          const existingObject = asYamlObject(existing);
-          if (!existingObject || Object.keys(existingObject).length > 0) {
-            throw new Error(`line ${index + 1}: list item under non-list value`);
-          }
-          currentSection[currentNestedKey] = [];
-          currentNestedSection = null;
-        }
-        (currentSection[currentNestedKey] as unknown[]).push(parseScalar(line.slice(2).trim(), index + 1));
-        continue;
-      }
-      if (currentNestedSection === null) {
-        throw new Error(`line ${index + 1}: unsupported list item`);
-      }
-      const { key, value } = splitKeyValue(line, index + 1);
-      if (value === "") {
-        throw new Error(`line ${index + 1}: nested sections beyond two levels are not supported`);
-      }
-      currentNestedSection[key] = parseScalar(value, index + 1);
-      continue;
-    }
-
-    if (currentSection === null) {
-      throw new Error(`line ${index + 1}: unsupported indentation`);
-    }
-    throw new Error(`line ${index + 1}: unsupported indentation`);
+function parseMemoryConfigYaml(text: string): MemoryConfig {
+  const parsed = yaml.load(text, { schema: yaml.JSON_SCHEMA });
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    return {};
   }
-
-  return root as MemoryConfig;
-}
-
-function asYamlObject(value: unknown): YamlObject | null {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
-  return value as YamlObject;
-}
-
-function splitKeyValue(line: string, lineNumber: number): { key: string; value: string } {
-  const colon = line.indexOf(":");
-  if (colon <= 0) {
-    throw new Error(`line ${lineNumber}: expected key: value`);
-  }
-  const key = line.slice(0, colon).trim();
-  if (!/^[A-Za-z0-9_-]+$/.test(key)) {
-    throw new Error(`line ${lineNumber}: invalid key`);
-  }
-  return { key, value: line.slice(colon + 1).trim() };
-}
-
-function parseScalar(value: string, lineNumber: number): unknown {
-  if (value === "true") return true;
-  if (value === "false") return false;
-  if (value === "null") return null;
-  if (/^-?\d+(\.\d+)?$/.test(value)) return Number(value);
-  if (value.startsWith('"')) return parseDoubleQuoted(value, lineNumber);
-  if (value.startsWith("'")) return parseSingleQuoted(value, lineNumber);
-  if (value.startsWith("[") || value.endsWith("]")) {
-    return parseInlineArray(value, lineNumber);
-  }
-  if (value.includes('"') || value.includes("'")) {
-    throw new Error(`line ${lineNumber}: malformed quoted string`);
-  }
-  return value;
-}
-
-function parseDoubleQuoted(value: string, lineNumber: number): string {
-  if (!value.endsWith('"') || value.length === 1) {
-    throw new Error(`line ${lineNumber}: unterminated double-quoted string`);
-  }
-  try {
-    return JSON.parse(value) as string;
-  } catch (error) {
-    throw new Error(
-      `line ${lineNumber}: invalid double-quoted string: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
-    );
-  }
-}
-
-function parseSingleQuoted(value: string, lineNumber: number): string {
-  if (!value.endsWith("'") || value.length === 1) {
-    throw new Error(`line ${lineNumber}: unterminated single-quoted string`);
-  }
-  return value.slice(1, -1).replace(/''/g, "'");
-}
-
-function parseInlineArray(value: string, lineNumber: number): unknown[] {
-  if (!value.startsWith("[") || !value.endsWith("]")) {
-    throw new Error(`line ${lineNumber}: malformed inline array`);
-  }
-  const inner = value.slice(1, -1).trim();
-  if (inner.length === 0) return [];
-  return inner.split(",").map((item) => parseScalar(item.trim(), lineNumber));
+  return parsed as MemoryConfig;
 }
 
 function isMissingFile(error: unknown): boolean {

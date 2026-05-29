@@ -23,6 +23,7 @@ import { runLog } from "./cli/commands/log.js";
 import { runPage } from "./cli/commands/page.js";
 import {
   formatAuditSummaryResult,
+  formatAuditRotateResult,
   formatListEmbeddersResult,
   formatListLLMsResult,
   formatReindexEmbeddingsResult,
@@ -30,6 +31,7 @@ import {
   formatTestClassifierResult,
   formatTestLLMResult,
   runAuditSummary,
+  runAuditRotate,
   runListEmbedders,
   runListLLMs,
   runReindexEmbeddings,
@@ -579,6 +581,30 @@ provider
       process.exit(result.exitCode);
     } catch (err) {
       console.error(`memory provider audit-summary failed: ${(err as Error).message}`);
+      process.exit(1);
+    }
+  });
+
+provider
+  .command("audit-rotate")
+  .description("Archive old wiki/.audit logs")
+  .option("--plan", "report files that would be archived")
+  .option("--apply", "archive old audit logs")
+  .option("--keep-days <n>", "days to keep per audit log family (default: 30)", parseInteger)
+  .action(async (opts: { plan?: boolean; apply?: boolean; keepDays?: number }) => {
+    if (opts.plan && opts.apply) {
+      console.error("memory provider audit-rotate: choose at most one of --plan or --apply");
+      process.exit(2);
+    }
+    try {
+      const result = await runAuditRotate({
+        mode: opts.apply ? "apply" : "plan",
+        keepDays: opts.keepDays,
+      });
+      process.stdout.write(formatAuditRotateResult(result));
+      process.exit(result.exitCode);
+    } catch (err) {
+      console.error(`memory provider audit-rotate failed: ${(err as Error).message}`);
       process.exit(1);
     }
   });

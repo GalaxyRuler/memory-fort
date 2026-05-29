@@ -60,6 +60,45 @@ describe("memory config reader", () => {
     });
   });
 
+  it("loadMemoryConfig parses full YAML features with JSON schema dates", async () => {
+    await writeFile(
+      join(tmp, "config.yaml"),
+      [
+        "llm:",
+        "  provider: openrouter # inline comment",
+        "  model: openai/gpt-4o-mini",
+        "  max_tokens: 4096",
+        "  temperature: 0.2",
+        "  options:",
+        "    response_format:",
+        "      type: json_object",
+        "dashboard:",
+        "  trusted_origins: [https://example.test, http://127.0.0.1:4410]",
+        "compile:",
+        "  scheduled: true",
+        "  next_run: 2026-05-29",
+      ].join("\n"),
+    );
+
+    const config = await loadMemoryConfig(tmp);
+
+    expect(config.llm).toEqual({
+      provider: "openrouter",
+      model: "openai/gpt-4o-mini",
+      max_tokens: 4096,
+      temperature: 0.2,
+      options: {
+        response_format: { type: "json_object" },
+      },
+    });
+    expect(config.dashboard?.trusted_origins).toEqual([
+      "https://example.test",
+      "http://127.0.0.1:4410",
+    ]);
+    expect(config.compile?.scheduled).toBe(true);
+    expect((config.compile as Record<string, unknown>).next_run).toBe("2026-05-29");
+  });
+
   it("loadMemoryConfig tolerates malformed YAML", async () => {
     await writeFile(join(tmp, "config.yaml"), 'voyage:\n  api_key: "unterminated\n');
 
