@@ -274,9 +274,18 @@ dropped while the prose step remains.
 Prose-field path leaks are stripped separately when a field is just a bare
 `wiki/...` or `raw/...` path, while embedded prose mentions are preserved. The
 strip rate and `prosePathLeaks` rate are tracked in the LLM audit log per call.
-`memory provider audit-summary` surfaces both rates per consumer. A persistently
-high strip rate (>3 per call sustained) or non-zero prose leak rate signals that
-the prompt needs tuning or the model is unsuitable for the task.
+`memory provider audit-summary` surfaces both rates per consumer. It also
+reports estimated cost when the provider/model has a known pricing table entry,
+keeps Ollama/local calls at explicit `$0.0000`, and marks unknown-priced calls
+as `unknown` instead of treating them as free. A persistently high strip rate
+(>3 per call sustained) or non-zero prose leak rate signals that the prompt
+needs tuning or the model is unsuitable for the task.
+
+`memory provider audit-rotate --plan` lists old `wiki/.audit/` logs that would
+be archived; `--apply` moves them into `wiki/.audit/archive/`. The default keeps
+30 days of `llm-*.md` and the run-log families `thread-propose-*`,
+`procedure-propose-*`, `consolidate-*`, and `compile-*`. Rotation never hard
+deletes audit files.
 
 ### Auto-promote and inbox
 
@@ -326,6 +335,11 @@ The dashboard defensively redacts any secret-named field returned by
 `secret`, `access_token`, `password`, `credential`, or `private_key`. This is a
 leak guard only; it does not make `config.yaml` an approved place to store
 secrets.
+
+`config.yaml` is parsed with `js-yaml` using JSON schema, matching the
+frontmatter date behavior: unquoted `YYYY-MM-DD` values remain strings rather
+than becoming JavaScript `Date` objects. Normal YAML features such as inline
+comments, nested maps, block lists, and flow lists are supported.
 
 ### Dashboard reverse proxies
 
@@ -511,6 +525,11 @@ is equivalent to:
 The consolidation pipeline auto-writes string shorthand under the classified
 `relations.<type>` key. Humans and future tools may write rich object entries
 when relation metadata matters.
+
+Validation, lint, graph checks, and compile-execute grounding all read relation
+targets through the same relation parser. Object-form entries are preserved
+when their `target` resolves, and removed only when the target is ungrounded or
+the entry is malformed.
 
 ### Consolidation edge-type classification
 

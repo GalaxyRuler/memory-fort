@@ -164,6 +164,8 @@ This phase is intentionally **not pre-sequenced**. The order depends on which me
 18. **Proxy-aware same-origin guard.** Shipped 2026-05-28. Dashboard mutating APIs now compare `Origin` against the forwarded effective origin from `X-Forwarded-Proto` and `X-Forwarded-Host`, preserving direct localhost behavior while allowing Tailscale Serve TLS termination without weakening genuine cross-origin rejection.
 19. **Autonomous compile execution.** Shipped 2026-05-29. `memory compile --execute` is opt-in, audited as `compile-execute`, requires fenced JSON `compile-ops`, grounds references, redacts secrets, stages low-confidence operations in `wiki/compile-proposed/`, and exposes scheduler/API execute controls plus `compile.execute-health`.
 20. **Memory feedback loop.** Shipped 2026-05-28. MCP observations commit their raw files on write, MCP search defaults to the fast no-rerank path, `wiki/preferences.md` is seeded and always surfaced at session start, and a bounded "What you should remember" block injects preference-tagged memory plus recent high-confidence observations before compile curates them.
+21. **Relation-edge alignment.** Shipped 2026-05-29. Frontmatter validation, lint checks, curation graph helpers, and compile-execute grounding now tolerate rich `RelationEdge` objects, preserve grounded metadata-bearing entries, and count stripped unresolved object targets.
+22. **Config and telemetry hardening.** Shipped 2026-05-29. `config.yaml` now uses `js-yaml` JSON schema parsing, LLM audit costs come from a static provider/model pricing table with unknown costs rendered distinctly from local zero-cost calls, and `memory provider audit-rotate` archives old `.audit` logs by family.
 
 **Dependencies:** Phase 3. (Brief C explicitly depends on lifecycle states from Phase 1; narrative threads are most useful once we have the entity registry from Phase 3 if duplicate metric drove that.)
 
@@ -234,6 +236,8 @@ These are small, one-off maintenance items that don't fit the phased model. Pick
 | 2026-05-28 | Windows rename races are retried at the storage primitive | Readers can briefly block rename on Windows, so `atomicWrite` retries transient rename errors locally while preserving rename-based atomic writes and surfacing exhaustion through verify |
 | 2026-05-28 | Typecheck is a separate pipeline gate | `tsdown` remains the fast transpile build; `npm run typecheck` is the explicit `tsc --noEmit` gate for source-level type drift |
 | 2026-05-28 | Wiki dot-directories are operational space | `wiki/.audit/` and future `wiki/.<dir>/` paths are excluded from entity and graph-health enumeration while direct audit readers can still inspect them intentionally |
+| 2026-05-29 | Relation-edge objects are canonical-compatible | Validators, lint checks, graph helpers, and compile execution use the shared relation parser so metadata-bearing edges are not silently downgraded or dropped |
+| 2026-05-29 | Unknown LLM cost is not free | Audit summaries show unknown-priced calls separately from real `$0.0000` local/Ollama calls; old audit logs are archived rather than deleted by `provider audit-rotate` |
 
 ---
 

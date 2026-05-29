@@ -125,7 +125,7 @@ session: <id>                 # raw-session only
 - **`atomic-write.ts`** — `atomicWrite(path, content)` writes via tmp+rename, crash-safe, creates parent dirs. **Windows retry** (Phase 4.3.L): retries `EPERM/EACCES/EBUSY/ENOENT` at 50/150/400 ms (POSIX skips retry); tracks `atomicWriteRetryStats {writes, success, exhausted}`. `atomicAppend(path, content)` — atomic for ≤KB payloads.
 - **`paths.ts`** — `memoryRoot()` (`~/.memory` or `$MEMORY_ROOT`), `wikiDir(category)`, `rawDir/rawSessionFile`, `threadsDir/proceduresDir` (+ `-proposed`), `crystalsDir`, `configPath/indexPath/logPath/errorsLogPath`, plus client config paths.
 - **`frontmatter.ts`** — schema above.
-- **`config.ts`** — `loadMemoryConfig()` → `MemoryConfig` (§17).
+- **`config.ts`** — `loadMemoryConfig()` → `MemoryConfig` (§17), parsed through `js-yaml` JSON schema so ordinary YAML features work while dates remain strings.
 - **`confidence.ts`** — scoring helpers.
 
 ### Vault layout (`~/.memory/`)
@@ -247,7 +247,7 @@ The compile prompt is **append-only by contract**: never rewrite/delete existing
 
 - **`types.ts`** — `LLMProvider {providerName, modelName, chat(LLMRequest)→LLMResponse}`.
 - **`factory.ts`** — providers: **OpenRouter** (default `openai/gpt-4o-mini`, `OPENROUTER_API_KEY`), **Ollama** (`OLLAMA_HOST`). Kill-switch `MEMORY_LLM_DISABLED=true` → `LLMDisabledError` at the factory.
-- **`audit.ts`** — `chatWithAudit({llm, consumer, request, vaultRoot})` wraps every LLM call. Writes a markdown-table row to `wiki/.audit/llm-YYYY-MM-DD.md` with **hashes only** (`promptHash`/`responseHash` = SHA-256 prefix), tokens, duration, cost, `referencesStripped`, `prosePathLeaks`, finishReason, error. **Plaintext** prompt/response logged to `llm-debug-YYYY-MM-DD.md` **only** when `MEMORY_LLM_DEBUG_LOG=1` (mode 0600). Consumers: `auto-thread-propose`, `auto-procedural-extract`, `query-intent-classify`, `compile-execute`, `provider-test`.
+- **`audit.ts` / `pricing.ts`** — `chatWithAudit({llm, consumer, request, vaultRoot})` wraps every LLM call. Writes a markdown-table row to `wiki/.audit/llm-YYYY-MM-DD.md` with **hashes only** (`promptHash`/`responseHash` = SHA-256 prefix), tokens, duration, estimated cost when provider/model pricing is known, `referencesStripped`, `prosePathLeaks`, finishReason, error. Unknown pricing stays blank/null and audit summaries render it as unknown; Ollama/local calls are explicit zero cost. **Plaintext** prompt/response logged to `llm-debug-YYYY-MM-DD.md` **only** when `MEMORY_LLM_DEBUG_LOG=1` (mode 0600). Consumers: `auto-thread-propose`, `auto-procedural-extract`, `query-intent-classify`, `compile-execute`, `provider-test`.
 - **`proposal-grounding.ts`** (4.3.G/I) — `filterWikiReferencesToExisting` (strip non-existent wiki/raw refs), `stripProsePathLeaksFromText` (strip bare path strings from prose fields), `filterStepCommands` (command allowlist), `extractProposalCandidates` (≤50 real paths injected into prompts). Tracks `strippedReferenceCount`, `prosePathLeaksCount` + samples.
 - **`proposal-confidence.ts`** (4.3.J) — `scoreProposalConfidence` → `{level: high|low, reasons[]}`. **High** iff 0 stripped refs AND 0 prose leaks AND 0 stripped commands AND ≥5 observations AND ≥2 distinct sessions.
 
@@ -313,7 +313,7 @@ Overview redesign (Phase 4.3.K): graph health is collapsed-by-default (localStor
 **Setup/integration:** `init`, `install <platform>`, `connect [client]`, `install-vps`, `install-tailscale-route`, `sync-bootstrap`.
 **Memory ops:** `log`, `compile [--execute --plan]`, `consolidate`, `lint`, `page`, `search`, `grep`, `stats`.
 **Consolidation:** `thread {propose,promote,reject}`, `procedure {propose,promote,reject}`, `entity {dedup,merge,reject,aliases}`.
-**Providers:** `provider {list-embedders,test-embedder,reindex-embeddings,list-llms,test-llm,test-classifier,audit-summary}`.
+**Providers:** `provider {list-embedders,test-embedder,reindex-embeddings,list-llms,test-llm,test-classifier,audit-summary,audit-rotate}`.
 **Maintenance:** `prune`, `backfill`, `backfill-source`, `rewrite-imported-timestamps`, `import-agentmemory`, `tail-errors`, `watch`, `doctor`.
 **Sync:** `sync`, `pull`, `push`.
 **Health:** `verify [--role operator|server] [--offline] [--json] [--schedule …]`.
@@ -396,17 +396,15 @@ dashboard:
 - **Phase 4.3 sequence** — provider abstractions (A embedder, B LLM), C settings-UI editability, D auto-thread proposing, E procedural extraction, F query-intent classifier, G LLM grounding, H debug logging + parser reasons, I prompt-field clarification, J inbox + confidence-gated auto-promote, K overview redesign + UX, L Windows-safe atomic write, M config secret redaction, N entity dedup, O scheduled compile, P typecheck gate, Q `.audit` exclusion, R auto-commit vault mutations, S commit-on-move fix, T proxy-aware same-origin.
 - **Phase 4.4** — autonomous compile execution (opt-in).
 - **Phase 4.5** — memory feedback loop (shipped): commit observations on write, surface preferences + recent memory at session-start, durable `wiki/preferences.md`, search defaults to no-rerank for bounded latency.
+- **Phase 4.6** — relation-edge alignment (shipped): validator/lint/grounding accept and preserve rich `RelationEdge` objects.
+- **Phase 4.7** — config and telemetry hardening (shipped): `js-yaml` config parsing, LLM pricing table with unknown-cost summaries, `.audit` archive rotation.
 - **Phase 5** — deferred until evidence (advanced sniffers, eval harness).
 
 ---
 
 ## 19. Known gaps / open items
 
-- **Relation-edge representation (latent inconsistency):** the rich `RelationEdge` object form (`target`, `confidence`, `valid_from/valid_to`, `source`) is defined in `src/retrieval/relations.ts` and parsed by `readRelations`, but **`validateFrontmatter` (lint-only, called solely from `src/curation/checks.ts`) and compile-execute grounding (`execute.ts`) currently handle string-path arrays only.** Canonical on-disk form today is string paths; **no vault file uses the object form**, so there is no active data loss — but `memory lint` would falsely flag an object-form relation, and compile-execute would silently drop one. Fix (validator + grounding tolerate & preserve `RelationEdge` objects + regression tests) tracked in `docs/codex-relation-edge-alignment.md`. *(This is the genuine core of the 2026-05-29 external audit; that audit rated it "Critical / immediate data loss / 5-of-10 readiness" — overstated, since the validator is lint-only and zero files are affected. Real severity: Medium, latent.)*
-- **`config.yaml` parser (`parseYamlSubset`)** is a custom indent-based subset parser, not `js-yaml` (which is already a dependency). It skips own-line `#` comments but does not strip trailing inline comments and is rigid on indentation. Fix tracked in `docs/codex-config-and-telemetry-hardening.md`.
-- **Cost tracking** logs hardcoded `costUsd: 0` (`audit.ts`) — no pricing-table lookup. Telemetry gap, not functional. Tracked in the hardening brief above.
 - **`/api/health` returns 503 on data-quality failures** (conflates liveness with data quality) — dormant, latent.
-- **`.audit/` log rotation** — logs grow unbounded.
 - **Compile execution** is opt-in and uses parse-reserialize-append rather than a strict byte-prefix assertion (functionally append-only; tightening follow-up noted).
 - **Test discipline:** the bundler does not typecheck and focused test runs have missed affected files repeatedly — always run the full suite + `npm run typecheck` before landing.
 ```
