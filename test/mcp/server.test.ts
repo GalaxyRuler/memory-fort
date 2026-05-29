@@ -43,6 +43,45 @@ describe("logObservation", () => {
     const files = await readdir(rawDir);
     expect(files[0]).toMatch(/^manual-/);
   });
+
+  it("commits the raw observation file after append without blocking the tool result", async () => {
+    const now = new Date(Date.UTC(2026, 4, 28, 12, 34, 56));
+    const commitVaultChange = vi.fn(async () => ({ kind: "committed" as const, commitSha: "abc1234" }));
+
+    const result = await logObservation(
+      { text: "commit this", source: "manual", confidence: 0.9 },
+      {
+        now: () => now,
+        sessionId: () => "session-1",
+        commitVaultChange,
+      },
+    );
+
+    expect(result.content[0]!.text).toContain("Logged observation");
+    expect(commitVaultChange).toHaveBeenCalledWith({
+      paths: ["raw/2026-05-28/manual-session-1.md"],
+      message: "chore: log manual observation",
+      memoryRoot: tmp,
+    });
+  });
+
+  it("still logs the observation when commit-on-write fails", async () => {
+    const now = new Date(Date.UTC(2026, 4, 28, 12, 34, 56));
+    const commitVaultChange = vi.fn(async () => ({ kind: "failed" as const, error: "git unavailable" }));
+
+    const result = await logObservation(
+      { text: "best effort commit", source: "manual" },
+      {
+        now: () => now,
+        sessionId: () => "session-2",
+        commitVaultChange,
+      },
+    );
+
+    expect(result.content[0]!.text).toContain("Logged observation");
+    const content = await readFile(join(tmp, "raw", "2026-05-28", "manual-session-2.md"), "utf-8");
+    expect(content).toContain("best effort commit");
+  });
 });
 
 describe("readPage", () => {
@@ -231,6 +270,30 @@ describe("memory.search MCP tool", () => {
       expect(urls[0]).toContain(
         "hydeExpansion=Voyage+AI+is+an+embedding+provider",
       );
+      expect(urls[0]).toContain("noRerank=true");
+    } finally {
+      await close();
+    }
+  });
+
+  it("defaults MCP search to noRerank for latency and lets callers opt into rerank", async () => {
+    const urls: string[] = [];
+    const fetchFn = vi.fn(async (input) => {
+      urls.push(String(input));
+      return jsonResponse(searchFixture());
+    }) as unknown as typeof fetch;
+    const { client, close } = await connectMcp(fetchFn);
+    try {
+      await client.callTool({
+        name: "search",
+        arguments: { query: "operator preferences" },
+      });
+      await client.callTool({
+        name: "search",
+        arguments: { query: "operator preferences", no_rerank: false },
+      });
+      expect(urls[0]).toContain("noRerank=true");
+      expect(urls[1]).toContain("noRerank=false");
     } finally {
       await close();
     }

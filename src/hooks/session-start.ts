@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { runHook, type HookPayload } from "./error-handler.js";
-import { confidenceAwareIndex } from "./session-start-helpers.js";
+import { confidenceAwareIndex, whatToRememberBlock } from "./session-start-helpers.js";
 import { schemaPath, indexPath, logPath } from "../storage/paths.js";
 
 export interface SessionStartDeps {
@@ -51,6 +51,11 @@ export async function sessionStartBody(
     } catch {
       // Missing file is normal on fresh installs; skip silently
     }
+  }
+
+  const remember = await whatToRememberBlock({ readFile: readFn });
+  if (remember.trim().length > 0) {
+    parts.push(`\n${remember}`);
   }
 
   writeFn(parts.join(""));

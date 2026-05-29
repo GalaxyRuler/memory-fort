@@ -106,4 +106,16 @@ describe("runSearch CLI command", () => {
     expect(calls[0]).toMatch(/^https:\/\/config-host\.example\/memory\/api\/search\?/);
     expect(calls[1]).toMatch(/^https:\/\/override\.example\/memory\/api\/search\?/);
   });
+
+  it("defaults to noRerank for bounded latency", async () => {
+    const calls: string[] = [];
+    const fetchFn = vi.fn(async (input) => {
+      calls.push(String(input));
+      return jsonResponse(responseFixture);
+    }) as unknown as typeof fetch;
+
+    await runSearch("operator preferences", { fetchFn, configLoader: emptyConfigLoader });
+
+    expect(calls[0]).toContain("noRerank=true");
+  });
 });

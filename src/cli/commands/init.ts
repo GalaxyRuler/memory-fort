@@ -84,6 +84,10 @@ embedder:
 #   max_tokens: 4096
 #   temperature: 0.2
 
+# dashboard:
+#   trusted_origins:
+#     - https://example.tailnet.ts.net
+
 embedding:
   # Legacy fallback. New writes should use embedder above.
   provider: voyage
@@ -92,6 +96,22 @@ embedding:
 
 privacy:
   allowlist: []   # regex patterns that bypass the redaction filter
+`;
+
+const DEFAULT_PREFERENCES = `---
+type: references
+title: Operator Preferences
+created: "{{install_date}}"
+updated: "{{install_date}}"
+status: active
+confidence: 0.5
+tags: [preference]
+---
+
+Durable behavior-shaping preferences for agents using Memory Fort.
+
+- Add preference-tagged observations or curated directives here when the operator gives durable instructions.
+- Keep each preference short, actionable, and grounded in an observed operator request.
 `;
 
 export async function runInit(opts: InitOptions = {}): Promise<InitResult> {
@@ -159,6 +179,18 @@ export async function runInit(opts: InitOptions = {}): Promise<InitResult> {
     result.preserved.push(indexPath());
   }
 
+  const preferencesPath = join(root, "wiki", "preferences.md");
+  if (!existsSync(preferencesPath)) {
+    const vars = detectTemplateVars({
+      sourceRepoDir: opts.sourceRepoDir,
+      now: opts.now,
+    });
+    await atomicWrite(preferencesPath, renderTemplate(DEFAULT_PREFERENCES, vars));
+    result.created.push(preferencesPath);
+  } else {
+    result.preserved.push(preferencesPath);
+  }
+
   const initLine =
     `## [${(opts.now ?? new Date()).toISOString()}] init | ` +
     `memory-system initialized at ${root}\n`;
@@ -223,6 +255,7 @@ export async function runInit(opts: InitOptions = {}): Promise<InitResult> {
           "index.md",
           "log.md",
           "config.yaml",
+          "wiki/preferences.md",
           ".gitignore",
           ".gitattributes",
         ],

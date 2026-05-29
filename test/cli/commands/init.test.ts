@@ -46,6 +46,7 @@ describe("runInit", () => {
     expect(existsSync(join(result.root, "log.md"))).toBe(true);
     expect(existsSync(join(result.root, "config.yaml"))).toBe(true);
     expect(existsSync(join(result.root, "errors.log"))).toBe(true);
+    expect(existsSync(join(result.root, "wiki", "preferences.md"))).toBe(true);
     expect(existsSync(join(result.root, ".gitignore"))).toBe(true);
     expect(existsSync(join(result.root, ".gitattributes"))).toBe(true);
     expect(existsSync(join(result.root, "prompts", "compile.md"))).toBe(true);
@@ -67,6 +68,9 @@ describe("runInit", () => {
     expect(gitattributes).toContain("*.md text eol=lf");
     expect(gitattributes).toContain("*.yaml text eol=lf");
     expect(gitattributes).toContain("*.json text eol=lf");
+    const preferences = await readFile(join(result.root, "wiki", "preferences.md"), "utf-8");
+    expect(preferences).toContain("title: Operator Preferences");
+    expect(preferences).toContain("tags: [preference]");
   });
 
   it("renders schema.md template with no placeholders remaining", async () => {
@@ -135,6 +139,11 @@ describe("runInit", () => {
         encoding: "utf-8",
       }).trim();
       expect(tracked).toBe(".gitattributes");
+      const trackedPreferences = execFileSync("git", ["ls-files", "wiki/preferences.md"], {
+        cwd: result.root,
+        encoding: "utf-8",
+      }).trim();
+      expect(trackedPreferences).toBe("wiki/preferences.md");
     }
   });
 });

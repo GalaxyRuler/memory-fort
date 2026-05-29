@@ -4,14 +4,15 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import * as z from "zod/v3";
 import { readFile, readdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { join } from "node:path";
-import { wikiDir, type ToolName } from "../storage/paths.js";
+import { join, relative } from "node:path";
+import { memoryRoot, wikiDir, type ToolName } from "../storage/paths.js";
 import {
   ensureRawSessionFile,
   appendBlock,
   formatObservationBlock,
 } from "../hooks/raw-file.js";
 import { parseFrontmatter } from "../storage/frontmatter.js";
+import { commitVaultChange as defaultCommitVaultChange } from "../sync/commit-vault-change.js";
 
 const LogObservationInput = z.object({
   text: z.string().min(1, "text must be non-empty"),
@@ -25,6 +26,7 @@ export type LogObservationInput = z.infer<typeof LogObservationInput>;
 export interface LogObservationDeps {
   ensureRawSessionFile?: typeof ensureRawSessionFile;
   appendBlock?: typeof appendBlock;
+  commitVaultChange?: typeof defaultCommitVaultChange;
   now?: () => Date;
   sessionId?: () => string;
 }
@@ -35,6 +37,7 @@ export async function logObservation(
 ): Promise<{ content: Array<{ type: "text"; text: string }> }> {
   const ensureFn = deps.ensureRawSessionFile ?? ensureRawSessionFile;
   const appendFn = deps.appendBlock ?? appendBlock;
+  const commitFn = deps.commitVaultChange ?? defaultCommitVaultChange;
   const nowFn = deps.now ?? (() => new Date());
   const sessionFn = deps.sessionId ?? (() => `mcp-${Date.now()}`);
 
@@ -42,8 +45,9 @@ export async function logObservation(
   const sessionId = sessionFn();
   const cwd = process.cwd();
   const now = nowFn();
+  const root = memoryRoot();
 
-  await ensureFn({ tool, sessionId, cwd, now });
+  const rawPath = await ensureFn({ tool, sessionId, cwd, now });
   await appendFn({
     tool,
     sessionId,
@@ -55,6 +59,16 @@ export async function logObservation(
     }),
     now,
   });
+  try {
+    await commitFn({
+      paths: [relative(root, rawPath).replace(/\\/g, "/")],
+      message: `chore: log ${tool} observation`,
+      memoryRoot: root,
+    });
+  } catch {
+    // Commit-on-write is best effort; recording the observation must not fail
+    // because Git is unavailable or temporarily locked.
+  }
 
   return {
     content: [
@@ -244,7 +258,7 @@ const SearchInput = z.object({
 
 export type SearchInput = z.infer<typeof SearchInput>;
 
-export interface SearchDeps {
+export interface SearchDeps extends LogObservationDeps {
   fetchFn?: typeof fetch;
   vpsUrl?: string;
 }
@@ -327,7 +341,7 @@ export function createServer(deps: SearchDeps = {}): McpServer {
         "Log a memory observation to today's raw session file. Use for deliberate 'remember this' moments — the LLM decides what's worth recording explicitly, complementing the passive hooks.",
       inputSchema: LogObservationInput.shape,
     },
-    async (args) => logObservation(args),
+    async (args) => logObservation(args, deps),
   );
 
   server.registerTool(
@@ -389,9 +403,7 @@ function buildSearchUrl(baseUrl: string, input: SearchInput): string {
   if (input.min_score !== undefined) {
     url.searchParams.set("minScore", String(input.min_score));
   }
-  if (input.no_rerank !== undefined) {
-    url.searchParams.set("noRerank", String(input.no_rerank));
-  }
+  url.searchParams.set("noRerank", String(input.no_rerank ?? true));
   if (input.hyde_expansion !== undefined) {
     url.searchParams.set("hydeExpansion", input.hyde_expansion);
   }

@@ -114,7 +114,7 @@ function buildSearchUrl(baseUrl: string, query: string, opts: CliSearchOptions):
   if (opts.scope !== undefined) url.searchParams.set("scope", opts.scope);
   if (opts.k !== undefined) url.searchParams.set("k", String(opts.k));
   if (opts.minScore !== undefined) url.searchParams.set("minScore", String(opts.minScore));
-  if (opts.noRerank === true) url.searchParams.set("noRerank", "true");
+  url.searchParams.set("noRerank", String(opts.noRerank ?? true));
   return url.toString();
 }
 

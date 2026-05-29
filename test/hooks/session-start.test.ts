@@ -1,9 +1,26 @@
-import { afterEach, describe, it, expect } from "vitest";
+import { afterEach, beforeEach, describe, it, expect } from "vitest";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { confidenceAwareIndex } from "../../src/hooks/session-start-helpers.js";
 import { sessionStartBody } from "../../src/hooks/session-start.js";
 
 describe("sessionStartBody", () => {
+  let tmp: string;
+  let oldMemoryRoot: string | undefined;
+
+  beforeEach(async () => {
+    tmp = await mkdtemp(join(tmpdir(), "session-start-"));
+    oldMemoryRoot = process.env["MEMORY_ROOT"];
+    process.env["MEMORY_ROOT"] = tmp;
+  });
+
+  afterEach(async () => {
+    if (oldMemoryRoot === undefined) delete process.env["MEMORY_ROOT"];
+    else process.env["MEMORY_ROOT"] = oldMemoryRoot;
+    await rm(tmp, { recursive: true, force: true });
+  });
+
   it("emits schema + index + log sections when all present", async () => {
     const writes: string[] = [];
     await sessionStartBody(
@@ -76,6 +93,78 @@ describe("sessionStartBody", () => {
     expect(all).toContain("- [[projects/medium]] Medium");
     expect(all).toContain("--- Low-confidence / drafts (1) ---");
     expect(all).toContain("⚠ DRAFT: - [[projects/low]] Low");
+  });
+
+  it("injects preferences page, preference-tagged observations, and recent high-confidence observations", async () => {
+    await mkdir(join(tmp, "wiki"), { recursive: true });
+    await mkdir(join(tmp, "raw", "2026-05-28"), { recursive: true });
+    await writeFile(join(tmp, "schema.md"), "schema content");
+    await writeFile(join(tmp, "index.md"), "# Index\n\nNo curated pages yet.\n");
+    await writeFile(join(tmp, "log.md"), "line1\nline2");
+    await writeFile(
+      join(tmp, "wiki", "preferences.md"),
+      [
+        "---",
+        "type: references",
+        "title: Operator Preferences",
+        "tags: [preference]",
+        "confidence: 0.95",
+        "---",
+        "Always draft Codex prompts before handing them off.",
+        "",
+      ].join("\n"),
+    );
+    await writeFile(
+      join(tmp, "raw", "2026-05-28", "manual-session.md"),
+      [
+        "---",
+        "type: raw-session",
+        "title: manual session",
+        "created: 2026-05-28",
+        "updated: 2026-05-28",
+        "---",
+        "",
+        "## [08:00:00] Observation",
+        "",
+        "_tags: preference, codex · confidence: 0.91_",
+        "",
+        "Emit paths in code blocks when preparing handoff prompts.",
+        "",
+        "## [09:00:00] Observation",
+        "",
+        "_tags: project · confidence: 0.88_",
+        "",
+        "Memory Fort should feed recent salient observations back at session start.",
+        "",
+        "## [10:00:00] Observation",
+        "",
+        "_tags: noise · confidence: 0.2_",
+        "",
+        "Low confidence noise should stay out of the injected reminder block.",
+        "",
+      ].join("\n"),
+    );
+
+    const writes: string[] = [];
+    await sessionStartBody({}, { write: (text) => writes.push(text) });
+
+    const all = writes.join("");
+    expect(all).toContain("--- What you should remember");
+    expect(all).toContain("Always draft Codex prompts");
+    expect(all).toContain("Emit paths in code blocks");
+    expect(all).toContain("Memory Fort should feed recent salient observations");
+    expect(all).not.toContain("Low confidence noise");
+  });
+
+  it("omits the reminder block when there are no preferences or recent salient observations", async () => {
+    await writeFile(join(tmp, "schema.md"), "schema content");
+    await writeFile(join(tmp, "index.md"), "# Index\n");
+    await writeFile(join(tmp, "log.md"), "line1\n");
+
+    const writes: string[] = [];
+    await sessionStartBody({}, { write: (text) => writes.push(text) });
+
+    expect(writes.join("")).not.toContain("What you should remember");
   });
 });
 
