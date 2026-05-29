@@ -1,7 +1,9 @@
+import { execFile as nodeExecFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   formatProcedureProposeResult,
@@ -11,6 +13,9 @@ import {
 } from "../../../src/cli/commands/procedure.js";
 import { parseFrontmatter } from "../../../src/storage/frontmatter.js";
 import type { LLMProvider } from "../../../src/llm/types.js";
+import { commitVaultChange as realCommitVaultChange } from "../../../src/sync/commit-vault-change.js";
+
+const execFile = promisify(nodeExecFile);
 
 describe("procedure commands", () => {
   let tmp: string;
@@ -307,12 +312,69 @@ describe("procedure commands", () => {
     });
   });
 
+  it("commits promoted and rejected procedure mutations and leaves their paths clean", async () => {
+    await initGitRepo(tmp);
+    await writeMarkdown(
+      "wiki/procedures-proposed/deploy-sync-test.md",
+      [
+        "---",
+        "type: procedures",
+        "title: Deploy Sync Test",
+        "created: 2026-05-28",
+        "updated: 2026-05-28",
+        "source: auto-procedural-extract",
+        "lifecycle: proposed",
+        "---",
+        "",
+        "# Deploy Sync Test",
+        "",
+        "Draft body.",
+      ].join("\n"),
+    );
+    await writeMarkdown(
+      "wiki/procedures-proposed/reject-procedure-sync-test.md",
+      page("procedures", "Reject Procedure Sync Test", "Draft body."),
+    );
+    await git(["add", "--", "wiki/procedures-proposed/reject-procedure-sync-test.md"], tmp);
+    await git(["commit", "-m", "seed tracked procedure draft"], tmp);
+    const commitVaultChange = (opts: Parameters<typeof realCommitVaultChange>[0]) =>
+      realCommitVaultChange({
+        ...opts,
+        scheduleAutoPush: async () => ({ scheduled: true, token: "unused" }),
+      });
+
+    const promoted = await runProcedurePromote({
+      vaultRoot: tmp,
+      slug: "deploy-sync-test",
+      commitVaultChange,
+    });
+    const rejected = await runProcedureReject({
+      vaultRoot: tmp,
+      slug: "reject-procedure-sync-test",
+      commitVaultChange,
+    });
+
+    await expect(git(["status", "--porcelain", "--", promoted.from, promoted.to, rejected.deleted], tmp)).resolves.toBe("");
+    await expect(git(["log", "-1", "--pretty=%s"], tmp)).resolves.toBe("reject procedure: reject-procedure-sync-test");
+  });
+
   async function writeMarkdown(relPath: string, content: string): Promise<void> {
     const fullPath = join(tmp, ...relPath.split("/"));
     await mkdir(dirname(fullPath), { recursive: true });
     await writeFile(fullPath, content, "utf-8");
   }
 });
+
+async function initGitRepo(cwd: string): Promise<void> {
+  await git(["init"], cwd);
+  await git(["config", "user.name", "Test User"], cwd);
+  await git(["config", "user.email", "test@example.com"], cwd);
+}
+
+async function git(args: string[], cwd: string): Promise<string> {
+  const result = await execFile("git", args, { cwd, windowsHide: true });
+  return result.stdout.trim();
+}
 
 function fakeLLM(slug: string, firstCommand = "npm run build"): LLMProvider {
   return {

@@ -1,7 +1,9 @@
+import { execFile as nodeExecFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   formatThreadProposeResult,
@@ -11,6 +13,9 @@ import {
 } from "../../../src/cli/commands/thread.js";
 import { parseFrontmatter } from "../../../src/storage/frontmatter.js";
 import type { LLMProvider } from "../../../src/llm/types.js";
+import { commitVaultChange as realCommitVaultChange } from "../../../src/sync/commit-vault-change.js";
+
+const execFile = promisify(nodeExecFile);
 
 describe("thread commands", () => {
   let tmp: string;
@@ -303,12 +308,81 @@ describe("thread commands", () => {
     });
   });
 
+  it("commits a promoted untracked draft and leaves the moved paths clean", async () => {
+    await initGitRepo(tmp);
+    await writeMarkdown(
+      "wiki/threads-proposed/sync-test.md",
+      [
+        "---",
+        "type: threads",
+        "title: Sync Test",
+        "created: 2026-05-28",
+        "updated: 2026-05-28",
+        "source: auto-thread-propose",
+        "lifecycle: proposed",
+        "---",
+        "",
+        "# Sync Test",
+        "",
+        "Draft body.",
+      ].join("\n"),
+    );
+
+    const promoted = await runThreadPromote({
+      vaultRoot: tmp,
+      slug: "sync-test",
+      commitVaultChange: (opts) =>
+        realCommitVaultChange({
+          ...opts,
+          scheduleAutoPush: async () => ({ scheduled: true, token: "unused" }),
+        }),
+    });
+
+    expect(promoted.to).toBe("wiki/threads/sync-test.md");
+    await expect(git(["status", "--porcelain", "--", promoted.from, promoted.to], tmp)).resolves.toBe("");
+    await expect(git(["log", "-1", "--pretty=%s"], tmp)).resolves.toBe("promote thread: sync-test");
+  });
+
+  it("commits a rejected tracked draft deletion and leaves the path clean", async () => {
+    await initGitRepo(tmp);
+    await writeMarkdown(
+      "wiki/threads-proposed/reject-sync-test.md",
+      page("threads", "Reject Sync Test", "Draft body."),
+    );
+    await git(["add", "--", "wiki/threads-proposed/reject-sync-test.md"], tmp);
+    await git(["commit", "-m", "seed tracked thread draft"], tmp);
+
+    const rejected = await runThreadReject({
+      vaultRoot: tmp,
+      slug: "reject-sync-test",
+      commitVaultChange: (opts) =>
+        realCommitVaultChange({
+          ...opts,
+          scheduleAutoPush: async () => ({ scheduled: true, token: "unused" }),
+        }),
+    });
+
+    await expect(git(["status", "--porcelain", "--", rejected.deleted], tmp)).resolves.toBe("");
+    await expect(git(["log", "-1", "--pretty=%s"], tmp)).resolves.toBe("reject thread: reject-sync-test");
+  });
+
   async function writeMarkdown(relPath: string, content: string): Promise<void> {
     const fullPath = join(tmp, ...relPath.split("/"));
     await mkdir(dirname(fullPath), { recursive: true });
     await writeFile(fullPath, content, "utf-8");
   }
 });
+
+async function initGitRepo(cwd: string): Promise<void> {
+  await git(["init"], cwd);
+  await git(["config", "user.name", "Test User"], cwd);
+  await git(["config", "user.email", "test@example.com"], cwd);
+}
+
+async function git(args: string[], cwd: string): Promise<string> {
+  const result = await execFile("git", args, { cwd, windowsHide: true });
+  return result.stdout.trim();
+}
 
 function fakeLLM(
   slug: string,

@@ -1,6 +1,8 @@
+import { execFile as nodeExecFile } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   collectEntityMergeProposals,
@@ -14,7 +16,10 @@ import {
   runEntityReject,
 } from "../../src/cli/commands/entity.js";
 import { readRelations } from "../../src/retrieval/relations.js";
+import { commitVaultChange as realCommitVaultChange } from "../../src/sync/commit-vault-change.js";
 import { parseFrontmatter, serializeFrontmatter, type Frontmatter } from "../../src/storage/frontmatter.js";
+
+const execFile = promisify(nodeExecFile);
 
 describe("entity dedup", () => {
   let tmp: string;
@@ -183,6 +188,47 @@ describe("entity dedup", () => {
     });
   });
 
+  it("commits entity merge rewrites and leaves changed paths clean", async () => {
+    await initGitRepo(tmp);
+    await writePage("wiki/projects/lisan-studio.md", {
+      type: "projects",
+      title: "Lisan Studio",
+      created: "2026-05-28",
+      updated: "2026-05-28",
+    });
+    await writePage("wiki/tools/vitest.md", {
+      type: "tools",
+      title: "Vitest",
+      created: "2026-05-28",
+      updated: "2026-05-28",
+      relations: { linked: ["Lisan Studio"] },
+    });
+    await writeEntityMergeProposals(tmp, [{
+      canonical: "Lisan Studio",
+      canonicalTarget: "wiki/projects/lisan-studio.md",
+      aliases: ["Lisan Studio"],
+      normalized: "lisanstudio",
+      reason: "exact-normalized",
+      referenceCounts: {},
+    }]);
+    await git(["add", "--", "wiki/projects/lisan-studio.md", "wiki/tools/vitest.md", "wiki/entity-merges-proposed.json"], tmp);
+    await git(["commit", "-m", "seed entity merge fixture"], tmp);
+
+    const result = await runEntityMerge({
+      vaultRoot: tmp,
+      canonical: "Lisan Studio",
+      commitVaultChange: (opts) =>
+        realCommitVaultChange({
+          ...opts,
+          scheduleAutoPush: async () => ({ scheduled: true, token: "unused" }),
+        }),
+    });
+
+    expect(result.changedFiles).toEqual(["wiki/tools/vitest.md"]);
+    await expect(git(["status", "--porcelain", "--", ...result.changedFiles, result.aliasMapPath], tmp)).resolves.toBe("");
+    await expect(git(["log", "-1", "--pretty=%s"], tmp)).resolves.toBe("merge entity: Lisan Studio");
+  });
+
   async function writePage(relPath: string, frontmatter: Frontmatter): Promise<void> {
     const fullPath = join(tmp, ...relPath.split("/"));
     await mkdir(dirname(fullPath), { recursive: true });
@@ -194,3 +240,14 @@ describe("entity dedup", () => {
     return (readRelations(parsed.frontmatter.relations)[key] ?? []).map((edge) => edge.target);
   }
 });
+
+async function initGitRepo(cwd: string): Promise<void> {
+  await git(["init"], cwd);
+  await git(["config", "user.name", "Test User"], cwd);
+  await git(["config", "user.email", "test@example.com"], cwd);
+}
+
+async function git(args: string[], cwd: string): Promise<string> {
+  const result = await execFile("git", args, { cwd, windowsHide: true });
+  return result.stdout.trim();
+}
