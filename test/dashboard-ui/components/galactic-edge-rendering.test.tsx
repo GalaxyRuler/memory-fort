@@ -49,12 +49,6 @@ describe("galactic edge rendering", () => {
   });
 
   it("renders typed relation edges with stable semantic treatments", () => {
-    expect(styleFor("supports")).toMatchObject({
-      strokeColor: "rgba(110, 231, 183, 0.76)",
-      dash: [],
-      arrowhead: false,
-      glow: false,
-    });
     expect(styleFor("contradicts")).toMatchObject({
       strokeColor: "rgba(252, 165, 165, 0.76)",
       dash: [6, 4],
@@ -75,7 +69,21 @@ describe("galactic edge rendering", () => {
     });
   });
 
-  it("lets typed edges override the cross-galaxy cyan fallback", () => {
+  it("lets canonical typed edges override the cross-galaxy cyan fallback", () => {
+    const style = computeEdgeRenderStyle({
+      highlighted: false,
+      sourceCognitiveType: "semantic",
+      targetCognitiveType: "episodic",
+      weight: 0.6,
+      zoomLevel: 0,
+      type: "contradicts",
+    });
+
+    expect(style.strokeColor).toBe("rgba(252, 165, 165, 0.738)");
+    expect(style.glow).toBe(false);
+  });
+
+  it("does not give dropped noncanonical supports edges a special treatment", () => {
     const style = computeEdgeRenderStyle({
       highlighted: false,
       sourceCognitiveType: "semantic",
@@ -85,8 +93,8 @@ describe("galactic edge rendering", () => {
       type: "supports",
     });
 
-    expect(style.strokeColor).toBe("rgba(110, 231, 183, 0.738)");
-    expect(style.glow).toBe(false);
+    expect(style.strokeColor).toBe("rgba(165, 243, 252, 0.738)");
+    expect(style.glow).toBe(true);
   });
 
   it("keeps cross-galaxy mentions bright and fades historical edges", () => {

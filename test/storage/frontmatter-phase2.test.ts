@@ -5,6 +5,7 @@ import {
   validateFrontmatter,
   type Frontmatter,
 } from "../../src/storage/frontmatter.js";
+import { RELATION_TYPES, writeRelations } from "../../src/retrieval/relations.js";
 
 const baseValid: Frontmatter = {
   type: "projects",
@@ -129,6 +130,23 @@ describe("validateFrontmatter - tags", () => {
 });
 
 describe("validateFrontmatter - relations", () => {
+  it("accepts exactly the canonical relation types used by relation serialization", () => {
+    const relations = Object.fromEntries(
+      RELATION_TYPES.map((relation) => [relation, [`wiki/${relation}.md`]]),
+    );
+
+    const result = validateFrontmatter({ ...baseValid, relations });
+
+    expect(result.valid).toBe(true);
+    expect(Object.keys(writeRelations(readableRelationMap(relations)))).toEqual([
+      ...RELATION_TYPES,
+    ]);
+    expect(validateFrontmatter({
+      ...baseValid,
+      relations: { supports: ["wiki/support.md"] },
+    }).valid).toBe(false);
+  });
+
   it("accepts known edge types with string-array values", () => {
     const r = validateFrontmatter({
       ...baseValid,
@@ -180,6 +198,15 @@ describe("validateFrontmatter - relations", () => {
     expect(validateFrontmatter(baseValid).valid).toBe(true);
   });
 });
+
+function readableRelationMap(relations: Record<string, string[]>): Record<string, { target: string }[]> {
+  return Object.fromEntries(
+    Object.entries(relations).map(([key, targets]) => [
+      key,
+      targets.map((target) => ({ target })),
+    ]),
+  );
+}
 
 describe("frontmatter - time_range", () => {
   it("round-trips valid time_range metadata", () => {

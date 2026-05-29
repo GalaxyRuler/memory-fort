@@ -117,7 +117,7 @@ describe("graph health metrics", () => {
           ...Array.from({ length: 9 }, (_, index) =>
             edge(`wiki/projects/a.md`, "wiki/tools/b.md", { type: "mentions", validFrom: `2026-01-0${index + 1}` }),
           ),
-          edge("wiki/tools/b.md", "wiki/projects/a.md", { type: "supports", validFrom: "2026-01-10" }),
+          edge("wiki/tools/b.md", "wiki/projects/a.md", { type: "uses", validFrom: "2026-01-10" }),
         ],
       }),
     );

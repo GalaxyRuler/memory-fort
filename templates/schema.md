@@ -690,7 +690,7 @@ Do NOT:
 - **Include emojis** unless the user explicitly used them.
 - **Bypass privacy filter** to keep a "useful" credential in the wiki. There's no useful credential; rotate it.
 - **Update `confidence:` to 1.0** without evidence. New claims start at 0.5-0.7; only promote to 1.0 after the claim survives multiple uses or explicit verification.
-- **Add new edge types** beyond the nine in §5. If a new relationship type seems needed, propose it via `lint-report.md` for schema version bump.
+- **Add new edge types** beyond the ten in §5. If a new relationship type seems needed, propose it via `lint-report.md` for schema version bump.
 
 ---
 

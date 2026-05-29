@@ -1,7 +1,11 @@
 import matter from "gray-matter";
 import yaml from "js-yaml";
 import type { PageType } from "./paths.js";
-import { readRelationEntry, type SerializedRelationMap } from "../retrieval/relations.js";
+import {
+  RELATION_TYPES,
+  readRelationEntry,
+  type SerializedRelationMap,
+} from "../retrieval/relations.js";
 
 export type EntityType = PageType | "crystal" | "raw-session";
 
@@ -91,18 +95,7 @@ export const KNOWN_LIFECYCLE_STAGES = [
 ] as const satisfies readonly LifecycleStage[];
 const KNOWN_COGNITIVE_TYPES = ["core", "semantic", "episodic", "procedural", "prospective"] as const;
 
-const KNOWN_RELATIONS = [
-  "uses",
-  "depends_on",
-  "supersedes",
-  "contradicts",
-  "caused_by",
-  "fixed_by",
-  "derived_from",
-  "mentions",
-  "mentioned_in",
-  "linked",
-] as const;
+const KNOWN_RELATIONS = RELATION_TYPES;
 
 const YAML_DUMP_OPTIONS: yaml.DumpOptions = {
   schema: yaml.JSON_SCHEMA,

@@ -124,7 +124,7 @@ This phase is intentionally **not pre-sequenced**. The order depends on which me
 | Phase 2 metric in red | Brief to draft | Scope |
 |---|---|---|
 | Duplicate entity candidates | Canonical entity registry | Promote entity-mention strings into canonical records with aliases. Wiki pages become entity records themselves (no parallel `entities/` directory). Consolidation matcher uses the alias table. |
-| Edge-type entropy too low (most edges are `mentions`) | Typed-edge proposing in consolidation | Extend the BM25 + lexical matchers to classify each match into a probable type (`derived_from` for raw → wiki, `supports`/`contradicts` when language signals it). Current consolidation writes `mentions` for everything. |
+| Edge-type entropy too low (most edges are `mentions`) | Typed-edge proposing in consolidation | Extend the BM25 + lexical matchers to classify each match into a probable canonical type (`derived_from` for raw → wiki, `contradicts` when language signals disagreement). Current consolidation writes `mentions` for everything. |
 | Cross-galaxy edge ratio dominates | Edge audit + manual re-typing pass | Surface the cross-galaxy edges in the dashboard with a "review & re-type" workflow. One-time cleanup. |
 | Hub overload | Graph compaction | Auto-propose intermediate nodes when a hub gets too many edges (decision page from many episodes, procedural memory from repeated workflows). |
 | Provenance coverage low | Provenance backfill | Sweep wiki pages missing `imported_from` or `source` fields. CLI command `memory backfill-provenance --plan/--apply`. |
@@ -170,6 +170,7 @@ This phase is intentionally **not pre-sequenced**. The order depends on which me
 24. **Leak-surface hardening.** Shipped 2026-05-29. `compile --execute` secret redaction now covers `KEY=value` assignments, PEM blocks, `AIza`, `gh[posru]_`, `Bearer`, `xox`, and `sk-`; `wiki/.audit/` is excluded from MCP list/search/read, the retrieval corpus, and dashboard loaders via one shared filter; dashboard APIs return vault-relative paths instead of absolute filesystem paths.
 25. **Config & retention integrity.** Shipped 2026-05-29. `config.yaml` parse/validation failures are surfaced (not silently defaulted) and gated by a new `config.valid` verify check; `memory prune` honors `retention.raw_window_days`; `compile.scheduled` defaults false (opt-in); `compile.execute` is a typed config field.
 26. **VPS ops hardening.** Shipped 2026-05-29. `memory-backup.sh` fails closed (`set -euo pipefail`, verifies the archive is listable before reporting success, rotates only after verification); dashboard + backup systemd units are hardened (NoNewPrivileges, ProtectSystem=strict, ReadWritePaths, PrivateTmp, RestrictAddressFamilies, UMask=0077); `install-vps` chmods env files to 0600.
+27. **Relation-type list unification.** Shipped 2026-05-29. Relation validation and serialization now derive from one canonical 10-type list, with the divergent non-validator `supports` entry removed and parity guarded by tests.
 
 **Dependencies:** Phase 3. (Brief C explicitly depends on lifecycle states from Phase 1; narrative threads are most useful once we have the entity registry from Phase 3 if duplicate metric drove that.)
 

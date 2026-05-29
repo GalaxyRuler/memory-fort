@@ -18,9 +18,8 @@ export type RelationMap = Record<string, RelationEdge[]>;
 export type SerializedRelationEdge = string | Record<string, unknown>;
 export type SerializedRelationMap = Record<string, SerializedRelationEdge[]>;
 
-const SCHEMA_RELATION_ORDER = [
+export const RELATION_TYPES = [
   "mentions",
-  "supports",
   "contradicts",
   "supersedes",
   "derived_from",
@@ -30,7 +29,11 @@ const SCHEMA_RELATION_ORDER = [
   "fixed_by",
   "mentioned_in",
   "linked",
-];
+] as const;
+export type RelationType = (typeof RELATION_TYPES)[number];
+
+const SCHEMA_RELATION_ORDER = RELATION_TYPES;
+const RELATION_TYPE_SET = new Set<string>(RELATION_TYPES);
 
 const KNOWN_EDGE_FIELDS = new Set([
   "target",
@@ -122,7 +125,7 @@ function orderedRelationKeys(relations: RelationMap): string[] {
   const keys = Object.keys(relations);
   const schemaKeys = SCHEMA_RELATION_ORDER.filter((key) => keys.includes(key));
   const userKeys = keys
-    .filter((key) => !SCHEMA_RELATION_ORDER.includes(key))
+    .filter((key) => !RELATION_TYPE_SET.has(key))
     .sort((a, b) => a.localeCompare(b));
   return [...schemaKeys, ...userKeys];
 }

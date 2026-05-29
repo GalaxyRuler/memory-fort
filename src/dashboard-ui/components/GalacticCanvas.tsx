@@ -1,5 +1,6 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import type { CognitiveType, GraphEdge, GraphNode } from "../hooks/useGraph.js";
+import type { RelationType } from "../../retrieval/relations.js";
 import {
   buildGalacticLayout,
   COGNITIVE_META,
@@ -483,8 +484,7 @@ function drawEdge(ctx: CanvasRenderingContext2D, edge: GalacticLayout["edges"][n
   ctx.restore();
 }
 
-const EDGE_TYPE_TREATMENTS: Record<string, { rgb: string; dash: number[]; arrowhead: boolean }> = {
-  supports: { rgb: "110, 231, 183", dash: [], arrowhead: false },
+const EDGE_TYPE_TREATMENTS: Partial<Record<RelationType, { rgb: string; dash: number[]; arrowhead: boolean }>> = {
   contradicts: { rgb: "252, 165, 165", dash: [6, 4], arrowhead: false },
   supersedes: { rgb: "156, 163, 175", dash: [], arrowhead: true },
   derived_from: { rgb: "165, 180, 252", dash: [2, 3], arrowhead: false },
