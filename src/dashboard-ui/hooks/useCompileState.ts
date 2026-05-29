@@ -19,6 +19,10 @@ export interface CompileState {
     cadence: "daily" | "weekly" | "manual";
     nextRunAt: string | null;
   };
+  execute?: {
+    available: boolean;
+    reason: string | null;
+  };
 }
 
 export interface CompileRunResponse {
@@ -26,7 +30,13 @@ export interface CompileRunResponse {
   summary: {
     rawIncluded: number;
     rawSkipped: number;
+    rawRemaining: number;
+    opsApplied: number;
+    opsStaged: number;
+    referencesStripped: number;
     outputPath: string;
+    execute: boolean;
+    error?: string;
   };
 }
 
@@ -41,7 +51,7 @@ export function useCompileState() {
 export function useRunCompileNow() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: () => apiPost<CompileRunResponse>("/compile/run", {}),
+    mutationFn: (body: { execute: boolean }) => apiPost<CompileRunResponse>("/compile/run", body),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["compile-state"] });
       qc.invalidateQueries({ queryKey: ["status"] });

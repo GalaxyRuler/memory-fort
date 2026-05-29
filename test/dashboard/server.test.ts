@@ -923,13 +923,38 @@ describe("dashboard server", () => {
     }
   });
 
+  it("GET /api/compile/state explains when execute mode is unavailable", async () => {
+    const previous = process.env["MEMORY_LLM_DISABLED"];
+    process.env["MEMORY_LLM_DISABLED"] = "true";
+    const server = await createServer({ vaultRoot: tmp, port: 0 });
+
+    try {
+      const response = await fetch(`http://${server.host}:${server.port}/api/compile/state`);
+      const body = await response.json();
+      expect(response.status).toBe(200);
+      expect(body).toMatchObject({
+        execute: {
+          available: false,
+          reason: "LLM access disabled by MEMORY_LLM_DISABLED=true",
+        },
+      });
+    } finally {
+      if (previous === undefined) {
+        delete process.env["MEMORY_LLM_DISABLED"];
+      } else {
+        process.env["MEMORY_LLM_DISABLED"] = previous;
+      }
+      await server.close();
+    }
+  });
+
   it("POST /api/compile/run runs compile and returns 409 while a run is active", async () => {
-    let resolveRun: ((value: { rawFilesIncluded: string[]; rawFilesSkipped: unknown[]; outputPath: string }) => void) | null = null;
+    let resolveRun: ((value: { rawFilesIncluded: string[]; rawFilesSkipped: { path: string; reason: string }[]; outputPath: string; rawRemaining: number }) => void) | null = null;
     let markStarted: (() => void) | null = null;
     const started = new Promise<void>((resolve) => {
       markStarted = resolve;
     });
-    const compileRunner = vi.fn(() => new Promise<{ rawFilesIncluded: string[]; rawFilesSkipped: unknown[]; outputPath: string }>((resolve) => {
+    const compileRunner = vi.fn(() => new Promise<{ rawFilesIncluded: string[]; rawFilesSkipped: { path: string; reason: string }[]; outputPath: string; rawRemaining: number }>((resolve) => {
       markStarted?.();
       resolveRun = resolve;
     }));
@@ -946,6 +971,7 @@ describe("dashboard server", () => {
         rawFilesIncluded: ["raw/a.md", "raw/b.md"],
         rawFilesSkipped: [{ path: "raw/old.md", reason: "before since cutoff" }],
         outputPath: "state/scheduled-compile-prompt.md",
+        rawRemaining: 0,
       });
       const response = await first;
       const body = await response.json();
@@ -969,6 +995,16 @@ describe("dashboard server", () => {
       rawFilesIncluded: ["raw/a.md"],
       rawFilesSkipped: [],
       outputPath: "state/scheduled-compile-prompt.md",
+      rawRemaining: 0,
+      execution: {
+        mode: "execute" as const,
+        applied: ["wiki/projects/a.md"],
+        proposed: ["wiki/compile-proposed/b.md"],
+        planned: [],
+        rejected: [],
+        referencesStripped: 3,
+        prosePathLeaks: 0,
+      },
     }));
     const server = await createServer({ vaultRoot: tmp, port: 0, compileRunner });
 
@@ -983,7 +1019,16 @@ describe("dashboard server", () => {
       expect(response.status).toBe(200);
       expect(body).toMatchObject({
         ok: true,
-        summary: { execute: true },
+        summary: {
+          execute: true,
+          rawIncluded: 1,
+          rawSkipped: 0,
+          rawRemaining: 0,
+          opsApplied: 1,
+          opsStaged: 1,
+          referencesStripped: 3,
+          outputPath: "state/scheduled-compile-prompt.md",
+        },
       });
       expect(compileRunner).toHaveBeenCalledWith({ execute: true });
     } finally {
@@ -996,6 +1041,7 @@ describe("dashboard server", () => {
       rawFilesIncluded: ["raw/a.md"],
       rawFilesSkipped: [],
       outputPath: "state/scheduled-compile-prompt.md",
+      rawRemaining: 0,
     }));
     const server = await createServer({ vaultRoot: tmp, port: 0, compileRunner });
 

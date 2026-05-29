@@ -94,6 +94,7 @@ describe("auto-promote scheduler", () => {
       rawFilesIncluded: [],
       rawFilesSkipped: [],
       outputPath: "state/scheduled-compile-prompt.md",
+      rawRemaining: 0,
     }));
     await createAutoPromoteScheduler({
       vaultRoot: tmp,

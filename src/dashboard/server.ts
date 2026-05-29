@@ -495,12 +495,7 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
         const result = await (opts.compileRunner ?? ((runOpts) => runScheduledCompileOnce(opts.vaultRoot, runOpts)))({ execute });
         writeJson(res, {
           ok: true,
-          summary: {
-            rawIncluded: result.rawFilesIncluded.length,
-            rawSkipped: result.rawFilesSkipped.length,
-            outputPath: result.outputPath,
-            execute,
-          },
+          summary: compileRunSummaryForResponse(result, execute),
         });
       } catch (error) {
         writeJsonError(res, 500, error instanceof Error ? error.message : String(error));
@@ -685,6 +680,7 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
         writeJson(res, {
           ...state,
           schedule: compileScheduleForResponse(config),
+          execute: compileExecuteAvailability(config, process.env),
         });
         return;
       }
@@ -933,4 +929,41 @@ function compileScheduleForResponse(config: Awaited<ReturnType<typeof loadMemory
       ? new Date(Date.now() + (cadence === "weekly" ? 7 : 1) * 24 * 60 * 60 * 1000).toISOString()
       : null,
   };
+}
+
+function compileRunSummaryForResponse(result: DashboardCompileRunResult, execute: boolean) {
+  const execution = result.execution;
+  return {
+    rawIncluded: result.rawFilesIncluded.length,
+    rawSkipped: result.rawFilesSkipped.length,
+    rawRemaining: result.rawRemaining,
+    opsApplied: execution?.applied.length ?? 0,
+    opsStaged: execution?.proposed.length ?? 0,
+    referencesStripped: execution?.referencesStripped ?? 0,
+    outputPath: result.outputPath,
+    execute,
+    ...(execution?.rejected.length ? { error: execution.rejected.map((item) => `${item.path}: ${item.reason}`).join("; ") } : {}),
+  };
+}
+
+function compileExecuteAvailability(
+  config: Awaited<ReturnType<typeof loadMemoryConfig>>,
+  env: NodeJS.ProcessEnv,
+): { available: boolean; reason: string | null } {
+  if (env["MEMORY_LLM_DISABLED"]?.trim().toLowerCase() === "true") {
+    return { available: false, reason: "LLM access disabled by MEMORY_LLM_DISABLED=true" };
+  }
+  try {
+    const llmConfig = getActiveLLMConfig(config);
+    if (!llmConfig) {
+      return { available: false, reason: "No LLM provider configured" };
+    }
+    createLLMFromConfig(llmConfig, env);
+    return { available: true, reason: null };
+  } catch (error) {
+    return {
+      available: false,
+      reason: error instanceof Error ? error.message : String(error),
+    };
+  }
 }

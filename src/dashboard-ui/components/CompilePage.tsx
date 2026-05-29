@@ -1,5 +1,6 @@
+import { useState } from "react";
 import { CheckCircle2, Clock, Cpu, FileText, Network, Play, Terminal } from "lucide-react";
-import { type CompileLastRun, useCompileState, useRunCompileNow } from "../hooks/useCompileState.js";
+import { type CompileLastRun, type CompileRunResponse, useCompileState, useRunCompileNow } from "../hooks/useCompileState.js";
 import { Button } from "./Button.js";
 import { GlassPanel } from "./GlassPanel.js";
 import { StatusPill } from "./StatusPill.js";
@@ -13,6 +14,66 @@ function formatTimestamp(value: string): string {
   const date = new Date(value);
   if (!Number.isFinite(date.getTime())) return value;
   return date.toLocaleString();
+}
+
+function formatNumber(value: number): string {
+  return new Intl.NumberFormat().format(value);
+}
+
+function CompileResultSummary({ response }: { response: CompileRunResponse }) {
+  const summary = response.summary;
+  if (!summary.execute) {
+    return (
+      <GlassPanel className="border-primary/30 bg-primary/5 text-sm text-text-secondary">
+        Prompt generated from {formatNumber(summary.rawIncluded)} raw observations; {formatNumber(summary.rawSkipped)} skipped.
+        <span className="ml-1 break-all font-mono text-text-primary">{summary.outputPath}</span>
+      </GlassPanel>
+    );
+  }
+
+  return (
+    <GlassPanel className="space-y-3 border-primary/30 bg-primary/5 text-sm text-text-secondary">
+      <p>
+        Consolidated {formatNumber(summary.rawIncluded)} observations {"->"}{" "}
+        <strong className="text-text-primary">{formatNumber(summary.opsApplied)} applied</strong>,{" "}
+        <strong className="text-text-primary">{formatNumber(summary.opsStaged)} staged for review</strong>.
+      </p>
+      <p>
+        <strong className="text-text-primary">{formatNumber(summary.rawRemaining)} observations remaining</strong>
+        {summary.rawRemaining > 0 ? " - run again to continue." : "."}
+        {summary.referencesStripped > 0 ? ` ${formatNumber(summary.referencesStripped)} invented references stripped.` : ""}
+      </p>
+      {summary.opsStaged > 0 ? (
+        <a className="inline-flex text-primary hover:underline" href="/memory/inbox">
+          Review {formatNumber(summary.opsStaged)} staged changes {"->"}
+        </a>
+      ) : null}
+      {summary.error ? <p className="text-status-red">{summary.error}</p> : null}
+    </GlassPanel>
+  );
+}
+
+function CompileConfirmDialog({ onCancel, onConfirm }: { onCancel: () => void; onConfirm: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/70 p-4 backdrop-blur-sm">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="compile-confirm-title"
+        className="w-full max-w-lg rounded-lg border border-border-emphasis bg-surface p-5 shadow-xl"
+      >
+        <h2 id="compile-confirm-title" className="text-lg font-semibold text-text-primary">Run compile?</h2>
+        <p className="mt-3 text-sm text-text-secondary">
+          This sends recent raw observations to the LLM and updates your wiki: high-confidence changes are written
+          directly; low-confidence ones go to the Inbox for review. This modifies canonical memory.
+        </p>
+        <div className="mt-5 flex justify-end gap-2">
+          <Button type="button" variant="ghost" onClick={onCancel}>Cancel</Button>
+          <Button type="button" variant="primary" onClick={onConfirm}>Run compile</Button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function CompileRunSummary({ lastRun }: { lastRun: CompileLastRun }) {
@@ -115,9 +176,20 @@ function CompileLogPanel({ isRunning, lastRun }: { isRunning: boolean; lastRun: 
   );
 }
 
-function CompilePagesPanel({ lastRun, onRun, isRunning }: { lastRun: CompileLastRun | null; onRun: () => void; isRunning: boolean }) {
+function CompilePagesPanel({
+  disabledReason,
+  isRunning,
+  lastRun,
+  onRun,
+}: {
+  disabledReason: string | null;
+  isRunning: boolean;
+  lastRun: CompileLastRun | null;
+  onRun: () => void;
+}) {
   const pagesCompiled = lastRun?.pagesCompiled ?? 0;
   const percent = Math.max(0, Math.min(100, pagesCompiled === 0 ? 0 : 100));
+  const disabled = isRunning || disabledReason !== null;
 
   return (
     <GlassPanel className="flex flex-col justify-between bg-surface/70">
@@ -134,27 +206,46 @@ function CompilePagesPanel({ lastRun, onRun, isRunning }: { lastRun: CompileLast
       <Button
         type="button"
         variant="primary"
-        disabled={isRunning}
+        disabled={disabled}
+        title={disabledReason ?? undefined}
         onClick={onRun}
         className="mt-5 w-full justify-center disabled:cursor-not-allowed disabled:opacity-45"
       >
         <Play size={15} strokeWidth={1.5} />
-        {isRunning ? "Compile running" : "Run compile now"}
+        {isRunning ? "Consolidating..." : "Run compile now"}
       </Button>
     </GlassPanel>
   );
 }
 
 export function CompilePage() {
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [pendingMode, setPendingMode] = useState<"execute" | "artifact" | null>(null);
   const compile = useCompileState();
   const runCompile = useRunCompileNow();
   const state = compile.data;
   const lastRun = state?.lastRun ?? null;
   const isRunning = state?.status === "running" || runCompile.isPending;
   const schedule = state?.schedule;
+  const executeDisabledReason = state?.execute?.available === false ? state.execute.reason ?? "LLM execution is unavailable" : null;
+  const primaryDisabled = isRunning || executeDisabledReason !== null;
+  const runningLabel = pendingMode === "artifact" ? "Generating prompt..." : "Consolidating...";
+  const errorMessage = runCompile.error?.message ?? null;
+
+  function confirmRunCompile() {
+    setConfirmOpen(false);
+    setPendingMode("execute");
+    runCompile.mutate({ execute: true });
+  }
+
+  function generatePromptOnly() {
+    setPendingMode("artifact");
+    runCompile.mutate({ execute: false });
+  }
 
   return (
     <div className="relative mx-auto min-h-[calc(100vh-5rem)] max-w-7xl overflow-hidden p-4 md:p-6">
+      {confirmOpen ? <CompileConfirmDialog onCancel={() => setConfirmOpen(false)} onConfirm={confirmRunCompile} /> : null}
       <header className="relative z-10 mb-6 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex items-start gap-3">
           <div className="mt-1 flex h-9 w-9 items-center justify-center rounded-lg border border-border-emphasis bg-surface-2 text-primary">
@@ -171,12 +262,22 @@ export function CompilePage() {
           <Button
             type="button"
             variant="primary"
-            disabled={isRunning}
-            onClick={() => runCompile.mutate()}
+            disabled={primaryDisabled}
+            title={executeDisabledReason ?? undefined}
+            onClick={() => setConfirmOpen(true)}
             className="disabled:cursor-not-allowed disabled:opacity-45"
           >
             <Play size={15} strokeWidth={1.5} />
-            {isRunning ? "Compile running" : "Run compile now"}
+            {isRunning ? runningLabel : "Run compile now"}
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            disabled={isRunning}
+            onClick={generatePromptOnly}
+            className="disabled:cursor-not-allowed disabled:opacity-45"
+          >
+            Generate prompt only
           </Button>
           {schedule ? (
             <p className="text-xs text-text-muted">
@@ -201,7 +302,7 @@ export function CompilePage() {
                     Compile in progress
                   </h2>
                   <p className="text-sm text-text-secondary">
-                    The dashboard is observing the current state file and will refresh while the CLI run is active.
+                    The dashboard is observing the current state file and will refresh while the compile run is active.
                   </p>
                 </div>
                 <StatusPill kind="stale">running</StatusPill>
@@ -216,17 +317,18 @@ export function CompilePage() {
 
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
             <CompileLogPanel isRunning={isRunning} lastRun={lastRun} />
-            <CompilePagesPanel lastRun={lastRun} isRunning={isRunning} onRun={() => runCompile.mutate()} />
+            <CompilePagesPanel
+              lastRun={lastRun}
+              isRunning={isRunning}
+              disabledReason={executeDisabledReason}
+              onRun={() => setConfirmOpen(true)}
+            />
           </div>
 
-          {runCompile.data ? (
-            <GlassPanel className="border-primary/30 bg-primary/5 text-sm text-text-secondary">
-              Compile prompt generated from {runCompile.data.summary.rawIncluded} raw files; {runCompile.data.summary.rawSkipped} skipped.
-            </GlassPanel>
-          ) : null}
-          {runCompile.error ? (
+          {runCompile.data ? <CompileResultSummary response={runCompile.data} /> : null}
+          {errorMessage ? (
             <GlassPanel className="border-status-red/30 bg-status-red/5 text-sm text-status-red">
-              {runCompile.error.message}
+              {errorMessage.includes("already running") ? "A compile is already running." : errorMessage}
             </GlassPanel>
           ) : null}
 

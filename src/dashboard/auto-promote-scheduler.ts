@@ -1,6 +1,6 @@
 import { appendFile } from "node:fs/promises";
 import { join } from "node:path";
-import { runCompile } from "../cli/commands/compile.js";
+import { runCompile, type CompileResult } from "../cli/commands/compile.js";
 import { runProcedurePropose } from "../cli/commands/procedure.js";
 import { runThreadPropose } from "../cli/commands/thread.js";
 import { atomicWrite } from "../storage/atomic-write.js";
@@ -22,8 +22,10 @@ export interface AutoPromoteSchedulerOptions {
 
 export interface DashboardCompileRunResult {
   rawFilesIncluded: string[];
-  rawFilesSkipped: unknown[];
+  rawFilesSkipped: CompileResult["rawFilesSkipped"];
   outputPath: string;
+  rawRemaining: number;
+  execution?: CompileResult["execution"];
 }
 
 const CADENCE_MS = {
@@ -133,6 +135,8 @@ export async function runScheduledCompileOnce(
     rawFilesIncluded: result.rawFilesIncluded,
     rawFilesSkipped: result.rawFilesSkipped,
     outputPath: "state/scheduled-compile-prompt.md",
+    rawRemaining: countRemainingRawFiles(result.rawFilesSkipped),
+    execution: result.execution,
   };
 }
 
@@ -183,4 +187,8 @@ async function logSchedulerFailure(vaultRoot: string, label: string, error: unkn
     }\n`,
     "utf-8",
   );
+}
+
+function countRemainingRawFiles(skipped: CompileResult["rawFilesSkipped"]): number {
+  return skipped.filter((item) => item.reason !== "before since cutoff").length;
 }

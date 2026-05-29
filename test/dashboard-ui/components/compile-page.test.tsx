@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { CompilePage } from "../../../src/dashboard-ui/components/CompilePage.js";
 
@@ -17,6 +17,19 @@ vi.mock("../../../src/dashboard-ui/hooks/useCompileState.js", async (importOrigi
 });
 
 describe("CompilePage", () => {
+  function renderIdle(overrides: Record<string, unknown> = {}) {
+    compileHook.useCompileState.mockReturnValue({
+      data: {
+        status: "idle",
+        lastRun: null,
+        execute: { available: true, reason: null },
+        ...overrides,
+      },
+      isLoading: false,
+      isError: false,
+    });
+  }
+
   beforeEach(() => {
     compileHook.useCompileState.mockReset();
     compileHook.useRunCompileNow.mockReset();
@@ -29,17 +42,102 @@ describe("CompilePage", () => {
   });
 
   test("does not render decorative mock node identifiers", () => {
-    compileHook.useCompileState.mockReturnValue({
-      data: {
-        status: "idle",
-        lastRun: null,
-      },
-      isLoading: false,
-      isError: false,
-    });
+    renderIdle();
 
     render(<CompilePage />);
 
     expect(screen.queryAllByText(/node_[0-9a-f]+/i)).toHaveLength(0);
+  });
+
+  test("confirms and runs compile in execute mode from the primary button", () => {
+    const mutate = vi.fn();
+    renderIdle();
+    compileHook.useRunCompileNow.mockReturnValue({
+      mutate,
+      isPending: false,
+      data: null,
+      error: null,
+    });
+
+    render(<CompilePage />);
+    fireEvent.click(screen.getAllByRole("button", { name: /run compile now/i })[0]);
+
+    expect(screen.getByRole("dialog", { name: "Run compile?" })).toBeInTheDocument();
+    expect(screen.getByText(/This sends recent raw observations to the LLM/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /^Run compile$/i }));
+
+    expect(mutate).toHaveBeenCalledWith({ execute: true });
+  });
+
+  test("surfaces execute summaries and links staged changes to the inbox", () => {
+    renderIdle();
+    compileHook.useRunCompileNow.mockReturnValue({
+      mutate: vi.fn(),
+      isPending: false,
+      data: {
+        ok: true,
+        summary: {
+          execute: true,
+          rawIncluded: 101,
+          rawSkipped: 4,
+          rawRemaining: 1038,
+          opsApplied: 8,
+          opsStaged: 2,
+          referencesStripped: 1,
+          outputPath: "state/scheduled-compile-prompt.md",
+        },
+      },
+      error: null,
+    });
+
+    render(<CompilePage />);
+
+    expect(screen.getByText(/Consolidated 101 observations/i)).toBeInTheDocument();
+    expect(screen.getByText(/8 applied/i)).toBeInTheDocument();
+    expect(screen.getByText(/2 staged for review/i)).toBeInTheDocument();
+    expect(screen.getByText(/1,038 observations remaining/i)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Review 2 staged changes/i })).toHaveAttribute("href", "/memory/inbox");
+  });
+
+  test("shows the already-running message for a 409 compile error", () => {
+    renderIdle();
+    compileHook.useRunCompileNow.mockReturnValue({
+      mutate: vi.fn(),
+      isPending: false,
+      data: null,
+      error: new Error("compile already running"),
+    });
+
+    render(<CompilePage />);
+
+    expect(screen.getByText(/a compile is already running/i)).toBeInTheDocument();
+  });
+
+  test("disables execute action when LLM execution is unavailable", () => {
+    renderIdle({
+      execute: { available: false, reason: "LLM access disabled by MEMORY_LLM_DISABLED=true" },
+    });
+
+    render(<CompilePage />);
+
+    const primary = screen.getAllByRole("button", { name: /run compile now/i })[0];
+    expect(primary).toBeDisabled();
+    expect(primary).toHaveAttribute("title", "LLM access disabled by MEMORY_LLM_DISABLED=true");
+  });
+
+  test("keeps prompt-only artifact mode as a secondary action", () => {
+    const mutate = vi.fn();
+    renderIdle();
+    compileHook.useRunCompileNow.mockReturnValue({
+      mutate,
+      isPending: false,
+      data: null,
+      error: null,
+    });
+
+    render(<CompilePage />);
+    fireEvent.click(screen.getByRole("button", { name: /generate prompt only/i }));
+
+    expect(mutate).toHaveBeenCalledWith({ execute: false });
   });
 });
