@@ -34,6 +34,7 @@ describe("logObservation", () => {
     const content = await readFile(join(rawDir, files[0]!), "utf-8");
     expect(content).toContain("remember this");
     expect(content).toContain("tags: a, b");
+    expect(content).toContain("observed_at:");
   });
 
   it("uses source field to set tool name in filename", async () => {

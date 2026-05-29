@@ -80,6 +80,7 @@ export function formatObservationBlock(input: {
   const meta = [
     input.tags && input.tags.length > 0 ? `tags: ${input.tags.join(", ")}` : null,
     input.confidence !== undefined ? `confidence: ${input.confidence}` : null,
+    `observed_at: ${input.now.toISOString()}`,
   ].filter(Boolean);
   const metaLine = meta.length > 0 ? `_${meta.join(" · ")}_\n\n` : "";
   return `\n## [${ts}] Observation\n\n${metaLine}${input.text}\n`;
