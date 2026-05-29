@@ -126,11 +126,15 @@ describe("Sidebar status pill", () => {
   });
 
   test("links recent error state to filtered audit entries", () => {
+    // Relative-recent timestamp so the test is deterministic regardless of
+    // wall-clock: the component's hasRecentErrorLog compares against Date.now()
+    // with a 24h window, so a hardcoded date eventually ages out of "recent".
+    const recentIso = new Date(Date.now() - 60 * 60 * 1000).toISOString();
     mockUseStatus.mockReturnValue(statusQuery({
       ...makeStatusWithoutSidecar(),
       errorsLog: {
         sizeBytes: 120,
-        lastLine: "2026-05-28T10:00:00.000Z fatal compile error",
+        lastLine: `${recentIso} fatal compile error`,
         isClean: false,
       },
     }));

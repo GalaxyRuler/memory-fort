@@ -642,12 +642,12 @@ Dashboard scheduling is controlled by:
 
 ```yaml
 compile:
-  scheduled: true
+  scheduled: false
   cadence: daily # daily | weekly | manual
 ```
 
-`scheduled: true` and `cadence: daily` are the defaults. The dashboard
-scheduler invokes the same compile prompt assembly path as the CLI, writes the
+`scheduled: false` and `cadence: daily` are the defaults. When explicitly
+enabled, the dashboard scheduler invokes the same compile prompt assembly path as the CLI, writes the
 scheduled prompt artifact under `state/`, updates `state/compile-state.json`,
 and appends a compile line to `log.md`. The `/memory/compile` page shows the
 configured cadence and can trigger `POST /api/compile/run` to generate a prompt

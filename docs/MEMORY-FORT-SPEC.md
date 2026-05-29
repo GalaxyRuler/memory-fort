@@ -198,7 +198,7 @@ Adapter pattern (`Sniffer` interface: `available()`, `list({since,limit})`, opti
 
 The compile prompt is **append-only by contract**: never rewrite/delete existing content, only add dated `## [<date>] update` sections; never invent relations; never leak secrets; new pages start `confidence 0.5–0.7`.
 
-**`src/compile/execute.ts`** (Phase 4.4) — `CompileOperation` discriminated union: `write_page` (create; refuses if target exists), `append_page` (preserve body + append section), `update_index`, `append_log`. Each operation is **grounded** (`filterWikiReferencesToExisting` + `stripProsePathLeaksFromText`), **secret-redacted** (today: `KEY=value` secret assignments and bare `sk-…` tokens → `[REDACTED]`; **`AIza*`/`ghp_*`/`Bearer`/PEM are NOT yet covered — gap tracked in Phase 4.9**), **path-guarded** (no `..`/absolute/drive paths), and **confidence-gated**: high-confidence applies directly, low-confidence stages to `wiki/compile-proposed/`. `src/compile/canonicalize.ts` assigns per-source confidence tiers (manual 0.85, crystal 0.9, claude-code/codex 0.75, antigravity 0.6, unknown 0.5) and topic/tool tags.
+**`src/compile/execute.ts`** (Phase 4.4/4.9) — `CompileOperation` discriminated union: `write_page` (create; refuses if target exists), `append_page` (preserve body + append section), `update_index`, `append_log`. Each operation is **grounded** (`filterWikiReferencesToExisting` + `stripProsePathLeaksFromText`), **secret-redacted** (`KEY=value` secret assignments, bare `sk-…` tokens, Google `AIza…` keys, GitHub `gh[p|o|s|u|r]_…` tokens, `Bearer …` tokens, Slack `xox…` tokens, and PEM private-key blocks → `[REDACTED]`), **path-guarded** (no `..`/absolute/drive paths), and **confidence-gated**: high-confidence applies directly, low-confidence stages to `wiki/compile-proposed/`. `src/compile/canonicalize.ts` assigns per-source confidence tiers (manual 0.85, crystal 0.9, claude-code/codex 0.75, antigravity 0.6, unknown 0.5) and topic/tool tags.
 
 ### Narrative threads (Phase 4.3.D)
 
@@ -287,7 +287,7 @@ Single Node HTTP server, **bound to `127.0.0.1:4410`** (reachable externally onl
 **SSR fallback (HTML):** `/wiki`, `/wiki/:cat/:slug`, `/raw`, `/raw/:date/:file`, `/log`. **Static:** `/assets/*` (immutable), `/*` SPA fallback.
 
 - **`sameOriginAllowed`** guards all writes. *Known issue (Phase 4.3.T, queued):* compares the browser `Origin` against the backend-reconstructed `http://<host>`, which fails behind TLS-terminating proxies (Tailscale Serve) — fix reconstructs via `X-Forwarded-Proto/Host`.
-- **`config-patch.ts`** — safelist enforcement, validation, atomic write + 5-backup retention, rejects secret-like keys.
+- **`config.ts` / `config-patch.ts`** — `config.yaml` parse failures are visible on stderr + `errors.log`; known-field validation warns on invalid provider/range values while preserving forward-compatible unknown keys. Dashboard config edits use safelist enforcement, validation, atomic write + 5-backup retention, and reject secret-like keys.
 - **`loaders.ts`** — `DashboardStatus` shape; `redactConfig` (Phase 4.3.M) — name-based recursive redaction of any `api_key|secret|*_token|password|credential|private_key` at any depth (preserves `max_tokens`).
 - **`auto-promote-scheduler.ts`** — weekly/daily/manual scheduler; runs propose `--auto-promote` and scheduled compile (compile first, then promote, never concurrent); wires `commitVaultChange`; errors → `errors.log`, never crashes.
 - **`proposed.ts`** — reads draft dirs, scores confidence, executes promote/reject moves. **`providers-catalog.ts`** — reflects env for available providers.
@@ -325,7 +325,7 @@ Overview redesign (Phase 4.3.K): graph health is collapsed-by-default (localStor
 
 `ALL_CHECKS` registry; each is `{id, label, roles, run()→CheckResult|CheckResult[]}` with status pass|warn|fail. **Two roles:** `server` (vault/sync/search/dashboard — 11 checks) and `operator` (adds client-capture checks — 27 total). The registry is invariant-tested by `registry.test.ts` (must be updated when adding a check).
 
-Core checks: `vault.read-write`, `dashboard.status`, `search.pipeline`, `episodic.relations.coverage`, `freshness.staleness`, `prospective.overdue`, `graph.cohesion` (aggregates the 13 metrics), `retrieval.intent-classifier-health`, `frontmatter.source`, `storage.atomic-write-retries` (4.3.L), `compile.recent`, `compile.execute-health` (4.4), `autopush.errors`, `sync.uncommitted-vault` (4.3.R), `git.remote`. Operator-only client checks: `client.{claude-code,codex,antigravity,vscode,claude-desktop}.*` + `sniffer.*`.
+Core checks: `vault.read-write`, `config.valid`, `dashboard.status`, `search.pipeline`, `episodic.relations.coverage`, `freshness.staleness`, `prospective.overdue`, `graph.cohesion` (aggregates the 13 metrics), `retrieval.intent-classifier-health`, `frontmatter.source`, `storage.atomic-write-retries` (4.3.L), `compile.recent`, `compile.execute-health` (4.4), `autopush.errors`, `sync.uncommitted-vault` (4.3.R), `git.remote`. Operator-only client checks: `client.{claude-code,codex,antigravity,vscode,claude-desktop}.*` + `sniffer.*`.
 
 ---
 
@@ -370,6 +370,8 @@ dashboard:
 
 - **API keys env-only.** Never in config.yaml, never in API responses (`redactConfig` redacts any secret-named field at any depth), never in logs (audit log stores hashes only). `resolveVoyageApiKey` reads env only (Phase 4.3.M).
 - **Same-origin guard** on all mutating endpoints (CSRF). No auth beyond same-origin; the dashboard binds 127.0.0.1 and is exposed only via the operator's private Tailscale tailnet.
+- **Deployment threat model.** The VPS dashboard is single-operator, localhost-bound, and intended only for private Tailscale Serve exposure. There is no token auth, mTLS, or public-Internet auth boundary today; remote non-tailnet exposure is unsupported until an explicit auth layer is added.
+- **Systemd defense-in-depth.** VPS units run with `NoNewPrivileges`, private tmp, strict system protection, read-only home, restricted address families/namespaces, and narrow write paths. They currently keep `User=root` to avoid risky live ownership migration under `/root/memory-system`; a dedicated `memory` user is the follow-up path.
 - **No permanent deletions** by automation — merges rewrite references, rejects move to archive, compile is append-only. git is the backstop.
 - **LLM grounding** — every machine-proposed structural reference is verified against the real corpus before write; secrets redacted from compiled bodies.
 - **Kill switches** — `MEMORY_LLM_DISABLED=true` disables all LLM features; `MEMORY_LLM_DEBUG_LOG=1` is the only path to plaintext LLM logs (default off, mode 0600).
@@ -380,7 +382,8 @@ dashboard:
 ## 17. Deployment
 
 - **`memory install <platform>`** wires hooks + the `memory` MCP into each client's config (Claude Code plugin, Codex `config.toml`, Antigravity, VS Code, Claude Desktop).
-- **`memory install-vps`** lays out `/root/memory-system/` over SSH: `services/dashboard.mjs` (loader) + `dashboard-bundle.mjs` (the bundled server, **not** a git checkout of `src/`), `dist/dashboard-ui/` (built SPA), `env/voyage.env`, the `memory.git` bare repo + post-receive hook, and the `memory-dashboard.service` systemd unit (port 4410). *Server-side npm deps (`openai`, `voyageai`) must be installed on the VPS — they are not bundled.*
+- **`memory install-vps`** lays out `/root/memory-system/` over SSH: `services/dashboard.mjs` (loader) + `dashboard-bundle.mjs` (the bundled server, **not** a git checkout of `src/`), `dist/dashboard-ui/` (built SPA), `env/voyage.env` (directory `0700`, files `0600`), the `memory.git` bare repo + post-receive hook, and hardened `memory-dashboard.service` / `memory-backup.service` units (port 4410). *Server-side npm deps (`openai`, `voyageai`) must be installed on the VPS — they are not bundled.*
+- **Backups fail closed.** `memory-backup.sh` writes a temporary tarball, verifies it is non-empty and listable with `tar -tzf`, moves it into place only after verification, then rotates old archives. `env/` is included, so backup files are sensitive and should remain permission-restricted; encryption is a future hardening option. Operators can dry-verify an archive with `/root/memory-system/services/memory-backup.sh --verify /root/memory-system/backups/<archive>.tar.gz` and monitor with `systemctl status memory-backup.timer` plus `journalctl -u memory-backup`.
 - **`memory install-tailscale-route`** adds `tailscale serve /memory → http://127.0.0.1:4410`.
 - **Deploy model:** the dashboard runs a pre-built bundle. To ship: `npm run build` + `build:ui` locally → `scp dist/dashboard/server.mjs` to `services/dashboard-bundle.mjs` + `scp` the UI dist → `systemctl restart memory-dashboard`. Vault content updates separately via git push → post-receive checkout. *(The CLI's chunked-upload path in `install-vps` has a known bash-quoting bug; scp directly.)*
 
