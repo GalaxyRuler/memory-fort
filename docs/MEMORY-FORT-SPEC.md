@@ -193,8 +193,8 @@ Adapter pattern (`Sniffer` interface: `available()`, `list({since,limit})`, opti
 
 `runCompile` (`src/cli/commands/compile.ts`): walks `raw/` since the last compile (per-file 10 KB / total 200 KB caps), renders `templates/prompts/compile.md` with schema + index + log + raw. Two modes:
 
-- **Artifact mode** (default): prints the rendered prompt to stdout (or writes to a file when `--output <path>` is given) for an agent to execute.
-- **Execute mode** (Phase 4.4, opt-in `--execute`): sends the prompt to the LLM, parses `compile-ops`, applies them.
+- **Artifact mode** (default): prints the rendered prompt to stdout (or writes to a file when `--output <path>` is given) for an agent to execute. The dashboard keeps this as the secondary **Generate prompt only** action and returns the scheduled prompt artifact path.
+- **Execute mode** (Phase 4.4, opt-in `--execute`; dashboard primary action in Phase 4.13): sends the prompt to the LLM, parses `compile-ops`, applies high-confidence operations directly, and stages low-confidence operations in `wiki/compile-proposed/`.
 
 The compile prompt is **append-only by contract**: never rewrite/delete existing content, only add dated `## [<date>] update` sections; never invent relations; never leak secrets; new pages start `confidence 0.5–0.7`.
 
@@ -282,14 +282,14 @@ Single Node HTTP server, **bound to `127.0.0.1:4410`** (reachable externally onl
 **Health/status:** `GET /healthz` · `GET /api/health?role=operator|server` (503 on fail; cached ~25 s) · `GET /api/status` · `GET /api/config` (redacted).
 **Config (same-origin guarded):** `PATCH /api/config` — safelist `embedder.*`, `llm.*`, `auto_promote.*`, `compile.*`, `dashboard.trusted_origins`; atomic write; keeps 5 backups.
 **Proposed (same-origin guarded on POST):** `GET /api/proposed/{threads,procedures,compile,summary}` · `POST /api/proposed/{promote,reject}`.
-**Compile (same-origin guarded):** `POST /api/compile/run` (`{execute?}`, 409 on concurrent) · `GET /api/compile/state`.
+**Compile (same-origin guarded):** `POST /api/compile/run` (`{execute?}`, 409 on concurrent; returns raw included/skipped/remaining, ops applied/staged, references stripped, and prompt artifact path) · `GET /api/compile/state` (includes schedule + execute availability/reason).
 **Graph/search/content:** `GET /api/graph`, `/api/graph-health`, `/api/search`, `/api/wiki`, `/api/page/wiki/*`, `/api/raw`, `/api/raw/:date/:filename`, `/api/activity`, `/api/timeline`, `/api/log`, `/api/conflicts`, `/api/maintenance/scan`, `/api/sync-state`, `/api/providers`.
 **SSR fallback (HTML):** `/wiki`, `/wiki/:cat/:slug`, `/raw`, `/raw/:date/:file`, `/log`. **Static:** `/assets/*` (immutable), `/*` SPA fallback.
 
 - **`sameOriginAllowed`** guards all writes. *Known issue (Phase 4.3.T, queued):* compares the browser `Origin` against the backend-reconstructed `http://<host>`, which fails behind TLS-terminating proxies (Tailscale Serve) — fix reconstructs via `X-Forwarded-Proto/Host`.
 - **`config.ts` / `config-patch.ts`** — `config.yaml` parse failures are visible on stderr + `errors.log`; known-field validation warns on invalid provider/range values while preserving forward-compatible unknown keys. Dashboard config edits use safelist enforcement, validation, atomic write + 5-backup retention, and reject secret-like keys.
 - **`loaders.ts`** — `DashboardStatus` shape; `redactConfig` (Phase 4.3.M) — name-based recursive redaction of any `api_key|secret|*_token|password|credential|private_key` at any depth (preserves `max_tokens`).
-- **`auto-promote-scheduler.ts`** — weekly/daily/manual scheduler; runs propose `--auto-promote` and scheduled compile (compile first, then promote, never concurrent); wires `commitVaultChange`; errors → `errors.log`, never crashes.
+- **`auto-promote-scheduler.ts`** — weekly/daily/manual scheduler; runs propose `--auto-promote` and scheduled compile (compile first, then promote, never concurrent); scheduled compile uses `runScheduledCompileOnce` and only executes LLM writes when `compile.execute: true`; wires `commitVaultChange`; errors → `errors.log`, never crashes.
 - **`proposed.ts`** — reads draft dirs, scores confidence, executes promote/reject moves. **`providers-catalog.ts`** — reflects env for available providers.
 
 ---
@@ -300,7 +300,7 @@ Single Node HTTP server, **bound to `127.0.0.1:4410`** (reachable externally onl
 
 **Routes:** `/` (Overview) · `/search` · `/wiki` (category-grouped) · `/wiki/:cat/:slug` · `/raw` · `/raw/:date/:file` · `/graph` · `/timeline` · `/activity` · `/sessions` · `/crystals` · `/audit` · `/compile` · `/conflicts` · `/maintenance` · `/health` · `/inbox` · `__root` (AppShell).
 
-**Key components:** `InboxPage` (proposed threads/procedures with confidence badges + one-click promote/reject; **compile proposals are surfaced for manual review only — no one-click promote/reject action**), `SettingsPage` (+ `EmbedderConfigCard`, `LLMConfigCard`, auto-promote card, compile card), `GraphHealthPanel`, `CompilePage` (state + run-now), `WikiBrowsePage` (category grouping), long-list pages (`RawBrowsePage`/`ActivityFeedPage`/`SessionsPage`/`AuditPage` with cursor pagination, Phase 4.3.K), `Sidebar` (nav + status pill + inbox badge), `TopBar`.
+**Key components:** `InboxPage` (proposed threads/procedures with confidence badges + one-click promote/reject; **compile proposals are surfaced for manual review only — no one-click promote/reject action**), `SettingsPage` (+ `EmbedderConfigCard`, `LLMConfigCard`, auto-promote card, compile card), `GraphHealthPanel`, `CompilePage` (state, confirm-before-execute run-now, prompt-only artifact action, result summary + staged inbox link), `WikiBrowsePage` (category grouping), long-list pages (`RawBrowsePage`/`ActivityFeedPage`/`SessionsPage`/`AuditPage` with cursor pagination, Phase 4.3.K), `Sidebar` (nav + status pill + inbox badge), `TopBar`.
 
 **Hooks (`hooks/`):** `useProposed`, `useProposedCompile`, `useCompileState`, `useUpdateConfig`, `useConfig`, `useSearch`, `useActivity`, `useGraph`, `useGraphHealth`, `useStatus`, `useHealth`, etc. **Lib:** `api.ts` (apiGet/Patch/Post + ApiError), `pagination.ts`, `nav-items.ts`.
 
@@ -402,6 +402,7 @@ dashboard:
 - **Phase 4.6** — relation-edge alignment (shipped): validator/lint/grounding accept and preserve rich `RelationEdge` objects.
 - **Phase 4.7** — config and telemetry hardening (shipped): `js-yaml` config parsing, LLM pricing table with unknown-cost summaries, `.audit` archive rotation.
 - **Phase 4.8** — feedback-loop freshness (shipped): preference-tagged raw observations have their own session-start budget, observation blocks store `observed_at`, recent memory sorts by write-recency with mtime fallback, and BM25 lexical search includes fresh unembedded files.
+- **Phase 4.13** — dashboard run-compile executes (shipped): `/memory/compile` primary action confirms then posts `{execute:true}`, shows raw/op/reference summaries and staged inbox links, disables execute when LLM config is unavailable, and keeps prompt-only generation secondary.
 - **Phase 5** — deferred until evidence (advanced sniffers, eval harness).
 
 ---

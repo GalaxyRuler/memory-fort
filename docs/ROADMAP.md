@@ -156,7 +156,7 @@ This phase is intentionally **not pre-sequenced**. The order depends on which me
 10. **Windows-safe atomic writes.** Shipped 2026-05-28. `atomicWrite` now retries transient Windows rename races (`EPERM`, `EACCES`, `EBUSY`, `ENOENT`) with short backoff and exposes `storage.atomic-write-retries` in verify/health reports.
 11. **Config secret redaction hardening.** Shipped 2026-05-28. `GET /api/config` now redacts secret-named fields at any depth, `max_tokens` remains visible, and Voyage credentials resolve from `VOYAGE_API_KEY` only.
 12. **Entity dedup workflow.** Shipped 2026-05-28. Duplicate entity candidates can be planned, written to a review file, merged one canonical target at a time, and audited through `wiki/.entity-aliases.json` without deleting pages or observations.
-13. **Scheduled compile cadence.** Shipped 2026-05-28. Dashboard startup schedules daily compile prompt generation by default, Settings exposes compile cadence, `/memory/compile` shows scheduler state, and `POST /api/compile/run` supports a guarded manual trigger.
+13. **Scheduled compile cadence.** Shipped 2026-05-28. Dashboard startup supports scheduled compile prompt generation, Settings exposes compile cadence, `/memory/compile` shows scheduler state, and `POST /api/compile/run` supports a guarded manual trigger.
 14. **Typecheck cleanup + gate.** Shipped 2026-05-28. Pre-existing verify/eval/migration type drift is cleaned up, `npm run typecheck` runs `tsc --noEmit`, and development docs include the pre-merge gate.
 15. **Audit logs excluded from entity enumeration.** Shipped 2026-05-28. `wiki/.audit/` and other wiki dot-directories are treated as operational space, so graph-health duplicate-entity checks and entity-dedup plans no longer propose audit-log merges.
 16. **Vault mutation auto-commit.** Shipped 2026-05-29. Reviewed thread/procedure/entity mutations commit explicit vault paths after successful writes, failures log to `errors.log` without blocking the operator action, debounced auto-push is scheduled, and `sync.uncommitted-vault` warns on stale uncommitted vault changes.
@@ -171,6 +171,7 @@ This phase is intentionally **not pre-sequenced**. The order depends on which me
 25. **Config & retention integrity.** Shipped 2026-05-29. `config.yaml` parse/validation failures are surfaced (not silently defaulted) and gated by a new `config.valid` verify check; `memory prune` honors `retention.raw_window_days`; `compile.scheduled` defaults false (opt-in); `compile.execute` is a typed config field.
 26. **VPS ops hardening.** Shipped 2026-05-29. `memory-backup.sh` fails closed (`set -euo pipefail`, verifies the archive is listable before reporting success, rotates only after verification); dashboard + backup systemd units are hardened (NoNewPrivileges, ProtectSystem=strict, ReadWritePaths, PrivateTmp, RestrictAddressFamilies, UMask=0077); `install-vps` chmods env files to 0600.
 27. **Relation-type list unification.** Shipped 2026-05-29. Relation validation and serialization now derive from one canonical 10-type list, with the divergent non-validator `supports` entry removed and parity guarded by tests.
+28. **Manual compile execution.** Shipped 2026-05-29. `/memory/compile` primary **Run compile now** confirms then posts `{execute:true}`, surfaces raw/op/reference summaries and staged inbox links, disables execute when LLM config is unavailable, and keeps prompt-only generation as the secondary action.
 
 **Dependencies:** Phase 3. (Brief C explicitly depends on lifecycle states from Phase 1; narrative threads are most useful once we have the entity registry from Phase 3 if duplicate metric drove that.)
 
@@ -236,7 +237,7 @@ These are small, one-off maintenance items that don't fit the phased model. Pick
 | 2026-05-28 | Overview is a summary, health is a drill-down | Graph-health cards stay collapsed on Overview and navigate to `/memory/health#<metric>`; detailed offender lists live on the dedicated route to keep the first screen scannable |
 | 2026-05-28 | Provider secrets are env-var-only | Dashboard config reads redact secret-named fields defensively, but `config.yaml` no longer advertises or resolves provider API keys |
 | 2026-05-28 | Entity dedup is review-gated | Duplicate detection can propose merges, but only `memory entity merge <canonical>` rewrites relations and records aliases; no content is deleted |
-| 2026-05-28 | Compile scheduling reuses the dashboard scheduler | Daily compile prompt generation is on by default and serialized with auto-promote so vault-writing maintenance jobs do not overlap |
+| 2026-05-28 | Compile scheduling reuses the dashboard scheduler | Compile prompt generation is serialized with auto-promote so vault-writing maintenance jobs do not overlap; scheduling is now opt-in by default |
 | 2026-05-28 | Auto-promote is confidence-gated, dashboard review handles the rest | Clean drafts need zero stripped references, zero prose path leaks, zero stripped commands, at least 5 observations, and at least 2 sessions; anything else stays proposed until the operator promotes or rejects it |
 | 2026-05-28 | Windows rename races are retried at the storage primitive | Readers can briefly block rename on Windows, so `atomicWrite` retries transient rename errors locally while preserving rename-based atomic writes and surfacing exhaustion through verify |
 | 2026-05-28 | Typecheck is a separate pipeline gate | `tsdown` remains the fast transpile build; `npm run typecheck` is the explicit `tsc --noEmit` gate for source-level type drift |
@@ -244,6 +245,7 @@ These are small, one-off maintenance items that don't fit the phased model. Pick
 | 2026-05-29 | Relation-edge objects are canonical-compatible | Validators, lint checks, graph helpers, and compile execution use the shared relation parser so metadata-bearing edges are not silently downgraded or dropped |
 | 2026-05-29 | Unknown LLM cost is not free | Audit summaries show unknown-priced calls separately from real `$0.0000` local/Ollama calls; old audit logs are archived rather than deleted by `provider audit-rotate` |
 | 2026-05-29 | Fresh memory must be lexically available before embeddings catch up | Session-start uses bounded raw observation reads with true write-recency, and search BM25 includes readable markdown files even when vector rows are missing |
+| 2026-05-29 | Dashboard compile's primary action executes | `/memory/compile` separates confirmed LLM execution from secondary prompt-artifact generation and reports applied/staged operations plus remaining raw work |
 
 ---
 

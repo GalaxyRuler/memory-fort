@@ -645,15 +645,23 @@ Dashboard scheduling is controlled by:
 compile:
   scheduled: false
   cadence: daily # daily | weekly | manual
+  execute: false
 ```
 
 `scheduled: false` and `cadence: daily` are the defaults. When explicitly
-enabled, the dashboard scheduler invokes the same compile prompt assembly path as the CLI, writes the
-scheduled prompt artifact under `state/`, updates `state/compile-state.json`,
-and appends a compile line to `log.md`. The `/memory/compile` page shows the
-configured cadence and can trigger `POST /api/compile/run` to generate a prompt
-immediately. Scheduled compile work is serialized with auto-promote proposal
-runs so vault-writing operations do not overlap.
+enabled, the dashboard scheduler invokes the same `runScheduledCompileOnce`
+path as the CLI, writes the scheduled prompt artifact under `state/`, updates
+`state/compile-state.json`, and appends a compile line to `log.md`. Scheduler
+defaults remain prompt-artifact only; scheduled LLM execution happens only when
+`compile.execute: true`.
+
+The `/memory/compile` page shows the configured cadence. Its primary **Run
+compile now** action confirms with the operator, then posts
+`POST /api/compile/run` with `{ execute: true }` so high-confidence operations
+apply directly and low-confidence operations stage in `wiki/compile-proposed/`.
+Its secondary **Generate prompt only** action posts `{ execute: false }` and
+returns the scheduled prompt artifact path. Scheduled compile work is serialized
+with auto-promote proposal runs so vault-writing operations do not overlap.
 
 ---
 
