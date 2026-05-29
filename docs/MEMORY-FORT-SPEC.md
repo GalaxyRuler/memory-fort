@@ -398,6 +398,7 @@ dashboard:
 - **Phase 4.5** — memory feedback loop (shipped): commit observations on write, surface preferences + recent memory at session-start, durable `wiki/preferences.md`, search defaults to no-rerank for bounded latency.
 - **Phase 4.6** — relation-edge alignment (shipped): validator/lint/grounding accept and preserve rich `RelationEdge` objects.
 - **Phase 4.7** — config and telemetry hardening (shipped): `js-yaml` config parsing, LLM pricing table with unknown-cost summaries, `.audit` archive rotation.
+- **Phase 4.8** — feedback-loop freshness (shipped): preference-tagged raw observations have their own session-start budget, observation blocks store `observed_at`, recent memory sorts by write-recency with mtime fallback, and BM25 lexical search includes fresh unembedded files.
 - **Phase 5** — deferred until evidence (advanced sniffers, eval harness).
 
 ---
@@ -406,5 +407,6 @@ dashboard:
 
 - **`/api/health` returns 503 on data-quality failures** (conflates liveness with data quality) — dormant, latent.
 - **Compile execution** is opt-in and uses parse-reserialize-append rather than a strict byte-prefix assertion (functionally append-only; tightening follow-up noted).
+- **Vector recall freshness** still depends on provider availability and embedding refresh; BM25 lexical search covers fresh raw/wiki/crystal files immediately without requiring a reindex.
 - **Test discipline:** the bundler does not typecheck and focused test runs have missed affected files repeatedly — always run the full suite + `npm run typecheck` before landing.
 ```

@@ -166,6 +166,7 @@ This phase is intentionally **not pre-sequenced**. The order depends on which me
 20. **Memory feedback loop.** Shipped 2026-05-28. MCP observations commit their raw files on write, MCP search defaults to the fast no-rerank path, `wiki/preferences.md` is seeded and always surfaced at session start, and a bounded "What you should remember" block injects preference-tagged memory plus recent high-confidence observations before compile curates them.
 21. **Relation-edge alignment.** Shipped 2026-05-29. Frontmatter validation, lint checks, curation graph helpers, and compile-execute grounding now tolerate rich `RelationEdge` objects, preserve grounded metadata-bearing entries, and count stripped unresolved object targets.
 22. **Config and telemetry hardening.** Shipped 2026-05-29. `config.yaml` now uses `js-yaml` JSON schema parsing, LLM audit costs come from a static provider/model pricing table with unknown costs rendered distinctly from local zero-cost calls, and `memory provider audit-rotate` archives old `.audit` logs by family.
+23. **Feedback-loop freshness.** Shipped 2026-05-29. Preference-tagged raw observations now have an independent session-start budget, new observation blocks record `observed_at`, recent-memory ordering uses write-recency with mtime fallback for older/manual blocks, and BM25 lexical search returns fresh unembedded raw/wiki/crystal files without waiting for vector refresh.
 
 **Dependencies:** Phase 3. (Brief C explicitly depends on lifecycle states from Phase 1; narrative threads are most useful once we have the entity registry from Phase 3 if duplicate metric drove that.)
 
@@ -238,6 +239,7 @@ These are small, one-off maintenance items that don't fit the phased model. Pick
 | 2026-05-28 | Wiki dot-directories are operational space | `wiki/.audit/` and future `wiki/.<dir>/` paths are excluded from entity and graph-health enumeration while direct audit readers can still inspect them intentionally |
 | 2026-05-29 | Relation-edge objects are canonical-compatible | Validators, lint checks, graph helpers, and compile execution use the shared relation parser so metadata-bearing edges are not silently downgraded or dropped |
 | 2026-05-29 | Unknown LLM cost is not free | Audit summaries show unknown-priced calls separately from real `$0.0000` local/Ollama calls; old audit logs are archived rather than deleted by `provider audit-rotate` |
+| 2026-05-29 | Fresh memory must be lexically available before embeddings catch up | Session-start uses bounded raw observation reads with true write-recency, and search BM25 includes readable markdown files even when vector rows are missing |
 
 ---
 

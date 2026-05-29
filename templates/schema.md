@@ -366,7 +366,9 @@ Deliberate MCP observations are committed on write. `memory.log_observation`
 appends to the relevant `raw/YYYY-MM-DD/<tool>-<session>.md` file, then makes a
 best-effort vault commit for that raw file. Commit failure is logged without
 blocking the observation, and the debounced sync path can still propagate the
-commit later.
+commit later. New observation blocks include an `observed_at` ISO timestamp in
+their metadata line so consumers can sort by write-recency instead of only by
+raw file name or coarse heading time.
 
 Session-start injection is bounded and layered:
 
@@ -375,20 +377,24 @@ Session-start injection is bounded and layered:
 - `log.md` is tailed to the last 20 lines.
 - `wiki/preferences.md` is always surfaced when present, even if it is absent
   from `index.md`.
-- The "What you should remember" block surfaces preference-tagged pages or
-  observations plus the most recent high-confidence raw observations. Counts and
-  excerpts are capped so raw capture does not flood the prompt.
+- The "What you should remember" block surfaces preference-tagged pages and
+  preference-tagged observations with independent caps, plus the most recent
+  high-confidence raw observations. Counts and excerpts are capped so raw
+  capture does not flood the prompt.
 
 Use `wiki/preferences.md` for durable behavior-shaping directives. Keep entries
 short, actionable, tagged `preference` when they live elsewhere, and grounded in
 operator instructions. Raw observations become visible immediately through the
-recent-observations block; compile can later curate durable facts into wiki
-pages.
+recent-observations block and exact-token lexical search; compile can later
+curate durable facts into wiki pages.
 
 MCP `memory.search` defaults to `no_rerank=true` for latency-sensitive recall,
 which keeps typical calls within the MCP client timeout by using BM25, vectors,
 graph, exact, and metadata fusion without the slower Voyage rerank step. Callers
-can pass `no_rerank=false` when they need the higher-latency rerank path.
+can pass `no_rerank=false` when they need the higher-latency rerank path. BM25
+indexes every raw/wiki/crystal markdown file it can read, including files that
+do not yet have embeddings; vector scoring skips only the missing embedding
+rows until the normal embedding refresh catches up.
 
 ### Diagnostic env vars
 
