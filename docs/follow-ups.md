@@ -8,6 +8,8 @@ Update this file whenever a real issue is observed but deferred. Keep entries te
 
 ## Open
 
+> **Status (2026-05-29):** Genuinely open: **F5** (`MEMORY_*_DIR` override pattern), **F6** (orphan raw checkpoint file), **F21** (search-quality thresholds hardcoded in `runSearch`). Every other F-item below is **resolved** — struck through with its resolving commit. They remain in place (not yet relocated to `## Resolved`) for the audit trail; treat any struck-through entry as done.
+
 ### F1. ~~PostToolUse hook captures empty `**Output:**` block (Claude Code)~~ — RESOLVED at d243ae2
 
 **Discovered:** 2026-05-21 step #7-fix checkpoint. **Resolved:** 2026-05-21 at step #16.5 (`d243ae2`) — the field-fallback chain in `readToolOutput` (`tool_output ?? tool_response ?? output`) picked up Claude Code's payload shape. Verified at `c08532d` regression test: real headless Claude session produced `claude-code-ef879585-7049-4bd5-a083-3e2698f7a296.md` with the Output section populated (stdout, stderr, interrupted, isImage fields). Same fix that closed F7 (Codex) also closed F1 (Claude Code) — that's the value of platform-agnostic fallback chains over per-platform branching.

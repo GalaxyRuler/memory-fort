@@ -16,6 +16,29 @@ If `errors.log` has recent entries, the hook command failed but didn't break the
 
 ---
 
+## Using `memory verify` for diagnostics
+
+`memory verify` runs structural + operational checks for your role and prints a `✓ / ⚠ / ✗` line per check with a fix hint.
+
+```bash
+memory verify                  # all checks for your role (default: operator)
+memory verify --role server    # vault / sync / search / dashboard only (no client-capture checks)
+memory verify --json           # machine-readable
+```
+
+Checks worth knowing when something looks off:
+
+- **`storage.atomic-write-retries`** — Windows file-write retry rate. Transient `EPERM/EACCES/EBUSY/ENOENT` are retried automatically (50/150/400 ms); a high rate (≥10%) points at Defender/OneDrive/file-lock contention.
+- **`sync.uncommitted-vault`** — warns when vault mutations sit uncommitted >10 min (a write that bypassed the commit path). Run `memory sync`.
+- **`config.valid`** — `config.yaml` parses + validates. A malformed file is reported here instead of silently reverting to defaults.
+- **`compile.recent`** — fails when compile is >1 week stale. Run `memory compile --execute` (or the dashboard "Run compile now").
+- **`compile.execute-health`** — executed-compile success/strip rate.
+- **`retrieval.intent-classifier-health`** — query-intent classifier readiness.
+
+Note: `/api/health` returns 503 when any check fails (including data-quality checks like `graph.cohesion`), so a 503 doesn't always mean the server is down — read the failing check.
+
+---
+
 ## Symptom: hooks don't fire when I use Claude Code / Codex
 
 ### Step 1: Verify the install
