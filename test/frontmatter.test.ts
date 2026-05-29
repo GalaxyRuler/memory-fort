@@ -123,6 +123,47 @@ describe("frontmatter", () => {
     });
     expect(r.valid).toBe(false);
   });
+
+  it("accepts relation-edge objects with metadata", () => {
+    const r = validateFrontmatter({
+      ...valid,
+      relations: {
+        mentions: [
+          "wiki/projects/memory-fort.md",
+          {
+            target: "wiki/decisions/config-hardening.md",
+            confidence: 0.8,
+            valid_from: "2026-05-29",
+            source: {
+              agent: "codex",
+              session_id: "session-1",
+              captured_at: "2026-05-29T10:00:00.000Z",
+            },
+          },
+        ],
+      },
+    });
+
+    expect(r.valid).toBe(true);
+  });
+
+  it("rejects malformed relation-edge objects", () => {
+    const r = validateFrontmatter({
+      ...valid,
+      relations: {
+        mentions: [
+          { confidence: 0.8 },
+          { target: "" },
+          42,
+        ],
+      },
+    });
+
+    expect(r.valid).toBe(false);
+    if (!r.valid) {
+      expect(r.errors).toContain("relations.mentions must contain only string page paths or relation-edge objects with target");
+    }
+  });
 });
 
 describe("frontmatter YAML date coercion", () => {

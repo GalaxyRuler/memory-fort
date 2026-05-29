@@ -89,6 +89,25 @@ describe("checkFrontmatter", () => {
     ]);
     expect(issues.some((i) => i.message.includes("bogus"))).toBe(true);
   });
+
+  it("accepts relation-edge objects in frontmatter checks", () => {
+    const issues = checkFrontmatter([
+      page("projects/a.md", {
+        ...valid,
+        relations: {
+          mentions: [
+            {
+              target: "wiki/projects/b.md",
+              confidence: 0.8,
+              valid_from: "2026-05-29",
+            },
+          ],
+        },
+      }),
+    ]);
+
+    expect(issues).toEqual([]);
+  });
 });
 
 describe("checkBrokenLinks", () => {
@@ -225,6 +244,22 @@ describe("checkBrokenRelations", () => {
     expect(issues.length).toBe(1);
     expect(issues[0]!.message).toContain("ghost");
   });
+
+  it("checks relation-edge object targets for broken relations", () => {
+    const pages = [
+      page("projects/a.md", {
+        type: "projects",
+        title: "A",
+        created: "2026-05-21",
+        updated: "2026-05-21",
+        relations: { uses: [{ target: "ghost", confidence: 0.6 }] },
+      }),
+    ];
+
+    const issues = checkBrokenRelations(pages);
+    expect(issues.length).toBe(1);
+    expect(issues[0]!.message).toContain("ghost");
+  });
 });
 
 describe("checkOrphans", () => {
@@ -278,6 +313,26 @@ describe("checkOrphans", () => {
         created: "2026-05-21",
         updated: "2026-05-21",
         relations: { uses: ["projects/b"] },
+      }),
+      page("projects/b.md", {
+        type: "projects",
+        title: "B",
+        created: "2026-05-21",
+        updated: "2026-05-21",
+      }),
+    ];
+    const orphans = checkOrphans(pages).map((i) => i.page);
+    expect(orphans).not.toContain("wiki/projects/b.md");
+  });
+
+  it("does not flag a page with an inbound relation-edge object", () => {
+    const pages = [
+      page("projects/a.md", {
+        type: "projects",
+        title: "A",
+        created: "2026-05-21",
+        updated: "2026-05-21",
+        relations: { uses: [{ target: "projects/b", confidence: 0.6 }] },
       }),
       page("projects/b.md", {
         type: "projects",

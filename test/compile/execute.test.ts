@@ -67,6 +67,60 @@ describe("compile execute operations", () => {
     expect(parsed.body).toContain("[REDACTED]");
   });
 
+  it("preserves grounded relation-edge objects and strips missing targets", async () => {
+    const result = await applyCompileOperations({
+      vaultRoot: tmp,
+      operations: [{
+        kind: "write_page",
+        path: "wiki/lessons/relation-edges.md",
+        frontmatter: {
+          type: "lessons",
+          title: "Relation Edges",
+          relations: {
+            derived_from: [
+              { target: "raw/2026-05-28/a.md", confidence: 0.9 },
+              { target: "raw/2026-05-28/b.md", confidence: 0.9 },
+            ],
+            mentions: [
+              {
+                target: "wiki/projects/memory-fort.md",
+                confidence: 0.8,
+                valid_from: "2026-05-28",
+                source: { agent: "codex", session_id: "session-1" },
+              },
+              {
+                target: "wiki/projects/missing.md",
+                confidence: 0.2,
+                valid_from: "2026-05-28",
+              },
+            ],
+          },
+        },
+        body: "Keep relation metadata intact.",
+      }],
+      now: new Date("2026-05-28T12:00:00.000Z"),
+    });
+
+    expect(result.applied).toEqual(["wiki/lessons/relation-edges.md"]);
+    expect(result.referencesStripped).toBe(1);
+    const written = await readFile(join(tmp, "wiki", "lessons", "relation-edges.md"), "utf-8");
+    const parsed = parseFrontmatter(written);
+    expect(parsed.frontmatter.relations).toEqual({
+      derived_from: [
+        { target: "raw/2026-05-28/a.md", confidence: 0.9 },
+        { target: "raw/2026-05-28/b.md", confidence: 0.9 },
+      ],
+      mentions: [
+        {
+          target: "wiki/projects/memory-fort.md",
+          confidence: 0.8,
+          valid_from: "2026-05-28",
+          source: { agent: "codex", session_id: "session-1" },
+        },
+      ],
+    });
+  });
+
   it("stages low-confidence operations without writing canonical pages", async () => {
     const result = await applyCompileOperations({
       vaultRoot: tmp,

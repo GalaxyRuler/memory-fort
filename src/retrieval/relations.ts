@@ -68,7 +68,7 @@ export function writeRelations(relations: RelationMap): SerializedRelationMap {
   return result;
 }
 
-function readRelationEntry(entry: unknown): RelationEdge | null {
+export function readRelationEntry(entry: unknown): RelationEdge | null {
   if (typeof entry === "string") {
     return entry.trim().length > 0 ? { target: entry } : null;
   }
@@ -102,6 +102,10 @@ function readRelationEntry(entry: unknown): RelationEdge | null {
   );
   if (Object.keys(extra).length > 0) edge._extra = extra;
   return edge;
+}
+
+export function readRelationTarget(entry: unknown): string | null {
+  return readRelationEntry(entry)?.target ?? null;
 }
 
 function readRelationSource(value: unknown): RelationEdgeSource | undefined {

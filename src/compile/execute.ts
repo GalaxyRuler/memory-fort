@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { filterWikiReferencesToExisting, stripProsePathLeaksFromText } from "../llm/proposal-grounding.js";
+import { readRelationTarget, type SerializedRelationEdge } from "../retrieval/relations.js";
 import { atomicWrite } from "../storage/atomic-write.js";
 import { parseFrontmatter, serializeFrontmatter, type Frontmatter } from "../storage/frontmatter.js";
 
@@ -136,12 +137,20 @@ async function groundOperation(
     ? frontmatter.relations as Record<string, unknown>
     : {};
   let referencesStripped = 0;
-  const nextRelations: Record<string, string[]> = {};
+  const nextRelations: Record<string, SerializedRelationEdge[]> = {};
   for (const [key, value] of Object.entries(relations)) {
-    const values = Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
-    const filtered = await filterWikiReferencesToExisting(vaultRoot, values);
-    referencesStripped += filtered.stripped.length;
-    if (filtered.filtered.length > 0) nextRelations[key] = filtered.filtered;
+    const values = Array.isArray(value) ? value : [];
+    const kept: SerializedRelationEdge[] = [];
+    for (const item of values) {
+      const target = readRelationTarget(item);
+      if (!target) continue;
+      const filtered = await filterWikiReferencesToExisting(vaultRoot, [target]);
+      referencesStripped += filtered.stripped.length;
+      if (filtered.filtered.length > 0) {
+        kept.push(item as SerializedRelationEdge);
+      }
+    }
+    if (kept.length > 0) nextRelations[key] = kept;
   }
 
   const cleanedBody = stripProsePathLeaksFromText(redactSecrets(operation.body));
@@ -236,7 +245,9 @@ function hasHighConfidence(operation: CompileOperation): boolean {
   if (typeof relations !== "object" || relations === null) return false;
   const derivedFrom = (relations as Record<string, unknown>).derived_from;
   if (!Array.isArray(derivedFrom)) return false;
-  const rawRefs = derivedFrom.filter((item): item is string => typeof item === "string" && item.startsWith("raw/"));
+  const rawRefs = derivedFrom
+    .map((item) => readRelationTarget(item))
+    .filter((target): target is string => typeof target === "string" && target.startsWith("raw/"));
   return new Set(rawRefs).size >= 2;
 }
 

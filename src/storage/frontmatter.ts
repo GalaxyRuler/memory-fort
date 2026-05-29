@@ -1,7 +1,7 @@
 import matter from "gray-matter";
 import yaml from "js-yaml";
 import type { PageType } from "./paths.js";
-import type { SerializedRelationMap } from "../retrieval/relations.js";
+import { readRelationEntry, type SerializedRelationMap } from "../retrieval/relations.js";
 
 export type EntityType = PageType | "crystal" | "raw-session";
 
@@ -236,8 +236,8 @@ export function validateFrontmatter(
         }
         if (!Array.isArray(v)) {
           errors.push(`relations.${k} must be an array of page paths`);
-        } else if (!(v as unknown[]).every((s) => typeof s === "string")) {
-          errors.push(`relations.${k} must contain only string page paths`);
+        } else if (!(v as unknown[]).every((entry) => readRelationEntry(entry) !== null)) {
+          errors.push(`relations.${k} must contain only string page paths or relation-edge objects with target`);
         }
       }
     }

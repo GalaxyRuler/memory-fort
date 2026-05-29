@@ -8,6 +8,7 @@ import {
 } from "../storage/frontmatter.js";
 import { getConfidenceScore } from "../storage/confidence.js";
 import { wikiDir } from "../storage/paths.js";
+import { readRelationTarget } from "../retrieval/relations.js";
 
 export interface WikiPage {
   /** Relative path under wiki/ (e.g. "projects/agentmemory.md"). Forward slashes. */
@@ -178,8 +179,9 @@ export function checkBrokenRelations(pages: WikiPage[]): LintIssue[] {
       relations as Record<string, unknown>,
     )) {
       if (!Array.isArray(targets)) continue;
-      for (const target of targets as unknown[]) {
-        if (typeof target !== "string") continue;
+      for (const relationEntry of targets as unknown[]) {
+        const target = readRelationTarget(relationEntry);
+        if (!target) continue;
         if (resolveLink(target, idx) === null) {
           issues.push({
             category: "broken-relation",
@@ -214,8 +216,9 @@ export function checkOrphans(pages: WikiPage[]): LintIssue[] {
         relations as Record<string, unknown>,
       )) {
         if (!Array.isArray(targets)) continue;
-        for (const target of targets as unknown[]) {
-          if (typeof target !== "string") continue;
+        for (const relationEntry of targets as unknown[]) {
+          const target = readRelationTarget(relationEntry);
+          if (!target) continue;
           const resolved = resolveLink(target, idx);
           if (resolved) {
             if (!inbound.has(resolved)) inbound.set(resolved, new Set());
@@ -310,8 +313,9 @@ function buildInboundRelationIndex(pages: WikiPage[]): Map<string, RelationEdge[
       relations as Record<string, unknown>,
     )) {
       if (!Array.isArray(targets)) continue;
-      for (const target of targets) {
-        if (typeof target !== "string") continue;
+      for (const relationEntry of targets) {
+        const target = readRelationTarget(relationEntry);
+        if (!target) continue;
         const resolved = resolveLink(target, idx);
         if (!resolved) continue;
         const edges = inbound.get(resolved) ?? [];
@@ -361,8 +365,9 @@ export function checkContradictions(pages: WikiPage[]): CurationConflictRecord[]
     const targets = page.frontmatter.relations?.["contradicts"];
     if (!Array.isArray(targets)) continue;
 
-    for (const target of targets) {
-      if (typeof target !== "string") continue;
+    for (const relationEntry of targets) {
+      const target = readRelationTarget(relationEntry);
+      if (!target) continue;
       const resolved = resolveLink(target, idx);
       if (!resolved) continue;
 
