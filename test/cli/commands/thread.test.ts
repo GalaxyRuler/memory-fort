@@ -1,6 +1,6 @@
 import { execFile as nodeExecFile } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
@@ -177,7 +177,10 @@ describe("thread commands", () => {
     const draft = await readFile(join(tmp, "wiki", "threads-proposed", "memory-fort-settings.md"), "utf-8");
     expect(draft).not.toContain("wiki/decisions/invented.md");
     expect(draft).not.toContain("wiki/lessons/env-secrets.md");
-    const llmAudit = await readFile(join(tmp, "wiki", ".audit", "llm-2026-05-28.md"), "utf-8");
+    const llmAuditFile = (await readdir(join(tmp, "wiki", ".audit")))
+      .find((entry) => /^llm-\d{4}-\d{2}-\d{2}\.md$/.test(entry));
+    expect(llmAuditFile).toBeDefined();
+    const llmAudit = await readFile(join(tmp, "wiki", ".audit", llmAuditFile!), "utf-8");
     expect(llmAudit).toContain("| prose_path_leaks |");
     expect(llmAudit).toContain("wiki/decisions/invented.md");
   });

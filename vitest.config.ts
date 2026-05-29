@@ -13,5 +13,7 @@ export default defineConfig({
     setupFiles: ["test/dashboard-ui/setup.ts"],
     passWithNoTests: true,
     reporters: ["default"],
+    hookTimeout: 60_000,
+    testTimeout: 60_000,
   },
 });

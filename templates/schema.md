@@ -327,6 +327,55 @@ The dashboard defensively redacts any secret-named field returned by
 leak guard only; it does not make `config.yaml` an approved place to store
 secrets.
 
+### Dashboard reverse proxies
+
+The dashboard same-origin guard honors `X-Forwarded-Proto` and
+`X-Forwarded-Host` when they are present. This lets a TLS-terminating reverse
+proxy, such as Tailscale Serve in front of the localhost dashboard, reconstruct
+the browser-visible origin before accepting mutating API requests.
+
+Unusual proxy deployments can add explicit trusted origins:
+
+```yaml
+dashboard:
+  trusted_origins:
+    - https://srv1317946.tail6916d8.ts.net
+```
+
+The list is optional and defaults to empty. Genuine cross-origin requests remain
+blocked unless their `Origin` matches the direct dashboard origin, the forwarded
+effective origin, or one of the configured trusted origins.
+
+### Agent memory feedback loop
+
+Deliberate MCP observations are committed on write. `memory.log_observation`
+appends to the relevant `raw/YYYY-MM-DD/<tool>-<session>.md` file, then makes a
+best-effort vault commit for that raw file. Commit failure is logged without
+blocking the observation, and the debounced sync path can still propagate the
+commit later.
+
+Session-start injection is bounded and layered:
+
+- `schema.md` reminds agents how the vault is structured.
+- `index.md` is emitted through the confidence-aware filter.
+- `log.md` is tailed to the last 20 lines.
+- `wiki/preferences.md` is always surfaced when present, even if it is absent
+  from `index.md`.
+- The "What you should remember" block surfaces preference-tagged pages or
+  observations plus the most recent high-confidence raw observations. Counts and
+  excerpts are capped so raw capture does not flood the prompt.
+
+Use `wiki/preferences.md` for durable behavior-shaping directives. Keep entries
+short, actionable, tagged `preference` when they live elsewhere, and grounded in
+operator instructions. Raw observations become visible immediately through the
+recent-observations block; compile can later curate durable facts into wiki
+pages.
+
+MCP `memory.search` defaults to `no_rerank=true` for latency-sensitive recall,
+which keeps typical calls within the MCP client timeout by using BM25, vectors,
+graph, exact, and metadata fusion without the slower Voyage rerank step. Callers
+can pass `no_rerank=false` when they need the higher-latency rerank path.
+
 ### Diagnostic env vars
 
 `MEMORY_LLM_DEBUG_LOG=1` enables plaintext LLM prompt/response logging for
