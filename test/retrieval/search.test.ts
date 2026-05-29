@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -306,6 +306,55 @@ describe("search core", () => {
     expect(child?.sources.some((source) => source.source === "graph-spread")).toBe(
       true,
     );
+  });
+
+  it("returns freshly-added raw files lexically when embeddings are unavailable", async () => {
+    await mkdir(join(tmp, "raw", "2026-05-29"), { recursive: true });
+    await writeFile(
+      join(tmp, "raw", "2026-05-29", "manual-fresh.md"),
+      [
+        "---",
+        "type: raw-session",
+        "title: manual fresh",
+        "created: 2026-05-29",
+        "updated: 2026-05-29",
+        "source: manual",
+        "session: fresh",
+        "---",
+        "",
+        "## [12:00:00] Observation",
+        "",
+        "_tags: project · confidence: 1 · observed_at: 2026-05-29T12:00:00.000Z_",
+        "",
+        "FRESH-LEXICAL-4-8 exact token should be searchable immediately.",
+      ].join("\n"),
+    );
+    const embedClient: EmbedClient = {
+      embed: vi.fn(async () => {
+        throw new Error("embedder unavailable");
+      }),
+    };
+    const voyageClient: VoyageClient = {
+      embed: vi.fn(async () => {
+        throw new Error("embedder unavailable");
+      }),
+      rerank: vi.fn(async () => {
+        throw new Error("rerank unavailable");
+      }),
+    };
+
+    const response = await runSearch({
+      query: "FRESH-LEXICAL-4-8",
+      noHyde: true,
+      noRerank: true,
+      vaultRoot: tmp,
+      embedClient,
+      voyageClient,
+    });
+
+    expect(response.degraded).toBe(true);
+    expect(response.results[0]?.path).toBe("raw/2026-05-29/manual-fresh.md");
+    expect(response.results[0]?.sources.some((source) => source.source === "bm25")).toBe(true);
   });
 
   it("can disable spreading activation with MEMORY_FORT_SPREADING_ACTIVATION", async () => {
