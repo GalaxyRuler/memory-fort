@@ -169,7 +169,7 @@ function readCompileConfig(config: MemoryConfig): {
     : {};
   const cadence = record["cadence"];
   return {
-    scheduled: record["scheduled"] !== false,
+    scheduled: record["scheduled"] === true,
     cadence: cadence === "weekly" || cadence === "manual" ? cadence : "daily",
     execute: record["execute"] === true,
   };

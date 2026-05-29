@@ -10,6 +10,7 @@ import {
   markEmbeddingsArchived,
   type EmbeddingKind,
 } from "../../retrieval/embeddings-store.js";
+import { loadMemoryConfig } from "../../storage/config.js";
 import { formatIsoDate, memoryRoot } from "../../storage/paths.js";
 
 export type PruneMode = "plan" | "apply" | "restore";
@@ -33,7 +34,7 @@ export interface PruneResult {
   report: string;
 }
 
-const RAW_PRUNE_DAYS = 90;
+const DEFAULT_RAW_PRUNE_DAYS = 90;
 
 export async function runPrune(opts: PruneOptions): Promise<PruneResult> {
   const root = memoryRoot();
@@ -54,7 +55,9 @@ export async function runPrune(opts: PruneOptions): Promise<PruneResult> {
     };
   }
 
-  const candidates = await planPrune(root, now);
+  const config = await loadMemoryConfig(root);
+  const rawWindowDays = readRawWindowDays(config.retention?.raw_window_days);
+  const candidates = await planPrune(root, now, rawWindowDays);
   if (opts.mode === "plan") {
     return {
       mode: "plan",
@@ -81,11 +84,11 @@ export async function runPrune(opts: PruneOptions): Promise<PruneResult> {
   };
 }
 
-async function planPrune(root: string, now: Date): Promise<PruneCandidate[]> {
+async function planPrune(root: string, now: Date, rawWindowDays: number): Promise<PruneCandidate[]> {
   const wikiPages = await loadWiki(join(root, "wiki"));
   return [
     ...checkPruneCandidates(wikiPages, { now }),
-    ...(await rawPruneCandidates(root, wikiPages, now)),
+    ...(await rawPruneCandidates(root, wikiPages, now, rawWindowDays)),
   ].sort((a, b) => a.path.localeCompare(b.path));
 }
 
@@ -93,11 +96,12 @@ async function rawPruneCandidates(
   root: string,
   wikiPages: Awaited<ReturnType<typeof loadWiki>>,
   now: Date,
+  rawWindowDays: number,
 ): Promise<PruneCandidate[]> {
   const rawRoot = join(root, "raw");
   if (!existsSync(rawRoot)) return [];
   const referenced = rawReferences(wikiPages);
-  const cutoff = now.getTime() - RAW_PRUNE_DAYS * 24 * 60 * 60 * 1000;
+  const cutoff = now.getTime() - rawWindowDays * 24 * 60 * 60 * 1000;
   const candidates: PruneCandidate[] = [];
 
   for (const relPath of await listRawMarkdown(rawRoot)) {
@@ -120,6 +124,12 @@ async function rawPruneCandidates(
   }
 
   return candidates;
+}
+
+function readRawWindowDays(value: unknown): number {
+  return typeof value === "number" && Number.isInteger(value) && value > 0
+    ? value
+    : DEFAULT_RAW_PRUNE_DAYS;
 }
 
 async function listRawMarkdown(rawRoot: string): Promise<string[]> {

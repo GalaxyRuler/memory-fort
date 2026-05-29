@@ -78,6 +78,10 @@ embedder:
   provider: voyage
   model: voyage-4-large
 
+compile:
+  scheduled: false
+  cadence: daily
+
 # llm:
 #   provider: openrouter   # openrouter | ollama
 #   model: openai/gpt-4o-mini

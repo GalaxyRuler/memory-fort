@@ -55,14 +55,26 @@ describe("auto-promote scheduler", () => {
     expect(clearIntervalFactory).toHaveBeenCalledWith(handle);
   });
 
-  it("registers scheduled compile by default on the daily cadence", async () => {
+  it("does not register scheduled compile by default", async () => {
+    const intervalFactory = vi.fn();
+    await createAutoPromoteScheduler({
+      vaultRoot: tmp,
+      configLoader: async () => ({}),
+      intervalFactory,
+      compileRunner: vi.fn(async () => undefined),
+    });
+
+    expect(intervalFactory).not.toHaveBeenCalled();
+  });
+
+  it("registers scheduled compile only when explicitly enabled", async () => {
     const handle = Symbol("interval") as unknown as NodeJS.Timeout;
     const intervalFactory = vi.fn(() => handle);
     const clearIntervalFactory = vi.fn();
     const compileRunner = vi.fn(async () => undefined);
     const scheduler = await createAutoPromoteScheduler({
       vaultRoot: tmp,
-      configLoader: async () => ({}),
+      configLoader: async () => ({ compile: { scheduled: true, cadence: "daily" } }),
       intervalFactory,
       clearIntervalFactory,
       compileRunner,

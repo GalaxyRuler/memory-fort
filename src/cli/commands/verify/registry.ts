@@ -18,6 +18,7 @@ import {
 } from "./clients.js";
 import { compileRecentCheck } from "./compile.js";
 import { compileExecuteHealthCheck } from "./compile-execute-health.js";
+import { configValidCheck } from "./config.js";
 import { dashboardStatusCheck } from "./dashboard.js";
 import { episodicRelationsCoverageCheck } from "./episodic-relations.js";
 import { freshnessStaleCheck } from "./freshness.js";
@@ -33,6 +34,7 @@ import { vaultReadWriteCheck } from "./vault.js";
 
 export const ALL_CHECKS: CheckDescriptor[] = [
   vaultReadWriteCheck,
+  configValidCheck,
   dashboardStatusCheck,
   searchPipelineCheck,
   episodicRelationsCoverageCheck,

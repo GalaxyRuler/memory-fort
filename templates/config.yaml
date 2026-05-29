@@ -14,7 +14,7 @@ embedder:
   model: voyage-4-large
 
 compile:
-  scheduled: true
+  scheduled: false
   cadence: daily
 
 # dashboard:

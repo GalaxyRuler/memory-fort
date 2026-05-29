@@ -1,8 +1,8 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { loadMemoryConfig } from "../../src/storage/config.js";
+import { loadMemoryConfig, type MemoryConfig } from "../../src/storage/config.js";
 
 describe("memory config reader", () => {
   let tmp: string;
@@ -99,9 +99,46 @@ describe("memory config reader", () => {
     expect((config.compile as Record<string, unknown>).next_run).toBe("2026-05-29");
   });
 
-  it("loadMemoryConfig tolerates malformed YAML", async () => {
+  it("loadMemoryConfig surfaces malformed YAML instead of silently defaulting", async () => {
     await writeFile(join(tmp, "config.yaml"), 'voyage:\n  api_key: "unterminated\n');
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
 
     await expect(loadMemoryConfig(tmp)).resolves.toEqual({});
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("config.yaml"));
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("YAML"));
+    await expect(readFile(join(tmp, "errors.log"), "utf-8")).resolves.toContain("config.yaml");
+    warn.mockRestore();
+  });
+
+  it("loadMemoryConfig warns about invalid known values while preserving the config", async () => {
+    await writeFile(
+      join(tmp, "config.yaml"),
+      [
+        "embedder:",
+        "  provider: bogus",
+        "llm:",
+        "  provider: nope",
+        "  max_tokens: -1",
+        "retention:",
+        "  raw_window_days: 30",
+      ].join("\n"),
+    );
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    await expect(loadMemoryConfig(tmp)).resolves.toMatchObject({
+      embedder: { provider: "bogus" },
+      llm: { provider: "nope", max_tokens: -1 },
+      retention: { raw_window_days: 30 },
+    });
+    expect(warn.mock.calls.map((call) => call[0]).join("\n")).toContain("embedder.provider");
+    expect(warn.mock.calls.map((call) => call[0]).join("\n")).toContain("llm.max_tokens");
+    await expect(readFile(join(tmp, "errors.log"), "utf-8")).resolves.toContain("llm.provider");
+    warn.mockRestore();
+  });
+
+  it("MemoryConfig types compile.execute", () => {
+    const config: MemoryConfig = { compile: { execute: true } };
+
+    expect(config.compile?.execute).toBe(true);
   });
 });

@@ -106,6 +106,36 @@ describe("runPrune", () => {
     );
   });
 
+  it("--plan honors retention.raw_window_days from config", async () => {
+    await writeFile(
+      join(root, "config.yaml"),
+      ["retention:", "  raw_window_days: 30", ""].join("\n"),
+    );
+    await writeRaw("2026-04-15/codex-forty-days.md", "Forty days old.");
+
+    const result = await runPrune({
+      mode: "plan",
+      now: new Date("2026-05-24T00:00:00.000Z"),
+    });
+
+    expect(result.candidates.map((candidate) => candidate.path)).toContain(
+      "raw/2026-04-15/codex-forty-days.md",
+    );
+  });
+
+  it("--plan defaults raw retention to 90 days when config is unset", async () => {
+    await writeRaw("2026-04-15/codex-forty-days.md", "Forty days old.");
+
+    const result = await runPrune({
+      mode: "plan",
+      now: new Date("2026-05-24T00:00:00.000Z"),
+    });
+
+    expect(result.candidates.map((candidate) => candidate.path)).not.toContain(
+      "raw/2026-04-15/codex-forty-days.md",
+    );
+  });
+
   async function seedPruneVault(): Promise<void> {
     await writeWikiPage(
       "projects/eligible.md",
