@@ -35,7 +35,10 @@ export async function commitVaultChange(
     }
     if (status.stdout.trim().length === 0) return { kind: "no-changes" };
 
-    const add = await runner.run("git", ["add", "--", ...paths], { cwd: root });
+    const stageablePaths = await filterStageablePaths(root, paths, status.stdout, runner);
+    if (stageablePaths.length === 0) return { kind: "no-changes" };
+
+    const add = await runner.run("git", ["add", "-A", "--", ...stageablePaths], { cwd: root });
     if (add.exitCode !== 0) {
       return await commitFailure(root, opts.message, `git add failed: ${commandOutput(add)}`, opts.now);
     }
@@ -73,6 +76,45 @@ function uniqueNormalizedPaths(memoryRoot: string, paths: string[]): string[] {
     })
     .filter((path) => path.length > 0);
   return [...new Set(normalized)];
+}
+
+async function filterStageablePaths(
+  memoryRoot: string,
+  paths: string[],
+  statusStdout: string,
+  runner: CommandRunner,
+): Promise<string[]> {
+  const statusPaths = parseStatusPaths(statusStdout);
+  const stageable: string[] = [];
+  for (const path of paths) {
+    if (existsSync(join(memoryRoot, ...path.split("/")))) {
+      stageable.push(path);
+      continue;
+    }
+    if (statusPaths.has(path)) {
+      stageable.push(path);
+      continue;
+    }
+    const tracked = await runner.run("git", ["ls-files", "--error-unmatch", "--", path], { cwd: memoryRoot });
+    if (tracked.exitCode === 0) stageable.push(path);
+  }
+  return stageable;
+}
+
+function parseStatusPaths(stdout: string): Set<string> {
+  const paths = new Set<string>();
+  for (const line of stdout.split(/\r?\n/)) {
+    if (line.length < 4) continue;
+    const path = line.slice(3).trim().replace(/^"|"$/g, "").replace(/\\/g, "/");
+    if (path.includes(" -> ")) {
+      const [from, to] = path.split(" -> ");
+      if (from) paths.add(from.replace(/^"|"$/g, ""));
+      if (to) paths.add(to.replace(/^"|"$/g, ""));
+    } else if (path.length > 0) {
+      paths.add(path);
+    }
+  }
+  return paths;
 }
 
 async function commitFailure(

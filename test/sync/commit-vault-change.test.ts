@@ -1,9 +1,13 @@
-import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { execFile as nodeExecFile } from "node:child_process";
+import { promisify } from "node:util";
+import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { commitVaultChange } from "../../src/sync/commit-vault-change.js";
 import type { CommandRunner } from "../../src/sync/git-remote.js";
+
+const execFile = promisify(nodeExecFile);
 
 interface RecordedCall {
   cmd: string;
@@ -66,7 +70,7 @@ describe("commitVaultChange", () => {
       if (args === "status --porcelain -- wiki/threads/a.md wiki/threads-proposed/a.md") {
         return { stdout: "A  wiki/threads/a.md\n D wiki/threads-proposed/a.md\n" };
       }
-      if (args === "add -- wiki/threads/a.md wiki/threads-proposed/a.md") return {};
+      if (args === "add -A -- wiki/threads/a.md wiki/threads-proposed/a.md") return {};
       if (args === "commit -m promote thread: a") return { stdout: "[main abc1234] promote thread: a\n" };
       throw new Error(`unexpected command: ${args}`);
     });
@@ -84,7 +88,7 @@ describe("commitVaultChange", () => {
 
     expect(calls.map((call) => call.args.join(" "))).toEqual([
       "status --porcelain -- wiki/threads/a.md wiki/threads-proposed/a.md",
-      "add -- wiki/threads/a.md wiki/threads-proposed/a.md",
+      "add -A -- wiki/threads/a.md wiki/threads-proposed/a.md",
       "commit -m promote thread: a",
     ]);
     expect(scheduled).toEqual([tmp]);
@@ -96,7 +100,7 @@ describe("commitVaultChange", () => {
       if (args === "status --porcelain -- wiki/entity-merges-proposed.json") {
         return { stdout: " M wiki/entity-merges-proposed.json\n" };
       }
-      if (args === "add -- wiki/entity-merges-proposed.json") return {};
+      if (args === "add -A -- wiki/entity-merges-proposed.json") return {};
       if (args === "commit -m reject entity: x") return { exitCode: 1, stderr: "nothing added" };
       throw new Error(`unexpected command: ${args}`);
     });
@@ -118,4 +122,78 @@ describe("commitVaultChange", () => {
       "[2026-05-28T12:00:00.000Z] commit-vault-change failed | reject entity: x | git commit failed: nothing added",
     );
   });
+
+  it("commits an untracked-source move without staging the absent old path", async () => {
+    await initGitRepo(tmp);
+    await mkdir(join(tmp, "wiki", "threads-proposed"), { recursive: true });
+    await mkdir(join(tmp, "wiki", "threads"), { recursive: true });
+    await writeFile(join(tmp, "wiki", "threads-proposed", "move-me.md"), "draft\n", "utf-8");
+    await rename(
+      join(tmp, "wiki", "threads-proposed", "move-me.md"),
+      join(tmp, "wiki", "threads", "move-me.md"),
+    );
+
+    await expect(commitVaultChange({
+      memoryRoot: tmp,
+      paths: ["wiki/threads-proposed/move-me.md", "wiki/threads/move-me.md"],
+      message: "promote thread: move-me",
+      scheduleAutoPush: async () => ({ scheduled: true, token: "unused" }),
+    })).resolves.toMatchObject({ kind: "committed" });
+
+    await expect(git(["status", "--porcelain", "--", "wiki/threads-proposed/move-me.md", "wiki/threads/move-me.md"], tmp))
+      .resolves.toBe("");
+    await expect(git(["log", "-1", "--pretty=%s"], tmp)).resolves.toBe("promote thread: move-me");
+  });
+
+  it("commits a tracked-source move by staging deletion and destination", async () => {
+    await initGitRepo(tmp);
+    await mkdir(join(tmp, "wiki", "threads-proposed"), { recursive: true });
+    await mkdir(join(tmp, "wiki", "threads"), { recursive: true });
+    await writeFile(join(tmp, "wiki", "threads-proposed", "tracked.md"), "draft\n", "utf-8");
+    await git(["add", "--", "wiki/threads-proposed/tracked.md"], tmp);
+    await git(["commit", "-m", "seed tracked proposal"], tmp);
+    await rename(
+      join(tmp, "wiki", "threads-proposed", "tracked.md"),
+      join(tmp, "wiki", "threads", "tracked.md"),
+    );
+
+    await expect(commitVaultChange({
+      memoryRoot: tmp,
+      paths: ["wiki/threads-proposed/tracked.md", "wiki/threads/tracked.md"],
+      message: "promote thread: tracked",
+      scheduleAutoPush: async () => ({ scheduled: true, token: "unused" }),
+    })).resolves.toMatchObject({ kind: "committed" });
+
+    await expect(git(["status", "--porcelain", "--", "wiki/threads-proposed/tracked.md", "wiki/threads/tracked.md"], tmp))
+      .resolves.toBe("");
+    const nameStatus = await git(["show", "--name-status", "--pretty=", "HEAD"], tmp);
+    expect(nameStatus).toContain("wiki/threads-proposed/tracked.md");
+    expect(nameStatus).toContain("wiki/threads/tracked.md");
+  });
+
+  it("returns no-changes when every explicit path is absent and untracked", async () => {
+    await initGitRepo(tmp);
+
+    await expect(commitVaultChange({
+      memoryRoot: tmp,
+      paths: ["wiki/threads-proposed/missing.md", "wiki/threads/missing.md"],
+      message: "promote thread: missing",
+      scheduleAutoPush: async () => {
+        throw new Error("should not schedule");
+      },
+    })).resolves.toEqual({ kind: "no-changes" });
+
+    await expect(git(["status", "--porcelain"], tmp)).resolves.toBe("");
+  });
 });
+
+async function initGitRepo(cwd: string): Promise<void> {
+  await git(["init"], cwd);
+  await git(["config", "user.name", "Test User"], cwd);
+  await git(["config", "user.email", "test@example.com"], cwd);
+}
+
+async function git(args: string[], cwd: string): Promise<string> {
+  const result = await execFile("git", args, { cwd, windowsHide: true });
+  return result.stdout.trim();
+}
