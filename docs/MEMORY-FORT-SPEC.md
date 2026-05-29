@@ -393,20 +393,20 @@ dashboard:
 - **Phase 2** — observability: the graph-cohesion metrics dashboard.
 - **Phase 3** — targeted quality fixes driven by Phase 2 data.
 - **Phase 4** — richer memory kinds (prospective, narrative threads, procedural).
-- **Phase 4.3 sequence** — provider abstractions (A embedder, B LLM), C settings-UI editability, D auto-thread proposing, E procedural extraction, F query-intent classifier, G LLM grounding, H debug logging + parser reasons, I prompt-field clarification, J inbox + confidence-gated auto-promote, K overview redesign + UX, L Windows-safe atomic write, M config secret redaction, N entity dedup, O scheduled compile, P typecheck gate, Q `.audit` exclusion, R auto-commit vault mutations, S commit-on-move fix, **T proxy-aware same-origin (queued)**.
+- **Phase 4.3 sequence** — provider abstractions (A embedder, B LLM), C settings-UI editability, D auto-thread proposing, E procedural extraction, F query-intent classifier, G LLM grounding, H debug logging + parser reasons, I prompt-field clarification, J inbox + confidence-gated auto-promote, K overview redesign + UX, L Windows-safe atomic write, M config secret redaction, N entity dedup, O scheduled compile, P typecheck gate, Q `.audit` exclusion, R auto-commit vault mutations, S commit-on-move fix, T proxy-aware same-origin.
 - **Phase 4.4** — autonomous compile execution (opt-in).
-- **Phase 4.5** — close the memory feedback loop: commit observations on write, surface preferences + recent memory at session-start, durable `wiki/preferences.md`, fix search timeout (queued).
+- **Phase 4.5** — memory feedback loop (shipped): commit observations on write, surface preferences + recent memory at session-start, durable `wiki/preferences.md`, search defaults to no-rerank for bounded latency.
 - **Phase 5** — deferred until evidence (advanced sniffers, eval harness).
 
 ---
 
 ## 19. Known gaps / open items
 
-- **Phase 4.3.T (queued):** same-origin guard blocks writes behind the Tailscale TLS proxy until it honors `X-Forwarded-*`.
-- **Phase 4.5 (queued):** Memory Fort's read-back loop — observations are write-only today (uncommitted MCP writes, session-start surfaces only the curated index, `search` can time out). Until it lands, behavior-shaping preferences persist via the host's Claude Code `MEMORY.md`, not Memory Fort.
-- **Compile execution** is opt-in and uses parse-reserialize-append rather than a strict byte-prefix assertion (functionally append-only; tightening follow-up noted).
+- **Relation-edge representation (latent inconsistency):** the rich `RelationEdge` object form (`target`, `confidence`, `valid_from/valid_to`, `source`) is defined in `src/retrieval/relations.ts` and parsed by `readRelations`, but **`validateFrontmatter` (lint-only, called solely from `src/curation/checks.ts`) and compile-execute grounding (`execute.ts`) currently handle string-path arrays only.** Canonical on-disk form today is string paths; **no vault file uses the object form**, so there is no active data loss — but `memory lint` would falsely flag an object-form relation, and compile-execute would silently drop one. Fix (validator + grounding tolerate & preserve `RelationEdge` objects + regression tests) tracked in `docs/codex-relation-edge-alignment.md`. *(This is the genuine core of the 2026-05-29 external audit; that audit rated it "Critical / immediate data loss / 5-of-10 readiness" — overstated, since the validator is lint-only and zero files are affected. Real severity: Medium, latent.)*
+- **`config.yaml` parser (`parseYamlSubset`)** is a custom indent-based subset parser, not `js-yaml` (which is already a dependency). It skips own-line `#` comments but does not strip trailing inline comments and is rigid on indentation. Fix tracked in `docs/codex-config-and-telemetry-hardening.md`.
+- **Cost tracking** logs hardcoded `costUsd: 0` (`audit.ts`) — no pricing-table lookup. Telemetry gap, not functional. Tracked in the hardening brief above.
 - **`/api/health` returns 503 on data-quality failures** (conflates liveness with data quality) — dormant, latent.
 - **`.audit/` log rotation** — logs grow unbounded.
-- **Cost tracking** shows `$0.0000` for `gpt-4o-mini` (stale pricing table).
-- **Test discipline:** the bundler does not typecheck and focused test runs have missed affected files three times — always run the full suite + `npm run typecheck` before landing.
+- **Compile execution** is opt-in and uses parse-reserialize-append rather than a strict byte-prefix assertion (functionally append-only; tightening follow-up noted).
+- **Test discipline:** the bundler does not typecheck and focused test runs have missed affected files repeatedly — always run the full suite + `npm run typecheck` before landing.
 ```
