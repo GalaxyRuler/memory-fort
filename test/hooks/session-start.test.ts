@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, it, expect } from "vitest";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { confidenceAwareIndex } from "../../src/hooks/session-start-helpers.js";
+import { confidenceAwareIndex, whatToRememberBlock } from "../../src/hooks/session-start-helpers.js";
 import { sessionStartBody } from "../../src/hooks/session-start.js";
 
 describe("sessionStartBody", () => {
@@ -165,6 +165,109 @@ describe("sessionStartBody", () => {
     await sessionStartBody({}, { write: (text) => writes.push(text) });
 
     expect(writes.join("")).not.toContain("What you should remember");
+  });
+
+  it("surfaces preference-tagged observations even when preference pages fill the page budget", async () => {
+    await mkdir(join(tmp, "wiki", "projects"), { recursive: true });
+    await mkdir(join(tmp, "raw", "2026-05-29"), { recursive: true });
+    await writeFile(
+      join(tmp, "wiki", "preferences.md"),
+      [
+        "---",
+        "type: references",
+        "title: Operator Preferences",
+        "created: 2026-05-28",
+        "updated: 2026-05-28",
+        "tags: [preference]",
+        "confidence: 1",
+        "---",
+        "Keep durable page preferences.",
+      ].join("\n"),
+    );
+    await writeFile(
+      join(tmp, "wiki", "projects", "also-preference.md"),
+      [
+        "---",
+        "type: projects",
+        "title: Secondary preference page",
+        "created: 2026-05-28",
+        "updated: 2026-05-28",
+        "tags: [preference]",
+        "confidence: 1",
+        "---",
+        "This page competes for the page budget.",
+      ].join("\n"),
+    );
+    await writeFile(
+      join(tmp, "raw", "2026-05-29", "manual-current.md"),
+      [
+        "---",
+        "type: raw-session",
+        "title: manual current",
+        "created: 2026-05-29",
+        "updated: 2026-05-29",
+        "---",
+        "",
+        "## [12:00:00] Observation",
+        "",
+        "_tags: preference, codex · confidence: 1 · observed_at: 2026-05-29T12:00:00.000Z_",
+        "",
+        "PREFERENCE-FRESH-4-8 must appear even with wiki preferences present.",
+      ].join("\n"),
+    );
+
+    const block = await whatToRememberBlock({ memoryRoot: tmp, maxPreferences: 1 });
+
+    expect(block).toContain("Operator Preferences");
+    expect(block).toContain("PREFERENCE-FRESH-4-8");
+    expect(block).not.toContain("Recent high-confidence observations");
+  });
+
+  it("orders recent observations by true write recency", async () => {
+    await mkdir(join(tmp, "raw", "2026-05-28"), { recursive: true });
+    await mkdir(join(tmp, "raw", "2026-05-29"), { recursive: true });
+    const olderPath = join(tmp, "raw", "2026-05-28", "manual-old.md");
+    const newerPath = join(tmp, "raw", "2026-05-29", "manual-new.md");
+    await writeFile(
+      olderPath,
+      [
+        "---",
+        "type: raw-session",
+        "title: old",
+        "created: 2026-05-28",
+        "updated: 2026-05-28",
+        "---",
+        "",
+        "## [23:59:59] Observation",
+        "",
+        "_tags: project · confidence: 1_",
+        "",
+        "OLDER-RECENT-4-8 should not outrank the newer file.",
+      ].join("\n"),
+    );
+    await writeFile(
+      newerPath,
+      [
+        "---",
+        "type: raw-session",
+        "title: new",
+        "created: 2026-05-29",
+        "updated: 2026-05-29",
+        "---",
+        "",
+        "## Observation",
+        "",
+        "_tags: project · confidence: 1_",
+        "",
+        "NEWEST-RECENT-4-8 should appear first even without a block time.",
+      ].join("\n"),
+    );
+    await utimes(olderPath, new Date("2026-05-28T23:59:59.000Z"), new Date("2026-05-28T23:59:59.000Z"));
+    await utimes(newerPath, new Date("2026-05-29T01:00:00.000Z"), new Date("2026-05-29T01:00:00.000Z"));
+
+    const block = await whatToRememberBlock({ memoryRoot: tmp, maxRecent: 2 });
+
+    expect(block.indexOf("NEWEST-RECENT-4-8")).toBeLessThan(block.indexOf("OLDER-RECENT-4-8"));
   });
 });
 

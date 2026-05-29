@@ -1,5 +1,5 @@
 import type { Dirent } from "node:fs";
-import { readFile as readFsFile, readdir as readFsDir } from "node:fs/promises";
+import { readFile as readFsFile, readdir as readFsDir, stat as statFs } from "node:fs/promises";
 import { join } from "node:path";
 import { getConfidenceScore } from "../storage/confidence.js";
 import { parseFrontmatter } from "../storage/frontmatter.js";
@@ -30,6 +30,7 @@ interface RememberEntry {
   text: string;
   confidence: number;
   timestamp?: string;
+  sortKey?: number;
   tags?: string[];
 }
 
@@ -97,9 +98,10 @@ export async function whatToRememberBlock(
     !entry.tags?.includes("preference") && entry.confidence >= recentFloor
   );
 
-  const preferences = [...wikiPreferences, ...preferenceObservations]
-    .sort(compareRememberEntries)
-    .slice(0, maxPreferences);
+  const preferences = [
+    ...wikiPreferences.sort(compareRememberEntries).slice(0, maxPreferences),
+    ...preferenceObservations.sort(compareRememberEntries).slice(0, maxPreferences),
+  ];
   const recent = recentObservations
     .sort(compareRememberEntries)
     .slice(0, maxRecent);
@@ -219,6 +221,7 @@ async function readWikiPreference(
       confidence,
       tags,
       timestamp: String(frontmatter.updated ?? frontmatter.created ?? ""),
+      sortKey: timestampToSortKey(String(frontmatter.updated ?? frontmatter.created ?? "")),
     };
   } catch {
     return null;
@@ -241,7 +244,13 @@ async function collectRawObservations(input: {
       continue;
     }
     const date = relPath.split("/")[1] ?? "";
-    entries.push(...parseObservationBlocks(content, relPath, date, input.maxChars));
+    let mtime: Date | null = null;
+    try {
+      mtime = (await statFs(join(input.root, ...relPath.split("/")))).mtime;
+    } catch {
+      // File mtime is only a fallback for older observation blocks.
+    }
+    entries.push(...parseObservationBlocks(content, relPath, date, input.maxChars, mtime));
   }
   return entries;
 }
@@ -277,23 +286,29 @@ function parseObservationBlocks(
   relPath: string,
   date: string,
   maxChars: number,
+  fileMtime: Date | null = null,
 ): RememberEntry[] {
   const entries: RememberEntry[] = [];
-  const blockPattern = /^## \[(\d{2}:\d{2}:\d{2})\] Observation\s*\n([\s\S]*?)(?=^## \[|\z)/gm;
-  for (const match of content.matchAll(blockPattern)) {
-    const time = match[1] ?? "00:00:00";
-    const rawBody = (match[2] ?? "").trim();
-    const metaMatch = /^_([^_\n]+)_\s*\n+/.exec(rawBody);
+  const starts = [...content.matchAll(/^##(?: \[([^\]]+)\])? Observation[ \t]*\r?$/gm)];
+  for (let index = 0; index < starts.length; index += 1) {
+    const match = starts[index]!;
+    const bodyStart = match.index! + match[0].length;
+    const bodyEnd = starts[index + 1]?.index ?? content.length;
+    const time = match[1];
+    const rawBody = content.slice(bodyStart, bodyEnd).trim();
+    const metaMatch = /^_([^\n]+)_\s*\n+/.exec(rawBody);
     const meta = metaMatch?.[1] ?? "";
     const body = metaMatch ? rawBody.slice(metaMatch[0].length).trim() : rawBody;
     const tags = parseObservationTags(meta);
     const confidence = parseObservationConfidence(meta) ?? DEFAULT_CONFIDENCE;
+    const timestamp = parseObservationObservedAt(meta) ?? timestampFromDateAndTime(date, time) ?? fileMtime?.toISOString() ?? `${date}T00:00:00.000Z`;
     if (body.length === 0) continue;
     entries.push({
       path: relPath,
       text: excerpt(body, maxChars),
       confidence,
-      timestamp: `${date}T${time}Z`,
+      timestamp,
+      sortKey: timestampToSortKey(timestamp) ?? fileMtime?.getTime() ?? timestampToSortKey(date) ?? 0,
       tags,
     });
   }
@@ -316,7 +331,32 @@ function parseObservationConfidence(meta: string): number | null {
   return Number.isFinite(value) && value >= 0 && value <= 1 ? value : null;
 }
 
+function parseObservationObservedAt(meta: string): string | null {
+  const match = /(?:^|·)\s*observed_at:\s*([^·]+)/.exec(meta);
+  const value = match?.[1]?.trim();
+  if (!value || Number.isNaN(Date.parse(value))) return null;
+  return new Date(value).toISOString();
+}
+
+function timestampFromDateAndTime(date: string, time: string | undefined): string | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+  if (!time) return null;
+  const parts = /^(\d{2}):(\d{2})(?::(\d{2}))?$/.exec(time.trim());
+  if (!parts) return null;
+  return `${date}T${parts[1]}:${parts[2]}:${parts[3] ?? "00"}.000Z`;
+}
+
+function timestampToSortKey(value: string): number | undefined {
+  const normalized = /^\d{4}-\d{2}-\d{2}$/.test(value)
+    ? `${value}T00:00:00.000Z`
+    : value;
+  const parsed = Date.parse(normalized);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
 function compareRememberEntries(a: RememberEntry, b: RememberEntry): number {
+  const sortKey = (b.sortKey ?? 0) - (a.sortKey ?? 0);
+  if (sortKey !== 0) return sortKey;
   const time = (b.timestamp ?? "").localeCompare(a.timestamp ?? "");
   if (time !== 0) return time;
   return b.confidence - a.confidence;
