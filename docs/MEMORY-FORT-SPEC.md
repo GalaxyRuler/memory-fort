@@ -108,7 +108,7 @@ time_range: { start, end }    # episodic
 due / expires / triggers      # prospective
 tags: [..]
 relations:                    # typed edges (RelationMap)
-  mentions|supports|contradicts|supersedes|derived_from|uses|depends_on|caused_by|fixed_by|mentioned_in|linked:
+  mentions|contradicts|supersedes|derived_from|uses|depends_on|caused_by|fixed_by|mentioned_in|linked:
     - target: <relPath>
       confidence: 0..1
       valid_from / valid_to / superseded_by
@@ -193,12 +193,12 @@ Adapter pattern (`Sniffer` interface: `available()`, `list({since,limit})`, opti
 
 `runCompile` (`src/cli/commands/compile.ts`): walks `raw/` since the last compile (per-file 10 KB / total 200 KB caps), renders `templates/prompts/compile.md` with schema + index + log + raw. Two modes:
 
-- **Artifact mode** (default): writes the rendered prompt to disk for an agent to execute.
+- **Artifact mode** (default): prints the rendered prompt to stdout (or writes to a file when `--output <path>` is given) for an agent to execute.
 - **Execute mode** (Phase 4.4, opt-in `--execute`): sends the prompt to the LLM, parses `compile-ops`, applies them.
 
 The compile prompt is **append-only by contract**: never rewrite/delete existing content, only add dated `## [<date>] update` sections; never invent relations; never leak secrets; new pages start `confidence 0.5–0.7`.
 
-**`src/compile/execute.ts`** (Phase 4.4) — `CompileOperation` discriminated union: `write_page` (create; refuses if target exists), `append_page` (preserve body + append section), `update_index`, `append_log`. Each operation is **grounded** (`filterWikiReferencesToExisting` + `stripProsePathLeaksFromText`), **secret-redacted** (sk-*, AIza*, ghp_*, Bearer, PEM → `[REDACTED]`), **path-guarded** (no `..`/absolute/drive paths), and **confidence-gated**: high-confidence applies directly, low-confidence stages to `wiki/compile-proposed/`. `src/compile/canonicalize.ts` assigns per-source confidence tiers (manual 0.85, crystal 0.9, claude-code/codex 0.75, antigravity 0.6, unknown 0.5) and topic/tool tags.
+**`src/compile/execute.ts`** (Phase 4.4) — `CompileOperation` discriminated union: `write_page` (create; refuses if target exists), `append_page` (preserve body + append section), `update_index`, `append_log`. Each operation is **grounded** (`filterWikiReferencesToExisting` + `stripProsePathLeaksFromText`), **secret-redacted** (today: `KEY=value` secret assignments and bare `sk-…` tokens → `[REDACTED]`; **`AIza*`/`ghp_*`/`Bearer`/PEM are NOT yet covered — gap tracked in Phase 4.9**), **path-guarded** (no `..`/absolute/drive paths), and **confidence-gated**: high-confidence applies directly, low-confidence stages to `wiki/compile-proposed/`. `src/compile/canonicalize.ts` assigns per-source confidence tiers (manual 0.85, crystal 0.9, claude-code/codex 0.75, antigravity 0.6, unknown 0.5) and topic/tool tags.
 
 ### Narrative threads (Phase 4.3.D)
 
@@ -300,7 +300,7 @@ Single Node HTTP server, **bound to `127.0.0.1:4410`** (reachable externally onl
 
 **Routes:** `/` (Overview) · `/search` · `/wiki` (category-grouped) · `/wiki/:cat/:slug` · `/raw` · `/raw/:date/:file` · `/graph` · `/timeline` · `/activity` · `/sessions` · `/crystals` · `/audit` · `/compile` · `/conflicts` · `/maintenance` · `/health` · `/inbox` · `__root` (AppShell).
 
-**Key components:** `InboxPage` (proposed threads/procedures/compile with confidence badges + one-click promote/reject), `SettingsPage` (+ `EmbedderConfigCard`, `LLMConfigCard`, auto-promote card, compile card), `GraphHealthPanel`, `CompilePage` (state + run-now), `WikiBrowsePage` (category grouping), long-list pages (`RawBrowsePage`/`ActivityFeedPage`/`SessionsPage`/`AuditPage` with cursor pagination, Phase 4.3.K), `Sidebar` (nav + status pill + inbox badge), `TopBar`.
+**Key components:** `InboxPage` (proposed threads/procedures with confidence badges + one-click promote/reject; **compile proposals are surfaced for manual review only — no one-click promote/reject action**), `SettingsPage` (+ `EmbedderConfigCard`, `LLMConfigCard`, auto-promote card, compile card), `GraphHealthPanel`, `CompilePage` (state + run-now), `WikiBrowsePage` (category grouping), long-list pages (`RawBrowsePage`/`ActivityFeedPage`/`SessionsPage`/`AuditPage` with cursor pagination, Phase 4.3.K), `Sidebar` (nav + status pill + inbox badge), `TopBar`.
 
 **Hooks (`hooks/`):** `useProposed`, `useProposedCompile`, `useCompileState`, `useUpdateConfig`, `useConfig`, `useSearch`, `useActivity`, `useGraph`, `useGraphHealth`, `useStatus`, `useHealth`, etc. **Lib:** `api.ts` (apiGet/Patch/Post + ApiError), `pagination.ts`, `nav-items.ts`.
 
@@ -409,4 +409,14 @@ dashboard:
 - **Compile execution** is opt-in and uses parse-reserialize-append rather than a strict byte-prefix assertion (functionally append-only; tightening follow-up noted).
 - **Vector recall freshness** still depends on provider availability and embedding refresh; BM25 lexical search covers fresh raw/wiki/crystal files immediately without requiring a reindex.
 - **Test discipline:** the bundler does not typecheck and focused test runs have missed affected files repeatedly — always run the full suite + `npm run typecheck` before landing.
-```
+
+---
+
+## 20. Raw-capture privacy contract
+
+Raw observations (`raw/YYYY-MM-DD/*.md`) capture prompts and tool input/output **verbatim and unredacted** — the secret-redaction in compile-execute applies only to *compiled wiki output*, never to the raw layer. Operators must treat `raw/` as sensitive:
+
+- **What is captured:** prompt text, tool names + inputs + (truncated) outputs, session ids, cwd. No redaction filter runs on write.
+- **Git history:** raw files are auto-committed and auto-pushed to the VPS bare repo. Secrets that land in `raw/` enter git history and propagate to the VPS — `git rm` alone does not purge history. Rotate any credential that appears in a captured session rather than relying on deletion.
+- **Deletion limits:** automation never hard-deletes; `memory prune` archives raw files past the retention window (does not scrub history). Permanent removal from git history is a manual, operator-driven `git filter-repo`/BFG operation.
+- **Mitigation:** keep secrets out of prompts/tool output where possible; the privacy `allowlist` in config governs the (separate) compile redaction, not raw capture. A raw-capture redaction filter and an opt-out are open items (Phase 4.9).

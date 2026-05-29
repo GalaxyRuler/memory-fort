@@ -6,11 +6,9 @@ Google Antigravity all read and write. No daemon, no ports,
 no database - just files + Karpathy LLM Wiki + a thin stdio
 MCP server spawned per-session by the host tool.
 
-**Status:** Phase 1 in progress. See
-[docs/superpowers/specs/2026-05-20-cross-tool-memory-system-design.md](docs/superpowers/specs/2026-05-20-cross-tool-memory-system-design.md)
-for the design and
-[docs/superpowers/plans/2026-05-20-phase-1-foundation-plan.md](docs/superpowers/plans/2026-05-20-phase-1-foundation-plan.md)
-for the current implementation plan.
+**Status:** Phases 0–4.x shipped — provider abstractions, retrieval (6-stream RRF), propose/promote pipelines, dashboard + inbox, autonomous compile execution (opt-in), and the memory feedback loop. See
+[docs/MEMORY-FORT-SPEC.md](docs/MEMORY-FORT-SPEC.md)
+for the current full system specification.
 
 ## Phase 1 quickstart (when shipped)
 

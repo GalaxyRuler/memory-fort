@@ -64,7 +64,7 @@ Ingest is passive and automated: hooks and MCP calls append markdown firehose da
 raw/*.md  -> compile (LLM)  -> wiki/*.md  -> lint (LLM or --checks-only)  -> page (inspect)
 ```
 
-Every curation command is an orchestrator. The CLI assembles context and performs deterministic filesystem reads; the LLM does judgment in the user's active agent session. No CLI command calls an LLM directly.
+Most curation commands are orchestrators: the CLI assembles context and performs deterministic filesystem reads; the LLM does judgment in the user's active agent session. **Exception (Phase 4.3+/4.4):** the autonomous consumers — `thread/procedure propose`, the query-intent classifier, and `compile --execute` — call the configured LLM provider directly (audited via `chatWithAudit`, gated by `MEMORY_LLM_DISABLED`). The orchestrator-only model still holds for `compile` artifact mode, `lint`, and `page`.
 
 ## Why no daemon
 
