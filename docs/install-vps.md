@@ -77,18 +77,23 @@ The installer writes three unit files under `/etc/systemd/system/`:
 - `memory-backup.service` runs `/root/memory-system/services/memory-backup.sh` as a one-shot backup job.
 - `memory-backup.timer` triggers the backup service daily at `04:00 UTC`.
 
+The service units keep `User=root` for the current `/root/memory-system` layout, but run with systemd hardening (`NoNewPrivileges`, strict system protection, private tmp, read-only home, restricted namespaces/address families, and narrow write paths). `MemoryDenyWriteExecute` is intentionally not enabled because Node/V8 JIT compatibility should be validated separately before applying that restriction. The env directory is `0700`, and env files are reset to `0600` on install.
+
 Slice 6 replaced the original placeholder with `dashboard.mjs`, which imports the bundled dashboard server from `dashboard-bundle.mjs`. The older `dashboard-placeholder.mjs` file remains on disk as a fallback reference, but systemd no longer points at it. The dashboard responds on `/healthz` with `ok`, exposes `/api/status` as JSON, and serves server-rendered HTML at `/`. It binds to localhost only; Tailscale Serve owns the tailnet-only `/memory/` route.
 
 Slice 7 adds read-only browse pages and JSON endpoints for the curated vault: `/wiki/` and `/api/wiki` list wiki pages by category, `/wiki/<category>/<slug>` and `/api/wiki/<category>/<slug>` show one page with resolved relations and inbound references, `/raw/` and `/api/raw` list raw sessions by date, `/raw/<date>/<filename>` and `/api/raw/<date>/<filename>` show one raw file, and `/log` plus `/api/log?lines=N` tail `log.md`. The HTML views are server-rendered and escape vault content; markdown bodies are intentionally shown as plain text for this phase.
 
-Backups are local tarballs under `/root/memory-system/backups/`. The backup script archives `memory.git`, `vault`, `services`, `env`, and `install-info.json`, skips logs and backups, and keeps the last 30 daily archives. The `04:00 UTC` schedule intentionally avoids the known `03:00 UTC` Vaultwarden and OpenClaw backup windows.
+Backups are local tarballs under `/root/memory-system/backups/`. The backup script archives `memory.git`, `vault`, `services`, `env`, and `install-info.json`, skips logs and backups, writes to a temporary archive first, verifies the archive is non-empty and listable, then moves it into place before rotating older archives. A `tar` failure exits non-zero and does not print a success message. The `04:00 UTC` schedule intentionally avoids the known `03:00 UTC` Vaultwarden and OpenClaw backup windows. Because `env/` is included, backup archives are sensitive and should remain permission-restricted.
 
 Inspect the units:
 
 ```powershell
 ssh root@srv1317946 'systemctl status memory-dashboard'
+ssh root@srv1317946 'systemctl status memory-backup.timer'
 ssh root@srv1317946 'systemctl list-timers memory-backup.timer --no-pager'
 ssh root@srv1317946 'journalctl -u memory-dashboard --no-pager -n 50'
+ssh root@srv1317946 'journalctl -u memory-backup --no-pager -n 50'
+ssh root@srv1317946 '/root/memory-system/services/memory-backup.sh --verify /root/memory-system/backups/<archive>.tar.gz'
 ```
 
 Disable them if needed:

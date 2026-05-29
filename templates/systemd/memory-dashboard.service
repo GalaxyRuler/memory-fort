@@ -10,6 +10,7 @@ WorkingDirectory=${INSTALL_ROOT}
 ExecStart=${NODE_PATH} ${INSTALL_ROOT}/services/dashboard.mjs
 Restart=on-failure
 RestartSec=5
+UMask=0077
 Environment=MEMORY_INSTALL_ROOT=${INSTALL_ROOT}
 Environment=MEMORY_ROLE=server
 Environment=MEMORY_ROOT=${INSTALL_ROOT}/vault
@@ -17,6 +18,17 @@ Environment=NODE_ENV=production
 EnvironmentFile=-${INSTALL_ROOT}/env/voyage.env
 StandardOutput=append:${INSTALL_ROOT}/logs/dashboard.log
 StandardError=append:${INSTALL_ROOT}/logs/dashboard.log
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=${INSTALL_ROOT}
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+LockPersonality=yes
+SystemCallFilter=@system-service
 
 [Install]
 WantedBy=multi-user.target

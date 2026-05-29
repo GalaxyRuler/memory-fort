@@ -232,6 +232,38 @@ describe("runInstallVps", () => {
     expect(commands(runner).some((command) => command.includes("role.conf"))).toBe(false);
   });
 
+  it("Installer uploads hardened dashboard and backup systemd units", async () => {
+    const runner = activeRunner();
+
+    await runInstallVps({ runner });
+
+    const dashboardUpload = commands(runner).find((command) =>
+      command.startsWith("cat > /etc/systemd/system/memory-dashboard.service"),
+    );
+    const backupUpload = commands(runner).find((command) =>
+      command.startsWith("cat > /etc/systemd/system/memory-backup.service"),
+    );
+    expect(dashboardUpload).toBeDefined();
+    expect(backupUpload).toBeDefined();
+    for (const directive of [
+      "NoNewPrivileges=yes",
+      "PrivateTmp=yes",
+      "ProtectSystem=strict",
+      "ProtectHome=read-only",
+      "ProtectKernelTunables=yes",
+      "ProtectControlGroups=yes",
+      "RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX",
+      "RestrictNamespaces=yes",
+      "LockPersonality=yes",
+      "SystemCallFilter=@system-service",
+    ]) {
+      expect(dashboardUpload).toContain(directive);
+      expect(backupUpload).toContain(directive);
+    }
+    expect(dashboardUpload).toContain("ReadWritePaths=/root/memory-system");
+    expect(backupUpload).toContain("ReadWritePaths=/root/memory-system/backups /root/memory-system/logs");
+  });
+
   it("Installer reruns do not duplicate dashboard environment lines", async () => {
     const runner = activeRunner();
 
@@ -263,6 +295,31 @@ describe("runInstallVps", () => {
 
     expect(commands(runner).some((command) => command.startsWith("cat > /root/memory-system/services/memory-backup.sh"))).toBe(true);
     expect(commands(runner)).toContain("chmod 755 /root/memory-system/services/memory-backup.sh");
+  });
+
+  it("Installer uploads fail-closed backup script with archive verification", async () => {
+    const runner = activeRunner();
+
+    await runInstallVps({ runner });
+
+    const upload = commands(runner).find((command) =>
+      command.startsWith("cat > /root/memory-system/services/memory-backup.sh"),
+    );
+    expect(upload).toBeDefined();
+    expect(upload).toContain("set -euo pipefail");
+    expect(upload).not.toContain("|| true");
+    expect(upload).toContain("--verify");
+    expect(upload).toContain("tar -tzf");
+    expect(upload).toContain("backup failed");
+    expect(upload).toContain("mv \"$TMP_ARCHIVE\" \"$ARCHIVE\"");
+  });
+
+  it("Installer restricts environment file permissions", async () => {
+    const runner = activeRunner();
+
+    await runInstallVps({ runner });
+
+    expect(commands(runner)).toContain("find /root/memory-system/env -type f -exec chmod 600 {} +");
   });
 
   it("Installer runs daemon-reload and enables services", async () => {

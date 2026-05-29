@@ -153,6 +153,10 @@ function buildLayoutCommands(
       command: `chmod 700 ${installRoot}/env`,
       description: "lock down env directory to root-only",
     },
+    {
+      command: `find ${installRoot}/env -type f -exec chmod 600 {} +`,
+      description: "lock down env files to root-only",
+    },
   );
   commands.push(
     ...(useChunkedWrites
