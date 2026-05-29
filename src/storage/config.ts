@@ -39,6 +39,9 @@ export interface MemoryConfig {
     scheduled?: boolean;
     cadence?: "daily" | "weekly" | "manual";
   };
+  dashboard?: {
+    trusted_origins?: string[];
+  };
   [key: string]: unknown;
 }
 
@@ -65,6 +68,7 @@ function parseYamlSubset(text: string): MemoryConfig {
   const root: YamlObject = {};
   let currentSection: YamlObject | null = null;
   let currentNestedSection: YamlObject | null = null;
+  let currentNestedKey: string | null = null;
 
   for (const [index, rawLine] of text.split(/\r?\n/).entries()) {
     if (rawLine.trim().length === 0 || rawLine.trimStart().startsWith("#")) {
@@ -83,10 +87,12 @@ function parseYamlSubset(text: string): MemoryConfig {
         root[key] = section;
         currentSection = section;
         currentNestedSection = null;
+        currentNestedKey = null;
       } else {
         root[key] = parseScalar(value, index + 1);
         currentSection = null;
         currentNestedSection = null;
+        currentNestedKey = null;
       }
       continue;
     }
@@ -97,14 +103,39 @@ function parseYamlSubset(text: string): MemoryConfig {
         const section: YamlObject = {};
         currentSection[key] = section;
         currentNestedSection = section;
+        currentNestedKey = key;
       } else {
         currentSection[key] = parseScalar(value, index + 1);
         currentNestedSection = null;
+        currentNestedKey = null;
       }
       continue;
     }
 
-    if (indent === 4 && currentNestedSection !== null) {
+    if (
+      indent === 4 &&
+      currentSection !== null &&
+      (currentNestedSection !== null || (currentNestedKey !== null && Array.isArray(currentSection[currentNestedKey])))
+    ) {
+      if (line.startsWith("- ")) {
+        if (currentNestedKey === null || currentSection === null) {
+          throw new Error(`line ${index + 1}: list item without a list key`);
+        }
+        const existing = currentSection[currentNestedKey];
+        if (!Array.isArray(existing)) {
+          const existingObject = asYamlObject(existing);
+          if (!existingObject || Object.keys(existingObject).length > 0) {
+            throw new Error(`line ${index + 1}: list item under non-list value`);
+          }
+          currentSection[currentNestedKey] = [];
+          currentNestedSection = null;
+        }
+        (currentSection[currentNestedKey] as unknown[]).push(parseScalar(line.slice(2).trim(), index + 1));
+        continue;
+      }
+      if (currentNestedSection === null) {
+        throw new Error(`line ${index + 1}: unsupported list item`);
+      }
       const { key, value } = splitKeyValue(line, index + 1);
       if (value === "") {
         throw new Error(`line ${index + 1}: nested sections beyond two levels are not supported`);
@@ -120,6 +151,11 @@ function parseYamlSubset(text: string): MemoryConfig {
   }
 
   return root as MemoryConfig;
+}
+
+function asYamlObject(value: unknown): YamlObject | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  return value as YamlObject;
 }
 
 function splitKeyValue(line: string, lineNumber: number): { key: string; value: string } {

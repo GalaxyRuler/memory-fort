@@ -48,9 +48,10 @@ const SAFELISTED_PATHS = new Set([
   "compile.scheduled",
   "compile.cadence",
   "compile.execute",
+  "dashboard.trusted_origins",
 ]);
 
-const VALID_TOP_LEVEL_KEYS = new Set(["embedder", "llm", "auto_promote", "compile"]);
+const VALID_TOP_LEVEL_KEYS = new Set(["embedder", "llm", "auto_promote", "compile", "dashboard"]);
 const VALID_EMBEDDER_PROVIDERS = new Set(["voyage", "openai", "ollama"]);
 const VALID_LLM_PROVIDERS = new Set(["openrouter", "ollama"]);
 const VALID_AUTO_PROMOTE_CADENCES = new Set(["weekly", "daily", "manual"]);
@@ -168,6 +169,12 @@ function validateValue(
   if (path === "compile.cadence" && !VALID_COMPILE_CADENCES.has(String(value))) {
     errors.push({ path, message: "cadence must be daily, weekly, or manual" });
   }
+  if (
+    path === "dashboard.trusted_origins" &&
+    (!Array.isArray(value) || value.some((origin) => typeof origin !== "string" || origin.trim().length === 0))
+  ) {
+    errors.push({ path, message: "trusted_origins must be an array of non-empty strings" });
+  }
 }
 
 function rejectSecretLikeKeys(
@@ -197,7 +204,7 @@ function mergeAtSafelistedPaths(
   patch: Record<string, unknown>,
 ): MemoryConfig {
   const next: MemoryConfig = clonePlain(current);
-  for (const sectionKey of ["embedder", "llm", "auto_promote", "compile"] as const) {
+  for (const sectionKey of ["embedder", "llm", "auto_promote", "compile", "dashboard"] as const) {
     const sectionPatch = asPlainObject(patch[sectionKey]);
     if (!sectionPatch) continue;
     const target = asPlainObject(next[sectionKey]) ?? {};
@@ -208,7 +215,7 @@ function mergeAtSafelistedPaths(
 
 function listAppliedPaths(patch: Record<string, unknown>): string[] {
   const paths: string[] = [];
-  for (const sectionKey of ["embedder", "llm", "auto_promote", "compile"] as const) {
+  for (const sectionKey of ["embedder", "llm", "auto_promote", "compile", "dashboard"] as const) {
     const sectionPatch = asPlainObject(patch[sectionKey]);
     if (!sectionPatch) continue;
     for (const fieldKey of Object.keys(sectionPatch)) {

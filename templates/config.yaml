@@ -17,6 +17,10 @@ compile:
   scheduled: true
   cadence: daily
 
+# dashboard:
+#   trusted_origins:
+#     - https://example.tailnet.ts.net
+
 # llm:
 #   provider: openrouter   # openrouter | ollama
 #   model: openai/gpt-4o-mini

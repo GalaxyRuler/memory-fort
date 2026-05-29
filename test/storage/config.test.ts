@@ -38,6 +38,28 @@ describe("memory config reader", () => {
     });
   });
 
+  it("loadMemoryConfig parses dashboard trusted origins from block lists", async () => {
+    await writeFile(
+      join(tmp, "config.yaml"),
+      [
+        "dashboard:",
+        "  trusted_origins:",
+        "    - https://srv1317946.tail6916d8.ts.net",
+        "    - http://127.0.0.1:4410",
+        "",
+      ].join("\n"),
+    );
+
+    await expect(loadMemoryConfig(tmp)).resolves.toEqual({
+      dashboard: {
+        trusted_origins: [
+          "https://srv1317946.tail6916d8.ts.net",
+          "http://127.0.0.1:4410",
+        ],
+      },
+    });
+  });
+
   it("loadMemoryConfig tolerates malformed YAML", async () => {
     await writeFile(join(tmp, "config.yaml"), 'voyage:\n  api_key: "unterminated\n');
 

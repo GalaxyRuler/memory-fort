@@ -1,4 +1,4 @@
-import { createServer as createHttpServer, type IncomingMessage, type Server as HttpServer, type ServerResponse } from "node:http";
+import { createServer as createHttpServer, type IncomingHttpHeaders, type IncomingMessage, type Server as HttpServer, type ServerResponse } from "node:http";
 import { readFile, stat } from "node:fs/promises";
 import { extname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -249,9 +249,54 @@ async function readJsonBody(req: IncomingMessage): Promise<unknown> {
   return JSON.parse(text) as unknown;
 }
 
-function sameOriginAllowed(reqOrigin: string | undefined, requestUrl: URL): boolean {
-  if (!reqOrigin) return true;
-  return reqOrigin === requestUrl.origin;
+export function sameOriginAllowed(
+  reqOrigin: string | string[] | undefined,
+  requestUrl: URL,
+  headers: IncomingHttpHeaders,
+  trustedOrigins: string[] = [],
+): boolean {
+  const origin = normalizeOrigin(firstHeaderValue(reqOrigin));
+  if (!origin) return true;
+
+  const normalizedTrusted = trustedOrigins.map(normalizeOrigin).filter((value): value is string => value !== null);
+  if (normalizedTrusted.includes(origin)) return true;
+
+  const directOrigin = normalizeOrigin(requestUrl.origin);
+  if (directOrigin === origin) return true;
+
+  return effectiveRequestOrigin(requestUrl, headers) === origin;
+}
+
+function effectiveRequestOrigin(requestUrl: URL, headers: IncomingHttpHeaders): string | null {
+  const forwardedProto = firstCommaValue(headers["x-forwarded-proto"]);
+  const forwardedHost = firstCommaValue(headers["x-forwarded-host"]);
+  const scheme = (forwardedProto ?? requestUrl.protocol.replace(/:$/, "")).toLowerCase();
+  const host = forwardedHost ?? firstHeaderValue(headers.host) ?? requestUrl.host;
+  return normalizeOrigin(`${scheme}://${host}`);
+}
+
+function firstCommaValue(value: string | string[] | undefined): string | undefined {
+  const raw = firstHeaderValue(value);
+  return raw?.split(",")[0]?.trim() || undefined;
+}
+
+function firstHeaderValue(value: string | string[] | undefined): string | undefined {
+  if (Array.isArray(value)) return value[0];
+  return value;
+}
+
+function normalizeOrigin(value: string | undefined): string | null {
+  if (!value) return null;
+  try {
+    const parsed = new URL(value.trim().replace(/\/+$/, ""));
+    const protocol = parsed.protocol.toLowerCase();
+    if (protocol !== "http:" && protocol !== "https:") return null;
+    const defaultPort = protocol === "https:" ? "443" : "80";
+    const port = parsed.port && parsed.port !== defaultPort ? `:${parsed.port}` : "";
+    return `${protocol}//${parsed.hostname.toLowerCase()}${port}`;
+  } catch {
+    return null;
+  }
 }
 
 function parseLineCount(value: string | null): number {
@@ -385,7 +430,7 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
     const path = normalizeDashboardPath(url.pathname);
 
     if (method === "PATCH" && path === "/api/config") {
-      if (!sameOriginAllowed(req.headers.origin, url)) {
+      if (!sameOriginAllowed(req.headers.origin, url, req.headers, await loadTrustedDashboardOrigins(opts.vaultRoot))) {
         writeJson(res, { ok: false, error: "cross-origin config updates are not allowed" }, 403);
         return;
       }
@@ -409,7 +454,7 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
     }
 
     if ((method === "POST" && path === "/api/proposed/promote") || (method === "POST" && path === "/api/proposed/reject")) {
-      if (!sameOriginAllowed(req.headers.origin, url)) {
+      if (!sameOriginAllowed(req.headers.origin, url, req.headers, await loadTrustedDashboardOrigins(opts.vaultRoot))) {
         writeJson(res, { ok: false, error: "cross-origin proposed draft updates are not allowed" }, 403);
         return;
       }
@@ -435,7 +480,7 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
     }
 
     if (method === "POST" && path === "/api/compile/run") {
-      if (!sameOriginAllowed(req.headers.origin, url)) {
+      if (!sameOriginAllowed(req.headers.origin, url, req.headers, await loadTrustedDashboardOrigins(opts.vaultRoot))) {
         writeJsonError(res, 403, "cross-origin compile runs are not allowed");
         return;
       }
@@ -838,6 +883,15 @@ async function makeConfiguredEmbedClient(
   } catch {
     return makeEmbedClient(null);
   }
+}
+
+async function loadTrustedDashboardOrigins(vaultRoot: string): Promise<string[]> {
+  const config = await loadMemoryConfig(vaultRoot);
+  const dashboard = typeof config.dashboard === "object" && config.dashboard !== null
+    ? config.dashboard as Record<string, unknown>
+    : {};
+  const origins = dashboard["trusted_origins"];
+  return Array.isArray(origins) ? origins.filter((origin): origin is string => typeof origin === "string") : [];
 }
 
 async function makeConfiguredLLMProvider(vaultRoot: string): Promise<LLMProvider | null> {

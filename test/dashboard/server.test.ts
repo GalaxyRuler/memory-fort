@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { DashboardStatus } from "../../src/dashboard/loaders.js";
-import { createServer } from "../../src/dashboard/server.js";
+import { createServer, sameOriginAllowed } from "../../src/dashboard/server.js";
 import type { VerifyResult, VerifyRole } from "../../src/cli/commands/verify.js";
 import type { VoyageClient } from "../../src/retrieval/voyage-client.js";
 
@@ -125,6 +125,31 @@ describe("dashboard server", () => {
 
   afterEach(async () => {
     await rm(tmp, { recursive: true, force: true });
+  });
+
+  it("same-origin guard honors direct, forwarded, missing, and trusted origins", () => {
+    const directUrl = new URL("http://127.0.0.1:4410/api/compile/run");
+    expect(sameOriginAllowed("http://127.0.0.1:4410", directUrl, { host: "127.0.0.1:4410" })).toBe(true);
+    expect(sameOriginAllowed(undefined, directUrl, { host: "127.0.0.1:4410" })).toBe(true);
+
+    expect(sameOriginAllowed("https://srv1317946.tail6916d8.ts.net", directUrl, {
+      host: "127.0.0.1:4410",
+      "x-forwarded-proto": "https",
+      "x-forwarded-host": "srv1317946.tail6916d8.ts.net",
+    })).toBe(true);
+
+    expect(sameOriginAllowed("https://evil.example.com", directUrl, {
+      host: "127.0.0.1:4410",
+      "x-forwarded-proto": "https",
+      "x-forwarded-host": "srv1317946.tail6916d8.ts.net",
+    })).toBe(false);
+
+    expect(sameOriginAllowed("https://dashboard.example.test", directUrl, {
+      host: "127.0.0.1:4410",
+    }, ["https://dashboard.example.test"])).toBe(true);
+    expect(sameOriginAllowed("https://other.example.test", directUrl, {
+      host: "127.0.0.1:4410",
+    }, ["https://dashboard.example.test"])).toBe(false);
   });
 
   it("GET /healthz returns 200 text/plain ok", async () => {
@@ -939,6 +964,41 @@ describe("dashboard server", () => {
     }
   });
 
+  it("POST /api/compile/run accepts proxy-reconstructed same-origin and rejects genuine cross-origin", async () => {
+    const compileRunner = vi.fn(async () => ({
+      rawFilesIncluded: ["raw/a.md"],
+      rawFilesSkipped: [],
+      outputPath: "state/scheduled-compile-prompt.md",
+    }));
+    const server = await createServer({ vaultRoot: tmp, port: 0, compileRunner });
+
+    try {
+      const origin = `http://${server.host}:${server.port}`;
+      const allowed = await fetch(`${origin}/api/compile/run`, {
+        method: "POST",
+        headers: {
+          Origin: "https://srv1317946.tail6916d8.ts.net",
+          "X-Forwarded-Proto": "https",
+          "X-Forwarded-Host": "srv1317946.tail6916d8.ts.net",
+        },
+      });
+      expect(allowed.status).toBe(200);
+
+      const blocked = await fetch(`${origin}/api/compile/run`, {
+        method: "POST",
+        headers: {
+          Origin: "https://evil.example.com",
+          "X-Forwarded-Proto": "https",
+          "X-Forwarded-Host": "srv1317946.tail6916d8.ts.net",
+        },
+      });
+      expect(blocked.status).toBe(403);
+      expect(compileRunner).toHaveBeenCalledOnce();
+    } finally {
+      await server.close();
+    }
+  });
+
   it("GET /api/conflicts returns an empty list on a clean vault and parses a populated store", async () => {
     const server = await createServer({ vaultRoot: tmp, port: 0 });
 
@@ -1168,6 +1228,40 @@ describe("dashboard server", () => {
     }
   });
 
+  it("PATCH /api/config accepts proxy-reconstructed same-origin and rejects genuine cross-origin", async () => {
+    await writeFile(join(tmp, "config.yaml"), ["embedder:", "  provider: voyage", ""].join("\n"));
+    const server = await createServer({ vaultRoot: tmp, port: 0 });
+
+    try {
+      const origin = `http://${server.host}:${server.port}`;
+      const allowed = await fetch(`${origin}/api/config`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Origin: "https://srv1317946.tail6916d8.ts.net",
+          "X-Forwarded-Proto": "https",
+          "X-Forwarded-Host": "srv1317946.tail6916d8.ts.net",
+        },
+        body: JSON.stringify({ embedder: { provider: "openai" } }),
+      });
+      expect(allowed.status).toBe(200);
+
+      const blocked = await fetch(`${origin}/api/config`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Origin: "https://evil.example.com",
+          "X-Forwarded-Proto": "https",
+          "X-Forwarded-Host": "srv1317946.tail6916d8.ts.net",
+        },
+        body: JSON.stringify({ embedder: { provider: "voyage" } }),
+      });
+      expect(blocked.status).toBe(403);
+    } finally {
+      await server.close();
+    }
+  });
+
   it("GET /api/proposed endpoints list drafts and summary counts", async () => {
     await writeProposedDrafts(tmp);
     const server = await createServer({ vaultRoot: tmp, port: 0 });
@@ -1218,14 +1312,24 @@ describe("dashboard server", () => {
     try {
       const blocked = await fetch(`http://${server.host}:${server.port}/api/proposed/promote`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", Origin: "http://evil.test" },
+        headers: {
+          "Content-Type": "application/json",
+          Origin: "https://evil.example.com",
+          "X-Forwarded-Proto": "https",
+          "X-Forwarded-Host": "srv1317946.tail6916d8.ts.net",
+        },
         body: JSON.stringify({ kind: "thread", slug: "memory-thread" }),
       });
       expect(blocked.status).toBe(403);
 
       const promoted = await fetch(`http://${server.host}:${server.port}/api/proposed/promote`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Origin: "https://srv1317946.tail6916d8.ts.net",
+          "X-Forwarded-Proto": "https",
+          "X-Forwarded-Host": "srv1317946.tail6916d8.ts.net",
+        },
         body: JSON.stringify({ kind: "thread", slug: "memory-thread" }),
       });
       expect(promoted.status).toBe(200);
