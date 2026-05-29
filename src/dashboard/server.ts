@@ -925,7 +925,7 @@ function compileScheduleForResponse(config: Awaited<ReturnType<typeof loadMemory
   const cadence = record["cadence"] === "weekly" || record["cadence"] === "manual"
     ? record["cadence"]
     : "daily";
-  const scheduled = record["scheduled"] !== false;
+  const scheduled = record["scheduled"] === true;
   return {
     scheduled,
     cadence,

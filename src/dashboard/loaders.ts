@@ -10,6 +10,7 @@ import {
 } from "../curation/checks.js";
 import { loadSearchCorpus, type CognitiveType, type SearchScope } from "../retrieval/corpus.js";
 import { buildGraph } from "../retrieval/graph.js";
+import { isWikiDotDirectoryPath } from "../retrieval/wiki-paths.js";
 import { getConfidenceScore } from "../storage/confidence.js";
 import { loadMemoryConfig } from "../storage/config.js";
 import type { ConfidenceVector, Frontmatter, LifecycleStage } from "../storage/frontmatter.js";
@@ -96,7 +97,6 @@ export interface WikiIndex {
 
 export interface PageDetail {
   relPath: string;
-  fullPath: string;
   frontmatter: Frontmatter;
   body: string;
   relations: Array<{
@@ -129,7 +129,7 @@ export type RawSessionSource = "claude-code" | "codex" | "antigravity" | "manual
 export interface RawSessionDetail {
   date: string;
   filename: string;
-  fullPath: string;
+  relPath: string;
   source: RawSessionSource;
   sessionId: string;
   sizeBytes: number;
@@ -409,17 +409,20 @@ async function loadWikiPages(root: string): Promise<WikiPage[]> {
     const entries = await readdir(dir, { withFileTypes: true });
     for (const entry of entries) {
       const full = join(dir, entry.name);
+      const relPath = relative(root, full).replace(/\\/g, "/");
+      const wikiRelPath = `wiki/${relPath}`;
       if (entry.isDirectory()) {
-        if (relative(root, full).replace(/\\/g, "/").split("/")[0] === "archive") {
+        if (relPath.split("/")[0] === "archive" || isWikiDotDirectoryPath(wikiRelPath)) {
           continue;
         }
         await walk(full);
       } else if (entry.isFile() && entry.name.endsWith(".md")) {
+        if (isWikiDotDirectoryPath(wikiRelPath)) continue;
         try {
           const content = await readFile(full, "utf-8");
           const parsed = parseWikiMarkdown(content);
           pages.push({
-            path: relative(root, full).replace(/\\/g, "/"),
+            path: relPath,
             fullPath: full,
             frontmatter: parsed.frontmatter,
             body: parsed.body,
@@ -947,6 +950,7 @@ export async function loadWikiIndex(vaultRoot: string): Promise<WikiIndex> {
 
 export async function loadPageDetail(vaultRoot: string, relPath: string): Promise<PageDetail | null> {
   if (relPath.includes("\\") || !relPath.endsWith(".md")) return null;
+  if (isWikiDotDirectoryPath(`wiki/${relPath}`)) return null;
   const wikiRoot = join(vaultRoot, "wiki");
   const fullPath = safeResolveUnder(wikiRoot, relPath);
   if (!fullPath || !(await pathExists(fullPath))) return null;
@@ -958,7 +962,6 @@ export async function loadPageDetail(vaultRoot: string, relPath: string): Promis
   const idx = buildResolutionIndex(pages);
   return {
     relPath: page.path,
-    fullPath: page.fullPath,
     frontmatter: page.frontmatter,
     body: page.body,
     relations: resolveRelations(page, idx),
@@ -1038,7 +1041,7 @@ export async function loadRawSessionDetail(
   return {
     date,
     filename,
-    fullPath,
+    relPath: `raw/${date}/${filename}`,
     source: parseRawSourceFromFilename(filename),
     sessionId: parseRawSessionIdFromFilename(filename),
     sizeBytes: info.size,

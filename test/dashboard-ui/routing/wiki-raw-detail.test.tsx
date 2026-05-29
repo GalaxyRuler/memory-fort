@@ -149,7 +149,6 @@ function renderAt(path: string) {
 function wikiPageFixture(): PageDetail {
   return {
     relPath: "wiki/decisions/2026-05-20-voyage-ai-for-embeddings.md",
-    fullPath: "C:/memory/wiki/decisions/2026-05-20-voyage-ai-for-embeddings.md",
     frontmatter: {
       title: "Voyage AI for Embeddings",
       type: "decisions",
@@ -187,7 +186,7 @@ function rawSessionFixture(): RawSessionDetail {
   return {
     date: "2026-05-25",
     filename: "codex-019e5a9c-memory-routing.md",
-    fullPath: "C:/memory/raw/2026-05-25/codex-019e5a9c-memory-routing.md",
+    relPath: "raw/2026-05-25/codex-019e5a9c-memory-routing.md",
     source: "codex",
     sessionId: "019e5a9c-memory-routing",
     sizeBytes: 512,

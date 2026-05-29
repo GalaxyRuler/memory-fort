@@ -37,7 +37,6 @@ describe("MemoryModal", () => {
   it("opens, fetches the page body, switches tabs, and closes", async () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({
       relPath: "wiki/projects/foo.md",
-      fullPath: "C:/memory/wiki/projects/foo.md",
       frontmatter: { title: "Foo" },
       body: "# Foo\n\nBody text.",
       relations: [],
@@ -63,7 +62,6 @@ describe("MemoryModal", () => {
   it("wikilink clicks close the modal and select existing graph node", async () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({
       relPath: "wiki/projects/foo.md",
-      fullPath: "C:/memory/wiki/projects/foo.md",
       frontmatter: { title: "Foo" },
       body: "See [[wiki/projects/bar.md]].",
       relations: [],

@@ -466,6 +466,25 @@ describe("dashboard loaders", () => {
     expect(index.byCategory.projects.map((entry) => entry.slug)).toEqual(["alpha", "zeta"]);
   });
 
+  it("loadWikiIndex excludes wiki dot-directories", async () => {
+    await mkdir(join(tmp, "wiki", "projects"), { recursive: true });
+    await mkdir(join(tmp, "wiki", ".audit"), { recursive: true });
+    await writeFile(
+      join(tmp, "wiki", "projects", "visible.md"),
+      page({ type: "projects", title: "Visible", created: "2026-05-21", updated: "2026-05-23" }, "Visible summary.\n"),
+    );
+    await writeFile(
+      join(tmp, "wiki", ".audit", "llm-2026-05-29.md"),
+      page({ type: "references", title: "Audit Log", created: "2026-05-29", updated: "2026-05-29" }, "Audit summary.\n"),
+    );
+
+    const index = await loadWikiIndex(tmp);
+
+    expect(index.total).toBe(1);
+    expect(JSON.stringify(index)).not.toContain(".audit");
+    expect(JSON.stringify(index)).not.toContain("Audit Log");
+  });
+
   it("loadPageDetail resolves relations and inbound references", async () => {
     await mkdir(join(tmp, "wiki", "projects"), { recursive: true });
     await mkdir(join(tmp, "wiki", "lessons"), { recursive: true });
@@ -510,6 +529,16 @@ describe("dashboard loaders", () => {
     await mkdir(join(tmp, "wiki", "projects"), { recursive: true });
 
     await expect(loadPageDetail(tmp, "projects/ghost.md")).resolves.toBeNull();
+  });
+
+  it("loadPageDetail rejects wiki dot-directory paths", async () => {
+    await mkdir(join(tmp, "wiki", ".audit"), { recursive: true });
+    await writeFile(
+      join(tmp, "wiki", ".audit", "llm-2026-05-29.md"),
+      page({ type: "references", title: "Audit Log", created: "2026-05-29", updated: "2026-05-29" }, "Audit body.\n"),
+    );
+
+    await expect(loadPageDetail(tmp, ".audit/llm-2026-05-29.md")).resolves.toBeNull();
   });
 
   it("loadRawIndex walks the raw tree", async () => {

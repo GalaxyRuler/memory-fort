@@ -319,5 +319,10 @@ function isAllowedRelPath(relPath: string): boolean {
 function redactSecrets(value: string): string {
   return value
     .replace(/\b([A-Z0-9_]*(?:API[_-]?KEY|TOKEN|SECRET|PASSWORD)[A-Z0-9_]*)\s*=\s*\S+/gi, "$1=[REDACTED]")
+    .replace(/^-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?^-----END [A-Z ]*PRIVATE KEY-----/gm, "[REDACTED]")
+    .replace(/\bAIza[0-9A-Za-z_-]{35}\b/g, "[REDACTED]")
+    .replace(/\bgh[posru]_[0-9A-Za-z]{36,}\b/g, "[REDACTED]")
+    .replace(/\bBearer\s+[A-Za-z0-9._-]+\b/g, "Bearer [REDACTED]")
+    .replace(/\bxox[baprs]-[A-Za-z0-9-]{20,}\b/g, "[REDACTED]")
     .replace(/\b(sk-[A-Za-z0-9_-]{8,})\b/g, "[REDACTED]");
 }

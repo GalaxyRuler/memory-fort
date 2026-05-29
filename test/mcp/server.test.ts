@@ -98,6 +98,11 @@ describe("readPage", () => {
       join(tmp, "wiki", "projects", "agentmemory.md"),
       `---\ntype: projects\ntitle: agentmemory\ncreated: "2026-05-20"\nupdated: "2026-05-21"\ntags: [windows, stability]\n---\n\nThe summary.\n\nBody content.\n`,
     );
+    await mkdir(join(tmp, "wiki", ".audit"), { recursive: true });
+    await writeFile(
+      join(tmp, "wiki", ".audit", "llm-2026-05-29.md"),
+      `---\ntype: references\ntitle: Audit Log\nupdated: "2026-05-29"\n---\n\nOperational audit details.\n`,
+    );
   });
 
   afterEach(async () => {
@@ -131,6 +136,12 @@ describe("readPage", () => {
     const result = await readPage({ path: "C:/Windows/system32/secret.md" });
     expect(result.isError).toBe(true);
   });
+
+  it("rejects wiki dot-directory pages", async () => {
+    const result = await readPage({ path: ".audit/llm-2026-05-29.md" });
+    expect(result.isError).toBe(true);
+    expect(result.content[0]!.text).toContain("Invalid path");
+  });
 });
 
 describe("listPages", () => {
@@ -155,6 +166,11 @@ describe("listPages", () => {
       join(tmp, "wiki", "lessons", "c.md"),
       `---\ntype: lessons\ntitle: C\ncreated: "2026-05-20"\nupdated: "2026-05-20"\ntags: [stability, windows]\n---\nz\n`,
     );
+    await mkdir(join(tmp, "wiki", ".audit"), { recursive: true });
+    await writeFile(
+      join(tmp, "wiki", ".audit", "llm-2026-05-29.md"),
+      `---\ntype: references\ntitle: Audit Log\ncreated: "2026-05-29"\nupdated: "2026-05-29"\n---\naudit\n`,
+    );
   });
 
   afterEach(async () => {
@@ -170,6 +186,8 @@ describe("listPages", () => {
     expect(text).toContain("projects/a.md");
     expect(text).toContain("projects/b.md");
     expect(text).toContain("lessons/c.md");
+    expect(text).not.toContain(".audit");
+    expect(text).not.toContain("Audit Log");
   });
 
   it("filters by type", async () => {
@@ -228,6 +246,7 @@ describe("memory.search MCP tool", () => {
       const parsed = JSON.parse(extractJsonFence(text));
       expect(parsed.result_count).toBe(2);
       expect(parsed.results[0].path).toBe("wiki/tools/voyageai.md");
+      expect(parsed.results.some((item: { path: string }) => item.path.startsWith("wiki/.audit/"))).toBe(false);
     } finally {
       await close();
     }
@@ -332,6 +351,15 @@ function searchFixture() {
   return {
     query: "voyage",
     results: [
+      {
+        path: "wiki/.audit/llm-2026-05-29.md",
+        title: "Audit Log",
+        snippet: "Operational audit details should not reach MCP search.",
+        score: 0.99,
+        source: "bm25",
+        sources: [{ source: "bm25", rank: 0 }],
+        kind: "wiki",
+      },
       {
         path: "wiki/tools/voyageai.md",
         title: "voyageai npm SDK",

@@ -3,7 +3,6 @@ import { apiGet } from "../lib/api.js";
 
 export interface PageBody {
   relPath: string;
-  fullPath: string;
   frontmatter: Record<string, unknown>;
   body: string;
   relations: Array<{ target: string; label?: string | null }>;

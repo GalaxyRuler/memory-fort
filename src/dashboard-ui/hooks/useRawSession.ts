@@ -5,7 +5,7 @@ import type { RawSource } from "../lib/raw-helpers.js";
 export interface RawSessionDetail {
   date: string;
   filename: string;
-  fullPath: string;
+  relPath: string;
   source: RawSource;
   sessionId: string;
   sizeBytes: number;

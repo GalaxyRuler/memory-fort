@@ -561,12 +561,12 @@ describe("dashboard server", () => {
       expect(response.headers.get("content-type")).toContain("application/json");
       expect(body).toEqual({
         relPath: "wiki/projects/foo.md",
-        fullPath: expect.stringContaining("foo.md"),
         frontmatter: expect.objectContaining({ title: "Foo", type: "projects" }),
         body: expect.stringContaining("Foo page content."),
         relations: expect.any(Array),
         inbound: expect.any(Array),
       });
+      expect(JSON.stringify(body)).not.toMatch(/[A-Z]:[\\/]|\/root\/|\/home\//);
     } finally {
       await server.close();
     }
@@ -605,7 +605,7 @@ describe("dashboard server", () => {
       expect(body).toEqual({
         date: "2026-05-24",
         filename,
-        fullPath: expect.stringContaining(filename),
+        relPath: `raw/2026-05-24/${filename}`,
         source: "claude-code",
         sessionId: "019e4bf7-d7b8-4a57",
         sizeBytes: expect.any(Number),
@@ -615,6 +615,33 @@ describe("dashboard server", () => {
       });
       expect(body.sizeBytes).toBeGreaterThan(0);
       expect(Number.isFinite(Date.parse(body.mtime))).toBe(true);
+      expect(JSON.stringify(body)).not.toMatch(/[A-Z]:[\\/]|\/root\/|\/home\//);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("GET /api/wiki excludes wiki dot-directories", async () => {
+    await mkdir(join(tmp, "wiki", "projects"), { recursive: true });
+    await mkdir(join(tmp, "wiki", ".audit"), { recursive: true });
+    await writeFile(
+      join(tmp, "wiki", "projects", "foo.md"),
+      page({ type: "projects", title: "Foo", created: "2026-05-21", updated: "2026-05-23" }, "Foo body.\n"),
+    );
+    await writeFile(
+      join(tmp, "wiki", ".audit", "llm-2026-05-29.md"),
+      page({ type: "references", title: "Audit Log", created: "2026-05-29", updated: "2026-05-29" }, "Audit body.\n"),
+    );
+    const server = await createServer({ vaultRoot: tmp, port: 0 });
+
+    try {
+      const response = await fetch(`http://${server.host}:${server.port}/api/wiki`);
+      const body = await response.json();
+      const text = JSON.stringify(body);
+      expect(response.status).toBe(200);
+      expect(text).toContain("projects/foo.md");
+      expect(text).not.toContain(".audit");
+      expect(text).not.toContain("Audit Log");
     } finally {
       await server.close();
     }
@@ -889,7 +916,7 @@ describe("dashboard server", () => {
       expect(body).toMatchObject({
         status: "idle",
         lastRun: null,
-        schedule: { scheduled: true, cadence: "daily" },
+        schedule: { scheduled: false, cadence: "daily", nextRunAt: null },
       });
     } finally {
       await server.close();

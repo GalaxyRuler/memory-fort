@@ -123,6 +123,40 @@ describe("retrieval corpus loader", () => {
     expect(result.scannedCounts).toEqual({ wiki: 2, raw: 1, crystals: 1 });
   });
 
+  it("excludes wiki dot-directories from the searchable corpus", async () => {
+    await writeMarkdown(
+      tmp,
+      "wiki/projects/foo.md",
+      frontmatterPage(
+        {
+          type: "projects",
+          title: "Foo",
+          created: "2026-05-22",
+          updated: "2026-05-23",
+        },
+        "Foo body.\n",
+      ),
+    );
+    await writeMarkdown(
+      tmp,
+      "wiki/.audit/llm-2026-05-29.md",
+      frontmatterPage(
+        {
+          type: "references",
+          title: "Audit Log",
+          created: "2026-05-29",
+          updated: "2026-05-29",
+        },
+        "Operational audit body.\n",
+      ),
+    );
+
+    const result = await loadSearchCorpus({ vaultRoot: tmp, scope: "wiki" });
+
+    expect(result.documents.map((document) => document.relPath)).toEqual(["wiki/projects/foo.md"]);
+    expect(result.scannedCounts.wiki).toBe(1);
+  });
+
   it("Scope filter: raw returns only raw documents", async () => {
     await writeMixedVault(tmp);
 

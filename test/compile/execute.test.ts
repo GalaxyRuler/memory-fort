@@ -67,6 +67,56 @@ describe("compile execute operations", () => {
     expect(parsed.body).toContain("[REDACTED]");
   });
 
+  it("redacts shaped secrets without redacting benign prose", async () => {
+    const pem = [
+      "-----BEGIN PRIVATE KEY-----",
+      "MIIEvQIBADANBgkqhkiG9w0BAQEFAASC",
+      "not-real-but-shaped-secret-material",
+      "-----END PRIVATE KEY-----",
+    ].join("\n");
+    const body = [
+      "Google key AIzaSyA12345678901234567890123456789012",
+      "GitHub token ghp_1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+      "Bearer abc.def-ghi_jkl",
+      "Slack token xoxb-123456789012-123456789012-abcdefghijklmnopqrstuvwx",
+      pem,
+      "max_tokens: 4096",
+      "the API key rotation policy",
+    ].join("\n");
+
+    const result = await applyCompileOperations({
+      vaultRoot: tmp,
+      operations: [{
+        kind: "write_page",
+        path: "wiki/lessons/secret-shapes.md",
+        frontmatter: {
+          type: "lessons",
+          title: "Secret Shapes",
+          relations: { derived_from: ["raw/2026-05-28/a.md", "raw/2026-05-28/b.md"] },
+        },
+        body,
+      }],
+      now: new Date("2026-05-28T12:00:00.000Z"),
+    });
+
+    expect(result.applied).toEqual(["wiki/lessons/secret-shapes.md"]);
+    const written = await readFile(join(tmp, "wiki", "lessons", "secret-shapes.md"), "utf-8");
+    const parsed = parseFrontmatter(written);
+
+    expect(parsed.body).not.toContain("AIzaSyA12345678901234567890123456789012");
+    expect(parsed.body).not.toContain("ghp_1234567890ABCDEFGHIJKLMNOPQRSTUVWXYZ");
+    expect(parsed.body).not.toContain("abc.def-ghi_jkl");
+    expect(parsed.body).not.toContain("xoxb-123456789012-123456789012-abcdefghijklmnopqrstuvwx");
+    expect(parsed.body).not.toContain("BEGIN PRIVATE KEY");
+    expect(parsed.body).not.toContain("not-real-but-shaped-secret-material");
+    expect(parsed.body).toContain("Google key [REDACTED]");
+    expect(parsed.body).toContain("GitHub token [REDACTED]");
+    expect(parsed.body).toContain("Bearer [REDACTED]");
+    expect(parsed.body).toContain("Slack token [REDACTED]");
+    expect(parsed.body).toContain("max_tokens: 4096");
+    expect(parsed.body).toContain("the API key rotation policy");
+  });
+
   it("preserves grounded relation-edge objects and strips missing targets", async () => {
     const result = await applyCompileOperations({
       vaultRoot: tmp,

@@ -67,7 +67,6 @@ describe("wiki data hooks", () => {
         new Response(
           JSON.stringify({
             relPath: "wiki/projects/foo.md",
-            fullPath: "C:/memory/wiki/projects/foo.md",
             frontmatter: { title: "Foo" },
             body: "Foo body",
             relations: [],

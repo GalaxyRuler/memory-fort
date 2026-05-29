@@ -112,7 +112,6 @@ describe("dashboard render", () => {
   it("renderWikiPage renders relations + inbound sections with proper links", () => {
     const page: PageDetail = {
       relPath: "projects/a.md",
-      fullPath: "/vault/wiki/projects/a.md",
       frontmatter: {
         type: "projects",
         title: "A",

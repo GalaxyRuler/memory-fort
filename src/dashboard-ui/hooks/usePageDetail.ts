@@ -17,7 +17,6 @@ export interface PageInbound {
 
 export interface PageDetail {
   relPath: string;
-  fullPath: string;
   frontmatter: {
     type?: string;
     title?: string;

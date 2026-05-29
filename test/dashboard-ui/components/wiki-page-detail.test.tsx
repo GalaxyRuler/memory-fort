@@ -31,7 +31,6 @@ vi.mock("@tanstack/react-router", () => ({
 function makePage(): PageDetail {
   return {
     relPath: "wiki/decisions/foo.md",
-    fullPath: "C:/memory/wiki/decisions/foo.md",
     frontmatter: {
       type: "decisions",
       title: "Foo Decision",

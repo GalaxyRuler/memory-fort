@@ -10,6 +10,7 @@ import {
 } from "../storage/frontmatter.js";
 import { buildGraph } from "./graph.js";
 import { readRelations, type RelationMap } from "./relations.js";
+import { isWikiDotDirectoryPath } from "./wiki-paths.js";
 
 export type SearchScope = "wiki" | "raw" | "crystals" | "all";
 // Source identifier for a memory document. Originally a strict union of agent
@@ -145,18 +146,20 @@ async function collectMarkdownFiles(
     entries.sort((a, b) => a.name.localeCompare(b.name));
     for (const entry of entries) {
       const fullPath = join(dir, entry.name);
+      const relPath = toVaultRelPath(vaultRoot, fullPath);
       if (entry.isDirectory()) {
         if (
           topLevel === "wiki" &&
-          toVaultRelPath(vaultRoot, fullPath).startsWith("wiki/archive/")
+          (relPath.startsWith("wiki/archive/") || isWikiDotDirectoryPath(relPath))
         ) {
           continue;
         }
         await walk(fullPath);
       } else if (entry.isFile() && entry.name.endsWith(".md")) {
+        if (topLevel === "wiki" && isWikiDotDirectoryPath(relPath)) continue;
         files.push({
           kind: TOP_LEVEL[topLevel],
-          relPath: toVaultRelPath(vaultRoot, fullPath),
+          relPath,
           fullPath: resolve(fullPath),
         });
       }

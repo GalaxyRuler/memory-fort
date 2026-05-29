@@ -13,6 +13,7 @@ import {
 } from "../hooks/raw-file.js";
 import { parseFrontmatter } from "../storage/frontmatter.js";
 import { commitVaultChange as defaultCommitVaultChange } from "../sync/commit-vault-change.js";
+import { isWikiDotDirectoryPath } from "../retrieval/wiki-paths.js";
 
 const LogObservationInput = z.object({
   text: z.string().min(1, "text must be non-empty"),
@@ -98,7 +99,8 @@ export async function readPage(
   if (
     input.path.includes("..") ||
     input.path.startsWith("/") ||
-    /^[A-Z]:/.test(input.path)
+    /^[A-Z]:/.test(input.path) ||
+    isWikiDotDirectoryPath(`wiki/${input.path}`)
   ) {
     return {
       content: [
@@ -171,9 +173,11 @@ export async function listPages(
     for (const entry of entries) {
       const full = join(dir, entry.name);
       const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+      const wikiRel = `wiki/${rel}`;
       if (entry.isDirectory()) {
+        if (isWikiDotDirectoryPath(wikiRel)) continue;
         await scan(full, rel);
-      } else if (entry.isFile() && entry.name.endsWith(".md")) {
+      } else if (entry.isFile() && entry.name.endsWith(".md") && !isWikiDotDirectoryPath(wikiRel)) {
         try {
           const content = await readFn(full, "utf-8");
           const { frontmatter } = parseFrontmatter(content);
@@ -411,12 +415,13 @@ function buildSearchUrl(baseUrl: string, input: SearchInput): string {
 }
 
 function formatSearchToolResponse(body: ApiSearchResponse): string {
+  const results = (body.results ?? []).filter((item) => !isWikiDotDirectoryPath(item.path));
   const result = {
     query: body.query,
-    result_count: Array.isArray(body.results) ? body.results.length : 0,
+    result_count: results.length,
     degraded: body.degraded === true,
     warnings: body.warnings ?? [],
-    results: (body.results ?? []).map((item, index) => ({
+    results: results.map((item, index) => ({
       rank: index + 1,
       path: item.path,
       title: item.title ?? item.path,
