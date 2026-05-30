@@ -1,9 +1,9 @@
 import { appendFile } from "node:fs/promises";
 import { join } from "node:path";
 import { runCompile, type CompileResult } from "../cli/commands/compile.js";
+import { readCompileStateFile, writeCompileStateFile } from "../compile/state.js";
 import { runProcedurePropose } from "../cli/commands/procedure.js";
 import { runThreadPropose } from "../cli/commands/thread.js";
-import { atomicWrite } from "../storage/atomic-write.js";
 import { loadMemoryConfig, type MemoryConfig } from "../storage/config.js";
 import type { VaultWriteCapability } from "../sync/vault-capability.js";
 
@@ -113,13 +113,17 @@ export async function runScheduledCompileOnce(
 ): Promise<DashboardCompileRunResult> {
   const startedAt = new Date();
   const outputPath = join(vaultRoot, "state", "scheduled-compile-prompt.md");
-  await atomicWrite(join(vaultRoot, "state", "compile-state.json"), `${JSON.stringify({
+  const initialState = await readCompileStateForScheduler(vaultRoot);
+  await writeCompileStateFile(vaultRoot, {
+    ...initialState,
     status: "running",
     lastRun: null,
-  }, null, 2)}\n`);
+  });
   const result = await runCompile({ vaultRoot, outputPath, execute: opts.execute });
   const finishedAt = new Date();
-  await atomicWrite(join(vaultRoot, "state", "compile-state.json"), `${JSON.stringify({
+  const completedState = await readCompileStateForScheduler(vaultRoot);
+  await writeCompileStateFile(vaultRoot, {
+    ...completedState,
     status: "completed",
     lastRun: {
       startedAt: startedAt.toISOString(),
@@ -131,7 +135,7 @@ export async function runScheduledCompileOnce(
       operationsApplied: result.execution?.applied.length ?? 0,
       operationsProposed: result.execution?.proposed.length ?? 0,
     },
-  }, null, 2)}\n`);
+  });
   await appendFile(
     join(vaultRoot, "log.md"),
     `## [${finishedAt.toISOString()}] compile | scheduled prompt: ${result.rawFilesIncluded.length} raw included, ${result.rawFilesSkipped.length} skipped\n`,
@@ -144,6 +148,14 @@ export async function runScheduledCompileOnce(
     rawRemaining: countRemainingRawFiles(result.rawFilesSkipped),
     execution: result.execution,
   };
+}
+
+async function readCompileStateForScheduler(vaultRoot: string) {
+  try {
+    return await readCompileStateFile(vaultRoot);
+  } catch {
+    return {};
+  }
 }
 
 export async function runAutoPromoteOnce(vaultRoot: string): Promise<void> {
