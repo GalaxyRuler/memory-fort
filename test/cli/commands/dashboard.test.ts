@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -52,6 +52,9 @@ describe("runDashboard", () => {
   });
 
   it("honors host, port, dashboardDistRoot, and --no-open", async () => {
+    const distRoot = join(tmp, "ui-dist");
+    await mkdir(distRoot, { recursive: true });
+    await writeFile(join(distRoot, "index.html"), "<!doctype html>\n");
     const createServer = vi.fn(async (opts: ServerOptions): Promise<RunningServer> => ({
       host: opts.host ?? "127.0.0.1",
       port: opts.port ?? 4410,
@@ -63,7 +66,7 @@ describe("runDashboard", () => {
       host: "0.0.0.0",
       port: 4500,
       noOpen: true,
-      dashboardDistRoot: join(tmp, "ui-dist"),
+      dashboardDistRoot: distRoot,
       createServer,
       openBrowser,
       stdout: () => undefined,
@@ -73,7 +76,7 @@ describe("runDashboard", () => {
     expect(createServer).toHaveBeenCalledWith(expect.objectContaining({
       host: "0.0.0.0",
       port: 4500,
-      dashboardDistRoot: join(tmp, "ui-dist"),
+      dashboardDistRoot: distRoot,
     }));
     expect(openBrowser).not.toHaveBeenCalled();
     await result.close();

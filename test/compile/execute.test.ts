@@ -258,6 +258,67 @@ describe("compile execute operations", () => {
     expect(proposal).toContain("Thin existing-page update.");
   });
 
+  it("skips converted write_page operations when the generated body is already present", async () => {
+    const before = await readFile(join(tmp, "wiki", "projects", "memory-fort.md"), "utf-8");
+
+    const result = await applyCompileOperations({
+      vaultRoot: tmp,
+      operations: [{
+        kind: "write_page",
+        path: "wiki/projects/memory-fort.md",
+        frontmatter: {
+          type: "projects",
+          title: "Memory Fort",
+          relations: { derived_from: ["raw/2026-05-28/a.md", "raw/2026-05-28/b.md"] },
+        },
+        body: "Memory Fort body.",
+      }],
+      now: new Date("2026-05-30T12:00:00.000Z"),
+    });
+
+    expect(result.applied).toEqual([]);
+    expect(result.proposed).toEqual([]);
+    expect(result.outcomes).toContainEqual({
+      path: "wiki/projects/memory-fort.md",
+      outcome: "skipped: no new content",
+      reason: "no new content",
+      converted: "write->append: target already existed",
+      contentPreserved: true,
+    });
+    await expect(readFile(join(tmp, "wiki", "projects", "memory-fort.md"), "utf-8"))
+      .resolves.toBe(before);
+  });
+
+  it("converted write_page strips existing prose and nested dated headings before appending", async () => {
+    const result = await applyCompileOperations({
+      vaultRoot: tmp,
+      operations: [{
+        kind: "write_page",
+        path: "wiki/projects/memory-fort.md",
+        frontmatter: {
+          type: "projects",
+          title: "Memory Fort",
+          relations: { derived_from: ["raw/2026-05-28/a.md", "raw/2026-05-28/b.md"] },
+        },
+        body: [
+          "Memory Fort body.",
+          "",
+          "## 2026-05-30 update",
+          "",
+          "Only this sentence is new.",
+        ].join("\n"),
+      }],
+      now: new Date("2026-05-30T12:00:00.000Z"),
+    });
+
+    expect(result.applied).toEqual(["wiki/projects/memory-fort.md"]);
+    const written = await readFile(join(tmp, "wiki", "projects", "memory-fort.md"), "utf-8");
+    const parsed = parseFrontmatter(written);
+    expect(parsed.body.match(/Memory Fort body\./g)).toHaveLength(1);
+    expect(parsed.body.match(/## 2026-05-30 update/g)).toHaveLength(1);
+    expect(parsed.body).toContain("Only this sentence is new.");
+  });
+
   it("creates a missing normalized page from append_page and preserves the section", async () => {
     const result = await applyCompileOperations({
       vaultRoot: tmp,

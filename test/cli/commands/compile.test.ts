@@ -199,6 +199,147 @@ describe("runCompile", () => {
       .toContain("| compile-execute |");
   });
 
+  it("skips raw files already consumed to their watermark", async () => {
+    const rawPath = join(root, "raw", "2026-05-21", "manual-a.md");
+    const content = "already consolidated raw";
+    await writeFile(rawPath, content);
+    await writeCompileState({
+      consumed: {
+        "raw/2026-05-21/manual-a.md": {
+          bytes: Buffer.byteLength(content, "utf-8"),
+          lastObservationAt: "2026-05-21T10:00:00.000Z",
+        },
+      },
+    });
+
+    const result = await runCompile({ vaultRoot: root });
+
+    expect(result.rawFilesIncluded).toEqual([]);
+    expect(result.rawFilesSkipped).toEqual([
+      { path: rawPath, reason: "already consumed to watermark" },
+    ]);
+    expect(result.prompt).not.toContain(content);
+  });
+
+  it("advances the watermark after execute and only sends an appended tail on the next run", async () => {
+    const rawPath = join(root, "raw", "2026-05-21", "manual-a.md");
+    await writeFile(rawPath, "first observation\n");
+    const llm = fakeExecuteLLMWith(({ prompt }) => [{
+      kind: "write_page",
+      path: "wiki/lessons/watermark.md",
+      frontmatter: {
+        type: "lessons",
+        title: "Watermark",
+        relations: { derived_from: ["raw/2026-05-21/manual-a.md"] },
+      },
+      body: prompt.includes("second observation") ? "Second only." : "First only.",
+    }]);
+
+    await runCompile({
+      vaultRoot: root,
+      execute: true,
+      configLoader: async () => ({ llm: { provider: "ollama", model: "llama3.2" } }),
+      llmFactory: () => llm,
+      env: {},
+    });
+    await writeFile(rawPath, "first observation\nsecond observation\n");
+
+    const second = await runCompile({
+      vaultRoot: root,
+      execute: true,
+      configLoader: async () => ({ llm: { provider: "ollama", model: "llama3.2" } }),
+      llmFactory: () => llm,
+      env: {},
+    });
+
+    expect(second.prompt).not.toContain("first observation");
+    expect(second.prompt).toContain("second observation");
+    const state = await readCompileState();
+    expect(state.consumed["raw/2026-05-21/manual-a.md"].bytes)
+      .toBe(Buffer.byteLength("first observation\nsecond observation\n", "utf-8"));
+  });
+
+  it("does not advance the watermark in artifact mode", async () => {
+    const rawPath = join(root, "raw", "2026-05-21", "manual-a.md");
+    await writeFile(rawPath, "abcdef");
+    await writeCompileState({
+      consumed: {
+        "raw/2026-05-21/manual-a.md": { bytes: 3, lastObservationAt: "2026-05-21T10:00:00.000Z" },
+      },
+    });
+
+    const result = await runCompile({ vaultRoot: root });
+
+    expect(result.prompt).toContain("def");
+    const state = await readCompileState();
+    expect(state.consumed["raw/2026-05-21/manual-a.md"].bytes).toBe(3);
+  });
+
+  it("advances only to bytes included when raw content is capped", async () => {
+    const rawPath = join(root, "raw", "2026-05-21", "manual-a.md");
+    await writeFile(rawPath, "abcdefghij");
+
+    await runCompile({
+      vaultRoot: root,
+      execute: true,
+      perFileMaxBytes: 5,
+      totalMaxBytes: 5,
+      configLoader: async () => ({ llm: { provider: "ollama", model: "llama3.2" } }),
+      llmFactory: () => fakeExecuteLLM(),
+      env: {},
+    });
+
+    const state = await readCompileState();
+    expect(state.consumed["raw/2026-05-21/manual-a.md"].bytes).toBe(5);
+
+    const next = await runCompile({ vaultRoot: root });
+    expect(next.prompt).not.toContain("abcde");
+    expect(next.prompt).toContain("fghij");
+  });
+
+  it("--since bypasses recorded watermarks", async () => {
+    const rawPath = join(root, "raw", "2026-05-21", "manual-a.md");
+    await writeFile(rawPath, "force backfill raw");
+    await writeCompileState({
+      consumed: {
+        "raw/2026-05-21/manual-a.md": {
+          bytes: Buffer.byteLength("force backfill raw", "utf-8"),
+          lastObservationAt: "2026-05-21T10:00:00.000Z",
+        },
+      },
+    });
+
+    const result = await runCompile({ vaultRoot: root, since: "2026-05-01T00:00:00.000Z" });
+
+    expect(result.rawFilesIncluded).toEqual([rawPath]);
+    expect(result.prompt).toContain("force backfill raw");
+  });
+
+  it("clears matching consumed watermarks before compiling", async () => {
+    await writeFile(join(root, "raw", "2026-05-21", "manual-a.md"), "a");
+    await writeFile(join(root, "raw", "2026-05-21", "manual-b.md"), "b");
+    await writeCompileState({
+      consumed: {
+        "raw/2026-05-21/manual-a.md": { bytes: 1 },
+        "raw/2026-05-21/manual-b.md": { bytes: 1 },
+      },
+    });
+
+    const result = await runCompile({
+      vaultRoot: root,
+      resetWatermark: "raw/2026-05-21/manual-a.md",
+    });
+
+    expect(result.rawFilesIncluded).toEqual([join(root, "raw", "2026-05-21", "manual-a.md")]);
+    expect(result.rawFilesSkipped).toContainEqual({
+      path: join(root, "raw", "2026-05-21", "manual-b.md"),
+      reason: "already consumed to watermark",
+    });
+    const state = await readCompileState();
+    expect(state.consumed).not.toHaveProperty("raw/2026-05-21/manual-a.md");
+    expect(state.consumed).toHaveProperty("raw/2026-05-21/manual-b.md");
+  });
+
   it("--output writes file and suppresses prompt on stdout", async () => {
     const rawPath = join(root, "raw", "2026-05-21", "manual-a.md");
     const outputPath = join(tmp, "compile-cli-prompt.md");
@@ -218,34 +359,57 @@ describe("runCompile", () => {
 });
 
 function fakeExecuteLLM(): LLMProvider {
+  return fakeExecuteLLMWith(() => [{
+    kind: "write_page",
+    path: "wiki/lessons/compile-execute.md",
+    frontmatter: {
+      type: "lessons",
+      title: "Compile Execute",
+      relations: {
+        derived_from: [
+          "raw/2026-05-21/manual-a.md",
+          "raw/2026-05-21/manual-b.md",
+        ],
+      },
+    },
+    body: "Compile execute body.",
+  }]);
+}
+
+function fakeExecuteLLMWith(
+  operations: (opts: { prompt: string }) => unknown[],
+): LLMProvider {
   return {
     providerName: "ollama",
     modelName: "llama3.2",
-    chat: vi.fn(async () => ({
+    chat: vi.fn(async (request) => ({
       model: "llama3.2",
       finishReason: "stop",
       rawProviderName: "ollama",
       content: [
         "```compile-ops",
         JSON.stringify({
-          operations: [{
-            kind: "write_page",
-            path: "wiki/lessons/compile-execute.md",
-            frontmatter: {
-              type: "lessons",
-              title: "Compile Execute",
-              relations: {
-                derived_from: [
-                  "raw/2026-05-21/manual-a.md",
-                  "raw/2026-05-21/manual-b.md",
-                ],
-              },
-            },
-            body: "Compile execute body.",
-          }],
+          operations: operations({
+            prompt: request.messages.map((message) => message.content).join("\n"),
+          }),
         }),
         "```",
       ].join("\n"),
     })),
   };
+}
+
+async function writeCompileState(state: Record<string, unknown>): Promise<void> {
+  await mkdir(join(rootForTest(), "state"), { recursive: true });
+  await writeFile(join(rootForTest(), "state", "compile-state.json"), `${JSON.stringify(state, null, 2)}\n`);
+}
+
+async function readCompileState(): Promise<{ consumed: Record<string, { bytes: number; lastObservationAt?: string }> }> {
+  return JSON.parse(await readFile(join(rootForTest(), "state", "compile-state.json"), "utf-8"));
+}
+
+function rootForTest(): string {
+  const root = process.env["MEMORY_ROOT"];
+  if (!root) throw new Error("MEMORY_ROOT missing in compile test");
+  return root;
 }
