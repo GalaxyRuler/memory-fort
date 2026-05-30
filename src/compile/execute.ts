@@ -176,10 +176,12 @@ export async function applyCompileOperations(
     const operationToApply = conversion.operation;
     const converted = conversion.converted;
 
-    // Converted write→append: the page already exists and the operator has
-    // accepted it, so apply directly (bypass the confidence gate).
-    // For unconverted write_page ops, check confidence on the final operation.
-    if (!converted && !hasHighConfidence(operationToApply)) {
+    // Reverted 2026-05-30: applying converted write→append directly dumped the
+    // model's full regenerated body (incl. its own dated headings) into the
+    // existing page, producing duplicated/nested content. Until the converter
+    // only appends genuinely-new prose, route converted ops back through the
+    // confidence gate (stages for review instead of corrupting the page).
+    if (!hasHighConfidence(grounded.operation)) {
       const reason = preparedOperation.stageReason ?? "low confidence";
       const proposedPath = await stageCompileProposal(opts.vaultRoot, operationToApply, now, reason);
       result.proposed.push(proposedPath);
