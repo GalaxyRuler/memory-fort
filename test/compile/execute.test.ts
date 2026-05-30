@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -192,6 +192,170 @@ describe("compile execute operations", () => {
     expect(existsSync(join(tmp, "wiki", "lessons", "thin.md"))).toBe(false);
     expect(await readFile(join(tmp, "wiki", "compile-proposed", "thin.md"), "utf-8"))
       .toContain('"path": "wiki/lessons/thin.md"');
+  });
+
+  it("creates a missing normalized page from append_page and preserves the section", async () => {
+    const result = await applyCompileOperations({
+      vaultRoot: tmp,
+      operations: [{
+        kind: "append_page",
+        path: "wiki/projects/iAqar.md",
+        section: "iAqar is a real-estate project.\n\nRelations: raw observations mention marketplace work.",
+      }],
+      now: new Date("2026-05-30T12:00:00.000Z"),
+    });
+
+    expect(result.applied).toEqual([]);
+    expect(result.proposed).toEqual(["wiki/compile-proposed/iaqar.md"]);
+    expect(result.rejected).toEqual([]);
+    expect(result.outcomes).toContainEqual({
+      path: "wiki/projects/iaqar.md",
+      outcome: "staged-for-review",
+      reason: "append->create: low confidence",
+      contentPreserved: true,
+    });
+    expect(existsSync(join(tmp, "wiki", "projects", "iAqar.md"))).toBe(false);
+    expect(existsSync(join(tmp, "wiki", "projects", "iaqar.md"))).toBe(false);
+    const proposal = await readFile(join(tmp, "wiki", "compile-proposed", "iaqar.md"), "utf-8");
+    expect(proposal).toContain('"kind": "write_page"');
+    expect(proposal).toContain('"path": "wiki/projects/iaqar.md"');
+    expect(proposal).toContain("iAqar is a real-estate project.");
+  });
+
+  it("normalizes only wiki page slugs and keeps index and log paths unchanged", async () => {
+    const result = await applyCompileOperations({
+      vaultRoot: tmp,
+      operations: [
+        {
+          kind: "write_page",
+          path: "wiki/projects/VeriTrace.md",
+          frontmatter: {
+            type: "projects",
+            title: "VeriTrace",
+            relations: { derived_from: ["raw/2026-05-28/a.md", "raw/2026-05-28/b.md"] },
+          },
+          body: "VeriTrace project notes.",
+        },
+        { kind: "update_index", entries: ["- [VeriTrace](wiki/projects/veritrace.md) - Project."] },
+        { kind: "append_log", line: "## [2026-05-30T12:00:00.000Z] compile | verified" },
+      ],
+      now: new Date("2026-05-30T12:00:00.000Z"),
+    });
+
+    expect(result.applied).toEqual(["wiki/projects/veritrace.md", "index.md", "log.md"]);
+    const projectFiles = await readdir(join(tmp, "wiki", "projects"));
+    expect(projectFiles).not.toContain("VeriTrace.md");
+    expect(projectFiles).toContain("veritrace.md");
+    await expect(readFile(join(tmp, "index.md"), "utf-8")).resolves.toContain("wiki/projects/veritrace.md");
+    await expect(readFile(join(tmp, "log.md"), "utf-8")).resolves.toContain("compile | verified");
+  });
+
+  it("merges write and append operations for the same normalized missing page into one create", async () => {
+    const result = await applyCompileOperations({
+      vaultRoot: tmp,
+      operations: [
+        {
+          kind: "write_page",
+          path: "wiki/projects/iAqar.md",
+          frontmatter: {
+            type: "projects",
+            title: "iAqar",
+            relations: { derived_from: ["raw/2026-05-28/a.md", "raw/2026-05-28/b.md"] },
+          },
+          body: "iAqar summary.",
+        },
+        {
+          kind: "append_page",
+          path: "wiki/projects/iaqar.md",
+          section: "## 2026-05-30\n\nAdditional marketplace details.",
+        },
+      ],
+      now: new Date("2026-05-30T12:00:00.000Z"),
+    });
+
+    expect(result.applied).toEqual(["wiki/projects/iaqar.md"]);
+    expect(result.rejected).toEqual([]);
+    expect(result.outcomes).toContainEqual({
+      path: "wiki/projects/iaqar.md",
+      outcome: "merged",
+      reason: "merged append_page into write_page",
+      contentPreserved: true,
+    });
+    const written = await readFile(join(tmp, "wiki", "projects", "iaqar.md"), "utf-8");
+    expect(written).toContain("iAqar summary.");
+    expect(written).toContain("Additional marketplace details.");
+  });
+
+  it("preserves append content when the model emits append before write for a missing page", async () => {
+    const result = await applyCompileOperations({
+      vaultRoot: tmp,
+      operations: [
+        {
+          kind: "append_page",
+          path: "wiki/projects/iAqar.md",
+          section: "## 2026-05-30\n\nAdditional marketplace details.",
+        },
+        {
+          kind: "write_page",
+          path: "wiki/projects/iaqar.md",
+          frontmatter: {
+            title: "iAqar",
+            relations: { derived_from: ["raw/2026-05-28/a.md", "raw/2026-05-28/b.md"] },
+          },
+          body: "iAqar summary.",
+        },
+      ],
+      now: new Date("2026-05-30T12:00:00.000Z"),
+    });
+
+    expect(result.applied).toEqual(["wiki/projects/iaqar.md"]);
+    expect(result.proposed).toEqual([]);
+    expect(result.rejected).toEqual([]);
+    const written = await readFile(join(tmp, "wiki", "projects", "iaqar.md"), "utf-8");
+    const parsed = parseFrontmatter(written);
+    expect(parsed.frontmatter.type).toBe("projects");
+    expect(parsed.body).toContain("iAqar summary.");
+    expect(parsed.body).toContain("Additional marketplace details.");
+  });
+
+  it("reports structured outcomes for appended, staged, and rejected operations", async () => {
+    const result = await applyCompileOperations({
+      vaultRoot: tmp,
+      operations: [
+        { kind: "append_page", path: "wiki/projects/memory-fort.md", section: "## 2026-05-30\n\nCompile outcome detail." },
+        { kind: "append_page", path: "wiki/unknowns/bad.md", section: "Unknown category." },
+        {
+          kind: "write_page",
+          path: "wiki/lessons/thin-outcome.md",
+          frontmatter: {
+            type: "lessons",
+            title: "Thin Outcome",
+            relations: { derived_from: ["raw/2026-05-28/a.md"] },
+          },
+          body: "Only one source, so stage it.",
+        },
+        { kind: "append_log", line: "## [2026-05-30T12:00:00.000Z] compile | outcomes" },
+      ],
+      now: new Date("2026-05-30T12:00:00.000Z"),
+    });
+
+    expect(result.outcomes).toEqual(expect.arrayContaining([
+      { path: "wiki/projects/memory-fort.md", outcome: "appended", contentPreserved: true },
+      {
+        path: "wiki/unknowns/bad.md",
+        outcome: "rejected",
+        reason: "unknown wiki page category: unknowns",
+        contentPreserved: false,
+      },
+      {
+        path: "wiki/lessons/thin-outcome.md",
+        outcome: "staged-for-review",
+        reason: "low confidence",
+        contentPreserved: true,
+      },
+      { path: "log.md", outcome: "log-appended", contentPreserved: true },
+    ]));
+    expect(result.rejected).toEqual([{ path: "wiki/unknowns/bad.md", reason: "unknown wiki page category: unknowns" }]);
   });
 
   it("plans operations without writing files", async () => {

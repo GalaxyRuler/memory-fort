@@ -5,6 +5,8 @@ import { filterWikiReferencesToExisting, stripProsePathLeaksFromText } from "../
 import { readRelationTarget, type SerializedRelationEdge } from "../retrieval/relations.js";
 import { atomicWrite } from "../storage/atomic-write.js";
 import { parseFrontmatter, serializeFrontmatter, type Frontmatter } from "../storage/frontmatter.js";
+import { type PageType } from "../storage/paths.js";
+import { kebabCase, normalizeWikiPagePath } from "../storage/slug.js";
 
 export type CompileOperation =
   | {
@@ -45,11 +47,39 @@ export interface ApplyCompileOperationsResult {
   proposed: string[];
   planned: string[];
   rejected: Array<{ path: string; reason: string }>;
+  outcomes: CompileOperationOutcome[];
   referencesStripped: number;
   prosePathLeaks: number;
 }
 
+export type CompileOperationOutcomeKind =
+  | "created"
+  | "appended"
+  | "index-updated"
+  | "log-appended"
+  | "staged-for-review"
+  | "merged"
+  | "rejected";
+
+export interface CompileOperationOutcome {
+  path: string;
+  outcome: CompileOperationOutcomeKind;
+  reason?: string;
+  contentPreserved: boolean;
+}
+
 const COMPILE_OPS_RE = /```compile-ops\s*([\s\S]*?)```/m;
+const PAGE_TYPES_BY_CATEGORY = {
+  projects: "projects",
+  people: "people",
+  decisions: "decisions",
+  lessons: "lessons",
+  references: "references",
+  tools: "tools",
+  threads: "threads",
+  procedures: "procedures",
+  prospective: "prospective",
+} as const satisfies Record<PageType, PageType>;
 
 export function parseCompileOperationsBlock(text: string): ParseCompileOperationsResult {
   const block = COMPILE_OPS_RE.exec(text)?.[1];
@@ -89,18 +119,28 @@ export async function applyCompileOperations(
     proposed: [],
     planned: [],
     rejected: [],
+    outcomes: [],
     referencesStripped: 0,
     prosePathLeaks: 0,
   };
   const now = opts.now ?? new Date();
+  const prepared = prepareCompileOperations(opts.vaultRoot, opts.operations, now);
+  result.rejected.push(...prepared.rejected);
+  result.outcomes.push(...prepared.outcomes);
 
-  for (const operation of opts.operations) {
-    const relPath = operationPath(operation);
+  for (const preparedOperation of prepared.operations) {
+    const relPath = operationPath(preparedOperation.operation);
     if (!isAllowedRelPath(relPath)) {
       result.rejected.push({ path: relPath, reason: "path outside allowed vault targets" });
+      result.outcomes.push({
+        path: relPath,
+        outcome: "rejected",
+        reason: "path outside allowed vault targets",
+        contentPreserved: false,
+      });
       continue;
     }
-    const grounded = await groundOperation(opts.vaultRoot, operation, now);
+    const grounded = await groundOperation(opts.vaultRoot, preparedOperation.operation, now);
     result.referencesStripped += grounded.referencesStripped;
     result.prosePathLeaks += grounded.prosePathLeaks;
 
@@ -110,17 +150,241 @@ export async function applyCompileOperations(
     }
 
     if (!hasHighConfidence(grounded.operation)) {
-      const proposedPath = await stageCompileProposal(opts.vaultRoot, grounded.operation, now, "low confidence");
+      const reason = preparedOperation.stageReason ?? "low confidence";
+      const proposedPath = await stageCompileProposal(opts.vaultRoot, grounded.operation, now, reason);
       result.proposed.push(proposedPath);
+      result.outcomes.push({
+        path: relPath,
+        outcome: "staged-for-review",
+        reason,
+        contentPreserved: true,
+      });
       continue;
     }
 
     const applied = await applyOperation(opts.vaultRoot, grounded.operation);
-    if (applied.ok) result.applied.push(relPath);
-    else result.rejected.push({ path: relPath, reason: applied.reason });
+    if (applied.ok) {
+      result.applied.push(relPath);
+      result.outcomes.push({
+        path: relPath,
+        outcome: applied.outcome,
+        contentPreserved: true,
+      });
+    } else {
+      result.rejected.push({ path: relPath, reason: applied.reason });
+      result.outcomes.push({
+        path: relPath,
+        outcome: "rejected",
+        reason: applied.reason,
+        contentPreserved: false,
+      });
+    }
   }
 
   return result;
+}
+
+interface PreparedCompileOperation {
+  operation: CompileOperation;
+  stageReason?: string;
+}
+
+function prepareCompileOperations(
+  vaultRoot: string,
+  operations: CompileOperation[],
+  now: Date,
+): {
+  operations: PreparedCompileOperation[];
+  rejected: Array<{ path: string; reason: string }>;
+  outcomes: CompileOperationOutcome[];
+} {
+  const prepared: PreparedCompileOperation[] = [];
+  const rejected: Array<{ path: string; reason: string }> = [];
+  const outcomes: CompileOperationOutcome[] = [];
+  const pageByPath = new Map<string, PreparedCompileOperation>();
+  const date = now.toISOString().slice(0, 10);
+
+  for (const operation of operations) {
+    const originalPath = operationPath(operation);
+    if (!isAllowedRelPath(originalPath)) {
+      prepared.push({ operation });
+      continue;
+    }
+
+    if (operation.kind !== "write_page" && operation.kind !== "append_page") {
+      prepared.push({ operation });
+      continue;
+    }
+
+    const target = readWikiPageTarget(originalPath);
+    if (target.kind === "invalid") {
+      rejected.push({ path: originalPath, reason: target.reason });
+      outcomes.push({
+        path: originalPath,
+        outcome: "rejected",
+        reason: target.reason,
+        contentPreserved: false,
+      });
+      continue;
+    }
+    if (target.kind === "non-page") {
+      prepared.push({ operation });
+      continue;
+    }
+
+    const normalizedPath = target.path;
+    const fullPath = join(vaultRoot, ...normalizedPath.split("/"));
+    const existing = pageByPath.get(normalizedPath);
+    if (existing) {
+      if (
+        existing.operation.kind === "write_page" &&
+        existing.stageReason === "append->create: low confidence" &&
+        operation.kind === "write_page"
+      ) {
+        const incomingWrite = withPageOperationTarget(operation, normalizedPath, target.type);
+        if (incomingWrite.kind === "write_page") {
+          existing.operation = {
+            ...incomingWrite,
+            body: mergeBody(incomingWrite.body, existing.operation.body),
+          };
+          delete existing.stageReason;
+          outcomes.push({
+            path: normalizedPath,
+            outcome: "merged",
+            reason: "merged append_page into write_page",
+            contentPreserved: true,
+          });
+          continue;
+        }
+      }
+      const merged = mergePageOperations(existing.operation, operation, normalizedPath);
+      existing.operation = merged.operation;
+      if (merged.stageReason) existing.stageReason = merged.stageReason;
+      outcomes.push({
+        path: normalizedPath,
+        outcome: "merged",
+        reason: merged.reason,
+        contentPreserved: merged.contentPreserved,
+      });
+      continue;
+    }
+
+    const normalizedOperation = withPageOperationTarget(operation, normalizedPath, target.type);
+    const next = operation.kind === "append_page" && !existsSync(fullPath)
+      ? {
+          operation: {
+            kind: "write_page" as const,
+            path: normalizedPath,
+            frontmatter: {
+              type: target.type,
+              title: basename(originalPath, ".md"),
+              created: date,
+              updated: date,
+              status: "active",
+              lifecycle: "proposed",
+              source: "compile-execute",
+              confidence: 0.6,
+              cognitive_type: "semantic",
+            },
+            body: operation.section,
+          },
+          stageReason: "append->create: low confidence",
+        }
+      : { operation: normalizedOperation };
+    prepared.push(next);
+    pageByPath.set(normalizedPath, next);
+  }
+
+  return { operations: prepared, rejected, outcomes };
+}
+
+function readWikiPageTarget(relPath: string):
+  | { kind: "page"; path: string; category: PageType; type: PageType }
+  | { kind: "invalid"; reason: string }
+  | { kind: "non-page" } {
+  const normalized = relPath.replace(/\\/g, "/");
+  const parts = normalized.split("/");
+  if (parts[0] !== "wiki") return { kind: "non-page" };
+  if (parts.length < 3) return { kind: "non-page" };
+
+  const category = parts[1] ?? "";
+  if (!isKnownPageCategory(category)) {
+    return { kind: "invalid", reason: `unknown wiki page category: ${category}` };
+  }
+  if (parts.length !== 3 || !parts[2]?.endsWith(".md")) {
+    return { kind: "invalid", reason: "malformed wiki page path" };
+  }
+
+  return {
+    kind: "page",
+    path: normalizeWikiPagePath(normalized),
+    category,
+    type: PAGE_TYPES_BY_CATEGORY[category],
+  };
+}
+
+function isKnownPageCategory(value: string): value is PageType {
+  return Object.prototype.hasOwnProperty.call(PAGE_TYPES_BY_CATEGORY, value);
+}
+
+function withPageOperationTarget(operation: CompileOperation, path: string, type: PageType): CompileOperation {
+  switch (operation.kind) {
+    case "write_page":
+      return { ...operation, path, frontmatter: { ...operation.frontmatter, type } };
+    case "append_page":
+      return { ...operation, path };
+    case "update_index":
+    case "append_log":
+      return operation;
+  }
+}
+
+function mergePageOperations(
+  existing: CompileOperation,
+  incoming: CompileOperation,
+  path: string,
+): { operation: CompileOperation; reason: string; contentPreserved: boolean; stageReason?: string } {
+  if (existing.kind === "write_page" && incoming.kind === "append_page") {
+    return {
+      operation: { ...existing, body: mergeBody(existing.body, incoming.section) },
+      reason: "merged append_page into write_page",
+      contentPreserved: true,
+    };
+  }
+  if (existing.kind === "append_page" && incoming.kind === "append_page") {
+    return {
+      operation: { ...existing, section: mergeBody(existing.section, incoming.section) },
+      reason: "merged append_page into append_page",
+      contentPreserved: true,
+    };
+  }
+  if (existing.kind === "write_page" && incoming.kind === "write_page") {
+    return {
+      operation: existing,
+      reason: "skipped duplicate write_page for same target",
+      contentPreserved: false,
+    };
+  }
+  if (existing.kind === "append_page" && incoming.kind === "write_page") {
+    return {
+      operation: existing,
+      reason: "skipped write_page for existing append target",
+      contentPreserved: false,
+    };
+  }
+  return {
+    operation: existing,
+    reason: `skipped duplicate ${incoming.kind} for same target`,
+    contentPreserved: false,
+  };
+}
+
+function mergeBody(left: string, right: string): string {
+  const first = left.trimEnd();
+  const second = right.trim();
+  if (!first) return `${second}\n`;
+  if (!second) return `${first}\n`;
+  return `${first}\n\n${second}\n`;
 }
 
 async function groundOperation(
@@ -171,28 +435,28 @@ async function groundOperation(
 async function applyOperation(
   vaultRoot: string,
   operation: CompileOperation,
-): Promise<{ ok: true } | { ok: false; reason: string }> {
+): Promise<{ ok: true; outcome: Extract<CompileOperationOutcomeKind, "created" | "appended" | "index-updated" | "log-appended"> } | { ok: false; reason: string }> {
   const relPath = operationPath(operation);
   const fullPath = join(vaultRoot, ...relPath.split("/"));
   switch (operation.kind) {
     case "write_page": {
       if (existsSync(fullPath)) return { ok: false, reason: "target already exists" };
       await atomicWrite(fullPath, serializeFrontmatter(operation.frontmatter as Frontmatter, `${operation.body.trim()}\n`));
-      return { ok: true };
+      return { ok: true, outcome: "created" };
     }
     case "append_page": {
       if (!existsSync(fullPath)) return { ok: false, reason: "target page does not exist" };
       const current = await readFile(fullPath, "utf-8");
       const parsed = parseFrontmatter(current);
       await atomicWrite(fullPath, serializeFrontmatter(parsed.frontmatter, `${parsed.body.trimEnd()}\n\n${operation.section.trim()}\n`));
-      return { ok: true };
+      return { ok: true, outcome: "appended" };
     }
     case "update_index":
       await appendText(fullPath, `${operation.entries.map((entry) => entry.trim()).filter(Boolean).join("\n")}\n`);
-      return { ok: true };
+      return { ok: true, outcome: "index-updated" };
     case "append_log":
       await appendText(fullPath, `${operation.line.trim()}\n`);
-      return { ok: true };
+      return { ok: true, outcome: "log-appended" };
   }
 }
 
@@ -203,7 +467,7 @@ async function stageCompileProposal(
   reason: string,
 ): Promise<string> {
   const target = operationPath(operation);
-  const slug = basename(target, ".md").replace(/[^a-z0-9-]+/gi, "-").toLowerCase() || "compile-proposal";
+  const slug = kebabCase(basename(target, ".md")) || "compile-proposal";
   const relPath = `wiki/compile-proposed/${slug}.md`;
   const fullPath = join(vaultRoot, ...relPath.split("/"));
   await atomicWrite(
@@ -260,7 +524,7 @@ function normalizeFrontmatter(input: Record<string, unknown>, relPath: string, n
     created: typeof input.created === "string" ? input.created : date,
     updated: date,
     status: input.status === "archived" || input.status === "superseded" ? input.status : "active",
-    lifecycle: "consolidated",
+    lifecycle: input.lifecycle === "proposed" ? "proposed" : "consolidated",
     source: "compile-execute",
     cognitive_type: typeof input.cognitive_type === "string" ? input.cognitive_type as Frontmatter["cognitive_type"] : "semantic",
   };
