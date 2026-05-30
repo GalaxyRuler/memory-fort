@@ -176,7 +176,10 @@ export async function applyCompileOperations(
     const operationToApply = conversion.operation;
     const converted = conversion.converted;
 
-    if (!hasHighConfidence(grounded.operation)) {
+    // Converted write→append: the page already exists and the operator has
+    // accepted it, so apply directly (bypass the confidence gate).
+    // For unconverted write_page ops, check confidence on the final operation.
+    if (!converted && !hasHighConfidence(operationToApply)) {
       const reason = preparedOperation.stageReason ?? "low confidence";
       const proposedPath = await stageCompileProposal(opts.vaultRoot, operationToApply, now, reason);
       result.proposed.push(proposedPath);
