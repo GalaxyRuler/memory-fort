@@ -8,6 +8,7 @@ import {
 } from "./cli/commands/consolidate.js";
 import { formatConnectResult, runConnect } from "./cli/commands/connect.js";
 import { runDoctor, formatDoctorResult } from "./cli/commands/doctor.js";
+import { registerDashboardCommand } from "./cli/commands/dashboard.js";
 import { registerEntityCommand } from "./cli/commands/entity.js";
 import { registerEvalCommand } from "./cli/commands/eval.js";
 import { runGrep, type GrepScope } from "./cli/commands/grep.js";
@@ -70,6 +71,7 @@ program
   .version("0.1.0");
 
 registerEvalCommand(program);
+registerDashboardCommand(program);
 registerEntityCommand(program);
 registerProcedureCommand(program);
 registerThreadCommand(program);
