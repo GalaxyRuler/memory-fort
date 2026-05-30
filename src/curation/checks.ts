@@ -9,6 +9,7 @@ import {
 import { getConfidenceScore } from "../storage/confidence.js";
 import { wikiDir } from "../storage/paths.js";
 import { readRelationTarget } from "../retrieval/relations.js";
+import { isWikiDotDirectoryPath } from "../retrieval/wiki-paths.js";
 
 export interface WikiPage {
   /** Relative path under wiki/ (e.g. "projects/agentmemory.md"). Forward slashes. */
@@ -76,7 +77,8 @@ export async function loadWiki(rootDir?: string): Promise<WikiPage[]> {
     for (const entry of entries) {
       const full = join(dir, entry.name);
       if (entry.isDirectory()) {
-        if (relative(root, full).replace(/\\/g, "/").split("/")[0] === "archive") {
+        const relDir = relative(root, full).replace(/\\/g, "/");
+        if (relDir.split("/")[0] === "archive" || isWikiDotDirectoryPath(`wiki/${relDir}/placeholder`)) {
           continue;
         }
         await walk(full);
