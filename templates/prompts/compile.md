@@ -45,6 +45,17 @@ The executor rejects unsafe paths, strips ungrounded wiki/raw references, redact
 secret-like values, applies high-confidence operations directly, and stages
 low-confidence operations under `wiki/compile-proposed/`.
 
+Use `append_page` only when the target page already appears in the current wiki
+context. Use `write_page` when creating a new page that meets the cross-session
+threshold. Page targets must be `wiki/<category>/<lowercase-kebab-slug>.md`;
+for example, a project called `iAqar` should target `wiki/projects/iaqar.md`.
+Prefer one page operation per normalized target path; combine related new
+content into the `body` or `section` for that page instead of emitting a
+separate write and append for the same page.
+The executor normalizes page filename slugs and can convert a missing-page
+`append_page` into a staged create proposal, but the best response is to choose
+the correct operation up front.
+
 ---
 
 ## Inputs
