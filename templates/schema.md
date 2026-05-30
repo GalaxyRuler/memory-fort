@@ -457,6 +457,7 @@ Operators can override with `?intent=<bucket>` on the `/api/search` URL query, o
 ## 4. Naming rules
 
 - All filenames are **lowercase kebab-case**: `lisan-studio.md`, not `LisanStudio.md` or `lisan_studio.md`.
+- Compile operation paths normalize only the filename slug segment. `wiki/projects/iAqar.md` becomes `wiki/projects/iaqar.md`; directories such as `wiki/projects/` and operational targets such as `index.md` and `log.md` are not slug-normalized.
 - Date prefixes use **ISO 8601** (`YYYY-MM-DD`), zero-padded.
 - Slugs are short and grep-friendly — favor `windows-stale-ports` over `the-time-windows-held-stale-listening-sockets-on-3111`.
 - For decision pages, the date is the date the *decision was made*, not the date the page was written.
@@ -662,6 +663,18 @@ apply directly and low-confidence operations stage in `wiki/compile-proposed/`.
 Its secondary **Generate prompt only** action posts `{ execute: false }` and
 returns the scheduled prompt artifact path. Scheduled compile work is serialized
 with auto-promote proposal runs so vault-writing operations do not overlap.
+
+Autonomous compile execution accepts four operation kinds: `write_page`,
+`append_page`, `update_index`, and `append_log`. `write_page` creates a new
+canonical wiki page; `append_page` preserves an existing page and appends a new
+section. For wiki page targets under `wiki/<category>/<slug>.md`, the executor
+normalizes the slug, infers `type` from the category only for known categories
+(`projects`, `people`, `decisions`, `lessons`, `references`, `tools`, `threads`,
+`procedures`, `prospective`), rejects unknown category directories, converts a
+missing-page `append_page` into a staged create proposal, and merges multiple
+operations for the same normalized page before writing. `update_index` and
+`append_log` keep their fixed `index.md` / `log.md` paths and are not page
+create operations.
 
 ---
 
