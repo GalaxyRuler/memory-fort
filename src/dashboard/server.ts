@@ -960,6 +960,8 @@ function compileRunSummaryForResponse(result: DashboardCompileRunResult, execute
     rawRemaining: result.rawRemaining,
     opsApplied: execution?.applied.length ?? 0,
     opsStaged: execution?.proposed.length ?? 0,
+    opsRejected: execution?.rejected.length ?? 0,
+    outcomes: execution?.outcomes ?? [],
     referencesStripped: execution?.referencesStripped ?? 0,
     outputPath: result.outputPath,
     execute,

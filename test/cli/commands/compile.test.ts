@@ -185,6 +185,13 @@ describe("runCompile", () => {
       applied: ["wiki/lessons/compile-execute.md"],
       proposed: [],
       planned: [],
+      outcomes: [
+        {
+          path: "wiki/lessons/compile-execute.md",
+          outcome: "created",
+          contentPreserved: true,
+        },
+      ],
     });
     expect(await readFile(join(root, "wiki", "lessons", "compile-execute.md"), "utf-8"))
       .toContain("Compile execute body");

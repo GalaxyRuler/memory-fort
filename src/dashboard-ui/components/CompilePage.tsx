@@ -37,7 +37,10 @@ function CompileResultSummary({ response }: { response: CompileRunResponse }) {
       <p>
         Consolidated {formatNumber(summary.rawIncluded)} observations {"->"}{" "}
         <strong className="text-text-primary">{formatNumber(summary.opsApplied)} applied</strong>,{" "}
-        <strong className="text-text-primary">{formatNumber(summary.opsStaged)} staged for review</strong>.
+        <strong className="text-text-primary">{formatNumber(summary.opsStaged)} staged for review</strong>,{" "}
+        <strong className={summary.opsRejected > 0 ? "text-status-red" : "text-text-primary"}>
+          {formatNumber(summary.opsRejected)} rejected
+        </strong>.
       </p>
       <p>
         <strong className="text-text-primary">{formatNumber(summary.rawRemaining)} observations remaining</strong>
@@ -48,6 +51,19 @@ function CompileResultSummary({ response }: { response: CompileRunResponse }) {
         <a className="inline-flex text-primary hover:underline" href="/memory/inbox">
           Review {formatNumber(summary.opsStaged)} staged changes {"->"}
         </a>
+      ) : null}
+      {summary.outcomes.length > 0 ? (
+        <ul className="space-y-1 border-t border-border-subtle pt-3">
+          {summary.outcomes.map((item, index) => (
+            <li key={`${item.path}-${index}`} className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              <span className={item.outcome === "rejected" ? "font-medium text-status-red" : "font-medium text-text-primary"}>
+                {item.outcome}
+              </span>
+              <span className="break-all font-mono text-xs text-text-secondary">{item.path}</span>
+              {item.reason ? <span className="text-xs text-text-muted">({item.reason})</span> : null}
+            </li>
+          ))}
+        </ul>
       ) : null}
       {summary.error ? <p className="text-status-red">{summary.error}</p> : null}
     </GlassPanel>

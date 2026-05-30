@@ -33,6 +33,13 @@ export interface CompileRunResponse {
     rawRemaining: number;
     opsApplied: number;
     opsStaged: number;
+    opsRejected: number;
+    outcomes: Array<{
+      path: string;
+      outcome: string;
+      reason?: string;
+      contentPreserved: boolean;
+    }>;
     referencesStripped: number;
     outputPath: string;
     execute: boolean;

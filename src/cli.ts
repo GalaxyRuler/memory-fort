@@ -360,6 +360,12 @@ program
           console.error(`  operations proposed: ${result.execution.proposed.length}`);
           console.error(`  operations planned: ${result.execution.planned.length}`);
           console.error(`  operations rejected: ${result.execution.rejected.length}`);
+          if (result.execution.outcomes.length > 0) {
+            console.error("  operation outcomes:");
+            for (const item of result.execution.outcomes) {
+              console.error(`    - ${item.outcome}: ${item.path}${item.reason ? ` (${item.reason})` : ""}`);
+            }
+          }
         } else if (opts.output) {
           console.error(`Compile prompt written to ${opts.output}`);
           console.error(`  raw files included: ${result.rawFilesIncluded.length}`);

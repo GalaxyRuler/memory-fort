@@ -96,6 +96,22 @@ describe("CompilePage", () => {
           rawRemaining: 1038,
           opsApplied: 8,
           opsStaged: 2,
+          opsRejected: 1,
+          outcomes: [
+            { path: "wiki/projects/iaqar.md", outcome: "created", contentPreserved: true },
+            {
+              path: "wiki/lessons/thin.md",
+              outcome: "staged-for-review",
+              reason: "low confidence",
+              contentPreserved: true,
+            },
+            {
+              path: "wiki/unknowns/bad.md",
+              outcome: "rejected",
+              reason: "unknown wiki page category: unknowns",
+              contentPreserved: false,
+            },
+          ],
           referencesStripped: 1,
           outputPath: "state/scheduled-compile-prompt.md",
         },
@@ -108,6 +124,9 @@ describe("CompilePage", () => {
     expect(screen.getByText(/Consolidated 101 observations/i)).toBeInTheDocument();
     expect(screen.getByText(/8 applied/i)).toBeInTheDocument();
     expect(screen.getByText(/2 staged for review/i)).toBeInTheDocument();
+    expect(screen.getByText(/1 rejected/i)).toBeInTheDocument();
+    expect(screen.getByText("wiki/projects/iaqar.md")).toBeInTheDocument();
+    expect(screen.getByText(/unknown wiki page category: unknowns/)).toBeInTheDocument();
     expect(screen.getByText(/1,038 observations remaining/i)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Review 2 staged changes/i })).toHaveAttribute("href", "/memory/inbox");
   });

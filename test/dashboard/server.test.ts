@@ -1010,6 +1010,15 @@ describe("dashboard server", () => {
         proposed: ["wiki/compile-proposed/b.md"],
         planned: [],
         rejected: [],
+        outcomes: [
+          { path: "wiki/projects/a.md", outcome: "created", contentPreserved: true },
+          {
+            path: "wiki/compile-proposed/b.md",
+            outcome: "staged-for-review",
+            reason: "low confidence",
+            contentPreserved: true,
+          },
+        ],
         referencesStripped: 3,
         prosePathLeaks: 0,
       },
@@ -1034,6 +1043,16 @@ describe("dashboard server", () => {
           rawRemaining: 0,
           opsApplied: 1,
           opsStaged: 1,
+          opsRejected: 0,
+          outcomes: [
+            { path: "wiki/projects/a.md", outcome: "created", contentPreserved: true },
+            {
+              path: "wiki/compile-proposed/b.md",
+              outcome: "staged-for-review",
+              reason: "low confidence",
+              contentPreserved: true,
+            },
+          ],
           referencesStripped: 3,
           outputPath: "state/scheduled-compile-prompt.md",
         },

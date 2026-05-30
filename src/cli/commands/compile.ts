@@ -199,6 +199,12 @@ async function executeCompilePrompt(opts: CompileOptions & {
       proposed: [],
       planned: [],
       rejected: [{ path: "(response)", reason: parsed.reason }],
+      outcomes: [{
+        path: "(response)",
+        outcome: "rejected",
+        reason: parsed.reason,
+        contentPreserved: false,
+      }],
       referencesStripped: 0,
       prosePathLeaks: 0,
     };
