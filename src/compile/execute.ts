@@ -59,6 +59,7 @@ export type CompileOperationOutcomeKind =
   | "log-appended"
   | "staged-for-review"
   | "merged"
+  | "skipped: no new content"
   | "rejected";
 
 export type CompileOperationConversion = "write->append: target already existed";
@@ -172,15 +173,23 @@ export async function applyCompileOperations(
       continue;
     }
 
-    const conversion = convertExistingWriteToAppend(opts.vaultRoot, grounded.operation, now);
+    const conversion = await convertExistingWriteToAppend(opts.vaultRoot, grounded.operation, now);
+    if (conversion.skipped) {
+      result.outcomes.push({
+        path: relPath,
+        outcome: "skipped: no new content",
+        reason: "no new content",
+        converted: conversion.converted,
+        contentPreserved: true,
+      });
+      continue;
+    }
     const operationToApply = conversion.operation;
     const converted = conversion.converted;
 
-    // Reverted 2026-05-30: applying converted write→append directly dumped the
-    // model's full regenerated body (incl. its own dated headings) into the
-    // existing page, producing duplicated/nested content. Until the converter
-    // only appends genuinely-new prose, route converted ops back through the
-    // confidence gate (stages for review instead of corrupting the page).
+    // Converted writes are deduped before this point, but still respect the
+    // existing confidence gate: thin updates stage for review instead of
+    // becoming canonical from a single raw source.
     if (!hasHighConfidence(grounded.operation)) {
       const reason = preparedOperation.stageReason ?? "low confidence";
       const proposedPath = await stageCompileProposal(opts.vaultRoot, operationToApply, now, reason);
@@ -473,7 +482,7 @@ export async function applyOperation(
   now: Date = new Date(),
 ): Promise<{
   ok: true;
-  outcome: Extract<CompileOperationOutcomeKind, "created" | "appended" | "index-updated" | "log-appended">;
+  outcome: Extract<CompileOperationOutcomeKind, "created" | "appended" | "index-updated" | "log-appended" | "skipped: no new content">;
   converted?: CompileOperationConversion;
 } | { ok: false; reason: string }> {
   const relPath = compileOperationPath(operation);
@@ -481,7 +490,11 @@ export async function applyOperation(
   switch (operation.kind) {
     case "write_page": {
       if (existsSync(fullPath)) {
-        await appendSectionToPage(fullPath, datedUpdateSection(operation.body, now));
+        const section = await dedupeExistingWriteBody(fullPath, operation.body, now);
+        if (!section) {
+          return { ok: true, outcome: "skipped: no new content", converted: "write->append: target already existed" };
+        }
+        await appendSectionToPage(fullPath, section);
         return { ok: true, outcome: "appended", converted: "write->append: target already existed" };
       }
       await atomicWrite(fullPath, serializeFrontmatter(operation.frontmatter as Frontmatter, `${operation.body.trim()}\n`));
@@ -501,19 +514,27 @@ export async function applyOperation(
   }
 }
 
-function convertExistingWriteToAppend(
+async function convertExistingWriteToAppend(
   vaultRoot: string,
   operation: CompileOperation,
   now: Date,
-): { operation: CompileOperation; converted?: CompileOperationConversion } {
+): Promise<
+  | { operation: CompileOperation; converted?: CompileOperationConversion; skipped?: false }
+  | { skipped: true; converted: CompileOperationConversion }
+> {
   if (operation.kind !== "write_page") return { operation };
   const relPath = compileOperationPath(operation);
-  if (!existsSync(join(vaultRoot, ...relPath.split("/")))) return { operation };
+  const fullPath = join(vaultRoot, ...relPath.split("/"));
+  if (!existsSync(fullPath)) return { operation };
+  const section = await dedupeExistingWriteBody(fullPath, operation.body, now);
+  if (!section) {
+    return { skipped: true, converted: "write->append: target already existed" };
+  }
   return {
     operation: {
       kind: "append_page",
       path: relPath,
-      section: datedUpdateSection(operation.body, now),
+      section,
     },
     converted: "write->append: target already existed",
   };
@@ -527,6 +548,68 @@ async function appendSectionToPage(fullPath: string, section: string): Promise<v
 
 function datedUpdateSection(body: string, now: Date): string {
   return `## ${now.toISOString().slice(0, 10)} update\n\n${body.trim()}`;
+}
+
+async function dedupeExistingWriteBody(fullPath: string, body: string, now: Date): Promise<string | null> {
+  const current = await readFile(fullPath, "utf-8");
+  const parsed = parseFrontmatter(current);
+  const newBody = netNewProse(parsed.body, body);
+  return newBody ? datedUpdateSection(newBody, now) : null;
+}
+
+function netNewProse(existingBody: string, incomingBody: string): string {
+  const existingBlocks = new Set(splitBlocks(existingBody).map(normalizeContent));
+  const existingLines = new Set(
+    existingBody
+      .split(/\r?\n/)
+      .map(normalizeContent)
+      .filter(Boolean),
+  );
+  const kept: string[] = [];
+  for (const block of splitBlocks(stripDatedUpdateHeadings(incomingBody))) {
+    const normalizedBlock = normalizeContent(block);
+    if (!normalizedBlock || existingBlocks.has(normalizedBlock)) continue;
+
+    const lines = block
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => {
+        const normalizedLine = normalizeContent(line);
+        return normalizedLine.length > 0
+          && !isDatedUpdateHeading(line)
+          && !existingLines.has(normalizedLine);
+      });
+    if (lines.length === 0) continue;
+    kept.push(lines.join("\n"));
+  }
+  return kept.join("\n\n").trim();
+}
+
+function splitBlocks(text: string): string[] {
+  return text
+    .split(/\n\s*\n/g)
+    .map((block) => block.trim())
+    .filter(Boolean);
+}
+
+function stripDatedUpdateHeadings(text: string): string {
+  return text
+    .split(/\r?\n/)
+    .filter((line) => !isDatedUpdateHeading(line.trim()))
+    .join("\n");
+}
+
+function isDatedUpdateHeading(line: string): boolean {
+  return /^##\s+\d{4}-\d{2}-\d{2}\s+update\b/i.test(line.trim());
+}
+
+function normalizeContent(text: string): string {
+  return text
+    .replace(/^#+\s+/gm, "")
+    .replace(/[`*_~[\]()#>:.-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
 }
 
 async function stageCompileProposal(
