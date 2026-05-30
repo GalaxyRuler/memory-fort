@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
-import { resolve } from "node:path";
+import { existsSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Command } from "commander";
 import { memoryRoot as defaultMemoryRoot } from "../../storage/paths.js";
@@ -34,10 +35,17 @@ const PORT_FALLBACK_ATTEMPTS = 10;
 export async function runDashboard(opts: DashboardOptions = {}): Promise<DashboardRun> {
   const host = opts.host ?? DEFAULT_HOST;
   const requestedPort = opts.port ?? DEFAULT_PORT;
+  const distRoot = opts.dashboardDistRoot ?? defaultDashboardDistRoot();
+  const indexHtml = join(distRoot, "index.html");
+  if (!existsSync(indexHtml)) {
+    throw new Error(
+      `dashboard UI dist missing index.html at ${indexHtml}; run npm run build:ui`,
+    );
+  }
   const server = await startDashboardServer({
     createServerImpl: opts.createServer ?? createServer,
     vaultRoot: opts.vaultRoot ?? defaultMemoryRoot(),
-    dashboardDistRoot: opts.dashboardDistRoot ?? defaultDashboardDistRoot(),
+    dashboardDistRoot: distRoot,
     host,
     port: requestedPort,
   });
