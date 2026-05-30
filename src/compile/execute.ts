@@ -61,10 +61,13 @@ export type CompileOperationOutcomeKind =
   | "merged"
   | "rejected";
 
+export type CompileOperationConversion = "write->append: target already existed";
+
 export interface CompileOperationOutcome {
   path: string;
   outcome: CompileOperationOutcomeKind;
   reason?: string;
+  converted?: CompileOperationConversion;
   contentPreserved: boolean;
 }
 
@@ -169,25 +172,32 @@ export async function applyCompileOperations(
       continue;
     }
 
+    const conversion = convertExistingWriteToAppend(opts.vaultRoot, grounded.operation, now);
+    const operationToApply = conversion.operation;
+    const converted = conversion.converted;
+
     if (!hasHighConfidence(grounded.operation)) {
       const reason = preparedOperation.stageReason ?? "low confidence";
-      const proposedPath = await stageCompileProposal(opts.vaultRoot, grounded.operation, now, reason);
+      const proposedPath = await stageCompileProposal(opts.vaultRoot, operationToApply, now, reason);
       result.proposed.push(proposedPath);
       result.outcomes.push({
         path: relPath,
         outcome: "staged-for-review",
         reason,
+        ...(converted ? { converted } : {}),
         contentPreserved: true,
       });
       continue;
     }
 
-    const applied = await applyOperation(opts.vaultRoot, grounded.operation);
+    const applied = await applyOperation(opts.vaultRoot, operationToApply, now);
     if (applied.ok) {
       result.applied.push(relPath);
+      const appliedConversion = converted ?? applied.converted;
       result.outcomes.push({
         path: relPath,
         outcome: applied.outcome,
+        ...(appliedConversion ? { converted: appliedConversion } : {}),
         contentPreserved: true,
       });
     } else {
@@ -455,20 +465,26 @@ async function groundOperation(
 export async function applyOperation(
   vaultRoot: string,
   operation: CompileOperation,
-): Promise<{ ok: true; outcome: Extract<CompileOperationOutcomeKind, "created" | "appended" | "index-updated" | "log-appended"> } | { ok: false; reason: string }> {
+  now: Date = new Date(),
+): Promise<{
+  ok: true;
+  outcome: Extract<CompileOperationOutcomeKind, "created" | "appended" | "index-updated" | "log-appended">;
+  converted?: CompileOperationConversion;
+} | { ok: false; reason: string }> {
   const relPath = compileOperationPath(operation);
   const fullPath = join(vaultRoot, ...relPath.split("/"));
   switch (operation.kind) {
     case "write_page": {
-      if (existsSync(fullPath)) return { ok: false, reason: "target already exists" };
+      if (existsSync(fullPath)) {
+        await appendSectionToPage(fullPath, datedUpdateSection(operation.body, now));
+        return { ok: true, outcome: "appended", converted: "write->append: target already existed" };
+      }
       await atomicWrite(fullPath, serializeFrontmatter(operation.frontmatter as Frontmatter, `${operation.body.trim()}\n`));
       return { ok: true, outcome: "created" };
     }
     case "append_page": {
       if (!existsSync(fullPath)) return { ok: false, reason: "target page does not exist" };
-      const current = await readFile(fullPath, "utf-8");
-      const parsed = parseFrontmatter(current);
-      await atomicWrite(fullPath, serializeFrontmatter(parsed.frontmatter, `${parsed.body.trimEnd()}\n\n${operation.section.trim()}\n`));
+      await appendSectionToPage(fullPath, operation.section);
       return { ok: true, outcome: "appended" };
     }
     case "update_index":
@@ -478,6 +494,34 @@ export async function applyOperation(
       await appendText(fullPath, `${operation.line.trim()}\n`);
       return { ok: true, outcome: "log-appended" };
   }
+}
+
+function convertExistingWriteToAppend(
+  vaultRoot: string,
+  operation: CompileOperation,
+  now: Date,
+): { operation: CompileOperation; converted?: CompileOperationConversion } {
+  if (operation.kind !== "write_page") return { operation };
+  const relPath = compileOperationPath(operation);
+  if (!existsSync(join(vaultRoot, ...relPath.split("/")))) return { operation };
+  return {
+    operation: {
+      kind: "append_page",
+      path: relPath,
+      section: datedUpdateSection(operation.body, now),
+    },
+    converted: "write->append: target already existed",
+  };
+}
+
+async function appendSectionToPage(fullPath: string, section: string): Promise<void> {
+  const current = await readFile(fullPath, "utf-8");
+  const parsed = parseFrontmatter(current);
+  await atomicWrite(fullPath, serializeFrontmatter(parsed.frontmatter, `${parsed.body.trimEnd()}\n\n${section.trim()}\n`));
+}
+
+function datedUpdateSection(body: string, now: Date): string {
+  return `## ${now.toISOString().slice(0, 10)} update\n\n${body.trim()}`;
 }
 
 async function stageCompileProposal(

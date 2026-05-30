@@ -38,6 +38,7 @@ export interface CompileRunResponse {
       path: string;
       outcome: string;
       reason?: string;
+      converted?: string;
       contentPreserved: boolean;
     }>;
     referencesStripped: number;

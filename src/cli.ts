@@ -363,7 +363,11 @@ program
           if (result.execution.outcomes.length > 0) {
             console.error("  operation outcomes:");
             for (const item of result.execution.outcomes) {
-              console.error(`    - ${item.outcome}: ${item.path}${item.reason ? ` (${item.reason})` : ""}`);
+              const label = item.converted
+                ? `converted ${item.converted.replace(": target already existed", "")}`
+                : item.outcome;
+              const reason = item.reason ?? (item.converted ? "target already existed" : undefined);
+              console.error(`    - ${label}: ${item.path}${reason ? ` (${reason})` : ""}`);
             }
           }
         } else if (opts.output) {

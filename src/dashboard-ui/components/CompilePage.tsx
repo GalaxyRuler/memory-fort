@@ -57,10 +57,12 @@ function CompileResultSummary({ response }: { response: CompileRunResponse }) {
           {summary.outcomes.map((item, index) => (
             <li key={`${item.path}-${index}`} className="flex flex-wrap items-center gap-x-2 gap-y-1">
               <span className={item.outcome === "rejected" ? "font-medium text-status-red" : "font-medium text-text-primary"}>
-                {item.outcome}
+                {item.converted ? item.converted.replace("write->append", "converted write->append").replace(": target already existed", "") : item.outcome}
               </span>
               <span className="break-all font-mono text-xs text-text-secondary">{item.path}</span>
-              {item.reason ? <span className="text-xs text-text-muted">({item.reason})</span> : null}
+              {item.reason || item.converted ? (
+                <span className="text-xs text-text-muted">({item.reason ?? "target already existed"})</span>
+              ) : null}
             </li>
           ))}
         </ul>
