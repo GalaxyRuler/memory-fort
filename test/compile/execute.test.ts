@@ -319,6 +319,63 @@ describe("compile execute operations", () => {
     expect(parsed.body).toContain("Only this sentence is new.");
   });
 
+  it("skips append_page sections whose content is already substantially present", async () => {
+    await writeFileAt("wiki/projects/memory-fort.md", page(
+      "projects",
+      "Memory Fort",
+      "Memory Fort captures raw observations, compiles them into curated wiki pages, and keeps long-term memory available across tools.",
+    ));
+    const before = await readFile(join(tmp, "wiki", "projects", "memory-fort.md"), "utf-8");
+
+    const result = await applyCompileOperations({
+      vaultRoot: tmp,
+      operations: [{
+        kind: "append_page",
+        path: "wiki/projects/memory-fort.md",
+        section: [
+          "## 2026-05-30 update",
+          "",
+          "Memory Fort captures raw observations and compiles them into curated wiki pages so long-term memory remains available across tools.",
+        ].join("\n"),
+      }],
+      now: new Date("2026-05-30T12:00:00.000Z"),
+    });
+
+    expect(result.applied).toEqual(["wiki/projects/memory-fort.md"]);
+    expect(result.outcomes).toContainEqual({
+      path: "wiki/projects/memory-fort.md",
+      outcome: "skipped: no new content",
+      contentPreserved: true,
+    });
+    await expect(readFile(join(tmp, "wiki", "projects", "memory-fort.md"), "utf-8"))
+      .resolves.toBe(before);
+  });
+
+  it("still appends genuinely new facts to an existing page", async () => {
+    const result = await applyCompileOperations({
+      vaultRoot: tmp,
+      operations: [{
+        kind: "append_page",
+        path: "wiki/projects/memory-fort.md",
+        section: [
+          "## 2026-05-30 update",
+          "",
+          "Memory Fort now rebuilds its wiki index deterministically after successful compile execution.",
+        ].join("\n"),
+      }],
+      now: new Date("2026-05-30T12:00:00.000Z"),
+    });
+
+    expect(result.applied).toEqual(["wiki/projects/memory-fort.md"]);
+    expect(result.outcomes).toContainEqual({
+      path: "wiki/projects/memory-fort.md",
+      outcome: "appended",
+      contentPreserved: true,
+    });
+    const written = await readFile(join(tmp, "wiki", "projects", "memory-fort.md"), "utf-8");
+    expect(written).toContain("rebuilds its wiki index deterministically");
+  });
+
   it("creates a missing normalized page from append_page and preserves the section", async () => {
     const result = await applyCompileOperations({
       vaultRoot: tmp,
@@ -347,7 +404,9 @@ describe("compile execute operations", () => {
     expect(proposal).toContain("iAqar is a real-estate project.");
   });
 
-  it("normalizes only wiki page slugs and keeps index and log paths unchanged", async () => {
+  it("normalizes only wiki page slugs while update_index no-ops and log paths stay unchanged", async () => {
+    await writeFileAt("index.md", "# Existing Index\n\n");
+
     const result = await applyCompileOperations({
       vaultRoot: tmp,
       operations: [
@@ -371,7 +430,7 @@ describe("compile execute operations", () => {
     const projectFiles = await readdir(join(tmp, "wiki", "projects"));
     expect(projectFiles).not.toContain("VeriTrace.md");
     expect(projectFiles).toContain("veritrace.md");
-    await expect(readFile(join(tmp, "index.md"), "utf-8")).resolves.toContain("wiki/projects/veritrace.md");
+    await expect(readFile(join(tmp, "index.md"), "utf-8")).resolves.toBe("# Existing Index\n\n");
     await expect(readFile(join(tmp, "log.md"), "utf-8")).resolves.toContain("compile | verified");
   });
 
@@ -506,7 +565,7 @@ describe("compile execute operations", () => {
   }
 });
 
-function page(type: string, title: string): string {
+function page(type: string, title: string, body = `${title} body.`): string {
   return [
     "---",
     `type: ${type}`,
@@ -515,7 +574,7 @@ function page(type: string, title: string): string {
     "updated: 2026-05-28",
     "---",
     "",
-    `${title} body.`,
+    body,
   ].join("\n");
 }
 

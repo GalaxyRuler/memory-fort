@@ -41,8 +41,13 @@ Assemble the consolidation prompt from raw observations since the last compile.
 - **Default (artifact mode):** prints the rendered prompt to stdout, or to `--output <path>` if given, for an agent to execute.
 - **`--execute`:** send the prompt to the configured LLM, parse the `compile-ops` JSON, ground references, redact secrets, and apply append-only operations (high-confidence directly; low-confidence staged to `wiki/compile-proposed/`). Opt-in; needs `OPENROUTER_API_KEY`; honors `MEMORY_LLM_DISABLED`.
 - **`--execute --plan`:** preview the operations without writing.
+- **Existing page state:** the rendered prompt includes current wiki page bodies within a byte budget so redundant existing-page updates can be skipped before the model emits operations.
+- **Index rebuild:** after a successful non-plan `--execute`, `index.md` is regenerated deterministically from canonical `wiki/` pages. The model no longer updates it directly.
 - **Fairness window:** eligible raw files are ordered as never-consumed first, then oldest consumed watermark first. Compile allocates raw bytes in round-robin slices so a large active file can continue advancing without permanently crowding out smaller files.
 - **`--execute --drain [--max-passes <n>]`:** repeatedly runs execute-mode compile until a pass includes no raw files, or until the max-pass guard is reached (default 50). Each pass prints included files, advanced watermarks, and remaining raw bytes/files.
+
+### `memory reindex [--plan]`
+Regenerate `index.md` deterministically from the canonical `wiki/` tree. Pages are grouped by type, sorted within each section, deduplicated by path, and operational spaces such as `.audit/`, `*-proposed/`, and `archive/` are excluded. `--plan` reports whether the index would change without writing.
 
 ### `memory compact-raw [--plan|--apply] [--max-input-bytes <n>] [--max-output-bytes <n>]`
 Shrink oversized raw `ToolUse` payloads using middle-out truncation while preserving observation headings/counts. `--plan` is the default and reports reclaimable bytes per file. `--apply` copies originals under `raw/.compact-archive/<date>/`, rewrites only changed raw files, clamps any consumed compile watermark past the new EOF, and commits the touched vault paths. Defaults match capture caps: 8192 input bytes and 8192 output bytes.

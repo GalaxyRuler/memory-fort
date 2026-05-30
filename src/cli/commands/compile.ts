@@ -8,6 +8,7 @@ import {
 } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
 import { applyCompileOperations, parseCompileOperationsBlock, type ApplyCompileOperationsResult } from "../../compile/execute.js";
+import { rebuildIndex, type RebuildIndexResult } from "../../compile/index.js";
 import { chatWithAudit } from "../../llm/audit.js";
 import {
   createLLMFromConfig,
@@ -19,6 +20,7 @@ import { loadMemoryConfig, type MemoryConfig } from "../../storage/config.js";
 import {
   memoryRoot,
 } from "../../storage/paths.js";
+import { parseFrontmatter } from "../../storage/frontmatter.js";
 import {
   readCompileStateFile,
   readConsumedMap,
@@ -31,6 +33,7 @@ export interface CompileOptions {
   since?: string;
   perFileMaxBytes?: number;
   totalMaxBytes?: number;
+  existingPagesMaxBytes?: number;
   outputPath?: string;
   execute?: boolean;
   plan?: boolean;
@@ -60,6 +63,7 @@ export interface CompileResult {
   execution?: {
     mode: "plan" | "execute";
   } & ApplyCompileOperationsResult;
+  indexRebuild?: RebuildIndexResult;
 }
 
 export interface CompileDrainResult {
@@ -96,6 +100,7 @@ interface EligibleRaw {
 
 const DEFAULT_PER_FILE_MAX_BYTES = 10_000;
 const DEFAULT_TOTAL_MAX_BYTES = 200_000;
+const DEFAULT_EXISTING_PAGES_MAX_BYTES = 40_000;
 // Hard cap on files included per pass. Without it, fair round-robin spreads the
 // byte budget across every eligible file as tiny slivers, and the per-file
 // prompt overhead (path headers + fences + truncation notices) explodes the
@@ -117,6 +122,11 @@ export async function runCompile(
     opts.totalMaxBytes,
     DEFAULT_TOTAL_MAX_BYTES,
     "totalMaxBytes",
+  );
+  const existingPagesMaxBytes = readPositiveInteger(
+    opts.existingPagesMaxBytes,
+    DEFAULT_EXISTING_PAGES_MAX_BYTES,
+    "existingPagesMaxBytes",
   );
   const root = opts.vaultRoot ?? memoryRoot();
   const promptTemplate = await readRequiredFile(
@@ -284,6 +294,11 @@ export async function runCompile(
   const prompt = renderPrompt(promptTemplate, {
     schema_content: schema,
     index_content: index,
+    existing_pages: await buildExistingPagesContext(
+      root,
+      rawContentBlocks.join("\n\n"),
+      existingPagesMaxBytes,
+    ),
     recent_log_lines: tailLines(log, 50),
     raw_files_list:
       rawFilesIncluded.length === 0
@@ -308,6 +323,10 @@ export async function runCompile(
     execution,
     includedWatermarks,
   });
+  const indexRebuild = execution?.mode === "execute" && !opts.plan
+    && execution.applied.length + execution.proposed.length > 0
+    ? await rebuildIndex(root)
+    : undefined;
 
   return {
     prompt,
@@ -321,6 +340,7 @@ export async function runCompile(
     rawBytesRemaining,
     rawFilesRemaining,
     execution,
+    ...(indexRebuild ? { indexRebuild } : {}),
   };
 }
 
@@ -510,6 +530,83 @@ async function listRawFiles(vaultRoot: string, rawRoot: string): Promise<RawCand
   return files.sort(
     (a, b) => a.mtimeMs - b.mtimeMs || a.path.localeCompare(b.path),
   );
+}
+
+async function buildExistingPagesContext(vaultRoot: string, rawContent: string, maxBytes: number): Promise<string> {
+  if (maxBytes === 0) return "(none)";
+  const wikiRoot = join(vaultRoot, "wiki");
+  if (!existsSync(wikiRoot)) return "(none)";
+  const pages: Array<{ relPath: string; body: string; score: number }> = [];
+  for (const fullPath of await listWikiPageFiles(wikiRoot)) {
+    const relPath = `wiki/${relative(wikiRoot, fullPath).replace(/\\/g, "/")}`;
+    const parsed = parseFrontmatter(await readFile(fullPath, "utf-8"));
+    const title = typeof parsed.frontmatter.title === "string" ? parsed.frontmatter.title : "";
+    const body = parsed.body.trim();
+    pages.push({
+      relPath,
+      body,
+      score: scoreExistingPageReference(rawContent, relPath, title),
+    });
+  }
+  pages.sort((a, b) => b.score - a.score || a.relPath.localeCompare(b.relPath));
+
+  const blocks: string[] = [];
+  let used = 0;
+  for (const page of pages) {
+    const block = `### ${page.relPath}\n\n\`\`\`markdown\n${page.body}\n\`\`\``;
+    const bytes = Buffer.byteLength(block, "utf-8") + (blocks.length > 0 ? 2 : 0);
+    if (used + bytes > maxBytes) continue;
+    blocks.push(block);
+    used += bytes;
+  }
+  return blocks.length > 0 ? blocks.join("\n\n") : "(none)";
+}
+
+async function listWikiPageFiles(wikiRoot: string): Promise<string[]> {
+  const files: string[] = [];
+  async function walk(dir: string): Promise<void> {
+    const entries = await readdir(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = join(dir, entry.name);
+      const relPath = relative(wikiRoot, fullPath).replace(/\\/g, "/");
+      if (entry.isDirectory()) {
+        if (isExcludedWikiContextPath(relPath)) continue;
+        await walk(fullPath);
+      } else if (entry.isFile() && entry.name.endsWith(".md") && !isExcludedWikiContextPath(relPath)) {
+        files.push(fullPath);
+      }
+    }
+  }
+  await walk(wikiRoot);
+  return files.sort((a, b) => a.localeCompare(b));
+}
+
+function isExcludedWikiContextPath(relPath: string): boolean {
+  return relPath
+    .split("/")
+    .some((part) => part === ".audit" || part === "archive" || part.endsWith("-proposed"));
+}
+
+function scoreExistingPageReference(rawContent: string, relPath: string, title: string): number {
+  const haystack = rawContent.toLowerCase();
+  const slug = relPath.split("/").at(-1)?.replace(/\.md$/i, "") ?? "";
+  return countOccurrences(haystack, title.toLowerCase())
+    + countOccurrences(haystack, slug.toLowerCase().replace(/-/g, " "))
+    + countOccurrences(haystack, slug.toLowerCase())
+    + countOccurrences(haystack, relPath.toLowerCase());
+}
+
+function countOccurrences(text: string, needle: string): number {
+  const value = needle.trim();
+  if (!value) return 0;
+  let count = 0;
+  let offset = 0;
+  while (true) {
+    const found = text.indexOf(value, offset);
+    if (found === -1) return count;
+    count += 1;
+    offset = found + value.length;
+  }
 }
 
 async function maybeAdvanceWatermarks(opts: {

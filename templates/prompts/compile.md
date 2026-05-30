@@ -1,6 +1,6 @@
 # `memory compile` — distill raw observations into curated wiki pages
 
-You are running the compile workflow inside the user's active agent session. The CLI emitted this prompt with several context blocks substituted in (`{{schema_content}}`, `{{index_content}}`, etc.). Your job is to read those, then use your file-editing tools to update the wiki in `~/.memory/wiki/`.
+You are running the compile workflow inside the user's active agent session. The CLI emitted this prompt with several context blocks substituted in (`{{schema_content}}`, `{{index_content}}`, `{{existing_pages}}`, etc.). Your job is to read those, then use your file-editing tools to update the wiki in `~/.memory/wiki/`.
 
 You do the entire compile pass in this session. Do not call out to another agent. Do not return a "here's what I would do" plan — actually do the work.
 
@@ -30,10 +30,6 @@ fenced `compile-ops` JSON block:
       "section": "## 2026-05-28 update\n\nNew grounded facts."
     },
     {
-      "kind": "update_index",
-      "entries": ["- [Example](wiki/lessons/example.md) - One-sentence summary."]
-    },
-    {
       "kind": "append_log",
       "line": "## [2026-05-28T12:00:00.000Z] compile | 2 raw -> 1 update, 1 new page"
     }
@@ -43,10 +39,14 @@ fenced `compile-ops` JSON block:
 
 The executor rejects unsafe paths, strips ungrounded wiki/raw references, redacts
 secret-like values, applies high-confidence operations directly, and stages
-low-confidence operations under `wiki/compile-proposed/`.
+low-confidence operations under `wiki/compile-proposed/`. The executor rebuilds
+`index.md` deterministically after successful execute runs; do not emit
+`update_index` operations.
 
 Use `append_page` only when the target page already appears in the current wiki
-context. Use `write_page` when creating a new page that meets the cross-session
+context and the raw observations add genuinely new facts not already present in
+that page body. If the existing page already covers the observations, emit no
+page operation for that entity. Use `write_page` when creating a new page that meets the cross-session
 threshold. Page targets must be `wiki/<category>/<lowercase-kebab-slug>.md`;
 for example, a project called `iAqar` should target `wiki/projects/iaqar.md`.
 Prefer one page operation per normalized target path; combine related new
@@ -76,6 +76,16 @@ The user's memory schema dictates what entity types exist, what edge types relat
 
 ```
 {{index_content}}
+```
+
+### Existing wiki pages
+
+Current page bodies for wiki pages most relevant to this pass, capped to fit
+the prompt budget. Use this state to decide keep/edit: if a page already covers
+the raw observations, emit no operation for it.
+
+```
+{{existing_pages}}
 ```
 
 ### Recent log lines
@@ -134,11 +144,11 @@ For each candidate:
 ### Step 3 — Update existing pages
 
 For each entity with an existing wiki page:
-1. Read the page.
+1. Use the Existing wiki pages block as the current page state.
 2. Identify what's new in the raw observations beyond what the page already says.
-3. Append a `## [<YYYY-MM-DD>] update` section with the new content.
-4. Update the `updated:` field in frontmatter to today's date.
-5. If new relations were observed, add them to `relations:` (preserve existing relations).
+3. If there are no genuinely new facts, emit no operation for that page.
+4. If there are new facts, emit one `append_page` operation with a `## [<YYYY-MM-DD>] update` section.
+5. If new relations were observed, include only grounded relation changes in the section body; preserve existing claims.
 6. Do NOT rewrite or delete existing content. Append only.
 
 ### Step 4 — Create new pages (only when threshold met)
@@ -161,14 +171,10 @@ Before writing ANY content (update or create), apply the privacy filter from sch
 
 The raw observations stay un-filtered in `~/.memory/raw/` (gitignored). Only wiki/ content gets filtered.
 
-### Step 6 — Update `index.md`
+### Step 6 — Leave `index.md` to the executor
 
-After all page mutations, regenerate `~/.memory/index.md`:
-
-1. Read existing index.
-2. For each new wiki page, add a one-line entry: `- [<title>](<wiki/path>) — <one-sentence summary>`.
-3. Update entries for pages whose title changed.
-4. Keep the index alphabetized by category, then by slug.
+Do not edit `index.md` and do not emit `update_index`. The executor regenerates
+the index from the canonical wiki tree after successful execute runs.
 
 ### Step 7 — Append to `log.md`
 
@@ -216,6 +222,7 @@ Skipped (single-session signal, will reconsider next compile):
 - **Do not update `confidence:` to 1.0** without evidence. New claims start at 0.5-0.7.
 - **Do not invent relations.** If the raw observations don't establish a `uses` or `depends_on` link, don't write one.
 - **Do not rewrite existing wiki content.** Append `## [<date>] update` sections only. Preserve audit trail.
+- **Do not update `index.md` manually.** It is deterministic executor output.
 
 ---
 
@@ -224,7 +231,7 @@ Skipped (single-session signal, will reconsider next compile):
 A successful compile pass:
 - Touches a small number of files (probably 1-5 wiki pages per pass)
 - Adds new content under dated update sections, never deletes
-- Updates `index.md` with any new pages
+- Leaves `index.md` to the deterministic rebuild step
 - Appends one line to `log.md`
 - Produces a structured summary report
 - Leaves the wiki in a state that `memory lint --checks-only` would report 0 frontmatter errors and 0 broken links against

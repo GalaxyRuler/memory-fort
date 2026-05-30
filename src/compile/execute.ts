@@ -502,11 +502,14 @@ export async function applyOperation(
     }
     case "append_page": {
       if (!existsSync(fullPath)) return { ok: false, reason: "target page does not exist" };
+      if (!await appendSectionHasNewContent(fullPath, operation.section)) {
+        return { ok: true, outcome: "skipped: no new content" };
+      }
       await appendSectionToPage(fullPath, operation.section);
       return { ok: true, outcome: "appended" };
     }
     case "update_index":
-      await appendText(fullPath, `${operation.entries.map((entry) => entry.trim()).filter(Boolean).join("\n")}\n`);
+      void fullPath;
       return { ok: true, outcome: "index-updated" };
     case "append_log":
       await appendText(fullPath, `${operation.line.trim()}\n`);
@@ -546,6 +549,12 @@ async function appendSectionToPage(fullPath: string, section: string): Promise<v
   await atomicWrite(fullPath, serializeFrontmatter(parsed.frontmatter, `${parsed.body.trimEnd()}\n\n${section.trim()}\n`));
 }
 
+async function appendSectionHasNewContent(fullPath: string, section: string): Promise<boolean> {
+  const current = await readFile(fullPath, "utf-8");
+  const parsed = parseFrontmatter(current);
+  return netNewProse(parsed.body, section).length > 0;
+}
+
 function datedUpdateSection(body: string, now: Date): string {
   return `## ${now.toISOString().slice(0, 10)} update\n\n${body.trim()}`;
 }
@@ -569,6 +578,7 @@ function netNewProse(existingBody: string, incomingBody: string): string {
   for (const block of splitBlocks(stripDatedUpdateHeadings(incomingBody))) {
     const normalizedBlock = normalizeContent(block);
     if (!normalizedBlock || existingBlocks.has(normalizedBlock)) continue;
+    if (isSubstantiallyPresent(existingBody, block)) continue;
 
     const lines = block
       .split(/\r?\n/)
@@ -577,12 +587,48 @@ function netNewProse(existingBody: string, incomingBody: string): string {
         const normalizedLine = normalizeContent(line);
         return normalizedLine.length > 0
           && !isDatedUpdateHeading(line)
-          && !existingLines.has(normalizedLine);
+          && !existingLines.has(normalizedLine)
+          && !isSubstantiallyPresent(existingBody, line);
       });
     if (lines.length === 0) continue;
     kept.push(lines.join("\n"));
   }
   return kept.join("\n\n").trim();
+}
+
+function isSubstantiallyPresent(existingBody: string, incoming: string): boolean {
+  const incomingTokens = tokenizeContent(incoming);
+  if (incomingTokens.size === 0) return true;
+  const candidates = [
+    ...splitBlocks(existingBody),
+    ...existingBody.split(/\r?\n/).map((line) => line.trim()).filter(Boolean),
+  ];
+  for (const candidate of candidates) {
+    const candidateTokens = tokenizeContent(candidate);
+    if (candidateTokens.size === 0) continue;
+    const overlap = countIntersection(incomingTokens, candidateTokens) / incomingTokens.size;
+    if (overlap >= 0.8) return true;
+  }
+  return false;
+}
+
+function tokenizeContent(text: string): Set<string> {
+  const normalized = normalizeContent(text);
+  if (!normalized) return new Set();
+  return new Set(
+    normalized
+      .split(" ")
+      .map((token) => token.trim())
+      .filter((token) => token.length > 2),
+  );
+}
+
+function countIntersection(left: Set<string>, right: Set<string>): number {
+  let count = 0;
+  for (const item of left) {
+    if (right.has(item)) count += 1;
+  }
+  return count;
 }
 
 function splitBlocks(text: string): string[] {

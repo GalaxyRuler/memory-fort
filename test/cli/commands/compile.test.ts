@@ -19,6 +19,7 @@ const CLI = resolve(process.cwd(), "dist", "cli.mjs");
 const TEMPLATE = [
   "SCHEMA={{schema_content}}",
   "INDEX={{index_content}}",
+  "EXISTING={{existing_pages}}",
   "LOG={{recent_log_lines}}",
   "FILES={{raw_files_list}}",
   "RAW={{raw_content}}",
@@ -64,6 +65,33 @@ describe("runCompile", () => {
     expect(result.prompt).toContain(rawPath);
     expect(result.prompt).toContain("raw observation alpha");
     expect(result.prompt).not.toMatch(/\{\{[a-z_]+\}\}/);
+  });
+
+  it("injects referenced existing page bodies into the compile prompt", async () => {
+    await writeFile(
+      join(root, "wiki", "projects", "agentmemory.md"),
+      [
+        "---",
+        "type: projects",
+        "title: agentmemory",
+        "created: 2026-05-30",
+        "updated: 2026-05-30",
+        "---",
+        "",
+        "agentmemory already stores durable project memory.",
+        "",
+      ].join("\n"),
+    );
+    await writeFile(
+      join(root, "raw", "2026-05-21", "manual-a.md"),
+      "agentmemory already stores durable project memory and was mentioned again.",
+    );
+
+    const result = await runCompile({ vaultRoot: root });
+
+    expect(result.prompt).toContain("EXISTING=### wiki/projects/agentmemory.md");
+    expect(result.prompt).toContain("agentmemory already stores durable project memory.");
+    expect(result.prompt).not.toMatch(/\{\{existing_pages\}\}/);
   });
 
   it("auto-detects since cutoff from the latest compile log line", async () => {

@@ -15,6 +15,7 @@ import {
   isAllowedCompileRelPath,
   parseCompileOperationBlock,
 } from "../compile/execute.js";
+import { rebuildIndex } from "../compile/index.js";
 import {
   scoreProposalConfidence,
   type ProposalConfidence,
@@ -214,7 +215,7 @@ async function promoteCompileProposal(vaultRoot: string, slug: string): Promise<
   if (!applied.ok) {
     throw new Error(`compile proposal apply failed for ${promotedPath}: ${applied.reason}`);
   }
-  const indexPath = await maybeAppendPromotedCompileIndexEntry(vaultRoot, parsed.operation, promotedPath, targetExisted);
+  const indexPath = await maybeRebuildPromotedCompileIndex(vaultRoot, parsed.operation, promotedPath, targetExisted);
   await rm(fullPath);
   await commitVaultChange({
     memoryRoot: vaultRoot,
@@ -337,36 +338,17 @@ function sanitizeSlug(slug: string, kind: ProposedKind): string {
   return slug;
 }
 
-async function maybeAppendPromotedCompileIndexEntry(
+async function maybeRebuildPromotedCompileIndex(
   vaultRoot: string,
-  operation: { kind: string; path?: string; frontmatter?: Record<string, unknown>; body?: string },
+  operation: { kind: string; path?: string },
   promotedPath: string,
   targetExisted: boolean,
 ): Promise<string | null> {
   if (operation.kind !== "write_page" || targetExisted) return null;
   if (!promotedPath.startsWith("wiki/") || !promotedPath.endsWith(".md")) return null;
 
-  const indexPath = join(vaultRoot, "index.md");
-  const current = existsSync(indexPath) ? await readFile(indexPath, "utf-8") : "";
-  if (current.includes(promotedPath)) return null;
-
-  const title = typeof operation.frontmatter?.["title"] === "string" && operation.frontmatter["title"].trim().length > 0
-    ? operation.frontmatter["title"].trim()
-    : basename(promotedPath, ".md");
-  const summary = firstIndexSummary(operation.body ?? title);
-  const entry = `- [${title}](${promotedPath}) - ${summary}`;
-  const updated = await applyOperation(vaultRoot, { kind: "update_index", entries: [entry] });
-  if (!updated.ok) {
-    throw new Error(`compile proposal index update failed for ${promotedPath}: ${updated.reason}`);
-  }
-  return "index.md";
-}
-
-function firstIndexSummary(body: string): string {
-  return body
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .find((line) => line.length > 0 && !line.startsWith("#")) ?? "No summary provided.";
+  const result = await rebuildIndex(vaultRoot);
+  return result.changed ? "index.md" : null;
 }
 
 async function countRecentAutoPromoted(vaultRoot: string): Promise<number> {

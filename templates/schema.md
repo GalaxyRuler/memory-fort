@@ -633,9 +633,9 @@ is assembled from raw observations and the LLM/operator performs:
 
 1. **Read raw observations** since the last compile (per `log.md`'s last `## [date] compile` entry).
 2. **Extract entities and themes.** For each candidate entity, check if a wiki page already exists.
-3. **Update existing pages** with new content under a `## [YYYY-MM-DD] update` heading. Preserve all prior content.
+3. **Update existing pages** only when the current page body lacks genuinely new facts from the raw observations; add new content under a `## [YYYY-MM-DD] update` heading and preserve all prior content.
 4. **Create new pages** only when the cross-session signal threshold is met (see §6).
-5. **Update `index.md`** if pages were added or titles changed.
+5. **Let the executor rebuild `index.md`** deterministically from canonical wiki pages after successful execute runs.
 6. **Append to `log.md`** a single line: `## [YYYY-MM-DD HH:MM] compile | N raw sessions → M wiki updates, K new pages`.
 7. **Apply privacy filter** on every page mutation (§7).
 8. **Propose graph edges** (implicit graph extraction, Phase 3+): for each entity pair the LLM identifies, suggest an edge type with confidence; write proposals to `relations-proposals.md` for human review.
@@ -664,17 +664,20 @@ Its secondary **Generate prompt only** action posts `{ execute: false }` and
 returns the scheduled prompt artifact path. Scheduled compile work is serialized
 with auto-promote proposal runs so vault-writing operations do not overlap.
 
-Autonomous compile execution accepts four operation kinds: `write_page`,
-`append_page`, `update_index`, and `append_log`. `write_page` creates a new
-canonical wiki page; `append_page` preserves an existing page and appends a new
-section. For wiki page targets under `wiki/<category>/<slug>.md`, the executor
+Autonomous compile execution accepts `write_page`, `append_page`, and
+`append_log` operation kinds. Legacy `update_index` operations are accepted as
+no-ops for compatibility; the model should not emit them. `write_page` creates a
+new canonical wiki page; `append_page` preserves an existing page and appends a
+new section only when there is new content. For wiki page targets under `wiki/<category>/<slug>.md`, the executor
 normalizes the slug, infers `type` from the category only for known categories
 (`projects`, `people`, `decisions`, `lessons`, `references`, `tools`, `threads`,
 `procedures`, `prospective`), rejects unknown category directories, converts a
 missing-page `append_page` into a staged create proposal, and merges multiple
-operations for the same normalized page before writing. `update_index` and
-`append_log` keep their fixed `index.md` / `log.md` paths and are not page
-create operations.
+operations for the same normalized page before writing. `append_log` keeps its
+fixed `log.md` path and is not a page create operation. `memory reindex` and
+non-plan compile execute runs regenerate `index.md` from the canonical `wiki/`
+tree, grouped by page type and excluding `.audit/`, `*-proposed/`, and
+`archive/`.
 
 ---
 

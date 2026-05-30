@@ -16,6 +16,7 @@ import { runInit } from "./cli/commands/init.js";
 import { runBackfill } from "./cli/commands/backfill.js";
 import { runBackfillSource } from "./cli/commands/backfill-source.js";
 import { runCompactRaw } from "./cli/commands/compact-raw.js";
+import { formatReindexResult, runReindex } from "./cli/commands/reindex.js";
 import { runImportAgentMemory } from "./cli/commands/import-agentmemory.js";
 import { runInstall } from "./cli/commands/install.js";
 import { runInstallTailscaleRoute } from "./cli/commands/install-tailscale-route.js";
@@ -395,6 +396,9 @@ program
           console.error(`  operations proposed: ${result.execution.proposed.length}`);
           console.error(`  operations planned: ${result.execution.planned.length}`);
           console.error(`  operations rejected: ${result.execution.rejected.length}`);
+          if (result.indexRebuild) {
+            console.error(`  index rebuilt:      ${result.indexRebuild.changed ? "yes" : "unchanged"} (${result.indexRebuild.entries} entries)`);
+          }
           if (result.execution.outcomes.length > 0) {
             console.error("  operation outcomes:");
             for (const item of result.execution.outcomes) {
@@ -426,6 +430,20 @@ program
       }
     },
   );
+
+program
+  .command("reindex")
+  .description("Regenerate index.md deterministically from canonical wiki pages")
+  .option("--plan", "preview whether index.md would change without writing")
+  .action(async (opts: { plan?: boolean }) => {
+    try {
+      const result = await runReindex({ plan: opts.plan });
+      process.stdout.write(formatReindexResult(result, { plan: opts.plan }));
+    } catch (err) {
+      console.error(`memory reindex failed: ${(err as Error).message}`);
+      process.exit(1);
+    }
+  });
 
 program
   .command("compact-raw")
