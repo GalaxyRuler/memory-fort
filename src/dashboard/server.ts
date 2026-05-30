@@ -15,6 +15,7 @@ import {
 } from "../retrieval/embedder/factory.js";
 import type { VoyageClient } from "../retrieval/voyage-client.js";
 import { loadMemoryConfig } from "../storage/config.js";
+import { getVaultWriteCapability, type VaultWriteCapability } from "../sync/vault-capability.js";
 import { createLLMFromConfig, getActiveLLMConfig } from "../llm/factory.js";
 import type { LLMProvider } from "../llm/types.js";
 import { createAutoPromoteScheduler } from "./auto-promote-scheduler.js";
@@ -74,6 +75,7 @@ export interface ServerOptions {
   llmProvider?: LLMProvider | null;
   dashboardDistRoot?: string | null;
   compileRunner?: (opts?: { execute?: boolean }) => Promise<DashboardCompileRunResult>;
+  writeCapability?: VaultWriteCapability;
 }
 
 export interface RunningServer {
@@ -417,9 +419,13 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
   const embedClient = opts.embedClient ?? await makeConfiguredEmbedClient(opts.vaultRoot, voyageClient);
   const llmProvider = opts.llmProvider ?? await makeConfiguredLLMProvider(opts.vaultRoot);
   const staticAssets = await resolveStaticAssetsRoot(opts.dashboardDistRoot);
+  const writeCapability = opts.writeCapability ?? await getVaultWriteCapability(opts.vaultRoot);
   const healthCache = new Map<string, HealthCacheEntry>();
   const graphHealthCache = new Map<string, GraphHealthCacheEntry>();
-  const autoPromoteScheduler = await createAutoPromoteScheduler({ vaultRoot: opts.vaultRoot });
+  const autoPromoteScheduler = await createAutoPromoteScheduler({
+    vaultRoot: opts.vaultRoot,
+    writeCapability,
+  });
   const closeAutoPromoteScheduler = () => autoPromoteScheduler.close();
   let compileRunActive = false;
   process.once("SIGTERM", closeAutoPromoteScheduler);
@@ -432,6 +438,10 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
     if (method === "PATCH" && path === "/api/config") {
       if (!sameOriginAllowed(req.headers.origin, url, req.headers, await loadTrustedDashboardOrigins(opts.vaultRoot))) {
         writeJson(res, { ok: false, error: "cross-origin config updates are not allowed" }, 403);
+        return;
+      }
+      if (!writeCapability.writable) {
+        writeJson(res, { ok: false, error: writeCapability.reason }, 403);
         return;
       }
       try {
@@ -456,6 +466,10 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
     if ((method === "POST" && path === "/api/proposed/promote") || (method === "POST" && path === "/api/proposed/reject")) {
       if (!sameOriginAllowed(req.headers.origin, url, req.headers, await loadTrustedDashboardOrigins(opts.vaultRoot))) {
         writeJson(res, { ok: false, error: "cross-origin proposed draft updates are not allowed" }, 403);
+        return;
+      }
+      if (!writeCapability.writable) {
+        writeJsonError(res, 403, writeCapability.reason ?? "vault is read-only");
         return;
       }
       try {
@@ -492,6 +506,10 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
       try {
         const body = await readJsonBody(req);
         const execute = typeof body === "object" && body !== null && (body as Record<string, unknown>).execute === true;
+        if (execute && !writeCapability.writable) {
+          writeJsonError(res, 403, writeCapability.reason ?? "vault is read-only");
+          return;
+        }
         const result = await (opts.compileRunner ?? ((runOpts) => runScheduledCompileOnce(opts.vaultRoot, runOpts)))({ execute });
         writeJson(res, {
           ok: true,
@@ -526,7 +544,10 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
 
     if (path === "/api/status" || (path === "/" && !staticAssets)) {
       try {
-        const status = await loader(opts.vaultRoot);
+        const status = {
+          ...await loader(opts.vaultRoot),
+          capabilities: writeCapability,
+        };
         if (path === "/api/status") {
           writeJson(res, status);
         } else {

@@ -3,12 +3,14 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createServer } from "../../src/dashboard/server.js";
+import { READ_ONLY_MIRROR_REASON } from "../../src/sync/vault-capability.js";
 
 describe("dashboard server config editing routes", () => {
   let tmp: string;
 
   beforeEach(async () => {
     tmp = await mkdtemp(join(tmpdir(), "dash-config-edit-"));
+    await mkdir(join(tmp, ".git"));
     await mkdir(join(tmp, "wiki"), { recursive: true });
     await writeFile(
       join(tmp, "config.yaml"),
@@ -74,6 +76,24 @@ describe("dashboard server config editing routes", () => {
         body: JSON.stringify({ embedder: { provider: "openai" } }),
       });
       expect(crossOrigin.status).toBe(403);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("PATCH /api/config refuses writes on a read-only mirror", async () => {
+    await rm(join(tmp, ".git"), { recursive: true, force: true });
+    const server = await createServer({ vaultRoot: tmp, port: 0 });
+    try {
+      const origin = `http://${server.host}:${server.port}`;
+      const response = await fetch(`${origin}/api/config`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Origin: origin },
+        body: JSON.stringify({ embedder: { provider: "openai" } }),
+      });
+
+      expect(response.status).toBe(403);
+      await expect(response.json()).resolves.toEqual({ ok: false, error: READ_ONLY_MIRROR_REASON });
     } finally {
       await server.close();
     }

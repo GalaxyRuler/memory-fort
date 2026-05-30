@@ -6,6 +6,9 @@ const compileHook = vi.hoisted(() => ({
   useCompileState: vi.fn(),
   useRunCompileNow: vi.fn(),
 }));
+const statusHook = vi.hoisted(() => ({
+  useStatus: vi.fn(),
+}));
 
 vi.mock("../../../src/dashboard-ui/hooks/useCompileState.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../../src/dashboard-ui/hooks/useCompileState.js")>();
@@ -15,6 +18,10 @@ vi.mock("../../../src/dashboard-ui/hooks/useCompileState.js", async (importOrigi
     useRunCompileNow: compileHook.useRunCompileNow,
   };
 });
+
+vi.mock("../../../src/dashboard-ui/hooks/useStatus.js", () => ({
+  useStatus: statusHook.useStatus,
+}));
 
 describe("CompilePage", () => {
   function renderIdle(overrides: Record<string, unknown> = {}) {
@@ -33,6 +40,12 @@ describe("CompilePage", () => {
   beforeEach(() => {
     compileHook.useCompileState.mockReset();
     compileHook.useRunCompileNow.mockReset();
+    statusHook.useStatus.mockReset();
+    statusHook.useStatus.mockReturnValue({
+      data: { capabilities: { writable: true } },
+      isLoading: false,
+      error: null,
+    });
     compileHook.useRunCompileNow.mockReturnValue({
       mutate: vi.fn(),
       isPending: false,
@@ -138,6 +151,37 @@ describe("CompilePage", () => {
     render(<CompilePage />);
     fireEvent.click(screen.getByRole("button", { name: /generate prompt only/i }));
 
+    expect(mutate).toHaveBeenCalledWith({ execute: false });
+  });
+
+  test("disables execute actions but keeps prompt-only mode on a read-only mirror", () => {
+    const mutate = vi.fn();
+    renderIdle();
+    compileHook.useRunCompileNow.mockReturnValue({
+      mutate,
+      isPending: false,
+      data: null,
+      error: null,
+    });
+    statusHook.useStatus.mockReturnValue({
+      data: {
+        capabilities: {
+          writable: false,
+          reason: "read-only mirror — run `memory dashboard` on your machine to make changes",
+        },
+      },
+      isLoading: false,
+      error: null,
+    });
+
+    render(<CompilePage />);
+
+    expect(screen.getByText(/read-only mirror/i)).toBeInTheDocument();
+    for (const button of screen.getAllByRole("button", { name: /run compile now/i })) {
+      expect(button).toBeDisabled();
+      expect(button).toHaveAttribute("title", "read-only mirror — run `memory dashboard` on your machine to make changes");
+    }
+    fireEvent.click(screen.getByRole("button", { name: /generate prompt only/i }));
     expect(mutate).toHaveBeenCalledWith({ execute: false });
   });
 });

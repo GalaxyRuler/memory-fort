@@ -1,5 +1,6 @@
 import { FileCog, FileText, Inbox, Terminal } from "lucide-react";
 import { type ConfigValue, useConfig } from "../hooks/useConfig.js";
+import { useStatus } from "../hooks/useStatus.js";
 import { useUpdateConfig } from "../hooks/useUpdateConfig.js";
 import { Card } from "./Card.js";
 import { EmbedderConfigCard } from "./EmbedderConfigCard.js";
@@ -14,6 +15,7 @@ const DEDICATED_PROVIDER_SECTIONS = new Set(["embedder", "embedding", "llm", "au
 
 export function SettingsPage() {
   const config = useConfig();
+  const status = useStatus();
 
   if (config.isLoading) return <div className="p-4 text-sm text-text-muted md:p-6">Loading settings...</div>;
   if (config.error || !config.data) return <div className="p-4 text-sm text-status-red md:p-6">Failed to load config.</div>;
@@ -22,6 +24,10 @@ export function SettingsPage() {
   const sections = entries.filter(([key, value]) => isSection(value) && !DEDICATED_PROVIDER_SECTIONS.has(key));
   const scalars = entries.filter(([, value]) => !isSection(value));
   const generalData = Object.fromEntries(scalars) as Record<string, ConfigValue>;
+  const readOnlyReason = status.data?.capabilities?.writable === false
+    ? status.data.capabilities.reason ?? "vault is read-only"
+    : null;
+  const disabledReason = status.isLoading ? "Checking dashboard write capability..." : readOnlyReason;
 
   return (
     <div className="mx-auto max-w-4xl p-4 md:p-6">
@@ -34,12 +40,17 @@ export function SettingsPage() {
       </header>
 
       <div className="space-y-4">
+        {readOnlyReason ? (
+          <div className="rounded-md border border-status-amber/30 bg-status-amber/10 p-3 text-sm text-status-amber">
+            {readOnlyReason}
+          </div>
+        ) : null}
         <div className="grid gap-4 lg:grid-cols-2">
-          <EmbedderConfigCard />
-          <LLMConfigCard />
+          <EmbedderConfigCard disabledReason={disabledReason} />
+          <LLMConfigCard disabledReason={disabledReason} />
         </div>
-        <AutoPromoteConfigCard autoPromote={config.data.auto_promote} />
-        <CompileConfigCard compile={config.data.compile} />
+        <AutoPromoteConfigCard autoPromote={config.data.auto_promote} disabledReason={disabledReason} />
+        <CompileConfigCard compile={config.data.compile} disabledReason={disabledReason} />
 
         {scalars.length > 0 && <SettingsSection title="general" data={generalData} />}
         {sections.map(([sectionKey, sectionValue]) => (
@@ -83,7 +94,7 @@ export function SettingsPage() {
   );
 }
 
-function CompileConfigCard({ compile }: { compile: ConfigValue | undefined }) {
+function CompileConfigCard({ compile, disabledReason }: { compile: ConfigValue | undefined; disabledReason: string | null }) {
   const updateConfig = useUpdateConfig();
   const section = isSection(compile) ? compile : {};
   const scheduled = section.scheduled !== false;
@@ -114,8 +125,12 @@ function CompileConfigCard({ compile }: { compile: ConfigValue | undefined }) {
         <input
           type="checkbox"
           checked={scheduled}
-          disabled={updateConfig.isPending}
-          onChange={(event) => updateConfig.mutate({ compile: { scheduled: event.target.checked } })}
+          disabled={updateConfig.isPending || disabledReason !== null}
+          title={disabledReason ?? undefined}
+          onChange={(event) => {
+            if (disabledReason) return;
+            updateConfig.mutate({ compile: { scheduled: event.target.checked } });
+          }}
           className="h-5 w-5 accent-primary"
         />
       </label>
@@ -132,8 +147,12 @@ function CompileConfigCard({ compile }: { compile: ConfigValue | undefined }) {
                 type="radio"
                 name="compile-cadence"
                 checked={cadence === option}
-                disabled={updateConfig.isPending}
-                onChange={() => updateConfig.mutate({ compile: { cadence: option } })}
+                disabled={updateConfig.isPending || disabledReason !== null}
+                title={disabledReason ?? undefined}
+                onChange={() => {
+                  if (disabledReason) return;
+                  updateConfig.mutate({ compile: { cadence: option } });
+                }}
                 className="accent-primary"
               />
               {option}
@@ -149,7 +168,7 @@ function CompileConfigCard({ compile }: { compile: ConfigValue | undefined }) {
   );
 }
 
-function AutoPromoteConfigCard({ autoPromote }: { autoPromote: ConfigValue | undefined }) {
+function AutoPromoteConfigCard({ autoPromote, disabledReason }: { autoPromote: ConfigValue | undefined; disabledReason: string | null }) {
   const updateConfig = useUpdateConfig();
   const section = isSection(autoPromote) ? autoPromote : {};
   const enabled = section.enabled === true;
@@ -180,8 +199,12 @@ function AutoPromoteConfigCard({ autoPromote }: { autoPromote: ConfigValue | und
         <input
           type="checkbox"
           checked={enabled}
-          disabled={updateConfig.isPending}
-          onChange={(event) => updateConfig.mutate({ auto_promote: { enabled: event.target.checked } })}
+          disabled={updateConfig.isPending || disabledReason !== null}
+          title={disabledReason ?? undefined}
+          onChange={(event) => {
+            if (disabledReason) return;
+            updateConfig.mutate({ auto_promote: { enabled: event.target.checked } });
+          }}
           className="h-5 w-5 accent-primary"
         />
       </label>
@@ -198,8 +221,12 @@ function AutoPromoteConfigCard({ autoPromote }: { autoPromote: ConfigValue | und
                 type="radio"
                 name="auto-promote-cadence"
                 checked={cadence === option}
-                disabled={updateConfig.isPending}
-                onChange={() => updateConfig.mutate({ auto_promote: { cadence: option } })}
+                disabled={updateConfig.isPending || disabledReason !== null}
+                title={disabledReason ?? undefined}
+                onChange={() => {
+                  if (disabledReason) return;
+                  updateConfig.mutate({ auto_promote: { cadence: option } });
+                }}
                 className="accent-primary"
               />
               {option}

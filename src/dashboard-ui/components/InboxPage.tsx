@@ -11,6 +11,7 @@ import {
   useProposedSummary,
   useProposedThreads,
 } from "../hooks/useProposed.js";
+import { useStatus } from "../hooks/useStatus.js";
 import { cn } from "../lib/cn.js";
 
 export function InboxPage() {
@@ -19,8 +20,13 @@ export function InboxPage() {
   const compile = useProposedCompile();
   const summary = useProposedSummary();
   const action = useProposedAction();
+  const status = useStatus();
   const [hidden, setHidden] = useState<Set<string>>(() => new Set());
   const [notice, setNotice] = useState<string | null>(null);
+  const readOnlyReason = status.data?.capabilities?.writable === false
+    ? status.data.capabilities.reason ?? "vault is read-only"
+    : null;
+  const disabledReason = status.isLoading ? "Checking dashboard write capability..." : readOnlyReason;
 
   const threadDrafts = useMemo(
     () => (threads.data ?? []).filter((draft) => !hidden.has(draftKey(draft))),
@@ -39,6 +45,10 @@ export function InboxPage() {
   const total = threadDrafts.length + procedureDrafts.length + compileDrafts.length;
 
   const runAction = (draft: ProposedDraft, nextAction: "promote" | "reject") => {
+    if (disabledReason) {
+      setNotice(disabledReason);
+      return;
+    }
     if (draft.kind === "compile") {
       setNotice("Compile proposals are staged for manual review.");
       return;
@@ -80,6 +90,12 @@ export function InboxPage() {
         )}
       </header>
 
+      {readOnlyReason ? (
+        <div className="mb-4 rounded-md border border-status-amber/30 bg-status-amber/10 p-3 text-sm text-status-amber">
+          {readOnlyReason}
+        </div>
+      ) : null}
+
       {total === 0 ? (
         <EmptyState
           icon={Inbox}
@@ -91,18 +107,21 @@ export function InboxPage() {
           <DraftSection
             title="Threads awaiting review"
             drafts={threadDrafts}
+            disabledReason={disabledReason}
             onPromote={(draft) => runAction(draft, "promote")}
             onReject={(draft) => runAction(draft, "reject")}
           />
           <DraftSection
             title="Procedures awaiting review"
             drafts={procedureDrafts}
+            disabledReason={disabledReason}
             onPromote={(draft) => runAction(draft, "promote")}
             onReject={(draft) => runAction(draft, "reject")}
           />
           <DraftSection
             title="Compile proposals"
             drafts={compileDrafts}
+            disabledReason={disabledReason}
             onPromote={(draft) => runAction(draft, "promote")}
             onReject={(draft) => runAction(draft, "reject")}
           />
@@ -115,11 +134,13 @@ export function InboxPage() {
 function DraftSection({
   title,
   drafts,
+  disabledReason,
   onPromote,
   onReject,
 }: {
   title: string;
   drafts: ProposedDraft[];
+  disabledReason: string | null;
   onPromote: (draft: ProposedDraft) => void;
   onReject: (draft: ProposedDraft) => void;
 }) {
@@ -135,7 +156,13 @@ function DraftSection({
           <p className="rounded-md border border-border-subtle bg-surface/60 p-3 text-sm text-text-muted">No drafts in this section.</p>
         ) : (
           drafts.map((draft) => (
-            <DraftCard key={draftKey(draft)} draft={draft} onPromote={onPromote} onReject={onReject} />
+            <DraftCard
+              key={draftKey(draft)}
+              draft={draft}
+              disabledReason={disabledReason}
+              onPromote={onPromote}
+              onReject={onReject}
+            />
           ))
         )}
       </div>
@@ -145,10 +172,12 @@ function DraftSection({
 
 function DraftCard({
   draft,
+  disabledReason,
   onPromote,
   onReject,
 }: {
   draft: ProposedDraft;
+  disabledReason: string | null;
   onPromote: (draft: ProposedDraft) => void;
   onReject: (draft: ProposedDraft) => void;
 }) {
@@ -164,11 +193,21 @@ function DraftCard({
         </div>
         {draft.kind !== "compile" && (
           <div className="flex flex-wrap gap-2">
-            <Button className="border-status-green/60 text-status-green hover:bg-status-green/10" onClick={() => onPromote(draft)}>
+            <Button
+              className="border-status-green/60 text-status-green hover:bg-status-green/10 disabled:cursor-not-allowed disabled:opacity-45"
+              disabled={disabledReason !== null}
+              title={disabledReason ?? undefined}
+              onClick={() => onPromote(draft)}
+            >
               <Check size={14} strokeWidth={1.5} />
               Promote
             </Button>
-            <Button className="border-status-red/60 text-status-red hover:bg-status-red/10" onClick={() => onReject(draft)}>
+            <Button
+              className="border-status-red/60 text-status-red hover:bg-status-red/10 disabled:cursor-not-allowed disabled:opacity-45"
+              disabled={disabledReason !== null}
+              title={disabledReason ?? undefined}
+              onClick={() => onReject(draft)}
+            >
               <Trash2 size={14} strokeWidth={1.5} />
               Reject
             </Button>

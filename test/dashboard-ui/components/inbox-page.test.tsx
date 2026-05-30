@@ -10,8 +10,14 @@ const proposedHooks = vi.hoisted(() => ({
   useProposedSummary: vi.fn(),
   useProposedAction: vi.fn(),
 }));
+const statusHook = vi.hoisted(() => ({
+  useStatus: vi.fn(),
+}));
 
 vi.mock("../../../src/dashboard-ui/hooks/useProposed.js", () => proposedHooks);
+vi.mock("../../../src/dashboard-ui/hooks/useStatus.js", () => ({
+  useStatus: statusHook.useStatus,
+}));
 
 describe("InboxPage", () => {
   beforeEach(() => {
@@ -20,6 +26,12 @@ describe("InboxPage", () => {
     proposedHooks.useProposedCompile.mockReset();
     proposedHooks.useProposedSummary.mockReset();
     proposedHooks.useProposedAction.mockReset();
+    statusHook.useStatus.mockReset();
+    statusHook.useStatus.mockReturnValue({
+      data: { capabilities: { writable: true } },
+      isLoading: false,
+      error: null,
+    });
     proposedHooks.useProposedCompile.mockReturnValue({ data: [] });
     proposedHooks.useProposedSummary.mockReturnValue({
       data: { total: 0, recentAutoPromoted: 2, threads: { total: 0, high: 0, low: 0 }, procedures: { total: 0, high: 0, low: 0 } },
@@ -136,5 +148,46 @@ describe("InboxPage", () => {
 
     expect(screen.getByText("Inbox zero")).toBeInTheDocument();
     expect(screen.getByText("Auto-promote handled 2 drafts in the last 7 days.")).toBeInTheDocument();
+  });
+
+  test("disables promote and reject actions on a read-only mirror", () => {
+    const mutate = vi.fn();
+    proposedHooks.useProposedAction.mockReturnValue({ mutate });
+    proposedHooks.useProposedThreads.mockReturnValue({
+      data: [
+        {
+          kind: "thread",
+          slug: "thread-one",
+          title: "Thread One",
+          observationCount: 5,
+          distinctSessions: 2,
+          confidence: { level: "high", reasons: ["all signals clean"] },
+          prosePreview: "Thread preview.",
+          body: "Thread body",
+          timeRange: null,
+        },
+      ],
+      isLoading: false,
+      error: null,
+    });
+    proposedHooks.useProposedProcedures.mockReturnValue({ data: [], isLoading: false, error: null });
+    statusHook.useStatus.mockReturnValue({
+      data: {
+        capabilities: {
+          writable: false,
+          reason: "read-only mirror — run `memory dashboard` on your machine to make changes",
+        },
+      },
+      isLoading: false,
+      error: null,
+    });
+
+    render(<InboxPage />);
+
+    expect(screen.getByText(/read-only mirror/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /promote/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /reject/i })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: /promote/i }));
+    expect(mutate).not.toHaveBeenCalled();
   });
 });

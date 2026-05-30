@@ -17,7 +17,7 @@ interface LLMDraft {
   temperature: number;
 }
 
-export function LLMConfigCard() {
+export function LLMConfigCard({ disabledReason = null }: { disabledReason?: string | null }) {
   const config = useConfig();
   const providers = useProvidersCatalog();
   const mutation = useUpdateConfig();
@@ -30,6 +30,7 @@ export function LLMConfigCard() {
   const activeProviderEntry = providerEntries.find((entry) => entry.provider === active.provider);
 
   function startEditing() {
+    if (disabledReason) return;
     setDraft(active);
     setMessage(null);
     setEditing(true);
@@ -72,7 +73,14 @@ export function LLMConfigCard() {
           <p className="text-xs text-text-muted">Chat model provider for audited LLM consumers.</p>
         </div>
         {!editing && (
-          <Button type="button" onClick={startEditing} aria-label="Edit LLM">
+          <Button
+            type="button"
+            onClick={startEditing}
+            disabled={disabledReason !== null}
+            title={disabledReason ?? undefined}
+            aria-label="Edit LLM"
+            className="disabled:cursor-not-allowed disabled:opacity-45"
+          >
             <Pencil size={15} strokeWidth={1.5} />
             Edit
           </Button>
@@ -141,7 +149,8 @@ export function LLMConfigCard() {
               type="button"
               variant="primary"
               onClick={save}
-              disabled={mutation.isPending || draft.model.trim().length === 0}
+              disabled={mutation.isPending || draft.model.trim().length === 0 || disabledReason !== null}
+              title={disabledReason ?? undefined}
               aria-label="Save LLM changes"
             >
               <Check size={15} strokeWidth={1.5} />

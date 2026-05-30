@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { CheckCircle2, Clock, Cpu, FileText, Network, Play, Terminal } from "lucide-react";
 import { type CompileLastRun, type CompileRunResponse, useCompileState, useRunCompileNow } from "../hooks/useCompileState.js";
+import { useStatus } from "../hooks/useStatus.js";
 import { Button } from "./Button.js";
 import { GlassPanel } from "./GlassPanel.js";
 import { StatusPill } from "./StatusPill.js";
@@ -222,12 +223,19 @@ export function CompilePage() {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [pendingMode, setPendingMode] = useState<"execute" | "artifact" | null>(null);
   const compile = useCompileState();
+  const status = useStatus();
   const runCompile = useRunCompileNow();
   const state = compile.data;
   const lastRun = state?.lastRun ?? null;
   const isRunning = state?.status === "running" || runCompile.isPending;
   const schedule = state?.schedule;
-  const executeDisabledReason = state?.execute?.available === false ? state.execute.reason ?? "LLM execution is unavailable" : null;
+  const readOnlyReason = status.data?.capabilities?.writable === false
+    ? status.data.capabilities.reason ?? "vault is read-only"
+    : null;
+  const capabilityLoadingReason = status.isLoading ? "Checking dashboard write capability..." : null;
+  const executeDisabledReason = capabilityLoadingReason
+    ?? readOnlyReason
+    ?? (state?.execute?.available === false ? state.execute.reason ?? "LLM execution is unavailable" : null);
   const primaryDisabled = isRunning || executeDisabledReason !== null;
   const runningLabel = pendingMode === "artifact" ? "Generating prompt..." : "Consolidating...";
   const errorMessage = runCompile.error?.message ?? null;
@@ -287,6 +295,12 @@ export function CompilePage() {
           ) : null}
         </div>
       </header>
+
+      {readOnlyReason ? (
+        <div className="relative z-10 mb-4 rounded-md border border-status-amber/30 bg-status-amber/10 p-3 text-sm text-status-amber">
+          {readOnlyReason}
+        </div>
+      ) : null}
 
       {compile.isLoading && <GlassPanel className="text-sm text-text-muted">Loading compile state...</GlassPanel>}
       {compile.isError && <GlassPanel className="text-sm text-status-red">Failed to load compile state.</GlassPanel>}

@@ -6,6 +6,7 @@ import type { DashboardStatus } from "../../src/dashboard/loaders.js";
 import { createServer, sameOriginAllowed } from "../../src/dashboard/server.js";
 import type { VerifyResult, VerifyRole } from "../../src/cli/commands/verify.js";
 import type { VoyageClient } from "../../src/retrieval/voyage-client.js";
+import { READ_ONLY_MIRROR_REASON } from "../../src/sync/vault-capability.js";
 
 function fixture(): DashboardStatus {
   return {
@@ -121,6 +122,7 @@ describe("dashboard server", () => {
 
   beforeEach(async () => {
     tmp = await mkdtemp(join(tmpdir(), "dash-server-"));
+    await mkdir(join(tmp, ".git"));
   });
 
   afterEach(async () => {
@@ -203,7 +205,13 @@ describe("dashboard server", () => {
       const response = await fetch(`http://${server.host}:${server.port}/api/status`);
       expect(response.status).toBe(200);
       expect(response.headers.get("content-type")).toContain("application/json");
-      await expect(response.json()).resolves.toEqual(status);
+      await expect(response.json()).resolves.toEqual({
+        ...status,
+        capabilities: {
+          writable: false,
+          reason: READ_ONLY_MIRROR_REASON,
+        },
+      });
     } finally {
       await server.close();
     }
@@ -1036,6 +1044,31 @@ describe("dashboard server", () => {
     }
   });
 
+  it("POST /api/compile/run refuses execute mode on a read-only mirror", async () => {
+    await rm(join(tmp, ".git"), { recursive: true, force: true });
+    const compileRunner = vi.fn(async () => ({
+      rawFilesIncluded: [],
+      rawFilesSkipped: [],
+      outputPath: "state/scheduled-compile-prompt.md",
+      rawRemaining: 0,
+    }));
+    const server = await createServer({ vaultRoot: tmp, port: 0, compileRunner });
+
+    try {
+      const response = await fetch(`http://${server.host}:${server.port}/api/compile/run`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ execute: true }),
+      });
+
+      expect(response.status).toBe(403);
+      await expect(response.json()).resolves.toEqual({ error: READ_ONLY_MIRROR_REASON });
+      expect(compileRunner).not.toHaveBeenCalled();
+    } finally {
+      await server.close();
+    }
+  });
+
   it("POST /api/compile/run accepts proxy-reconstructed same-origin and rejects genuine cross-origin", async () => {
     const compileRunner = vi.fn(async () => ({
       rawFilesIncluded: ["raw/a.md"],
@@ -1426,6 +1459,32 @@ describe("dashboard server", () => {
     }
   });
 
+  it("POST /api/proposed promote and reject refuse writes on a read-only mirror", async () => {
+    await rm(join(tmp, ".git"), { recursive: true, force: true });
+    await writeProposedDrafts(tmp);
+    const server = await createServer({ vaultRoot: tmp, port: 0 });
+
+    try {
+      const promote = await fetch(`http://${server.host}:${server.port}/api/proposed/promote`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind: "thread", slug: "memory-thread" }),
+      });
+      const reject = await fetch(`http://${server.host}:${server.port}/api/proposed/reject`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind: "procedure", slug: "review-procedure" }),
+      });
+
+      expect(promote.status).toBe(403);
+      expect(reject.status).toBe(403);
+      await expect(promote.json()).resolves.toEqual({ error: READ_ONLY_MIRROR_REASON });
+      await expect(reject.json()).resolves.toEqual({ error: READ_ONLY_MIRROR_REASON });
+    } finally {
+      await server.close();
+    }
+  });
+
   it("POST /api/proposed actions validate body and report missing drafts", async () => {
     const server = await createServer({ vaultRoot: tmp, port: 0 });
 
@@ -1526,7 +1585,10 @@ describe("dashboard server", () => {
       const response = await fetch(`http://${server.host}:${server.port}/api/status`);
       expect(response.status).toBe(200);
       expect(response.headers.get("content-type")).toContain("application/json");
-      await expect(response.json()).resolves.toEqual(status);
+      await expect(response.json()).resolves.toEqual({
+        ...status,
+        capabilities: { writable: true },
+      });
     } finally {
       await server.close();
     }

@@ -15,7 +15,7 @@ interface EmbedderDraft {
   model: string;
 }
 
-export function EmbedderConfigCard() {
+export function EmbedderConfigCard({ disabledReason = null }: { disabledReason?: string | null }) {
   const config = useConfig();
   const providers = useProvidersCatalog();
   const mutation = useUpdateConfig();
@@ -31,6 +31,7 @@ export function EmbedderConfigCard() {
   const activeDim = activeProviderEntry?.models.find((model) => model.id === active.model)?.dim;
 
   function startEditing() {
+    if (disabledReason) return;
     setDraft(active);
     setMessage(null);
     setEditing(true);
@@ -68,7 +69,14 @@ export function EmbedderConfigCard() {
           <p className="text-xs text-text-muted">Vector provider for search embeddings.</p>
         </div>
         {!editing && (
-          <Button type="button" onClick={startEditing} aria-label="Edit embedder">
+          <Button
+            type="button"
+            onClick={startEditing}
+            disabled={disabledReason !== null}
+            title={disabledReason ?? undefined}
+            aria-label="Edit embedder"
+            className="disabled:cursor-not-allowed disabled:opacity-45"
+          >
             <Pencil size={15} strokeWidth={1.5} />
             Edit
           </Button>
@@ -107,7 +115,14 @@ export function EmbedderConfigCard() {
               <X size={15} strokeWidth={1.5} />
               Cancel
             </Button>
-            <Button type="button" variant="primary" onClick={save} disabled={mutation.isPending || draft.model.trim().length === 0} aria-label="Save embedder changes">
+            <Button
+              type="button"
+              variant="primary"
+              onClick={save}
+              disabled={mutation.isPending || draft.model.trim().length === 0 || disabledReason !== null}
+              title={disabledReason ?? undefined}
+              aria-label="Save embedder changes"
+            >
               <Check size={15} strokeWidth={1.5} />
               Save Changes
             </Button>

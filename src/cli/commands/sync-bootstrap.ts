@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { memoryRoot as defaultMemoryRoot, configPath } from "../../storage/paths.js";
+import { isGitRepo } from "../../sync/git-repo.js";
 import {
   addRemote,
   makeRealCommandRunner,
@@ -69,12 +70,6 @@ async function readVpsConfig(): Promise<VpsConfig> {
     if (key === "ssh_user") config.sshUser = value;
   }
   return config;
-}
-
-async function isGitRepo(repoPath: string, runner: CommandRunner): Promise<boolean> {
-  if (existsSync(join(repoPath, ".git"))) return true;
-  const result = await runner.run("git", ["rev-parse", "--is-inside-work-tree"], { cwd: repoPath });
-  return result.exitCode === 0 && result.stdout.trim() === "true";
 }
 
 async function readPostReceiveTemplate(): Promise<string> {

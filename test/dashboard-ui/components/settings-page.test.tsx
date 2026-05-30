@@ -17,6 +17,9 @@ const providerHook = vi.hoisted(() => ({
 const updateHook = vi.hoisted(() => ({
   useUpdateConfig: vi.fn(),
 }));
+const statusHook = vi.hoisted(() => ({
+  useStatus: vi.fn(),
+}));
 
 vi.mock("../../../src/dashboard-ui/hooks/useConfig.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../../src/dashboard-ui/hooks/useConfig.js")>();
@@ -34,6 +37,10 @@ vi.mock("../../../src/dashboard-ui/hooks/useUpdateConfig.js", () => ({
   useUpdateConfig: updateHook.useUpdateConfig,
 }));
 
+vi.mock("../../../src/dashboard-ui/hooks/useStatus.js", () => ({
+  useStatus: statusHook.useStatus,
+}));
+
 function renderWithQueryClient(ui: ReactNode) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -46,6 +53,12 @@ describe("settings page", () => {
     configHook.useConfig.mockReset();
     providerHook.useProvidersCatalog.mockReset();
     updateHook.useUpdateConfig.mockReset();
+    statusHook.useStatus.mockReset();
+    statusHook.useStatus.mockReturnValue({
+      data: { capabilities: { writable: true } },
+      isLoading: false,
+      error: null,
+    });
     providerHook.useProvidersCatalog.mockReturnValue({
       data: {
         embedders: [
@@ -208,5 +221,40 @@ describe("settings page", () => {
     expect(mutate).toHaveBeenCalledWith({ compile: { scheduled: false } });
     expect(screen.queryByRole("heading", { name: "auto_promote" })).not.toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "compile" })).not.toBeInTheDocument();
+  });
+
+  test("SettingsPage disables config edits on a read-only mirror", () => {
+    const mutate = vi.fn();
+    configHook.useConfig.mockReturnValue({
+      data: {
+        embedder: { provider: "voyage", model: "voyage-4-large" },
+        llm: { provider: "openrouter", model: "openai/gpt-4o-mini" },
+        auto_promote: { enabled: false, cadence: "weekly" },
+        compile: { scheduled: true, cadence: "daily" },
+      },
+      error: null,
+      isLoading: false,
+    });
+    updateHook.useUpdateConfig.mockReturnValue({ mutate, isPending: false, error: null });
+    statusHook.useStatus.mockReturnValue({
+      data: {
+        capabilities: {
+          writable: false,
+          reason: "read-only mirror — run `memory dashboard` on your machine to make changes",
+        },
+      },
+      isLoading: false,
+      error: null,
+    });
+
+    render(<SettingsPage />);
+
+    expect(screen.getByText(/read-only mirror/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /edit embedder/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /edit llm/i })).toBeDisabled();
+    expect(screen.getByRole("checkbox", { name: /enable auto-promote/i })).toBeDisabled();
+    expect(screen.getByRole("checkbox", { name: /schedule compile/i })).toBeDisabled();
+    fireEvent.click(screen.getByRole("checkbox", { name: /schedule compile/i }));
+    expect(mutate).not.toHaveBeenCalled();
   });
 });

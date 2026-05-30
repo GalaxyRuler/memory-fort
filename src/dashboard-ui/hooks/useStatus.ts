@@ -32,6 +32,10 @@ export interface DashboardStatus {
     lastCheckoutAt?: string | null;
     isStale?: boolean;
   } | null;
+  capabilities?: {
+    writable: boolean;
+    reason?: string;
+  };
   generatedAt: string;
 }
 

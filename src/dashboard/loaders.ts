@@ -14,6 +14,7 @@ import { isWikiDotDirectoryPath } from "../retrieval/wiki-paths.js";
 import { getConfidenceScore } from "../storage/confidence.js";
 import { loadMemoryConfig } from "../storage/config.js";
 import type { ConfidenceVector, Frontmatter, LifecycleStage } from "../storage/frontmatter.js";
+import type { VaultWriteCapability } from "../sync/vault-capability.js";
 
 export interface DashboardStatus {
   vaultRoot: string;
@@ -46,6 +47,7 @@ export interface DashboardStatus {
     lastCheckoutAt?: string | null;
     isStale?: boolean;
   } | null;
+  capabilities?: VaultWriteCapability;
   generatedAt: string;
 }
 
