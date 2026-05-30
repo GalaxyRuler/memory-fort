@@ -49,10 +49,7 @@ export function InboxPage() {
       setNotice(disabledReason);
       return;
     }
-    if (draft.kind === "compile") {
-      setNotice("Compile proposals are staged for manual review.");
-      return;
-    }
+    if (nextAction === "promote" && draft.kind === "compile" && !window.confirm(`Apply compile proposal ${draft.title}? This will write to your wiki.`)) return;
     if (nextAction === "reject" && !window.confirm(`Reject ${draft.title}?`)) return;
     setHidden((current) => new Set(current).add(draftKey(draft)));
     action.mutate(
@@ -191,28 +188,26 @@ function DraftCard({
           </div>
           <p className="text-sm text-text-secondary">{draft.prosePreview}</p>
         </div>
-        {draft.kind !== "compile" && (
-          <div className="flex flex-wrap gap-2">
-            <Button
-              className="border-status-green/60 text-status-green hover:bg-status-green/10 disabled:cursor-not-allowed disabled:opacity-45"
-              disabled={disabledReason !== null}
-              title={disabledReason ?? undefined}
-              onClick={() => onPromote(draft)}
-            >
-              <Check size={14} strokeWidth={1.5} />
-              Promote
-            </Button>
-            <Button
-              className="border-status-red/60 text-status-red hover:bg-status-red/10 disabled:cursor-not-allowed disabled:opacity-45"
-              disabled={disabledReason !== null}
-              title={disabledReason ?? undefined}
-              onClick={() => onReject(draft)}
-            >
-              <Trash2 size={14} strokeWidth={1.5} />
-              Reject
-            </Button>
-          </div>
-        )}
+        <div className="flex flex-wrap gap-2">
+          <Button
+            className="border-status-green/60 text-status-green hover:bg-status-green/10 disabled:cursor-not-allowed disabled:opacity-45"
+            disabled={disabledReason !== null}
+            title={disabledReason ?? undefined}
+            onClick={() => onPromote(draft)}
+          >
+            <Check size={14} strokeWidth={1.5} />
+            Promote
+          </Button>
+          <Button
+            className="border-status-red/60 text-status-red hover:bg-status-red/10 disabled:cursor-not-allowed disabled:opacity-45"
+            disabled={disabledReason !== null}
+            title={disabledReason ?? undefined}
+            onClick={() => onReject(draft)}
+          >
+            <Trash2 size={14} strokeWidth={1.5} />
+            Reject
+          </Button>
+        </div>
       </div>
       <div className="mt-3 flex flex-wrap gap-2 text-xs text-text-muted">
         <span>{draft.observationCount} observations</span>

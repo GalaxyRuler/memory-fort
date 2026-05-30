@@ -88,7 +88,7 @@ export function useProposedSummary() {
 export function useProposedAction() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (input: { action: "promote" | "reject"; kind: "thread" | "procedure"; slug: string }) =>
+    mutationFn: (input: { action: "promote" | "reject"; kind: ProposedDraft["kind"]; slug: string }) =>
       apiPost<{ ok: true; promotedPath?: string; rejectedPath?: string }>(`/proposed/${input.action}`, {
         kind: input.kind,
         slug: input.slug,
