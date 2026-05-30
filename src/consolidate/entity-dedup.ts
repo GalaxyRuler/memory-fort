@@ -6,6 +6,7 @@ import { readRelations, writeRelations, type RelationMap } from "../retrieval/re
 import { isEntityWikiPath } from "../retrieval/wiki-paths.js";
 import { atomicWrite } from "../storage/atomic-write.js";
 import { parseFrontmatter, serializeFrontmatter } from "../storage/frontmatter.js";
+import { kebabCase } from "../storage/slug.js";
 
 export interface EntityRecord {
   name: string;
@@ -391,12 +392,4 @@ function proposalMatches(proposal: EntityMergeProposal, input: string): boolean 
 
 function uniqueSorted(values: string[]): string[] {
   return [...new Set(values)].sort((a, b) => a.localeCompare(b));
-}
-
-function kebabCase(value: string): string {
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
 }
