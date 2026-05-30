@@ -5,6 +5,7 @@ import { runProcedurePropose } from "../cli/commands/procedure.js";
 import { runThreadPropose } from "../cli/commands/thread.js";
 import { atomicWrite } from "../storage/atomic-write.js";
 import { loadMemoryConfig, type MemoryConfig } from "../storage/config.js";
+import type { VaultWriteCapability } from "../sync/vault-capability.js";
 
 export interface AutoPromoteScheduler {
   close(): void;
@@ -18,6 +19,7 @@ export interface AutoPromoteSchedulerOptions {
   runner?: () => Promise<void>;
   compileRunner?: (opts?: { execute?: boolean }) => Promise<DashboardCompileRunResult>;
   autoPromoteRunner?: () => Promise<void>;
+  writeCapability?: VaultWriteCapability;
 }
 
 export interface DashboardCompileRunResult {
@@ -43,6 +45,10 @@ export async function createAutoPromoteScheduler(
   const clearIntervalFactory = opts.clearIntervalFactory ?? clearInterval;
   const intervals: NodeJS.Timeout[] = [];
   let running = false;
+
+  if (opts.writeCapability?.writable === false) {
+    return { close: () => undefined };
+  }
 
   if (compile.scheduled && compile.cadence !== "manual") {
     intervals.push(intervalFactory(() => {

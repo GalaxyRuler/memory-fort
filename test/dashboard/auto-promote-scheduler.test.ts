@@ -35,6 +35,24 @@ describe("auto-promote scheduler", () => {
     expect(intervalFactory).not.toHaveBeenCalled();
   });
 
+  it("does not register intervals when the vault is read-only", async () => {
+    const intervalFactory = vi.fn();
+    await createAutoPromoteScheduler({
+      vaultRoot: tmp,
+      configLoader: async () => ({
+        auto_promote: { enabled: true, cadence: "weekly" },
+        compile: { scheduled: true, cadence: "daily", execute: true },
+      }),
+      intervalFactory,
+      writeCapability: {
+        writable: false,
+        reason: "read-only mirror — run `memory dashboard` on your machine to make changes",
+      },
+    });
+
+    expect(intervalFactory).not.toHaveBeenCalled();
+  });
+
   it("registers the expected weekly cadence and clears it on close", async () => {
     const handle = Symbol("interval") as unknown as NodeJS.Timeout;
     const intervalFactory = vi.fn(() => handle);
