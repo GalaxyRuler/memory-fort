@@ -96,6 +96,8 @@ const PLUGIN_MANIFEST = {
     name: "GalaxyRuler",
     url: "https://github.com/GalaxyRuler",
   },
+  hooksPath: "../hooks/hooks.json",
+  mcpConfig: "../.mcp.json",
 };
 
 const MARKETPLACE_MANIFEST = {
