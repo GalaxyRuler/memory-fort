@@ -8,6 +8,7 @@ import {
   formatToolUseBlock,
   formatMarker,
   truncate,
+  truncateMiddle,
   ensureRawSessionFile,
   appendBlock,
 } from "../../src/hooks/raw-file.js";
@@ -44,7 +45,7 @@ describe("raw-file formatters", () => {
   });
 
   it("formatToolUseBlock truncates output beyond maxOutputBytes", () => {
-    const longOutput = "x".repeat(10000);
+    const longOutput = `output-head-${"x".repeat(10000)}-output-tail`;
     const out = formatToolUseBlock({
       toolName: "Bash",
       toolInput: {},
@@ -52,8 +53,28 @@ describe("raw-file formatters", () => {
       now: t,
       maxOutputBytes: 100,
     });
-    expect(out).toContain("[truncated to 100 bytes]");
+    expect(out).toContain("bytes elided");
+    expect(out).toContain("output-head");
+    expect(out).toContain("output-tail");
     expect(out.length).toBeLessThan(1000);
+  });
+
+  it("formatToolUseBlock truncates large input with head and tail preserved", () => {
+    const out = formatToolUseBlock({
+      toolName: "apply_patch",
+      toolInput: {
+        patch: `input-head-${"x".repeat(30_000)}-input-tail`,
+      },
+      toolOutput: "ok",
+      now: t,
+      maxInputBytes: 400,
+      maxOutputBytes: 400,
+    });
+
+    expect(Buffer.byteLength(out, "utf-8")).toBeLessThan(1_200);
+    expect(out).toContain("input-head");
+    expect(out).toContain("input-tail");
+    expect(out).toContain("bytes elided");
   });
 
   it("formatMarker includes label and timestamp with horizontal rule", () => {
@@ -69,6 +90,26 @@ describe("raw-file formatters", () => {
   it("truncate adds marker when over limit", () => {
     const result = truncate("x".repeat(1000), 50);
     expect(result).toContain("[truncated to 50 bytes]");
+  });
+
+  it("truncateMiddle preserves head and tail within the byte limit", () => {
+    const result = truncateMiddle(`alpha-${"x".repeat(1000)}-omega`, 120);
+
+    expect(Buffer.byteLength(result, "utf-8")).toBeLessThanOrEqual(120);
+    expect(result).toContain("alpha");
+    expect(result).toContain("omega");
+    expect(result).toContain("bytes elided");
+  });
+
+  it("truncateMiddle is UTF-8 boundary safe", () => {
+    const result = truncateMiddle(`🙂-${"中".repeat(200)}-🙃`, 80);
+
+    expect(Buffer.byteLength(result, "utf-8")).toBeLessThanOrEqual(80);
+    expect(result).not.toContain("\uFFFD");
+  });
+
+  it("truncateMiddle returns input unchanged when under limit", () => {
+    expect(truncateMiddle("hello", 100)).toBe("hello");
   });
 });
 

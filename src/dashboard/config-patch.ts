@@ -48,10 +48,12 @@ const SAFELISTED_PATHS = new Set([
   "compile.scheduled",
   "compile.cadence",
   "compile.execute",
+  "capture.max_input_bytes",
+  "capture.max_output_bytes",
   "dashboard.trusted_origins",
 ]);
 
-const VALID_TOP_LEVEL_KEYS = new Set(["embedder", "llm", "auto_promote", "compile", "dashboard"]);
+const VALID_TOP_LEVEL_KEYS = new Set(["embedder", "llm", "auto_promote", "compile", "capture", "dashboard"]);
 const VALID_EMBEDDER_PROVIDERS = new Set(["voyage", "openai", "ollama"]);
 const VALID_LLM_PROVIDERS = new Set(["openrouter", "ollama"]);
 const VALID_AUTO_PROMOTE_CADENCES = new Set(["weekly", "daily", "manual"]);
@@ -170,6 +172,12 @@ function validateValue(
     errors.push({ path, message: "cadence must be daily, weekly, or manual" });
   }
   if (
+    (path === "capture.max_input_bytes" || path === "capture.max_output_bytes") &&
+    (typeof value !== "number" || !Number.isInteger(value) || value < 0 || value > 1_000_000)
+  ) {
+    errors.push({ path, message: "capture byte cap must be an integer between 0 and 1000000" });
+  }
+  if (
     path === "dashboard.trusted_origins" &&
     (!Array.isArray(value) || value.some((origin) => typeof origin !== "string" || origin.trim().length === 0))
   ) {
@@ -204,7 +212,7 @@ function mergeAtSafelistedPaths(
   patch: Record<string, unknown>,
 ): MemoryConfig {
   const next: MemoryConfig = clonePlain(current);
-  for (const sectionKey of ["embedder", "llm", "auto_promote", "compile", "dashboard"] as const) {
+  for (const sectionKey of ["embedder", "llm", "auto_promote", "compile", "capture", "dashboard"] as const) {
     const sectionPatch = asPlainObject(patch[sectionKey]);
     if (!sectionPatch) continue;
     const target = asPlainObject(next[sectionKey]) ?? {};
@@ -215,7 +223,7 @@ function mergeAtSafelistedPaths(
 
 function listAppliedPaths(patch: Record<string, unknown>): string[] {
   const paths: string[] = [];
-  for (const sectionKey of ["embedder", "llm", "auto_promote", "compile", "dashboard"] as const) {
+  for (const sectionKey of ["embedder", "llm", "auto_promote", "compile", "capture", "dashboard"] as const) {
     const sectionPatch = asPlainObject(patch[sectionKey]);
     if (!sectionPatch) continue;
     for (const fieldKey of Object.keys(sectionPatch)) {

@@ -44,6 +44,9 @@ Assemble the consolidation prompt from raw observations since the last compile.
 - **Fairness window:** eligible raw files are ordered as never-consumed first, then oldest consumed watermark first. Compile allocates raw bytes in round-robin slices so a large active file can continue advancing without permanently crowding out smaller files.
 - **`--execute --drain [--max-passes <n>]`:** repeatedly runs execute-mode compile until a pass includes no raw files, or until the max-pass guard is reached (default 50). Each pass prints included files, advanced watermarks, and remaining raw bytes/files.
 
+### `memory compact-raw [--plan|--apply] [--max-input-bytes <n>] [--max-output-bytes <n>]`
+Shrink oversized raw `ToolUse` payloads using middle-out truncation while preserving observation headings/counts. `--plan` is the default and reports reclaimable bytes per file. `--apply` copies originals under `raw/.compact-archive/<date>/`, rewrites only changed raw files, clamps any consumed compile watermark past the new EOF, and commits the touched vault paths. Defaults match capture caps: 8192 input bytes and 8192 output bytes.
+
 ### `memory consolidate [--plan|--apply] [--force] [--min-confidence <n>] [--max-links-per-observation <n>]`
 Link raw episodic observations to existing wiki pages via deterministic matching (no LLM). `--plan` previews; `--apply` writes the relation edges.
 

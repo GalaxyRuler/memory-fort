@@ -41,6 +41,10 @@ export interface MemoryConfig {
     cadence?: "daily" | "weekly" | "manual";
     execute?: boolean;
   };
+  capture?: {
+    max_input_bytes?: number;
+    max_output_bytes?: number;
+  };
   retention?: {
     raw_window_days?: number;
     raw_compile_before_delete?: boolean;
@@ -113,6 +117,12 @@ export function validateMemoryConfig(config: MemoryConfig): string[] {
   const compile = asRecord(config.compile);
   if (compile?.["cadence"] !== undefined && !["weekly", "daily", "manual"].includes(String(compile["cadence"]))) {
     warnings.push("compile.cadence must be weekly, daily, or manual");
+  }
+  const capture = asRecord(config.capture);
+  for (const key of ["max_input_bytes", "max_output_bytes"]) {
+    if (capture?.[key] !== undefined && !isIntegerInRange(capture[key], 0, 1_000_000)) {
+      warnings.push(`capture.${key} must be an integer between 0 and 1000000`);
+    }
   }
   const retention = asRecord(config.retention);
   for (const key of ["raw_window_days", "wiki_status_stale_days"]) {

@@ -15,6 +15,7 @@ import { runGrep, type GrepScope } from "./cli/commands/grep.js";
 import { runInit } from "./cli/commands/init.js";
 import { runBackfill } from "./cli/commands/backfill.js";
 import { runBackfillSource } from "./cli/commands/backfill-source.js";
+import { runCompactRaw } from "./cli/commands/compact-raw.js";
 import { runImportAgentMemory } from "./cli/commands/import-agentmemory.js";
 import { runInstall } from "./cli/commands/install.js";
 import { runInstallTailscaleRoute } from "./cli/commands/install-tailscale-route.js";
@@ -425,6 +426,35 @@ program
       }
     },
   );
+
+program
+  .command("compact-raw")
+  .description("Shrink oversized raw ToolUse payloads with archive-first middle-out compaction")
+  .option("--plan", "report reclaimable raw bytes without rewriting (default)")
+  .option("--apply", "archive originals, rewrite compacted raws, and commit the vault mutation")
+  .option("--max-input-bytes <n>", "max ToolUse input bytes after compaction (default: 8192)", parseInteger)
+  .option("--max-output-bytes <n>", "max ToolUse output bytes after compaction (default: 8192)", parseInteger)
+  .action(async (opts: {
+    plan?: boolean;
+    apply?: boolean;
+    maxInputBytes?: number;
+    maxOutputBytes?: number;
+  }) => {
+    try {
+      if (opts.plan && opts.apply) {
+        throw new Error("--plan and --apply are mutually exclusive");
+      }
+      const result = await runCompactRaw({
+        mode: opts.apply ? "apply" : "plan",
+        maxInputBytes: opts.maxInputBytes,
+        maxOutputBytes: opts.maxOutputBytes,
+      });
+      process.stdout.write(result.report);
+    } catch (err) {
+      console.error(`memory compact-raw failed: ${(err as Error).message}`);
+      process.exit(1);
+    }
+  });
 
 program
   .command("consolidate")

@@ -157,11 +157,13 @@ Fired by host tools with a stdin JSON payload; wrapped by `runHook` (always exit
 |---|---|
 | `session-start` | Emits a context block to stdout: **`schema.md` + `index.md` + last 20 `log.md` lines** (this is the only memory injected into a fresh agent context) |
 | `prompt-submit` | Appends `## [HH:MM:SS] Prompt` block to the raw session file |
-| `post-tool-use` | Appends `## [HH:MM:SS] ToolUse: <name>` with input + truncated output (8 KB cap), then `scheduleAutoPush()` |
+| `post-tool-use` | Appends `## [HH:MM:SS] ToolUse: <name>` with middle-out truncated input + output payloads (8 KB caps by default), then `scheduleAutoPush()` |
 | `pre-compact` | Appends a compaction marker before host context compaction |
 | `session-end` | Appends a `SessionEnd` marker, schedules auto-push |
 
-`raw-file.ts` provides `ensureRawSessionFile` (writes frontmatter header) and `appendBlock` (UTF-8-safe truncation).
+`raw-file.ts` provides `ensureRawSessionFile` (writes frontmatter header), `appendBlock`, and payload truncation. Tool input and output use `truncateMiddle` (head + tail with a `bytes elided` marker) so large diffs/heredocs/results preserve both opening structure and terminal context without letting one observation dominate the raw vault. Caps come from `capture.max_input_bytes` / `capture.max_output_bytes` and default to 8192 each.
+
+`memory compact-raw [--plan|--apply]` retrofits the same middle-out caps onto existing raw files. It rewrites only oversized `ToolUse` payloads, preserves observation headings/counts/order, archives originals under `raw/.compact-archive/<date>/`, clamps consumed compile watermarks that land past the new EOF, and commits the touched raw/archive/state paths through `commitVaultChange`.
 
 ### MCP server (`src/mcp/server.ts`)
 
@@ -319,7 +321,7 @@ Overview redesign (Phase 4.3.K): graph health is collapsed-by-default (localStor
 ## 13. CLI (`src/cli.ts`, `src/cli/commands/`)
 
 **Setup/integration:** `init`, `install <platform>`, `connect [client]`, `install-vps`, `install-tailscale-route`, `sync-bootstrap`.
-**Memory ops:** `log`, `compile [--execute --plan]`, `consolidate`, `lint`, `page`, `search`, `grep`, `stats`.
+**Memory ops:** `log`, `compile [--execute --plan]`, `compact-raw [--plan|--apply]`, `consolidate`, `lint`, `page`, `search`, `grep`, `stats`.
 **Consolidation:** `thread {propose,promote,reject}`, `procedure {propose,promote,reject}`, `entity {dedup,merge,reject,aliases}`.
 **Providers:** `provider {list-embedders,test-embedder,reindex-embeddings,list-llms,test-llm,test-classifier,audit-summary,audit-rotate}`.
 **Maintenance:** `prune`, `backfill`, `backfill-source`, `rewrite-imported-timestamps`, `import-agentmemory`, `tail-errors`, `watch`, `doctor`.
@@ -366,6 +368,9 @@ compile:                   # Phase 4.3.O / 4.4
   scheduled: false
   cadence: daily
   execute: false           # opt-in autonomous execution
+capture:                   # Phase 4.21
+  max_input_bytes: 8192
+  max_output_bytes: 8192
 dashboard:
   trusted_origins: []      # Phase 4.3.T escape hatch
 ```
@@ -428,9 +433,9 @@ dashboard:
 
 ## 20. Raw-capture privacy contract
 
-Raw observations (`raw/YYYY-MM-DD/*.md`) capture prompts and tool input/output **verbatim and unredacted** — the secret-redaction in compile-execute applies only to *compiled wiki output*, never to the raw layer. Operators must treat `raw/` as sensitive:
+Raw observations (`raw/YYYY-MM-DD/*.md`) capture prompts and tool input/output **unredacted**. Tool payloads are size-capped with middle-out truncation, but the preserved head/tail remains raw sensitive content. The secret-redaction in compile-execute applies only to *compiled wiki output*, never to the raw layer. Operators must treat `raw/` as sensitive:
 
-- **What is captured:** prompt text, tool names + inputs + (truncated) outputs, session ids, cwd. No redaction filter runs on write.
+- **What is captured:** prompt text, tool names + middle-out truncated inputs/outputs, session ids, cwd. No redaction filter runs on write.
 - **Git history:** raw files are auto-committed and auto-pushed to the VPS bare repo. Secrets that land in `raw/` enter git history and propagate to the VPS — `git rm` alone does not purge history. Rotate any credential that appears in a captured session rather than relying on deletion.
 - **Deletion limits:** automation never hard-deletes; `memory prune` archives raw files past the retention window (does not scrub history). Permanent removal from git history is a manual, operator-driven `git filter-repo`/BFG operation.
 - **Mitigation:** keep secrets out of prompts/tool output where possible; the privacy `allowlist` in config governs the (separate) compile redaction, not raw capture. A raw-capture redaction filter and an opt-out are open items (Phase 4.9).

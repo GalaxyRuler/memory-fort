@@ -1,4 +1,5 @@
 import { stat } from "node:fs/promises";
+import { TextDecoder } from "node:util";
 import { rawSessionFile } from "../storage/paths.js";
 import { atomicAppend, atomicWrite } from "../storage/atomic-write.js";
 import {
@@ -32,6 +33,34 @@ export function truncate(text: string, maxBytes: number): string {
   return `${slice}\n\n… [truncated to ${maxBytes} bytes]`;
 }
 
+export function truncateMiddle(text: string, maxBytes: number): string {
+  const buf = Buffer.from(text, "utf-8");
+  if (buf.byteLength <= maxBytes) return text;
+  if (maxBytes <= 0) return "";
+
+  let marker = "\n\n… [bytes elided] …\n\n";
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const markerBytes = Buffer.byteLength(marker, "utf-8");
+    if (markerBytes >= maxBytes) return sliceUtf8Prefix(marker, maxBytes);
+    const payloadBudget = maxBytes - markerBytes;
+    const headBudget = Math.floor(payloadBudget * 0.4);
+    const tailBudget = payloadBudget - headBudget;
+    const head = sliceUtf8Head(buf, headBudget);
+    const tail = sliceUtf8Tail(buf, tailBudget);
+    const elided = Math.max(0, buf.byteLength - Buffer.byteLength(head, "utf-8") - Buffer.byteLength(tail, "utf-8"));
+    const nextMarker = `\n\n… [${elided} bytes elided] …\n\n`;
+    const candidate = `${head}${nextMarker}${tail}`;
+    if (Buffer.byteLength(candidate, "utf-8") <= maxBytes) return candidate;
+    marker = nextMarker;
+  }
+
+  const markerBytes = Buffer.byteLength(marker, "utf-8");
+  const payloadBudget = Math.max(0, maxBytes - markerBytes);
+  const head = sliceUtf8Head(buf, Math.floor(payloadBudget * 0.4));
+  const tail = sliceUtf8Tail(buf, payloadBudget - Buffer.byteLength(head, "utf-8"));
+  return `${head}${marker}${tail}`;
+}
+
 /**
  * The block formatters all produce markdown that gets appended to
  * a session file. They start with `## [HH:MM:SS] <Label>` so the
@@ -48,19 +77,22 @@ export function formatToolUseBlock(input: {
   toolInput: unknown;
   toolOutput: unknown;
   now: Date;
+  maxInputBytes?: number;
   maxOutputBytes?: number;
 }): string {
   const ts = formatTimestamp(input.now);
-  const max = input.maxOutputBytes ?? 8192;
+  const maxInput = input.maxInputBytes ?? 8192;
+  const maxOutput = input.maxOutputBytes ?? 8192;
   const inJson = safeJsonStringify(input.toolInput);
   const outString =
     typeof input.toolOutput === "string"
       ? input.toolOutput
       : safeJsonStringify(input.toolOutput);
-  const truncatedOutput = truncate(outString, max);
+  const truncatedInput = truncateMiddle(inJson, maxInput);
+  const truncatedOutput = truncateMiddle(outString, maxOutput);
   return (
     `\n## [${ts}] ToolUse: ${input.toolName}\n\n` +
-    `**Input:**\n\n\`\`\`json\n${inJson}\n\`\`\`\n\n` +
+    `**Input:**\n\n\`\`\`json\n${truncatedInput}\n\`\`\`\n\n` +
     `**Output:**\n\n\`\`\`\n${truncatedOutput}\n\`\`\`\n`
   );
 }
@@ -145,7 +177,7 @@ export async function appendBlock(input: {
 
 function safeJsonStringify(value: unknown): string {
   try {
-    return JSON.stringify(value, null, 2);
+    return JSON.stringify(value, null, 2) ?? "undefined";
   } catch {
     return `[unserializable: ${typeof value}]`;
   }
@@ -156,6 +188,36 @@ function isoDate(date: Date): string {
   const m = String(date.getUTCMonth() + 1).padStart(2, "0");
   const d = String(date.getUTCDate()).padStart(2, "0");
   return `${y}-${m}-${d}`;
+}
+
+const fatalUtf8Decoder = new TextDecoder("utf-8", { fatal: true });
+
+function sliceUtf8Prefix(text: string, maxBytes: number): string {
+  return sliceUtf8Head(Buffer.from(text, "utf-8"), maxBytes);
+}
+
+function sliceUtf8Head(buf: Buffer, maxBytes: number): string {
+  let end = Math.min(Math.max(0, maxBytes), buf.byteLength);
+  while (end > 0) {
+    try {
+      return fatalUtf8Decoder.decode(buf.subarray(0, end));
+    } catch {
+      end -= 1;
+    }
+  }
+  return "";
+}
+
+function sliceUtf8Tail(buf: Buffer, maxBytes: number): string {
+  let start = Math.max(0, buf.byteLength - Math.max(0, maxBytes));
+  while (start < buf.byteLength) {
+    try {
+      return fatalUtf8Decoder.decode(buf.subarray(start));
+    } catch {
+      start += 1;
+    }
+  }
+  return "";
 }
 
 async function defaultExists(path: string): Promise<boolean> {

@@ -141,4 +141,13 @@ describe("memory config reader", () => {
 
     expect(config.compile?.execute).toBe(true);
   });
+
+  it("MemoryConfig types capture byte caps", () => {
+    const config: MemoryConfig = {
+      capture: { max_input_bytes: 8192, max_output_bytes: 8192 },
+    };
+
+    expect(config.capture?.max_input_bytes).toBe(8192);
+    expect(config.capture?.max_output_bytes).toBe(8192);
+  });
 });

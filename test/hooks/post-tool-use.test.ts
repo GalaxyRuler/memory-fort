@@ -97,4 +97,37 @@ describe("postToolUseBody", () => {
     expect(calls[1].block).toContain('"command": "echo hi"');
     expect(calls[1].block).toContain("hi");
   });
+
+  it("uses capture byte caps from config", async () => {
+    const calls: any[] = [];
+    await postToolUseBody(
+      {
+        session_id: "abc",
+        cwd: "C:\\test",
+        tool_name: "apply_patch",
+        tool_input: { patch: `input-head-${"x".repeat(10_000)}-input-tail` },
+        tool_output: `output-head-${"y".repeat(10_000)}-output-tail`,
+      },
+      {
+        detectTool: () => "codex",
+        ensureRawSessionFile: async (i) => {
+          calls.push({ kind: "ensure", ...i });
+          return "/fake/path";
+        },
+        appendBlock: async (i) => {
+          calls.push({ kind: "append", ...i });
+        },
+        configLoader: async () => ({
+          capture: { max_input_bytes: 300, max_output_bytes: 300 },
+        }),
+        now: () => fixedNow,
+      },
+    );
+
+    expect(calls[1].block).toContain("input-head");
+    expect(calls[1].block).toContain("input-tail");
+    expect(calls[1].block).toContain("output-head");
+    expect(calls[1].block).toContain("output-tail");
+    expect(Buffer.byteLength(calls[1].block, "utf-8")).toBeLessThan(1_200);
+  });
 });

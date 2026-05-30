@@ -82,6 +82,10 @@ compile:
   scheduled: false
   cadence: daily
 
+capture:
+  max_input_bytes: 8192
+  max_output_bytes: 8192
+
 # llm:
 #   provider: openrouter   # openrouter | ollama
 #   model: openai/gpt-4o-mini
