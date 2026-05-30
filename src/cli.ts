@@ -334,6 +334,7 @@ program
   .option("-o, --output <path>", "also write the assembled prompt to a file")
   .option("--execute", "send the prompt to the configured LLM and apply grounded compile-ops")
   .option("--plan", "with --execute, preview compile-ops without writing")
+  .option("--reset-watermark [glob]", "clear consumed raw-file watermarks before compiling")
   .action(
     async (opts: {
       since?: string;
@@ -342,6 +343,7 @@ program
       output?: string;
       execute?: boolean;
       plan?: boolean;
+      resetWatermark?: string | boolean;
     }) => {
       try {
         const result = await runCompile({
@@ -351,9 +353,17 @@ program
           outputPath: opts.output,
           execute: opts.execute,
           plan: opts.plan,
+          resetWatermark: opts.resetWatermark,
         });
         if (opts.execute && result.execution) {
           console.error(`Compile ${result.execution.mode} complete`);
+          console.error(`  watermark mode:     ${result.watermarkMode}`);
+          if (result.watermarkReset) {
+            console.error(`  watermark reset:    ${result.watermarkReset.cleared} cleared${result.watermarkReset.pattern ? ` (${result.watermarkReset.pattern})` : ""}`);
+          }
+          if (result.watermarksAdvanced.length > 0) {
+            console.error(`  watermarks advanced: ${result.watermarksAdvanced.length}`);
+          }
           console.error(`  raw files included: ${result.rawFilesIncluded.length}`);
           console.error(`  raw files skipped:  ${result.rawFilesSkipped.length}`);
           console.error(`  operations applied: ${result.execution.applied.length}`);
@@ -372,6 +382,10 @@ program
           }
         } else if (opts.output) {
           console.error(`Compile prompt written to ${opts.output}`);
+          console.error(`  watermark mode:     ${result.watermarkMode}`);
+          if (result.watermarkReset) {
+            console.error(`  watermark reset:    ${result.watermarkReset.cleared} cleared${result.watermarkReset.pattern ? ` (${result.watermarkReset.pattern})` : ""}`);
+          }
           console.error(`  raw files included: ${result.rawFilesIncluded.length}`);
           console.error(`  raw files skipped:  ${result.rawFilesSkipped.length}`);
           console.error(`  since cutoff:       ${result.sinceCutoff}`);

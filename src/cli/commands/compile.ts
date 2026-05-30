@@ -6,7 +6,7 @@ import {
   stat,
   writeFile,
 } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { applyCompileOperations, parseCompileOperationsBlock, type ApplyCompileOperationsResult } from "../../compile/execute.js";
 import { chatWithAudit } from "../../llm/audit.js";
 import {
@@ -19,6 +19,12 @@ import { loadMemoryConfig, type MemoryConfig } from "../../storage/config.js";
 import {
   memoryRoot,
 } from "../../storage/paths.js";
+import {
+  readCompileStateFile,
+  readConsumedMap,
+  writeCompileStateFile,
+  type CompileStateFile,
+} from "../../compile/state.js";
 
 export interface CompileOptions {
   vaultRoot?: string;
@@ -28,6 +34,7 @@ export interface CompileOptions {
   outputPath?: string;
   execute?: boolean;
   plan?: boolean;
+  resetWatermark?: string | boolean;
   env?: NodeJS.ProcessEnv;
   configLoader?: () => Promise<MemoryConfig>;
   llmFactory?: (config: LLMConfig | null, env: NodeJS.ProcessEnv) => LLMProvider;
@@ -38,6 +45,9 @@ export interface CompileResult {
   rawFilesIncluded: string[];
   rawFilesSkipped: { path: string; reason: string }[];
   sinceCutoff: string;
+  watermarkMode: "gated" | "bypassed";
+  watermarkReset?: { pattern: string | null; cleared: number };
+  watermarksAdvanced: string[];
   truncatedAtTotalCap: boolean;
   execution?: {
     mode: "plan" | "execute";
@@ -46,7 +56,15 @@ export interface CompileResult {
 
 interface RawCandidate {
   path: string;
+  relPath: string;
   mtimeMs: number;
+  size: number;
+}
+
+interface IncludedRawWatermark {
+  relPath: string;
+  bytes: number;
+  lastObservationAt: string;
 }
 
 const DEFAULT_PER_FILE_MAX_BYTES = 10_000;
@@ -78,16 +96,37 @@ export async function runCompile(
   const sinceDate = opts.since
     ? parseCutoff(opts.since)
     : detectSinceFromLog(log) ?? new Date(0);
+  const watermarkMode: CompileResult["watermarkMode"] = opts.since ? "bypassed" : "gated";
+  let compileState = await readCompileStateForCompile(root);
+  const watermarkReset = opts.resetWatermark !== undefined && opts.resetWatermark !== false
+    ? await resetConsumedWatermarks(root, compileState, opts.resetWatermark)
+    : undefined;
+  if (watermarkReset) {
+    compileState = await readCompileStateForCompile(root);
+  }
+  const consumed = readConsumedMap(compileState);
 
   const rawFilesSkipped: CompileResult["rawFilesSkipped"] = [];
   const rawFilesIncluded: string[] = [];
+  const includedWatermarks: IncludedRawWatermark[] = [];
   const rawContentBlocks: string[] = [];
   let totalUsed = 0;
   let truncatedAtTotalCap = false;
 
-  const rawFiles = await listRawFiles(join(root, "raw"));
+  const rawFiles = await listRawFiles(root, join(root, "raw"));
   for (const candidate of rawFiles) {
-    if (candidate.mtimeMs < sinceDate.getTime()) {
+    let startByte = 0;
+    const watermark = consumed[candidate.relPath];
+    if (watermarkMode === "gated" && watermark) {
+      if (candidate.size === watermark.bytes) {
+        rawFilesSkipped.push({
+          path: candidate.path,
+          reason: "already consumed to watermark",
+        });
+        continue;
+      }
+      startByte = candidate.size < watermark.bytes ? 0 : watermark.bytes;
+    } else if (candidate.mtimeMs < sinceDate.getTime()) {
       rawFilesSkipped.push({
         path: candidate.path,
         reason: "before since cutoff",
@@ -103,9 +142,9 @@ export async function runCompile(
       continue;
     }
 
-    let content: string;
+    let content: Buffer;
     try {
-      content = await readFile(candidate.path, "utf-8");
+      content = await readFile(candidate.path);
     } catch (err) {
       rawFilesSkipped.push({
         path: candidate.path,
@@ -114,22 +153,34 @@ export async function runCompile(
       continue;
     }
 
-    const perFile = truncateToBytes(content, perFileMaxBytes);
-    let text = perFile.text;
-    if (perFile.truncated) {
+    const remaining = totalMaxBytes - totalUsed;
+    const tail = content.subarray(startByte);
+    if (tail.byteLength === 0) {
+      rawFilesSkipped.push({
+        path: candidate.path,
+        reason: "already consumed to watermark",
+      });
+      continue;
+    }
+    const includedBytes = Math.min(tail.byteLength, perFileMaxBytes, remaining);
+    let text = tail.subarray(0, includedBytes).toString("utf-8");
+    const perFileTruncated = tail.byteLength > perFileMaxBytes && includedBytes === perFileMaxBytes;
+    const totalTruncated = tail.byteLength > includedBytes && includedBytes === remaining;
+    if (perFileTruncated) {
       text += `\n\n[truncated to ${perFileMaxBytes} bytes]`;
     }
-
-    const remaining = totalMaxBytes - totalUsed;
-    const totalLimited = truncateToBytes(text, remaining);
-    text = totalLimited.text;
-    if (totalLimited.truncated) {
+    if (totalTruncated) {
       truncatedAtTotalCap = true;
       text += `\n\n[truncated at totalMaxBytes ${totalMaxBytes}]`;
     }
 
-    totalUsed += Buffer.byteLength(totalLimited.text, "utf-8");
+    totalUsed += includedBytes;
     rawFilesIncluded.push(candidate.path);
+    includedWatermarks.push({
+      relPath: candidate.relPath,
+      bytes: startByte + includedBytes,
+      lastObservationAt: detectLastObservationAt(candidate.relPath, text, candidate.mtimeMs),
+    });
     rawContentBlocks.push(
       `### ${candidate.path}\n\n\`\`\`markdown\n${text}\n\`\`\``,
     );
@@ -155,12 +206,22 @@ export async function runCompile(
   const execution = opts.execute
     ? await executeCompilePrompt({ ...opts, root, prompt })
     : undefined;
+  const watermarksAdvanced = await maybeAdvanceWatermarks({
+    root,
+    watermarkMode,
+    plan: opts.plan,
+    execution,
+    includedWatermarks,
+  });
 
   return {
     prompt,
     rawFilesIncluded,
     rawFilesSkipped,
     sinceCutoff: sinceDate.toISOString(),
+    watermarkMode,
+    ...(watermarkReset ? { watermarkReset } : {}),
+    watermarksAdvanced,
     truncatedAtTotalCap,
     execution,
   };
@@ -220,7 +281,7 @@ async function executeCompilePrompt(opts: CompileOptions & {
   };
 }
 
-async function listRawFiles(rawRoot: string): Promise<RawCandidate[]> {
+async function listRawFiles(vaultRoot: string, rawRoot: string): Promise<RawCandidate[]> {
   if (!existsSync(rawRoot)) return [];
   const files: RawCandidate[] = [];
 
@@ -232,7 +293,12 @@ async function listRawFiles(rawRoot: string): Promise<RawCandidate[]> {
         await walk(full);
       } else if (entry.isFile() && entry.name.endsWith(".md")) {
         const info = await stat(full);
-        files.push({ path: full, mtimeMs: info.mtimeMs });
+        files.push({
+          path: full,
+          relPath: relativeVaultPath(vaultRoot, full),
+          mtimeMs: info.mtimeMs,
+          size: info.size,
+        });
       }
     }
   }
@@ -241,6 +307,84 @@ async function listRawFiles(rawRoot: string): Promise<RawCandidate[]> {
   return files.sort(
     (a, b) => a.mtimeMs - b.mtimeMs || a.path.localeCompare(b.path),
   );
+}
+
+async function maybeAdvanceWatermarks(opts: {
+  root: string;
+  watermarkMode: CompileResult["watermarkMode"];
+  plan?: boolean;
+  execution?: CompileResult["execution"];
+  includedWatermarks: IncludedRawWatermark[];
+}): Promise<string[]> {
+  if (opts.watermarkMode !== "gated") return [];
+  if (!opts.execution || opts.execution.mode !== "execute" || opts.plan) return [];
+  if (opts.execution.applied.length + opts.execution.proposed.length === 0) return [];
+  if (opts.includedWatermarks.length === 0) return [];
+
+  const state = await readCompileStateForCompile(opts.root);
+  const consumed = readConsumedMap(state);
+  for (const included of opts.includedWatermarks) {
+    consumed[included.relPath] = {
+      bytes: included.bytes,
+      lastObservationAt: included.lastObservationAt,
+    };
+  }
+  await writeCompileStateFile(opts.root, { ...state, consumed });
+  return opts.includedWatermarks.map((item) => item.relPath);
+}
+
+async function resetConsumedWatermarks(
+  root: string,
+  state: CompileStateFile,
+  resetWatermark: string | boolean,
+): Promise<{ pattern: string | null; cleared: number }> {
+  const consumed = readConsumedMap(state);
+  const pattern = typeof resetWatermark === "string" ? resetWatermark.replace(/\\/g, "/") : null;
+  const before = Object.keys(consumed).length;
+  if (!pattern) {
+    for (const key of Object.keys(consumed)) delete consumed[key];
+  } else {
+    const matches = globMatcher(pattern);
+    for (const key of Object.keys(consumed)) {
+      if (matches(key)) delete consumed[key];
+    }
+  }
+  const cleared = before - Object.keys(consumed).length;
+  await writeCompileStateFile(root, { ...state, consumed });
+  return { pattern, cleared };
+}
+
+async function readCompileStateForCompile(root: string): Promise<CompileStateFile> {
+  try {
+    return await readCompileStateFile(root);
+  } catch {
+    return {};
+  }
+}
+
+function globMatcher(pattern: string): (value: string) => boolean {
+  const escaped = pattern
+    .split("*")
+    .map((part) => part.replace(/[|\\{}()[\]^$+?.]/g, "\\$&"))
+    .join(".*");
+  const re = new RegExp(`^${escaped}$`);
+  return (value) => re.test(value.replace(/\\/g, "/"));
+}
+
+function relativeVaultPath(vaultRoot: string, fullPath: string): string {
+  return relative(vaultRoot, fullPath).replace(/\\/g, "/");
+}
+
+function detectLastObservationAt(relPath: string, text: string, fallbackMtimeMs: number): string {
+  const date = /^raw\/(\d{4}-\d{2}-\d{2})\//.exec(relPath)?.[1];
+  let latest: string | null = null;
+  const timeRe = /^## \[(\d{2}:\d{2}:\d{2})\]/gm;
+  let match: RegExpExecArray | null;
+  while ((match = timeRe.exec(text)) !== null) {
+    if (date) latest = `${date}T${match[1]}Z`;
+  }
+  if (latest) return new Date(latest).toISOString();
+  return new Date(fallbackMtimeMs).toISOString();
 }
 
 function detectSinceFromLog(log: string): Date | null {
@@ -298,16 +442,4 @@ function renderPrompt(
 function tailLines(text: string, maxLines: number): string {
   const lines = text.split(/\r?\n/);
   return lines.slice(-maxLines).join("\n");
-}
-
-function truncateToBytes(
-  text: string,
-  maxBytes: number,
-): { text: string; truncated: boolean } {
-  const bytes = Buffer.from(text, "utf-8");
-  if (bytes.byteLength <= maxBytes) return { text, truncated: false };
-  return {
-    text: bytes.subarray(0, maxBytes).toString("utf-8"),
-    truncated: true,
-  };
 }
