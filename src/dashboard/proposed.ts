@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { readFile, readdir } from "node:fs/promises";
+import { readFile, readdir, rm } from "node:fs/promises";
 import { basename, join } from "node:path";
 import {
   runProcedurePromote,
@@ -9,6 +9,12 @@ import {
   runThreadPromote,
   runThreadReject,
 } from "../cli/commands/thread.js";
+import {
+  applyOperation,
+  compileOperationPath,
+  isAllowedCompileRelPath,
+  parseCompileOperationBlock,
+} from "../compile/execute.js";
 import {
   scoreProposalConfidence,
   type ProposalConfidence,
@@ -22,8 +28,9 @@ import {
   proceduresProposedDir,
   threadsProposedDir,
 } from "../storage/paths.js";
+import { commitVaultChange } from "../sync/commit-vault-change.js";
 
-export type ProposedKind = "thread" | "procedure";
+export type ProposedKind = "thread" | "procedure" | "compile";
 
 export interface ProposedDraftBase {
   slug: string;
@@ -146,6 +153,9 @@ export async function promoteProposedDraft(
   kind: ProposedKind,
   slug: string,
 ): Promise<{ promotedPath: string }> {
+  if (kind === "compile") {
+    return promoteCompileProposal(vaultRoot, slug);
+  }
   const result = kind === "thread"
     ? await runThreadPromote({ vaultRoot, slug })
     : await runProcedurePromote({ vaultRoot, slug });
@@ -157,6 +167,9 @@ export async function rejectProposedDraft(
   kind: ProposedKind,
   slug: string,
 ): Promise<{ rejectedPath: string }> {
+  if (kind === "compile") {
+    return rejectCompileProposal(vaultRoot, slug);
+  }
   const result = kind === "thread"
     ? await runThreadReject({ vaultRoot, slug })
     : await runProcedureReject({ vaultRoot, slug });
@@ -170,13 +183,59 @@ export function parseProposedActionBody(body: unknown): { ok: true; kind: Propos
   const record = body as Record<string, unknown>;
   const kind = record["kind"];
   const slug = record["slug"];
-  if (kind !== "thread" && kind !== "procedure") {
-    return { ok: false, message: "kind must be thread or procedure" };
+  if (kind !== "thread" && kind !== "procedure" && kind !== "compile") {
+    return { ok: false, message: "kind must be thread, procedure, or compile" };
   }
   if (typeof slug !== "string" || !/^[a-z0-9-]+$/.test(slug)) {
     return { ok: false, message: "slug must be a kebab-case string" };
   }
   return { ok: true, kind, slug };
+}
+
+async function promoteCompileProposal(vaultRoot: string, slug: string): Promise<{ promotedPath: string }> {
+  const safeSlug = sanitizeSlug(slug, "compile");
+  const proposalPath = `wiki/compile-proposed/${safeSlug}.md`;
+  const fullPath = join(vaultRoot, ...proposalPath.split("/"));
+  if (!existsSync(fullPath)) {
+    throw new Error(`proposed compile not found: ${proposalPath}`);
+  }
+
+  const parsed = parseCompileOperationBlock(await readFile(fullPath, "utf-8"));
+  if (!parsed.ok) {
+    throw new Error(`invalid compile proposal ${proposalPath}: ${parsed.reason}`);
+  }
+  const promotedPath = compileOperationPath(parsed.operation);
+  if (!isAllowedCompileRelPath(promotedPath)) {
+    throw new Error(`invalid compile proposal target: ${promotedPath}`);
+  }
+
+  const applied = await applyOperation(vaultRoot, parsed.operation);
+  if (!applied.ok) {
+    throw new Error(`compile proposal apply failed for ${promotedPath}: ${applied.reason}`);
+  }
+  await rm(fullPath);
+  await commitVaultChange({
+    memoryRoot: vaultRoot,
+    paths: [promotedPath, proposalPath],
+    message: `promote compile proposal: ${safeSlug}`,
+  });
+  return { promotedPath };
+}
+
+async function rejectCompileProposal(vaultRoot: string, slug: string): Promise<{ rejectedPath: string }> {
+  const safeSlug = sanitizeSlug(slug, "compile");
+  const rejectedPath = `wiki/compile-proposed/${safeSlug}.md`;
+  const fullPath = join(vaultRoot, ...rejectedPath.split("/"));
+  if (!existsSync(fullPath)) {
+    throw new Error(`proposed compile not found: ${rejectedPath}`);
+  }
+  await rm(fullPath);
+  await commitVaultChange({
+    memoryRoot: vaultRoot,
+    paths: [rejectedPath],
+    message: `reject compile proposal: ${safeSlug}`,
+  });
+  return { rejectedPath };
 }
 
 async function readProposedFiles(
@@ -267,6 +326,13 @@ function countProcedureSteps(body: string): number {
 function confidenceCounts(drafts: Array<{ confidence: ProposalConfidence }>): { total: number; high: number; low: number } {
   const high = drafts.filter((draft) => draft.confidence.level === "high").length;
   return { total: drafts.length, high, low: drafts.length - high };
+}
+
+function sanitizeSlug(slug: string, kind: ProposedKind): string {
+  if (!/^[a-z0-9-]+$/.test(slug)) {
+    throw new Error(`invalid ${kind} slug: ${slug}`);
+  }
+  return slug;
 }
 
 async function countRecentAutoPromoted(vaultRoot: string): Promise<number> {

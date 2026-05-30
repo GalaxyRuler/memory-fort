@@ -69,6 +69,7 @@ export interface CompileOperationOutcome {
 }
 
 const COMPILE_OPS_RE = /```compile-ops\s*([\s\S]*?)```/m;
+const COMPILE_OP_RE = /```compile-op\s*([\s\S]*?)```/m;
 const PAGE_TYPES_BY_CATEGORY = {
   projects: "projects",
   people: "people",
@@ -111,6 +112,25 @@ export function parseCompileOperationsBlock(text: string): ParseCompileOperation
   return { ok: true, operations };
 }
 
+export function parseCompileOperationBlock(text: string): { ok: true; operation: CompileOperation } | { ok: false; reason: string } {
+  const block = COMPILE_OP_RE.exec(text)?.[1];
+  if (!block) return { ok: false, reason: "missing fenced compile-op block" };
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(block);
+  } catch (error) {
+    return {
+      ok: false,
+      reason: `compile-op JSON parse error: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+
+  const operation = readOperation(parsed);
+  if (!operation) return { ok: false, reason: "compile-op contains an unsupported operation" };
+  return { ok: true, operation };
+}
+
 export async function applyCompileOperations(
   opts: ApplyCompileOperationsOptions,
 ): Promise<ApplyCompileOperationsResult> {
@@ -129,8 +149,8 @@ export async function applyCompileOperations(
   result.outcomes.push(...prepared.outcomes);
 
   for (const preparedOperation of prepared.operations) {
-    const relPath = operationPath(preparedOperation.operation);
-    if (!isAllowedRelPath(relPath)) {
+    const relPath = compileOperationPath(preparedOperation.operation);
+    if (!isAllowedCompileRelPath(relPath)) {
       result.rejected.push({ path: relPath, reason: "path outside allowed vault targets" });
       result.outcomes.push({
         path: relPath,
@@ -205,8 +225,8 @@ function prepareCompileOperations(
   const date = now.toISOString().slice(0, 10);
 
   for (const operation of operations) {
-    const originalPath = operationPath(operation);
-    if (!isAllowedRelPath(originalPath)) {
+    const originalPath = compileOperationPath(operation);
+    if (!isAllowedCompileRelPath(originalPath)) {
       prepared.push({ operation });
       continue;
     }
@@ -432,11 +452,11 @@ async function groundOperation(
   };
 }
 
-async function applyOperation(
+export async function applyOperation(
   vaultRoot: string,
   operation: CompileOperation,
 ): Promise<{ ok: true; outcome: Extract<CompileOperationOutcomeKind, "created" | "appended" | "index-updated" | "log-appended"> } | { ok: false; reason: string }> {
-  const relPath = operationPath(operation);
+  const relPath = compileOperationPath(operation);
   const fullPath = join(vaultRoot, ...relPath.split("/"));
   switch (operation.kind) {
     case "write_page": {
@@ -466,7 +486,7 @@ async function stageCompileProposal(
   now: Date,
   reason: string,
 ): Promise<string> {
-  const target = operationPath(operation);
+  const target = compileOperationPath(operation);
   const slug = kebabCase(basename(target, ".md")) || "compile-proposal";
   const relPath = `wiki/compile-proposed/${slug}.md`;
   const fullPath = join(vaultRoot, ...relPath.split("/"));
@@ -563,7 +583,7 @@ function readOperation(value: unknown): CompileOperation | null {
   return null;
 }
 
-function operationPath(operation: CompileOperation): string {
+export function compileOperationPath(operation: CompileOperation): string {
   switch (operation.kind) {
     case "write_page":
     case "append_page":
@@ -575,7 +595,7 @@ function operationPath(operation: CompileOperation): string {
   }
 }
 
-function isAllowedRelPath(relPath: string): boolean {
+export function isAllowedCompileRelPath(relPath: string): boolean {
   if (relPath.includes("..") || relPath.startsWith("/") || /^[a-z]:/i.test(relPath)) return false;
   return (relPath.startsWith("wiki/") && relPath.endsWith(".md")) || relPath === "index.md" || relPath === "log.md";
 }
