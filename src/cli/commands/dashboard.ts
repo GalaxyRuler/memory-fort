@@ -37,9 +37,12 @@ export async function runDashboard(opts: DashboardOptions = {}): Promise<Dashboa
   const requestedPort = opts.port ?? DEFAULT_PORT;
   const distRoot = opts.dashboardDistRoot ?? defaultDashboardDistRoot();
   const indexHtml = join(distRoot, "index.html");
-  if (!existsSync(indexHtml)) {
+  // Only enforce the real dist when using the real server. An injected
+  // createServer (tests) brings its own server and manages its own assets, so
+  // the check must not depend on the repo's on-disk dist/dashboard-ui state.
+  if (!opts.createServer && !existsSync(indexHtml)) {
     throw new Error(
-      `dashboard UI dist missing index.html at ${indexHtml}; run npm run build:ui`,
+      `dashboard UI dist missing index.html at ${indexHtml}; run \`npm run build:ui\` first`,
     );
   }
   const server = await startDashboardServer({
