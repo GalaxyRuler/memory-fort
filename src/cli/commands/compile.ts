@@ -40,6 +40,12 @@ export interface CompileOptions {
   llmFactory?: (config: LLMConfig | null, env: NodeJS.ProcessEnv) => LLMProvider;
 }
 
+export interface CompileDrainOptions extends CompileOptions {
+  execute: boolean;
+  maxPasses?: number;
+  onProgress?: (line: string, result: CompileResult, pass: number) => void;
+}
+
 export interface CompileResult {
   prompt: string;
   rawFilesIncluded: string[];
@@ -49,9 +55,20 @@ export interface CompileResult {
   watermarkReset?: { pattern: string | null; cleared: number };
   watermarksAdvanced: string[];
   truncatedAtTotalCap: boolean;
+  rawBytesRemaining: number;
+  rawFilesRemaining: number;
   execution?: {
     mode: "plan" | "execute";
   } & ApplyCompileOperationsResult;
+}
+
+export interface CompileDrainResult {
+  passes: CompileResult[];
+  stopReason: "empty" | "max-passes";
+  totalRawFilesIncluded: number;
+  totalWatermarksAdvanced: number;
+  rawBytesRemaining: number;
+  rawFilesRemaining: number;
 }
 
 interface RawCandidate {
@@ -67,8 +84,24 @@ interface IncludedRawWatermark {
   lastObservationAt: string;
 }
 
+interface EligibleRaw {
+  candidate: RawCandidate;
+  content: Buffer;
+  startByte: number;
+  cursor: number;
+  chunks: Buffer[];
+  sortGroup: number;
+  sortAtMs: number;
+}
+
 const DEFAULT_PER_FILE_MAX_BYTES = 10_000;
 const DEFAULT_TOTAL_MAX_BYTES = 200_000;
+// Hard cap on files included per pass. Without it, fair round-robin spreads the
+// byte budget across every eligible file as tiny slivers, and the per-file
+// prompt overhead (path headers + fences + truncation notices) explodes the
+// rendered prompt past the LLM context window. Aging + `--drain` rotate through
+// the deferred files across passes, so nothing is starved.
+const DEFAULT_MAX_FILES_PER_PASS = 40;
 const COMPILE_LOG_RE =
   /^## \[(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})\] compile \|/gm;
 
@@ -110,13 +143,14 @@ export async function runCompile(
   const rawFilesIncluded: string[] = [];
   const includedWatermarks: IncludedRawWatermark[] = [];
   const rawContentBlocks: string[] = [];
+  const eligibleRaws: EligibleRaw[] = [];
   let totalUsed = 0;
   let truncatedAtTotalCap = false;
 
   const rawFiles = await listRawFiles(root, join(root, "raw"));
   for (const candidate of rawFiles) {
     let startByte = 0;
-    const watermark = consumed[candidate.relPath];
+    const watermark = watermarkMode === "gated" ? consumed[candidate.relPath] : undefined;
     if (watermarkMode === "gated" && watermark) {
       if (candidate.size === watermark.bytes) {
         rawFilesSkipped.push({
@@ -133,14 +167,6 @@ export async function runCompile(
       });
       continue;
     }
-    if (totalUsed >= totalMaxBytes) {
-      truncatedAtTotalCap = true;
-      rawFilesSkipped.push({
-        path: candidate.path,
-        reason: "totalMaxBytes reached",
-      });
-      continue;
-    }
 
     let content: Buffer;
     try {
@@ -153,7 +179,6 @@ export async function runCompile(
       continue;
     }
 
-    const remaining = totalMaxBytes - totalUsed;
     const tail = content.subarray(startByte);
     if (tail.byteLength === 0) {
       rawFilesSkipped.push({
@@ -162,29 +187,99 @@ export async function runCompile(
       });
       continue;
     }
-    const includedBytes = Math.min(tail.byteLength, perFileMaxBytes, remaining);
-    let text = tail.subarray(0, includedBytes).toString("utf-8");
-    const perFileTruncated = tail.byteLength > perFileMaxBytes && includedBytes === perFileMaxBytes;
-    const totalTruncated = tail.byteLength > includedBytes && includedBytes === remaining;
-    if (perFileTruncated) {
-      text += `\n\n[truncated to ${perFileMaxBytes} bytes]`;
+    eligibleRaws.push({
+      candidate,
+      content,
+      startByte,
+      cursor: startByte,
+      chunks: [],
+      sortGroup: watermark ? 1 : 0,
+      sortAtMs: watermark ? parseSortTime(watermark.lastObservationAt, candidate.mtimeMs) : candidate.mtimeMs,
+    });
+  }
+
+  eligibleRaws.sort(compareEligibleRaw);
+
+  // Defer files beyond the per-pass cap. Aging keeps these at the front of the
+  // next pass; they still count toward the remaining backlog so `--drain` knows
+  // there is more to do.
+  const deferredRaws = eligibleRaws.splice(DEFAULT_MAX_FILES_PER_PASS);
+  for (const raw of deferredRaws) {
+    rawFilesSkipped.push({
+      path: raw.candidate.path,
+      reason: "deferred to a later pass (max files per pass)",
+    });
+  }
+
+  while (totalUsed < totalMaxBytes && perFileMaxBytes > 0) {
+    let advanced = false;
+    for (let index = 0; index < eligibleRaws.length; index += 1) {
+      const raw = eligibleRaws[index]!;
+      if (totalUsed >= totalMaxBytes) break;
+      if (raw.cursor >= raw.content.byteLength) continue;
+      const remaining = totalMaxBytes - totalUsed;
+      const laterActiveCount = countActiveRawsAfter(eligibleRaws, index);
+      const reservedForLater = Math.min(laterActiveCount, Math.max(0, remaining - 1));
+      const maxBytes = Math.min(perFileMaxBytes, remaining - reservedForLater);
+      const endByte = chooseSliceEnd(raw.content, raw.cursor, maxBytes);
+      if (endByte <= raw.cursor) continue;
+      const chunk = raw.content.subarray(raw.cursor, endByte);
+      raw.chunks.push(chunk);
+      raw.cursor = endByte;
+      totalUsed += chunk.byteLength;
+      advanced = true;
     }
-    if (totalTruncated) {
-      truncatedAtTotalCap = true;
-      text += `\n\n[truncated at totalMaxBytes ${totalMaxBytes}]`;
+    if (!advanced) break;
+  }
+
+  for (const raw of eligibleRaws) {
+    const includedBytes = raw.cursor - raw.startByte;
+    if (includedBytes <= 0) {
+      if (totalUsed >= totalMaxBytes) {
+        rawFilesSkipped.push({
+          path: raw.candidate.path,
+          reason: "totalMaxBytes reached",
+        });
+      } else if (raw.cursor < raw.content.byteLength) {
+        rawFilesSkipped.push({
+          path: raw.candidate.path,
+          reason: "observation exceeds byte window",
+        });
+      }
+      continue;
     }
 
-    totalUsed += includedBytes;
-    rawFilesIncluded.push(candidate.path);
+    let text = Buffer.concat(raw.chunks).toString("utf-8");
+    if (raw.cursor < raw.content.byteLength) {
+      const remainingBytes = raw.content.byteLength - raw.cursor;
+      text += `\n\n[truncated; ${remainingBytes} raw byte(s) remain after fairness window]`;
+      if (totalUsed >= totalMaxBytes) {
+        text += `\n\n[truncated at totalMaxBytes ${totalMaxBytes}]`;
+      }
+    }
+
+    rawFilesIncluded.push(raw.candidate.path);
     includedWatermarks.push({
-      relPath: candidate.relPath,
-      bytes: startByte + includedBytes,
-      lastObservationAt: detectLastObservationAt(candidate.relPath, text, candidate.mtimeMs),
+      relPath: raw.candidate.relPath,
+      bytes: raw.cursor,
+      lastObservationAt: detectLastObservationAt(raw.candidate.relPath, text, raw.candidate.mtimeMs),
     });
     rawContentBlocks.push(
-      `### ${candidate.path}\n\n\`\`\`markdown\n${text}\n\`\`\``,
+      `### ${raw.candidate.path}\n\n\`\`\`markdown\n${text}\n\`\`\``,
     );
   }
+
+  const deferredBytesRemaining = deferredRaws.reduce(
+    (sum, raw) => sum + Math.max(0, raw.content.byteLength - raw.startByte),
+    0,
+  );
+  const rawBytesRemaining = eligibleRaws.reduce(
+    (sum, raw) => sum + Math.max(0, raw.content.byteLength - raw.cursor),
+    0,
+  ) + deferredBytesRemaining;
+  const rawFilesRemaining =
+    eligibleRaws.filter((raw) => raw.cursor < raw.content.byteLength).length + deferredRaws.length;
+  truncatedAtTotalCap = rawBytesRemaining > 0 && (totalUsed >= totalMaxBytes || deferredRaws.length > 0);
 
   const prompt = renderPrompt(promptTemplate, {
     schema_content: schema,
@@ -223,8 +318,116 @@ export async function runCompile(
     ...(watermarkReset ? { watermarkReset } : {}),
     watermarksAdvanced,
     truncatedAtTotalCap,
+    rawBytesRemaining,
+    rawFilesRemaining,
     execution,
   };
+}
+
+export async function runCompileDrain(
+  opts: CompileDrainOptions,
+): Promise<CompileDrainResult> {
+  if (!opts.execute) {
+    throw new Error("memory compile: --drain requires --execute");
+  }
+  if (opts.plan) {
+    throw new Error("memory compile: --drain cannot be combined with --plan");
+  }
+  const maxPasses = readPositiveInteger(opts.maxPasses, 50, "maxPasses");
+  if (maxPasses < 1) {
+    throw new Error("memory compile: maxPasses must be at least 1");
+  }
+
+  const passes: CompileResult[] = [];
+  let totalRawFilesIncluded = 0;
+  let totalWatermarksAdvanced = 0;
+  for (let pass = 1; pass <= maxPasses; pass += 1) {
+    const result = await runCompile({ ...opts, execute: true, plan: false });
+    passes.push(result);
+    totalRawFilesIncluded += result.rawFilesIncluded.length;
+    totalWatermarksAdvanced += result.watermarksAdvanced.length;
+    const progressLine = formatDrainProgress(pass, result);
+    opts.onProgress?.(progressLine, result, pass);
+    if (result.rawFilesIncluded.length === 0) {
+      return {
+        passes,
+        stopReason: "empty",
+        totalRawFilesIncluded,
+        totalWatermarksAdvanced,
+        rawBytesRemaining: result.rawBytesRemaining,
+        rawFilesRemaining: result.rawFilesRemaining,
+      };
+    }
+  }
+
+  const last = passes.at(-1);
+  return {
+    passes,
+    stopReason: "max-passes",
+    totalRawFilesIncluded,
+    totalWatermarksAdvanced,
+    rawBytesRemaining: last?.rawBytesRemaining ?? 0,
+    rawFilesRemaining: last?.rawFilesRemaining ?? 0,
+  };
+}
+
+function compareEligibleRaw(a: EligibleRaw, b: EligibleRaw): number {
+  return a.sortGroup - b.sortGroup
+    || a.sortAtMs - b.sortAtMs
+    || a.candidate.mtimeMs - b.candidate.mtimeMs
+    || a.candidate.path.localeCompare(b.candidate.path);
+}
+
+function parseSortTime(value: string | undefined, fallbackMs: number): number {
+  if (!value) return fallbackMs;
+  const parsed = new Date(value).getTime();
+  return Number.isFinite(parsed) ? parsed : fallbackMs;
+}
+
+function countActiveRawsAfter(raws: EligibleRaw[], index: number): number {
+  let count = 0;
+  for (let i = index + 1; i < raws.length; i += 1) {
+    if (raws[i]!.cursor < raws[i]!.content.byteLength) count += 1;
+  }
+  return count;
+}
+
+function chooseSliceEnd(content: Buffer, startByte: number, maxBytes: number): number {
+  if (maxBytes <= 0) return startByte;
+  const hardEnd = Math.min(content.byteLength, startByte + maxBytes);
+  if (hardEnd >= content.byteLength) return content.byteLength;
+
+  const nextBoundary = findObservationBoundaryAfter(content, startByte);
+  if (nextBoundary !== null && nextBoundary <= hardEnd) {
+    return nextBoundary;
+  }
+  if (isObservationBoundaryAt(content, startByte)) {
+    return startByte;
+  }
+  return hardEnd;
+}
+
+function findObservationBoundaryAfter(content: Buffer, startByte: number): number | null {
+  const marker = Buffer.from("\n## [", "utf-8");
+  const index = content.indexOf(marker, startByte + 1);
+  return index === -1 ? null : index + 1;
+}
+
+function isObservationBoundaryAt(content: Buffer, startByte: number): boolean {
+  const heading = Buffer.from("## [", "utf-8");
+  if (startByte === 0) return content.subarray(0, heading.byteLength).equals(heading);
+  const marker = Buffer.from("\n## [", "utf-8");
+  const markerStart = startByte - 1;
+  if (markerStart < 0) return false;
+  return content.subarray(markerStart, markerStart + marker.byteLength).equals(marker);
+}
+
+function formatDrainProgress(pass: number, result: CompileResult): string {
+  return [
+    `pass ${pass}: included ${result.rawFilesIncluded.length} raw file(s)`,
+    `advanced ${result.watermarksAdvanced.length} watermark(s)`,
+    `remaining ${result.rawBytesRemaining} byte(s) in ${result.rawFilesRemaining} file(s)`,
+  ].join(", ");
 }
 
 async function executeCompilePrompt(opts: CompileOptions & {

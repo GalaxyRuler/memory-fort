@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { Command } from "commander";
 import { printDebugLogBanner } from "./cli/debug-banner.js";
-import { runCompile } from "./cli/commands/compile.js";
+import { runCompile, runCompileDrain } from "./cli/commands/compile.js";
 import {
   formatConsolidateResult,
   runConsolidate,
@@ -334,6 +334,8 @@ program
   .option("-o, --output <path>", "also write the assembled prompt to a file")
   .option("--execute", "send the prompt to the configured LLM and apply grounded compile-ops")
   .option("--plan", "with --execute, preview compile-ops without writing")
+  .option("--drain", "with --execute, keep compiling until no eligible raw tails remain")
+  .option("--max-passes <n>", "maximum drain passes (default: 50)", parseInteger)
   .option("--reset-watermark [glob]", "clear consumed raw-file watermarks before compiling")
   .action(
     async (opts: {
@@ -343,9 +345,31 @@ program
       output?: string;
       execute?: boolean;
       plan?: boolean;
+      drain?: boolean;
+      maxPasses?: number;
       resetWatermark?: string | boolean;
     }) => {
       try {
+        if (opts.drain) {
+          const result = await runCompileDrain({
+            since: opts.since,
+            perFileMaxBytes: opts.perFileMaxBytes,
+            totalMaxBytes: opts.totalMaxBytes,
+            outputPath: opts.output,
+            execute: opts.execute ?? false,
+            plan: opts.plan,
+            maxPasses: opts.maxPasses,
+            resetWatermark: opts.resetWatermark,
+            onProgress: (line) => console.error(line),
+          });
+          console.error(`Compile drain ${result.stopReason === "empty" ? "complete" : "stopped at max passes"}`);
+          console.error(`  passes:              ${result.passes.length}`);
+          console.error(`  raw files included:  ${result.totalRawFilesIncluded}`);
+          console.error(`  watermarks advanced: ${result.totalWatermarksAdvanced}`);
+          console.error(`  raw files remaining: ${result.rawFilesRemaining}`);
+          console.error(`  raw bytes remaining: ${result.rawBytesRemaining}`);
+          return;
+        }
         const result = await runCompile({
           since: opts.since,
           perFileMaxBytes: opts.perFileMaxBytes,

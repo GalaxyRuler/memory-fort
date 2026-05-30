@@ -36,11 +36,13 @@ Serve the dashboard locally against the canonical writable vault (`MEMORY_ROOT` 
 ### `memory search <query> [--scope wiki|raw|crystals|all] [--k <n>] [--min-score <n>] [--no-rerank] [--json] [--vps-url <url>]`
 Query the VPS dashboard `/api/search` over Tailscale; prints ranked results with provenance. Defaults to the fast `--no-rerank` path for bounded latency; omit it to add Voyage rerank. Runs no retrieval locally.
 
-### `memory compile [--since <date>] [--per-file-max-bytes <n>] [--total-max-bytes <n>] [-o|--output <path>] [--execute] [--plan]`
+### `memory compile [--since <date>] [--per-file-max-bytes <n>] [--total-max-bytes <n>] [-o|--output <path>] [--execute] [--plan] [--drain --max-passes <n>]`
 Assemble the consolidation prompt from raw observations since the last compile.
 - **Default (artifact mode):** prints the rendered prompt to stdout, or to `--output <path>` if given, for an agent to execute.
 - **`--execute`:** send the prompt to the configured LLM, parse the `compile-ops` JSON, ground references, redact secrets, and apply append-only operations (high-confidence directly; low-confidence staged to `wiki/compile-proposed/`). Opt-in; needs `OPENROUTER_API_KEY`; honors `MEMORY_LLM_DISABLED`.
 - **`--execute --plan`:** preview the operations without writing.
+- **Fairness window:** eligible raw files are ordered as never-consumed first, then oldest consumed watermark first. Compile allocates raw bytes in round-robin slices so a large active file can continue advancing without permanently crowding out smaller files.
+- **`--execute --drain [--max-passes <n>]`:** repeatedly runs execute-mode compile until a pass includes no raw files, or until the max-pass guard is reached (default 50). Each pass prints included files, advanced watermarks, and remaining raw bytes/files.
 
 ### `memory consolidate [--plan|--apply] [--force] [--min-confidence <n>] [--max-links-per-observation <n>]`
 Link raw episodic observations to existing wiki pages via deterministic matching (no LLM). `--plan` previews; `--apply` writes the relation edges.

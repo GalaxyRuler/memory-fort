@@ -11,7 +11,7 @@ import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { mkdtemp } from "node:fs/promises";
-import { runCompile } from "../../../src/cli/commands/compile.js";
+import { runCompile, runCompileDrain } from "../../../src/cli/commands/compile.js";
 import type { LLMProvider } from "../../../src/llm/types.js";
 
 const CLI = resolve(process.cwd(), "dist", "cli.mjs");
@@ -139,7 +139,98 @@ describe("runCompile", () => {
     expect(result.prompt).toContain("[truncated");
   });
 
-  it("skips remaining files once total cap is exhausted", async () => {
+  it("orders eligible raws by least recently consumed before applying budget", async () => {
+    const newConsumed = join(root, "raw", "2026-05-21", "a-new.md");
+    const oldConsumed = join(root, "raw", "2026-05-21", "b-old.md");
+    const neverConsumed = join(root, "raw", "2026-05-21", "z-never.md");
+    await writeFile(newConsumed, "xnew tail");
+    await writeFile(oldConsumed, "xold tail");
+    await writeFile(neverConsumed, "never tail");
+    await writeCompileState({
+      consumed: {
+        "raw/2026-05-21/a-new.md": {
+          bytes: 1,
+          lastObservationAt: "2026-05-21T12:00:00.000Z",
+        },
+        "raw/2026-05-21/b-old.md": {
+          bytes: 1,
+          lastObservationAt: "2026-05-21T10:00:00.000Z",
+        },
+      },
+    });
+
+    const result = await runCompile({
+      vaultRoot: root,
+      perFileMaxBytes: 20,
+      totalMaxBytes: 100,
+    });
+
+    expect(result.rawFilesIncluded).toEqual([
+      neverConsumed,
+      oldConsumed,
+      newConsumed,
+    ]);
+  });
+
+  it("uses remaining total budget for additional fair allocation cycles", async () => {
+    const first = join(root, "raw", "2026-05-21", "manual-a.md");
+    const second = join(root, "raw", "2026-05-21", "manual-b.md");
+    await writeFile(first, "abcdefghij");
+    await writeFile(second, "1234567890");
+
+    const result = await runCompile({
+      vaultRoot: root,
+      perFileMaxBytes: 3,
+      totalMaxBytes: 9,
+    });
+
+    expect(result.rawFilesIncluded).toEqual([first, second]);
+    expect(result.prompt).toContain("abcde");
+    expect(result.prompt).toContain("1234");
+    expect(result.prompt).not.toContain("123456");
+  });
+
+  it("advances a late never-consumed large file even when earlier files could fill the cap", async () => {
+    for (let i = 0; i < 25; i += 1) {
+      await writeFile(
+        join(root, "raw", "2026-05-21", `a-small-${String(i).padStart(2, "0")}.md`),
+        `small-${String(i).padStart(2, "0")}`,
+      );
+    }
+    const large = join(root, "raw", "2026-05-21", "z-large.md");
+    await writeFile(large, "L".repeat(100));
+
+    await runCompile({
+      vaultRoot: root,
+      execute: true,
+      perFileMaxBytes: 10,
+      totalMaxBytes: 50,
+      configLoader: async () => ({ llm: { provider: "ollama", model: "llama3.2" } }),
+      llmFactory: () => fakeExecuteLLM(),
+      env: {},
+    });
+
+    const state = await readCompileState();
+    expect(state.consumed["raw/2026-05-21/z-large.md"].bytes).toBeGreaterThan(0);
+  });
+
+  it("does not split timestamped raw observations mid-record", async () => {
+    const rawPath = join(root, "raw", "2026-05-21", "manual-a.md");
+    const firstRecord = rawObservation("09:00:00", "first complete observation");
+    const secondRecord = rawObservation("09:01:00", "second observation should wait");
+    await writeFile(rawPath, firstRecord + secondRecord);
+
+    const result = await runCompile({
+      vaultRoot: root,
+      perFileMaxBytes: Buffer.byteLength(firstRecord, "utf-8") + 8,
+      totalMaxBytes: Buffer.byteLength(firstRecord, "utf-8") + 8,
+    });
+
+    expect(result.prompt).toContain("first complete observation");
+    expect(result.prompt).not.toContain("second observation should wait");
+  });
+
+  it("shares a small total cap instead of skipping later eligible files", async () => {
     const first = join(root, "raw", "2026-05-21", "manual-a.md");
     const second = join(root, "raw", "2026-05-21", "manual-b.md");
     await writeFile(first, "abcde");
@@ -150,10 +241,11 @@ describe("runCompile", () => {
       totalMaxBytes: 5,
     });
 
-    expect(result.rawFilesIncluded).toEqual([first]);
-    expect(result.rawFilesSkipped).toEqual([
-      { path: second, reason: "totalMaxBytes reached" },
-    ]);
+    expect(result.rawFilesIncluded).toEqual([first, second]);
+    expect(result.rawFilesSkipped).toEqual([]);
+    expect(result.prompt).toContain("abcd");
+    expect(result.prompt).toContain("f");
+    expect(result.prompt).not.toContain("ghij");
     expect(result.truncatedAtTotalCap).toBe(true);
   });
 
@@ -297,6 +389,38 @@ describe("runCompile", () => {
     expect(next.prompt).toContain("fghij");
   });
 
+  it("drains compile passes until no raw files remain", async () => {
+    const rawPath = join(root, "raw", "2026-05-21", "manual-a.md");
+    await writeFile(rawPath, "abcdefghij");
+    const progress: string[] = [];
+
+    const result = await runCompileDrain({
+      vaultRoot: root,
+      execute: true,
+      perFileMaxBytes: 3,
+      totalMaxBytes: 3,
+      maxPasses: 10,
+      configLoader: async () => ({ llm: { provider: "ollama", model: "llama3.2" } }),
+      llmFactory: () => fakeExecuteLLMWhenRawPresent(),
+      env: {},
+      onProgress: (line) => progress.push(line),
+    });
+
+    expect(result.stopReason).toBe("empty");
+    expect(result.passes.at(-1)?.rawFilesIncluded).toEqual([]);
+    expect(result.totalRawFilesIncluded).toBe(4);
+    expect(progress).toContain("pass 1: included 1 raw file(s), advanced 1 watermark(s), remaining 7 byte(s) in 1 file(s)");
+    const state = await readCompileState();
+    expect(state.consumed["raw/2026-05-21/manual-a.md"].bytes).toBe(10);
+  });
+
+  it("rejects drain mode without execute", async () => {
+    await expect(runCompileDrain({
+      vaultRoot: root,
+      execute: false,
+    })).rejects.toThrow("memory compile: --drain requires --execute");
+  });
+
   it("--since bypasses recorded watermarks", async () => {
     const rawPath = join(root, "raw", "2026-05-21", "manual-a.md");
     await writeFile(rawPath, "force backfill raw");
@@ -376,6 +500,23 @@ function fakeExecuteLLM(): LLMProvider {
   }]);
 }
 
+function fakeExecuteLLMWhenRawPresent(): LLMProvider {
+  return fakeExecuteLLMWith(({ prompt }) => {
+    if (prompt.includes("RAW=(none)")) return [];
+    const rawSlice = /```markdown\n([\s\S]*?)\n```/.exec(prompt)?.[1] ?? "raw";
+    return [{
+      kind: "write_page",
+      path: "wiki/lessons/compile-drain.md",
+      frontmatter: {
+        type: "lessons",
+        title: "Compile Drain",
+        relations: { derived_from: ["raw/2026-05-21/manual-a.md"] },
+      },
+      body: `Compile drain body: ${rawSlice}`,
+    }];
+  });
+}
+
 function fakeExecuteLLMWith(
   operations: (opts: { prompt: string }) => unknown[],
 ): LLMProvider {
@@ -412,4 +553,8 @@ function rootForTest(): string {
   const root = process.env["MEMORY_ROOT"];
   if (!root) throw new Error("MEMORY_ROOT missing in compile test");
   return root;
+}
+
+function rawObservation(time: string, body: string): string {
+  return `## [${time}] Prompt\n\n${body}\n\n`;
 }
