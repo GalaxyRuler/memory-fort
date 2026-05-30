@@ -140,6 +140,43 @@ describe("InboxPage", () => {
     );
   });
 
+  test("promotes compile drafts through the proposed action API", () => {
+    const mutate = vi.fn((_input, options) => options?.onSuccess?.());
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    proposedHooks.useProposedAction.mockReturnValue({ mutate });
+    proposedHooks.useProposedThreads.mockReturnValue({ data: [], isLoading: false, error: null });
+    proposedHooks.useProposedProcedures.mockReturnValue({ data: [], isLoading: false, error: null });
+    proposedHooks.useProposedCompile.mockReturnValue({
+      data: [
+        {
+          kind: "compile",
+          slug: "iaqar",
+          title: "compile proposal: wiki/projects/iaqar.md",
+          observationCount: 0,
+          distinctSessions: 0,
+          confidence: { level: "low", reasons: ["compile execute staged for review"] },
+          prosePreview: "Reason: low confidence",
+          body: "Compile proposal body",
+          targetPath: "wiki/projects/iaqar.md",
+        },
+      ],
+      isLoading: false,
+      error: null,
+    });
+
+    render(<InboxPage />);
+
+    fireEvent.click(screen.getByRole("button", { name: /promote/i }));
+
+    expect(confirm).toHaveBeenCalledWith(
+      "Apply compile proposal compile proposal: wiki/projects/iaqar.md? This will write to your wiki.",
+    );
+    expect(mutate).toHaveBeenCalledWith(
+      { action: "promote", kind: "compile", slug: "iaqar" },
+      expect.any(Object),
+    );
+  });
+
   test("shows empty state with recent auto-promote count", () => {
     proposedHooks.useProposedThreads.mockReturnValue({ data: [], isLoading: false, error: null });
     proposedHooks.useProposedProcedures.mockReturnValue({ data: [], isLoading: false, error: null });
