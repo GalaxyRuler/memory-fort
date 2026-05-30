@@ -6,7 +6,7 @@ Google Antigravity all read and write. No daemon, no ports,
 no database - just files + Karpathy LLM Wiki + a thin stdio
 MCP server spawned per-session by the host tool.
 
-**Status:** Phases 0–4.11 shipped — provider abstractions, retrieval (6-stream RRF), propose/promote pipelines, dashboard + inbox, autonomous compile execution (opt-in), memory feedback loop, secret redaction + leak-surface hardening, config validation, and fail-closed VPS backups. See
+**Status:** Phases 0–4.15 shipped — provider abstractions, retrieval (6-stream RRF), propose/promote pipelines, local writable dashboard + hosted read-only mirror, autonomous compile execution (opt-in), memory feedback loop, secret redaction + leak-surface hardening, config validation, and fail-closed VPS backups. See
 [docs/MEMORY-FORT-SPEC.md](docs/MEMORY-FORT-SPEC.md)
 for the current full system specification.
 
@@ -31,6 +31,22 @@ npm run typecheck
 npm run build
 npm run build:ui
 ```
+
+## Running the dashboard
+
+The local dashboard is the canonical place for write actions because it serves
+`MEMORY_ROOT` or `~/.memory` directly and can commit vault changes. Build the UI
+once, then start the local server:
+
+```bash
+npm run build:ui
+memory dashboard
+```
+
+The command binds `127.0.0.1:4410` by default and prints the `/memory/` URL.
+The hosted VPS dashboard remains useful for reading, browsing, search, and
+backup visibility, but write actions are disabled there because the VPS vault
+checkout is a read-only mirror without its own `.git` work tree.
 
 ## Compile and sync safety
 

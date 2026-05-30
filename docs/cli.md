@@ -26,6 +26,9 @@ Add a `tailscale serve <path> → http://127.0.0.1:<port>` route on the VPS, pre
 ### `memory sync-bootstrap [--remote-name <n>] [--ssh-host <h>] [--vps-install-root <p>] [--branch <b>] [--skip-initial-push]`
 Configure `~/.memory/` to use the VPS bare repo as a git remote (`vps`), install the post-receive hook, and do an initial push.
 
+### `memory dashboard [--port <n>] [--host <h>] [--no-open]`
+Serve the dashboard locally against the canonical writable vault (`MEMORY_ROOT` or `~/.memory`). Defaults to `127.0.0.1:4410`, prints `http://127.0.0.1:<port>/memory/`, opens a browser unless `--no-open`, and uses the local shell environment for `VOYAGE_API_KEY`, `OPENROUTER_API_KEY`, and `OLLAMA_HOST`. Run `npm run build:ui` first so `dist/dashboard-ui` exists.
+
 ---
 
 ## Memory operations

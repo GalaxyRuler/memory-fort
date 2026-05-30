@@ -172,6 +172,7 @@ This phase is intentionally **not pre-sequenced**. The order depends on which me
 26. **VPS ops hardening.** Shipped 2026-05-29. `memory-backup.sh` fails closed (`set -euo pipefail`, verifies the archive is listable before reporting success, rotates only after verification); dashboard + backup systemd units are hardened (NoNewPrivileges, ProtectSystem=strict, ReadWritePaths, PrivateTmp, RestrictAddressFamilies, UMask=0077); `install-vps` chmods env files to 0600.
 27. **Relation-type list unification.** Shipped 2026-05-29. Relation validation and serialization now derive from one canonical 10-type list, with the divergent non-validator `supports` entry removed and parity guarded by tests.
 28. **Manual compile execution.** Shipped 2026-05-29. `/memory/compile` primary **Run compile now** confirms then posts `{execute:true}`, surfaces raw/op/reference summaries and staged inbox links, disables execute when LLM config is unavailable, and keeps prompt-only generation as the secondary action.
+29. **Local writable dashboard, hosted read-only mirror.** Shipped 2026-05-30. `memory dashboard` serves the built SPA locally against `MEMORY_ROOT`/`~/.memory`; `/api/status` reports whether the vault is committable, hosted detached checkouts disable/refuse write actions, and the scheduler does not start on read-only mirrors.
 
 **Dependencies:** Phase 3. (Brief C explicitly depends on lifecycle states from Phase 1; narrative threads are most useful once we have the entity registry from Phase 3 if duplicate metric drove that.)
 
@@ -246,6 +247,7 @@ These are small, one-off maintenance items that don't fit the phased model. Pick
 | 2026-05-29 | Unknown LLM cost is not free | Audit summaries show unknown-priced calls separately from real `$0.0000` local/Ollama calls; old audit logs are archived rather than deleted by `provider audit-rotate` |
 | 2026-05-29 | Fresh memory must be lexically available before embeddings catch up | Session-start uses bounded raw observation reads with true write-recency, and search BM25 includes readable markdown files even when vector rows are missing |
 | 2026-05-29 | Dashboard compile's primary action executes | `/memory/compile` separates confirmed LLM execution from secondary prompt-artifact generation and reports applied/staged operations plus remaining raw work |
+| 2026-05-30 | Canonical dashboard writes run locally | The operator's local vault is the writable source of truth; the hosted VPS dashboard is a read-only mirror backed by post-receive checkout |
 
 ---
 

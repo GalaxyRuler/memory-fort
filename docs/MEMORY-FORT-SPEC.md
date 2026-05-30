@@ -22,7 +22,7 @@ The design philosophy: **capture is cheap and automatic; consolidation is gated 
 - **Raw layer** (`raw/`): the firehose. Every prompt, tool call, and observation captured per session.
 - **Curated layer** (`wiki/`): distilled, human-or-review-gated knowledge pages.
 - **Consolidation**: `compile` and the propose pipelines turn raw → curated.
-- **Sync**: git push to a VPS bare repo; a dashboard serves the checked-out vault.
+- **Sync**: git push to a VPS bare repo; the hosted dashboard serves the checked-out vault as a read-only mirror.
 
 ```mermaid
 flowchart LR
@@ -183,7 +183,7 @@ Adapter pattern (`Sniffer` interface: `available()`, `list({since,limit})`, opti
 - **`auto-push-worker.ts`** — detached process: waits the debounce, commits dirty `raw/` files (`autoCommitRawsIfDirty` — skips if non-raw files are dirty, to avoid clobbering in-progress edits), then `sync()` (pull-rebase + push). Conflict (exit 3) → records `conflict_files` in `.sync-state.json`.
 - **`commit-vault-change.ts`** (Phase 4.3.R/S) — `commitVaultChange({paths, message})` for mutation ops (promote/reject/merge). Filters paths to on-disk-or-tracked, stages with `git add -A -- <filtered>` (handles moves where the source path is gone), best-effort (logs on failure, never throws), then schedules auto-push.
 
-**VPS topology:** local vault pushes to a **bare repo** (`root@<host>:/root/memory-system/memory.git`); a **post-receive hook** checks out into `/root/memory-system/vault`, which the dashboard reads. Sync only propagates *commits* — every vault mutation must commit (the role of `commitVaultChange`).
+**VPS topology:** local vault pushes to a **bare repo** (`root@<host>:/root/memory-system/memory.git`); a **post-receive hook** checks out into `/root/memory-system/vault`, which the hosted dashboard reads as a read-only mirror. Sync only propagates *commits* — every vault mutation must commit locally (the role of `commitVaultChange`) before auto-push moves it forward to the VPS.
 
 ---
 
@@ -280,13 +280,16 @@ The compile prompt is **append-only by contract**: never rewrite/delete existing
 Single Node HTTP server, **bound to `127.0.0.1:4410`** (reachable externally only via the reverse proxy). Endpoints:
 
 **Health/status:** `GET /healthz` · `GET /api/health?role=operator|server` (503 on fail; cached ~25 s) · `GET /api/status` · `GET /api/config` (redacted).
-**Config (same-origin guarded):** `PATCH /api/config` — safelist `embedder.*`, `llm.*`, `auto_promote.*`, `compile.*`, `dashboard.trusted_origins`; atomic write; keeps 5 backups.
+**Status/capabilities:** `GET /api/status` includes `capabilities.writable`. It is `true` only when the served vault is a committable git work tree; detached hosted checkouts return `writable: false` with the operator hint to run `memory dashboard` locally.
+
+**Config (same-origin guarded):** `PATCH /api/config` — safelist `embedder.*`, `llm.*`, `auto_promote.*`, `compile.*`, `dashboard.trusted_origins`; atomic write; keeps 5 backups; refused with 403 when the vault is not committable.
 **Proposed (same-origin guarded on POST):** `GET /api/proposed/{threads,procedures,compile,summary}` · `POST /api/proposed/{promote,reject}`.
 **Compile (same-origin guarded):** `POST /api/compile/run` (`{execute?}`, 409 on concurrent; returns raw included/skipped/remaining, ops applied/staged, references stripped, and prompt artifact path) · `GET /api/compile/state` (includes schedule + execute availability/reason).
 **Graph/search/content:** `GET /api/graph`, `/api/graph-health`, `/api/search`, `/api/wiki`, `/api/page/wiki/*`, `/api/raw`, `/api/raw/:date/:filename`, `/api/activity`, `/api/timeline`, `/api/log`, `/api/conflicts`, `/api/maintenance/scan`, `/api/sync-state`, `/api/providers`.
 **SSR fallback (HTML):** `/wiki`, `/wiki/:cat/:slug`, `/raw`, `/raw/:date/:file`, `/log`. **Static:** `/assets/*` (immutable), `/*` SPA fallback.
 
-- **`sameOriginAllowed`** guards all writes. *Known issue (Phase 4.3.T, queued):* compares the browser `Origin` against the backend-reconstructed `http://<host>`, which fails behind TLS-terminating proxies (Tailscale Serve) — fix reconstructs via `X-Forwarded-Proto/Host`.
+- **`sameOriginAllowed`** guards all writes and reconstructs proxy origins through `X-Forwarded-Proto/Host`.
+- **Write capability gate (Phase 4.15):** mutating dashboard APIs refuse writes on read-only mirrors. `POST /api/compile/run` refuses `{execute:true}`, proposed promote/reject refuse, `PATCH /api/config` refuses, and the auto-promote/compile scheduler does not construct intervals when the vault is read-only.
 - **`config.ts` / `config-patch.ts`** — `config.yaml` parse failures are visible on stderr + `errors.log`; known-field validation warns on invalid provider/range values while preserving forward-compatible unknown keys. Dashboard config edits use safelist enforcement, validation, atomic write + 5-backup retention, and reject secret-like keys.
 - **`loaders.ts`** — `DashboardStatus` shape; `redactConfig` (Phase 4.3.M) — name-based recursive redaction of any `api_key|secret|*_token|password|credential|private_key` at any depth (preserves `max_tokens`).
 - **`auto-promote-scheduler.ts`** — weekly/daily/manual scheduler; runs propose `--auto-promote` and scheduled compile (compile first, then promote, never concurrent); scheduled compile uses `runScheduledCompileOnce` and only executes LLM writes when `compile.execute: true`; wires `commitVaultChange`; errors → `errors.log`, never crashes.
@@ -300,7 +303,7 @@ Single Node HTTP server, **bound to `127.0.0.1:4410`** (reachable externally onl
 
 **Routes:** `/` (Overview) · `/search` · `/wiki` (category-grouped) · `/wiki/:cat/:slug` · `/raw` · `/raw/:date/:file` · `/graph` · `/timeline` · `/activity` · `/sessions` · `/crystals` · `/audit` · `/compile` · `/conflicts` · `/maintenance` · `/health` · `/inbox` · `__root` (AppShell).
 
-**Key components:** `InboxPage` (proposed threads/procedures with confidence badges + one-click promote/reject; **compile proposals are surfaced for manual review only — no one-click promote/reject action**), `SettingsPage` (+ `EmbedderConfigCard`, `LLMConfigCard`, auto-promote card, compile card), `GraphHealthPanel`, `CompilePage` (state, confirm-before-execute run-now, prompt-only artifact action, result summary + staged inbox link), `WikiBrowsePage` (category grouping), long-list pages (`RawBrowsePage`/`ActivityFeedPage`/`SessionsPage`/`AuditPage` with cursor pagination, Phase 4.3.K), `Sidebar` (nav + status pill + inbox badge), `TopBar`.
+**Key components:** `InboxPage` (proposed threads/procedures with confidence badges + one-click promote/reject when writable; **compile proposals are surfaced for manual review only — no one-click promote/reject action**), `SettingsPage` (+ `EmbedderConfigCard`, `LLMConfigCard`, auto-promote card, compile card), `GraphHealthPanel`, `CompilePage` (state, confirm-before-execute run-now, prompt-only artifact action, result summary + staged inbox link), `WikiBrowsePage` (category grouping), long-list pages (`RawBrowsePage`/`ActivityFeedPage`/`SessionsPage`/`AuditPage` with cursor pagination, Phase 4.3.K), `Sidebar` (nav + status pill + inbox badge), `TopBar`.
 
 **Hooks (`hooks/`):** `useProposed`, `useProposedCompile`, `useCompileState`, `useUpdateConfig`, `useConfig`, `useSearch`, `useActivity`, `useGraph`, `useGraphHealth`, `useStatus`, `useHealth`, etc. **Lib:** `api.ts` (apiGet/Patch/Post + ApiError), `pagination.ts`, `nav-items.ts`.
 
@@ -369,8 +372,8 @@ dashboard:
 ## 16. Security model
 
 - **API keys env-only.** Never in config.yaml, never in API responses (`redactConfig` redacts any secret-named field at any depth), never in logs (audit log stores hashes only). `resolveVoyageApiKey` reads env only (Phase 4.3.M).
-- **Same-origin guard** on all mutating endpoints (CSRF). No auth beyond same-origin; the dashboard binds 127.0.0.1 and is exposed only via the operator's private Tailscale tailnet.
-- **Deployment threat model.** The VPS dashboard is single-operator, localhost-bound, and intended only for private Tailscale Serve exposure. There is no token auth, mTLS, or public-Internet auth boundary today; remote non-tailnet exposure is unsupported until an explicit auth layer is added.
+- **Same-origin guard** on all mutating endpoints (CSRF). No auth beyond same-origin; local write use binds 127.0.0.1.
+- **Deployment threat model.** The VPS dashboard is single-operator, localhost-bound, and intended only for private Tailscale Serve exposure. It is a read-only mirror for mutating UI/API paths because the checked-out vault has no committable `.git` work tree. There is no token auth, mTLS, or public-Internet auth boundary today; remote non-tailnet exposure is unsupported until an explicit auth layer is added.
 - **Systemd defense-in-depth.** VPS units run with `NoNewPrivileges`, private tmp, strict system protection, read-only home, restricted address families/namespaces, and narrow write paths. They currently keep `User=root` to avoid risky live ownership migration under `/root/memory-system`; a dedicated `memory` user is the follow-up path.
 - **No permanent deletions** by automation — merges rewrite references, rejects move to archive, compile is append-only. git is the backstop.
 - **LLM grounding** — every machine-proposed structural reference is verified against the real corpus before write; secrets redacted from compiled bodies.
@@ -383,9 +386,10 @@ dashboard:
 
 - **`memory install <platform>`** wires hooks + the `memory` MCP into each client's config (Claude Code plugin, Codex `config.toml`, Antigravity, VS Code, Claude Desktop).
 - **`memory install-vps`** lays out `/root/memory-system/` over SSH: `services/dashboard.mjs` (loader) + `dashboard-bundle.mjs` (the bundled server, **not** a git checkout of `src/`), `dist/dashboard-ui/` (built SPA), `env/voyage.env` (directory `0700`, files `0600`), the `memory.git` bare repo + post-receive hook, and hardened `memory-dashboard.service` / `memory-backup.service` units (port 4410). *Server-side npm deps (`openai`, `voyageai`) must be installed on the VPS — they are not bundled.*
+- **`memory dashboard`** runs the same dashboard server locally against `MEMORY_ROOT` or `~/.memory`, serves `dist/dashboard-ui`, binds `127.0.0.1:4410` by default, prints the `/memory/` URL, and opens a browser unless `--no-open`. This is the canonical write path.
 - **Backups fail closed.** `memory-backup.sh` writes a temporary tarball, verifies it is non-empty and listable with `tar -tzf`, moves it into place only after verification, then rotates old archives. `env/` is included, so backup files are sensitive and should remain permission-restricted; encryption is a future hardening option. Operators can dry-verify an archive with `/root/memory-system/services/memory-backup.sh --verify /root/memory-system/backups/<archive>.tar.gz` and monitor with `systemctl status memory-backup.timer` plus `journalctl -u memory-backup`.
 - **`memory install-tailscale-route`** adds `tailscale serve /memory → http://127.0.0.1:4410`.
-- **Deploy model:** the dashboard runs a pre-built bundle. To ship: `npm run build` + `build:ui` locally → `scp dist/dashboard/server.mjs` to `services/dashboard-bundle.mjs` + `scp` the UI dist → `systemctl restart memory-dashboard`. Vault content updates separately via git push → post-receive checkout. *(The CLI's chunked-upload path in `install-vps` has a known bash-quoting bug; scp directly.)*
+- **Deploy model:** the hosted dashboard runs a pre-built bundle as a read-only mirror. To ship: `npm run build` + `build:ui` locally → `scp dist/dashboard/server.mjs` to `services/dashboard-bundle.mjs` + `scp` the UI dist → `systemctl restart memory-dashboard`. Vault content updates separately via local commits + git push → post-receive checkout. *(The CLI's chunked-upload path in `install-vps` has a known bash-quoting bug; scp directly.)*
 
 ---
 
@@ -403,6 +407,7 @@ dashboard:
 - **Phase 4.7** — config and telemetry hardening (shipped): `js-yaml` config parsing, LLM pricing table with unknown-cost summaries, `.audit` archive rotation.
 - **Phase 4.8** — feedback-loop freshness (shipped): preference-tagged raw observations have their own session-start budget, observation blocks store `observed_at`, recent memory sorts by write-recency with mtime fallback, and BM25 lexical search includes fresh unembedded files.
 - **Phase 4.13** — dashboard run-compile executes (shipped): `/memory/compile` primary action confirms then posts `{execute:true}`, shows raw/op/reference summaries and staged inbox links, disables execute when LLM config is unavailable, and keeps prompt-only generation secondary.
+- **Phase 4.15** — local dashboard writes (shipped): `memory dashboard` serves the dashboard locally against the canonical vault; hosted detached checkouts report read-only capability, disable/refuse write actions, and do not run write schedulers.
 - **Phase 5** — deferred until evidence (advanced sniffers, eval harness).
 
 ---
