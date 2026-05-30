@@ -55,6 +55,10 @@ separate write and append for the same page.
 The executor normalizes page filename slugs and can convert a missing-page
 `append_page` into a staged create proposal, but the best response is to choose
 the correct operation up front.
+If you emit `write_page` for a path that already exists on disk, the executor
+auto-converts it into an appended dated update section. You do not need perfect
+knowledge of every existing file, but prefer `append_page` when the current wiki
+context already shows the target.
 
 ---
 

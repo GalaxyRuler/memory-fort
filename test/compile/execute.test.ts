@@ -194,6 +194,70 @@ describe("compile execute operations", () => {
       .toContain('"path": "wiki/lessons/thin.md"');
   });
 
+  it("converts write_page on an existing path into a dated append", async () => {
+    const result = await applyCompileOperations({
+      vaultRoot: tmp,
+      operations: [{
+        kind: "write_page",
+        path: "wiki/projects/memory-fort.md",
+        frontmatter: {
+          type: "projects",
+          title: "Memory Fort",
+          relations: { derived_from: ["raw/2026-05-28/a.md", "raw/2026-05-28/b.md"] },
+        },
+        body: "New compile detail for an existing page.",
+      }],
+      now: new Date("2026-05-30T12:00:00.000Z"),
+    });
+
+    expect(result.applied).toEqual(["wiki/projects/memory-fort.md"]);
+    expect(result.rejected).toEqual([]);
+    expect(result.outcomes).toContainEqual({
+      path: "wiki/projects/memory-fort.md",
+      outcome: "appended",
+      converted: "write->append: target already existed",
+      contentPreserved: true,
+    });
+    const written = await readFile(join(tmp, "wiki", "projects", "memory-fort.md"), "utf-8");
+    const parsed = parseFrontmatter(written);
+    expect(parsed.body).toContain("Memory Fort body.");
+    expect(parsed.body).toContain("## 2026-05-30 update");
+    expect(parsed.body).toContain("New compile detail for an existing page.");
+  });
+
+  it("stages low-confidence converted write_page operations instead of applying them", async () => {
+    const result = await applyCompileOperations({
+      vaultRoot: tmp,
+      operations: [{
+        kind: "write_page",
+        path: "wiki/projects/memory-fort.md",
+        frontmatter: {
+          type: "projects",
+          title: "Memory Fort",
+          relations: { derived_from: ["raw/2026-05-28/a.md"] },
+        },
+        body: "Thin existing-page update.",
+      }],
+      now: new Date("2026-05-30T12:00:00.000Z"),
+    });
+
+    expect(result.applied).toEqual([]);
+    expect(result.proposed).toEqual(["wiki/compile-proposed/memory-fort.md"]);
+    expect(result.outcomes).toContainEqual({
+      path: "wiki/projects/memory-fort.md",
+      outcome: "staged-for-review",
+      reason: "low confidence",
+      converted: "write->append: target already existed",
+      contentPreserved: true,
+    });
+    const canonical = await readFile(join(tmp, "wiki", "projects", "memory-fort.md"), "utf-8");
+    expect(canonical).not.toContain("Thin existing-page update.");
+    const proposal = await readFile(join(tmp, "wiki", "compile-proposed", "memory-fort.md"), "utf-8");
+    expect(proposal).toContain('"kind": "append_page"');
+    expect(proposal).toContain('"section": "## 2026-05-30 update');
+    expect(proposal).toContain("Thin existing-page update.");
+  });
+
   it("creates a missing normalized page from append_page and preserves the section", async () => {
     const result = await applyCompileOperations({
       vaultRoot: tmp,

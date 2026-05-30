@@ -39,6 +39,7 @@ describe("dashboard proposed draft actions", () => {
   });
 
   it("promotes a compile proposal by applying the staged operation and deleting the proposal", async () => {
+    await writeFileAt("index.md", "# Memory Index\n\n");
     await writeFileAt("wiki/compile-proposed/iaqar.md", compileProposal({
       kind: "write_page",
       path: "wiki/projects/iaqar.md",
@@ -57,9 +58,11 @@ describe("dashboard proposed draft actions", () => {
     const parsed = parseFrontmatter(written);
     expect(parsed.frontmatter.title).toBe("iAqar");
     expect(parsed.body).toContain("iAqar marketplace notes.");
+    await expect(readFile(join(tmp, "index.md"), "utf-8"))
+      .resolves.toContain("- [iAqar](wiki/projects/iaqar.md) - iAqar marketplace notes.");
     expect(commitVaultChange).toHaveBeenCalledWith({
       memoryRoot: tmp,
-      paths: ["wiki/projects/iaqar.md", "wiki/compile-proposed/iaqar.md"],
+      paths: ["wiki/projects/iaqar.md", "index.md", "wiki/compile-proposed/iaqar.md"],
       message: "promote compile proposal: iaqar",
     });
   });
