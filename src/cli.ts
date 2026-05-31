@@ -16,6 +16,7 @@ import { runInit } from "./cli/commands/init.js";
 import { runBackfill } from "./cli/commands/backfill.js";
 import { runBackfillSource } from "./cli/commands/backfill-source.js";
 import { runCompactRaw } from "./cli/commands/compact-raw.js";
+import { formatCompressResult, runCompress } from "./cli/commands/compress.js";
 import { formatCurateResult, runCurate } from "./cli/commands/curate.js";
 import { formatReindexResult, runReindex } from "./cli/commands/reindex.js";
 import { runImportAgentMemory } from "./cli/commands/import-agentmemory.js";
@@ -349,6 +350,55 @@ program
   );
 
 program
+  .command("compress")
+  .description("Compress raw sessions once into importance-scored fact bundles")
+  .option("--plan", "preview sessions that would be compressed (default)")
+  .option("--apply", "write compressed facts and advance compression watermarks")
+  .option("--drain", "keep compressing bounded batches until no uncompressed sessions remain")
+  .option("--max-sessions <n>", "max raw sessions per batch (default: 25)", parseInteger)
+  .action(async (opts: {
+    plan?: boolean;
+    apply?: boolean;
+    drain?: boolean;
+    maxSessions?: number;
+  }) => {
+    try {
+      if (opts.plan && opts.apply) {
+        throw new Error("--plan and --apply are mutually exclusive");
+      }
+      if (opts.drain && !opts.apply) {
+        throw new Error("--drain requires --apply");
+      }
+      if (!opts.drain) {
+        const result = await runCompress({
+          apply: opts.apply,
+          maxSessions: opts.maxSessions,
+        });
+        process.stdout.write(formatCompressResult(result));
+        return;
+      }
+      let totalCompressed = 0;
+      let totalFacts = 0;
+      let pass = 0;
+      while (true) {
+        pass += 1;
+        const result = await runCompress({
+          apply: true,
+          maxSessions: opts.maxSessions,
+        });
+        totalCompressed += result.summary.compressed;
+        totalFacts += result.summary.factsWritten;
+        console.error(`compress pass ${pass}: compressed ${result.summary.compressed}, skipped ${result.summary.skipped}, facts ${result.summary.factsWritten}`);
+        if (result.summary.compressed === 0) break;
+      }
+      process.stdout.write(`Memory compress drain complete\n  passes:       ${pass}\n  compressed:   ${totalCompressed}\n  facts written: ${totalFacts}\n`);
+    } catch (err) {
+      console.error(`memory compress failed: ${(err as Error).message}`);
+      process.exit(1);
+    }
+  });
+
+program
   .command("compile")
   .description("Assemble an LLM prompt from raw observations and wiki context")
   .option("--since <iso>", "ISO date/timestamp cutoff for raw files")
@@ -418,6 +468,13 @@ program
           console.error(`  operations planned: ${result.execution.planned.length}`);
           console.error(`  operations rejected: ${result.execution.rejected.length}`);
           console.error(`  pages rewritten:    ${result.execution.pagesRewritten}`);
+          console.error(`  pages updated:      ${result.execution.pagesUpdated}`);
+          console.error(`  pages unchanged:    ${result.execution.pagesUnchanged}`);
+          console.error(`  sessions scanned:   ${result.execution.sessionsScanned}`);
+          console.error(`  facts extracted:    ${result.execution.factsExtracted}`);
+          if (result.execution.extractionTokensUsed) {
+            console.error(`  extraction tokens:  ${result.execution.extractionTokensUsed.total} total (${result.execution.extractionTokensUsed.prompt} prompt, ${result.execution.extractionTokensUsed.completion} completion)`);
+          }
           if (result.execution.rewriteTokensUsed) {
             console.error(`  rewrite tokens:     ${result.execution.rewriteTokensUsed.total} total (${result.execution.rewriteTokensUsed.prompt} prompt, ${result.execution.rewriteTokensUsed.completion} completion)`);
           }
@@ -477,11 +534,15 @@ program
   .option("--apply", "apply the curated rewrite through the content-preservation guard")
   .option("--all", "plan/apply pages over the dated-section threshold")
   .option("--section-threshold <n>", "dated update section threshold for --all (default: 8)", parseInteger)
+  .option("--refresh", "re-feed raw observations for the page through novelty judgment")
+  .option("--refresh-days <n>", "raw observation lookback for --refresh (default: 14)", parseInteger)
   .action(async (page: string | undefined, opts: {
     plan?: boolean;
     apply?: boolean;
     all?: boolean;
     sectionThreshold?: number;
+    refresh?: boolean;
+    refreshDays?: number;
   }) => {
     try {
       if (opts.plan && opts.apply) {
@@ -493,6 +554,8 @@ program
         apply: opts.apply,
         plan: opts.plan,
         sectionThreshold: opts.sectionThreshold,
+        refresh: opts.refresh,
+        refreshDays: opts.refreshDays,
       });
       process.stdout.write(formatCurateResult(result));
     } catch (err) {

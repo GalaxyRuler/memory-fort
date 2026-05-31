@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -96,6 +96,125 @@ describe("runCurate", () => {
     }]);
   });
 
+  it("refresh uses stored page-scoped facts before novelty judgment and ignores raw tangents", async () => {
+    await writeFileAt("wiki/projects/memory-system.md", [
+      "---",
+      "type: projects",
+      "title: Memory System",
+      "created: 2026-05-22",
+      "updated: 2026-05-22",
+      "---",
+      "",
+      "Memory System captures raw observations.",
+      "Phase 3 retrieval is planned.",
+      "",
+    ].join("\n"));
+    await writeFileAt("raw/2026-05-31/session.md", [
+      "## [2026-05-31 10:00:00] codex | observation",
+      "",
+      "SEARCH RESULT CARD COPY SHOULD NOT ENTER THE MEMORY SYSTEM PAGE.",
+    ].join("\n"));
+    await writeFact("facts/2026-05-31/session.json", [
+      "Memory System shipped Phase 3 retrieval with BM25, vector, graph, and metadata fusion.",
+      "Memory System dashboard added manual compile execution and staged inbox links.",
+    ]);
+    const llm = fakeRefreshPipelineLLM({
+      facts: [
+        "Memory System shipped Phase 3 retrieval with BM25, vector, graph, and metadata fusion.",
+        "Memory System dashboard added manual compile execution and staged inbox links.",
+      ],
+      body: [
+        "Memory System captures raw observations.",
+        "Phase 3 retrieval shipped with BM25, vector, graph, and metadata fusion.",
+        "The dashboard added manual compile execution and staged inbox links.",
+      ].join("\n"),
+    });
+
+    const result = await runCurate({
+      vaultRoot: tmp,
+      target: "memory-system",
+      refresh: true,
+      apply: true,
+      refreshDays: 36500,
+      configLoader: async () => ({ llm: { provider: "ollama", model: "llama3.2" } }),
+      llmFactory: () => llm,
+      env: {},
+      now: new Date("2026-05-31T12:00:00.000Z"),
+    });
+
+    expect(result.pages).toEqual([{
+      path: "wiki/projects/memory-system.md",
+      outcome: "rewritten",
+      proposed: false,
+    }]);
+    expect(llm.chat).toHaveBeenCalledTimes(1);
+    const noveltyPrompt = vi.mocked(llm.chat).mock.calls[0]![0].messages.at(-1)!.content;
+    expect(noveltyPrompt).toContain("Memory System shipped Phase 3 retrieval");
+    expect(noveltyPrompt).not.toContain("SEARCH RESULT CARD COPY");
+    const written = parseFrontmatter(await readFile(join(tmp, "wiki", "projects", "memory-system.md"), "utf-8"));
+    expect(written.frontmatter.updated).toBe("2026-05-31");
+    expect(written.body).toContain("Phase 3 retrieval shipped");
+    expect(written.body).toContain("manual compile execution");
+    expect(written.body).not.toContain("SEARCH RESULT CARD COPY");
+    expect(written.body).not.toMatch(/^##\s+Refresh observations/m);
+  });
+
+  it("refresh reuses stored facts on a no-new-facts rerun", async () => {
+    await writeFileAt("wiki/projects/memory-system.md", [
+      "---",
+      "type: projects",
+      "title: Memory System",
+      "created: 2026-05-22",
+      "updated: 2026-05-22",
+      "---",
+      "",
+      "Memory System captures raw observations.",
+      "Phase 3 retrieval is planned.",
+      "",
+    ].join("\n"));
+    await writeFact("facts/2026-05-31/session.json", [
+      "Memory System shipped Phase 3 retrieval with BM25, vector, graph, and metadata fusion.",
+    ]);
+    const llm = fakeRefreshPipelineLLM({
+      facts: ["Memory System shipped Phase 3 retrieval with BM25, vector, graph, and metadata fusion."],
+      body: [
+        "Memory System captures raw observations.",
+        "Phase 3 retrieval shipped with BM25, vector, graph, and metadata fusion.",
+      ].join("\n"),
+      secondNovelty: { hasNewFacts: false, body: null },
+    });
+
+    const first = await runCurate({
+      vaultRoot: tmp,
+      target: "memory-system",
+      refresh: true,
+      apply: true,
+      refreshDays: 36500,
+      configLoader: async () => ({ llm: { provider: "ollama", model: "llama3.2" } }),
+      llmFactory: () => llm,
+      env: {},
+      now: new Date("2026-05-31T12:00:00.000Z"),
+    });
+    const second = await runCurate({
+      vaultRoot: tmp,
+      target: "memory-system",
+      refresh: true,
+      apply: true,
+      refreshDays: 36500,
+      configLoader: async () => ({ llm: { provider: "ollama", model: "llama3.2" } }),
+      llmFactory: () => llm,
+      env: {},
+      now: new Date("2026-05-31T12:01:00.000Z"),
+    });
+
+    expect(first.pages[0]?.outcome).toBe("rewritten");
+    expect(second.pages[0]?.outcome).toBe("skipped: no new content");
+    expect(llm.chat).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(llm.chat).mock.calls.filter((call) => call[0].messages[0]?.content.includes("entity fact extractor"))).toHaveLength(0);
+    const historyDir = join(tmp, "wiki", ".history", "wiki", "projects", "memory-system.md");
+    expect((await readdir(historyDir)).filter((name) => name.endsWith(".md"))).toHaveLength(1);
+  });
+
   it("reports ambiguity when a bare page slug exists in multiple categories", async () => {
     await writeFileAt("wiki/projects/iaqar.md", page("iAqar project."));
     await writeFileAt("wiki/tools/iaqar.md", page("iAqar tool."));
@@ -114,6 +233,28 @@ describe("runCurate", () => {
     const fullPath = join(tmp, ...relPath.split("/"));
     await mkdir(dirname(fullPath), { recursive: true });
     await writeFile(fullPath, content, "utf-8");
+  }
+
+  async function writeFact(relPath: string, facts: string[]): Promise<void> {
+    await writeFileAt(relPath, `${JSON.stringify({
+      version: 1,
+      sourceRawPath: "raw/2026-05-31/session.md",
+      sessionId: "session",
+      observedAt: "2026-05-31T10:00:00.000Z",
+      compressedAt: "2026-05-31T12:00:00.000Z",
+      facts: [{
+        title: "Memory System refresh facts",
+        facts,
+        narrative: facts.join(" "),
+        concepts: ["Memory System"],
+        files: [],
+        importance: 8,
+        sessionId: "session",
+        sourceRawPath: "raw/2026-05-31/session.md",
+        observedAt: "2026-05-31T10:00:00.000Z",
+        compressedAt: "2026-05-31T12:00:00.000Z",
+      }],
+    }, null, 2)}\n`);
   }
 });
 
@@ -150,5 +291,65 @@ function fakeCurateLLM(body: string): LLMProvider {
         "```",
       ].join("\n"),
     })),
+  };
+}
+
+function fakeNoveltyLLM(decision: { hasNewFacts: boolean; body: string | null }): LLMProvider {
+  return {
+    providerName: "ollama",
+    modelName: "llama3.2",
+    chat: vi.fn(async () => ({
+      model: "llama3.2",
+      finishReason: "stop",
+      rawProviderName: "ollama",
+      content: [
+        "```json",
+        JSON.stringify(decision),
+        "```",
+      ].join("\n"),
+    })),
+  };
+}
+
+function fakeRefreshPipelineLLM(opts: {
+  facts: string[];
+  body: string;
+  secondNovelty?: { hasNewFacts: boolean; body: string | null };
+}): LLMProvider {
+  let noveltyCalls = 0;
+  return {
+    providerName: "ollama",
+    modelName: "llama3.2",
+    chat: vi.fn(async (request) => {
+      const system = request.messages[0]?.content ?? "";
+      if (system.includes("entity fact extractor")) {
+        return {
+          model: "llama3.2",
+          finishReason: "stop",
+          rawProviderName: "ollama",
+          tokensUsed: { prompt: 20, completion: 8, total: 28 },
+          content: [
+            "```json",
+            JSON.stringify({ facts: opts.facts }),
+            "```",
+          ].join("\n"),
+        };
+      }
+      noveltyCalls += 1;
+      const decision = noveltyCalls === 2 && opts.secondNovelty
+        ? opts.secondNovelty
+        : { hasNewFacts: true, body: opts.body };
+      return {
+        model: "llama3.2",
+        finishReason: "stop",
+        rawProviderName: "ollama",
+        tokensUsed: { prompt: 12, completion: 6, total: 18 },
+        content: [
+          "```json",
+          JSON.stringify(decision),
+          "```",
+        ].join("\n"),
+      };
+    }),
   };
 }

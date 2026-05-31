@@ -12,6 +12,7 @@ export interface CompileStateFile {
   status?: string;
   lastRun?: unknown;
   consumed?: Record<string, CompileConsumedWatermark>;
+  compressed?: Record<string, CompileConsumedWatermark>;
   [key: string]: unknown;
 }
 
@@ -33,7 +34,15 @@ export async function writeCompileStateFile(vaultRoot: string, state: CompileSta
 }
 
 export function readConsumedMap(state: CompileStateFile): Record<string, CompileConsumedWatermark> {
-  const consumed = state.consumed;
+  return readWatermarkMap(state.consumed);
+}
+
+export function readCompressedMap(state: CompileStateFile): Record<string, CompileConsumedWatermark> {
+  return readWatermarkMap(state.compressed);
+}
+
+function readWatermarkMap(value: unknown): Record<string, CompileConsumedWatermark> {
+  const consumed = value;
   if (!consumed || typeof consumed !== "object" || Array.isArray(consumed)) return {};
   const normalized: Record<string, CompileConsumedWatermark> = {};
   for (const [path, value] of Object.entries(consumed) as Array<[string, unknown]>) {

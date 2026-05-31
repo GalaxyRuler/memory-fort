@@ -36,12 +36,15 @@ Serve the dashboard locally against the canonical writable vault (`MEMORY_ROOT` 
 ### `memory search <query> [--scope wiki|raw|crystals|all] [--k <n>] [--min-score <n>] [--no-rerank] [--json] [--vps-url <url>]`
 Query the VPS dashboard `/api/search` over Tailscale; prints ranked results with provenance. Defaults to the fast `--no-rerank` path for bounded latency; omit it to add Voyage rerank. Runs no retrieval locally.
 
+### `memory compress [--plan|--apply] [--drain] [--max-sessions <n>]`
+Compress raw sessions once into structured fact bundles under `facts/YYYY-MM-DD/<session>.json`. Each fact bundle has `title`, `facts[]`, `narrative`, `concepts[]`, `files[]`, `importance` (1-10), `sessionId`, and `observedAt`. Apply mode advances `state/compile-state.json.compressed` so already-compressed sessions are skipped; `--drain` repeats bounded batches until no uncompressed sessions remain.
+
 ### `memory compile [--since <date>] [--per-file-max-bytes <n>] [--total-max-bytes <n>] [-o|--output <path>] [--execute] [--plan] [--drain --max-passes <n>]`
 Assemble the consolidation prompt from raw observations since the last compile.
 - **Default (artifact mode):** prints the rendered prompt to stdout, or to `--output <path>` if given, for an agent to execute.
-- **`--execute`:** send the prompt to the configured LLM, parse the `compile-ops` JSON, ground references, redact secrets, and apply safe operations (high-confidence directly; low-confidence or anchor-dropping rewrites staged to `wiki/compile-proposed/`). Opt-in; needs `OPENROUTER_API_KEY`; honors `MEMORY_LLM_DISABLED`.
+- **`--execute`:** when compressed facts exist, synthesize knowledge pages from the fact store, not raw transcripts. Facts are grouped by concept, low-importance bundles are ignored, each concept uses the top importance-scored bundles, and the run is capped at the fact-consolidation LLM call limit. If no fact store exists, the legacy fenced `compile-ops` executor remains as a compatibility path.
 - **`--execute --plan`:** preview the operations without writing.
-- **Existing page state:** the rendered prompt includes current wiki page bodies within a byte budget so routine updates can use `rewrite_page` to keep pages coherent instead of stacking dated sections.
+- **Existing page state:** the rendered prompt includes current wiki page bodies within a byte budget for artifact compatibility. In fact-backed execute mode, existing durable knowledge pages are updated from pre-compressed facts only; redundant bodies are skipped and counted as unchanged.
 - **Prompt provenance:** uncustomized vault prompts are loaded template-first from the bundled `templates/prompts/` copy. A vault prompt with `# memory:custom` is treated as intentional customization. If a stale uncustomized vault prompt lacks the current template sentinel, compile warns and points to `memory sync-prompts --apply`.
 - **Rewrite safety:** `rewrite_page` archives the prior version under `wiki/.history/`; rewrites that drop salient anchors (relations, wikilinks, code identifiers, or entity names) stage for review even if the text is shorter.
 - **Index rebuild:** after a successful non-plan `--execute`, `index.md` is regenerated deterministically from canonical `wiki/` pages. The model no longer updates it directly.
@@ -54,8 +57,10 @@ Regenerate `index.md` deterministically from the canonical `wiki/` tree. Pages a
 ### `memory sync-prompts [--plan|--apply]`
 Refresh uncustomized vault prompts from bundled templates. `--plan` is the default and reports `copy`, `unchanged`, or `skip-custom`; `--apply` copies templates into `prompts/` but never overwrites files containing a `# memory:custom` marker.
 
-### `memory curate <page> [--plan|--apply]` / `memory curate --all [--plan|--apply]`
-Ask the configured LLM to consolidate a bloated wiki page into one coherent article and apply the result as a guarded `rewrite_page`. `--plan` is the default and previews without writing; `--apply` archives the prior page and applies rewrites that preserve salient anchors. Bare slugs such as `agentmemory` resolve across `wiki/<category>/<slug>.md`; ambiguous slugs list matches. `--all` targets pages over the dated-section threshold (`--section-threshold <n>`, default 8).
+### `memory curate <page> [--plan|--apply] [--refresh]` / `memory curate --all [--plan|--apply] [--refresh]`
+Ask the configured LLM to consolidate a bloated wiki page into one coherent article and apply the result as a guarded `rewrite_page`. `--plan` is the default and previews without writing; `--apply` archives the prior page and applies rewrites that preserve salient anchors. Bare slugs such as `agentmemory` resolve across `wiki/<category>/<slug>.md`; ambiguous slugs list matches. Without `--refresh`, `--all` targets pages over the dated-section threshold (`--section-threshold <n>`, default 8).
+
+`--refresh` reads matching compressed facts for the target page and runs the normal guarded rewrite path. Raw session text is not scanned or sent to the rewrite prompt. `--refresh-days <n>` controls the fact lookback window (default 14); `memory curate --all --refresh --apply` sweeps all canonical wiki pages, so use it as a one-time backfill or prefer a targeted page refresh when the stale pages are known.
 
 ### `memory compact-raw [--plan|--apply] [--max-input-bytes <n>] [--max-output-bytes <n>]`
 Shrink oversized raw `ToolUse` payloads using middle-out truncation while preserving observation headings/counts. `--plan` is the default and reports reclaimable bytes per file. `--apply` copies originals under `raw/.compact-archive/<date>/`, rewrites only changed raw files, clamps any consumed compile watermark past the new EOF, and commits the touched vault paths. Defaults match capture caps: 8192 input bytes and 8192 output bytes.

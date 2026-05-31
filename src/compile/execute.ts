@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, readFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
@@ -8,6 +9,7 @@ import { atomicWrite } from "../storage/atomic-write.js";
 import { parseFrontmatter, serializeFrontmatter, type Frontmatter } from "../storage/frontmatter.js";
 import { type PageType } from "../storage/paths.js";
 import { kebabCase, normalizeWikiPagePath } from "../storage/slug.js";
+import { extractEntityFacts } from "./fact-extract.js";
 
 export type CompileOperation =
   | {
@@ -49,6 +51,7 @@ export interface ApplyCompileOperationsOptions {
   now?: Date;
   rewriteLLM?: LLMProvider;
   rewriteMaxBytes?: number;
+  extractFacts?: boolean;
 }
 
 export interface ApplyCompileOperationsResult {
@@ -60,6 +63,11 @@ export interface ApplyCompileOperationsResult {
   referencesStripped: number;
   prosePathLeaks: number;
   pagesRewritten: number;
+  pagesUpdated: number;
+  pagesUnchanged: number;
+  factsExtracted: number;
+  sessionsScanned: number;
+  extractionTokensUsed?: LLMTokenUsage;
   rewriteTokensUsed?: LLMTokenUsage;
 }
 
@@ -170,6 +178,10 @@ export async function applyCompileOperations(
     referencesStripped: 0,
     prosePathLeaks: 0,
     pagesRewritten: 0,
+    pagesUpdated: 0,
+    pagesUnchanged: 0,
+    factsExtracted: 0,
+    sessionsScanned: 0,
   };
   const now = opts.now ?? new Date();
   const prepared = prepareCompileOperations(opts.vaultRoot, opts.operations, now);
@@ -203,6 +215,7 @@ export async function applyCompileOperations(
       now,
       llm: opts.rewriteLLM,
       maxBytes: opts.rewriteMaxBytes ?? DEFAULT_REWRITE_MAX_BYTES,
+      extractFacts: opts.extractFacts ?? false,
     });
     if (deterministicRewrite.handled) {
       result.referencesStripped += deterministicRewrite.referencesStripped;
@@ -210,13 +223,20 @@ export async function applyCompileOperations(
       if (deterministicRewrite.outcome === "rewritten") {
         result.applied.push(relPath);
         result.pagesRewritten += 1;
+        result.pagesUpdated += 1;
       } else if (deterministicRewrite.outcome === "staged-for-review") {
         result.proposed.push(deterministicRewrite.proposedPath);
       } else if (deterministicRewrite.outcome === "skipped: no new content") {
         result.applied.push(relPath);
+        result.pagesUnchanged += 1;
       }
       if (deterministicRewrite.tokensUsed) {
         result.rewriteTokensUsed = addTokenUsage(result.rewriteTokensUsed, deterministicRewrite.tokensUsed);
+      }
+      result.factsExtracted += deterministicRewrite.factsExtracted ?? 0;
+      result.sessionsScanned += deterministicRewrite.sessionsScanned ?? 0;
+      if (deterministicRewrite.extractionTokensUsed) {
+        result.extractionTokensUsed = addTokenUsage(result.extractionTokensUsed, deterministicRewrite.extractionTokensUsed);
       }
       result.outcomes.push({
         path: relPath,
@@ -311,6 +331,12 @@ export async function applyCompileOperations(
     const applied = await applyOperation(opts.vaultRoot, operationToApply, now);
     if (applied.ok) {
       result.applied.push(relPath);
+      if (applied.outcome === "rewritten") {
+        result.pagesRewritten += 1;
+        result.pagesUpdated += 1;
+      } else if (applied.outcome === "skipped: no new content") {
+        result.pagesUnchanged += 1;
+      }
       const appliedConversion = converted ?? applied.converted;
       result.outcomes.push({
         path: relPath,
@@ -642,9 +668,25 @@ export async function applyOperation(
       if (normalizeContent(parsed.body) === normalizeContent(operation.body)) {
         return { ok: true, outcome: "skipped: no new content" };
       }
-      await archivePageVersion(vaultRoot, relPath, current, now);
+      const archivedPath = await archivePageVersion(vaultRoot, relPath, current, now);
+      const previousVersion = typeof parsed.frontmatter.version === "number" && Number.isFinite(parsed.frontmatter.version)
+        ? Math.max(1, Math.floor(parsed.frontmatter.version))
+        : 1;
+      const existingSupersedes = Array.isArray(parsed.frontmatter.supersedes) ? parsed.frontmatter.supersedes : [];
       const frontmatter = normalizeFrontmatter(
-        { ...parsed.frontmatter, ...operation.frontmatter },
+        {
+          ...parsed.frontmatter,
+          ...operation.frontmatter,
+          version: previousVersion + 1,
+          supersedes: [
+            ...existingSupersedes,
+            {
+              path: archivedPath,
+              hash: sha256(current),
+              version: previousVersion,
+            },
+          ],
+        },
         operation.path,
         now,
       );
@@ -709,6 +751,7 @@ async function rewriteExistingKnowledgePageUpdate(opts: {
   now: Date;
   llm?: LLMProvider;
   maxBytes: number;
+  extractFacts: boolean;
 }): Promise<
   | { handled: false }
   | {
@@ -716,6 +759,9 @@ async function rewriteExistingKnowledgePageUpdate(opts: {
       outcome: "rewritten" | "skipped: no new content";
       reason?: string;
       tokensUsed?: LLMTokenUsage;
+      extractionTokensUsed?: LLMTokenUsage;
+      factsExtracted?: number;
+      sessionsScanned?: number;
       referencesStripped: number;
       prosePathLeaks: number;
     }
@@ -725,6 +771,9 @@ async function rewriteExistingKnowledgePageUpdate(opts: {
       reason: string;
       proposedPath: string;
       tokensUsed?: LLMTokenUsage;
+      extractionTokensUsed?: LLMTokenUsage;
+      factsExtracted?: number;
+      sessionsScanned?: number;
       referencesStripped: number;
       prosePathLeaks: number;
     }
@@ -737,19 +786,7 @@ async function rewriteExistingKnowledgePageUpdate(opts: {
   if (!existsSync(fullPath)) return { handled: false };
   if (!await pageHasProse(fullPath)) return { handled: false };
 
-  const current = await readFile(fullPath, "utf-8");
-  const parsed = parseFrontmatter(current);
-  const incoming = operationIncomingContent(opts.operation);
-  const netNew = netNewProse(parsed.body, incoming);
-  if (!netNew) {
-    return {
-      handled: true,
-      outcome: "skipped: no new content",
-      referencesStripped: 0,
-      prosePathLeaks: 0,
-    };
-  }
-
+  let incoming = operationIncomingContent(opts.operation);
   if (!opts.llm) {
     const proposedPath = await stageCompileProposal(
       opts.vaultRoot,
@@ -767,7 +804,36 @@ async function rewriteExistingKnowledgePageUpdate(opts: {
     };
   }
 
-  const prompt = buildKnowledgeRewritePrompt({
+  const current = await readFile(fullPath, "utf-8");
+  const parsed = parseFrontmatter(current);
+  let extractionTokensUsed: LLMTokenUsage | undefined;
+  let factsExtracted = 0;
+  let sessionsScanned = 0;
+  if (opts.extractFacts) {
+    const extraction = await extractEntityFacts({
+      rawText: incoming,
+      entity: typeof parsed.frontmatter.title === "string" ? parsed.frontmatter.title : target.path,
+      entityContext: target.path,
+      llm: opts.llm,
+      maxBytes: opts.maxBytes,
+    });
+    incoming = extraction.facts.map((fact) => `- ${fact}`).join("\n");
+    extractionTokensUsed = extraction.tokensUsed;
+    factsExtracted = extraction.facts.length;
+    sessionsScanned = 1;
+    if (extraction.facts.length === 0) {
+      return {
+        handled: true,
+        outcome: "skipped: no new content",
+        extractionTokensUsed,
+        factsExtracted,
+        sessionsScanned,
+        referencesStripped: 0,
+        prosePathLeaks: 0,
+      };
+    }
+  }
+  const prompt = buildKnowledgeNoveltyPrompt({
     path: target.path,
     frontmatter: parsed.frontmatter,
     currentBody: parsed.body,
@@ -781,6 +847,9 @@ async function rewriteExistingKnowledgePageUpdate(opts: {
       outcome: "staged-for-review",
       reason: prompt.reason,
       proposedPath,
+      extractionTokensUsed,
+      factsExtracted,
+      sessionsScanned,
       referencesStripped: 0,
       prosePathLeaks: 0,
     };
@@ -791,36 +860,77 @@ async function rewriteExistingKnowledgePageUpdate(opts: {
       messages: [
         {
           role: "system",
-          content: "Return only one fenced compile-op JSON block with a rewrite_page operation.",
+          content: "Return only JSON: {\"hasNewFacts\": boolean, \"body\": string|null}.",
         },
         { role: "user", content: prompt.value },
       ],
       temperature: 0.2,
     });
-    const parsedRewrite = parseRewritePageFromResponse(response.content, target.path);
-    if (!parsedRewrite.ok) {
-      const proposedPath = await stageCompileProposal(opts.vaultRoot, opts.operation, opts.now, parsedRewrite.reason);
+    const novelty = parseNoveltyDecisionResponse(response.content);
+    if (!novelty.ok) {
+      const proposedPath = await stageCompileProposal(opts.vaultRoot, opts.operation, opts.now, novelty.reason);
       return {
         handled: true,
         outcome: "staged-for-review",
-        reason: parsedRewrite.reason,
+        reason: novelty.reason,
         proposedPath,
         tokensUsed: response.tokensUsed,
+        extractionTokensUsed,
+        factsExtracted,
+        sessionsScanned,
+        referencesStripped: 0,
+        prosePathLeaks: 0,
+      };
+    }
+    if (!novelty.decision.hasNewFacts) {
+      return {
+        handled: true,
+        outcome: "skipped: no new content",
+        tokensUsed: response.tokensUsed,
+        extractionTokensUsed,
+        factsExtracted,
+        sessionsScanned,
+        referencesStripped: 0,
+        prosePathLeaks: 0,
+      };
+    }
+    if (!novelty.decision.body?.trim()) {
+      const reason = "knowledge-page novelty LLM returned no body for new facts";
+      const proposedPath = await stageCompileProposal(opts.vaultRoot, opts.operation, opts.now, reason);
+      return {
+        handled: true,
+        outcome: "staged-for-review",
+        reason,
+        proposedPath,
+        tokensUsed: response.tokensUsed,
+        extractionTokensUsed,
+        factsExtracted,
+        sessionsScanned,
+        referencesStripped: 0,
+        prosePathLeaks: 0,
+      };
+    }
+    if (!hasSubstantiveLineChange(parsed.body, novelty.decision.body)) {
+      return {
+        handled: true,
+        outcome: "skipped: no new content",
+        tokensUsed: response.tokensUsed,
+        extractionTokensUsed,
+        factsExtracted,
+        sessionsScanned,
         referencesStripped: 0,
         prosePathLeaks: 0,
       };
     }
 
     const grounded = await groundOperation(opts.vaultRoot, {
-      ...parsedRewrite.operation,
+      kind: "rewrite_page",
       path: target.path,
       frontmatter: {
         ...parsed.frontmatter,
-        ...parsedRewrite.operation.frontmatter,
-        confidence: typeof parsedRewrite.operation.frontmatter?.confidence === "number"
-          ? parsedRewrite.operation.frontmatter.confidence
-          : 0.9,
+        confidence: 0.9,
       },
+      body: novelty.decision.body,
     }, opts.now);
     const rewrite = grounded.operation;
     if (rewrite.kind !== "rewrite_page") {
@@ -836,6 +946,9 @@ async function rewriteExistingKnowledgePageUpdate(opts: {
         reason,
         proposedPath,
         tokensUsed: response.tokensUsed,
+        extractionTokensUsed,
+        factsExtracted,
+        sessionsScanned,
         referencesStripped: grounded.referencesStripped,
         prosePathLeaks: grounded.prosePathLeaks,
       };
@@ -850,6 +963,9 @@ async function rewriteExistingKnowledgePageUpdate(opts: {
         reason,
         proposedPath,
         tokensUsed: response.tokensUsed,
+        extractionTokensUsed,
+        factsExtracted,
+        sessionsScanned,
         referencesStripped: grounded.referencesStripped,
         prosePathLeaks: grounded.prosePathLeaks,
       };
@@ -858,6 +974,9 @@ async function rewriteExistingKnowledgePageUpdate(opts: {
       handled: true,
       outcome: applied.outcome === "skipped: no new content" ? "skipped: no new content" : "rewritten",
       tokensUsed: response.tokensUsed,
+      extractionTokensUsed,
+      factsExtracted,
+      sessionsScanned,
       referencesStripped: grounded.referencesStripped,
       prosePathLeaks: grounded.prosePathLeaks,
     };
@@ -869,6 +988,9 @@ async function rewriteExistingKnowledgePageUpdate(opts: {
       outcome: "staged-for-review",
       reason,
       proposedPath,
+      extractionTokensUsed,
+      factsExtracted,
+      sessionsScanned,
       referencesStripped: 0,
       prosePathLeaks: 0,
     };
@@ -879,7 +1001,7 @@ function operationIncomingContent(operation: Extract<CompileOperation, { kind: "
   return operation.kind === "write_page" ? operation.body : operation.section;
 }
 
-function buildKnowledgeRewritePrompt(opts: {
+function buildKnowledgeNoveltyPrompt(opts: {
   path: string;
   frontmatter: Record<string, unknown>;
   currentBody: string;
@@ -887,8 +1009,12 @@ function buildKnowledgeRewritePrompt(opts: {
   maxBytes: number;
 }): { ok: true; value: string } | { ok: false; reason: string } {
   const prompt = [
-    "Rewrite this existing knowledge page as one coherent article.",
-    "Preserve all substantive existing facts and integrate the new content.",
+    "Judge whether the new observations contain substantive facts not already stated on this knowledge page.",
+    "Return only JSON with this shape: {\"hasNewFacts\": boolean, \"body\": string|null}.",
+    "Set hasNewFacts true only when the observations add substantive facts not already stated on the page.",
+    "Rewording, reformatting, or restating existing facts is not new.",
+    "When hasNewFacts is true, body must be the full updated page body integrating the new facts and preserving existing substantive content.",
+    "When hasNewFacts is false, body must be null.",
     "Do not add dated update sections. Do not drop relations, wikilinks, code identifiers, or entity names.",
     `Path: ${opts.path}`,
     "",
@@ -913,28 +1039,65 @@ function buildKnowledgeRewritePrompt(opts: {
   return { ok: true, value: prompt };
 }
 
-function parseRewritePageFromResponse(
+function parseNoveltyDecisionResponse(
   content: string,
-  path: string,
-): { ok: true; operation: Extract<CompileOperation, { kind: "rewrite_page" }> } | { ok: false; reason: string } {
-  const parsed = parseCompileOperationBlock(content);
-  if (parsed.ok) {
-    if (parsed.operation.kind !== "rewrite_page") {
-      return { ok: false, reason: "knowledge-page rewrite LLM returned non-rewrite operation" };
-    }
-    return { ok: true, operation: { ...parsed.operation, path } };
+): { ok: true; decision: { hasNewFacts: boolean; body: string | null } } | { ok: false; reason: string } {
+  const json = extractJsonObject(content.trim());
+  if (!json) return { ok: false, reason: "knowledge-page novelty LLM returned no JSON decision" };
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(json);
+  } catch (error) {
+    return {
+      ok: false,
+      reason: `knowledge-page novelty JSON parse error: ${error instanceof Error ? error.message : String(error)}`,
+    };
   }
-  const body = content.trim();
-  if (!body) return { ok: false, reason: "knowledge-page rewrite LLM returned empty body" };
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    return { ok: false, reason: "knowledge-page novelty decision must be an object" };
+  }
+  const record = parsed as Record<string, unknown>;
+  if (typeof record["hasNewFacts"] !== "boolean") {
+    return { ok: false, reason: "knowledge-page novelty decision missing hasNewFacts boolean" };
+  }
+  const hasNewFacts = record["hasNewFacts"];
+  const body = record["body"];
+  if (body !== null && body !== undefined && typeof body !== "string") {
+    return { ok: false, reason: "knowledge-page novelty decision body must be string or null" };
+  }
   return {
     ok: true,
-    operation: {
-      kind: "rewrite_page",
-      path,
-      frontmatter: { confidence: 0.9 },
-      body,
+    decision: {
+      hasNewFacts,
+      body: typeof body === "string" ? body : null,
     },
   };
+}
+
+function extractJsonObject(content: string): string | null {
+  const fenced = /```(?:json)?\s*([\s\S]*?)```/m.exec(content)?.[1]?.trim();
+  if (fenced) return fenced;
+  const start = content.indexOf("{");
+  const end = content.lastIndexOf("}");
+  if (start === -1 || end <= start) return null;
+  return content.slice(start, end + 1);
+}
+
+function hasSubstantiveLineChange(previousBody: string, nextBody: string): boolean {
+  const previous = new Set(normalizedSubstantiveLines(previousBody));
+  const next = new Set(normalizedSubstantiveLines(nextBody));
+  if (previous.size !== next.size) return true;
+  for (const line of next) {
+    if (!previous.has(line)) return true;
+  }
+  return false;
+}
+
+function normalizedSubstantiveLines(body: string): string[] {
+  return body
+    .split(/\r?\n/)
+    .map((line) => line.trim().replace(/^#+\s*/, "").replace(/\s+/g, " ").toLowerCase())
+    .filter((line) => line.length > 0);
 }
 
 function addTokenUsage(left: LLMTokenUsage | undefined, right: LLMTokenUsage): LLMTokenUsage {
@@ -1103,6 +1266,10 @@ function entityAnchors(body: string): Set<string> {
 
 function normalizeAnchor(value: string): string {
   return value.replace(/\\/g, "/").replace(/^wiki\//, "").replace(/\.md$/i, "").trim().toLowerCase();
+}
+
+function sha256(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
 }
 
 async function archivePageVersion(vaultRoot: string, relPath: string, content: string, now: Date): Promise<string> {

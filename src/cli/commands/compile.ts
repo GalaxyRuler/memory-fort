@@ -8,7 +8,9 @@ import {
 } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
 import { applyCompileOperations, parseCompileOperationsBlock, type ApplyCompileOperationsResult } from "../../compile/execute.js";
+import { runFactConsolidation } from "../../compile/fact-consolidate.js";
 import { rebuildIndex, type RebuildIndexResult } from "../../compile/index.js";
+import { loadCompressedFacts } from "../../facts/store.js";
 import { chatWithAudit } from "../../llm/audit.js";
 import {
   createLLMFromConfig,
@@ -464,6 +466,13 @@ async function executeCompilePrompt(opts: CompileOptions & {
   const config = await (opts.configLoader ?? (() => loadMemoryConfig(opts.root)))();
   const llmConfig = getActiveLLMConfig(config);
   const llm = (opts.llmFactory ?? createLLMFromConfig)(llmConfig, env);
+  const compressedFacts = await loadCompressedFacts(opts.root);
+  if (!opts.plan && compressedFacts.length > 0) {
+    return await runFactConsolidation({
+      vaultRoot: opts.root,
+      llm,
+    });
+  }
   const response = await chatWithAudit({
     llm,
     vaultRoot: opts.root,
@@ -498,6 +507,10 @@ async function executeCompilePrompt(opts: CompileOptions & {
       referencesStripped: 0,
       prosePathLeaks: 0,
       pagesRewritten: 0,
+      pagesUpdated: 0,
+      pagesUnchanged: 0,
+      factsExtracted: 0,
+      sessionsScanned: 0,
     };
   }
   const applied = await applyCompileOperations({
@@ -505,6 +518,7 @@ async function executeCompilePrompt(opts: CompileOptions & {
     operations: parsed.operations,
     plan: opts.plan,
     rewriteLLM: opts.plan ? undefined : llm,
+    extractFacts: false,
   });
   return {
     mode: opts.plan ? "plan" : "execute",

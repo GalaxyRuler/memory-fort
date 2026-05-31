@@ -46,8 +46,19 @@ function CompileResultSummary({ response }: { response: CompileRunResponse }) {
         <strong className="text-text-primary">{formatNumber(summary.rawRemaining)} observations remaining</strong>
         {summary.rawRemaining > 0 ? " - run again to continue." : "."}
         {summary.pagesRewritten > 0 ? ` ${formatNumber(summary.pagesRewritten)} page${summary.pagesRewritten === 1 ? "" : "s"} rewritten.` : ""}
+        {summary.pagesUpdated > 0 ? ` ${formatNumber(summary.pagesUpdated)} page${summary.pagesUpdated === 1 ? "" : "s"} updated.` : ""}
+        {summary.pagesUnchanged > 0 ? ` ${formatNumber(summary.pagesUnchanged)} page${summary.pagesUnchanged === 1 ? "" : "s"} unchanged.` : ""}
+        {summary.sessionsScanned > 0 ? ` ${formatNumber(summary.sessionsScanned)} session${summary.sessionsScanned === 1 ? "" : "s"} scanned.` : ""}
+        {summary.factsExtracted > 0 ? ` ${formatNumber(summary.factsExtracted)} fact${summary.factsExtracted === 1 ? "" : "s"} extracted.` : ""}
         {summary.referencesStripped > 0 ? ` ${formatNumber(summary.referencesStripped)} invented references stripped.` : ""}
       </p>
+      {summary.extractionTokensUsed ? (
+        <p>
+          Extraction LLM usage:{" "}
+          <strong className="text-text-primary">{formatNumber(summary.extractionTokensUsed.total)} tokens</strong>{" "}
+          ({formatNumber(summary.extractionTokensUsed.prompt)} prompt, {formatNumber(summary.extractionTokensUsed.completion)} completion).
+        </p>
+      ) : null}
       {summary.rewriteTokensUsed ? (
         <p>
           Rewrite LLM usage:{" "}

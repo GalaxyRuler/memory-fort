@@ -35,6 +35,10 @@ export interface CompileRunResponse {
     opsStaged: number;
     opsRejected: number;
     pagesRewritten: number;
+    pagesUpdated: number;
+    pagesUnchanged: number;
+    factsExtracted: number;
+    sessionsScanned: number;
     outcomes: Array<{
       path: string;
       outcome: string;
@@ -44,6 +48,11 @@ export interface CompileRunResponse {
     }>;
     referencesStripped: number;
     rewriteTokensUsed?: {
+      prompt: number;
+      completion: number;
+      total: number;
+    };
+    extractionTokensUsed?: {
       prompt: number;
       completion: number;
       total: number;

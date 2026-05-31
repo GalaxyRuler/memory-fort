@@ -4,16 +4,19 @@ import { join, relative } from "node:path";
 import {
   applyCompileOperations,
   parseCompileOperationBlock,
+  type ApplyCompileOperationsResult,
   type CompileOperation,
   type CompileOperationOutcomeKind,
 } from "../../compile/execute.js";
+import { addTokenUsage } from "../../facts/compress.js";
+import { loadCompressedFacts, type CompressedFact } from "../../facts/store.js";
 import { chatWithAudit } from "../../llm/audit.js";
 import {
   createLLMFromConfig,
   getActiveLLMConfig,
   type LLMConfig,
 } from "../../llm/factory.js";
-import type { LLMProvider } from "../../llm/types.js";
+import type { LLMProvider, LLMTokenUsage } from "../../llm/types.js";
 import { loadMemoryConfig, type MemoryConfig } from "../../storage/config.js";
 import { parseFrontmatter } from "../../storage/frontmatter.js";
 import { memoryRoot } from "../../storage/paths.js";
@@ -25,6 +28,9 @@ export interface CurateOptions {
   plan?: boolean;
   apply?: boolean;
   sectionThreshold?: number;
+  refresh?: boolean;
+  refreshDays?: number;
+  refreshMaxBytes?: number;
   now?: Date;
   env?: NodeJS.ProcessEnv;
   configLoader?: () => Promise<MemoryConfig>;
@@ -43,16 +49,31 @@ export interface CurateResult {
 }
 
 const DEFAULT_SECTION_THRESHOLD = 8;
+const DEFAULT_REFRESH_DAYS = 14;
+const DEFAULT_REFRESH_MAX_BYTES = 60_000;
 
 export async function runCurate(opts: CurateOptions = {}): Promise<CurateResult> {
   const root = opts.vaultRoot ?? memoryRoot();
   const mode = opts.apply ? "apply" : "plan";
   const targets = opts.all
-    ? await listBloatedWikiPages(root, opts.sectionThreshold ?? DEFAULT_SECTION_THRESHOLD)
+    ? opts.refresh
+      ? await listRefreshableWikiPages(root)
+      : await listBloatedWikiPages(root, opts.sectionThreshold ?? DEFAULT_SECTION_THRESHOLD)
     : [await resolveCurateTarget(root, opts.target)];
   const pages: CuratePageResult[] = [];
 
   for (const target of targets) {
+    if (opts.refresh) {
+      const applied = await applyRefreshRewrite(root, target, opts, mode);
+      const outcome = applied.outcomes.find((item) => item.path === target);
+      pages.push({
+        path: target,
+        outcome: outcome?.outcome ?? (mode === "plan" ? "staged-for-review" : "skipped: no new content"),
+        proposed: applied.proposed.length > 0,
+      });
+      continue;
+    }
+
     const operation = await requestCuratedRewrite(root, target, opts);
     const withConfidence = {
       ...operation,
@@ -151,6 +172,181 @@ async function requestCuratedRewrite(
   };
 }
 
+async function applyRefreshRewrite(
+  root: string,
+  target: string,
+  opts: CurateOptions,
+  mode: CurateResult["mode"],
+) {
+  let llm: LLMProvider | undefined;
+  if (mode === "apply") {
+    const env = opts.env ?? process.env;
+    try {
+      const config = await (opts.configLoader ?? (() => loadMemoryConfig(root)))();
+      const llmConfig = getActiveLLMConfig(config);
+      llm = (opts.llmFactory ?? createLLMFromConfig)(llmConfig, env);
+    } catch {
+      llm = undefined;
+    }
+  }
+  if (mode === "apply" && !llm) {
+    return emptyRefreshApplyResult(target, mode, "knowledge-page refresh requires rewrite LLM", "staged-for-review");
+  }
+
+  const extracted = await collectRefreshFacts(root, target, opts, llm);
+  if (extracted.sessionsScanned === 0) {
+    return {
+      applied: [],
+      proposed: [],
+      planned: mode === "plan" ? [target] : [],
+      rejected: [],
+      outcomes: [{
+        path: target,
+        outcome: "skipped: no new content" as const,
+        reason: "no matching raw observations found",
+        contentPreserved: true,
+      }],
+      referencesStripped: 0,
+      prosePathLeaks: 0,
+      pagesRewritten: 0,
+      pagesUpdated: 0,
+      pagesUnchanged: 1,
+      factsExtracted: 0,
+      sessionsScanned: 0,
+    };
+  }
+  if (extracted.facts.length === 0) {
+    return emptyRefreshApplyResult(target, mode, "no relevant facts extracted", "skipped: no new content", {
+      sessionsScanned: extracted.sessionsScanned,
+      factsExtracted: 0,
+      extractionTokensUsed: extracted.extractionTokensUsed,
+    });
+  }
+  const applied = await applyCompileOperations({
+    vaultRoot: root,
+    operations: [{
+      kind: "append_page",
+      path: target,
+      section: [
+        "## Extracted facts",
+        "",
+        ...extracted.facts.map((fact) => `- ${fact}`),
+      ].join("\n"),
+    }],
+    plan: mode === "plan",
+    now: opts.now,
+    rewriteLLM: llm,
+  });
+  return {
+    ...applied,
+    factsExtracted: applied.factsExtracted + extracted.facts.length,
+    sessionsScanned: applied.sessionsScanned + extracted.sessionsScanned,
+    extractionTokensUsed: addTokenUsage(applied.extractionTokensUsed, extracted.extractionTokensUsed),
+  };
+}
+
+async function collectRefreshFacts(
+  root: string,
+  target: string,
+  opts: CurateOptions,
+  llm: LLMProvider | undefined,
+): Promise<{ facts: string[]; sessionsScanned: number; extractionTokensUsed?: LLMTokenUsage }> {
+  const fullPath = join(root, ...target.split("/"));
+  if (!existsSync(fullPath)) throw new Error(`memory curate: page not found: ${target}`);
+  const current = await readFile(fullPath, "utf-8");
+  const parsed = parseFrontmatter(current);
+  void llm;
+  void opts.refreshMaxBytes;
+  const lookbackMs = positiveInteger(opts.refreshDays, DEFAULT_REFRESH_DAYS) * 24 * 60 * 60 * 1000;
+  const cutoff = (opts.now ?? new Date()).getTime() - lookbackMs;
+  const needles = refreshNeedles(target, parsed.frontmatter);
+  const matching = (await loadCompressedFacts(root))
+    .filter((fact) => factObservedTimeMs(fact) >= cutoff)
+    .filter((fact) => factMatchesNeedles(fact, needles));
+  const facts = matching.flatMap((fact) => fact.facts);
+  const sessionsScanned = new Set(matching.map((fact) => fact.sessionId)).size;
+  return {
+    facts: dedupeFacts(facts),
+    sessionsScanned,
+  };
+}
+
+function emptyRefreshApplyResult(
+  target: string,
+  mode: CurateResult["mode"],
+  reason: string,
+  outcome: "skipped: no new content" | "staged-for-review",
+  metrics: Partial<Pick<ApplyCompileOperationsResult, "sessionsScanned" | "factsExtracted" | "extractionTokensUsed">> = {},
+): ApplyCompileOperationsResult {
+  return {
+    applied: [],
+    proposed: [],
+    planned: mode === "plan" ? [target] : [],
+    rejected: [],
+    outcomes: [{
+      path: target,
+      outcome,
+      reason,
+      contentPreserved: true,
+    }],
+    referencesStripped: 0,
+    prosePathLeaks: 0,
+    pagesRewritten: 0,
+    pagesUpdated: 0,
+    pagesUnchanged: outcome === "skipped: no new content" ? 1 : 0,
+    factsExtracted: metrics.factsExtracted ?? 0,
+    sessionsScanned: metrics.sessionsScanned ?? 0,
+    ...(metrics.extractionTokensUsed ? { extractionTokensUsed: metrics.extractionTokensUsed } : {}),
+  };
+}
+
+function dedupeFacts(facts: string[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const fact of facts) {
+    const key = fact.toLowerCase().replace(/\s+/g, " ").trim();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(fact);
+  }
+  return result;
+}
+
+function refreshNeedles(target: string, frontmatter: Record<string, unknown>): string[] {
+  const slug = target.split("/").pop()?.replace(/\.md$/i, "") ?? target;
+  const title = typeof frontmatter["title"] === "string" ? frontmatter["title"] : "";
+  const values = [
+    slug,
+    slug.replace(/-/g, " "),
+    title,
+  ];
+  return Array.from(new Set(
+    values
+      .map((value) => value.trim().toLowerCase())
+      .filter((value) => value.length >= 3),
+  ));
+}
+
+function positiveInteger(value: number | undefined, fallback: number): number {
+  return value !== undefined && Number.isInteger(value) && value > 0 ? value : fallback;
+}
+
+function factObservedTimeMs(fact: CompressedFact): number {
+  const parsed = Date.parse(fact.observedAt);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function factMatchesNeedles(fact: CompressedFact, needles: string[]): boolean {
+  const haystack = [
+    fact.title,
+    fact.narrative,
+    ...fact.facts,
+    ...fact.concepts,
+    ...fact.files,
+  ].join("\n").toLowerCase();
+  return needles.some((needle) => haystack.includes(needle));
+}
+
 async function resolveCurateTarget(root: string, target: string | undefined): Promise<string> {
   const normalized = normalizeTarget(target);
   const fullPath = join(root, ...normalized.split("/"));
@@ -198,6 +394,29 @@ async function findPagesBySlug(root: string, slug: string): Promise<string[]> {
   }
   await walk(wikiRoot);
   return matches.sort();
+}
+
+async function listRefreshableWikiPages(root: string): Promise<string[]> {
+  const wikiRoot = join(root, "wiki");
+  if (!existsSync(wikiRoot)) return [];
+  const pages: string[] = [];
+
+  async function walk(dir: string): Promise<void> {
+    const entries = await readdir(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = join(dir, entry.name);
+      const rel = relative(wikiRoot, fullPath).replace(/\\/g, "/");
+      if (entry.isDirectory()) {
+        if (rel.split("/").some((part) => part.startsWith(".") || part.endsWith("-proposed") || part === "archive")) continue;
+        await walk(fullPath);
+      } else if (entry.isFile() && entry.name.endsWith(".md")) {
+        pages.push(`wiki/${rel}`);
+      }
+    }
+  }
+
+  await walk(wikiRoot);
+  return pages.sort();
 }
 
 async function listBloatedWikiPages(root: string, threshold: number): Promise<string[]> {

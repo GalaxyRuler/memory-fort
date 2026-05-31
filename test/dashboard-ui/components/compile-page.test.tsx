@@ -98,6 +98,10 @@ describe("CompilePage", () => {
           opsStaged: 2,
           opsRejected: 1,
           pagesRewritten: 3,
+          pagesUpdated: 2,
+          pagesUnchanged: 5,
+          factsExtracted: 4,
+          sessionsScanned: 3,
           outcomes: [
             { path: "wiki/projects/iaqar.md", outcome: "created", contentPreserved: true },
             {
@@ -114,6 +118,7 @@ describe("CompilePage", () => {
             },
           ],
           referencesStripped: 1,
+          extractionTokensUsed: { prompt: 90, completion: 30, total: 120 },
           rewriteTokensUsed: { prompt: 100, completion: 50, total: 150 },
           outputPath: "state/scheduled-compile-prompt.md",
         },
@@ -131,6 +136,11 @@ describe("CompilePage", () => {
     expect(screen.getByText(/unknown wiki page category: unknowns/)).toBeInTheDocument();
     expect(screen.getByText(/1,038 observations remaining/i)).toBeInTheDocument();
     expect(screen.getByText(/3 pages rewritten/i)).toBeInTheDocument();
+    expect(screen.getByText(/2 pages updated/i)).toBeInTheDocument();
+    expect(screen.getByText(/5 pages unchanged/i)).toBeInTheDocument();
+    expect(screen.getByText(/3 sessions scanned/i)).toBeInTheDocument();
+    expect(screen.getByText(/4 facts extracted/i)).toBeInTheDocument();
+    expect(screen.getByText(/120 tokens/i)).toBeInTheDocument();
     expect(screen.getByText(/150 tokens/i)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Review 2 staged changes/i })).toHaveAttribute("href", "/memory/inbox");
   });
