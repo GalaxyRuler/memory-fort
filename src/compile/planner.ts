@@ -15,7 +15,7 @@ export interface SectionJob {
   required_terms: string[];
   forbidden_terms: string[];
   section_claims: PlannerSectionClaim[];
-  claim_reason?: "status_change" | "clarification" | "contradiction" | "superseded";
+  claim_reason: "status_change" | "clarification" | "contradiction" | "superseded" | null;
 }
 
 export interface PlannerOutput {
@@ -48,7 +48,7 @@ export const PLANNER_SCHEMA: Record<string, unknown> = {
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["section_id", "operation", "accepted_fact_ids", "remove_claim_ids", "required_terms", "forbidden_terms", "section_claims"],
+        required: ["section_id", "operation", "accepted_fact_ids", "remove_claim_ids", "required_terms", "forbidden_terms", "section_claims", "claim_reason"],
         properties: {
           section_id: { type: "string" },
           operation: { enum: ["replace_section_body"] },
@@ -68,7 +68,10 @@ export const PLANNER_SCHEMA: Record<string, unknown> = {
               },
             },
           },
-          claim_reason: { enum: ["status_change", "clarification", "contradiction", "superseded"] },
+          claim_reason: {
+            type: ["string", "null"],
+            enum: ["status_change", "clarification", "contradiction", "superseded", null],
+          },
         },
       },
     },
