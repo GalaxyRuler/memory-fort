@@ -30,6 +30,19 @@ fenced `compile-ops` JSON block:
       "section": "## 2026-05-28 update\n\nNew grounded facts."
     },
     {
+      "kind": "rewrite_page",
+      "path": "wiki/projects/example.md",
+      "frontmatter": {
+        "type": "projects",
+        "title": "Example",
+        "confidence": 0.9,
+        "relations": {
+          "derived_from": ["raw/2026-05-28/codex-session.md", "raw/2026-05-28/manual-session.md"]
+        }
+      },
+      "body": "Complete curated page body preserving existing facts and integrating new facts."
+    },
+    {
       "kind": "append_log",
       "line": "## [2026-05-28T12:00:00.000Z] compile | 2 raw -> 1 update, 1 new page"
     }
@@ -41,12 +54,17 @@ The executor rejects unsafe paths, strips ungrounded wiki/raw references, redact
 secret-like values, applies high-confidence operations directly, and stages
 low-confidence operations under `wiki/compile-proposed/`. The executor rebuilds
 `index.md` deterministically after successful execute runs; do not emit
-`update_index` operations.
+`update_index` operations. For `rewrite_page`, the executor archives the prior
+page under `wiki/.history/` before writing and stages rewrites that may drop
+substantive content.
 
-Use `append_page` only when the target page already appears in the current wiki
-context and the raw observations add genuinely new facts not already present in
-that page body. If the existing page already covers the observations, emit no
-page operation for that entity. Use `write_page` when creating a new page that meets the cross-session
+For an entity with an existing page, prefer `rewrite_page`: read the injected
+current page body, preserve all substantive existing content, integrate genuinely
+new facts, remove redundancy, and emit the complete coherent body. Use
+`append_page` only for genuinely time-stamped events such as a decision,
+milestone, incident, or status change that belongs in a dated section. If the
+existing page already covers the observations, emit no page operation for that
+entity. Use `write_page` when creating a new page that meets the cross-session
 threshold. Page targets must be `wiki/<category>/<lowercase-kebab-slug>.md`;
 for example, a project called `iAqar` should target `wiki/projects/iaqar.md`.
 Prefer one page operation per normalized target path; combine related new
@@ -57,8 +75,8 @@ The executor normalizes page filename slugs and can convert a missing-page
 the correct operation up front.
 If you emit `write_page` for a path that already exists on disk, the executor
 auto-converts it into an appended dated update section. You do not need perfect
-knowledge of every existing file, but prefer `append_page` when the current wiki
-context already shows the target.
+knowledge of every existing file, but prefer `rewrite_page` when the current
+wiki context already shows the target.
 
 ---
 
@@ -147,9 +165,9 @@ For each entity with an existing wiki page:
 1. Use the Existing wiki pages block as the current page state.
 2. Identify what's new in the raw observations beyond what the page already says.
 3. If there are no genuinely new facts, emit no operation for that page.
-4. If there are new facts, emit one `append_page` operation with a `## [<YYYY-MM-DD>] update` section.
-5. If new relations were observed, include only grounded relation changes in the section body; preserve existing claims.
-6. Do NOT rewrite or delete existing content. Append only.
+4. If the new facts are routine knowledge updates, emit one `rewrite_page` operation containing the complete curated body: preserve prior facts, integrate new facts, remove duplicate dated sections, and keep the page readable.
+5. If the new facts are genuine time-stamped events, emit one `append_page` operation with a `## [<YYYY-MM-DD>] update` section.
+6. If new relations were observed, include only grounded relation changes and preserve existing claims.
 
 ### Step 4 — Create new pages (only when threshold met)
 
@@ -221,7 +239,8 @@ Skipped (single-session signal, will reconsider next compile):
 - **Do not bypass the privacy filter** to keep a "useful" credential in the wiki. There's no useful credential; rotate it.
 - **Do not update `confidence:` to 1.0** without evidence. New claims start at 0.5-0.7.
 - **Do not invent relations.** If the raw observations don't establish a `uses` or `depends_on` link, don't write one.
-- **Do not rewrite existing wiki content.** Append `## [<date>] update` sections only. Preserve audit trail.
+- **Do not drop existing facts in a rewrite.** `rewrite_page` is a consolidation of existing page state plus new facts, not a replacement summary.
+- **Do not use dated update sections for routine recurring knowledge.** Use `rewrite_page` instead.
 - **Do not update `index.md` manually.** It is deterministic executor output.
 
 ---
@@ -230,7 +249,7 @@ Skipped (single-session signal, will reconsider next compile):
 
 A successful compile pass:
 - Touches a small number of files (probably 1-5 wiki pages per pass)
-- Adds new content under dated update sections, never deletes
+- Keeps hot entity pages coherent with `rewrite_page` and uses dated update sections only for real events
 - Leaves `index.md` to the deterministic rebuild step
 - Appends one line to `log.md`
 - Produces a structured summary report

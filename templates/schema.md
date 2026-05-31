@@ -664,20 +664,24 @@ Its secondary **Generate prompt only** action posts `{ execute: false }` and
 returns the scheduled prompt artifact path. Scheduled compile work is serialized
 with auto-promote proposal runs so vault-writing operations do not overlap.
 
-Autonomous compile execution accepts `write_page`, `append_page`, and
-`append_log` operation kinds. Legacy `update_index` operations are accepted as
-no-ops for compatibility; the model should not emit them. `write_page` creates a
-new canonical wiki page; `append_page` preserves an existing page and appends a
-new section only when there is new content. For wiki page targets under `wiki/<category>/<slug>.md`, the executor
+Autonomous compile execution accepts `write_page`, `rewrite_page`,
+`append_page`, and `append_log` operation kinds. Legacy `update_index`
+operations are accepted as no-ops for compatibility; the model should not emit
+them. `write_page` creates a new canonical wiki page. `rewrite_page` replaces an
+existing page body with a complete curated article that preserves substantive
+facts while removing redundancy. `append_page` preserves an existing page and
+appends a dated section only for genuinely time-stamped events. For wiki page targets under `wiki/<category>/<slug>.md`, the executor
 normalizes the slug, infers `type` from the category only for known categories
 (`projects`, `people`, `decisions`, `lessons`, `references`, `tools`, `threads`,
 `procedures`, `prospective`), rejects unknown category directories, converts a
 missing-page `append_page` into a staged create proposal, and merges multiple
-operations for the same normalized page before writing. `append_log` keeps its
-fixed `log.md` path and is not a page create operation. `memory reindex` and
-non-plan compile execute runs regenerate `index.md` from the canonical `wiki/`
-tree, grouped by page type and excluding `.audit/`, `*-proposed/`, and
-`archive/`.
+operations for the same normalized page before writing. Every rewrite archives
+the previous page under `wiki/.history/<path>/<timestamp>.md`; rewrites that
+shrink below the content-preservation threshold stage in `wiki/compile-proposed/`
+for review instead of applying directly. `append_log` keeps its fixed `log.md`
+path and is not a page create operation. `memory reindex` and non-plan compile
+execute runs regenerate `index.md` from the canonical `wiki/` tree, grouped by
+page type and excluding `.audit/`, `*-proposed/`, and `archive/`.
 
 ---
 

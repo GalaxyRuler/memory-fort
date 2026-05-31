@@ -19,6 +19,7 @@ import {
 import { compileRecentCheck } from "./compile.js";
 import { compileExecuteHealthCheck } from "./compile-execute-health.js";
 import { configValidCheck } from "./config.js";
+import { curationContentLossCheck } from "./curation-content-loss.js";
 import { dashboardStatusCheck } from "./dashboard.js";
 import { episodicRelationsCoverageCheck } from "./episodic-relations.js";
 import { freshnessStaleCheck } from "./freshness.js";
@@ -46,6 +47,7 @@ export const ALL_CHECKS: CheckDescriptor[] = [
   atomicWriteRetriesCheck,
   compileRecentCheck,
   compileExecuteHealthCheck,
+  curationContentLossCheck,
   autoPushErrorsCheck,
   uncommittedVaultCheck,
   gitRemoteCheck,

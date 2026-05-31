@@ -319,6 +319,89 @@ describe("compile execute operations", () => {
     expect(parsed.body).toContain("Only this sentence is new.");
   });
 
+  it("rewrites an existing page coherently and archives the prior version", async () => {
+    const result = await applyCompileOperations({
+      vaultRoot: tmp,
+      operations: [{
+        kind: "rewrite_page",
+        path: "wiki/projects/memory-fort.md",
+        frontmatter: {
+          type: "projects",
+          title: "Memory Fort",
+          relations: { derived_from: ["raw/2026-05-28/a.md", "raw/2026-05-28/b.md"] },
+        },
+        body: [
+          "Memory Fort body.",
+          "",
+          "Memory Fort now curates recurring observations into one coherent project article.",
+        ].join("\n"),
+      }],
+      now: new Date("2026-05-31T12:00:00.000Z"),
+    });
+
+    expect(result.applied).toEqual(["wiki/projects/memory-fort.md"]);
+    expect(result.proposed).toEqual([]);
+    expect(result.outcomes).toContainEqual({
+      path: "wiki/projects/memory-fort.md",
+      outcome: "rewritten",
+      contentPreserved: true,
+    });
+    const written = parseFrontmatter(await readFile(join(tmp, "wiki", "projects", "memory-fort.md"), "utf-8"));
+    expect(written.body).toContain("Memory Fort body.");
+    expect(written.body).toContain("one coherent project article");
+    const archived = await readFile(
+      join(tmp, "wiki", ".history", "wiki", "projects", "memory-fort.md", "2026-05-31T12-00-00-000Z.md"),
+      "utf-8",
+    );
+    expect(parseFrontmatter(archived).body).toContain("Memory Fort body.");
+  });
+
+  it("stages shrinking rewrites for review after archiving the prior version", async () => {
+    await writeFileAt("wiki/projects/memory-fort.md", page(
+      "projects",
+      "Memory Fort",
+      [
+        "Memory Fort body keeps fact alpha.",
+        "It also keeps fact beta.",
+        "It also keeps fact gamma.",
+        "It also keeps fact delta.",
+      ].join("\n"),
+    ));
+
+    const result = await applyCompileOperations({
+      vaultRoot: tmp,
+      operations: [{
+        kind: "rewrite_page",
+        path: "wiki/projects/memory-fort.md",
+        frontmatter: {
+          type: "projects",
+          title: "Memory Fort",
+          relations: { derived_from: ["raw/2026-05-28/a.md", "raw/2026-05-28/b.md"] },
+        },
+        body: "Memory Fort body keeps fact alpha.",
+      }],
+      now: new Date("2026-05-31T12:00:00.000Z"),
+    });
+
+    expect(result.applied).toEqual([]);
+    expect(result.proposed).toEqual(["wiki/compile-proposed/memory-fort.md"]);
+    expect(result.outcomes).toContainEqual({
+      path: "wiki/projects/memory-fort.md",
+      outcome: "staged-for-review",
+      reason: "rewrite shrinks page - review for content loss",
+      contentPreserved: true,
+    });
+    const canonical = parseFrontmatter(await readFile(join(tmp, "wiki", "projects", "memory-fort.md"), "utf-8"));
+    expect(canonical.body).toContain("fact delta");
+    const proposal = await readFile(join(tmp, "wiki", "compile-proposed", "memory-fort.md"), "utf-8");
+    expect(proposal).toContain('"kind": "rewrite_page"');
+    const archived = await readFile(
+      join(tmp, "wiki", ".history", "wiki", "projects", "memory-fort.md", "2026-05-31T12-00-00-000Z.md"),
+      "utf-8",
+    );
+    expect(parseFrontmatter(archived).body).toContain("fact delta");
+  });
+
   it("skips append_page sections whose content is already substantially present", async () => {
     await writeFileAt("wiki/projects/memory-fort.md", page(
       "projects",

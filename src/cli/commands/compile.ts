@@ -466,7 +466,7 @@ async function executeCompilePrompt(opts: CompileOptions & {
       messages: [
         {
           role: "system",
-          content: "Return only a fenced compile-ops JSON block describing append-only memory mutations.",
+          content: "Return only a fenced compile-ops JSON block describing grounded memory mutations. Prefer rewrite_page for existing-page knowledge consolidation.",
         },
         { role: "user", content: opts.prompt },
       ],

@@ -16,6 +16,7 @@ import { runInit } from "./cli/commands/init.js";
 import { runBackfill } from "./cli/commands/backfill.js";
 import { runBackfillSource } from "./cli/commands/backfill-source.js";
 import { runCompactRaw } from "./cli/commands/compact-raw.js";
+import { formatCurateResult, runCurate } from "./cli/commands/curate.js";
 import { formatReindexResult, runReindex } from "./cli/commands/reindex.js";
 import { runImportAgentMemory } from "./cli/commands/import-agentmemory.js";
 import { runInstall } from "./cli/commands/install.js";
@@ -441,6 +442,37 @@ program
       process.stdout.write(formatReindexResult(result, { plan: opts.plan }));
     } catch (err) {
       console.error(`memory reindex failed: ${(err as Error).message}`);
+      process.exit(1);
+    }
+  });
+
+program
+  .command("curate [page]")
+  .description("Curate-merge a bloated wiki page into one coherent article")
+  .option("--plan", "preview the rewrite operation without writing (default)")
+  .option("--apply", "apply the curated rewrite through the content-preservation guard")
+  .option("--all", "plan/apply pages over the dated-section threshold")
+  .option("--section-threshold <n>", "dated update section threshold for --all (default: 8)", parseInteger)
+  .action(async (page: string | undefined, opts: {
+    plan?: boolean;
+    apply?: boolean;
+    all?: boolean;
+    sectionThreshold?: number;
+  }) => {
+    try {
+      if (opts.plan && opts.apply) {
+        throw new Error("--plan and --apply are mutually exclusive");
+      }
+      const result = await runCurate({
+        target: page,
+        all: opts.all,
+        apply: opts.apply,
+        plan: opts.plan,
+        sectionThreshold: opts.sectionThreshold,
+      });
+      process.stdout.write(formatCurateResult(result));
+    } catch (err) {
+      console.error(`memory curate failed: ${(err as Error).message}`);
       process.exit(1);
     }
   });

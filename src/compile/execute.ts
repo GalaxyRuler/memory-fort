@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { filterWikiReferencesToExisting, stripProsePathLeaksFromText } from "../llm/proposal-grounding.js";
 import { readRelationTarget, type SerializedRelationEdge } from "../retrieval/relations.js";
@@ -19,6 +19,12 @@ export type CompileOperation =
       kind: "append_page";
       path: string;
       section: string;
+    }
+  | {
+      kind: "rewrite_page";
+      path: string;
+      frontmatter?: Record<string, unknown>;
+      body: string;
     }
   | {
       kind: "update_index";
@@ -55,6 +61,7 @@ export interface ApplyCompileOperationsResult {
 export type CompileOperationOutcomeKind =
   | "created"
   | "appended"
+  | "rewritten"
   | "index-updated"
   | "log-appended"
   | "staged-for-review"
@@ -187,6 +194,32 @@ export async function applyCompileOperations(
     const operationToApply = conversion.operation;
     const converted = conversion.converted;
 
+    const rewriteGuard = operationToApply.kind === "rewrite_page"
+      ? await guardRewriteOperation(opts.vaultRoot, operationToApply, now)
+      : { ok: true as const, shrink: false };
+    if (!rewriteGuard.ok) {
+      result.rejected.push({ path: relPath, reason: rewriteGuard.reason });
+      result.outcomes.push({
+        path: relPath,
+        outcome: "rejected",
+        reason: rewriteGuard.reason,
+        contentPreserved: false,
+      });
+      continue;
+    }
+    if (rewriteGuard.shrink) {
+      const reason = "rewrite shrinks page - review for content loss";
+      const proposedPath = await stageCompileProposal(opts.vaultRoot, operationToApply, now, reason);
+      result.proposed.push(proposedPath);
+      result.outcomes.push({
+        path: relPath,
+        outcome: "staged-for-review",
+        reason,
+        contentPreserved: true,
+      });
+      continue;
+    }
+
     // Converted writes are deduped before this point, but still respect the
     // existing confidence gate: thin updates stage for review instead of
     // becoming canonical from a single raw source.
@@ -255,7 +288,7 @@ function prepareCompileOperations(
       continue;
     }
 
-    if (operation.kind !== "write_page" && operation.kind !== "append_page") {
+    if (operation.kind !== "write_page" && operation.kind !== "append_page" && operation.kind !== "rewrite_page") {
       prepared.push({ operation });
       continue;
     }
@@ -377,6 +410,8 @@ function withPageOperationTarget(operation: CompileOperation, path: string, type
       return { ...operation, path, frontmatter: { ...operation.frontmatter, type } };
     case "append_page":
       return { ...operation, path };
+    case "rewrite_page":
+      return { ...operation, path, frontmatter: { ...operation.frontmatter, type } };
     case "update_index":
     case "append_log":
       return operation;
@@ -393,6 +428,20 @@ function mergePageOperations(
       operation: { ...existing, body: mergeBody(existing.body, incoming.section) },
       reason: "merged append_page into write_page",
       contentPreserved: true,
+    };
+  }
+  if (incoming.kind === "rewrite_page") {
+    return {
+      operation: incoming,
+      reason: `rewrite_page superseded duplicate ${existing.kind} for same target`,
+      contentPreserved: true,
+    };
+  }
+  if (existing.kind === "rewrite_page") {
+    return {
+      operation: existing,
+      reason: `skipped duplicate ${incoming.kind} for rewrite target`,
+      contentPreserved: false,
     };
   }
   if (existing.kind === "append_page" && incoming.kind === "append_page") {
@@ -436,7 +485,7 @@ async function groundOperation(
   operation: CompileOperation,
   now: Date,
 ): Promise<{ operation: CompileOperation; referencesStripped: number; prosePathLeaks: number }> {
-  if (operation.kind !== "write_page") {
+  if (operation.kind !== "write_page" && operation.kind !== "rewrite_page") {
     return { operation, referencesStripped: 0, prosePathLeaks: 0 };
   }
 
@@ -482,7 +531,7 @@ export async function applyOperation(
   now: Date = new Date(),
 ): Promise<{
   ok: true;
-  outcome: Extract<CompileOperationOutcomeKind, "created" | "appended" | "index-updated" | "log-appended" | "skipped: no new content">;
+  outcome: Extract<CompileOperationOutcomeKind, "created" | "appended" | "rewritten" | "index-updated" | "log-appended" | "skipped: no new content">;
   converted?: CompileOperationConversion;
 } | { ok: false; reason: string }> {
   const relPath = compileOperationPath(operation);
@@ -507,6 +556,22 @@ export async function applyOperation(
       }
       await appendSectionToPage(fullPath, operation.section);
       return { ok: true, outcome: "appended" };
+    }
+    case "rewrite_page": {
+      if (!existsSync(fullPath)) return { ok: false, reason: "target page does not exist" };
+      const current = await readFile(fullPath, "utf-8");
+      const parsed = parseFrontmatter(current);
+      if (normalizeContent(parsed.body) === normalizeContent(operation.body)) {
+        return { ok: true, outcome: "skipped: no new content" };
+      }
+      await archivePageVersion(vaultRoot, relPath, current, now);
+      const frontmatter = normalizeFrontmatter(
+        { ...parsed.frontmatter, ...operation.frontmatter },
+        operation.path,
+        now,
+      );
+      await atomicWrite(fullPath, serializeFrontmatter(frontmatter, `${operation.body.trim()}\n`));
+      return { ok: true, outcome: "rewritten" };
     }
     case "update_index":
       void fullPath;
@@ -553,6 +618,46 @@ async function appendSectionHasNewContent(fullPath: string, section: string): Pr
   const current = await readFile(fullPath, "utf-8");
   const parsed = parseFrontmatter(current);
   return netNewProse(parsed.body, section).length > 0;
+}
+
+async function guardRewriteOperation(
+  vaultRoot: string,
+  operation: Extract<CompileOperation, { kind: "rewrite_page" }>,
+  now: Date,
+): Promise<{ ok: true; shrink: boolean } | { ok: false; reason: string }> {
+  const relPath = compileOperationPath(operation);
+  const fullPath = join(vaultRoot, ...relPath.split("/"));
+  if (!existsSync(fullPath)) return { ok: false, reason: "target page does not exist" };
+  const current = await readFile(fullPath, "utf-8");
+  const parsed = parseFrontmatter(current);
+  if (normalizeContent(parsed.body) === normalizeContent(operation.body)) {
+    return { ok: true, shrink: false };
+  }
+  if (rewriteWouldShrink(parsed.body, operation.body)) {
+    await archivePageVersion(vaultRoot, relPath, current, now);
+    return { ok: true, shrink: true };
+  }
+  return { ok: true, shrink: false };
+}
+
+function rewriteWouldShrink(existingBody: string, nextBody: string): boolean {
+  const existingLength = substantiveLength(existingBody);
+  if (existingLength === 0) return false;
+  const nextLength = substantiveLength(nextBody);
+  return nextLength / existingLength < 0.6;
+}
+
+function substantiveLength(text: string): number {
+  return normalizeContent(stripDatedUpdateHeadings(text)).length;
+}
+
+async function archivePageVersion(vaultRoot: string, relPath: string, content: string, now: Date): Promise<string> {
+  const safeTimestamp = now.toISOString().replace(/[:.]/g, "-");
+  const historyRelPath = join("wiki", ".history", ...relPath.split("/"), `${safeTimestamp}.md`);
+  const historyFullPath = join(vaultRoot, ...historyRelPath.split(/[\\/]/));
+  await mkdir(dirname(historyFullPath), { recursive: true });
+  await atomicWrite(historyFullPath, content);
+  return historyRelPath.replace(/\\/g, "/");
 }
 
 function datedUpdateSection(body: string, now: Date): string {
@@ -702,7 +807,10 @@ async function appendText(fullPath: string, text: string): Promise<void> {
 }
 
 function hasHighConfidence(operation: CompileOperation): boolean {
-  if (operation.kind !== "write_page") return true;
+  if (operation.kind !== "write_page" && operation.kind !== "rewrite_page") return true;
+  if (operation.kind === "rewrite_page" && typeof operation.frontmatter?.confidence === "number") {
+    return Number.isFinite(operation.frontmatter.confidence) && operation.frontmatter.confidence >= 0.7;
+  }
   const relations = operation.frontmatter?.relations;
   if (typeof relations !== "object" || relations === null) return false;
   const derivedFrom = (relations as Record<string, unknown>).derived_from;
@@ -744,6 +852,16 @@ function readOperation(value: unknown): CompileOperation | null {
   if (record.kind === "append_page" && typeof record.path === "string" && typeof record.section === "string") {
     return { kind: "append_page", path: record.path, section: record.section };
   }
+  if (record.kind === "rewrite_page" && typeof record.path === "string" && typeof record.body === "string") {
+    return {
+      kind: "rewrite_page",
+      path: record.path,
+      body: record.body,
+      frontmatter: typeof record.frontmatter === "object" && record.frontmatter !== null && !Array.isArray(record.frontmatter)
+        ? record.frontmatter as Record<string, unknown>
+        : {},
+    };
+  }
   if (record.kind === "update_index" && Array.isArray(record.entries)) {
     return {
       kind: "update_index",
@@ -765,6 +883,7 @@ export function compileOperationPath(operation: CompileOperation): string {
   switch (operation.kind) {
     case "write_page":
     case "append_page":
+    case "rewrite_page":
       return operation.path;
     case "update_index":
       return operation.path ?? "index.md";
