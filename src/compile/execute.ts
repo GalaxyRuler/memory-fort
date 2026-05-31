@@ -10,6 +10,13 @@ import { parseFrontmatter, serializeFrontmatter, type Frontmatter } from "../sto
 import { type PageType } from "../storage/paths.js";
 import { kebabCase, normalizeWikiPagePath } from "../storage/slug.js";
 import { extractEntityFacts } from "./fact-extract.js";
+import { filterNoiseForPage } from "./filter-noise.js";
+import { blocksToMarkdown, parsePageIR, renderPageIRWithSectionBody } from "./parse-pageir.js";
+import { compileSectionPatch, type SectionPatch } from "./patch-compiler.js";
+import { planSectionPatches } from "./planner.js";
+import { renderSectionPatch } from "./renderer.js";
+import { validateRender } from "./validate-patch.js";
+import type { CompressedFact } from "../facts/store.js";
 
 export type CompileOperation =
   | {
@@ -28,6 +35,12 @@ export type CompileOperation =
       path: string;
       frontmatter?: Record<string, unknown>;
       body: string;
+    }
+  | {
+      kind: "section_patch";
+      path: string;
+      section_id: string;
+      patch: SectionPatch[];
     }
   | {
       kind: "update_index";
@@ -385,7 +398,7 @@ function prepareCompileOperations(
       continue;
     }
 
-    if (operation.kind !== "write_page" && operation.kind !== "append_page" && operation.kind !== "rewrite_page") {
+    if (operation.kind !== "write_page" && operation.kind !== "append_page" && operation.kind !== "rewrite_page" && operation.kind !== "section_patch") {
       prepared.push({ operation });
       continue;
     }
@@ -509,6 +522,8 @@ function withPageOperationTarget(operation: CompileOperation, path: string, type
       return { ...operation, path };
     case "rewrite_page":
       return { ...operation, path, frontmatter: { ...operation.frontmatter, type } };
+    case "section_patch":
+      return { ...operation, path };
     case "update_index":
     case "append_log":
       return operation;
@@ -638,7 +653,7 @@ export async function applyOperation(
     case "write_page": {
       if (existsSync(fullPath)) {
         if (isExistingKnowledgePagePath(relPath)) {
-          return { ok: false, reason: "knowledge-page update requires rewrite_page" };
+          return { ok: false, reason: "knowledge-page update requires section_patch" };
         }
         const section = await dedupeExistingWriteBody(fullPath, operation.body, now);
         if (!section) {
@@ -653,7 +668,7 @@ export async function applyOperation(
     case "append_page": {
       if (!existsSync(fullPath)) return { ok: false, reason: "target page does not exist" };
       if (isExistingKnowledgePagePath(relPath)) {
-        return { ok: false, reason: "knowledge-page update requires rewrite_page" };
+        return { ok: false, reason: "knowledge-page update requires section_patch" };
       }
       if (!await appendSectionHasNewContent(fullPath, operation.section)) {
         return { ok: true, outcome: "skipped: no new content" };
@@ -691,6 +706,54 @@ export async function applyOperation(
         now,
       );
       await atomicWrite(fullPath, serializeFrontmatter(frontmatter, `${operation.body.trim()}\n`));
+      return { ok: true, outcome: "rewritten" };
+    }
+    case "section_patch": {
+      if (!existsSync(fullPath)) return { ok: false, reason: "target page does not exist" };
+      const current = await readFile(fullPath, "utf-8");
+      const parsed = parseFrontmatter(current);
+      const ir = parsePageIR(current, relPath);
+      const section = ir.sections.find((candidate) => candidate.section_id === operation.section_id);
+      if (!section) return { ok: false, reason: "section_patch target section not found" };
+      const testOp = operation.patch.find((patch) => patch.op === "test");
+      if (!testOp || testOp.path !== `/sections/${operation.section_id}/body_hash`) {
+        return { ok: false, reason: "section_patch missing body_hash test" };
+      }
+      if (testOp.value !== section.body_hash) {
+        return { ok: false, reason: "section_patch body_hash mismatch" };
+      }
+      const replaceOp = operation.patch.find((patch) => patch.op === "replace");
+      if (!replaceOp || replaceOp.path !== `/sections/${operation.section_id}/body_blocks`) {
+        return { ok: false, reason: "section_patch missing body_blocks replace" };
+      }
+      const replacementBody = blocksToMarkdown(replaceOp.value);
+      if (normalizeContent(section.body_markdown) === normalizeContent(replacementBody)) {
+        return { ok: true, outcome: "skipped: no new content" };
+      }
+      const nextBody = renderPageIRWithSectionBody(current, operation.section_id, replaceOp.value);
+      if (nextBody === null) return { ok: false, reason: "section_patch target section not found" };
+      const archivedPath = await archivePageVersion(vaultRoot, relPath, current, now);
+      const previousVersion = typeof parsed.frontmatter.version === "number" && Number.isFinite(parsed.frontmatter.version)
+        ? Math.max(1, Math.floor(parsed.frontmatter.version))
+        : 1;
+      const existingSupersedes = Array.isArray(parsed.frontmatter.supersedes) ? parsed.frontmatter.supersedes : [];
+      const frontmatter = normalizeFrontmatter(
+        {
+          ...parsed.frontmatter,
+          version: previousVersion + 1,
+          supersedes: [
+            ...existingSupersedes,
+            {
+              path: archivedPath,
+              hash: sha256(current),
+              version: previousVersion,
+            },
+          ],
+        },
+        operation.path,
+        now,
+      );
+      await atomicWrite(fullPath, serializeFrontmatter(frontmatter, nextBody));
       return { ok: true, outcome: "rewritten" };
     }
     case "update_index":
@@ -833,155 +896,130 @@ async function rewriteExistingKnowledgePageUpdate(opts: {
       };
     }
   }
-  const prompt = buildKnowledgeNoveltyPrompt({
-    path: target.path,
-    frontmatter: parsed.frontmatter,
-    currentBody: parsed.body,
-    newContent: incoming,
-    maxBytes: opts.maxBytes,
-  });
-  if (!prompt.ok) {
-    const proposedPath = await stageCompileProposal(opts.vaultRoot, opts.operation, opts.now, prompt.reason);
+  try {
+    const page = parsePageIR(current, target.path);
+    const title = typeof parsed.frontmatter.title === "string" ? parsed.frontmatter.title : page.title;
+    const sourceFacts = makeSyntheticCompressedFacts(incoming, title, opts.now);
+    if (sourceFacts.length === 0) {
+      return {
+        handled: true,
+        outcome: "skipped: no new content",
+        extractionTokensUsed,
+        factsExtracted,
+        sessionsScanned,
+        referencesStripped: 0,
+        prosePathLeaks: 0,
+      };
+    }
+    const filtered = filterNoiseForPage(title, sourceFacts);
+    if (filtered.accepted.length === 0) {
+      return {
+        handled: true,
+        outcome: "skipped: no new content",
+        extractionTokensUsed,
+        factsExtracted,
+        sessionsScanned,
+        referencesStripped: 0,
+        prosePathLeaks: 0,
+      };
+    }
+    const plan = await planSectionPatches({
+      llm: opts.llm,
+      page,
+      facts: filtered.accepted,
+      droppedFacts: filtered.dropped.map((drop) => ({ fact_id: drop.fact_id, reason: drop.reason })),
+    });
+    let tokensUsed = plan.tokensUsed;
+    if (plan.output.section_jobs.length === 0) {
+      return {
+        handled: true,
+        outcome: "skipped: no new content",
+        tokensUsed,
+        extractionTokensUsed,
+        factsExtracted,
+        sessionsScanned,
+        referencesStripped: 0,
+        prosePathLeaks: 0,
+      };
+    }
+
+    let appliedAnyRewrite = false;
+    for (const job of plan.output.section_jobs) {
+      const section = page.sections.find((candidate) => candidate.section_id === job.section_id);
+      if (!section) throw new Error(`planner referenced unknown section ${job.section_id}`);
+      if (section.has_structured_blocks) {
+        const reason = `section ${section.section_id} contains structured blocks`;
+        const proposedPath = await stageCompileProposal(opts.vaultRoot, opts.operation, opts.now, reason);
+        return {
+          handled: true,
+          outcome: "staged-for-review",
+          reason,
+          proposedPath,
+          tokensUsed,
+          extractionTokensUsed,
+          factsExtracted,
+          sessionsScanned,
+          referencesStripped: 0,
+          prosePathLeaks: 0,
+        };
+      }
+      const rendered = await renderSectionPatch({
+        llm: opts.llm,
+        section,
+        job,
+        facts: filtered.accepted,
+      });
+      if (rendered.tokensUsed) tokensUsed = addTokenUsage(tokensUsed, rendered.tokensUsed);
+      validateRender(rendered.output, job, section);
+      const applied = await applyOperation(opts.vaultRoot, compileSectionPatch({
+        path: target.path,
+        page,
+        sectionId: section.section_id,
+        bodyHash: section.body_hash,
+        replacementParagraphs: rendered.output.replacement_paragraphs,
+      }), opts.now);
+      if (!applied.ok) {
+        const reason = `knowledge-page section_patch failed: ${applied.reason}`;
+        const proposedPath = await stageCompileProposal(opts.vaultRoot, opts.operation, opts.now, reason);
+        return {
+          handled: true,
+          outcome: "staged-for-review",
+          reason,
+          proposedPath,
+          tokensUsed,
+          extractionTokensUsed,
+          factsExtracted,
+          sessionsScanned,
+          referencesStripped: 0,
+          prosePathLeaks: 0,
+        };
+      }
+      if (applied.outcome === "rewritten") appliedAnyRewrite = true;
+    }
+    if (!appliedAnyRewrite) {
+      return {
+        handled: true,
+        outcome: "skipped: no new content",
+        tokensUsed,
+        extractionTokensUsed,
+        factsExtracted,
+        sessionsScanned,
+        referencesStripped: 0,
+        prosePathLeaks: 0,
+      };
+    }
     return {
       handled: true,
-      outcome: "staged-for-review",
-      reason: prompt.reason,
-      proposedPath,
+      outcome: "rewritten",
+      tokensUsed,
       extractionTokensUsed,
       factsExtracted,
       sessionsScanned,
       referencesStripped: 0,
       prosePathLeaks: 0,
     };
-  }
-
-  try {
-    const response = await opts.llm.chat({
-      messages: [
-        {
-          role: "system",
-          content: "Return only JSON: {\"hasNewFacts\": boolean, \"body\": string|null}.",
-        },
-        { role: "user", content: prompt.value },
-      ],
-      temperature: 0.2,
-    });
-    const novelty = parseNoveltyDecisionResponse(response.content);
-    if (!novelty.ok) {
-      const proposedPath = await stageCompileProposal(opts.vaultRoot, opts.operation, opts.now, novelty.reason);
-      return {
-        handled: true,
-        outcome: "staged-for-review",
-        reason: novelty.reason,
-        proposedPath,
-        tokensUsed: response.tokensUsed,
-        extractionTokensUsed,
-        factsExtracted,
-        sessionsScanned,
-        referencesStripped: 0,
-        prosePathLeaks: 0,
-      };
-    }
-    if (!novelty.decision.hasNewFacts) {
-      return {
-        handled: true,
-        outcome: "skipped: no new content",
-        tokensUsed: response.tokensUsed,
-        extractionTokensUsed,
-        factsExtracted,
-        sessionsScanned,
-        referencesStripped: 0,
-        prosePathLeaks: 0,
-      };
-    }
-    if (!novelty.decision.body?.trim()) {
-      const reason = "knowledge-page novelty LLM returned no body for new facts";
-      const proposedPath = await stageCompileProposal(opts.vaultRoot, opts.operation, opts.now, reason);
-      return {
-        handled: true,
-        outcome: "staged-for-review",
-        reason,
-        proposedPath,
-        tokensUsed: response.tokensUsed,
-        extractionTokensUsed,
-        factsExtracted,
-        sessionsScanned,
-        referencesStripped: 0,
-        prosePathLeaks: 0,
-      };
-    }
-    if (!hasSubstantiveLineChange(parsed.body, novelty.decision.body)) {
-      return {
-        handled: true,
-        outcome: "skipped: no new content",
-        tokensUsed: response.tokensUsed,
-        extractionTokensUsed,
-        factsExtracted,
-        sessionsScanned,
-        referencesStripped: 0,
-        prosePathLeaks: 0,
-      };
-    }
-
-    const grounded = await groundOperation(opts.vaultRoot, {
-      kind: "rewrite_page",
-      path: target.path,
-      frontmatter: {
-        ...parsed.frontmatter,
-        confidence: 0.9,
-      },
-      body: novelty.decision.body,
-    }, opts.now);
-    const rewrite = grounded.operation;
-    if (rewrite.kind !== "rewrite_page") {
-      throw new Error("internal rewrite grounding produced non-rewrite operation");
-    }
-    const guard = await guardRewriteOperation(opts.vaultRoot, rewrite, opts.now);
-    if (!guard.ok || guard.stage) {
-      const reason = guard.reason;
-      const proposedPath = await stageCompileProposal(opts.vaultRoot, rewrite, opts.now, reason);
-      return {
-        handled: true,
-        outcome: "staged-for-review",
-        reason,
-        proposedPath,
-        tokensUsed: response.tokensUsed,
-        extractionTokensUsed,
-        factsExtracted,
-        sessionsScanned,
-        referencesStripped: grounded.referencesStripped,
-        prosePathLeaks: grounded.prosePathLeaks,
-      };
-    }
-    const applied = await applyOperation(opts.vaultRoot, rewrite, opts.now);
-    if (!applied.ok) {
-      const reason = `knowledge-page rewrite failed: ${applied.reason}`;
-      const proposedPath = await stageCompileProposal(opts.vaultRoot, rewrite, opts.now, reason);
-      return {
-        handled: true,
-        outcome: "staged-for-review",
-        reason,
-        proposedPath,
-        tokensUsed: response.tokensUsed,
-        extractionTokensUsed,
-        factsExtracted,
-        sessionsScanned,
-        referencesStripped: grounded.referencesStripped,
-        prosePathLeaks: grounded.prosePathLeaks,
-      };
-    }
-    return {
-      handled: true,
-      outcome: applied.outcome === "skipped: no new content" ? "skipped: no new content" : "rewritten",
-      tokensUsed: response.tokensUsed,
-      extractionTokensUsed,
-      factsExtracted,
-      sessionsScanned,
-      referencesStripped: grounded.referencesStripped,
-      prosePathLeaks: grounded.prosePathLeaks,
-    };
   } catch (error) {
-    const reason = `knowledge-page rewrite failed: ${error instanceof Error ? error.message : String(error)}`;
+    const reason = `knowledge-page section_patch failed: ${error instanceof Error ? error.message : String(error)}`;
     const proposedPath = await stageCompileProposal(opts.vaultRoot, opts.operation, opts.now, reason);
     return {
       handled: true,
@@ -995,6 +1033,30 @@ async function rewriteExistingKnowledgePageUpdate(opts: {
       prosePathLeaks: 0,
     };
   }
+}
+
+function makeSyntheticCompressedFacts(incoming: string, title: string, now: Date): CompressedFact[] {
+  const observedAt = now.toISOString();
+  const text = incoming
+    .split(/\n+/)
+    .map((line) => line.replace(/^\s*[-*+]\s+/, "").trim())
+    .filter((line) => line.length > 0 && !/^#{1,6}\s+/.test(line))
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!text) return [];
+  return [{
+    title: `${title} update`,
+    facts: [text],
+    narrative: text,
+    concepts: [title],
+    files: [],
+    importance: 10,
+    sessionId: "compile-update",
+    sourceRawPath: "compile-update",
+    observedAt,
+    compressedAt: observedAt,
+  }];
 }
 
 function operationIncomingContent(operation: Extract<CompileOperation, { kind: "write_page" | "append_page" }>): string {
@@ -1483,6 +1545,16 @@ function readOperation(value: unknown): CompileOperation | null {
         : {},
     };
   }
+  if (record.kind === "section_patch" && typeof record.path === "string" && typeof record.section_id === "string" && Array.isArray(record.patch)) {
+    const patch = readSectionPatch(record.section_id, record.patch);
+    if (!patch) return null;
+    return {
+      kind: "section_patch",
+      path: record.path,
+      section_id: record.section_id,
+      patch,
+    };
+  }
   if (record.kind === "update_index" && Array.isArray(record.entries)) {
     return {
       kind: "update_index",
@@ -1500,11 +1572,43 @@ function readOperation(value: unknown): CompileOperation | null {
   return null;
 }
 
+function readSectionPatch(sectionId: string, value: unknown[]): SectionPatch[] | null {
+  const patch: SectionPatch[] = [];
+  const hashPath = `/sections/${sectionId}/body_hash` as const;
+  const blocksPath = `/sections/${sectionId}/body_blocks` as const;
+  for (const candidate of value) {
+    if (typeof candidate !== "object" || candidate === null || Array.isArray(candidate)) return null;
+    const record = candidate as Record<string, unknown>;
+    if (record.op === "test" && record.path === hashPath && typeof record.value === "string") {
+      patch.push({ op: "test", path: hashPath, value: record.value });
+      continue;
+    }
+    if (record.op === "replace" && record.path === blocksPath && Array.isArray(record.value)) {
+      const blocks = record.value.map(readSectionPatchBlock);
+      if (blocks.some((block) => block === null)) return null;
+      patch.push({ op: "replace", path: blocksPath, value: blocks as Extract<SectionPatch, { op: "replace" }>["value"] });
+      continue;
+    }
+    return null;
+  }
+  return patch;
+}
+
+function readSectionPatchBlock(value: unknown): Extract<SectionPatch, { op: "replace" }>["value"][number] | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  if (record.type === "paragraph" && typeof record.text === "string") {
+    return { type: "paragraph", text: record.text };
+  }
+  return null;
+}
+
 export function compileOperationPath(operation: CompileOperation): string {
   switch (operation.kind) {
     case "write_page":
     case "append_page":
     case "rewrite_page":
+    case "section_patch":
       return operation.path;
     case "update_index":
       return operation.path ?? "index.md";

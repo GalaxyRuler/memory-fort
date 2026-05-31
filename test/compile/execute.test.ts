@@ -1121,8 +1121,40 @@ function fakeNoveltyLLM(
     providerName: "test",
     modelName: "rewrite-test",
     async chat(request) {
-      provider.calls += 1;
       const prompt = request.messages.map((message) => message.content).join("\n");
+      if (request.jsonSchema?.name === "PlannerOutput") {
+        provider.calls += 1;
+        const decision = judge({ currentBody: "", newContent: prompt, prompt });
+        const sectionId = /section_id=([a-z0-9_]+)/.exec(prompt)?.[1] ?? "";
+        const factId = /fact_id=([a-z0-9_]+)/.exec(prompt)?.[1] ?? "";
+        return fakeLLMResponse(JSON.stringify({
+          section_jobs: decision.hasNewFacts
+            ? [{
+                section_id: sectionId,
+                operation: "replace_section_body",
+                accepted_fact_ids: [factId],
+                remove_claim_ids: [],
+                required_terms: [],
+                forbidden_terms: [],
+                section_claims: [{ claim: decision.body ?? prompt, source_fact_ids: [factId] }],
+              }]
+            : [],
+          dropped_facts: [],
+          unresolved_conflicts: [],
+        }));
+      }
+      if (request.jsonSchema?.name === "RendererOutput") {
+        const sectionId = /section_id=([a-z0-9_]+)/.exec(prompt)?.[1] ?? "";
+        const currentBody = /current_body:\n([\s\S]*?)\n\nremove_claims:/.exec(prompt)?.[1] ?? "";
+        const newContent = /accepted_facts:\n([\s\S]*?)\n\nrequired_terms:/.exec(prompt)?.[1] ?? "";
+        const decision = judge({ currentBody, newContent, prompt });
+        return fakeLLMResponse(JSON.stringify({
+          section_id: sectionId,
+          replacement_paragraphs: splitParagraphs(decision.body ?? currentBody),
+          coverage: [],
+        }));
+      }
+      provider.calls += 1;
       const currentBody = /Current page body:\n```markdown\n([\s\S]*?)\n```/.exec(prompt)?.[1] ?? "";
       const newContent = /New content to integrate:\n```markdown\n([\s\S]*?)\n```/.exec(prompt)?.[1] ?? "";
       return {
@@ -1151,9 +1183,9 @@ function fakeExtractionAndNoveltyLLM(opts: {
     providerName: "rewrite-test",
     modelName: "rewrite-test",
     async chat(request) {
-      provider.calls += 1;
       const system = request.messages[0]?.content ?? "";
       if (system.includes("entity fact extractor")) {
+        provider.calls += 1;
         return {
           model: "rewrite-test",
           rawProviderName: "rewrite-test",
@@ -1168,6 +1200,33 @@ function fakeExtractionAndNoveltyLLM(opts: {
       }
       const prompt = request.messages.at(-1)?.content ?? "";
       provider.noveltyPrompts.push(prompt);
+      if (request.jsonSchema?.name === "PlannerOutput") {
+        provider.calls += 1;
+        const sectionId = /section_id=([a-z0-9_]+)/.exec(prompt)?.[1] ?? "";
+        const factId = /fact_id=([a-z0-9_]+)/.exec(prompt)?.[1] ?? "";
+        return fakeLLMResponse(JSON.stringify({
+          section_jobs: [{
+            section_id: sectionId,
+            operation: "replace_section_body",
+            accepted_fact_ids: [factId],
+            remove_claim_ids: [],
+            required_terms: [],
+            forbidden_terms: [],
+            section_claims: [{ claim: opts.body, source_fact_ids: [factId] }],
+          }],
+          dropped_facts: [],
+          unresolved_conflicts: [],
+        }));
+      }
+      if (request.jsonSchema?.name === "RendererOutput") {
+        const sectionId = /section_id=([a-z0-9_]+)/.exec(prompt)?.[1] ?? "";
+        return fakeLLMResponse(JSON.stringify({
+          section_id: sectionId,
+          replacement_paragraphs: splitParagraphs(opts.body),
+          coverage: [],
+        }));
+      }
+      provider.calls += 1;
       return {
         model: "rewrite-test",
         rawProviderName: "rewrite-test",
@@ -1182,6 +1241,23 @@ function fakeExtractionAndNoveltyLLM(opts: {
     },
   };
   return provider;
+}
+
+function fakeLLMResponse(content: string) {
+  return {
+    model: "rewrite-test",
+    rawProviderName: "test",
+    finishReason: "stop" as const,
+    tokensUsed: { prompt: 10, completion: 5, total: 15 },
+    content,
+  };
+}
+
+function splitParagraphs(body: string): string[] {
+  return body
+    .split(/\n{2,}/)
+    .map((paragraph) => paragraph.replace(/\n+/g, " ").trim())
+    .filter(Boolean);
 }
 
 function stripMarkdownHeading(text: string): string {

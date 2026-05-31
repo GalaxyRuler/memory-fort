@@ -10,6 +10,11 @@ export interface LLMRequest {
   maxTokens?: number;
   temperature?: number;
   signal?: AbortSignal;
+  jsonSchema?: {
+    name: string;
+    schema: Record<string, unknown>;
+    strict?: boolean;
+  };
 }
 
 export type LLMFinishReason = "stop" | "length" | "filter" | "tool_calls" | "error" | "other";

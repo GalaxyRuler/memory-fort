@@ -22,6 +22,10 @@ export function createOllamaLLM(opts: OllamaLLMOptions = {}): LLMProvider {
     providerName: "ollama",
     modelName: model,
     async chat(request: LLMRequest): Promise<LLMResponse> {
+      if (request.jsonSchema) {
+        throw new LLMConfigError("structured output not supported for Ollama provider");
+      }
+
       let response: Response;
       try {
         response = await fetch(`${host}/api/chat`, {

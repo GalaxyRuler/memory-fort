@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runFactConsolidation } from "../../src/compile/fact-consolidate.js";
 import { parseFrontmatter, serializeFrontmatter } from "../../src/storage/frontmatter.js";
-import type { LLMProvider } from "../../src/llm/types.js";
+import type { LLMProvider, LLMRequest, LLMResponse } from "../../src/llm/types.js";
 
 describe("fact-first compile consolidation", () => {
   let tmp: string;
@@ -46,7 +46,7 @@ describe("fact-first compile consolidation", () => {
       observedAt: "2026-05-31T11:00:00.000Z",
       compressedAt: "2026-05-31T12:00:00.000Z",
     });
-    const llm = fakeSynthesisLLM([
+    const llm = fakeSectionPatchLLM([
       "Memory System captures raw observations.",
       "Memory System important fact 11.",
       "Memory System important fact 10.",
@@ -65,8 +65,8 @@ describe("fact-first compile consolidation", () => {
       now: new Date("2026-05-31T12:00:00.000Z"),
     });
 
-    expect(result.summary).toMatchObject({ conceptsEligible: 1, llmCalls: 1, pagesUpdated: 1, factsConsidered: 8 });
-    expect(llm.chat).toHaveBeenCalledTimes(1);
+    expect(result.summary).toMatchObject({ conceptsEligible: 1, llmCalls: 2, pagesUpdated: 1, factsConsidered: 8 });
+    expect(llm.chat).toHaveBeenCalledTimes(2);
     const prompt = vi.mocked(llm.chat).mock.calls[0]![0].messages.at(-1)!.content;
     expect(prompt).toContain("Memory System important fact 11.");
     expect(prompt).toContain("Memory System important fact 4.");
@@ -86,7 +86,7 @@ describe("fact-first compile consolidation", () => {
     await writeFact("facts/2026-05-31/b.json", fact("b", 7));
     await writeFact("facts/2026-05-31/c.json", fact("c", 6));
     const before = await readFile(join(tmp, "wiki", "projects", "memory-system.md"), "utf-8");
-    const llm = fakeSynthesisLLM("Memory System captures raw observations.");
+    const llm = fakeSectionPatchLLM("Memory System captures raw observations.");
 
     const result = await runFactConsolidation({
       vaultRoot: tmp,
@@ -139,20 +139,51 @@ function fact(sessionId: string, importance: number) {
   };
 }
 
-function fakeSynthesisLLM(body: string): LLMProvider {
+function fakeSectionPatchLLM(body: string): LLMProvider {
+  const chat = vi.fn(async (request: LLMRequest): Promise<LLMResponse> => {
+    const sectionId = /section_id=([a-z0-9_]+)/.exec(request.messages.at(-1)?.content ?? "")?.[1] ?? "";
+    if (request.jsonSchema?.name === "PlannerOutput") {
+      const factIds = [...(request.messages.at(-1)?.content ?? "").matchAll(/fact_id=([a-z0-9_]+)/g)]
+        .map((match) => match[1]!)
+        .slice(0, body === "Memory System captures raw observations." ? 0 : 8);
+      return fakeResponse(JSON.stringify({
+        section_jobs: factIds.length === 0
+          ? []
+          : [{
+              section_id: sectionId,
+              operation: "replace_section_body",
+              accepted_fact_ids: factIds,
+              remove_claim_ids: [],
+              required_terms: [],
+              forbidden_terms: ["SEARCH RESULT CARD COPY"],
+              section_claims: factIds.map((factId) => ({ claim: factId, source_fact_ids: [factId] })),
+            }],
+        dropped_facts: [],
+        unresolved_conflicts: [],
+      }));
+    }
+    if (request.jsonSchema?.name === "RendererOutput") {
+      return fakeResponse(JSON.stringify({
+        section_id: sectionId,
+        replacement_paragraphs: [body],
+        coverage: [],
+      }));
+    }
+    throw new Error(`unexpected schema ${request.jsonSchema?.name ?? "none"}`);
+  });
   return {
-    providerName: "ollama",
-    modelName: "llama3.2",
-    chat: vi.fn(async () => ({
-      model: "llama3.2",
-      finishReason: "stop",
-      rawProviderName: "ollama",
-      tokensUsed: { prompt: 30, completion: 12, total: 42 },
-      content: [
-        "```json",
-        JSON.stringify({ body }),
-        "```",
-      ].join("\n"),
-    })),
+    providerName: "openrouter",
+    modelName: "test",
+    chat,
+  };
+}
+
+function fakeResponse(content: string): LLMResponse {
+  return {
+    model: "test",
+    finishReason: "stop",
+    rawProviderName: "test",
+    tokensUsed: { prompt: 30, completion: 12, total: 42 },
+    content,
   };
 }

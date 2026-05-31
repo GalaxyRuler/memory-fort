@@ -1,12 +1,18 @@
 import { existsSync } from "node:fs";
-import { readFile, readdir } from "node:fs/promises";
-import { basename, join, relative } from "node:path";
+import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { basename, dirname, join, relative } from "node:path";
 import type { LLMProvider, LLMTokenUsage } from "../llm/types.js";
 import { parseFrontmatter } from "../storage/frontmatter.js";
 import { kebabCase } from "../storage/slug.js";
 import { loadCompressedFacts, type CompressedFact } from "../facts/store.js";
 import { addTokenUsage } from "../facts/compress.js";
 import { applyCompileOperations, type CompileOperationOutcome } from "./execute.js";
+import { filterNoiseForPage } from "./filter-noise.js";
+import { compileSectionPatch } from "./patch-compiler.js";
+import { parsePageIR } from "./parse-pageir.js";
+import { planSectionPatches } from "./planner.js";
+import { renderSectionPatch } from "./renderer.js";
+import { validateRender } from "./validate-patch.js";
 
 export interface FactConsolidationOptions {
   vaultRoot: string;
@@ -84,39 +90,70 @@ export async function runFactConsolidation(opts: FactConsolidationOptions): Prom
       .sort((a, b) => b.importance - a.importance || a.observedAt.localeCompare(b.observedAt))
       .slice(0, topK);
     factsConsidered += selectedFacts.length;
-    const prompt = buildSynthesisPrompt(candidate.page, selectedFacts);
-    const response = await chatWithTimeout(opts.llm, prompt, timeoutMs);
+    const page = parsePageIR(await readFile(join(opts.vaultRoot, ...candidate.page.relPath.split("/")), "utf-8"), candidate.page.relPath);
+    const filtered = filterNoiseForPage(page.title, selectedFacts);
+    if (filtered.accepted.length === 0) {
+      pagesUnchanged += 1;
+      continue;
+    }
+    const plan = await planSectionPatches({
+      llm: opts.llm,
+      page,
+      facts: filtered.accepted,
+      droppedFacts: filtered.dropped.map((drop) => ({ fact_id: drop.fact_id, reason: drop.reason })),
+      timeoutMs,
+    });
     llmCalls += 1;
-    rewriteTokensUsed = addTokenUsage(rewriteTokensUsed, response.tokensUsed);
-    const body = parseSynthesisBody(response.content);
-    if (!body) {
-      rejected.push({ path: candidate.page.relPath, reason: "fact synthesis returned no JSON body" });
-      outcomes.push({
-        path: candidate.page.relPath,
-        outcome: "rejected",
-        reason: "fact synthesis returned no JSON body",
-        contentPreserved: false,
+    rewriteTokensUsed = addTokenUsage(rewriteTokensUsed, plan.tokensUsed);
+
+    const operations = [];
+    for (const job of plan.output.section_jobs) {
+      const section = page.sections.find((candidateSection) => candidateSection.section_id === job.section_id);
+      if (!section) {
+        rejected.push({ path: candidate.page.relPath, reason: `planner referenced unknown section ${job.section_id}` });
+        continue;
+      }
+      if (section.has_structured_blocks) {
+        proposed.push(await stageSectionReviewPacket(opts.vaultRoot, candidate.page.relPath, section.section_id, {
+          reason: "section contains structured blocks",
+          section,
+          job,
+          accepted_facts: filtered.accepted.filter((fact) => job.accepted_fact_ids.includes(fact.fact_id)),
+        }));
+        outcomes.push({
+          path: candidate.page.relPath,
+          outcome: "staged-for-review",
+          reason: `section ${section.section_id} contains structured blocks`,
+          contentPreserved: true,
+        });
+        continue;
+      }
+      const rendered = await renderSectionPatch({
+        llm: opts.llm,
+        section,
+        job,
+        facts: filtered.accepted,
+        timeoutMs,
       });
+      llmCalls += 1;
+      rewriteTokensUsed = addTokenUsage(rewriteTokensUsed, rendered.tokensUsed);
+      validateRender(rendered.output, job, section);
+      operations.push(compileSectionPatch({
+        path: candidate.page.relPath,
+        page,
+        sectionId: section.section_id,
+        bodyHash: section.body_hash,
+        replacementParagraphs: rendered.output.replacement_paragraphs,
+      }));
+    }
+    if (operations.length === 0) {
+      pagesUnchanged += 1;
       continue;
     }
     const result = await applyCompileOperations({
       vaultRoot: opts.vaultRoot,
       now: opts.now,
-      operations: [{
-        kind: "rewrite_page",
-        path: candidate.page.relPath,
-        frontmatter: {
-          ...candidate.page.frontmatter,
-          confidence: 0.9,
-          relations: {
-            ...(typeof candidate.page.frontmatter.relations === "object" && candidate.page.frontmatter.relations !== null
-              ? candidate.page.frontmatter.relations as Record<string, unknown>
-              : {}),
-            derived_from: Array.from(new Set(selectedFacts.map((fact) => fact.sourceRawPath))),
-          },
-        },
-        body,
-      }],
+      operations,
     });
     applied.push(...result.applied);
     proposed.push(...result.proposed);
@@ -217,6 +254,19 @@ function normalizeConcept(value: string): string {
 
 function bestImportance(facts: CompressedFact[]): number {
   return Math.max(...facts.map((fact) => fact.importance));
+}
+
+async function stageSectionReviewPacket(
+  vaultRoot: string,
+  pageRelPath: string,
+  sectionId: string,
+  packet: unknown,
+): Promise<string> {
+  const relPath = `wiki/.staged/${pageRelPath.replace(/^wiki\//, "").replace(/[\/\\]/g, "__")}.${sectionId}.json`;
+  const fullPath = join(vaultRoot, ...relPath.split("/"));
+  await mkdir(dirname(fullPath), { recursive: true });
+  await writeFile(fullPath, `${JSON.stringify(packet, null, 2)}\n`);
+  return relPath;
 }
 
 function buildSynthesisPrompt(page: KnowledgePage, facts: CompressedFact[]): string {

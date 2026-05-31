@@ -147,7 +147,7 @@ describe("runCurate", () => {
       outcome: "rewritten",
       proposed: false,
     }]);
-    expect(llm.chat).toHaveBeenCalledTimes(1);
+    expect(llm.chat).toHaveBeenCalledTimes(2);
     const noveltyPrompt = vi.mocked(llm.chat).mock.calls[0]![0].messages.at(-1)!.content;
     expect(noveltyPrompt).toContain("Memory System shipped Phase 3 retrieval");
     expect(noveltyPrompt).not.toContain("SEARCH RESULT CARD COPY");
@@ -209,7 +209,7 @@ describe("runCurate", () => {
 
     expect(first.pages[0]?.outcome).toBe("rewritten");
     expect(second.pages[0]?.outcome).toBe("skipped: no new content");
-    expect(llm.chat).toHaveBeenCalledTimes(2);
+    expect(llm.chat).toHaveBeenCalledTimes(3);
     expect(vi.mocked(llm.chat).mock.calls.filter((call) => call[0].messages[0]?.content.includes("entity fact extractor"))).toHaveLength(0);
     const historyDir = join(tmp, "wiki", ".history", "wiki", "projects", "memory-system.md");
     expect((await readdir(historyDir)).filter((name) => name.endsWith(".md"))).toHaveLength(1);
@@ -335,10 +335,50 @@ function fakeRefreshPipelineLLM(opts: {
           ].join("\n"),
         };
       }
+      const prompt = request.messages.at(-1)?.content ?? "";
+      if (request.jsonSchema?.name === "RendererOutput") {
+        const sectionId = /section_id=([a-z0-9_]+)/.exec(prompt)?.[1] ?? "";
+        return {
+          model: "llama3.2",
+          finishReason: "stop",
+          rawProviderName: "ollama",
+          tokensUsed: { prompt: 12, completion: 6, total: 18 },
+          content: JSON.stringify({
+            section_id: sectionId,
+            replacement_paragraphs: opts.body.split(/\n+/).map((line) => line.trim()).filter(Boolean),
+            coverage: [],
+          }),
+        };
+      }
       noveltyCalls += 1;
       const decision = noveltyCalls === 2 && opts.secondNovelty
         ? opts.secondNovelty
         : { hasNewFacts: true, body: opts.body };
+      if (request.jsonSchema?.name === "PlannerOutput") {
+        const sectionId = /section_id=([a-z0-9_]+)/.exec(prompt)?.[1] ?? "";
+        const factId = /fact_id=([a-z0-9_]+)/.exec(prompt)?.[1] ?? "";
+        return {
+          model: "llama3.2",
+          finishReason: "stop",
+          rawProviderName: "ollama",
+          tokensUsed: { prompt: 12, completion: 6, total: 18 },
+          content: JSON.stringify({
+            section_jobs: decision.hasNewFacts
+              ? [{
+                  section_id: sectionId,
+                  operation: "replace_section_body",
+                  accepted_fact_ids: [factId],
+                  remove_claim_ids: [],
+                  required_terms: [],
+                  forbidden_terms: [],
+                  section_claims: [{ claim: decision.body ?? "", source_fact_ids: [factId] }],
+                }]
+              : [],
+            dropped_facts: [],
+            unresolved_conflicts: [],
+          }),
+        };
+      }
       return {
         model: "llama3.2",
         finishReason: "stop",

@@ -11,7 +11,7 @@
   },
   "license": "SEE LICENSE IN LICENSE",
   "scripts": {
-    "build": "node --max-old-space-size=8192 ./node_modules/tsdown/dist/run.mjs",
+    "build": "node scripts/check-prompt-drift.mjs && node --max-old-space-size=8192 ./node_modules/tsdown/dist/run.mjs",
     "build:ui": "vite build",
     "build:all": "npm run build && npm run build:ui",
     "typecheck": "tsc --noEmit",
@@ -42,7 +42,9 @@
     "react-dom": "^19.2.6",
     "react-markdown": "^9.1.0",
     "remark-gfm": "^4.0.1",
+    "remark-parse": "^11.0.0",
     "tailwind-merge": "^3.6.0",
+    "unified": "^11.0.5",
     "voyageai": "~0.2.1"
   },
   "devDependencies": {
