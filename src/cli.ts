@@ -54,6 +54,7 @@ import { runSearch } from "./cli/commands/search.js";
 import { runStats, formatStatsResult } from "./cli/commands/stats.js";
 import { runSync, formatSyncSuccess } from "./cli/commands/sync.js";
 import { runSyncBootstrap } from "./cli/commands/sync-bootstrap.js";
+import { formatSyncPromptsResult, runSyncPrompts } from "./cli/commands/sync-prompts.js";
 import { runTailErrors } from "./cli/commands/tail-errors.js";
 import { registerProcedureCommand } from "./cli/commands/procedure.js";
 import { registerThreadCommand } from "./cli/commands/thread.js";
@@ -246,6 +247,25 @@ program
       process.stderr.write(formatSyncSuccess(result, opts.remoteName ?? "vps", opts.branch ?? "main"));
     } catch (err) {
       handleSyncCliError("sync", err);
+    }
+  });
+
+program
+  .command("sync-prompts")
+  .description("Refresh uncustomized vault prompts from bundled templates")
+  .option("--plan", "preview prompt files that would be copied (default)")
+  .option("--apply", "copy bundled templates over uncustomized vault prompts")
+  .action(async (opts: { plan?: boolean; apply?: boolean }) => {
+    if (opts.plan && opts.apply) {
+      console.error("memory sync-prompts: choose at most one of --plan or --apply");
+      process.exit(2);
+    }
+    try {
+      const result = await runSyncPrompts({ apply: opts.apply, plan: opts.plan });
+      process.stdout.write(formatSyncPromptsResult(result));
+    } catch (err) {
+      console.error(`memory sync-prompts failed: ${(err as Error).message}`);
+      process.exit(1);
     }
   });
 

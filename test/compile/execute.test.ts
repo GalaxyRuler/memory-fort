@@ -194,7 +194,7 @@ describe("compile execute operations", () => {
       .toContain('"path": "wiki/lessons/thin.md"');
   });
 
-  it("converts write_page on an existing path into a dated append", async () => {
+  it("stages write_page on an existing prose page instead of converting it into an append", async () => {
     const result = await applyCompileOperations({
       vaultRoot: tmp,
       operations: [{
@@ -210,22 +210,22 @@ describe("compile execute operations", () => {
       now: new Date("2026-05-30T12:00:00.000Z"),
     });
 
-    expect(result.applied).toEqual(["wiki/projects/memory-fort.md"]);
+    expect(result.applied).toEqual([]);
+    expect(result.proposed).toEqual(["wiki/compile-proposed/memory-fort.md"]);
     expect(result.rejected).toEqual([]);
     expect(result.outcomes).toContainEqual({
       path: "wiki/projects/memory-fort.md",
-      outcome: "appended",
-      converted: "write->append: target already existed",
+      outcome: "staged-for-review",
+      reason: "use rewrite_page for existing pages",
       contentPreserved: true,
     });
     const written = await readFile(join(tmp, "wiki", "projects", "memory-fort.md"), "utf-8");
     const parsed = parseFrontmatter(written);
     expect(parsed.body).toContain("Memory Fort body.");
-    expect(parsed.body).toContain("## 2026-05-30 update");
-    expect(parsed.body).toContain("New compile detail for an existing page.");
+    expect(parsed.body).not.toContain("New compile detail for an existing page.");
   });
 
-  it("stages low-confidence converted write_page operations instead of applying them", async () => {
+  it("stages low-confidence write_page operations on existing prose pages with rewrite steering", async () => {
     const result = await applyCompileOperations({
       vaultRoot: tmp,
       operations: [{
@@ -246,15 +246,13 @@ describe("compile execute operations", () => {
     expect(result.outcomes).toContainEqual({
       path: "wiki/projects/memory-fort.md",
       outcome: "staged-for-review",
-      reason: "low confidence",
-      converted: "write->append: target already existed",
+      reason: "use rewrite_page for existing pages",
       contentPreserved: true,
     });
     const canonical = await readFile(join(tmp, "wiki", "projects", "memory-fort.md"), "utf-8");
     expect(canonical).not.toContain("Thin existing-page update.");
     const proposal = await readFile(join(tmp, "wiki", "compile-proposed", "memory-fort.md"), "utf-8");
-    expect(proposal).toContain('"kind": "append_page"');
-    expect(proposal).toContain('"section": "## 2026-05-30 update');
+    expect(proposal).toContain('"kind": "write_page"');
     expect(proposal).toContain("Thin existing-page update.");
   });
 
@@ -289,7 +287,7 @@ describe("compile execute operations", () => {
       .resolves.toBe(before);
   });
 
-  it("converted write_page strips existing prose and nested dated headings before appending", async () => {
+  it("stages existing-page write_page operations that would otherwise become nested appends", async () => {
     const result = await applyCompileOperations({
       vaultRoot: tmp,
       operations: [{
@@ -311,12 +309,12 @@ describe("compile execute operations", () => {
       now: new Date("2026-05-30T12:00:00.000Z"),
     });
 
-    expect(result.applied).toEqual(["wiki/projects/memory-fort.md"]);
+    expect(result.applied).toEqual([]);
+    expect(result.proposed).toEqual(["wiki/compile-proposed/memory-fort.md"]);
     const written = await readFile(join(tmp, "wiki", "projects", "memory-fort.md"), "utf-8");
     const parsed = parseFrontmatter(written);
     expect(parsed.body.match(/Memory Fort body\./g)).toHaveLength(1);
-    expect(parsed.body.match(/## 2026-05-30 update/g)).toHaveLength(1);
-    expect(parsed.body).toContain("Only this sentence is new.");
+    expect(parsed.body).not.toContain("Only this sentence is new.");
   });
 
   it("rewrites an existing page coherently and archives the prior version", async () => {
@@ -356,7 +354,7 @@ describe("compile execute operations", () => {
     expect(parseFrontmatter(archived).body).toContain("Memory Fort body.");
   });
 
-  it("stages shrinking rewrites for review after archiving the prior version", async () => {
+  it("applies shrinking rewrites when salient fact anchors are preserved", async () => {
     await writeFileAt("wiki/projects/memory-fort.md", page(
       "projects",
       "Memory Fort",
@@ -383,23 +381,201 @@ describe("compile execute operations", () => {
       now: new Date("2026-05-31T12:00:00.000Z"),
     });
 
-    expect(result.applied).toEqual([]);
-    expect(result.proposed).toEqual(["wiki/compile-proposed/memory-fort.md"]);
+    expect(result.applied).toEqual(["wiki/projects/memory-fort.md"]);
+    expect(result.proposed).toEqual([]);
     expect(result.outcomes).toContainEqual({
       path: "wiki/projects/memory-fort.md",
-      outcome: "staged-for-review",
-      reason: "rewrite shrinks page - review for content loss",
+      outcome: "rewritten",
       contentPreserved: true,
     });
     const canonical = parseFrontmatter(await readFile(join(tmp, "wiki", "projects", "memory-fort.md"), "utf-8"));
-    expect(canonical.body).toContain("fact delta");
-    const proposal = await readFile(join(tmp, "wiki", "compile-proposed", "memory-fort.md"), "utf-8");
-    expect(proposal).toContain('"kind": "rewrite_page"');
+    expect(canonical.body).toContain("fact alpha");
+    expect(canonical.body).not.toContain("fact delta");
     const archived = await readFile(
       join(tmp, "wiki", ".history", "wiki", "projects", "memory-fort.md", "2026-05-31T12-00-00-000Z.md"),
       "utf-8",
     );
     expect(parseFrontmatter(archived).body).toContain("fact delta");
+  });
+
+  it("applies a shorter rewrite when salient relation and link anchors are preserved", async () => {
+    await writeFileAt("wiki/projects/memory-fort.md", page(
+      "projects",
+      "Memory Fort",
+      [
+        "Memory Fort integrates with [[tools/codex]] and stores durable memory for Codex Desktop.",
+        "",
+        "## 2026-05-30 update",
+        "",
+        "Memory Fort integrates with [[tools/codex]]. Codex Desktop uses Memory Fort.",
+        "",
+        "## 2026-05-31 update",
+        "",
+        "Memory Fort integrates with [[tools/codex]]. Codex Desktop uses Memory Fort.",
+      ].join("\n"),
+    ));
+    await writeFileAt("wiki/tools/codex.md", page("tools", "Codex", "Codex Desktop."));
+
+    const result = await applyCompileOperations({
+      vaultRoot: tmp,
+      now: new Date("2026-05-31T12:00:00.000Z"),
+      operations: [{
+        kind: "rewrite_page",
+        path: "wiki/projects/memory-fort.md",
+        frontmatter: {
+          confidence: 0.9,
+          relations: { uses: ["wiki/tools/codex.md"] },
+        },
+        body: "Memory Fort integrates with [[tools/codex]] and stores durable memory for Codex Desktop.",
+      }],
+    });
+
+    expect(result.outcomes).toContainEqual({
+      path: "wiki/projects/memory-fort.md",
+      outcome: "rewritten",
+      contentPreserved: true,
+    });
+    expect(result.proposed).toEqual([]);
+    expect(await readFile(join(tmp, "wiki", "projects", "memory-fort.md"), "utf-8"))
+      .toContain("Memory Fort integrates with [[tools/codex]]");
+    expect(existsSync(join(tmp, "wiki", ".history", "wiki", "projects", "memory-fort.md", "2026-05-31T12-00-00-000Z.md"))).toBe(true);
+  });
+
+  it("stages a rewrite that drops a prior relation anchor", async () => {
+    await writeFileAt("wiki/projects/memory-fort.md", [
+      "---",
+      "type: projects",
+      "title: Memory Fort",
+      "relations:",
+      "  uses:",
+      "    - wiki/tools/codex.md",
+      "---",
+      "",
+      "Memory Fort uses Codex Desktop.",
+      "",
+    ].join("\n"));
+    await writeFileAt("wiki/tools/codex.md", page("tools", "Codex", "Codex Desktop."));
+
+    const result = await applyCompileOperations({
+      vaultRoot: tmp,
+      now: new Date("2026-05-31T12:00:00.000Z"),
+      operations: [{
+        kind: "rewrite_page",
+        path: "wiki/projects/memory-fort.md",
+        frontmatter: { confidence: 0.9, relations: {} },
+        body: "Memory Fort stores durable memory.",
+      }],
+    });
+
+    expect(result.outcomes).toContainEqual({
+      path: "wiki/projects/memory-fort.md",
+      outcome: "staged-for-review",
+      reason: "rewrite drops salient anchors - review for content loss",
+      contentPreserved: true,
+    });
+    expect(result.proposed).toEqual(["wiki/compile-proposed/memory-fort.md"]);
+  });
+
+  it("stages write_page and non-event append_page updates against existing prose pages", async () => {
+    await writeFileAt("wiki/projects/memory-fort.md", page(
+      "projects",
+      "Memory Fort",
+      "Memory Fort stores durable memory.",
+    ));
+
+    const writeResult = await applyCompileOperations({
+      vaultRoot: tmp,
+      now: new Date("2026-05-31T12:00:00.000Z"),
+      operations: [{
+        kind: "write_page",
+        path: "wiki/projects/memory-fort.md",
+        frontmatter: { type: "projects", title: "Memory Fort" },
+        body: "Memory Fort now has an additional fact.",
+      }],
+    });
+    const appendResult = await applyCompileOperations({
+      vaultRoot: tmp,
+      now: new Date("2026-05-31T12:00:01.000Z"),
+      operations: [{
+        kind: "append_page",
+        path: "wiki/projects/memory-fort.md",
+        section: "Memory Fort gets another undated fact.",
+      }],
+    });
+
+    for (const result of [writeResult, appendResult]) {
+      expect(result.outcomes).toContainEqual({
+        path: "wiki/projects/memory-fort.md",
+        outcome: "staged-for-review",
+        reason: "use rewrite_page for existing pages",
+        contentPreserved: true,
+      });
+    }
+    const canonical = await readFile(join(tmp, "wiki", "projects", "memory-fort.md"), "utf-8");
+    expect(canonical).toContain("Memory Fort stores durable memory.");
+    expect(canonical).not.toContain("additional fact");
+    expect(canonical).not.toContain("undated fact");
+  });
+
+  it("allows genuinely dated event append_page updates against existing pages", async () => {
+    await writeFileAt("wiki/projects/memory-fort.md", page(
+      "projects",
+      "Memory Fort",
+      "Memory Fort stores durable memory.",
+    ));
+
+    const result = await applyCompileOperations({
+      vaultRoot: tmp,
+      operations: [{
+        kind: "append_page",
+        path: "wiki/projects/memory-fort.md",
+        section: "## 2026-05-31 update\n\nMemory Fort had a dated operator event.",
+      }],
+    });
+
+    expect(result.outcomes).toContainEqual({
+      path: "wiki/projects/memory-fort.md",
+      outcome: "appended",
+      contentPreserved: true,
+    });
+  });
+
+  it("keeps a hot entity bounded across repeated rewrite passes and archives each version", async () => {
+    await writeFileAt("wiki/projects/hot-entity.md", [
+      "---",
+      "type: projects",
+      "title: Hot Entity",
+      "relations:",
+      "  uses:",
+      "    - wiki/tools/codex.md",
+      "---",
+      "",
+      "Hot Entity uses [[tools/codex]].",
+      "",
+    ].join("\n"));
+    await writeFileAt("wiki/tools/codex.md", page("tools", "Codex", "Codex Desktop."));
+
+    for (let i = 1; i <= 20; i += 1) {
+      const result = await applyCompileOperations({
+        vaultRoot: tmp,
+        now: new Date(`2026-05-31T12:00:${String(i).padStart(2, "0")}.000Z`),
+        operations: [{
+          kind: "rewrite_page",
+          path: "wiki/projects/hot-entity.md",
+          frontmatter: {
+            confidence: 0.9,
+            relations: { uses: ["wiki/tools/codex.md"] },
+          },
+          body: `Hot Entity uses [[tools/codex]] and has consolidated fact ${i}.`,
+        }],
+      });
+      expect(result.outcomes.at(-1)?.outcome).toBe("rewritten");
+    }
+
+    const current = await readFile(join(tmp, "wiki", "projects", "hot-entity.md"), "utf-8");
+    expect(current.match(/consolidated fact/g) ?? []).toHaveLength(1);
+    const historyDir = join(tmp, "wiki", ".history", "wiki", "projects", "hot-entity.md");
+    expect((await readdir(historyDir)).filter((name) => name.endsWith(".md"))).toHaveLength(20);
   });
 
   it("skips append_page sections whose content is already substantially present", async () => {

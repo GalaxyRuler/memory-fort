@@ -1,4 +1,5 @@
 # `memory lint` — wiki health check
+<!-- memory:template lint:2026-05-31-curate-refinement -->
 
 You are running the lint workflow inside the user's active agent session. Your job is to scan the wiki and produce a `lint-report.md` documenting any structural issues. The CLI emitted this prompt with the schema and recent log context substituted.
 

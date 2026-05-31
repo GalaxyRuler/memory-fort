@@ -75,6 +75,41 @@ describe("runCurate", () => {
     expect(existsSync(join(tmp, "wiki", ".history", "wiki", "projects", "memory-fort.md", "2026-05-31T12-00-00-000Z.md"))).toBe(true);
   });
 
+  it("resolves a bare page slug across wiki categories", async () => {
+    await writeFileAt("wiki/projects/agentmemory.md", page("AgentMemory keeps imported memory."));
+    const llm = fakeCurateLLM("AgentMemory keeps imported memory in one coherent article.");
+
+    const result = await runCurate({
+      vaultRoot: tmp,
+      target: "agentmemory",
+      apply: true,
+      configLoader: async () => ({ llm: { provider: "ollama", model: "llama3.2" } }),
+      llmFactory: () => llm,
+      env: {},
+      now: new Date("2026-05-31T12:00:00.000Z"),
+    });
+
+    expect(result.pages).toEqual([{
+      path: "wiki/projects/agentmemory.md",
+      outcome: "rewritten",
+      proposed: false,
+    }]);
+  });
+
+  it("reports ambiguity when a bare page slug exists in multiple categories", async () => {
+    await writeFileAt("wiki/projects/iaqar.md", page("iAqar project."));
+    await writeFileAt("wiki/tools/iaqar.md", page("iAqar tool."));
+
+    await expect(runCurate({
+      vaultRoot: tmp,
+      target: "iaqar",
+      apply: true,
+      configLoader: async () => ({ llm: { provider: "ollama", model: "llama3.2" } }),
+      llmFactory: () => fakeCurateLLM("unused"),
+      env: {},
+    })).rejects.toThrow("matches: wiki/projects/iaqar.md, wiki/tools/iaqar.md");
+  });
+
   async function writeFileAt(relPath: string, content: string): Promise<void> {
     const fullPath = join(tmp, ...relPath.split("/"));
     await mkdir(dirname(fullPath), { recursive: true });

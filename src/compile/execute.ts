@@ -180,6 +180,30 @@ export async function applyCompileOperations(
       continue;
     }
 
+    const steering = await steerExistingPageOperation(opts.vaultRoot, grounded.operation, now);
+    if (steering.stage) {
+      const proposedPath = await stageCompileProposal(opts.vaultRoot, grounded.operation, now, steering.reason);
+      result.proposed.push(proposedPath);
+      result.outcomes.push({
+        path: relPath,
+        outcome: "staged-for-review",
+        reason: steering.reason,
+        contentPreserved: true,
+      });
+      continue;
+    }
+    if (steering.skipped) {
+      if (!steering.converted) result.applied.push(relPath);
+      result.outcomes.push({
+        path: relPath,
+        outcome: "skipped: no new content",
+        ...(steering.converted ? { reason: "no new content" } : {}),
+        ...(steering.converted ? { converted: steering.converted } : {}),
+        contentPreserved: true,
+      });
+      continue;
+    }
+
     const conversion = await convertExistingWriteToAppend(opts.vaultRoot, grounded.operation, now);
     if (conversion.skipped) {
       result.outcomes.push({
@@ -196,7 +220,7 @@ export async function applyCompileOperations(
 
     const rewriteGuard = operationToApply.kind === "rewrite_page"
       ? await guardRewriteOperation(opts.vaultRoot, operationToApply, now)
-      : { ok: true as const, shrink: false };
+      : { ok: true as const, stage: false as const };
     if (!rewriteGuard.ok) {
       result.rejected.push({ path: relPath, reason: rewriteGuard.reason });
       result.outcomes.push({
@@ -207,8 +231,8 @@ export async function applyCompileOperations(
       });
       continue;
     }
-    if (rewriteGuard.shrink) {
-      const reason = "rewrite shrinks page - review for content loss";
+    if (rewriteGuard.stage) {
+      const reason = rewriteGuard.reason;
       const proposedPath = await stageCompileProposal(opts.vaultRoot, operationToApply, now, reason);
       result.proposed.push(proposedPath);
       result.outcomes.push({
@@ -490,6 +514,7 @@ async function groundOperation(
   }
 
   const frontmatter = normalizeFrontmatter(operation.frontmatter ?? {}, operation.path, now);
+  const operationHadRelations = Object.prototype.hasOwnProperty.call(operation.frontmatter ?? {}, "relations");
   const relations = frontmatter.relations && typeof frontmatter.relations === "object"
     ? frontmatter.relations as Record<string, unknown>
     : {};
@@ -516,7 +541,7 @@ async function groundOperation(
       ...operation,
       frontmatter: {
         ...frontmatter,
-        relations: Object.keys(nextRelations).length > 0 ? nextRelations : undefined,
+        ...(operationHadRelations ? { relations: Object.keys(nextRelations).length > 0 ? nextRelations : undefined } : {}),
       },
       body: cleanedBody.text,
     },
@@ -623,32 +648,161 @@ async function appendSectionHasNewContent(fullPath: string, section: string): Pr
 async function guardRewriteOperation(
   vaultRoot: string,
   operation: Extract<CompileOperation, { kind: "rewrite_page" }>,
-  now: Date,
-): Promise<{ ok: true; shrink: boolean } | { ok: false; reason: string }> {
+  _now: Date,
+): Promise<
+  | { ok: true; stage: false }
+  | { ok: true; stage: true; reason: string }
+  | { ok: false; reason: string }
+> {
   const relPath = compileOperationPath(operation);
   const fullPath = join(vaultRoot, ...relPath.split("/"));
   if (!existsSync(fullPath)) return { ok: false, reason: "target page does not exist" };
   const current = await readFile(fullPath, "utf-8");
   const parsed = parseFrontmatter(current);
   if (normalizeContent(parsed.body) === normalizeContent(operation.body)) {
-    return { ok: true, shrink: false };
+    return { ok: true, stage: false };
   }
-  if (rewriteWouldShrink(parsed.body, operation.body)) {
-    await archivePageVersion(vaultRoot, relPath, current, now);
-    return { ok: true, shrink: true };
+  const nextFrontmatter = {
+    ...parsed.frontmatter,
+    ...operation.frontmatter,
+  };
+  const coverage = assessFactCoverage({
+    previousFrontmatter: parsed.frontmatter,
+    previousBody: parsed.body,
+    nextFrontmatter,
+    nextBody: operation.body,
+  });
+  if (!coverage.ok) {
+    return { ok: true, stage: true, reason: "rewrite drops salient anchors - review for content loss" };
   }
-  return { ok: true, shrink: false };
+  return { ok: true, stage: false };
 }
 
-function rewriteWouldShrink(existingBody: string, nextBody: string): boolean {
-  const existingLength = substantiveLength(existingBody);
-  if (existingLength === 0) return false;
-  const nextLength = substantiveLength(nextBody);
-  return nextLength / existingLength < 0.6;
+async function steerExistingPageOperation(
+  vaultRoot: string,
+  operation: CompileOperation,
+  now: Date,
+): Promise<
+  | { stage: false; skipped?: false }
+  | { stage: false; skipped: true; converted?: CompileOperationConversion }
+  | { stage: true; reason: string }
+> {
+  if (operation.kind !== "write_page" && operation.kind !== "append_page") return { stage: false };
+  const relPath = compileOperationPath(operation);
+  const fullPath = join(vaultRoot, ...relPath.split("/"));
+  if (!existsSync(fullPath)) return { stage: false };
+  if (!await pageHasProse(fullPath)) return { stage: false };
+
+  if (operation.kind === "append_page") {
+    if (!await appendSectionHasNewContent(fullPath, operation.section)) {
+      return { stage: false, skipped: true };
+    }
+    if (isDatedEventAppend(operation.section)) return { stage: false };
+    return { stage: true, reason: "use rewrite_page for existing pages" };
+  }
+
+  const section = await dedupeExistingWriteBody(fullPath, operation.body, now);
+  if (!section) {
+    return { stage: false, skipped: true, converted: "write->append: target already existed" };
+  }
+  return { stage: true, reason: "use rewrite_page for existing pages" };
 }
 
-function substantiveLength(text: string): number {
-  return normalizeContent(stripDatedUpdateHeadings(text)).length;
+async function pageHasProse(fullPath: string): Promise<boolean> {
+  const current = await readFile(fullPath, "utf-8");
+  return normalizeContent(parseFrontmatter(current).body).length > 0;
+}
+
+function isDatedEventAppend(section: string): boolean {
+  return /^##\s+\d{4}-\d{2}-\d{2}\b/m.test(section.trim());
+}
+
+function assessFactCoverage(input: {
+  previousFrontmatter: Record<string, unknown>;
+  previousBody: string;
+  nextFrontmatter: Record<string, unknown>;
+  nextBody: string;
+}): { ok: true } | { ok: false; missing: string[] } {
+  const previousRelationTargets = relationTargets(input.previousFrontmatter);
+  const nextRelationTargets = relationTargets(input.nextFrontmatter);
+  const previousLinks = wikiLinks(input.previousBody);
+  const nextLinks = wikiLinks(input.nextBody);
+  const previousCode = codeAnchors(input.previousBody);
+  const nextCode = codeAnchors(input.nextBody);
+  const previousEntities = entityAnchors(input.previousBody);
+  const nextEntities = entityAnchors(input.nextBody);
+
+  const missing = [
+    ...missingAnchors(previousRelationTargets, nextRelationTargets, "relation", 0.9),
+    ...missingAnchors(previousLinks, nextLinks, "wikilink", 0.9),
+    ...missingAnchors(previousCode, nextCode, "code", 0.8),
+    ...missingAnchors(previousEntities, nextEntities, "entity", 0.8),
+  ];
+  return missing.length === 0 ? { ok: true } : { ok: false, missing };
+}
+
+function missingAnchors(previous: Set<string>, next: Set<string>, label: string, threshold: number): string[] {
+  if (previous.size === 0) return [];
+  let kept = 0;
+  const missing: string[] = [];
+  for (const anchor of previous) {
+    if (next.has(anchor)) kept += 1;
+    else missing.push(`${label}:${anchor}`);
+  }
+  return kept / previous.size >= threshold ? [] : missing;
+}
+
+function relationTargets(frontmatter: Record<string, unknown>): Set<string> {
+  const relations = frontmatter.relations;
+  const targets = new Set<string>();
+  if (typeof relations !== "object" || relations === null) return targets;
+  for (const value of Object.values(relations as Record<string, unknown>)) {
+    if (!Array.isArray(value)) continue;
+    for (const item of value) {
+      const target = readRelationTarget(item);
+      if (target) targets.add(normalizeAnchor(target));
+    }
+  }
+  return targets;
+}
+
+function wikiLinks(body: string): Set<string> {
+  const links = new Set<string>();
+  const re = /\[\[([^\]\n]+)\]\]/g;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(body)) !== null) {
+    const link = match[1]!.split("|")[0]!.trim();
+    if (link) links.add(normalizeAnchor(link));
+  }
+  return links;
+}
+
+function codeAnchors(body: string): Set<string> {
+  const anchors = new Set<string>();
+  const re = /`([^`\n]+)`/g;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(body)) !== null) {
+    const value = match[1]!.trim();
+    if (/[\\/._-]/.test(value) || /^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)+$/.test(value)) {
+      anchors.add(normalizeAnchor(value));
+    }
+  }
+  return anchors;
+}
+
+function entityAnchors(body: string): Set<string> {
+  const anchors = new Set<string>();
+  const re = /\b(?:[A-Z][A-Za-z0-9]*(?:\s+[A-Z][A-Za-z0-9]*)*|[A-Za-z]+[A-Z][A-Za-z0-9]*)\b/g;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(stripDatedUpdateHeadings(body))) !== null) {
+    const value = match[0].trim();
+    if (value.length > 2 && !/^I$/.test(value)) anchors.add(normalizeAnchor(value));
+  }
+  return anchors;
+}
+
+function normalizeAnchor(value: string): string {
+  return value.replace(/\\/g, "/").replace(/^wiki\//, "").replace(/\.md$/i, "").trim().toLowerCase();
 }
 
 async function archivePageVersion(vaultRoot: string, relPath: string, content: string, now: Date): Promise<string> {

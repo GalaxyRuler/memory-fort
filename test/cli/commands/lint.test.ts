@@ -6,6 +6,7 @@ import { dirname, join } from "node:path";
 import { runLint } from "../../../src/cli/commands/lint.js";
 
 const TEMPLATE = [
+  "# memory:custom",
   "SCHEMA={{schema_content}}",
   "LOG={{recent_log_lines}}",
 ].join("\n");

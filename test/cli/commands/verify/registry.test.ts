@@ -16,6 +16,7 @@ const EXPECTED_ROLES = new Map<string, VerifyRole[]>([
   ["storage.atomic-write-retries", ["operator", "server"]],
   ["compile.recent", ["operator", "server"]],
   ["compile.execute-health", ["operator", "server"]],
+  ["prompt.drift", ["operator", "server"]],
   ["curation.content-loss", ["operator", "server"]],
   ["autopush.errors", ["operator"]],
   ["sync.uncommitted-vault", ["operator"]],

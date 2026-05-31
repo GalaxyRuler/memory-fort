@@ -26,6 +26,7 @@ import { freshnessStaleCheck } from "./freshness.js";
 import { gitRemoteCheck } from "./git.js";
 import { graphCohesionCheck } from "./graph-cohesion.js";
 import { intentClassifierHealthCheck } from "./intent-classifier.js";
+import { promptDriftCheck } from "./prompt-drift.js";
 import { prospectiveOverdueCheck } from "./prospective-overdue.js";
 import { searchPipelineCheck } from "./search.js";
 import { sourceFieldCheck } from "./source-field.js";
@@ -47,6 +48,7 @@ export const ALL_CHECKS: CheckDescriptor[] = [
   atomicWriteRetriesCheck,
   compileRecentCheck,
   compileExecuteHealthCheck,
+  promptDriftCheck,
   curationContentLossCheck,
   autoPushErrorsCheck,
   uncommittedVaultCheck,

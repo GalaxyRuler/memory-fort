@@ -1,4 +1,5 @@
 # HyDE expansion prompt
+<!-- memory:template hyde:2026-05-31-curate-refinement -->
 
 You're helping the memory system search for information. A short or abstract query has been provided. Write a SHORT hypothetical paragraph (100-300 tokens) that reads as if it were a perfect curated wiki entry answering the query. The paragraph will be embedded and used to find semantically similar wiki/raw content.
 

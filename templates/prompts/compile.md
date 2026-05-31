@@ -1,4 +1,5 @@
 # `memory compile` — distill raw observations into curated wiki pages
+<!-- memory:template compile:2026-05-31-curate-refinement -->
 
 You are running the compile workflow inside the user's active agent session. The CLI emitted this prompt with several context blocks substituted in (`{{schema_content}}`, `{{index_content}}`, `{{existing_pages}}`, etc.). Your job is to read those, then use your file-editing tools to update the wiki in `~/.memory/wiki/`.
 
@@ -56,15 +57,16 @@ low-confidence operations under `wiki/compile-proposed/`. The executor rebuilds
 `index.md` deterministically after successful execute runs; do not emit
 `update_index` operations. For `rewrite_page`, the executor archives the prior
 page under `wiki/.history/` before writing and stages rewrites that may drop
-substantive content.
+salient fact anchors such as relations, wikilinks, code identifiers, or entity
+names.
 
-For an entity with an existing page, prefer `rewrite_page`: read the injected
+For an entity with an existing page, you MUST use `rewrite_page`: read the injected
 current page body, preserve all substantive existing content, integrate genuinely
 new facts, remove redundancy, and emit the complete coherent body. Use
 `append_page` only for genuinely time-stamped events such as a decision,
 milestone, incident, or status change that belongs in a dated section. If the
 existing page already covers the observations, emit no page operation for that
-entity. Use `write_page` when creating a new page that meets the cross-session
+entity. Use `write_page` only when creating a new page that meets the cross-session
 threshold. Page targets must be `wiki/<category>/<lowercase-kebab-slug>.md`;
 for example, a project called `iAqar` should target `wiki/projects/iaqar.md`.
 Prefer one page operation per normalized target path; combine related new
@@ -73,10 +75,11 @@ separate write and append for the same page.
 The executor normalizes page filename slugs and can convert a missing-page
 `append_page` into a staged create proposal, but the best response is to choose
 the correct operation up front.
-If you emit `write_page` for a path that already exists on disk, the executor
-auto-converts it into an appended dated update section. You do not need perfect
-knowledge of every existing file, but prefer `rewrite_page` when the current
-wiki context already shows the target.
+If you emit `write_page` or an undated `append_page` for a path that already
+exists with prose, the executor stages it for review with a rewrite-page warning
+instead of blindly appending it. You do not need perfect knowledge of every
+existing file, but use `rewrite_page` when the current wiki context already
+shows the target.
 
 ---
 
@@ -165,7 +168,7 @@ For each entity with an existing wiki page:
 1. Use the Existing wiki pages block as the current page state.
 2. Identify what's new in the raw observations beyond what the page already says.
 3. If there are no genuinely new facts, emit no operation for that page.
-4. If the new facts are routine knowledge updates, emit one `rewrite_page` operation containing the complete curated body: preserve prior facts, integrate new facts, remove duplicate dated sections, and keep the page readable.
+4. If the new facts are routine knowledge updates, emit one `rewrite_page` operation containing the complete curated body: preserve prior facts, integrate new facts, remove duplicate dated sections, and keep the page readable. Do not use `write_page` or undated `append_page` for an existing page.
 5. If the new facts are genuine time-stamped events, emit one `append_page` operation with a `## [<YYYY-MM-DD>] update` section.
 6. If new relations were observed, include only grounded relation changes and preserve existing claims.
 

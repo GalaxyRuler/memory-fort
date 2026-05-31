@@ -16,6 +16,7 @@ import {
   type LLMConfig,
 } from "../../llm/factory.js";
 import { type LLMProvider } from "../../llm/types.js";
+import { readRuntimePrompt } from "../../prompts/runtime.js";
 import { loadMemoryConfig, type MemoryConfig } from "../../storage/config.js";
 import {
   memoryRoot,
@@ -39,6 +40,7 @@ export interface CompileOptions {
   plan?: boolean;
   resetWatermark?: string | boolean;
   env?: NodeJS.ProcessEnv;
+  sourceRepoDir?: string;
   configLoader?: () => Promise<MemoryConfig>;
   llmFactory?: (config: LLMConfig | null, env: NodeJS.ProcessEnv) => LLMProvider;
 }
@@ -129,10 +131,14 @@ export async function runCompile(
     "existingPagesMaxBytes",
   );
   const root = opts.vaultRoot ?? memoryRoot();
-  const promptTemplate = await readRequiredFile(
-    join(root, "prompts", "compile.md"),
-    "compile prompt",
-  );
+  const promptTemplate = await readRuntimePrompt({
+    vaultRoot: root,
+    name: "compile.md",
+    sourceRepoDir: opts.sourceRepoDir,
+    warn: (message) => console.error(message),
+  }).then((prompt) => prompt.content).catch((error) => {
+    throw new Error(`memory compile: ${(error as Error).message}`);
+  });
   const schema = await readRequiredFile(join(root, "schema.md"), "schema.md");
   const index = await readOptionalFile(join(root, "index.md"));
   const log = await readOptionalFile(join(root, "log.md"));

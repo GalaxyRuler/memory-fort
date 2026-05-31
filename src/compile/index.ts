@@ -94,7 +94,8 @@ function shouldExcludeWikiRelPath(relPath: string): boolean {
   return relPath
     .replace(/\\/g, "/")
     .split("/")
-    .some((part) => part === ".audit" || part === "archive" || part.endsWith("-proposed"));
+    // Dot-directories (.audit, .history, …) are operational, not entity pages.
+    .some((part) => part.startsWith(".") || part === "archive" || part.endsWith("-proposed"));
 }
 
 function readPageType(value: unknown, relPath: string): PageType | null {

@@ -7,6 +7,7 @@ import {
   type LintCategory,
   type LintIssue,
 } from "../../curation/checks.js";
+import { readRuntimePrompt } from "../../prompts/runtime.js";
 import {
   logPath,
   memoryRoot,
@@ -17,6 +18,7 @@ export interface LintOptions {
   checksOnly?: boolean;
   staleDays?: number;
   now?: Date;
+  sourceRepoDir?: string;
 }
 
 export interface LintPromptResult {
@@ -75,10 +77,14 @@ export async function runLint(
   }
 
   const root = memoryRoot();
-  const promptTemplate = await readRequiredFile(
-    join(root, "prompts", "lint.md"),
-    "lint prompt",
-  );
+  const promptTemplate = await readRuntimePrompt({
+    vaultRoot: root,
+    name: "lint.md",
+    sourceRepoDir: opts.sourceRepoDir,
+    warn: (message) => console.error(message),
+  }).then((prompt) => prompt.content).catch((error) => {
+    throw new Error(`memory lint: ${(error as Error).message}`);
+  });
   const schema = await readRequiredFile(schemaPath(), "schema.md");
   const log = await readOptionalFile(logPath());
 

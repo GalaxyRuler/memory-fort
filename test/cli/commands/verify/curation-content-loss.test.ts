@@ -15,14 +15,34 @@ describe("curationContentLossCheck", () => {
     await rm(tmp, { recursive: true, force: true });
   });
 
-  it("warns when a canonical page is much smaller than its latest rewrite history", async () => {
-    await writeFileAt("wiki/projects/memory-fort.md", page("Memory Fort keeps fact alpha."));
-    await writeFileAt("wiki/.history/wiki/projects/memory-fort.md/2026-05-31T12-00-00-000Z.md", page([
-      "Memory Fort keeps fact alpha.",
-      "Memory Fort keeps fact beta.",
-      "Memory Fort keeps fact gamma.",
-      "Memory Fort keeps fact delta.",
-    ].join("\n")));
+  it("passes when a canonical page is shorter but keeps salient rewrite anchors", async () => {
+    await writeFileAt("wiki/projects/memory-fort.md", page(
+      "Memory Fort keeps [[tools/codex]] and Codex Desktop anchors.",
+      { relations: { uses: ["wiki/tools/codex.md"] } },
+    ));
+    await writeFileAt("wiki/.history/wiki/projects/memory-fort.md/2026-05-31T12-00-00-000Z.md", page(
+      [
+        "Memory Fort keeps [[tools/codex]] and Codex Desktop anchors.",
+        "Memory Fort repeated [[tools/codex]] in multiple dated sections.",
+        "Codex Desktop appeared again in a duplicate update.",
+      ].join("\n"),
+      { relations: { uses: ["wiki/tools/codex.md"] } },
+    ));
+
+    const result = await curationContentLossCheck.run({ vaultRoot: tmp, now: () => new Date("2026-05-31") });
+
+    expect(result).toMatchObject({
+      id: "curation.content-loss",
+      status: "pass",
+    });
+  });
+
+  it("warns when a canonical page drops anchors from its latest rewrite history", async () => {
+    await writeFileAt("wiki/projects/memory-fort.md", page("Memory Fort keeps a generic summary."));
+    await writeFileAt("wiki/.history/wiki/projects/memory-fort.md/2026-05-31T12-00-00-000Z.md", page(
+      "Memory Fort used [[tools/codex]] and Codex Desktop.",
+      { relations: { uses: ["wiki/tools/codex.md"] } },
+    ));
 
     const result = await curationContentLossCheck.run({ vaultRoot: tmp, now: () => new Date("2026-05-31") });
 
@@ -40,13 +60,23 @@ describe("curationContentLossCheck", () => {
   }
 });
 
-function page(body: string): string {
+function page(body: string, extraFrontmatter: { relations?: Record<string, string[]> } = {}): string {
+  const relationLines = extraFrontmatter.relations
+    ? [
+        "relations:",
+        ...Object.entries(extraFrontmatter.relations).flatMap(([key, values]) => [
+          `  ${key}:`,
+          ...values.map((value) => `    - ${value}`),
+        ]),
+      ]
+    : [];
   return [
     "---",
     "type: projects",
     "title: Memory Fort",
     "created: 2026-05-30",
     "updated: 2026-05-31",
+    ...relationLines,
     "---",
     "",
     body,

@@ -17,6 +17,7 @@ import type { LLMProvider } from "../../../src/llm/types.js";
 const CLI = resolve(process.cwd(), "dist", "cli.mjs");
 
 const TEMPLATE = [
+  "# memory:custom",
   "SCHEMA={{schema_content}}",
   "INDEX={{index_content}}",
   "EXISTING={{existing_pages}}",
@@ -65,6 +66,27 @@ describe("runCompile", () => {
     expect(result.prompt).toContain(rawPath);
     expect(result.prompt).toContain("raw observation alpha");
     expect(result.prompt).not.toMatch(/\{\{[a-z_]+\}\}/);
+  });
+
+  it("uses the bundled compile prompt when the vault prompt is not customized", async () => {
+    const sourceRepoDir = join(tmp, "source");
+    await mkdir(join(sourceRepoDir, "templates", "prompts"), { recursive: true });
+    await writeFile(
+      join(sourceRepoDir, "templates", "prompts", "compile.md"),
+      [
+        "<!-- memory:template compile:test -->",
+        "BUNDLED={{schema_content}}",
+      ].join("\n"),
+    );
+    await writeFile(join(root, "prompts", "compile.md"), "STALE={{schema_content}}\n");
+    const warnSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const result = await runCompile({ vaultRoot: root, sourceRepoDir });
+
+    expect(result.prompt).toContain("BUNDLED=# Schema");
+    expect(result.prompt).not.toContain("STALE=");
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("memory sync-prompts --apply"));
+    warnSpy.mockRestore();
   });
 
   it("injects referenced existing page bodies into the compile prompt", async () => {

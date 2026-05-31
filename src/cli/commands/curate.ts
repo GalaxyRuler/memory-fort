@@ -49,7 +49,7 @@ export async function runCurate(opts: CurateOptions = {}): Promise<CurateResult>
   const mode = opts.apply ? "apply" : "plan";
   const targets = opts.all
     ? await listBloatedWikiPages(root, opts.sectionThreshold ?? DEFAULT_SECTION_THRESHOLD)
-    : [normalizeTarget(opts.target)];
+    : [await resolveCurateTarget(root, opts.target)];
   const pages: CuratePageResult[] = [];
 
   for (const target of targets) {
@@ -151,10 +151,53 @@ async function requestCuratedRewrite(
   };
 }
 
+async function resolveCurateTarget(root: string, target: string | undefined): Promise<string> {
+  const normalized = normalizeTarget(target);
+  const fullPath = join(root, ...normalized.split("/"));
+  if (existsSync(fullPath)) return normalized;
+
+  const raw = target!.trim().replace(/\\/g, "/").replace(/^\.?\//, "");
+  if (raw.includes("/")) {
+    throw new Error(`memory curate: page not found: ${normalized}`);
+  }
+
+  const slug = raw.replace(/\.md$/i, "");
+  const matches = await findPagesBySlug(root, slug);
+  if (matches.length === 1) return matches[0]!;
+  if (matches.length > 1) {
+    throw new Error(
+      `memory curate: target "${target}" is ambiguous; matches: ${matches.join(", ")}`,
+    );
+  }
+  throw new Error(`memory curate: page not found: ${normalized}`);
+}
+
 function normalizeTarget(target: string | undefined): string {
   if (!target) throw new Error("memory curate: page target required unless --all is used");
   const normalized = target.replace(/\\/g, "/").replace(/^\.?\//, "");
-  return normalized.startsWith("wiki/") ? normalized : `wiki/${normalized}`;
+  const withWiki = normalized.startsWith("wiki/") ? normalized : `wiki/${normalized}`;
+  return withWiki.endsWith(".md") ? withWiki : `${withWiki}.md`;
+}
+
+async function findPagesBySlug(root: string, slug: string): Promise<string[]> {
+  const wikiRoot = join(root, "wiki");
+  if (!existsSync(wikiRoot)) return [];
+  const matches: string[] = [];
+  async function walk(dir: string): Promise<void> {
+    const entries = await readdir(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = join(dir, entry.name);
+      const rel = relative(wikiRoot, fullPath).replace(/\\/g, "/");
+      if (entry.isDirectory()) {
+        if (rel.split("/").some((part) => part.startsWith(".") || part.endsWith("-proposed") || part === "archive")) continue;
+        await walk(fullPath);
+      } else if (entry.isFile() && entry.name.toLowerCase() === `${slug.toLowerCase()}.md`) {
+        matches.push(`wiki/${rel}`);
+      }
+    }
+  }
+  await walk(wikiRoot);
+  return matches.sort();
 }
 
 async function listBloatedWikiPages(root: string, threshold: number): Promise<string[]> {
