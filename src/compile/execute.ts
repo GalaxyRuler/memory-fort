@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { mkdir, readFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
+import type { LLMProvider, LLMTokenUsage } from "../llm/types.js";
 import { filterWikiReferencesToExisting, stripProsePathLeaksFromText } from "../llm/proposal-grounding.js";
 import { readRelationTarget, type SerializedRelationEdge } from "../retrieval/relations.js";
 import { atomicWrite } from "../storage/atomic-write.js";
@@ -46,6 +47,8 @@ export interface ApplyCompileOperationsOptions {
   operations: CompileOperation[];
   plan?: boolean;
   now?: Date;
+  rewriteLLM?: LLMProvider;
+  rewriteMaxBytes?: number;
 }
 
 export interface ApplyCompileOperationsResult {
@@ -56,6 +59,8 @@ export interface ApplyCompileOperationsResult {
   outcomes: CompileOperationOutcome[];
   referencesStripped: number;
   prosePathLeaks: number;
+  pagesRewritten: number;
+  rewriteTokensUsed?: LLMTokenUsage;
 }
 
 export type CompileOperationOutcomeKind =
@@ -81,6 +86,7 @@ export interface CompileOperationOutcome {
 
 const COMPILE_OPS_RE = /```compile-ops\s*([\s\S]*?)```/m;
 const COMPILE_OP_RE = /```compile-op\s*([\s\S]*?)```/m;
+const DEFAULT_REWRITE_MAX_BYTES = 80_000;
 const PAGE_TYPES_BY_CATEGORY = {
   projects: "projects",
   people: "people",
@@ -92,6 +98,16 @@ const PAGE_TYPES_BY_CATEGORY = {
   procedures: "procedures",
   prospective: "prospective",
 } as const satisfies Record<PageType, PageType>;
+
+export function isKnowledgePageType(type: PageType): boolean {
+  return type === "projects" ||
+    type === "lessons" ||
+    type === "decisions" ||
+    type === "references" ||
+    type === "tools" ||
+    type === "people" ||
+    type === "prospective";
+}
 
 export function parseCompileOperationsBlock(text: string): ParseCompileOperationsResult {
   const block = COMPILE_OPS_RE.exec(text)?.[1];
@@ -153,6 +169,7 @@ export async function applyCompileOperations(
     outcomes: [],
     referencesStripped: 0,
     prosePathLeaks: 0,
+    pagesRewritten: 0,
   };
   const now = opts.now ?? new Date();
   const prepared = prepareCompileOperations(opts.vaultRoot, opts.operations, now);
@@ -177,6 +194,36 @@ export async function applyCompileOperations(
 
     if (opts.plan) {
       result.planned.push(relPath);
+      continue;
+    }
+
+    const deterministicRewrite = await rewriteExistingKnowledgePageUpdate({
+      vaultRoot: opts.vaultRoot,
+      operation: grounded.operation,
+      now,
+      llm: opts.rewriteLLM,
+      maxBytes: opts.rewriteMaxBytes ?? DEFAULT_REWRITE_MAX_BYTES,
+    });
+    if (deterministicRewrite.handled) {
+      result.referencesStripped += deterministicRewrite.referencesStripped;
+      result.prosePathLeaks += deterministicRewrite.prosePathLeaks;
+      if (deterministicRewrite.outcome === "rewritten") {
+        result.applied.push(relPath);
+        result.pagesRewritten += 1;
+      } else if (deterministicRewrite.outcome === "staged-for-review") {
+        result.proposed.push(deterministicRewrite.proposedPath);
+      } else if (deterministicRewrite.outcome === "skipped: no new content") {
+        result.applied.push(relPath);
+      }
+      if (deterministicRewrite.tokensUsed) {
+        result.rewriteTokensUsed = addTokenUsage(result.rewriteTokensUsed, deterministicRewrite.tokensUsed);
+      }
+      result.outcomes.push({
+        path: relPath,
+        outcome: deterministicRewrite.outcome,
+        ...(deterministicRewrite.reason ? { reason: deterministicRewrite.reason } : {}),
+        contentPreserved: true,
+      });
       continue;
     }
 
@@ -564,6 +611,9 @@ export async function applyOperation(
   switch (operation.kind) {
     case "write_page": {
       if (existsSync(fullPath)) {
+        if (isExistingKnowledgePagePath(relPath)) {
+          return { ok: false, reason: "knowledge-page update requires rewrite_page" };
+        }
         const section = await dedupeExistingWriteBody(fullPath, operation.body, now);
         if (!section) {
           return { ok: true, outcome: "skipped: no new content", converted: "write->append: target already existed" };
@@ -576,6 +626,9 @@ export async function applyOperation(
     }
     case "append_page": {
       if (!existsSync(fullPath)) return { ok: false, reason: "target page does not exist" };
+      if (isExistingKnowledgePagePath(relPath)) {
+        return { ok: false, reason: "knowledge-page update requires rewrite_page" };
+      }
       if (!await appendSectionHasNewContent(fullPath, operation.section)) {
         return { ok: true, outcome: "skipped: no new content" };
       }
@@ -605,6 +658,11 @@ export async function applyOperation(
       await appendText(fullPath, `${operation.line.trim()}\n`);
       return { ok: true, outcome: "log-appended" };
   }
+}
+
+function isExistingKnowledgePagePath(relPath: string): boolean {
+  const target = readWikiPageTarget(relPath);
+  return target.kind === "page" && isKnowledgePageType(target.type);
 }
 
 async function convertExistingWriteToAppend(
@@ -643,6 +701,248 @@ async function appendSectionHasNewContent(fullPath: string, section: string): Pr
   const current = await readFile(fullPath, "utf-8");
   const parsed = parseFrontmatter(current);
   return netNewProse(parsed.body, section).length > 0;
+}
+
+async function rewriteExistingKnowledgePageUpdate(opts: {
+  vaultRoot: string;
+  operation: CompileOperation;
+  now: Date;
+  llm?: LLMProvider;
+  maxBytes: number;
+}): Promise<
+  | { handled: false }
+  | {
+      handled: true;
+      outcome: "rewritten" | "skipped: no new content";
+      reason?: string;
+      tokensUsed?: LLMTokenUsage;
+      referencesStripped: number;
+      prosePathLeaks: number;
+    }
+  | {
+      handled: true;
+      outcome: "staged-for-review";
+      reason: string;
+      proposedPath: string;
+      tokensUsed?: LLMTokenUsage;
+      referencesStripped: number;
+      prosePathLeaks: number;
+    }
+> {
+  if (opts.operation.kind !== "write_page" && opts.operation.kind !== "append_page") return { handled: false };
+  const relPath = compileOperationPath(opts.operation);
+  const target = readWikiPageTarget(relPath);
+  if (target.kind !== "page" || !isKnowledgePageType(target.type)) return { handled: false };
+  const fullPath = join(opts.vaultRoot, ...target.path.split("/"));
+  if (!existsSync(fullPath)) return { handled: false };
+  if (!await pageHasProse(fullPath)) return { handled: false };
+
+  const current = await readFile(fullPath, "utf-8");
+  const parsed = parseFrontmatter(current);
+  const incoming = operationIncomingContent(opts.operation);
+  const netNew = netNewProse(parsed.body, incoming);
+  if (!netNew) {
+    return {
+      handled: true,
+      outcome: "skipped: no new content",
+      referencesStripped: 0,
+      prosePathLeaks: 0,
+    };
+  }
+
+  if (!opts.llm) {
+    const proposedPath = await stageCompileProposal(
+      opts.vaultRoot,
+      opts.operation,
+      opts.now,
+      "knowledge-page update requires rewrite LLM",
+    );
+    return {
+      handled: true,
+      outcome: "staged-for-review",
+      reason: "knowledge-page update requires rewrite LLM",
+      proposedPath,
+      referencesStripped: 0,
+      prosePathLeaks: 0,
+    };
+  }
+
+  const prompt = buildKnowledgeRewritePrompt({
+    path: target.path,
+    frontmatter: parsed.frontmatter,
+    currentBody: parsed.body,
+    newContent: incoming,
+    maxBytes: opts.maxBytes,
+  });
+  if (!prompt.ok) {
+    const proposedPath = await stageCompileProposal(opts.vaultRoot, opts.operation, opts.now, prompt.reason);
+    return {
+      handled: true,
+      outcome: "staged-for-review",
+      reason: prompt.reason,
+      proposedPath,
+      referencesStripped: 0,
+      prosePathLeaks: 0,
+    };
+  }
+
+  try {
+    const response = await opts.llm.chat({
+      messages: [
+        {
+          role: "system",
+          content: "Return only one fenced compile-op JSON block with a rewrite_page operation.",
+        },
+        { role: "user", content: prompt.value },
+      ],
+      temperature: 0.2,
+    });
+    const parsedRewrite = parseRewritePageFromResponse(response.content, target.path);
+    if (!parsedRewrite.ok) {
+      const proposedPath = await stageCompileProposal(opts.vaultRoot, opts.operation, opts.now, parsedRewrite.reason);
+      return {
+        handled: true,
+        outcome: "staged-for-review",
+        reason: parsedRewrite.reason,
+        proposedPath,
+        tokensUsed: response.tokensUsed,
+        referencesStripped: 0,
+        prosePathLeaks: 0,
+      };
+    }
+
+    const grounded = await groundOperation(opts.vaultRoot, {
+      ...parsedRewrite.operation,
+      path: target.path,
+      frontmatter: {
+        ...parsed.frontmatter,
+        ...parsedRewrite.operation.frontmatter,
+        confidence: typeof parsedRewrite.operation.frontmatter?.confidence === "number"
+          ? parsedRewrite.operation.frontmatter.confidence
+          : 0.9,
+      },
+    }, opts.now);
+    const rewrite = grounded.operation;
+    if (rewrite.kind !== "rewrite_page") {
+      throw new Error("internal rewrite grounding produced non-rewrite operation");
+    }
+    const guard = await guardRewriteOperation(opts.vaultRoot, rewrite, opts.now);
+    if (!guard.ok || guard.stage) {
+      const reason = guard.reason;
+      const proposedPath = await stageCompileProposal(opts.vaultRoot, rewrite, opts.now, reason);
+      return {
+        handled: true,
+        outcome: "staged-for-review",
+        reason,
+        proposedPath,
+        tokensUsed: response.tokensUsed,
+        referencesStripped: grounded.referencesStripped,
+        prosePathLeaks: grounded.prosePathLeaks,
+      };
+    }
+    const applied = await applyOperation(opts.vaultRoot, rewrite, opts.now);
+    if (!applied.ok) {
+      const reason = `knowledge-page rewrite failed: ${applied.reason}`;
+      const proposedPath = await stageCompileProposal(opts.vaultRoot, rewrite, opts.now, reason);
+      return {
+        handled: true,
+        outcome: "staged-for-review",
+        reason,
+        proposedPath,
+        tokensUsed: response.tokensUsed,
+        referencesStripped: grounded.referencesStripped,
+        prosePathLeaks: grounded.prosePathLeaks,
+      };
+    }
+    return {
+      handled: true,
+      outcome: applied.outcome === "skipped: no new content" ? "skipped: no new content" : "rewritten",
+      tokensUsed: response.tokensUsed,
+      referencesStripped: grounded.referencesStripped,
+      prosePathLeaks: grounded.prosePathLeaks,
+    };
+  } catch (error) {
+    const reason = `knowledge-page rewrite failed: ${error instanceof Error ? error.message : String(error)}`;
+    const proposedPath = await stageCompileProposal(opts.vaultRoot, opts.operation, opts.now, reason);
+    return {
+      handled: true,
+      outcome: "staged-for-review",
+      reason,
+      proposedPath,
+      referencesStripped: 0,
+      prosePathLeaks: 0,
+    };
+  }
+}
+
+function operationIncomingContent(operation: Extract<CompileOperation, { kind: "write_page" | "append_page" }>): string {
+  return operation.kind === "write_page" ? operation.body : operation.section;
+}
+
+function buildKnowledgeRewritePrompt(opts: {
+  path: string;
+  frontmatter: Record<string, unknown>;
+  currentBody: string;
+  newContent: string;
+  maxBytes: number;
+}): { ok: true; value: string } | { ok: false; reason: string } {
+  const prompt = [
+    "Rewrite this existing knowledge page as one coherent article.",
+    "Preserve all substantive existing facts and integrate the new content.",
+    "Do not add dated update sections. Do not drop relations, wikilinks, code identifiers, or entity names.",
+    `Path: ${opts.path}`,
+    "",
+    "Current frontmatter:",
+    "```json",
+    JSON.stringify(opts.frontmatter, null, 2),
+    "```",
+    "",
+    "Current page body:",
+    "```markdown",
+    opts.currentBody.trim(),
+    "```",
+    "",
+    "New content to integrate:",
+    "```markdown",
+    opts.newContent.trim(),
+    "```",
+  ].join("\n");
+  if (Buffer.byteLength(prompt, "utf-8") > opts.maxBytes) {
+    return { ok: false, reason: "knowledge-page rewrite prompt exceeds byte cap" };
+  }
+  return { ok: true, value: prompt };
+}
+
+function parseRewritePageFromResponse(
+  content: string,
+  path: string,
+): { ok: true; operation: Extract<CompileOperation, { kind: "rewrite_page" }> } | { ok: false; reason: string } {
+  const parsed = parseCompileOperationBlock(content);
+  if (parsed.ok) {
+    if (parsed.operation.kind !== "rewrite_page") {
+      return { ok: false, reason: "knowledge-page rewrite LLM returned non-rewrite operation" };
+    }
+    return { ok: true, operation: { ...parsed.operation, path } };
+  }
+  const body = content.trim();
+  if (!body) return { ok: false, reason: "knowledge-page rewrite LLM returned empty body" };
+  return {
+    ok: true,
+    operation: {
+      kind: "rewrite_page",
+      path,
+      frontmatter: { confidence: 0.9 },
+      body,
+    },
+  };
+}
+
+function addTokenUsage(left: LLMTokenUsage | undefined, right: LLMTokenUsage): LLMTokenUsage {
+  return {
+    prompt: (left?.prompt ?? 0) + right.prompt,
+    completion: (left?.completion ?? 0) + right.completion,
+    total: (left?.total ?? 0) + right.total,
+  };
 }
 
 async function guardRewriteOperation(

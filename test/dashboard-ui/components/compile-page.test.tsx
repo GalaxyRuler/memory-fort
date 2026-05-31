@@ -97,6 +97,7 @@ describe("CompilePage", () => {
           opsApplied: 8,
           opsStaged: 2,
           opsRejected: 1,
+          pagesRewritten: 3,
           outcomes: [
             { path: "wiki/projects/iaqar.md", outcome: "created", contentPreserved: true },
             {
@@ -113,6 +114,7 @@ describe("CompilePage", () => {
             },
           ],
           referencesStripped: 1,
+          rewriteTokensUsed: { prompt: 100, completion: 50, total: 150 },
           outputPath: "state/scheduled-compile-prompt.md",
         },
       },
@@ -128,6 +130,8 @@ describe("CompilePage", () => {
     expect(screen.getByText("wiki/projects/iaqar.md")).toBeInTheDocument();
     expect(screen.getByText(/unknown wiki page category: unknowns/)).toBeInTheDocument();
     expect(screen.getByText(/1,038 observations remaining/i)).toBeInTheDocument();
+    expect(screen.getByText(/3 pages rewritten/i)).toBeInTheDocument();
+    expect(screen.getByText(/150 tokens/i)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Review 2 staged changes/i })).toHaveAttribute("href", "/memory/inbox");
   });
 

@@ -5,8 +5,10 @@ import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   applyCompileOperations,
+  isKnowledgePageType,
   parseCompileOperationsBlock,
 } from "../../src/compile/execute.js";
+import type { LLMProvider } from "../../src/llm/types.js";
 import { parseFrontmatter } from "../../src/storage/frontmatter.js";
 
 describe("compile execute operations", () => {
@@ -33,6 +35,18 @@ describe("compile execute operations", () => {
 
     expect(parsed.ok).toBe(true);
     if (parsed.ok) expect(parsed.operations).toHaveLength(1);
+  });
+
+  it("classifies only durable knowledge page types as rewrite-only", () => {
+    expect(isKnowledgePageType("projects")).toBe(true);
+    expect(isKnowledgePageType("lessons")).toBe(true);
+    expect(isKnowledgePageType("decisions")).toBe(true);
+    expect(isKnowledgePageType("references")).toBe(true);
+    expect(isKnowledgePageType("tools")).toBe(true);
+    expect(isKnowledgePageType("people")).toBe(true);
+    expect(isKnowledgePageType("prospective")).toBe(true);
+    expect(isKnowledgePageType("threads")).toBe(false);
+    expect(isKnowledgePageType("procedures")).toBe(false);
   });
 
   it("applies high-confidence write_page operations after grounding and redaction", async () => {
@@ -216,7 +230,7 @@ describe("compile execute operations", () => {
     expect(result.outcomes).toContainEqual({
       path: "wiki/projects/memory-fort.md",
       outcome: "staged-for-review",
-      reason: "use rewrite_page for existing pages",
+      reason: "knowledge-page update requires rewrite LLM",
       contentPreserved: true,
     });
     const written = await readFile(join(tmp, "wiki", "projects", "memory-fort.md"), "utf-8");
@@ -246,7 +260,7 @@ describe("compile execute operations", () => {
     expect(result.outcomes).toContainEqual({
       path: "wiki/projects/memory-fort.md",
       outcome: "staged-for-review",
-      reason: "use rewrite_page for existing pages",
+      reason: "knowledge-page update requires rewrite LLM",
       contentPreserved: true,
     });
     const canonical = await readFile(join(tmp, "wiki", "projects", "memory-fort.md"), "utf-8");
@@ -274,13 +288,11 @@ describe("compile execute operations", () => {
       now: new Date("2026-05-30T12:00:00.000Z"),
     });
 
-    expect(result.applied).toEqual([]);
+    expect(result.applied).toEqual(["wiki/projects/memory-fort.md"]);
     expect(result.proposed).toEqual([]);
     expect(result.outcomes).toContainEqual({
       path: "wiki/projects/memory-fort.md",
       outcome: "skipped: no new content",
-      reason: "no new content",
-      converted: "write->append: target already existed",
       contentPreserved: true,
     });
     await expect(readFile(join(tmp, "wiki", "projects", "memory-fort.md"), "utf-8"))
@@ -507,7 +519,7 @@ describe("compile execute operations", () => {
       expect(result.outcomes).toContainEqual({
         path: "wiki/projects/memory-fort.md",
         outcome: "staged-for-review",
-        reason: "use rewrite_page for existing pages",
+        reason: "knowledge-page update requires rewrite LLM",
         contentPreserved: true,
       });
     }
@@ -517,15 +529,21 @@ describe("compile execute operations", () => {
     expect(canonical).not.toContain("undated fact");
   });
 
-  it("allows genuinely dated event append_page updates against existing pages", async () => {
+  it("rewrites dated append_page updates against existing knowledge pages", async () => {
     await writeFileAt("wiki/projects/memory-fort.md", page(
       "projects",
       "Memory Fort",
       "Memory Fort stores durable memory.",
     ));
+    const llm = fakeRewriteLLM(({ currentBody, newContent }) => [
+      currentBody.trim(),
+      stripMarkdownHeading(newContent).trim(),
+    ].join("\n\n"));
 
     const result = await applyCompileOperations({
       vaultRoot: tmp,
+      rewriteLLM: llm,
+      now: new Date("2026-05-31T12:00:00.000Z"),
       operations: [{
         kind: "append_page",
         path: "wiki/projects/memory-fort.md",
@@ -535,12 +553,101 @@ describe("compile execute operations", () => {
 
     expect(result.outcomes).toContainEqual({
       path: "wiki/projects/memory-fort.md",
+      outcome: "rewritten",
+      contentPreserved: true,
+    });
+    expect(result.pagesRewritten).toBe(1);
+    expect(llm.calls).toBe(1);
+    const written = parseFrontmatter(await readFile(join(tmp, "wiki", "projects", "memory-fort.md"), "utf-8"));
+    expect(written.body).toContain("Memory Fort stores durable memory.");
+    expect(written.body).toContain("Memory Fort had a dated operator event.");
+    expect(written.body).not.toMatch(/^##\s+2026-05-31/m);
+    expect(existsSync(join(tmp, "wiki", ".history", "wiki", "projects", "memory-fort.md", "2026-05-31T12-00-00-000Z.md"))).toBe(true);
+  });
+
+  it("stages knowledge-page updates when no rewrite LLM is available", async () => {
+    await writeFileAt("wiki/projects/memory-fort.md", page(
+      "projects",
+      "Memory Fort",
+      "Memory Fort stores durable memory.",
+    ));
+
+    const result = await applyCompileOperations({
+      vaultRoot: tmp,
+      now: new Date("2026-05-31T12:00:00.000Z"),
+      operations: [{
+        kind: "append_page",
+        path: "wiki/projects/memory-fort.md",
+        section: "## 2026-05-31 update\n\nMemory Fort had a dated operator event.",
+      }],
+    });
+
+    expect(result.outcomes).toContainEqual({
+      path: "wiki/projects/memory-fort.md",
+      outcome: "staged-for-review",
+      reason: "knowledge-page update requires rewrite LLM",
+      contentPreserved: true,
+    });
+    const written = await readFile(join(tmp, "wiki", "projects", "memory-fort.md"), "utf-8");
+    expect(written).not.toContain("dated operator event");
+  });
+
+  it("skips knowledge-page rewrites when incoming content is already covered", async () => {
+    await writeFileAt("wiki/projects/memory-fort.md", page(
+      "projects",
+      "Memory Fort",
+      "Memory Fort captures raw observations and keeps long-term memory available.",
+    ));
+    const before = await readFile(join(tmp, "wiki", "projects", "memory-fort.md"), "utf-8");
+    const llm = fakeRewriteLLM(() => "should not be called");
+
+    const result = await applyCompileOperations({
+      vaultRoot: tmp,
+      rewriteLLM: llm,
+      operations: [{
+        kind: "append_page",
+        path: "wiki/projects/memory-fort.md",
+        section: "## 2026-05-31 update\n\nMemory Fort captures raw observations and keeps long-term memory available.",
+      }],
+    });
+
+    expect(result.outcomes).toContainEqual({
+      path: "wiki/projects/memory-fort.md",
+      outcome: "skipped: no new content",
+      contentPreserved: true,
+    });
+    expect(result.pagesRewritten).toBe(0);
+    expect(llm.calls).toBe(0);
+    await expect(readFile(join(tmp, "wiki", "projects", "memory-fort.md"), "utf-8"))
+      .resolves.toBe(before);
+  });
+
+  it("still appends dated updates to thread pages", async () => {
+    await writeFileAt("wiki/threads/compile-thread.md", page(
+      "threads",
+      "Compile Thread",
+      "Compile thread opened.",
+    ));
+
+    const result = await applyCompileOperations({
+      vaultRoot: tmp,
+      operations: [{
+        kind: "append_page",
+        path: "wiki/threads/compile-thread.md",
+        section: "## 2026-05-31 update\n\nCompile thread recorded a chronological event.",
+      }],
+    });
+
+    expect(result.outcomes).toContainEqual({
+      path: "wiki/threads/compile-thread.md",
       outcome: "appended",
       contentPreserved: true,
     });
+    const written = await readFile(join(tmp, "wiki", "threads", "compile-thread.md"), "utf-8");
+    expect(written).toMatch(/^##\s+2026-05-31 update/m);
   });
 
-  it("keeps a hot entity bounded across repeated rewrite passes and archives each version", async () => {
+  it("keeps a hot knowledge entity bounded across 30 append-emitting passes", async () => {
     await writeFileAt("wiki/projects/hot-entity.md", [
       "---",
       "type: projects",
@@ -554,28 +661,31 @@ describe("compile execute operations", () => {
       "",
     ].join("\n"));
     await writeFileAt("wiki/tools/codex.md", page("tools", "Codex", "Codex Desktop."));
+    const llm = fakeRewriteLLM(({ currentBody, newContent }) => [
+      firstNonEmptyLine(currentBody),
+      stripMarkdownHeading(newContent).trim(),
+    ].join("\n\n"));
 
-    for (let i = 1; i <= 20; i += 1) {
+    for (let i = 1; i <= 30; i += 1) {
       const result = await applyCompileOperations({
         vaultRoot: tmp,
-        now: new Date(`2026-05-31T12:00:${String(i).padStart(2, "0")}.000Z`),
+        rewriteLLM: llm,
+        now: new Date(`2026-05-31T12:${String(i).padStart(2, "0")}:00.000Z`),
         operations: [{
-          kind: "rewrite_page",
+          kind: "append_page",
           path: "wiki/projects/hot-entity.md",
-          frontmatter: {
-            confidence: 0.9,
-            relations: { uses: ["wiki/tools/codex.md"] },
-          },
-          body: `Hot Entity uses [[tools/codex]] and has consolidated fact ${i}.`,
+          section: `## 2026-05-31 update\n\nHot Entity uses [[tools/codex]] and records alpha${i} beta${i} gamma${i} delta${i}.`,
         }],
       });
       expect(result.outcomes.at(-1)?.outcome).toBe("rewritten");
     }
 
     const current = await readFile(join(tmp, "wiki", "projects", "hot-entity.md"), "utf-8");
-    expect(current.match(/consolidated fact/g) ?? []).toHaveLength(1);
+    expect(current.match(/^##\s+\d{4}-\d{2}-\d{2}/gm) ?? []).toHaveLength(0);
+    expect(current.match(/records alpha/g) ?? []).toHaveLength(1);
     const historyDir = join(tmp, "wiki", ".history", "wiki", "projects", "hot-entity.md");
-    expect((await readdir(historyDir)).filter((name) => name.endsWith(".md"))).toHaveLength(20);
+    expect((await readdir(historyDir)).filter((name) => name.endsWith(".md"))).toHaveLength(30);
+    expect(llm.calls).toBe(30);
   });
 
   it("skips append_page sections whose content is already substantially present", async () => {
@@ -610,7 +720,7 @@ describe("compile execute operations", () => {
       .resolves.toBe(before);
   });
 
-  it("still appends genuinely new facts to an existing page", async () => {
+  it("stages genuinely new knowledge-page facts when no rewrite LLM is available", async () => {
     const result = await applyCompileOperations({
       vaultRoot: tmp,
       operations: [{
@@ -625,14 +735,16 @@ describe("compile execute operations", () => {
       now: new Date("2026-05-30T12:00:00.000Z"),
     });
 
-    expect(result.applied).toEqual(["wiki/projects/memory-fort.md"]);
+    expect(result.applied).toEqual([]);
+    expect(result.proposed).toEqual(["wiki/compile-proposed/memory-fort.md"]);
     expect(result.outcomes).toContainEqual({
       path: "wiki/projects/memory-fort.md",
-      outcome: "appended",
+      outcome: "staged-for-review",
+      reason: "knowledge-page update requires rewrite LLM",
       contentPreserved: true,
     });
     const written = await readFile(join(tmp, "wiki", "projects", "memory-fort.md"), "utf-8");
-    expect(written).toContain("rebuilds its wiki index deterministically");
+    expect(written).not.toContain("rebuilds its wiki index deterministically");
   });
 
   it("creates a missing normalized page from append_page and preserves the section", async () => {
@@ -783,7 +895,12 @@ describe("compile execute operations", () => {
     });
 
     expect(result.outcomes).toEqual(expect.arrayContaining([
-      { path: "wiki/projects/memory-fort.md", outcome: "appended", contentPreserved: true },
+      {
+        path: "wiki/projects/memory-fort.md",
+        outcome: "staged-for-review",
+        reason: "knowledge-page update requires rewrite LLM",
+        contentPreserved: true,
+      },
       {
         path: "wiki/unknowns/bad.md",
         outcome: "rejected",
@@ -849,4 +966,49 @@ function rawPage(title: string, session: string): string {
     "",
     `${title} body.`,
   ].join("\n");
+}
+
+function fakeRewriteLLM(
+  rewrite: (input: { currentBody: string; newContent: string; prompt: string }) => string,
+): LLMProvider & { calls: number } {
+  const provider: LLMProvider & { calls: number } = {
+    calls: 0,
+    providerName: "test",
+    modelName: "rewrite-test",
+    async chat(request) {
+      provider.calls += 1;
+      const prompt = request.messages.map((message) => message.content).join("\n");
+      const currentBody = /Current page body:\n```markdown\n([\s\S]*?)\n```/.exec(prompt)?.[1] ?? "";
+      const newContent = /New content to integrate:\n```markdown\n([\s\S]*?)\n```/.exec(prompt)?.[1] ?? "";
+      return {
+        model: "rewrite-test",
+        rawProviderName: "test",
+        finishReason: "stop",
+        tokensUsed: { prompt: 10, completion: 5, total: 15 },
+        content: [
+          "```compile-op",
+          JSON.stringify({
+            kind: "rewrite_page",
+            path: /Path: ([^\n]+)/.exec(prompt)?.[1] ?? "wiki/projects/memory-fort.md",
+            frontmatter: { confidence: 0.9 },
+            body: rewrite({ currentBody, newContent, prompt }),
+          }),
+          "```",
+        ].join("\n"),
+      };
+    },
+  };
+  return provider;
+}
+
+function stripMarkdownHeading(text: string): string {
+  return text
+    .split(/\r?\n/)
+    .filter((line) => !/^##\s+\d{4}-\d{2}-\d{2}/.test(line.trim()))
+    .join("\n")
+    .trim();
+}
+
+function firstNonEmptyLine(text: string): string {
+  return text.split(/\r?\n/).find((line) => line.trim().length > 0)?.trim() ?? "";
 }

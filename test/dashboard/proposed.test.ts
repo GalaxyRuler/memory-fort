@@ -67,7 +67,33 @@ describe("dashboard proposed draft actions", () => {
     });
   });
 
-  it("promotes append_page compile proposals without overwriting existing content", async () => {
+  it("promotes append_page compile proposals for chronological thread pages", async () => {
+    await writeFileAt("wiki/threads/memory-fort.md", [
+      "---",
+      "type: threads",
+      "title: Memory Fort",
+      "---",
+      "",
+      "Existing body.",
+      "",
+    ].join("\n"));
+    await writeFileAt("wiki/compile-proposed/memory-fort.md", compileProposal({
+      kind: "append_page",
+      path: "wiki/threads/memory-fort.md",
+      section: "## 2026-05-30\n\nReviewed compile addition.",
+    }));
+
+    const result = await promoteProposedDraft(tmp, "compile", "memory-fort");
+
+    expect(result).toEqual({ promotedPath: "wiki/threads/memory-fort.md" });
+    expect(existsSync(join(tmp, "wiki", "compile-proposed", "memory-fort.md"))).toBe(false);
+    const written = await readFile(join(tmp, "wiki", "threads", "memory-fort.md"), "utf-8");
+    const parsed = parseFrontmatter(written);
+    expect(parsed.body).toContain("Existing body.");
+    expect(parsed.body).toContain("Reviewed compile addition.");
+  });
+
+  it("refuses to promote append_page compile proposals against existing knowledge pages", async () => {
     await writeFileAt("wiki/projects/memory-fort.md", [
       "---",
       "type: projects",
@@ -83,14 +109,11 @@ describe("dashboard proposed draft actions", () => {
       section: "## 2026-05-30\n\nReviewed compile addition.",
     }));
 
-    const result = await promoteProposedDraft(tmp, "compile", "memory-fort");
-
-    expect(result).toEqual({ promotedPath: "wiki/projects/memory-fort.md" });
-    expect(existsSync(join(tmp, "wiki", "compile-proposed", "memory-fort.md"))).toBe(false);
-    const written = await readFile(join(tmp, "wiki", "projects", "memory-fort.md"), "utf-8");
-    const parsed = parseFrontmatter(written);
-    expect(parsed.body).toContain("Existing body.");
-    expect(parsed.body).toContain("Reviewed compile addition.");
+    await expect(promoteProposedDraft(tmp, "compile", "memory-fort"))
+      .rejects.toThrow("knowledge-page update requires rewrite_page");
+    await expect(readFile(join(tmp, "wiki", "projects", "memory-fort.md"), "utf-8"))
+      .resolves.not.toContain("Reviewed compile addition.");
+    expect(existsSync(join(tmp, "wiki", "compile-proposed", "memory-fort.md"))).toBe(true);
   });
 
   it("rejects a compile proposal by deleting only the proposal", async () => {

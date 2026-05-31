@@ -1021,6 +1021,8 @@ describe("dashboard server", () => {
         ],
         referencesStripped: 3,
         prosePathLeaks: 0,
+        pagesRewritten: 1,
+        rewriteTokensUsed: { prompt: 10, completion: 5, total: 15 },
       },
     }));
     const server = await createServer({ vaultRoot: tmp, port: 0, compileRunner });
@@ -1054,6 +1056,8 @@ describe("dashboard server", () => {
             },
           ],
           referencesStripped: 3,
+          pagesRewritten: 1,
+          rewriteTokensUsed: { prompt: 10, completion: 5, total: 15 },
           outputPath: "state/scheduled-compile-prompt.md",
         },
       });

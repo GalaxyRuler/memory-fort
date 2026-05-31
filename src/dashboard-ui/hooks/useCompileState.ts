@@ -34,6 +34,7 @@ export interface CompileRunResponse {
     opsApplied: number;
     opsStaged: number;
     opsRejected: number;
+    pagesRewritten: number;
     outcomes: Array<{
       path: string;
       outcome: string;
@@ -42,6 +43,11 @@ export interface CompileRunResponse {
       contentPreserved: boolean;
     }>;
     referencesStripped: number;
+    rewriteTokensUsed?: {
+      prompt: number;
+      completion: number;
+      total: number;
+    };
     outputPath: string;
     execute: boolean;
     error?: string;

@@ -963,6 +963,8 @@ function compileRunSummaryForResponse(result: DashboardCompileRunResult, execute
     opsRejected: execution?.rejected.length ?? 0,
     outcomes: execution?.outcomes ?? [],
     referencesStripped: execution?.referencesStripped ?? 0,
+    pagesRewritten: execution?.pagesRewritten ?? 0,
+    ...(execution?.rewriteTokensUsed ? { rewriteTokensUsed: execution.rewriteTokensUsed } : {}),
     outputPath: result.outputPath,
     execute,
     ...(execution?.rejected.length ? { error: execution.rejected.map((item) => `${item.path}: ${item.reason}`).join("; ") } : {}),

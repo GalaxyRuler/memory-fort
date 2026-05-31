@@ -497,12 +497,14 @@ async function executeCompilePrompt(opts: CompileOptions & {
       }],
       referencesStripped: 0,
       prosePathLeaks: 0,
+      pagesRewritten: 0,
     };
   }
   const applied = await applyCompileOperations({
     vaultRoot: opts.root,
     operations: parsed.operations,
     plan: opts.plan,
+    rewriteLLM: opts.plan ? undefined : llm,
   });
   return {
     mode: opts.plan ? "plan" : "execute",

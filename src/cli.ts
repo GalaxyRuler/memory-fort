@@ -417,6 +417,10 @@ program
           console.error(`  operations proposed: ${result.execution.proposed.length}`);
           console.error(`  operations planned: ${result.execution.planned.length}`);
           console.error(`  operations rejected: ${result.execution.rejected.length}`);
+          console.error(`  pages rewritten:    ${result.execution.pagesRewritten}`);
+          if (result.execution.rewriteTokensUsed) {
+            console.error(`  rewrite tokens:     ${result.execution.rewriteTokensUsed.total} total (${result.execution.rewriteTokensUsed.prompt} prompt, ${result.execution.rewriteTokensUsed.completion} completion)`);
+          }
           if (result.indexRebuild) {
             console.error(`  index rebuilt:      ${result.indexRebuild.changed ? "yes" : "unchanged"} (${result.indexRebuild.entries} entries)`);
           }

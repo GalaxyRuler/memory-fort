@@ -45,8 +45,16 @@ function CompileResultSummary({ response }: { response: CompileRunResponse }) {
       <p>
         <strong className="text-text-primary">{formatNumber(summary.rawRemaining)} observations remaining</strong>
         {summary.rawRemaining > 0 ? " - run again to continue." : "."}
+        {summary.pagesRewritten > 0 ? ` ${formatNumber(summary.pagesRewritten)} page${summary.pagesRewritten === 1 ? "" : "s"} rewritten.` : ""}
         {summary.referencesStripped > 0 ? ` ${formatNumber(summary.referencesStripped)} invented references stripped.` : ""}
       </p>
+      {summary.rewriteTokensUsed ? (
+        <p>
+          Rewrite LLM usage:{" "}
+          <strong className="text-text-primary">{formatNumber(summary.rewriteTokensUsed.total)} tokens</strong>{" "}
+          ({formatNumber(summary.rewriteTokensUsed.prompt)} prompt, {formatNumber(summary.rewriteTokensUsed.completion)} completion).
+        </p>
+      ) : null}
       {summary.opsStaged > 0 ? (
         <a className="inline-flex text-primary hover:underline" href="/memory/inbox">
           Review {formatNumber(summary.opsStaged)} staged changes {"->"}
