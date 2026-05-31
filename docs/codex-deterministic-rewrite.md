@@ -20,6 +20,16 @@ This makes the failure mode impossible: there is no code path that adds a dated 
 
 ---
 
+## Grounding (added retroactively 2026-05-31)
+
+This is the established **"enforcement over instruction"** pattern for LLM systems — verified after the fact:
+- The shift from *prompting the model to behave* to *constraining it in code* is the documented "harness → enforcement" progression: "rather than accepting outputs, systems verify and enforce them, constraining the model instead of assisting it."
+- **Why structural beats prompting, quantified:** "a deterministic constraint is completely reliable (100% precision and recall)… a stochastic constraint is not completely reliable because it invokes a model." 4.22–4.24 were stochastic (prompt the model to rewrite); 4.25 is deterministic (no append path exists). That's exactly the reliability gap that broke them.
+
+Sources: [From Harness to Enforcement — deterministic guardrails for LLM systems](https://bh3r1th.medium.com/from-harness-to-enforcement-designing-deterministic-guardrails-for-llm-systems-6a9912ba7eba), [Semantic Integrity Constraints — declarative guardrails (VLDB vol18 p4073)](https://www.vldb.org/pvldb/vol18/p4073-lee.pdf).
+
+---
+
 ## Scope guard
 
 ### Task 1 — Page classification
