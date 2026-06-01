@@ -77,6 +77,13 @@ export interface SearchTimings {
   intentClassification: IntentClassification;
 }
 
+export interface Bm25CacheStats {
+  indexCacheHit: boolean;
+  documentCount: number;
+  tokenCacheHits: number;
+  tokenCacheMisses: number;
+}
+
 export interface HydeStatus {
   used: boolean;
   reason:
@@ -95,6 +102,7 @@ export interface SearchResponse {
   degraded: boolean;
   hyde: HydeStatus;
   corpusErrorCount: number;
+  bm25Cache: Bm25CacheStats;
 }
 
 interface VectorScore {
@@ -203,6 +211,7 @@ export async function runSearch(opts: SearchOptions): Promise<SearchResponse> {
       degraded,
       hyde: { used: false, reason: "not-triggered" },
       corpusErrorCount: corpusErrors.length,
+      bm25Cache: emptyBm25CacheStats(),
     };
   }
 
@@ -260,10 +269,11 @@ export async function runSearch(opts: SearchOptions): Promise<SearchResponse> {
   throwIfAborted(opts.signal);
 
   const bm25Started = Date.now();
-  const bm25 = scoreBm25(
-    lexicalQuery,
-    cachedBm25Index(opts.vaultRoot, documents),
-  ).slice(0, SIGNAL_LIMIT);
+  const { index: bm25Index, stats: bm25CacheStats } = cachedBm25Index(
+    opts.vaultRoot,
+    documents,
+  );
+  const bm25 = scoreBm25(lexicalQuery, bm25Index).slice(0, SIGNAL_LIMIT);
   timings.bm25Ms = Date.now() - bm25Started;
 
   const vectorStarted = Date.now();
@@ -414,6 +424,7 @@ export async function runSearch(opts: SearchOptions): Promise<SearchResponse> {
     degraded,
     hyde,
     corpusErrorCount: corpusErrors.length,
+    bm25Cache: bm25CacheStats,
   };
 }
 
@@ -488,29 +499,57 @@ function toRankedItems(scores: Array<{ relPath: string }>): RankedItem[] {
   return scores.map((score, index) => ({ relPath: score.relPath, rank: index + 1 }));
 }
 
-function cachedBm25Index(vaultRoot: string, documents: SearchDocument[]): Bm25Index {
+function cachedBm25Index(
+  vaultRoot: string,
+  documents: SearchDocument[],
+): { index: Bm25Index; stats: Bm25CacheStats } {
   const fingerprint = corpusFingerprint(vaultRoot, documents);
   const cached = bm25IndexCache.get(fingerprint);
-  if (cached) return cached;
+  if (cached) {
+    return {
+      index: cached,
+      stats: {
+        indexCacheHit: true,
+        documentCount: documents.length,
+        tokenCacheHits: 0,
+        tokenCacheMisses: 0,
+      },
+    };
+  }
 
+  let tokenCacheHits = 0;
+  let tokenCacheMisses = 0;
   const index = buildBm25IndexFromEntries(
-    documents.map((document) => cachedTokenizedDocument(vaultRoot, document)),
+    documents.map((document) => {
+      const { entry, cacheHit } = cachedTokenizedDocument(vaultRoot, document);
+      if (cacheHit) tokenCacheHits += 1;
+      else tokenCacheMisses += 1;
+      return entry;
+    }),
   );
   bm25IndexCache.set(fingerprint, index);
   trimBm25Cache();
-  return index;
+  return {
+    index,
+    stats: {
+      indexCacheHit: false,
+      documentCount: documents.length,
+      tokenCacheHits,
+      tokenCacheMisses,
+    },
+  };
 }
 
 function cachedTokenizedDocument(
   vaultRoot: string,
   document: SearchDocument,
-): Bm25IndexEntry {
+): { entry: Bm25IndexEntry; cacheHit: boolean } {
   const cacheKey = tokenCacheKey(vaultRoot, document);
   const cached = bm25TokenCache.get(cacheKey);
   if (cached) {
     bm25TokenCache.delete(cacheKey);
     bm25TokenCache.set(cacheKey, cached);
-    return cached;
+    return { entry: cached, cacheHit: true };
   }
 
   const entry = {
@@ -519,7 +558,7 @@ function cachedTokenizedDocument(
   };
   bm25TokenCache.set(cacheKey, entry);
   trimBm25TokenCache();
-  return entry;
+  return { entry, cacheHit: false };
 }
 
 function bm25Body(document: SearchDocument): string {
@@ -630,6 +669,15 @@ function emptyTimings(): SearchTimings {
       method: "fallback",
       latencyMs: 0,
     },
+  };
+}
+
+function emptyBm25CacheStats(): Bm25CacheStats {
+  return {
+    indexCacheHit: false,
+    documentCount: 0,
+    tokenCacheHits: 0,
+    tokenCacheMisses: 0,
   };
 }
 

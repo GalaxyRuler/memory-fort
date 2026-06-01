@@ -475,6 +475,7 @@ describe("dashboard server", () => {
         degraded: expect.any(Boolean),
         hyde: expect.any(Object),
         corpusErrorCount: expect.any(Number),
+        bm25Cache: expect.any(Object),
       });
       expect(body.results.length).toBeGreaterThan(0);
     } finally {

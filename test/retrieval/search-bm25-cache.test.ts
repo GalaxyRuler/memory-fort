@@ -48,8 +48,11 @@ describe("search BM25 cache", () => {
     const second = await searchEmbedding();
 
     expect(resultPaths(second)).toEqual(resultPaths(first));
-    expect(first.timings.bm25Ms).toBeGreaterThan(0);
-    expect(second.timings.bm25Ms).toBeLessThanOrEqual(first.timings.bm25Ms / 10);
+    // Cold build: index cache miss, every source file tokenized fresh.
+    expect(first.bm25Cache.indexCacheHit).toBe(false);
+    expect(first.bm25Cache.tokenCacheMisses).toBe(first.bm25Cache.documentCount);
+    // Fully warm: identical corpus fingerprint reuses the cached index outright.
+    expect(second.bm25Cache.indexCacheHit).toBe(true);
 
     const changedAt = new Date(Date.now() + 60_000);
     await utimes(join(vaultRoot, "wiki", "projects", "alpha.md"), changedAt, changedAt);
@@ -57,8 +60,12 @@ describe("search BM25 cache", () => {
     const afterMtimeChange = await searchEmbedding();
 
     expect(resultPaths(afterMtimeChange)).toEqual(resultPaths(first));
-    expect(afterMtimeChange.timings.bm25Ms).toBeGreaterThan(second.timings.bm25Ms);
-    expect(afterMtimeChange.timings.bm25Ms).toBeLessThanOrEqual(200);
+    // One file's mtime changed: index rebuilds, only that file re-tokenizes.
+    expect(afterMtimeChange.bm25Cache.indexCacheHit).toBe(false);
+    expect(afterMtimeChange.bm25Cache.tokenCacheMisses).toBe(1);
+    expect(afterMtimeChange.bm25Cache.tokenCacheHits).toBe(
+      afterMtimeChange.bm25Cache.documentCount - 1,
+    );
   });
 
   test("keeps a single source file add mostly warm", async () => {
@@ -72,10 +79,13 @@ describe("search BM25 cache", () => {
 
     const afterAdd = await searchEmbedding();
 
-    expect(warm.timings.bm25Ms).toBeLessThanOrEqual(first.timings.bm25Ms / 10);
+    expect(warm.bm25Cache.indexCacheHit).toBe(true);
     expect(afterAdd.results.some((result) => result.path.endsWith("zeta.md"))).toBe(true);
-    expect(afterAdd.timings.bm25Ms).toBeLessThanOrEqual(200);
-    expect(afterAdd.timings.bm25Ms).toBeLessThan(first.timings.bm25Ms / 2);
+    // Adding one file invalidates the index but keeps every prior file warm:
+    // only the new file tokenizes, the rest reuse cached tokens.
+    expect(afterAdd.bm25Cache.indexCacheHit).toBe(false);
+    expect(afterAdd.bm25Cache.tokenCacheMisses).toBe(1);
+    expect(afterAdd.bm25Cache.tokenCacheHits).toBe(first.bm25Cache.documentCount);
   });
 
   test("keeps a single source file modify mostly warm", async () => {
@@ -91,10 +101,15 @@ describe("search BM25 cache", () => {
 
     const afterModify = await searchEmbedding();
 
-    expect(warm.timings.bm25Ms).toBeLessThanOrEqual(first.timings.bm25Ms / 10);
+    expect(warm.bm25Cache.indexCacheHit).toBe(true);
     expect(afterModify.results.some((result) => result.path.endsWith("beta.md"))).toBe(true);
-    expect(afterModify.timings.bm25Ms).toBeLessThanOrEqual(200);
-    expect(afterModify.timings.bm25Ms).toBeLessThan(first.timings.bm25Ms / 2);
+    // Modifying one file invalidates the index but keeps the rest warm:
+    // only the changed file re-tokenizes.
+    expect(afterModify.bm25Cache.indexCacheHit).toBe(false);
+    expect(afterModify.bm25Cache.tokenCacheMisses).toBe(1);
+    expect(afterModify.bm25Cache.tokenCacheHits).toBe(
+      afterModify.bm25Cache.documentCount - 1,
+    );
   });
 
   test("ignores non-corpus sidecar mtime touches for BM25 cache reuse", async () => {
@@ -106,9 +121,10 @@ describe("search BM25 cache", () => {
 
     const afterSidecarTouch = await searchEmbedding();
 
-    expect(warm.timings.bm25Ms).toBeLessThanOrEqual(first.timings.bm25Ms / 10);
+    expect(warm.bm25Cache.indexCacheHit).toBe(true);
     expect(resultPaths(afterSidecarTouch)).toEqual(resultPaths(first));
-    expect(afterSidecarTouch.timings.bm25Ms).toBeLessThanOrEqual(first.timings.bm25Ms / 10);
+    // Touching a non-corpus sidecar leaves the fingerprint unchanged: still warm.
+    expect(afterSidecarTouch.bm25Cache.indexCacheHit).toBe(true);
   });
 
   async function searchEmbedding() {
