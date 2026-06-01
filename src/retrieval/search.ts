@@ -112,6 +112,7 @@ const DEFAULT_MIN_SCORE = 0;
 const SIGNAL_LIMIT = 50;
 const BM25_CACHE_MAX_ENTRIES = 8;
 const BM25_TOKEN_CACHE_MAX_ENTRIES = 4096;
+const RAW_BM25_MAX_CHARS = 16_000;
 // Voyage returns low positive cosine for unrelated text; keep vector as a signal, not a universal match.
 const MIN_VECTOR_SCORE = 0.25;
 const LEXICAL_STOPWORDS = new Set([
@@ -514,11 +515,19 @@ function cachedTokenizedDocument(
 
   const entry = {
     relPath: document.relPath,
-    tokens: buildTokens(document.body),
+    tokens: buildTokens(bm25Body(document)),
   };
   bm25TokenCache.set(cacheKey, entry);
   trimBm25TokenCache();
   return entry;
+}
+
+function bm25Body(document: SearchDocument): string {
+  if (document.kind !== "raw" || document.body.length <= RAW_BM25_MAX_CHARS) {
+    return document.body;
+  }
+  const half = Math.floor(RAW_BM25_MAX_CHARS / 2);
+  return `${document.body.slice(0, half)}\n${document.body.slice(-half)}`;
 }
 
 function buildTokens(text: string): Tokens {

@@ -357,6 +357,52 @@ describe("search core", () => {
     expect(response.results[0]?.sources.some((source) => source.source === "bm25")).toBe(true);
   });
 
+  it("keeps oversized raw BM25 work bounded while preserving tail search", async () => {
+    const embedClient: EmbedClient = {
+      embed: vi.fn(async () => {
+        throw new Error("embedder unavailable");
+      }),
+    };
+    const voyageClient: VoyageClient = {
+      embed: vi.fn(async () => {
+        throw new Error("embedder unavailable");
+      }),
+      rerank: vi.fn(async () => {
+        throw new Error("rerank unavailable");
+      }),
+    };
+    const documents = Array.from({ length: 100 }, (_, index) => {
+      const body = [
+        `raw heading ${index}`,
+        "middle ".repeat(30_000),
+        index === 42 ? "tailneedle42" : `tail-other-${index}`,
+      ].join("\n");
+      return makeDoc({
+        kind: "raw",
+        relPath: `raw/2026-05-29/manual-large-${index}.md`,
+        title: `large raw ${index}`,
+        type: "raw-session",
+        body,
+        snippetSource: `raw heading ${index}`,
+        sizeBytes: body.length,
+      });
+    });
+
+    const response = await runSearch({
+      query: "tailneedle42",
+      noHyde: true,
+      noRerank: true,
+      vaultRoot: tmp,
+      embedClient,
+      voyageClient,
+      corpusLoader: async () => ({ documents, errors: [] }),
+    });
+
+    expect(response.results[0]?.path).toBe("raw/2026-05-29/manual-large-42.md");
+    expect(response.results[0]?.sources.some((source) => source.source === "bm25")).toBe(true);
+    expect(response.timings.bm25Ms).toBeLessThanOrEqual(100);
+  });
+
   it("can disable spreading activation with MEMORY_FORT_SPREADING_ACTIVATION", async () => {
     const previous = process.env.MEMORY_FORT_SPREADING_ACTIVATION;
     process.env.MEMORY_FORT_SPREADING_ACTIVATION = "false";
