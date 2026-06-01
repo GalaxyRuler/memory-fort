@@ -27,6 +27,7 @@ export interface DecayResult {
   archived: Array<{ from: string; to: string }>;
   moved: Array<{ from: string; to: string }>;
   skippedPinned: string[];
+  auditLogPath?: string;
   report: string;
 }
 
@@ -43,6 +44,7 @@ export async function runDecay(opts: DecayOptions): Promise<DecayResult> {
   const archived: Array<{ from: string; to: string }> = [];
   const moved: Array<{ from: string; to: string }> = [];
   const skippedPinned: string[] = [];
+  let auditLogPath: string | undefined;
 
   for (const relPath of pages) {
     const fullPath = join(root, ...relPath.split("/"));
@@ -79,12 +81,17 @@ export async function runDecay(opts: DecayOptions): Promise<DecayResult> {
     }
   }
 
+  if (opts.mode === "apply" && (decayed.length > 0 || moved.length > 0 || skippedPinned.length > 0)) {
+    auditLogPath = await writeDecayAudit(root, now, decayed, moved, skippedPinned);
+  }
+
   return {
     mode: opts.mode,
     decayed,
     archived,
     moved,
     skippedPinned,
+    ...(auditLogPath ? { auditLogPath } : {}),
     report: formatDecayReport(opts.mode, decayed, archived, skippedPinned),
   };
 }
@@ -144,4 +151,32 @@ function roundStrength(value: number): number {
 
 function isoDate(now: Date): string {
   return now.toISOString().slice(0, 10);
+}
+
+async function writeDecayAudit(
+  root: string,
+  now: Date,
+  decayed: DecayEntry[],
+  moved: Array<{ from: string; to: string }>,
+  skippedPinned: string[],
+): Promise<string> {
+  const timestamp = now.toISOString().replace(/[:.]/g, "-");
+  const auditLogPath = join(root, "wiki", ".audit", `decay-${timestamp}.md`);
+  await mkdir(dirname(auditLogPath), { recursive: true });
+  const lines = [
+    "# decay audit",
+    "",
+    `run_at: ${now.toISOString()}`,
+    "",
+    "## decayed",
+    ...decayed.map((entry) => `- ${entry.path}: ${entry.from} -> ${entry.to} (${entry.periods} periods)`),
+    "",
+    "## archived",
+    ...moved.map((entry) => `- ${entry.from} -> ${entry.to}`),
+    "",
+    "## skipped pinned",
+    ...skippedPinned.map((entry) => `- ${entry}`),
+  ];
+  await atomicWrite(auditLogPath, `${lines.join("\n")}\n`);
+  return auditLogPath;
 }

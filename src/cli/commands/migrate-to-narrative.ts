@@ -10,11 +10,11 @@ import { loadMemoryConfig, type MemoryConfig } from "../../storage/config.js";
 import {
   archivePageVersion,
   isNarrativeKnowledgePagePath,
+  NARRATIVE_SYNTHESIS_SYSTEM_PROMPT,
   nextNarrativeFrontmatter,
   stageNarrativeReview,
   validateNarrativeBody,
 } from "../../compile/synthesize-narrative.js";
-import type { ConsolidationFact } from "../../compile/filter-noise.js";
 
 export type MigrateToNarrativeMode = "plan" | "apply";
 
@@ -91,20 +91,30 @@ async function migrateOne(
     messages: [
       {
         role: "system",
-        content: "Return JSON with one prose body for a narrative memory record. No headings, lists, tables, checklists, or code fences.",
+        content: NARRATIVE_SYNTHESIS_SYSTEM_PROMPT,
       },
       {
         role: "user",
         content: [
-          "Convert this existing knowledge page body into one coherent narrative body.",
-          "Preserve every substantive fact and retain existing wikilinks.",
+          "Convert this existing knowledge page body into one coherent narrative body using the synthesis rules.",
           `Path: ${relPath}`,
           "",
           "Frontmatter:",
           JSON.stringify(parsed.frontmatter, null, 2),
           "",
-          "Flattened existing body:",
-          flattened,
+          "CURRENT BODY:",
+          parsed.body.trim(),
+          "",
+          "contradicted_claims:",
+          "[]",
+          "",
+          "net_new_facts:",
+          flattened
+            .split(/\n+/)
+            .map((line) => line.trim())
+            .filter((line) => line.length > 0)
+            .map((line) => `- ${line}`)
+            .join("\n"),
         ].join("\n"),
       },
     ],
@@ -125,31 +135,9 @@ async function migrateOne(
     return "staged";
   }
   if (body.trim() === parsed.body.trim()) return "unchanged";
-  const facts: ConsolidationFact[] = [{
-    fact_id: "migration",
-    fact: {
-      title: "Narrative migration",
-      facts: ["Existing page migrated to narrative record format."],
-      narrative: flattened,
-      concepts: [String(parsed.frontmatter.title ?? relPath)],
-      files: [],
-      importance: 8,
-      sessionId: "migrate-to-narrative",
-      sourceRawPath: relPath,
-      observedAt: now.toISOString(),
-      compressedAt: now.toISOString(),
-    },
-    text: flattened,
-    needs_review: false,
-  }];
   const history = await archivePageVersion(root, relPath, current, now, parsed.frontmatter);
   await mkdir(dirname(fullPath), { recursive: true });
-  await atomicWrite(fullPath, serializeFrontmatter({
-    ...nextNarrativeFrontmatter(parsed.frontmatter, now, facts, history),
-    strength: typeof parsed.frontmatter.strength === "number" ? parsed.frontmatter.strength : 8,
-    last_accessed: typeof parsed.frontmatter.last_accessed === "string" ? parsed.frontmatter.last_accessed : now.toISOString().slice(0, 10),
-    source_facts: Array.isArray(parsed.frontmatter.source_facts) ? parsed.frontmatter.source_facts : [],
-  }, `${body.trim()}\n`));
+  await atomicWrite(fullPath, serializeFrontmatter(nextNarrativeFrontmatter(parsed.frontmatter, now, [], history), `${body.trim()}\n`));
   return "migrated";
 }
 

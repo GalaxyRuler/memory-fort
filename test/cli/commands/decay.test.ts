@@ -54,6 +54,10 @@ describe("runDecay", () => {
     expect(active.frontmatter.updated).toBe("2026-05-30");
     expect(existsSync(join(tmp, "wiki", "projects", "stale.md"))).toBe(false);
     expect(existsSync(join(tmp, "wiki", ".archive", "2026-06-01", "wiki", "projects", "stale.md"))).toBe(true);
+    expect(applied.auditLogPath).toBe(join(tmp, "wiki", ".audit", "decay-2026-06-01T00-00-00-000Z.md"));
+    const audit = await readFile(applied.auditLogPath!, "utf-8");
+    expect(audit).toContain("wiki/projects/stale.md -> wiki/.archive/2026-06-01/wiki/projects/stale.md");
+    expect(audit).toContain("wiki/projects/active.md: 10 -> 8.1");
 
     const pinned = parseFrontmatter(await readFile(join(tmp, "wiki", "projects", "pinned.md"), "utf-8"));
     expect(pinned.frontmatter.strength).toBe(0.5);

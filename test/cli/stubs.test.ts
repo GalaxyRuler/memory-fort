@@ -1,8 +1,10 @@
 import { describe, it, expect } from "vitest";
 import { spawnSync } from "node:child_process";
 import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const CLI = resolve(process.cwd(), "dist", "cli.mjs");
+const ROOT = resolve(fileURLToPath(new URL("../..", import.meta.url)));
+const CLI = resolve(ROOT, "dist", "cli.mjs");
 
 function runStub(
   name: string,
@@ -10,6 +12,7 @@ function runStub(
 ): { code: number; stderr: string; stdout: string } {
   const r = spawnSync("node", [CLI, name, ...extraArgs], {
     encoding: "utf-8",
+    cwd: ROOT,
   });
   return {
     code: r.status ?? -1,

@@ -384,7 +384,8 @@ function sha256(content: string): string {
   return createHash("sha256").update(content).digest("hex");
 }
 
-function addTokenUsage(left: LLMTokenUsage | undefined, right: LLMTokenUsage): LLMTokenUsage {
+function addTokenUsage(left: LLMTokenUsage | undefined, right: LLMTokenUsage | undefined): LLMTokenUsage | undefined {
+  if (!right) return left;
   return {
     prompt: (left?.prompt ?? 0) + right.prompt,
     completion: (left?.completion ?? 0) + right.completion,
