@@ -263,7 +263,7 @@ function ensureStarted(filePath, payload, dateValue) {
     \`session_id: \${session.replace(/"/g, "")}\`,
     \`created: \${isoDate(dateValue)}\`,
     \`updated: \${isoDate(dateValue)}\`,
-    cwd ? \`cwd: "\${cwd.replace(/"/g, "\\\\\\"")}"\` : null,
+    cwd ? \`cwd: \${JSON.stringify(cwd)}\` : null,
     "---",
     "",
     \`# Antigravity Session \${session}\`,

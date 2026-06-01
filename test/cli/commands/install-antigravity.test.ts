@@ -1,10 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { spawnSync } from "node:child_process";
 import { mkdtemp, rm, mkdir, writeFile, readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runInit } from "../../../src/cli/commands/init.js";
 import { installAntigravity } from "../../../src/cli/commands/install/antigravity.js";
+import { parseFrontmatter } from "../../../src/storage/frontmatter.js";
 
 describe("installAntigravity", () => {
   let tmp: string;
@@ -181,6 +183,31 @@ describe("installAntigravity", () => {
       expect(command).toContain(`hooks/${hookName}.mjs`);
       expect(existsSync(join(result.pluginDir, "hooks", `${hookName}.mjs`))).toBe(true);
     }
+  });
+
+  it("writes parseable YAML frontmatter for Windows cwd paths", async () => {
+    const result = await installAntigravity({
+      antigravityDir,
+      antigravityVersion: "2.1.0",
+    });
+    const hookPath = join(result.pluginDir, "hooks", "pre_turn.mjs");
+    const hook = spawnSync(process.execPath, [hookPath], {
+      input: JSON.stringify({
+        sessionId: "win-cwd",
+        timestamp: "2026-06-01T00:00:00.000Z",
+        cwd: "C:\\CodexProjects\\memory-system",
+        prompt: "capture this",
+      }),
+      encoding: "utf-8",
+      env: { ...process.env, MEMORY_ROOT: memDir },
+    });
+    expect(hook.status).toBe(0);
+
+    const raw = await readFile(
+      join(memDir, "raw", "2026-06-01", "antigravity-win-cwd.md"),
+      "utf-8",
+    );
+    expect(parseFrontmatter(raw).frontmatter.cwd).toBe("C:\\CodexProjects\\memory-system");
   });
 
   it("skips live-capture plugin install gracefully when Antigravity is older than 2.0", async () => {

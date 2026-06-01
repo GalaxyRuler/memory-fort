@@ -43,6 +43,20 @@ describe("runHook", () => {
     expect(appendedErrors).toEqual([]);
   });
 
+  it("accepts UTF-8 BOM-prefixed JSON payloads", async () => {
+    let capturedSessionId: string | undefined;
+    const { ctx, exitCodes, appendedErrors } = makeCtx({
+      body: async (payload) => {
+        capturedSessionId = payload.session_id;
+      },
+      readStdin: async () => `\uFEFF${JSON.stringify({ session_id: "abc" })}`,
+    });
+    await runHook(ctx);
+    expect(capturedSessionId).toBe("abc");
+    expect(exitCodes).toEqual([0]);
+    expect(appendedErrors).toEqual([]);
+  });
+
   it("body throwing -> error written to log, exits 0", async () => {
     const { ctx, exitCodes, appendedErrors } = makeCtx({
       body: async () => {

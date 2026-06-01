@@ -65,7 +65,7 @@ export async function runHook(ctx: HookContext): Promise<void> {
     const raw = await readStdinFn();
     let payload: HookPayload;
     try {
-      payload = JSON.parse(raw) as HookPayload;
+      payload = JSON.parse(stripLeadingJsonBom(raw)) as HookPayload;
     } catch {
       if (
         process.env["MEMORY_SDK_CHILD"] === "1" ||
@@ -107,6 +107,10 @@ export async function runHook(ctx: HookContext): Promise<void> {
   } finally {
     exitFn(0);
   }
+}
+
+function stripLeadingJsonBom(raw: string): string {
+  return raw.charCodeAt(0) === 0xFEFF ? raw.slice(1) : raw;
 }
 
 /**

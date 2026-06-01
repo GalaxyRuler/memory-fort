@@ -7,5 +7,14 @@ src/dashboard-ui/routeTree.gen.ts
 ~/.memory/datasets/
 wiki/.audit/verify-*.json
 
+# Memory vault runtime data belongs under ~/.memory, not the source checkout.
+/raw/
+/facts/
+/wiki/
+/embeddings/
+/state/
+/config.yaml
+/log.md
+
 # Brainstorming session working dir (visual companion server)
 .superpowers/
