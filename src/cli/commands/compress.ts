@@ -22,11 +22,12 @@ export interface CompressOptions {
 
 export interface CompressResult {
   mode: "plan" | "apply";
-  files: Array<{ path: string; outcome: "compressed" | "skipped" | "planned"; facts: number; factPath?: string; reason?: string }>;
+  files: Array<{ path: string; outcome: "compressed" | "skipped" | "planned" | "failed"; facts: number; factPath?: string; reason?: string }>;
   summary: {
     scanned: number;
     compressed: number;
     skipped: number;
+    failed: number;
     factsWritten: number;
   };
   tokensUsed?: LLMTokenUsage;
@@ -59,7 +60,7 @@ export async function runCompress(opts: CompressOptions = {}): Promise<CompressR
       files.push({ path: raw.relPath, outcome: "skipped", facts: 0, reason: "already compressed" });
       continue;
     }
-    if (files.filter((file) => file.outcome === "compressed" || file.outcome === "planned").length >= maxSessions) {
+    if (files.filter((file) => file.outcome === "compressed" || file.outcome === "planned" || file.outcome === "failed").length >= maxSessions) {
       files.push({ path: raw.relPath, outcome: "skipped", facts: 0, reason: "deferred to a later compress pass" });
       continue;
     }
@@ -68,30 +69,34 @@ export async function runCompress(opts: CompressOptions = {}): Promise<CompressR
       continue;
     }
     if (!llm) throw new Error("memory compress: LLM is required in apply mode");
-    const rawText = await readFile(raw.fullPath, "utf-8");
-    const sessionId = readSessionId(rawText) ?? basename(raw.relPath, ".md");
-    const observedAt = observedAtFromRaw(raw.relPath, info.mtimeMs);
-    const result = await compressSessionWithUsage({
-      rawText,
-      rawRelPath: raw.relPath,
-      sessionId,
-      observedAt,
-      llm,
-      vaultRoot: root,
-      env: opts.env,
-      now: opts.now,
-    });
-    const factPath = await writeCompressedFactFile(root, {
-      version: 1,
-      sourceRawPath: raw.relPath,
-      sessionId,
-      observedAt,
-      compressedAt: (opts.now ?? new Date()).toISOString(),
-      facts: result.facts,
-    });
-    compressed[raw.relPath] = { bytes: info.size, lastObservationAt: observedAt };
-    files.push({ path: raw.relPath, outcome: "compressed", facts: result.facts.length, factPath });
-    tokensUsed = addTokenUsage(tokensUsed, result.tokensUsed);
+    try {
+      const rawText = await readFile(raw.fullPath, "utf-8");
+      const sessionId = readSessionId(rawText) ?? basename(raw.relPath, ".md");
+      const observedAt = observedAtFromRaw(raw.relPath, info.mtimeMs);
+      const result = await compressSessionWithUsage({
+        rawText,
+        rawRelPath: raw.relPath,
+        sessionId,
+        observedAt,
+        llm,
+        vaultRoot: root,
+        env: opts.env,
+        now: opts.now,
+      });
+      const factPath = await writeCompressedFactFile(root, {
+        version: 1,
+        sourceRawPath: raw.relPath,
+        sessionId,
+        observedAt,
+        compressedAt: (opts.now ?? new Date()).toISOString(),
+        facts: result.facts,
+      });
+      compressed[raw.relPath] = { bytes: info.size, lastObservationAt: observedAt };
+      files.push({ path: raw.relPath, outcome: "compressed", facts: result.facts.length, factPath });
+      tokensUsed = addTokenUsage(tokensUsed, result.tokensUsed);
+    } catch (err) {
+      files.push({ path: raw.relPath, outcome: "failed", facts: 0, reason: errorMessage(err) });
+    }
   }
 
   if (mode === "apply") {
@@ -105,6 +110,7 @@ export async function runCompress(opts: CompressOptions = {}): Promise<CompressR
       scanned: rawFiles.length,
       compressed: files.filter((file) => file.outcome === "compressed").length,
       skipped: files.filter((file) => file.outcome === "skipped").length,
+      failed: files.filter((file) => file.outcome === "failed").length,
       factsWritten: files.reduce((sum, file) => sum + (file.outcome === "compressed" ? file.facts : 0), 0),
     },
     ...(tokensUsed ? { tokensUsed } : {}),
@@ -117,6 +123,7 @@ export function formatCompressResult(result: CompressResult): string {
     `  scanned:      ${result.summary.scanned}`,
     `  compressed:   ${result.summary.compressed}`,
     `  skipped:      ${result.summary.skipped}`,
+    `  failed:       ${result.summary.failed}`,
     `  facts written: ${result.summary.factsWritten}`,
   ];
   if (result.tokensUsed) {
@@ -158,4 +165,8 @@ function observedAtFromRaw(relPath: string, fallbackMtimeMs: number): string {
 
 function positiveInteger(value: number | undefined, fallback: number): number {
   return value !== undefined && Number.isInteger(value) && value > 0 ? value : fallback;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error && error.message.length > 0 ? error.message : String(error);
 }

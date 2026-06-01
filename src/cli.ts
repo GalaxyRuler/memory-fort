@@ -381,6 +381,7 @@ program
       }
       let totalCompressed = 0;
       let totalFacts = 0;
+      let totalFailed = 0;
       let pass = 0;
       while (true) {
         pass += 1;
@@ -390,10 +391,11 @@ program
         });
         totalCompressed += result.summary.compressed;
         totalFacts += result.summary.factsWritten;
-        console.error(`compress pass ${pass}: compressed ${result.summary.compressed}, skipped ${result.summary.skipped}, facts ${result.summary.factsWritten}`);
+        totalFailed += result.summary.failed;
+        console.error(`compress pass ${pass}: compressed ${result.summary.compressed}, failed ${result.summary.failed}, skipped ${result.summary.skipped}, facts ${result.summary.factsWritten}`);
         if (result.summary.compressed === 0) break;
       }
-      process.stdout.write(`Memory compress drain complete\n  passes:       ${pass}\n  compressed:   ${totalCompressed}\n  facts written: ${totalFacts}\n`);
+      process.stdout.write(`Memory compress drain complete\n  passes:       ${pass}\n  compressed:   ${totalCompressed}\n  failed:       ${totalFailed}\n  facts written: ${totalFacts}\n`);
     } catch (err) {
       console.error(`memory compress failed: ${(err as Error).message}`);
       process.exit(1);
