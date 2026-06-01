@@ -149,7 +149,7 @@ function classifyKeywordLookup(
 ): IntentClassification | null {
   if (query.includes("?")) return null;
   const words = query.trim().toLowerCase().match(/[\p{L}\p{N}_-]+/gu) ?? [];
-  if (words.length < 2 || words.length > 4) return null;
+  if (words.length < 1 || words.length > 4) return null;
   if (words.some((word) => KEYWORD_LOOKUP_BLOCKLIST.has(word))) return null;
   return {
     label: "open-ended",
