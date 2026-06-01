@@ -42,6 +42,31 @@ const SYSTEM_PROMPT = `Classify the user's query into exactly one of these inten
 
 Reply with exactly the bucket name, lowercase, on a single line, no explanation, no quotes. If the query is ambiguous, output: open-ended.`;
 
+const KEYWORD_LOOKUP_BLOCKLIST = new Set([
+  "crash",
+  "current",
+  "currently",
+  "decide",
+  "decided",
+  "decision",
+  "error",
+  "exception",
+  "fail",
+  "failed",
+  "find",
+  "how",
+  "now",
+  "prefer",
+  "preference",
+  "show",
+  "status",
+  "today",
+  "what",
+  "when",
+  "where",
+  "why",
+]);
+
 export function classifyQueryHeuristic(query: string): IntentClassification | null {
   const started = Date.now();
   const normalized = query.trim().toLowerCase();
@@ -83,6 +108,8 @@ export async function classifyQuery(opts: ClassifyQueryOptions): Promise<IntentC
 
   const heuristic = classifyQueryHeuristic(opts.query);
   if (heuristic) return { ...heuristic, latencyMs: Math.max(0, nowMs() - started) };
+  const keywordLookup = classifyKeywordLookup(opts.query, started, nowMs);
+  if (keywordLookup) return keywordLookup;
   if (!opts.llm) return fallbackClassification(started, nowMs);
 
   try {
@@ -113,6 +140,23 @@ export async function classifyQuery(opts: ClassifyQueryOptions): Promise<IntentC
   } catch {
     return fallbackClassification(started, nowMs);
   }
+}
+
+function classifyKeywordLookup(
+  query: string,
+  started: number,
+  nowMs: () => number,
+): IntentClassification | null {
+  if (query.includes("?")) return null;
+  const words = query.trim().toLowerCase().match(/[\p{L}\p{N}_-]+/gu) ?? [];
+  if (words.length < 2 || words.length > 4) return null;
+  if (words.some((word) => KEYWORD_LOOKUP_BLOCKLIST.has(word))) return null;
+  return {
+    label: "open-ended",
+    confidence: 0.55,
+    method: "heuristic",
+    latencyMs: Math.max(0, nowMs() - started),
+  };
 }
 
 export function isIntentLabel(value: unknown): value is IntentLabel {

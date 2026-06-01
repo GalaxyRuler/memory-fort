@@ -79,6 +79,24 @@ describe("query intent classification", () => {
     }));
   });
 
+  it("does not spend an LLM call on simple keyword lookup queries", async () => {
+    const llm = fakeLLM("current-truth");
+
+    const result = await classifyQuery({
+      query: "consolidation architecture",
+      llm,
+      vaultRoot: tmp,
+      env: {},
+    });
+
+    expect(result).toMatchObject({
+      label: "open-ended",
+      method: "heuristic",
+    });
+    expect(result.confidence).toBeLessThan(0.7);
+    expect(llm.chat).not.toHaveBeenCalled();
+  });
+
   it("returns open-ended for malformed LLM responses", async () => {
     const result = await classifyQuery({
       query: "vault status",
