@@ -1,18 +1,14 @@
 import { existsSync } from "node:fs";
-import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
-import { basename, dirname, join, relative } from "node:path";
+import { readFile, readdir } from "node:fs/promises";
+import { basename, join, relative } from "node:path";
 import type { LLMProvider, LLMTokenUsage } from "../llm/types.js";
 import { parseFrontmatter } from "../storage/frontmatter.js";
 import { kebabCase } from "../storage/slug.js";
 import { loadCompressedFacts, type CompressedFact } from "../facts/store.js";
 import { addTokenUsage } from "../facts/compress.js";
-import { applyCompileOperations, type CompileOperationOutcome } from "./execute.js";
+import type { CompileOperationOutcome } from "./execute.js";
 import { filterNoiseForPage } from "./filter-noise.js";
-import { compileSectionPatch } from "./patch-compiler.js";
-import { parsePageIR } from "./parse-pageir.js";
-import { planSectionPatches } from "./planner.js";
-import { rendererOutputToBlocks, renderSectionPatch } from "./renderer.js";
-import { validateRender } from "./validate-patch.js";
+import { synthesizeNarrative } from "./synthesize-narrative.js";
 
 export interface FactConsolidationOptions {
   vaultRoot: string;
@@ -70,7 +66,7 @@ export async function runFactConsolidation(opts: FactConsolidationOptions): Prom
 
   const maxCalls = opts.maxCalls ?? DEFAULT_MAX_CALLS;
   const topK = opts.topK ?? DEFAULT_TOP_K;
-  const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  void (opts.timeoutMs ?? DEFAULT_TIMEOUT_MS);
   const applied: FactConsolidationResult["applied"] = [];
   const proposed: FactConsolidationResult["proposed"] = [];
   const planned: FactConsolidationResult["planned"] = [];
@@ -90,100 +86,43 @@ export async function runFactConsolidation(opts: FactConsolidationOptions): Prom
       .sort((a, b) => b.importance - a.importance || a.observedAt.localeCompare(b.observedAt))
       .slice(0, topK);
     factsConsidered += selectedFacts.length;
-    const page = parsePageIR(await readFile(join(opts.vaultRoot, ...candidate.page.relPath.split("/")), "utf-8"), candidate.page.relPath);
-    const filtered = filterNoiseForPage(page.title, selectedFacts);
+    const filtered = filterNoiseForPage(candidate.page.title, selectedFacts);
     if (filtered.accepted.length === 0) {
       pagesUnchanged += 1;
       continue;
     }
-    const plan = await planSectionPatches({
-      llm: opts.llm,
-      page,
+    const result = await synthesizeNarrative({
+      vaultRoot: opts.vaultRoot,
+      pageRelPath: candidate.page.relPath,
       facts: filtered.accepted,
-      droppedFacts: filtered.dropped.map((drop) => ({ fact_id: drop.fact_id, reason: drop.reason })),
-      timeoutMs,
+      llm: opts.llm,
+      now: opts.now ?? new Date(),
     });
-    llmCalls += 1;
-    rewriteTokensUsed = addTokenUsage(rewriteTokensUsed, plan.tokensUsed);
+    llmCalls += result.outcome === "unchanged" ? 1 : 2;
+    rewriteTokensUsed = addTokenUsage(rewriteTokensUsed, result.tokensUsed);
 
-    const operations = [];
-    for (const job of plan.output.section_jobs) {
-      const section = page.sections.find((candidateSection) => candidateSection.section_id === job.section_id);
-      if (!section) {
-        rejected.push({ path: candidate.page.relPath, reason: `planner referenced unknown section ${job.section_id}` });
-        continue;
-      }
-      if (sectionHasUnsupportedStructuredBlocks(section.body_blocks)) {
-        proposed.push(await stageSectionReviewPacket(opts.vaultRoot, candidate.page.relPath, section.section_id, {
-          reason: "section contains structured blocks",
-          section,
-          job,
-          accepted_facts: filtered.accepted.filter((fact) => job.accepted_fact_ids.includes(fact.fact_id)),
-        }));
-        outcomes.push({
-          path: candidate.page.relPath,
-          outcome: "staged-for-review",
-          reason: `section ${section.section_id} contains structured blocks`,
-          contentPreserved: true,
-        });
-        continue;
-      }
-      const rendered = await renderSectionPatch({
-        llm: opts.llm,
-        section,
-        job,
-        facts: filtered.accepted,
-        timeoutMs,
-      });
-      llmCalls += 1;
-      rewriteTokensUsed = addTokenUsage(rewriteTokensUsed, rendered.tokensUsed);
-      try {
-        validateRender(rendered.output, job, section);
-      } catch (error) {
-        const reason = `section render invalid: ${error instanceof Error ? error.message : String(error)}`;
-        proposed.push(await stageSectionReviewPacket(opts.vaultRoot, candidate.page.relPath, section.section_id, {
-          reason,
-          section,
-          job,
-          rendered_output: rendered.output,
-          accepted_facts: filtered.accepted.filter((fact) => job.accepted_fact_ids.includes(fact.fact_id)),
-        }));
-        outcomes.push({
-          path: candidate.page.relPath,
-          outcome: "staged-for-review",
-          reason,
-          contentPreserved: true,
-        });
-        continue;
-      }
-      operations.push(compileSectionPatch({
-        path: candidate.page.relPath,
-        page,
-        sectionId: section.section_id,
-        bodyHash: section.body_hash,
-        replacementBlocks: rendererOutputToBlocks(rendered.output),
-      }));
-    }
-    if (operations.length === 0) {
+    if (result.outcome === "unchanged") {
       pagesUnchanged += 1;
       continue;
     }
-    const result = await applyCompileOperations({
-      vaultRoot: opts.vaultRoot,
-      now: opts.now,
-      operations,
+    if (result.outcome === "rewritten") {
+      applied.push(candidate.page.relPath);
+      pagesRewritten += 1;
+      pagesUpdated += 1;
+      outcomes.push({
+        path: candidate.page.relPath,
+        outcome: "rewritten",
+        contentPreserved: true,
+      });
+      continue;
+    }
+    if (result.proposedPath) proposed.push(result.proposedPath);
+    outcomes.push({
+      path: candidate.page.relPath,
+      outcome: "staged-for-review",
+      reason: result.reason ?? "narrative synthesis staged for review",
+      contentPreserved: true,
     });
-    applied.push(...result.applied);
-    proposed.push(...result.proposed);
-    planned.push(...result.planned);
-    rejected.push(...result.rejected);
-    outcomes.push(...result.outcomes);
-    referencesStripped += result.referencesStripped;
-    prosePathLeaks += result.prosePathLeaks;
-    pagesRewritten += result.pagesRewritten;
-    pagesUpdated += result.pagesUpdated;
-    pagesUnchanged += result.pagesUnchanged;
-    rewriteTokensUsed = addTokenUsage(rewriteTokensUsed, result.rewriteTokensUsed);
   }
 
   return {
@@ -216,6 +155,7 @@ interface KnowledgePage {
   relPath: string;
   frontmatter: Record<string, unknown>;
   body: string;
+  title: string;
 }
 
 async function buildKnowledgePageIndex(vaultRoot: string): Promise<Map<string, KnowledgePage>> {
@@ -226,7 +166,7 @@ async function buildKnowledgePageIndex(vaultRoot: string): Promise<Map<string, K
     const relPath = `wiki/${relative(wikiRoot, fullPath).replace(/\\/g, "/")}`;
     const parsed = parseFrontmatter(await readFile(fullPath, "utf-8"));
     const title = typeof parsed.frontmatter.title === "string" ? parsed.frontmatter.title : basename(relPath, ".md");
-    const page = { relPath, frontmatter: parsed.frontmatter, body: parsed.body };
+    const page = { relPath, frontmatter: parsed.frontmatter, body: parsed.body, title };
     pages.set(normalizeConcept(title), page);
     pages.set(normalizeConcept(basename(relPath, ".md").replace(/-/g, " ")), page);
   }
@@ -272,102 +212,4 @@ function normalizeConcept(value: string): string {
 
 function bestImportance(facts: CompressedFact[]): number {
   return Math.max(...facts.map((fact) => fact.importance));
-}
-
-function sectionHasUnsupportedStructuredBlocks(blocks: Array<{ type: string }>): boolean {
-  return blocks.some((block) =>
-    block.type !== "paragraph" &&
-    block.type !== "checklist" &&
-    block.type !== "list"
-  );
-}
-
-async function stageSectionReviewPacket(
-  vaultRoot: string,
-  pageRelPath: string,
-  sectionId: string,
-  packet: unknown,
-): Promise<string> {
-  const relPath = `wiki/.staged/${pageRelPath.replace(/^wiki\//, "").replace(/[\/\\]/g, "__")}.${sectionId}.json`;
-  const fullPath = join(vaultRoot, ...relPath.split("/"));
-  await mkdir(dirname(fullPath), { recursive: true });
-  await writeFile(fullPath, `${JSON.stringify(packet, null, 2)}\n`);
-  return relPath;
-}
-
-function buildSynthesisPrompt(page: KnowledgePage, facts: CompressedFact[]): string {
-  return [
-    "Synthesize this knowledge page from pre-compressed facts.",
-    "Use only the facts below. Never infer from raw transcripts; raw transcripts are not provided.",
-    "Return only JSON: {\"body\": string}.",
-    "Preserve existing substantive content and integrate new facts into one coherent article.",
-    "Do not add dated update sections.",
-    "",
-    `Path: ${page.relPath}`,
-    "",
-    "Current frontmatter:",
-    "```json",
-    JSON.stringify(page.frontmatter, null, 2),
-    "```",
-    "",
-    "Current page body:",
-    "```markdown",
-    page.body.trim(),
-    "```",
-    "",
-    "Compressed facts:",
-    "```json",
-    JSON.stringify(facts.map((fact) => ({
-      title: fact.title,
-      facts: fact.facts,
-      narrative: fact.narrative,
-      concepts: fact.concepts,
-      files: fact.files,
-      importance: fact.importance,
-      sessionId: fact.sessionId,
-      observedAt: fact.observedAt,
-    })), null, 2),
-    "```",
-  ].join("\n");
-}
-
-async function chatWithTimeout(llm: LLMProvider, prompt: string, timeoutMs: number) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    return await llm.chat({
-      messages: [
-        { role: "system", content: "Return only JSON: {\"body\": string}." },
-        { role: "user", content: prompt },
-      ],
-      temperature: 0.2,
-      signal: controller.signal,
-    });
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-function parseSynthesisBody(content: string): string | null {
-  const json = extractJsonObject(content);
-  if (!json) return null;
-  try {
-    const parsed = JSON.parse(json) as unknown;
-    if (typeof parsed === "object" && parsed !== null && typeof (parsed as { body?: unknown }).body === "string") {
-      const body = (parsed as { body: string }).body.trim();
-      return body.length > 0 ? body : null;
-    }
-  } catch {
-    return null;
-  }
-  return null;
-}
-
-function extractJsonObject(content: string): string | null {
-  const fenced = /```(?:json)?\s*([\s\S]*?)```/m.exec(content)?.[1]?.trim();
-  if (fenced) return fenced;
-  const start = content.indexOf("{");
-  const end = content.lastIndexOf("}");
-  if (start === -1 || end <= start) return null;
-  return content.slice(start, end + 1);
 }

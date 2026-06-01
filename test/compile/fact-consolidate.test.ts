@@ -141,32 +141,18 @@ function fact(sessionId: string, importance: number) {
 
 function fakeSectionPatchLLM(body: string): LLMProvider {
   const chat = vi.fn(async (request: LLMRequest): Promise<LLMResponse> => {
-    const sectionId = /section_id=([a-z0-9_]+)/.exec(request.messages.at(-1)?.content ?? "")?.[1] ?? "";
-    if (request.jsonSchema?.name === "PlannerOutput") {
-      const factIds = [...(request.messages.at(-1)?.content ?? "").matchAll(/fact_id=([a-z0-9_]+)/g)]
+    if (request.jsonSchema?.name === "NarrativeDetectOutput") {
+      const factIds = [...(request.messages.at(-1)?.content ?? "").matchAll(/"fact_id":\s*"([^"]+)"/g)]
         .map((match) => match[1]!)
         .slice(0, body === "Memory System captures raw observations." ? 0 : 8);
       return fakeResponse(JSON.stringify({
-        section_jobs: factIds.length === 0
-          ? []
-          : [{
-              section_id: sectionId,
-              operation: "replace_section_body",
-              accepted_fact_ids: factIds,
-              remove_claim_ids: [],
-              required_terms: [],
-              forbidden_terms: ["SEARCH RESULT CARD COPY"],
-              section_claims: factIds.map((factId) => ({ claim: factId, source_fact_ids: [factId] })),
-            }],
-        dropped_facts: [],
-        unresolved_conflicts: [],
+        contradicted_claims: [],
+        net_new_facts: factIds,
       }));
     }
-    if (request.jsonSchema?.name === "RendererOutput") {
+    if (request.jsonSchema?.name === "NarrativeSynthesisOutput") {
       return fakeResponse(JSON.stringify({
-        section_id: sectionId,
-        replacement_paragraphs: [body],
-        coverage: [],
+        body,
       }));
     }
     throw new Error(`unexpected schema ${request.jsonSchema?.name ?? "none"}`);

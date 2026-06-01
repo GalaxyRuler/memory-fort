@@ -6,6 +6,7 @@ import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { logObservation, readPage, listPages, createServer } from "../../src/mcp/server.js";
+import { parseFrontmatter } from "../../src/storage/frontmatter.js";
 
 describe("logObservation", () => {
   let tmp: string;
@@ -120,6 +121,24 @@ describe("readPage", () => {
     expect(text).toContain("windows, stability");
   });
 
+  it("bumps last_accessed without changing version when read through the MCP server", async () => {
+    await writeFile(
+      join(tmp, "wiki", "projects", "agentmemory.md"),
+      `---\ntype: projects\ntitle: agentmemory\ncreated: "2026-05-20"\nupdated: "2026-05-21"\nversion: 3\nlast_accessed: "2026-05-30"\n---\n\nThe summary.\n`,
+    );
+    const { client, close } = await connectMcp(undefined, { now: () => new Date("2026-06-02T00:00:00.000Z") });
+    try {
+      await client.callTool({ name: "read_page", arguments: { path: "projects/agentmemory.md" } });
+    } finally {
+      await close();
+    }
+
+    const parsed = parseFrontmatter(await readFile(join(tmp, "wiki", "projects", "agentmemory.md"), "utf-8"));
+    expect(parsed.frontmatter.last_accessed).toBe("2026-06-02");
+    expect(parsed.frontmatter.version).toBe(3);
+    expect(parsed.frontmatter.supersedes).toBeUndefined();
+  });
+
   it("returns isError on missing page", async () => {
     const result = await readPage({ path: "projects/missing.md" });
     expect(result.isError).toBe(true);
@@ -232,8 +251,16 @@ describe("memory.search MCP tool", () => {
   });
 
   it("calls the API and returns formatted results", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "mcp-search-access-"));
+    const origEnv = process.env["MEMORY_ROOT"];
+    process.env["MEMORY_ROOT"] = tmp;
+    await mkdir(join(tmp, "wiki", "tools"), { recursive: true });
+    await writeFile(
+      join(tmp, "wiki", "tools", "voyageai.md"),
+      `---\ntype: tools\ntitle: voyageai\ncreated: "2026-05-20"\nupdated: "2026-05-21"\nversion: 2\nlast_accessed: "2026-05-30"\n---\n\nVoyageAI is used for embeddings.\n`,
+    );
     const fetchFn = vi.fn(async () => jsonResponse(searchFixture())) as unknown as typeof fetch;
-    const { client, close } = await connectMcp(fetchFn);
+    const { client, close } = await connectMcp(fetchFn, { now: () => new Date("2026-06-02T00:00:00.000Z") });
     try {
       const result = await client.callTool({
         name: "search",
@@ -247,8 +274,14 @@ describe("memory.search MCP tool", () => {
       expect(parsed.result_count).toBe(2);
       expect(parsed.results[0].path).toBe("wiki/tools/voyageai.md");
       expect(parsed.results.some((item: { path: string }) => item.path.startsWith("wiki/.audit/"))).toBe(false);
+      const parsedPage = parseFrontmatter(await readFile(join(tmp, "wiki", "tools", "voyageai.md"), "utf-8"));
+      expect(parsedPage.frontmatter.last_accessed).toBe("2026-06-02");
+      expect(parsedPage.frontmatter.version).toBe(2);
     } finally {
       await close();
+      if (origEnv === undefined) delete process.env["MEMORY_ROOT"];
+      else process.env["MEMORY_ROOT"] = origEnv;
+      await rm(tmp, { recursive: true, force: true });
     }
   });
 
@@ -320,11 +353,11 @@ describe("memory.search MCP tool", () => {
   });
 });
 
-async function connectMcp(fetchFn?: typeof fetch): Promise<{
+async function connectMcp(fetchFn?: typeof fetch, deps: Parameters<typeof createServer>[0] = {}): Promise<{
   client: Client;
   close: () => Promise<void>;
 }> {
-  const server = createServer(fetchFn ? { fetchFn } : undefined);
+  const server = createServer({ ...deps, ...(fetchFn ? { fetchFn } : {}) });
   const client = new Client({ name: "test-client", version: "0.0.0" });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await Promise.all([

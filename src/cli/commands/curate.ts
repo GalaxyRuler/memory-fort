@@ -8,7 +8,6 @@ import {
   type CompileOperation,
   type CompileOperationOutcomeKind,
 } from "../../compile/execute.js";
-import { addTokenUsage } from "../../facts/compress.js";
 import { loadCompressedFacts, type CompressedFact } from "../../facts/store.js";
 import { chatWithAudit } from "../../llm/audit.js";
 import {
@@ -20,6 +19,8 @@ import type { LLMProvider, LLMTokenUsage } from "../../llm/types.js";
 import { loadMemoryConfig, type MemoryConfig } from "../../storage/config.js";
 import { parseFrontmatter } from "../../storage/frontmatter.js";
 import { memoryRoot } from "../../storage/paths.js";
+import { filterNoiseForPage } from "../../compile/filter-noise.js";
+import { synthesizeNarrative } from "../../compile/synthesize-narrative.js";
 
 export interface CurateOptions {
   vaultRoot?: string;
@@ -222,27 +223,46 @@ async function applyRefreshRewrite(
       extractionTokensUsed: extracted.extractionTokensUsed,
     });
   }
-  const applied = await applyCompileOperations({
+  if (mode === "plan") {
+    return emptyRefreshApplyResult(target, mode, "refresh facts ready for narrative synthesis", "staged-for-review", {
+      sessionsScanned: extracted.sessionsScanned,
+      factsExtracted: extracted.facts.length,
+      extractionTokensUsed: extracted.extractionTokensUsed,
+    });
+  }
+  if (!llm) {
+    return emptyRefreshApplyResult(target, mode, "knowledge-page refresh requires rewrite LLM", "staged-for-review", {
+      sessionsScanned: extracted.sessionsScanned,
+      factsExtracted: extracted.facts.length,
+      extractionTokensUsed: extracted.extractionTokensUsed,
+    });
+  }
+  const current = parseFrontmatter(await readFile(join(root, ...target.split("/")), "utf-8"));
+  const title = typeof current.frontmatter.title === "string" ? current.frontmatter.title : target;
+  const acceptedFacts = filterNoiseForPage(title, extracted.facts.map((fact, index): CompressedFact => ({
+    title: `${title} refresh fact ${index + 1}`,
+    facts: [fact],
+    narrative: fact,
+    concepts: [title],
+    files: [],
+    importance: 8,
+    sessionId: `refresh-${index}`,
+    sourceRawPath: "",
+    observedAt: opts.now?.toISOString() ?? new Date().toISOString(),
+    compressedAt: opts.now?.toISOString() ?? new Date().toISOString(),
+  }))).accepted;
+  const synthesis = await synthesizeNarrative({
     vaultRoot: root,
-    operations: [{
-      kind: "append_page",
-      path: target,
-      section: [
-        "## Extracted facts",
-        "",
-        ...extracted.facts.map((fact) => `- ${fact}`),
-      ].join("\n"),
-    }],
-    plan: mode === "plan",
-    now: opts.now,
-    rewriteLLM: llm,
+    pageRelPath: target,
+    facts: acceptedFacts,
+    llm,
+    now: opts.now ?? new Date(),
   });
-  return {
-    ...applied,
-    factsExtracted: applied.factsExtracted + extracted.facts.length,
-    sessionsScanned: applied.sessionsScanned + extracted.sessionsScanned,
-    extractionTokensUsed: addTokenUsage(applied.extractionTokensUsed, extracted.extractionTokensUsed),
-  };
+  return refreshSynthesisResult(target, synthesis, {
+    sessionsScanned: extracted.sessionsScanned,
+    factsExtracted: extracted.facts.length,
+    extractionTokensUsed: extracted.extractionTokensUsed,
+  });
 }
 
 async function collectRefreshFacts(
@@ -294,6 +314,38 @@ function emptyRefreshApplyResult(
     pagesRewritten: 0,
     pagesUpdated: 0,
     pagesUnchanged: outcome === "skipped: no new content" ? 1 : 0,
+    factsExtracted: metrics.factsExtracted ?? 0,
+    sessionsScanned: metrics.sessionsScanned ?? 0,
+    ...(metrics.extractionTokensUsed ? { extractionTokensUsed: metrics.extractionTokensUsed } : {}),
+  };
+}
+
+function refreshSynthesisResult(
+  target: string,
+  synthesis: Awaited<ReturnType<typeof synthesizeNarrative>>,
+  metrics: Partial<Pick<ApplyCompileOperationsResult, "sessionsScanned" | "factsExtracted" | "extractionTokensUsed">> = {},
+): ApplyCompileOperationsResult {
+  const outcome = synthesis.outcome === "rewritten"
+    ? "rewritten"
+    : synthesis.outcome === "unchanged"
+      ? "skipped: no new content"
+      : "staged-for-review";
+  return {
+    applied: synthesis.outcome === "rewritten" ? [target] : [],
+    proposed: synthesis.proposedPath ? [synthesis.proposedPath] : [],
+    planned: [],
+    rejected: [],
+    outcomes: [{
+      path: target,
+      outcome,
+      ...(synthesis.reason ? { reason: synthesis.reason } : {}),
+      contentPreserved: true,
+    }],
+    referencesStripped: 0,
+    prosePathLeaks: 0,
+    pagesRewritten: synthesis.outcome === "rewritten" ? 1 : 0,
+    pagesUpdated: synthesis.outcome === "rewritten" ? 1 : 0,
+    pagesUnchanged: synthesis.outcome === "unchanged" ? 1 : 0,
     factsExtracted: metrics.factsExtracted ?? 0,
     sessionsScanned: metrics.sessionsScanned ?? 0,
     ...(metrics.extractionTokensUsed ? { extractionTokensUsed: metrics.extractionTokensUsed } : {}),

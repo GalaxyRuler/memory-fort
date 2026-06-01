@@ -3,20 +3,21 @@ import { join } from "node:path";
 
 const root = new URL("..", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1");
 
-const plannerPrompt = read("src/compile/prompts/planner-system.md");
-const rendererPrompt = read("src/compile/prompts/renderer-system.md");
-const plannerSource = read("src/compile/planner.ts");
-const rendererSource = read("src/compile/renderer.ts");
+const narrativeSource = read("src/compile/synthesize-narrative.ts");
+const detectPrompt = read("src/compile/prompts/narrative-detect-system.md");
+const synthesizePrompt = read("src/compile/prompts/narrative-synthesize-system.md");
 
 const checks = [
-  [plannerPrompt.includes("replace_section_body"), "planner prompt names replace_section_body"],
-  [plannerPrompt.includes("section_id") && plannerPrompt.includes("claim_id") && plannerPrompt.includes("fact_id"), "planner prompt names stable IDs"],
-  [plannerSource.includes("replace_section_body"), "planner schema names replace_section_body"],
-  [plannerSource.includes("section_jobs") && plannerSource.includes("dropped_facts") && plannerSource.includes("unresolved_conflicts"), "planner schema field names present"],
-  [rendererPrompt.includes("Additional Information"), "renderer prompt forbids Additional Information"],
-  [rendererPrompt.includes("replacement_blocks") && rendererPrompt.includes("checklist"), "renderer prompt documents replacement_blocks checklist output"],
-  [rendererPrompt.includes("RendererOutput"), "renderer prompt names RendererOutput"],
-  [rendererSource.includes("replacement_paragraphs") && rendererSource.includes("replacement_blocks") && rendererSource.includes("block_index"), "renderer schema field names present"],
+  [narrativeSource.includes("NarrativeDetectOutput"), "narrative detect schema name present"],
+  [narrativeSource.includes("contradicted_claims") && narrativeSource.includes("net_new_facts"), "narrative detect schema fields present"],
+  [narrativeSource.includes("NarrativeSynthesisOutput"), "narrative synthesis schema name present"],
+  [narrativeSource.includes("validateNarrativeBody"), "narrative body validator present"],
+  [narrativeSource.includes("source_facts") && narrativeSource.includes("last_accessed") && narrativeSource.includes("strength"), "narrative frontmatter fields present"],
+  [detectPrompt.includes("contradicted existing claims") && detectPrompt.includes("accepted compressed facts"), "narrative detect prompt intent present"],
+  [synthesizePrompt.includes("You are a memory consolidation engine."), "narrative synthesis prompt identity present"],
+  [synthesizePrompt.includes("No `## headings`") && synthesizePrompt.includes("no `- bullets`") && synthesizePrompt.includes("no `[x] checkboxes`"), "narrative synthesis prompt structural bans present"],
+  [synthesizePrompt.includes("Additional Information") && synthesizePrompt.includes("Code handles those"), "narrative synthesis prompt metadata ban present"],
+  [narrativeSource.includes("NARRATIVE_DETECT_SYSTEM_PROMPT") && narrativeSource.includes("NARRATIVE_SYNTHESIS_SYSTEM_PROMPT"), "narrative prompt constants wired"],
 ];
 
 const failed = checks.filter(([ok]) => !ok).map(([, label]) => label);

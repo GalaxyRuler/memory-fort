@@ -568,7 +568,7 @@ describe("compile execute operations", () => {
     });
     expect(result.pagesUpdated).toBe(1);
     expect(result.pagesUnchanged).toBe(0);
-    expect(llm.calls).toBe(1);
+    expect(llm.calls).toBe(2);
     const written = parseFrontmatter(await readFile(join(tmp, "wiki", "projects", "memory-system.md"), "utf-8"));
     expect(written.frontmatter.updated).toBe("2026-05-31");
     expect(written.body).toContain("Phase 3 retrieval shipped");
@@ -613,7 +613,7 @@ describe("compile execute operations", () => {
     expect(result.sessionsScanned).toBe(1);
     expect(result.factsExtracted).toBe(1);
     expect(result.extractionTokensUsed?.total).toBe(28);
-    expect(llm.calls).toBe(2);
+    expect(llm.calls).toBe(3);
     expect(llm.noveltyPrompts[0]).toContain("Memory System shipped Phase 3 retrieval");
     expect(llm.noveltyPrompts[0]).not.toContain("SEARCH RESULT CARD COPY");
     const written = parseFrontmatter(await readFile(join(tmp, "wiki", "projects", "memory-system.md"), "utf-8"));
@@ -654,7 +654,7 @@ describe("compile execute operations", () => {
     expect(result.pagesRewritten).toBe(1);
     expect(result.pagesUpdated).toBe(1);
     expect(result.pagesUnchanged).toBe(0);
-    expect(llm.calls).toBe(1);
+    expect(llm.calls).toBe(2);
     const written = parseFrontmatter(await readFile(join(tmp, "wiki", "projects", "memory-fort.md"), "utf-8"));
     expect(written.body).toContain("Memory Fort stores durable memory.");
     expect(written.body).toContain("Memory Fort had a dated operator event.");
@@ -828,7 +828,7 @@ describe("compile execute operations", () => {
     expect(current).toContain("alpha30 beta30 gamma30 delta30");
     const historyDir = join(tmp, "wiki", ".history", "wiki", "projects", "hot-entity.md");
     expect((await readdir(historyDir)).filter((name) => name.endsWith(".md"))).toHaveLength(30);
-    expect(llm.calls).toBe(30);
+    expect(llm.calls).toBe(60);
   });
 
   it("skips append_page sections whose content is already substantially present", async () => {
@@ -1122,36 +1122,23 @@ function fakeNoveltyLLM(
     modelName: "rewrite-test",
     async chat(request) {
       const prompt = request.messages.map((message) => message.content).join("\n");
-      if (request.jsonSchema?.name === "PlannerOutput") {
+      if (request.jsonSchema?.name === "NarrativeDetectOutput") {
         provider.calls += 1;
-        const decision = judge({ currentBody: "", newContent: prompt, prompt });
-        const sectionId = /section_id=([a-z0-9_]+)/.exec(prompt)?.[1] ?? "";
-        const factId = /fact_id=([a-z0-9_]+)/.exec(prompt)?.[1] ?? "";
-        return fakeLLMResponse(JSON.stringify({
-          section_jobs: decision.hasNewFacts
-            ? [{
-                section_id: sectionId,
-                operation: "replace_section_body",
-                accepted_fact_ids: [factId],
-                remove_claim_ids: [],
-                required_terms: [],
-                forbidden_terms: [],
-                section_claims: [{ claim: decision.body ?? prompt, source_fact_ids: [factId] }],
-              }]
-            : [],
-          dropped_facts: [],
-          unresolved_conflicts: [],
-        }));
-      }
-      if (request.jsonSchema?.name === "RendererOutput") {
-        const sectionId = /section_id=([a-z0-9_]+)/.exec(prompt)?.[1] ?? "";
-        const currentBody = /current_body:\n([\s\S]*?)\n\nremove_claims:/.exec(prompt)?.[1] ?? "";
-        const newContent = /accepted_facts:\n([\s\S]*?)\n\nrequired_terms:/.exec(prompt)?.[1] ?? "";
+        const currentBody = /Current body:\n([\s\S]*?)\n\nFacts:/.exec(prompt)?.[1] ?? "";
+        const newContent = /Facts:\n([\s\S]*)$/.exec(prompt)?.[1] ?? "";
         const decision = judge({ currentBody, newContent, prompt });
         return fakeLLMResponse(JSON.stringify({
-          section_id: sectionId,
-          replacement_paragraphs: splitParagraphs(decision.body ?? currentBody),
-          coverage: [],
+          contradicted_claims: [],
+          net_new_facts: decision.hasNewFacts ? [decision.body ?? newContent] : [],
+        }));
+      }
+      if (request.jsonSchema?.name === "NarrativeSynthesisOutput") {
+        provider.calls += 1;
+        const currentBody = /Current body:\n([\s\S]*?)\n\nContradicted claims:/.exec(prompt)?.[1] ?? "";
+        const newContent = acceptedFactText(/Accepted fact records:\n([\s\S]*)$/.exec(prompt)?.[1] ?? "");
+        const decision = judge({ currentBody, newContent, prompt });
+        return fakeLLMResponse(JSON.stringify({
+          body: decision.body ?? currentBody,
         }));
       }
       provider.calls += 1;
@@ -1200,30 +1187,17 @@ function fakeExtractionAndNoveltyLLM(opts: {
       }
       const prompt = request.messages.at(-1)?.content ?? "";
       provider.noveltyPrompts.push(prompt);
-      if (request.jsonSchema?.name === "PlannerOutput") {
+      if (request.jsonSchema?.name === "NarrativeDetectOutput") {
         provider.calls += 1;
-        const sectionId = /section_id=([a-z0-9_]+)/.exec(prompt)?.[1] ?? "";
-        const factId = /fact_id=([a-z0-9_]+)/.exec(prompt)?.[1] ?? "";
         return fakeLLMResponse(JSON.stringify({
-          section_jobs: [{
-            section_id: sectionId,
-            operation: "replace_section_body",
-            accepted_fact_ids: [factId],
-            remove_claim_ids: [],
-            required_terms: [],
-            forbidden_terms: [],
-            section_claims: [{ claim: opts.body, source_fact_ids: [factId] }],
-          }],
-          dropped_facts: [],
-          unresolved_conflicts: [],
+          contradicted_claims: [],
+          net_new_facts: opts.facts,
         }));
       }
-      if (request.jsonSchema?.name === "RendererOutput") {
-        const sectionId = /section_id=([a-z0-9_]+)/.exec(prompt)?.[1] ?? "";
+      if (request.jsonSchema?.name === "NarrativeSynthesisOutput") {
+        provider.calls += 1;
         return fakeLLMResponse(JSON.stringify({
-          section_id: sectionId,
-          replacement_paragraphs: splitParagraphs(opts.body),
-          coverage: [],
+          body: opts.body,
         }));
       }
       provider.calls += 1;
@@ -1251,6 +1225,15 @@ function fakeLLMResponse(content: string) {
     tokensUsed: { prompt: 10, completion: 5, total: 15 },
     content,
   };
+}
+
+function acceptedFactText(json: string): string {
+  try {
+    const parsed = JSON.parse(json) as Array<{ text?: unknown }>;
+    return parsed.map((item) => typeof item.text === "string" ? item.text : "").filter(Boolean).join("\n");
+  } catch {
+    return json;
+  }
 }
 
 function splitParagraphs(body: string): string[] {

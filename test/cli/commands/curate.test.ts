@@ -321,62 +321,29 @@ function fakeRefreshPipelineLLM(opts: {
     providerName: "ollama",
     modelName: "llama3.2",
     chat: vi.fn(async (request) => {
-      const system = request.messages[0]?.content ?? "";
-      if (system.includes("entity fact extractor")) {
-        return {
-          model: "llama3.2",
-          finishReason: "stop",
-          rawProviderName: "ollama",
-          tokensUsed: { prompt: 20, completion: 8, total: 28 },
-          content: [
-            "```json",
-            JSON.stringify({ facts: opts.facts }),
-            "```",
-          ].join("\n"),
-        };
-      }
-      const prompt = request.messages.at(-1)?.content ?? "";
-      if (request.jsonSchema?.name === "RendererOutput") {
-        const sectionId = /section_id=([a-z0-9_]+)/.exec(prompt)?.[1] ?? "";
+      if (request.jsonSchema?.name === "NarrativeDetectOutput") {
+        noveltyCalls += 1;
+        const decision = noveltyCalls === 2 && opts.secondNovelty
+          ? opts.secondNovelty
+          : { hasNewFacts: true, body: opts.body };
         return {
           model: "llama3.2",
           finishReason: "stop",
           rawProviderName: "ollama",
           tokensUsed: { prompt: 12, completion: 6, total: 18 },
           content: JSON.stringify({
-            section_id: sectionId,
-            replacement_paragraphs: opts.body.split(/\n+/).map((line) => line.trim()).filter(Boolean),
-            coverage: [],
+            contradicted_claims: decision.hasNewFacts ? ["Phase 3 retrieval is planned."] : [],
+            net_new_facts: decision.hasNewFacts ? opts.facts : [],
           }),
         };
       }
-      noveltyCalls += 1;
-      const decision = noveltyCalls === 2 && opts.secondNovelty
-        ? opts.secondNovelty
-        : { hasNewFacts: true, body: opts.body };
-      if (request.jsonSchema?.name === "PlannerOutput") {
-        const sectionId = /section_id=([a-z0-9_]+)/.exec(prompt)?.[1] ?? "";
-        const factId = /fact_id=([a-z0-9_]+)/.exec(prompt)?.[1] ?? "";
+      if (request.jsonSchema?.name === "NarrativeSynthesisOutput") {
         return {
           model: "llama3.2",
           finishReason: "stop",
           rawProviderName: "ollama",
           tokensUsed: { prompt: 12, completion: 6, total: 18 },
-          content: JSON.stringify({
-            section_jobs: decision.hasNewFacts
-              ? [{
-                  section_id: sectionId,
-                  operation: "replace_section_body",
-                  accepted_fact_ids: [factId],
-                  remove_claim_ids: [],
-                  required_terms: [],
-                  forbidden_terms: [],
-                  section_claims: [{ claim: decision.body ?? "", source_fact_ids: [factId] }],
-                }]
-              : [],
-            dropped_facts: [],
-            unresolved_conflicts: [],
-          }),
+          content: JSON.stringify({ body: opts.body }),
         };
       }
       return {

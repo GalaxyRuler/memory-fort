@@ -11,11 +11,7 @@ import { type PageType } from "../storage/paths.js";
 import { kebabCase, normalizeWikiPagePath } from "../storage/slug.js";
 import { extractEntityFacts } from "./fact-extract.js";
 import { filterNoiseForPage } from "./filter-noise.js";
-import { blocksToMarkdown, parsePageIR, renderPageIRWithSectionBody } from "./parse-pageir.js";
-import { compileSectionPatch, type SectionPatch } from "./patch-compiler.js";
-import { planSectionPatches } from "./planner.js";
-import { rendererOutputToBlocks, renderSectionPatch } from "./renderer.js";
-import { validateRender } from "./validate-patch.js";
+import { synthesizeNarrative } from "./synthesize-narrative.js";
 import type { CompressedFact } from "../facts/store.js";
 
 export type CompileOperation =
@@ -35,12 +31,6 @@ export type CompileOperation =
       path: string;
       frontmatter?: Record<string, unknown>;
       body: string;
-    }
-  | {
-      kind: "section_patch";
-      path: string;
-      section_id: string;
-      patch: SectionPatch[];
     }
   | {
       kind: "update_index";
@@ -398,7 +388,7 @@ function prepareCompileOperations(
       continue;
     }
 
-    if (operation.kind !== "write_page" && operation.kind !== "append_page" && operation.kind !== "rewrite_page" && operation.kind !== "section_patch") {
+    if (operation.kind !== "write_page" && operation.kind !== "append_page" && operation.kind !== "rewrite_page") {
       prepared.push({ operation });
       continue;
     }
@@ -522,8 +512,6 @@ function withPageOperationTarget(operation: CompileOperation, path: string, type
       return { ...operation, path };
     case "rewrite_page":
       return { ...operation, path, frontmatter: { ...operation.frontmatter, type } };
-    case "section_patch":
-      return { ...operation, path };
     case "update_index":
     case "append_log":
       return operation;
@@ -653,7 +641,7 @@ export async function applyOperation(
     case "write_page": {
       if (existsSync(fullPath)) {
         if (isExistingKnowledgePagePath(relPath)) {
-          return { ok: false, reason: "knowledge-page update requires section_patch" };
+          return { ok: false, reason: "knowledge-page update requires narrative synthesis" };
         }
         const section = await dedupeExistingWriteBody(fullPath, operation.body, now);
         if (!section) {
@@ -668,7 +656,7 @@ export async function applyOperation(
     case "append_page": {
       if (!existsSync(fullPath)) return { ok: false, reason: "target page does not exist" };
       if (isExistingKnowledgePagePath(relPath)) {
-        return { ok: false, reason: "knowledge-page update requires section_patch" };
+        return { ok: false, reason: "knowledge-page update requires narrative synthesis" };
       }
       if (!await appendSectionHasNewContent(fullPath, operation.section)) {
         return { ok: true, outcome: "skipped: no new content" };
@@ -706,54 +694,6 @@ export async function applyOperation(
         now,
       );
       await atomicWrite(fullPath, serializeFrontmatter(frontmatter, `${operation.body.trim()}\n`));
-      return { ok: true, outcome: "rewritten" };
-    }
-    case "section_patch": {
-      if (!existsSync(fullPath)) return { ok: false, reason: "target page does not exist" };
-      const current = await readFile(fullPath, "utf-8");
-      const parsed = parseFrontmatter(current);
-      const ir = parsePageIR(current, relPath);
-      const section = ir.sections.find((candidate) => candidate.section_id === operation.section_id);
-      if (!section) return { ok: false, reason: "section_patch target section not found" };
-      const testOp = operation.patch.find((patch) => patch.op === "test");
-      if (!testOp || testOp.path !== `/sections/${operation.section_id}/body_hash`) {
-        return { ok: false, reason: "section_patch missing body_hash test" };
-      }
-      if (testOp.value !== section.body_hash) {
-        return { ok: false, reason: "section_patch body_hash mismatch" };
-      }
-      const replaceOp = operation.patch.find((patch) => patch.op === "replace");
-      if (!replaceOp || replaceOp.path !== `/sections/${operation.section_id}/body_blocks`) {
-        return { ok: false, reason: "section_patch missing body_blocks replace" };
-      }
-      const replacementBody = blocksToMarkdown(replaceOp.value);
-      if (normalizeContent(section.body_markdown) === normalizeContent(replacementBody)) {
-        return { ok: true, outcome: "skipped: no new content" };
-      }
-      const nextBody = renderPageIRWithSectionBody(current, operation.section_id, replaceOp.value);
-      if (nextBody === null) return { ok: false, reason: "section_patch target section not found" };
-      const archivedPath = await archivePageVersion(vaultRoot, relPath, current, now);
-      const previousVersion = typeof parsed.frontmatter.version === "number" && Number.isFinite(parsed.frontmatter.version)
-        ? Math.max(1, Math.floor(parsed.frontmatter.version))
-        : 1;
-      const existingSupersedes = Array.isArray(parsed.frontmatter.supersedes) ? parsed.frontmatter.supersedes : [];
-      const frontmatter = normalizeFrontmatter(
-        {
-          ...parsed.frontmatter,
-          version: previousVersion + 1,
-          supersedes: [
-            ...existingSupersedes,
-            {
-              path: archivedPath,
-              hash: sha256(current),
-              version: previousVersion,
-            },
-          ],
-        },
-        operation.path,
-        now,
-      );
-      await atomicWrite(fullPath, serializeFrontmatter(frontmatter, nextBody));
       return { ok: true, outcome: "rewritten" };
     }
     case "update_index":
@@ -897,8 +837,7 @@ async function rewriteExistingKnowledgePageUpdate(opts: {
     }
   }
   try {
-    const page = parsePageIR(current, target.path);
-    const title = typeof parsed.frontmatter.title === "string" ? parsed.frontmatter.title : page.title;
+    const title = typeof parsed.frontmatter.title === "string" ? parsed.frontmatter.title : target.path;
     const sourceFacts = makeSyntheticCompressedFacts(incoming, title, opts.now);
     if (sourceFacts.length === 0) {
       return {
@@ -923,18 +862,17 @@ async function rewriteExistingKnowledgePageUpdate(opts: {
         prosePathLeaks: 0,
       };
     }
-    const plan = await planSectionPatches({
-      llm: opts.llm,
-      page,
+    const synthesis = await synthesizeNarrative({
+      vaultRoot: opts.vaultRoot,
+      pageRelPath: target.path,
       facts: filtered.accepted,
-      droppedFacts: filtered.dropped.map((drop) => ({ fact_id: drop.fact_id, reason: drop.reason })),
+      llm: opts.llm,
+      now: opts.now,
     });
-    let tokensUsed = plan.tokensUsed;
-    if (plan.output.section_jobs.length === 0) {
+    if (synthesis.outcome === "unchanged") {
       return {
         handled: true,
         outcome: "skipped: no new content",
-        tokensUsed,
         extractionTokensUsed,
         factsExtracted,
         sessionsScanned,
@@ -942,82 +880,12 @@ async function rewriteExistingKnowledgePageUpdate(opts: {
         prosePathLeaks: 0,
       };
     }
-
-    let appliedAnyRewrite = false;
-    for (const job of plan.output.section_jobs) {
-      const section = page.sections.find((candidate) => candidate.section_id === job.section_id);
-      if (!section) throw new Error(`planner referenced unknown section ${job.section_id}`);
-      if (sectionHasUnsupportedStructuredBlocks(section.body_blocks)) {
-        const reason = `section ${section.section_id} contains structured blocks`;
-        const proposedPath = await stageCompileProposal(opts.vaultRoot, opts.operation, opts.now, reason);
-        return {
-          handled: true,
-          outcome: "staged-for-review",
-          reason,
-          proposedPath,
-          tokensUsed,
-          extractionTokensUsed,
-          factsExtracted,
-          sessionsScanned,
-          referencesStripped: 0,
-          prosePathLeaks: 0,
-        };
-      }
-      const rendered = await renderSectionPatch({
-        llm: opts.llm,
-        section,
-        job,
-        facts: filtered.accepted,
-      });
-      if (rendered.tokensUsed) tokensUsed = addTokenUsage(tokensUsed, rendered.tokensUsed);
-      try {
-        validateRender(rendered.output, job, section);
-      } catch (error) {
-        const reason = `section render invalid: ${error instanceof Error ? error.message : String(error)}`;
-        const proposedPath = await stageCompileProposal(opts.vaultRoot, opts.operation, opts.now, reason);
-        return {
-          handled: true,
-          outcome: "staged-for-review",
-          reason,
-          proposedPath,
-          tokensUsed,
-          extractionTokensUsed,
-          factsExtracted,
-          sessionsScanned,
-          referencesStripped: 0,
-          prosePathLeaks: 0,
-        };
-      }
-      const applied = await applyOperation(opts.vaultRoot, compileSectionPatch({
-        path: target.path,
-        page,
-        sectionId: section.section_id,
-        bodyHash: section.body_hash,
-        replacementBlocks: rendererOutputToBlocks(rendered.output),
-      }), opts.now);
-      if (!applied.ok) {
-        const reason = `knowledge-page section_patch failed: ${applied.reason}`;
-        const proposedPath = await stageCompileProposal(opts.vaultRoot, opts.operation, opts.now, reason);
-        return {
-          handled: true,
-          outcome: "staged-for-review",
-          reason,
-          proposedPath,
-          tokensUsed,
-          extractionTokensUsed,
-          factsExtracted,
-          sessionsScanned,
-          referencesStripped: 0,
-          prosePathLeaks: 0,
-        };
-      }
-      if (applied.outcome === "rewritten") appliedAnyRewrite = true;
-    }
-    if (!appliedAnyRewrite) {
+    if (synthesis.outcome === "staged-for-review") {
       return {
         handled: true,
-        outcome: "skipped: no new content",
-        tokensUsed,
+        outcome: "staged-for-review",
+        reason: synthesis.reason ?? "narrative synthesis staged for review",
+        proposedPath: synthesis.proposedPath ?? await stageCompileProposal(opts.vaultRoot, opts.operation, opts.now, "narrative synthesis staged for review"),
         extractionTokensUsed,
         factsExtracted,
         sessionsScanned,
@@ -1028,7 +896,6 @@ async function rewriteExistingKnowledgePageUpdate(opts: {
     return {
       handled: true,
       outcome: "rewritten",
-      tokensUsed,
       extractionTokensUsed,
       factsExtracted,
       sessionsScanned,
@@ -1036,7 +903,7 @@ async function rewriteExistingKnowledgePageUpdate(opts: {
       prosePathLeaks: 0,
     };
   } catch (error) {
-    const reason = `knowledge-page section_patch failed: ${error instanceof Error ? error.message : String(error)}`;
+    const reason = `knowledge-page narrative synthesis failed: ${error instanceof Error ? error.message : String(error)}`;
     const proposedPath = await stageCompileProposal(opts.vaultRoot, opts.operation, opts.now, reason);
     return {
       handled: true,
@@ -1076,115 +943,8 @@ function makeSyntheticCompressedFacts(incoming: string, title: string, now: Date
   }];
 }
 
-function sectionHasUnsupportedStructuredBlocks(blocks: Array<{ type: string }>): boolean {
-  return blocks.some((block) =>
-    block.type !== "paragraph" &&
-    block.type !== "checklist" &&
-    block.type !== "list"
-  );
-}
-
 function operationIncomingContent(operation: Extract<CompileOperation, { kind: "write_page" | "append_page" }>): string {
   return operation.kind === "write_page" ? operation.body : operation.section;
-}
-
-function buildKnowledgeNoveltyPrompt(opts: {
-  path: string;
-  frontmatter: Record<string, unknown>;
-  currentBody: string;
-  newContent: string;
-  maxBytes: number;
-}): { ok: true; value: string } | { ok: false; reason: string } {
-  const prompt = [
-    "Judge whether the new observations contain substantive facts not already stated on this knowledge page.",
-    "Return only JSON with this shape: {\"hasNewFacts\": boolean, \"body\": string|null}.",
-    "Set hasNewFacts true only when the observations add substantive facts not already stated on the page.",
-    "Rewording, reformatting, or restating existing facts is not new.",
-    "When hasNewFacts is true, body must be the full updated page body integrating the new facts and preserving existing substantive content.",
-    "When hasNewFacts is false, body must be null.",
-    "Do not add dated update sections. Do not drop relations, wikilinks, code identifiers, or entity names.",
-    `Path: ${opts.path}`,
-    "",
-    "Current frontmatter:",
-    "```json",
-    JSON.stringify(opts.frontmatter, null, 2),
-    "```",
-    "",
-    "Current page body:",
-    "```markdown",
-    opts.currentBody.trim(),
-    "```",
-    "",
-    "New content to integrate:",
-    "```markdown",
-    opts.newContent.trim(),
-    "```",
-  ].join("\n");
-  if (Buffer.byteLength(prompt, "utf-8") > opts.maxBytes) {
-    return { ok: false, reason: "knowledge-page rewrite prompt exceeds byte cap" };
-  }
-  return { ok: true, value: prompt };
-}
-
-function parseNoveltyDecisionResponse(
-  content: string,
-): { ok: true; decision: { hasNewFacts: boolean; body: string | null } } | { ok: false; reason: string } {
-  const json = extractJsonObject(content.trim());
-  if (!json) return { ok: false, reason: "knowledge-page novelty LLM returned no JSON decision" };
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(json);
-  } catch (error) {
-    return {
-      ok: false,
-      reason: `knowledge-page novelty JSON parse error: ${error instanceof Error ? error.message : String(error)}`,
-    };
-  }
-  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-    return { ok: false, reason: "knowledge-page novelty decision must be an object" };
-  }
-  const record = parsed as Record<string, unknown>;
-  if (typeof record["hasNewFacts"] !== "boolean") {
-    return { ok: false, reason: "knowledge-page novelty decision missing hasNewFacts boolean" };
-  }
-  const hasNewFacts = record["hasNewFacts"];
-  const body = record["body"];
-  if (body !== null && body !== undefined && typeof body !== "string") {
-    return { ok: false, reason: "knowledge-page novelty decision body must be string or null" };
-  }
-  return {
-    ok: true,
-    decision: {
-      hasNewFacts,
-      body: typeof body === "string" ? body : null,
-    },
-  };
-}
-
-function extractJsonObject(content: string): string | null {
-  const fenced = /```(?:json)?\s*([\s\S]*?)```/m.exec(content)?.[1]?.trim();
-  if (fenced) return fenced;
-  const start = content.indexOf("{");
-  const end = content.lastIndexOf("}");
-  if (start === -1 || end <= start) return null;
-  return content.slice(start, end + 1);
-}
-
-function hasSubstantiveLineChange(previousBody: string, nextBody: string): boolean {
-  const previous = new Set(normalizedSubstantiveLines(previousBody));
-  const next = new Set(normalizedSubstantiveLines(nextBody));
-  if (previous.size !== next.size) return true;
-  for (const line of next) {
-    if (!previous.has(line)) return true;
-  }
-  return false;
-}
-
-function normalizedSubstantiveLines(body: string): string[] {
-  return body
-    .split(/\r?\n/)
-    .map((line) => line.trim().replace(/^#+\s*/, "").replace(/\s+/g, " ").toLowerCase())
-    .filter((line) => line.length > 0);
 }
 
 function addTokenUsage(left: LLMTokenUsage | undefined, right: LLMTokenUsage): LLMTokenUsage {
@@ -1570,16 +1330,6 @@ function readOperation(value: unknown): CompileOperation | null {
         : {},
     };
   }
-  if (record.kind === "section_patch" && typeof record.path === "string" && typeof record.section_id === "string" && Array.isArray(record.patch)) {
-    const patch = readSectionPatch(record.section_id, record.patch);
-    if (!patch) return null;
-    return {
-      kind: "section_patch",
-      path: record.path,
-      section_id: record.section_id,
-      patch,
-    };
-  }
   if (record.kind === "update_index" && Array.isArray(record.entries)) {
     return {
       kind: "update_index",
@@ -1597,60 +1347,11 @@ function readOperation(value: unknown): CompileOperation | null {
   return null;
 }
 
-function readSectionPatch(sectionId: string, value: unknown[]): SectionPatch[] | null {
-  const patch: SectionPatch[] = [];
-  const hashPath = `/sections/${sectionId}/body_hash` as const;
-  const blocksPath = `/sections/${sectionId}/body_blocks` as const;
-  for (const candidate of value) {
-    if (typeof candidate !== "object" || candidate === null || Array.isArray(candidate)) return null;
-    const record = candidate as Record<string, unknown>;
-    if (record.op === "test" && record.path === hashPath && typeof record.value === "string") {
-      patch.push({ op: "test", path: hashPath, value: record.value });
-      continue;
-    }
-    if (record.op === "replace" && record.path === blocksPath && Array.isArray(record.value)) {
-      const blocks = record.value.map(readSectionPatchBlock);
-      if (blocks.some((block) => block === null)) return null;
-      patch.push({ op: "replace", path: blocksPath, value: blocks as Extract<SectionPatch, { op: "replace" }>["value"] });
-      continue;
-    }
-    return null;
-  }
-  return patch;
-}
-
-function readSectionPatchBlock(value: unknown): Extract<SectionPatch, { op: "replace" }>["value"][number] | null {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
-  const record = value as Record<string, unknown>;
-  if (record.type === "paragraph" && typeof record.text === "string") {
-    return { type: "paragraph", text: record.text };
-  }
-  if (record.type === "checklist" && Array.isArray(record.items)) {
-    const items = record.items.map(readChecklistItem);
-    if (items.length === 0 || items.some((item) => item === null)) return null;
-    return { type: "checklist", items: items as Array<{ checked: boolean; text: string }> };
-  }
-  if (record.type === "list" && typeof record.ordered === "boolean" && Array.isArray(record.items)) {
-    const items = record.items.filter((item): item is string => typeof item === "string");
-    if (items.length !== record.items.length || items.length === 0) return null;
-    return { type: "list", ordered: record.ordered, items };
-  }
-  return null;
-}
-
-function readChecklistItem(value: unknown): { checked: boolean; text: string } | null {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
-  const record = value as Record<string, unknown>;
-  if (typeof record.checked !== "boolean" || typeof record.text !== "string") return null;
-  return { checked: record.checked, text: record.text };
-}
-
 export function compileOperationPath(operation: CompileOperation): string {
   switch (operation.kind) {
     case "write_page":
     case "append_page":
     case "rewrite_page":
-    case "section_patch":
       return operation.path;
     case "update_index":
       return operation.path ?? "index.md";

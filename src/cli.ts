@@ -18,6 +18,7 @@ import { runBackfillSource } from "./cli/commands/backfill-source.js";
 import { runCompactRaw } from "./cli/commands/compact-raw.js";
 import { formatCompressResult, runCompress } from "./cli/commands/compress.js";
 import { formatCurateResult, runCurate } from "./cli/commands/curate.js";
+import { runDecay } from "./cli/commands/decay.js";
 import { formatReindexResult, runReindex } from "./cli/commands/reindex.js";
 import { runImportAgentMemory } from "./cli/commands/import-agentmemory.js";
 import { runInstall } from "./cli/commands/install.js";
@@ -25,6 +26,7 @@ import { runInstallTailscaleRoute } from "./cli/commands/install-tailscale-route
 import { runInstallVps } from "./cli/commands/install-vps.js";
 import { runLint } from "./cli/commands/lint.js";
 import { runLog } from "./cli/commands/log.js";
+import { runMigrateToNarrative } from "./cli/commands/migrate-to-narrative.js";
 import { runPage } from "./cli/commands/page.js";
 import {
   formatAuditSummaryResult,
@@ -688,6 +690,46 @@ program
           ? { mode: "restore", path: opts.restore }
           : { mode: opts.apply ? "apply" : "plan" },
       );
+      process.stdout.write(result.report);
+    } catch (err) {
+      console.error((err as Error).message);
+      process.exit(1);
+    }
+  });
+
+program
+  .command("decay")
+  .description("Decay stale narrative memory record strength and archive expired pages")
+  .option("--plan", "dry-run report of decay/archive candidates")
+  .option("--apply", "apply strength decay and archive expired pages")
+  .action(async (opts: { plan?: boolean; apply?: boolean }) => {
+    const modes = [opts.plan, opts.apply].filter(Boolean);
+    if (modes.length !== 1) {
+      console.error("memory decay: choose exactly one of --plan or --apply");
+      process.exit(2);
+    }
+    try {
+      const result = await runDecay({ mode: opts.apply ? "apply" : "plan" });
+      process.stdout.write(result.report);
+    } catch (err) {
+      console.error((err as Error).message);
+      process.exit(1);
+    }
+  });
+
+program
+  .command("migrate-to-narrative")
+  .description("Plan or apply migration of structured knowledge pages into narrative records")
+  .option("--plan", "dry-run report of migration candidates")
+  .option("--apply", "rewrite migration candidates through the narrative record prompt")
+  .action(async (opts: { plan?: boolean; apply?: boolean }) => {
+    const modes = [opts.plan, opts.apply].filter(Boolean);
+    if (modes.length !== 1) {
+      console.error("memory migrate-to-narrative: choose exactly one of --plan or --apply");
+      process.exit(2);
+    }
+    try {
+      const result = await runMigrateToNarrative({ mode: opts.apply ? "apply" : "plan" });
       process.stdout.write(result.report);
     } catch (err) {
       console.error((err as Error).message);

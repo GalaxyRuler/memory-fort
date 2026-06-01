@@ -135,7 +135,7 @@ export function serializeFrontmatter(
 
 function quoteDateFields(text: string): string {
   return text.replace(
-    /^(created|updated): (\d{4}-\d{2}-\d{2})$/gm,
+    /^(created|updated|last_accessed): (\d{4}-\d{2}-\d{2})$/gm,
     '$1: "$2"',
   );
 }

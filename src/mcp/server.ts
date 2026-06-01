@@ -11,9 +11,11 @@ import {
   appendBlock,
   formatObservationBlock,
 } from "../hooks/raw-file.js";
-import { parseFrontmatter } from "../storage/frontmatter.js";
+import { parseFrontmatter, serializeFrontmatter } from "../storage/frontmatter.js";
+import { atomicWrite } from "../storage/atomic-write.js";
 import { commitVaultChange as defaultCommitVaultChange } from "../sync/commit-vault-change.js";
 import { isWikiDotDirectoryPath } from "../retrieval/wiki-paths.js";
+import { isNarrativeKnowledgePagePath } from "../compile/synthesize-narrative.js";
 
 const LogObservationInput = z.object({
   text: z.string().min(1, "text must be non-empty"),
@@ -89,6 +91,7 @@ export type ReadPageInput = z.infer<typeof ReadPageInput>;
 
 export interface ReadPageDeps {
   readFile?: typeof readFile;
+  now?: () => Date;
 }
 
 export async function readPage(
@@ -123,6 +126,7 @@ export async function readPage(
 
   const content = await readFn(fullPath, "utf-8");
   const { frontmatter, body } = parseFrontmatter(content);
+  await bumpLastAccessed(`wiki/${input.path}`, deps.now?.() ?? new Date(), content).catch(() => undefined);
   return {
     content: [
       {
@@ -324,6 +328,11 @@ export async function searchMemory(
     const message = err instanceof Error ? err.message : String(err);
     return toolError(`Failed to parse search backend JSON: ${message}`);
   }
+  await Promise.all(
+    (body.results ?? [])
+      .filter((item) => item.kind === "wiki" || item.path.startsWith("wiki/"))
+      .map((item) => bumpLastAccessed(item.path, deps.now?.() ?? new Date()).catch(() => undefined)),
+  );
 
   return {
     content: [
@@ -333,6 +342,23 @@ export async function searchMemory(
       },
     ],
   };
+}
+
+async function bumpLastAccessed(path: string, now: Date, knownContent?: string): Promise<void> {
+  const wikiRel = path.startsWith("wiki/") ? path : `wiki/${path}`;
+  if (!isNarrativeKnowledgePagePath(wikiRel)) return;
+  if (isWikiDotDirectoryPath(wikiRel)) return;
+  const relUnderWiki = wikiRel.replace(/^wiki\//, "");
+  const fullPath = join(wikiDir(), relUnderWiki);
+  if (!existsSync(fullPath)) return;
+  const current = knownContent ?? await readFile(fullPath, "utf-8");
+  const parsed = parseFrontmatter(current);
+  const today = now.toISOString().slice(0, 10);
+  if (parsed.frontmatter.last_accessed === today) return;
+  await atomicWrite(fullPath, serializeFrontmatter({
+    ...parsed.frontmatter,
+    last_accessed: today,
+  }, parsed.body));
 }
 
 export function createServer(deps: SearchDeps = {}): McpServer {
@@ -355,7 +381,7 @@ export function createServer(deps: SearchDeps = {}): McpServer {
         "Read a curated wiki page by relative path under wiki/. Returns frontmatter + body. Use for retrieving specific known pages; for discovery use list_pages.",
       inputSchema: ReadPageInput.shape,
     },
-    async (args) => readPage(args),
+    async (args) => readPage(args, deps),
   );
 
   server.registerTool(

@@ -110,7 +110,7 @@ describe("dashboard proposed draft actions", () => {
     }));
 
     await expect(promoteProposedDraft(tmp, "compile", "memory-fort"))
-      .rejects.toThrow("knowledge-page update requires section_patch");
+      .rejects.toThrow("knowledge-page update requires narrative synthesis");
     await expect(readFile(join(tmp, "wiki", "projects", "memory-fort.md"), "utf-8"))
       .resolves.not.toContain("Reviewed compile addition.");
     expect(existsSync(join(tmp, "wiki", "compile-proposed", "memory-fort.md"))).toBe(true);
