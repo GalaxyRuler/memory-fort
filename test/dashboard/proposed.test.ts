@@ -93,6 +93,45 @@ describe("dashboard proposed draft actions", () => {
     expect(parsed.body).toContain("Reviewed compile addition.");
   });
 
+  it("commits archive history when promoting rewrite_page compile proposals", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-01T12:00:00.000Z"));
+    try {
+      await writeFileAt("wiki/references/section-patch-fixture.md", [
+        "---",
+        "type: references",
+        "title: Section-Patch Fixture",
+        "version: 2",
+        "---",
+        "",
+        "Existing narrative body.",
+        "",
+      ].join("\n"));
+      await writeFileAt("wiki/compile-proposed/section-patch-fixture.md", compileProposal({
+        kind: "rewrite_page",
+        path: "wiki/references/section-patch-fixture.md",
+        body: "Rewritten narrative body.",
+      }));
+
+      const result = await promoteProposedDraft(tmp, "compile", "section-patch-fixture");
+
+      const archivePath = "wiki/.history/wiki/references/section-patch-fixture.md/2026-06-01T12-00-00-000Z.md";
+      expect(result).toEqual({ promotedPath: "wiki/references/section-patch-fixture.md" });
+      expect(existsSync(join(tmp, ...archivePath.split("/")))).toBe(true);
+      expect(commitVaultChange).toHaveBeenCalledWith({
+        memoryRoot: tmp,
+        paths: [
+          "wiki/references/section-patch-fixture.md",
+          archivePath,
+          "wiki/compile-proposed/section-patch-fixture.md",
+        ],
+        message: "promote compile proposal: section-patch-fixture",
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("refuses to promote append_page compile proposals against existing knowledge pages", async () => {
     await writeFileAt("wiki/projects/memory-fort.md", [
       "---",

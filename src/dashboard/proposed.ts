@@ -219,7 +219,7 @@ async function promoteCompileProposal(vaultRoot: string, slug: string): Promise<
   await rm(fullPath);
   await commitVaultChange({
     memoryRoot: vaultRoot,
-    paths: [promotedPath, ...(indexPath ? [indexPath] : []), proposalPath],
+    paths: [promotedPath, ...(applied.touchedPaths ?? []), ...(indexPath ? [indexPath] : []), proposalPath],
     message: `promote compile proposal: ${safeSlug}`,
   });
   return { promotedPath };

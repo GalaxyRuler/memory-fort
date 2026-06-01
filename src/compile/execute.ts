@@ -634,6 +634,7 @@ export async function applyOperation(
   ok: true;
   outcome: Extract<CompileOperationOutcomeKind, "created" | "appended" | "rewritten" | "index-updated" | "log-appended" | "skipped: no new content">;
   converted?: CompileOperationConversion;
+  touchedPaths?: string[];
 } | { ok: false; reason: string }> {
   const relPath = compileOperationPath(operation);
   const fullPath = join(vaultRoot, ...relPath.split("/"));
@@ -694,7 +695,7 @@ export async function applyOperation(
         now,
       );
       await atomicWrite(fullPath, serializeFrontmatter(frontmatter, `${operation.body.trim()}\n`));
-      return { ok: true, outcome: "rewritten" };
+      return { ok: true, outcome: "rewritten", touchedPaths: [archivedPath] };
     }
     case "update_index":
       void fullPath;

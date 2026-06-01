@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runMigrateToNarrative } from "../../../src/cli/commands/migrate-to-narrative.js";
+import { parseCompileOperationBlock } from "../../../src/compile/execute.js";
 import { parseFrontmatter, serializeFrontmatter } from "../../../src/storage/frontmatter.js";
 import type { LLMProvider, LLMRequest, LLMResponse } from "../../../src/llm/types.js";
 
@@ -66,6 +67,38 @@ describe("runMigrateToNarrative", () => {
       }),
     ]);
     expect(existsSync(join(tmp, "wiki", ".history", "wiki", "projects", "memory-system.md", "2026-06-01T00-00-00-000Z.md"))).toBe(true);
+  });
+
+  it("stages safety-gate failures as promotable compile proposals", async () => {
+    await writePage("wiki/lessons/engineering-process-lessons.md", [
+      "## Process",
+      "",
+      "- [[agentmemory-consolidation-architecture]] should be checked before redesigning consolidation.",
+      "",
+    ].join("\n"));
+
+    const llm = fakeMigrationLLM("Prior art should be checked before redesigning consolidation.");
+    const applied = await runMigrateToNarrative({
+      vaultRoot: tmp,
+      mode: "apply",
+      now: new Date("2026-06-01T00:00:00.000Z"),
+      configLoader: async () => ({ llm: { provider: "openrouter" } }),
+      llmFactory: () => llm,
+    });
+
+    expect(applied.staged).toEqual(["wiki/lessons/engineering-process-lessons.md"]);
+    const proposal = await readFile(join(tmp, "wiki", "compile-proposed", "engineering-process-lessons.md"), "utf-8");
+    const parsed = parseCompileOperationBlock(proposal);
+    expect(parsed).toEqual({
+      ok: true,
+      operation: {
+        kind: "rewrite_page",
+        path: "wiki/lessons/engineering-process-lessons.md",
+        frontmatter: {},
+        body: "Prior art should be checked before redesigning consolidation.",
+      },
+    });
+    expect(proposal).toContain("Reason: migration safety gate failed");
   });
 
   async function writePage(relPath: string, body: string): Promise<void> {
