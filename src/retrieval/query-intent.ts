@@ -108,8 +108,10 @@ export async function classifyQuery(opts: ClassifyQueryOptions): Promise<IntentC
 
   const heuristic = classifyQueryHeuristic(opts.query);
   if (heuristic) return { ...heuristic, latencyMs: Math.max(0, nowMs() - started) };
-  const keywordLookup = classifyKeywordLookup(opts.query, started, nowMs);
-  if (keywordLookup) return keywordLookup;
+  if (opts.llm) {
+    const keywordLookup = classifyKeywordLookup(opts.query, started, nowMs);
+    if (keywordLookup) return keywordLookup;
+  }
   if (!opts.llm) return fallbackClassification(started, nowMs);
 
   try {
