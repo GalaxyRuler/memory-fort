@@ -146,6 +146,39 @@ describe("runDashboard", () => {
     await result.close();
   });
 
+  it("builds the dashboard UI once when the dist index is missing", async () => {
+    const distRoot = join(tmp, "dist", "dashboard-ui");
+    const close = vi.fn(async () => undefined);
+    const buildDashboardUi = vi.fn(async () => {
+      await mkdir(distRoot, { recursive: true });
+      await writeFile(join(distRoot, "index.html"), "<!doctype html>\n");
+    });
+    const createServer = vi.fn(async (opts: ServerOptions): Promise<RunningServer> => ({
+      host: opts.host ?? "127.0.0.1",
+      port: opts.port ?? 4410,
+      close,
+    }));
+    const stdout: string[] = [];
+
+    const result = await runDashboard({
+      dashboardDistRoot: distRoot,
+      buildDashboardUi,
+      createServer,
+      openBrowser: async () => undefined,
+      stdout: (line) => stdout.push(line),
+    });
+
+    expect(buildDashboardUi).toHaveBeenCalledOnce();
+    expect(createServer).toHaveBeenCalledWith(expect.objectContaining({
+      dashboardDistRoot: distRoot,
+    }));
+    expect(stdout[0]).toBe(`building dashboard UI (${join(distRoot, "index.html")} missing)...`);
+    expect(stdout).toContain("Memory dashboard: http://127.0.0.1:4410/memory/");
+
+    await result.close();
+    expect(close).toHaveBeenCalledOnce();
+  });
+
   it("surfaces the build:ui hint when the SPA dist is missing", async () => {
     await expect(runDashboard({
       createServer: async () => {

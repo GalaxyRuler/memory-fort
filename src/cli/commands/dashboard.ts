@@ -16,9 +16,16 @@ export interface DashboardOptions {
   noOpen?: boolean;
   vaultRoot?: string;
   dashboardDistRoot?: string;
+  buildDashboardUi?: (opts: DashboardUiBuildOptions) => Promise<void>;
   createServer?: (opts: ServerOptions) => Promise<RunningServer>;
   openBrowser?: (url: string) => Promise<void>;
   stdout?: (line: string) => void;
+}
+
+export interface DashboardUiBuildOptions {
+  repoRoot: string;
+  dashboardDistRoot: string;
+  indexHtml: string;
 }
 
 export interface DashboardRun {
@@ -38,13 +45,30 @@ export async function runDashboard(opts: DashboardOptions = {}): Promise<Dashboa
   const distRoot = opts.dashboardDistRoot ?? defaultDashboardDistRoot();
   const vaultRoot = opts.vaultRoot ?? defaultMemoryRoot();
   const indexHtml = join(distRoot, "index.html");
+  const writeLine = opts.stdout ?? ((line) => console.log(line));
   // Only enforce the real dist when using the real server. An injected
   // createServer (tests) brings its own server and manages its own assets, so
-  // the check must not depend on the repo's on-disk dist/dashboard-ui state.
-  if (!opts.createServer && !existsSync(indexHtml)) {
-    throw new Error(
-      `dashboard UI dist missing index.html at ${indexHtml}; run \`npm run build:ui\` first`,
+  // the check must not depend on the repo's on-disk dist/dashboard-ui state
+  // unless a test explicitly injects a dashboard UI builder.
+  if ((!opts.createServer || opts.buildDashboardUi) && !existsSync(indexHtml)) {
+    const builder = opts.buildDashboardUi ?? (
+      opts.dashboardDistRoot ? undefined : defaultDashboardUiBuilder()
     );
+    if (builder) {
+      writeLine(`building dashboard UI (${indexHtml} missing)...`);
+      try {
+        await builder({
+          repoRoot: findDashboardSourceRoot(process.cwd()) ?? process.cwd(),
+          dashboardDistRoot: distRoot,
+          indexHtml,
+        });
+      } catch {
+        throw missingDashboardDistError(indexHtml);
+      }
+    }
+    if (!existsSync(indexHtml)) {
+      throw missingDashboardDistError(indexHtml);
+    }
   }
   const server = await startDashboardServer({
     createServerImpl: opts.createServer ?? createServer,
@@ -54,7 +78,6 @@ export async function runDashboard(opts: DashboardOptions = {}): Promise<Dashboa
     port: requestedPort,
   });
   const url = `http://${server.host}:${server.port}/memory/`;
-  const writeLine = opts.stdout ?? ((line) => console.log(line));
   writeLine(`Memory dashboard: ${url}`);
   writeLine(`Vault root: ${vaultRoot}`);
 
@@ -139,6 +162,54 @@ function defaultDashboardDistRoot(): string {
     return resolve(process.cwd(), "dist", "dashboard-ui");
   }
   return resolve(fileURLToPath(new URL(".", import.meta.url)), "dashboard-ui");
+}
+
+function defaultDashboardUiBuilder(): ((opts: DashboardUiBuildOptions) => Promise<void>) | undefined {
+  const repoRoot = findDashboardSourceRoot(process.cwd());
+  if (!repoRoot) return undefined;
+  return () => runNpmBuildUi(repoRoot);
+}
+
+function findDashboardSourceRoot(start: string): string | null {
+  let dir = resolve(start);
+  for (let i = 0; i < 8; i += 1) {
+    if (
+      existsSync(join(dir, "package.json")) &&
+      existsSync(join(dir, "vite.config.ts")) &&
+      existsSync(join(dir, "src", "dashboard-ui", "index.html"))
+    ) {
+      return dir;
+    }
+    const parent = resolve(dir, "..");
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return null;
+}
+
+function runNpmBuildUi(repoRoot: string): Promise<void> {
+  return new Promise((resolveBuild, rejectBuild) => {
+    const command = process.platform === "win32" ? "cmd.exe" : "npm";
+    const args = process.platform === "win32"
+      ? ["/d", "/s", "/c", "npm run build:ui"]
+      : ["run", "build:ui"];
+    const child = spawn(
+      command,
+      args,
+      { cwd: repoRoot, stdio: "inherit", windowsHide: true },
+    );
+    child.once("error", rejectBuild);
+    child.once("exit", (code) => {
+      if (code === 0) resolveBuild();
+      else rejectBuild(new Error(`npm run build:ui exited with code ${code ?? "unknown"}`));
+    });
+  });
+}
+
+function missingDashboardDistError(indexHtml: string): Error {
+  return new Error(
+    `dashboard UI dist missing index.html at ${indexHtml}; run \`npm run build:ui\` first`,
+  );
 }
 
 function openBrowser(url: string): Promise<void> {
