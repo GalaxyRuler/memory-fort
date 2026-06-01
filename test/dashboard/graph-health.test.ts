@@ -451,6 +451,62 @@ describe("graph health metrics", () => {
     },
   );
 
+  it("calculates narrative thread coverage over the trailing 30-day raw window", () => {
+    const result = metricNarrativeThreadCoverage(
+      graphInput({
+        feed: graphFeed({
+          nodes: [
+            node("raw/2026-04-01-old-referenced.md", { kind: "raw", created: "2026-04-01" }),
+            node("raw/2026-05-03-window-unreferenced.md", { kind: "raw", created: "2026-05-03" }),
+            node("raw/2026-05-15-window-unreferenced.md", { kind: "raw", created: "2026-05-15" }),
+            node("raw/2026-06-01-window-referenced.md", { kind: "raw", created: "2026-06-01" }),
+          ],
+        }),
+        wikiPages: [
+          wikiPage("wiki/threads/live.md", {
+            relations: {
+              mentions: [
+                { target: "raw/2026-04-01-old-referenced.md" },
+                { target: "raw/2026-06-01-window-referenced.md" },
+              ],
+            },
+          }),
+        ],
+      }),
+    );
+
+    expect(result.status).toBe("warn");
+    expect(result.value).toBeCloseTo(33.33, 2);
+    expect(result.detail).toContain("1/3 raw observations referenced by 1 thread");
+    expect(result.detail).toContain("trailing 30-day window");
+    expect(result.detail).toContain("ending 2026-06-01");
+  });
+
+  it("returns n/a for narrative thread coverage when the trailing raw window is empty", () => {
+    const result = metricNarrativeThreadCoverage(
+      graphInput({
+        feed: graphFeed({
+          nodes: [
+            node("raw/unknown-date.md", { kind: "raw", created: null, updated: null }),
+          ],
+        }),
+        wikiPages: [
+          wikiPage("wiki/threads/live.md", {
+            relations: {
+              mentions: [
+                { target: "raw/unknown-date.md" },
+              ],
+            },
+          }),
+        ],
+      }),
+    );
+
+    expect(result.status).toBe("n/a");
+    expect(result.value).toBeNull();
+    expect(result.detail).toBe("no raw observations in window");
+  });
+
   it("ignores non-raw targets and archived threads for narrative thread coverage", () => {
     const result = metricNarrativeThreadCoverage(
       graphInput({

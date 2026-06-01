@@ -32,6 +32,7 @@ export interface GraphHealthReport {
 export interface GraphHealthInput {
   feed: GraphFeed;
   wikiPages: ReadonlyArray<WikiHealthPage>;
+  now?: Date | string | null;
 }
 
 export interface WikiHealthPage {
@@ -72,6 +73,8 @@ const PROJECT_HUB_EXEMPTION_REASON = "project hub - by-design anchor";
 // thresholds catch near-total crossings without false-alarming on consolidation.
 const CROSS_GALAXY_WARN = 99;
 const CROSS_GALAXY_FAIL = 99.5;
+const NARRATIVE_THREAD_WINDOW_DAYS = 30;
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 export function computeGraphHealth(input: GraphHealthInput): GraphHealthReport {
   const { feed } = input;
@@ -518,20 +521,32 @@ export function metricNarrativeThreadCoverage(input: GraphHealthInput): MetricRe
   }
 
   const rawNodes = input.feed.nodes.filter((node) => node.kind === "raw");
+  const rawWindow = trailingRawWindow(input, rawNodes, NARRATIVE_THREAD_WINDOW_DAYS);
+  if (rawWindow.nodes.length === 0) {
+    return {
+      id: "graph.narrative-thread-coverage",
+      label: "Narrative thread coverage",
+      value: null,
+      threshold: { warn: 50, fail: 25, rule: "pass >= 50%, warn >= 25%, fail < 25%" },
+      status: "n/a",
+      detail: "no raw observations in window",
+      topOffenders: [],
+    };
+  }
+
+  const rawWindowPaths = new Set(rawWindow.nodes.map((node) => node.path));
   const referencedRawPaths = new Set<string>();
   for (const page of threadPages) {
     for (const relations of Object.values(page.relations ?? {})) {
       for (const relation of relations) {
-        if (relation.target.startsWith("raw/")) {
+        if (rawWindowPaths.has(relation.target)) {
           referencedRawPaths.add(relation.target);
         }
       }
     }
   }
 
-  const coverage = rawNodes.length === 0
-    ? 100
-    : (referencedRawPaths.size / rawNodes.length) * 100;
+  const coverage = (referencedRawPaths.size / rawWindow.nodes.length) * 100;
   const value = round(coverage, 2);
 
   return {
@@ -541,9 +556,72 @@ export function metricNarrativeThreadCoverage(input: GraphHealthInput): MetricRe
     unit: "%",
     threshold: { warn: 50, fail: 25, rule: "pass >= 50%, warn >= 25%, fail < 25%" },
     status: coverage < 25 ? "fail" : coverage < 50 ? "warn" : "pass",
-    detail: `${referencedRawPaths.size}/${rawNodes.length} raw observations referenced by ${threadPages.length} thread(s) (${coverage.toFixed(1)}%)`,
+    detail: `${referencedRawPaths.size}/${rawWindow.nodes.length} raw observations referenced by ${threadPages.length} thread(s) in trailing ${rawWindow.days}-day window ending ${rawWindow.upperDay} (${coverage.toFixed(1)}%)`,
     topOffenders: [],
   };
+}
+
+function trailingRawWindow(
+  input: GraphHealthInput,
+  rawNodes: GraphNode[],
+  days: number,
+): { nodes: GraphNode[]; upperDay: string; days: number } {
+  const rawDateByPath = new Map(
+    rawNodes.map((node) => [node.path, rawObservationDay(node)] as const),
+  );
+  const upperDay = inputDay(input.now) ?? maxDateOnly([...rawDateByPath.values()]);
+  if (!upperDay) return { nodes: [], upperDay: "unknown", days };
+
+  return {
+    nodes: rawNodes.filter((node) => {
+      const day = rawDateByPath.get(node.path);
+      return Boolean(day && isWithinTrailingDays(day, upperDay, days));
+    }),
+    upperDay,
+    days,
+  };
+}
+
+function inputDay(value: GraphHealthInput["now"]): string | null {
+  if (value instanceof Date) return normalizeDateOnly(value.toISOString());
+  if (typeof value === "string") return normalizeDateOnly(value);
+  return null;
+}
+
+function rawObservationDay(node: GraphNode): string | null {
+  return normalizeDateOnly(node.created) ?? dateFromPath(node.path) ?? normalizeDateOnly(node.updated);
+}
+
+function dateFromPath(path: string): string | null {
+  const match = /(?:^|\/)(\d{4}-\d{2}-\d{2})(?=[^0-9]|$)/.exec(path);
+  return normalizeDateOnly(match?.[1]);
+}
+
+function maxDateOnly(values: Array<string | null>): string | null {
+  return values
+    .filter((value): value is string => value !== null)
+    .sort((a, b) => b.localeCompare(a))[0] ?? null;
+}
+
+function isWithinTrailingDays(day: string, upperDay: string, days: number): boolean {
+  const timestamp = dateOnlyUtcMs(day);
+  const upper = dateOnlyUtcMs(upperDay);
+  const lower = upper - Math.max(0, days) * MS_PER_DAY;
+  return timestamp >= lower && timestamp <= upper;
+}
+
+function normalizeDateOnly(value: string | null | undefined): string | null {
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value?.trim() ?? "");
+  if (!match) return null;
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+  return match[0];
+}
+
+function dateOnlyUtcMs(day: string): number {
+  const [year, month, date] = day.split("-").map(Number);
+  return Date.UTC(year ?? 0, (month ?? 1) - 1, date ?? 1);
 }
 
 function isLiveNarrativeThread(page: WikiHealthPage): boolean {
