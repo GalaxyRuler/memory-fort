@@ -14,7 +14,7 @@ import { filterNoiseForPage } from "./filter-noise.js";
 import { blocksToMarkdown, parsePageIR, renderPageIRWithSectionBody } from "./parse-pageir.js";
 import { compileSectionPatch, type SectionPatch } from "./patch-compiler.js";
 import { planSectionPatches } from "./planner.js";
-import { renderSectionPatch } from "./renderer.js";
+import { rendererOutputToBlocks, renderSectionPatch } from "./renderer.js";
 import { validateRender } from "./validate-patch.js";
 import type { CompressedFact } from "../facts/store.js";
 
@@ -947,7 +947,7 @@ async function rewriteExistingKnowledgePageUpdate(opts: {
     for (const job of plan.output.section_jobs) {
       const section = page.sections.find((candidate) => candidate.section_id === job.section_id);
       if (!section) throw new Error(`planner referenced unknown section ${job.section_id}`);
-      if (section.has_structured_blocks) {
+      if (sectionHasUnsupportedStructuredBlocks(section.body_blocks)) {
         const reason = `section ${section.section_id} contains structured blocks`;
         const proposedPath = await stageCompileProposal(opts.vaultRoot, opts.operation, opts.now, reason);
         return {
@@ -970,13 +970,30 @@ async function rewriteExistingKnowledgePageUpdate(opts: {
         facts: filtered.accepted,
       });
       if (rendered.tokensUsed) tokensUsed = addTokenUsage(tokensUsed, rendered.tokensUsed);
-      validateRender(rendered.output, job, section);
+      try {
+        validateRender(rendered.output, job, section);
+      } catch (error) {
+        const reason = `section render invalid: ${error instanceof Error ? error.message : String(error)}`;
+        const proposedPath = await stageCompileProposal(opts.vaultRoot, opts.operation, opts.now, reason);
+        return {
+          handled: true,
+          outcome: "staged-for-review",
+          reason,
+          proposedPath,
+          tokensUsed,
+          extractionTokensUsed,
+          factsExtracted,
+          sessionsScanned,
+          referencesStripped: 0,
+          prosePathLeaks: 0,
+        };
+      }
       const applied = await applyOperation(opts.vaultRoot, compileSectionPatch({
         path: target.path,
         page,
         sectionId: section.section_id,
         bodyHash: section.body_hash,
-        replacementParagraphs: rendered.output.replacement_paragraphs,
+        replacementBlocks: rendererOutputToBlocks(rendered.output),
       }), opts.now);
       if (!applied.ok) {
         const reason = `knowledge-page section_patch failed: ${applied.reason}`;
@@ -1057,6 +1074,14 @@ function makeSyntheticCompressedFacts(incoming: string, title: string, now: Date
     observedAt,
     compressedAt: observedAt,
   }];
+}
+
+function sectionHasUnsupportedStructuredBlocks(blocks: Array<{ type: string }>): boolean {
+  return blocks.some((block) =>
+    block.type !== "paragraph" &&
+    block.type !== "checklist" &&
+    block.type !== "list"
+  );
 }
 
 function operationIncomingContent(operation: Extract<CompileOperation, { kind: "write_page" | "append_page" }>): string {
@@ -1600,7 +1625,24 @@ function readSectionPatchBlock(value: unknown): Extract<SectionPatch, { op: "rep
   if (record.type === "paragraph" && typeof record.text === "string") {
     return { type: "paragraph", text: record.text };
   }
+  if (record.type === "checklist" && Array.isArray(record.items)) {
+    const items = record.items.map(readChecklistItem);
+    if (items.length === 0 || items.some((item) => item === null)) return null;
+    return { type: "checklist", items: items as Array<{ checked: boolean; text: string }> };
+  }
+  if (record.type === "list" && typeof record.ordered === "boolean" && Array.isArray(record.items)) {
+    const items = record.items.filter((item): item is string => typeof item === "string");
+    if (items.length !== record.items.length || items.length === 0) return null;
+    return { type: "list", ordered: record.ordered, items };
+  }
   return null;
+}
+
+function readChecklistItem(value: unknown): { checked: boolean; text: string } | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  if (typeof record.checked !== "boolean" || typeof record.text !== "string") return null;
+  return { checked: record.checked, text: record.text };
 }
 
 export function compileOperationPath(operation: CompileOperation): string {

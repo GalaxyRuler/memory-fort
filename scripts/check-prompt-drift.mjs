@@ -14,8 +14,9 @@ const checks = [
   [plannerSource.includes("replace_section_body"), "planner schema names replace_section_body"],
   [plannerSource.includes("section_jobs") && plannerSource.includes("dropped_facts") && plannerSource.includes("unresolved_conflicts"), "planner schema field names present"],
   [rendererPrompt.includes("Additional Information"), "renderer prompt forbids Additional Information"],
+  [rendererPrompt.includes("replacement_blocks") && rendererPrompt.includes("checklist"), "renderer prompt documents replacement_blocks checklist output"],
   [rendererPrompt.includes("RendererOutput"), "renderer prompt names RendererOutput"],
-  [rendererSource.includes("replacement_paragraphs") && rendererSource.includes("coverage"), "renderer schema field names present"],
+  [rendererSource.includes("replacement_paragraphs") && rendererSource.includes("replacement_blocks") && rendererSource.includes("block_index"), "renderer schema field names present"],
 ];
 
 const failed = checks.filter(([ok]) => !ok).map(([, label]) => label);

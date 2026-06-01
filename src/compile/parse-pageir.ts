@@ -8,7 +8,8 @@ import { extractClaimsFromParagraph, type Claim } from "./extract-claims.js";
 
 export type Block =
   | { type: "paragraph"; text: string }
-  | { type: "list"; markdown: string }
+  | { type: "checklist"; items: Array<{ checked: boolean; text: string }> }
+  | { type: "list"; ordered: boolean; items: string[] }
   | { type: "code"; markdown: string }
   | { type: "table"; markdown: string }
   | { type: "blockquote"; markdown: string };
@@ -139,6 +140,16 @@ export function renderPageIRWithSectionBody(content: string, sectionId: string, 
 export function blocksToMarkdown(blocks: Block[]): string {
   return blocks.map((block) => {
     if (block.type === "paragraph") return block.text.trim();
+    if (block.type === "checklist") {
+      return block.items
+        .map((item) => `- [${item.checked ? "x" : " "}] ${item.text.trim()}`)
+        .join("\n");
+    }
+    if (block.type === "list") {
+      return block.items
+        .map((item, index) => `${block.ordered ? `${index + 1}.` : "-"} ${item.trim()}`)
+        .join("\n");
+    }
     return block.markdown.trim();
   }).filter(Boolean).join("\n\n");
 }
@@ -165,6 +176,7 @@ function parseBlocks(markdown: string): Block[] {
   const blocks: Block[] = [];
   const lines = markdown.split("\n");
   let buffer: string[] = [];
+  let listBuffer: string[] = [];
   let inFence = false;
   let fence: string[] = [];
 
@@ -172,6 +184,28 @@ function parseBlocks(markdown: string): Block[] {
     const text = buffer.join(" ").replace(/\s+/g, " ").trim();
     if (text) blocks.push({ type: "paragraph", text });
     buffer = [];
+  }
+
+  function flushList(): void {
+    if (listBuffer.length === 0) return;
+    const checklistItems = listBuffer.map((line) => /^\s*[-*+]\s+\[([ xX])\]\s+(.+?)\s*$/.exec(line));
+    if (checklistItems.every((item) => item !== null)) {
+      blocks.push({
+        type: "checklist",
+        items: checklistItems.map((item) => ({
+          checked: item![1]!.toLowerCase() === "x",
+          text: item![2]!.trim(),
+        })),
+      });
+    } else {
+      const ordered = listBuffer.every((line) => /^\s*\d+\.\s+/.test(line));
+      blocks.push({
+        type: "list",
+        ordered,
+        items: listBuffer.map((line) => line.replace(/^\s*(?:[-*+]|\d+\.)\s+/, "").trim()),
+      });
+    }
+    listBuffer = [];
   }
 
   for (const line of lines) {
@@ -182,6 +216,7 @@ function parseBlocks(markdown: string): Block[] {
         fence = [];
         inFence = false;
       } else {
+        flushList();
         flushParagraph();
         inFence = true;
         fence = [line];
@@ -193,28 +228,33 @@ function parseBlocks(markdown: string): Block[] {
       continue;
     }
     if (line.trim() === "") {
+      flushList();
       flushParagraph();
       continue;
     }
     if (/^\s*([-*+]|\d+\.)\s+/.test(line)) {
       flushParagraph();
-      blocks.push({ type: "list", markdown: line });
+      listBuffer.push(line);
       continue;
     }
     if (/^\s*>/.test(line)) {
+      flushList();
       flushParagraph();
       blocks.push({ type: "blockquote", markdown: line });
       continue;
     }
     if (/^\s*\|.*\|\s*$/.test(line)) {
+      flushList();
       flushParagraph();
       blocks.push({ type: "table", markdown: line });
       continue;
     }
+    flushList();
     buffer.push(line.trim());
   }
 
   if (inFence && fence.length > 0) blocks.push({ type: "code", markdown: fence.join("\n") });
+  flushList();
   flushParagraph();
   return blocks;
 }

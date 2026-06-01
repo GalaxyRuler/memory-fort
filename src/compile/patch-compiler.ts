@@ -10,7 +10,8 @@ export interface CompileSectionPatchOptions {
   page: PageIR;
   sectionId: string;
   bodyHash: string;
-  replacementParagraphs: string[];
+  replacementParagraphs?: string[];
+  replacementBlocks?: Block[];
 }
 
 export function compileSectionPatch(opts: CompileSectionPatchOptions): Extract<CompileOperation, { kind: "section_patch" }> {
@@ -29,7 +30,7 @@ export function compileSectionPatch(opts: CompileSectionPatchOptions): Extract<C
       {
         op: "replace",
         path: `/sections/${opts.sectionId}/body_blocks`,
-        value: opts.replacementParagraphs.map((paragraph) => ({
+        value: opts.replacementBlocks ?? (opts.replacementParagraphs ?? []).map((paragraph) => ({
           type: "paragraph" as const,
           text: paragraph.trim(),
         })).filter((block) => block.text.length > 0),

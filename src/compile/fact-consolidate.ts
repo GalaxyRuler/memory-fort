@@ -11,7 +11,7 @@ import { filterNoiseForPage } from "./filter-noise.js";
 import { compileSectionPatch } from "./patch-compiler.js";
 import { parsePageIR } from "./parse-pageir.js";
 import { planSectionPatches } from "./planner.js";
-import { renderSectionPatch } from "./renderer.js";
+import { rendererOutputToBlocks, renderSectionPatch } from "./renderer.js";
 import { validateRender } from "./validate-patch.js";
 
 export interface FactConsolidationOptions {
@@ -113,7 +113,7 @@ export async function runFactConsolidation(opts: FactConsolidationOptions): Prom
         rejected.push({ path: candidate.page.relPath, reason: `planner referenced unknown section ${job.section_id}` });
         continue;
       }
-      if (section.has_structured_blocks) {
+      if (sectionHasUnsupportedStructuredBlocks(section.body_blocks)) {
         proposed.push(await stageSectionReviewPacket(opts.vaultRoot, candidate.page.relPath, section.section_id, {
           reason: "section contains structured blocks",
           section,
@@ -137,13 +137,31 @@ export async function runFactConsolidation(opts: FactConsolidationOptions): Prom
       });
       llmCalls += 1;
       rewriteTokensUsed = addTokenUsage(rewriteTokensUsed, rendered.tokensUsed);
-      validateRender(rendered.output, job, section);
+      try {
+        validateRender(rendered.output, job, section);
+      } catch (error) {
+        const reason = `section render invalid: ${error instanceof Error ? error.message : String(error)}`;
+        proposed.push(await stageSectionReviewPacket(opts.vaultRoot, candidate.page.relPath, section.section_id, {
+          reason,
+          section,
+          job,
+          rendered_output: rendered.output,
+          accepted_facts: filtered.accepted.filter((fact) => job.accepted_fact_ids.includes(fact.fact_id)),
+        }));
+        outcomes.push({
+          path: candidate.page.relPath,
+          outcome: "staged-for-review",
+          reason,
+          contentPreserved: true,
+        });
+        continue;
+      }
       operations.push(compileSectionPatch({
         path: candidate.page.relPath,
         page,
         sectionId: section.section_id,
         bodyHash: section.body_hash,
-        replacementParagraphs: rendered.output.replacement_paragraphs,
+        replacementBlocks: rendererOutputToBlocks(rendered.output),
       }));
     }
     if (operations.length === 0) {
@@ -254,6 +272,14 @@ function normalizeConcept(value: string): string {
 
 function bestImportance(facts: CompressedFact[]): number {
   return Math.max(...facts.map((fact) => fact.importance));
+}
+
+function sectionHasUnsupportedStructuredBlocks(blocks: Array<{ type: string }>): boolean {
+  return blocks.some((block) =>
+    block.type !== "paragraph" &&
+    block.type !== "checklist" &&
+    block.type !== "list"
+  );
 }
 
 async function stageSectionReviewPacket(
