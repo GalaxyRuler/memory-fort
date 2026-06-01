@@ -25,9 +25,7 @@ export const RENDERER_SCHEMA: Record<string, unknown> = {
     section_id: { type: "string" },
     replacement_paragraphs: {
       type: "array",
-      minItems: 0,
-      maxItems: 4,
-      items: { type: "string", minLength: 80, maxLength: 900 },
+      items: { type: "string" },
     },
     coverage: {
       type: "array",
@@ -56,8 +54,6 @@ export const RENDERER_SCHEMA: Record<string, unknown> = {
     },
     replacement_blocks: {
       type: "array",
-      minItems: 0,
-      maxItems: 8,
       items: {
         anyOf: [
           {
@@ -65,8 +61,8 @@ export const RENDERER_SCHEMA: Record<string, unknown> = {
             additionalProperties: false,
             required: ["type", "text"],
             properties: {
-              type: { const: "paragraph" },
-              text: { type: "string", minLength: 1, maxLength: 900 },
+              type: { enum: ["paragraph"] },
+              text: { type: "string" },
             },
           },
           {
@@ -74,17 +70,16 @@ export const RENDERER_SCHEMA: Record<string, unknown> = {
             additionalProperties: false,
             required: ["type", "items"],
             properties: {
-              type: { const: "checklist" },
+              type: { enum: ["checklist"] },
               items: {
                 type: "array",
-                minItems: 1,
                 items: {
                   type: "object",
                   additionalProperties: false,
                   required: ["checked", "text"],
                   properties: {
                     checked: { type: "boolean" },
-                    text: { type: "string", minLength: 1, maxLength: 300 },
+                    text: { type: "string" },
                   },
                 },
               },
@@ -95,9 +90,9 @@ export const RENDERER_SCHEMA: Record<string, unknown> = {
             additionalProperties: false,
             required: ["type", "ordered", "items"],
             properties: {
-              type: { const: "list" },
+              type: { enum: ["list"] },
               ordered: { type: "boolean" },
-              items: { type: "array", minItems: 1, items: { type: "string", minLength: 1, maxLength: 300 } },
+              items: { type: "array", items: { type: "string" } },
             },
           },
         ],
