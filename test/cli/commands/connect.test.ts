@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { existsSync } from "node:fs";
 import { mkdtemp, rm, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -52,7 +53,7 @@ describe("runConnect", () => {
       if (value === undefined) delete process.env[key];
       else process.env[key] = value;
     }
-    await rm(tmp, { recursive: true, force: true });
+    await rm(tmp, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
   });
 
   it("runs all installers and reports partial failures as warnings", async () => {
@@ -71,14 +72,17 @@ describe("runConnect", () => {
   });
 
   it("runs one selected client", async () => {
+    const extensionDir = join(tmp, "extensions");
     const result = await runConnect({
       client: "vscode",
       vscodeInstalled: true,
+      vscodeExtensionDir: extensionDir,
     });
     expect(result.exitCode).toBe(0);
     expect(result.clients).toHaveLength(1);
     expect(result.clients[0]!.client).toBe("vscode");
     expect(result.clients[0]!.ok).toBe(true);
+    expect(existsSync(join(extensionDir, "memory-fort.memory"))).toBe(true);
   });
 
   it("passes workspace path to VS Code installer", async () => {

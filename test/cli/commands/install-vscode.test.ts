@@ -11,6 +11,7 @@ describe("installVsCode", () => {
   let memDir: string;
   let userDir: string;
   let workspaceDir: string;
+  let extensionDir: string;
   let origMem: string | undefined;
   let origUserDir: string | undefined;
   let origAppData: string | undefined;
@@ -20,6 +21,7 @@ describe("installVsCode", () => {
     memDir = join(tmp, ".memory");
     userDir = join(tmp, "Code", "User");
     workspaceDir = join(tmp, "workspace");
+    extensionDir = join(tmp, "extensions");
     origMem = process.env["MEMORY_ROOT"];
     origUserDir = process.env["MEMORY_VSCODE_USER_DIR"];
     origAppData = process.env["APPDATA"];
@@ -34,13 +36,14 @@ describe("installVsCode", () => {
     else process.env["MEMORY_VSCODE_USER_DIR"] = origUserDir;
     if (origAppData === undefined) delete process.env["APPDATA"];
     else process.env["APPDATA"] = origAppData;
-    await rm(tmp, { recursive: true, force: true });
+    await rm(tmp, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
   });
 
   it("creates user-profile mcp.json when absent", async () => {
-    const result = await installVsCode({ userDir, installed: true });
+    const result = await installVsCode({ userDir, extensionDir, installed: true });
     expect(result.status).toBe("installed");
     expect(result.scope).toBe("global");
+    expect(result.extensionPath).toBe(join(extensionDir, "memory-fort.memory"));
     expect(existsSync(result.configPath!)).toBe(true);
     const content = JSON.parse(await readFile(result.configPath!, "utf-8"));
     expect(content.servers.memory.type).toBe("stdio");
@@ -60,7 +63,7 @@ describe("installVsCode", () => {
       }),
     );
 
-    const result = await installVsCode({ userDir, installed: true });
+    const result = await installVsCode({ userDir, extensionDir, installed: true });
     const content = JSON.parse(await readFile(result.configPath!, "utf-8"));
     expect(content.servers.other).toBeDefined();
     expect(content.servers.memory).toBeDefined();
@@ -73,7 +76,7 @@ describe("installVsCode", () => {
       join(userDir, "mcp.json"),
       JSON.stringify({ servers: { memory: { command: "old" } } }),
     );
-    const result = await installVsCode({ userDir, installed: true });
+    const result = await installVsCode({ userDir, extensionDir, installed: true });
     expect(result.memoryEntryAction).toBe("updated");
     const content = JSON.parse(await readFile(result.configPath!, "utf-8"));
     expect(content.servers.memory.command).toBe("node");
@@ -83,6 +86,7 @@ describe("installVsCode", () => {
   it("writes workspace-scoped .vscode/mcp.json when workspace is provided", async () => {
     const result = await installVsCode({
       userDir,
+      extensionDir,
       workspace: workspaceDir,
       installed: true,
     });
@@ -101,7 +105,7 @@ describe("installVsCode", () => {
 
   it("uses MEMORY_VSCODE_USER_DIR when userDir is not provided", async () => {
     process.env["MEMORY_VSCODE_USER_DIR"] = userDir;
-    const result = await installVsCode({ installed: true });
+    const result = await installVsCode({ extensionDir, installed: true });
     expect(result.configPath).toBe(join(userDir, "mcp.json"));
   });
 
@@ -136,8 +140,6 @@ describe("installVsCode", () => {
   });
 
   it("installs the bundled Memory Fort VS Code extension", async () => {
-    const extensionDir = join(tmp, "extensions");
-
     const result = await installVsCode({
       userDir,
       extensionDir,

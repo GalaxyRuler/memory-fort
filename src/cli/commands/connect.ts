@@ -11,6 +11,7 @@ export interface ConnectOptions {
   client?: ClientName;
   workspace?: string;
   vscodeInstalled?: boolean;
+  vscodeExtensionDir?: string;
   noVerify?: boolean;
   verifyFn?: () => Promise<VerifyResult>;
 }
@@ -98,6 +99,7 @@ async function installClient(
         const result = await installVsCode({
           workspace: opts.workspace,
           installed: opts.vscodeInstalled,
+          extensionDir: opts.vscodeExtensionDir,
         });
         return result.status === "installed"
           ? {
