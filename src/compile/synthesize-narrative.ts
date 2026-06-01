@@ -119,7 +119,7 @@ export async function synthesizeNarrative(opts: SynthesizeNarrativeOptions): Pro
       contradicted_claims: detect.contradicted_claims,
       net_new_facts: detect.net_new_facts,
       facts: opts.facts,
-    });
+    }, opts.now);
     return {
       outcome: "staged-for-review",
       path: opts.pageRelPath,
@@ -154,7 +154,7 @@ export async function synthesizeNarrative(opts: SynthesizeNarrativeOptions): Pro
       reason: validation.reason,
       body,
       facts: opts.facts,
-    });
+    }, opts.now);
     return { outcome: "staged-for-review", path: opts.pageRelPath, proposed: true, proposedPath, reason: validation.reason, tokensUsed };
   }
   const wikilinkCheck = validateWikilinkRetention(parsed.body, body);
@@ -163,7 +163,7 @@ export async function synthesizeNarrative(opts: SynthesizeNarrativeOptions): Pro
       reason: wikilinkCheck.reason,
       body,
       facts: opts.facts,
-    });
+    }, opts.now);
     return { outcome: "staged-for-review", path: opts.pageRelPath, proposed: true, proposedPath, reason: wikilinkCheck.reason, tokensUsed };
   }
   if (narrativeEquivalent(parsed.body, body)) {
@@ -213,12 +213,66 @@ export async function archivePageVersion(
   return { path: historyRelPath, hash: sha256(content), version };
 }
 
-export async function stageNarrativeReview(vaultRoot: string, pageRelPath: string, packet: unknown): Promise<string> {
+export async function stageNarrativeReview(
+  vaultRoot: string,
+  pageRelPath: string,
+  packet: unknown,
+  now: Date = new Date(),
+): Promise<string> {
   const proposedRelPath = `wiki/compile-proposed/${basename(pageRelPath)}`;
   const fullPath = safeResolveUnder(vaultRoot, proposedRelPath);
   if (!fullPath) throw new Error(`invalid proposed path for ${pageRelPath}`);
+  const sourceFullPath = safeResolveUnder(vaultRoot, pageRelPath);
+  if (!sourceFullPath || !existsSync(sourceFullPath)) throw new Error(`narrative review source missing: ${pageRelPath}`);
+  const current = parseFrontmatter(await readFile(sourceFullPath, "utf-8"));
+  const record = asRecord(packet);
+  const proposedBody = typeof record.body === "string" && record.body.trim().length > 0
+    ? normalizeBody(record.body)
+    : normalizeBody(current.body);
+  const reason = typeof record.reason === "string" && record.reason.trim().length > 0
+    ? record.reason.trim()
+    : "narrative synthesis staged for review";
+  const reviewMetadata: Record<string, unknown> = {
+    path: pageRelPath,
+    ...record,
+  };
+  delete reviewMetadata.body;
   await mkdir(dirname(fullPath), { recursive: true });
-  await atomicWrite(fullPath, `${JSON.stringify({ path: pageRelPath, ...asRecord(packet) }, null, 2)}\n`);
+  await atomicWrite(
+    fullPath,
+    serializeFrontmatter(
+      {
+        type: "references",
+        title: `compile proposal: ${pageRelPath}`,
+        created: isoDate(now),
+        updated: isoDate(now),
+        status: "active",
+        lifecycle: "proposed",
+        source: "compile-execute",
+        cognitive_type: "semantic",
+      },
+      [
+        `# Compile proposal: ${pageRelPath}`,
+        "",
+        `Reason: ${reason}`,
+        "",
+        "```compile-op",
+        stringifyFencedJson({
+          kind: "rewrite_page",
+          path: pageRelPath,
+          body: proposedBody,
+        }),
+        "```",
+        "",
+        "Review metadata:",
+        "",
+        "```json",
+        stringifyFencedJson(reviewMetadata),
+        "```",
+        "",
+      ].join("\n"),
+    ),
+  );
   return proposedRelPath;
 }
 
@@ -370,6 +424,10 @@ function asRecord(value: unknown): Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
     ? value as Record<string, unknown>
     : { value };
+}
+
+function stringifyFencedJson(value: unknown): string {
+  return JSON.stringify(value, null, 2).replace(/```/gu, "\\u0060\\u0060\\u0060");
 }
 
 function timestampForPath(now: Date): string {

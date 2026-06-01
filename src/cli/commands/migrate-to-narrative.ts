@@ -131,7 +131,7 @@ async function migrateOne(
       shrinkRatio,
       missingLinks,
       body,
-    });
+    }, now);
     return "staged";
   }
   if (body.trim() === parsed.body.trim()) return "unchanged";
