@@ -246,10 +246,10 @@ async function checkAnyCapture(
 ): Promise<VerifyCheckResult> {
   const count = await countRecentCaptures(ctx, prefixes, false);
   return count > 0
-    ? pass(id, "antigravity captures present (informational)", `${count} captures`)
+    ? pass(id, "antigravity live hooks captured", `${count} captures`)
     : warn(
         id,
-        "antigravity captures rely on manual MCP tool calls",
+        "antigravity live hooks have not captured yet",
         "no antigravity captures found",
       );
 }

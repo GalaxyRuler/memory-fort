@@ -154,6 +154,36 @@ describe("runVerify", () => {
     expect(seen).toEqual(["C:/tmp/memory-vault"]);
   });
 
+  it("passes explicit dashboard and remote overrides to descriptor checks", async () => {
+    const seen: Array<{ dashboardUrl?: string; remoteName?: string }> = [];
+    await runVerify({
+      dashboardUrl: "https://whitedragon.example/memory",
+      remoteName: "whitedragon",
+      now: () => new Date("2026-05-26T03:30:00.000Z"),
+      checkDescriptors: [
+        {
+          id: "override-capture",
+          label: "override capture",
+          roles: ["operator"],
+          async run(opts) {
+            seen.push({
+              dashboardUrl: opts.dashboardUrl,
+              remoteName: opts.remoteName,
+            });
+            return pass("override-capture");
+          },
+        },
+      ],
+    });
+
+    expect(seen).toEqual([
+      {
+        dashboardUrl: "https://whitedragon.example/memory",
+        remoteName: "whitedragon",
+      },
+    ]);
+  });
+
   it("uses memoryRoot when no explicit vaultRoot is provided", async () => {
     const seen: string[] = [];
     await runVerify({

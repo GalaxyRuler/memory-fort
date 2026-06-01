@@ -213,9 +213,9 @@ program
 
 program
   .command("sync-bootstrap")
-  .description("Configure ~/.memory/ to use the VPS bare repo as remote `vps` and install the post-receive hook")
-  .option("--remote-name <name>", "remote name (default: vps)")
-  .option("--ssh-host <host>", "VPS hostname (default: from config or srv1317946)")
+  .description("Configure ~/.memory/ to use the hosted bare repo as a git remote and install the post-receive hook")
+  .option("--remote-name <name>", "remote name (default: vps; use whitedragon for the Whitedragon mirror)")
+  .option("--ssh-host <host>", "host name (default: from config or srv1317946)")
   .option("--vps-install-root <path>", "VPS install root (default: /root/memory-system)")
   .option("--branch <name>", "branch to push (default: main)")
   .option("--skip-initial-push", "configure remote but don't push existing commits")
@@ -241,13 +241,13 @@ program
 
 program
   .command("sync")
-  .description("Pull-rebase then push to the VPS remote; surfaces conflicts loudly")
+  .description("Pull-rebase then push to the configured vault remote; surfaces conflicts loudly")
   .option("--remote-name <name>", "remote name (default: vps)")
   .option("--branch <name>", "branch (default: main)")
   .action(async (opts: { remoteName?: string; branch?: string }) => {
     try {
       const result = await runSync({ remoteName: opts.remoteName, branch: opts.branch });
-      process.stderr.write(formatSyncSuccess(result, opts.remoteName ?? "vps", opts.branch ?? "main"));
+      process.stderr.write(formatSyncSuccess(result));
     } catch (err) {
       handleSyncCliError("sync", err);
     }
@@ -274,13 +274,13 @@ program
 
 program
   .command("pull")
-  .description("git pull --rebase from VPS remote")
+  .description("git pull --rebase from the configured vault remote")
   .option("--remote-name <name>", "remote name (default: vps)")
   .option("--branch <name>", "branch (default: main)")
   .action(async (opts: { remoteName?: string; branch?: string }) => {
     try {
       const result = await runPull({ remoteName: opts.remoteName, branch: opts.branch });
-      process.stderr.write(formatPullSuccess(result, opts.remoteName ?? "vps", opts.branch ?? "main"));
+      process.stderr.write(formatPullSuccess(result));
     } catch (err) {
       handleSyncCliError("pull", err);
     }
@@ -288,13 +288,13 @@ program
 
 program
   .command("push")
-  .description("git push to VPS remote with retry on push-reject")
+  .description("git push to the configured vault remote with retry on push-reject")
   .option("--remote-name <name>", "remote name (default: vps)")
   .option("--branch <name>", "branch (default: main)")
   .action(async (opts: { remoteName?: string; branch?: string }) => {
     try {
       const result = await runPush({ remoteName: opts.remoteName, branch: opts.branch });
-      process.stderr.write(formatPushSuccess(result, opts.remoteName ?? "vps", opts.branch ?? "main"));
+      process.stderr.write(formatPushSuccess(result));
     } catch (err) {
       handleSyncCliError("push", err);
     }
@@ -986,6 +986,8 @@ program
   .description("End-to-end health check for vault, sync, dashboard, search, and client capture")
   .option("--offline", "skip network checks such as git remote and dashboard")
   .option("--role <role>", "operator | server")
+  .option("--dashboard-url <url>", "dashboard base URL for remote health checks")
+  .option("--remote-name <name>", "vault git remote name for sync health checks")
   .option("--json", "emit structured VerifyReport JSON")
   .option("--schedule <action>", "install | uninstall | status")
   .option("--daily <HH:MM>", "daily local time for scheduled verify (default: 09:00)")
@@ -993,6 +995,8 @@ program
   .action(async (opts: {
     offline?: boolean;
     role?: string;
+    dashboardUrl?: string;
+    remoteName?: string;
     json?: boolean;
     schedule?: VerifyScheduleAction;
     daily?: string;
@@ -1015,7 +1019,12 @@ program
         console.error(`memory verify failed: ${(err as Error).message}`);
         process.exit(2);
       }
-      const result = await runVerify({ offline: opts.offline, role });
+      const result = await runVerify({
+        offline: opts.offline,
+        role,
+        dashboardUrl: opts.dashboardUrl,
+        remoteName: opts.remoteName,
+      });
       process.stdout.write(
         opts.json
           ? `${JSON.stringify(result, null, 2)}\n`
@@ -1064,13 +1073,14 @@ program
 
 program
   .command("search <query>")
-  .description("Search memory via the VPS dashboard /api/search endpoint")
+  .description("Search memory via the dashboard /api/search endpoint")
   .option("--scope <scope>", "wiki | raw | crystals | all (default: all)")
   .option("--k <n>", "top-K results (default: 10)", (v) => parseInt(v, 10))
   .option("--min-score <n>", "minimum score filter (0..1)", parseFloat)
   .option("--no-rerank", "skip Voyage rerank (faster, less accurate)")
   .option("--json", "emit raw JSON instead of pretty-printed results")
-  .option("--vps-url <url>", "override VPS base URL (e.g., https://other.example/memory)")
+  .option("--dashboard-url <url>", "override dashboard base URL (e.g., https://other.example/memory)")
+  .option("--vps-url <url>", "legacy alias for --dashboard-url")
   .action(async (
     query: string,
     opts: {
@@ -1079,6 +1089,7 @@ program
       minScore?: number;
       rerank?: boolean;
       json?: boolean;
+      dashboardUrl?: string;
       vpsUrl?: string;
     },
   ) => {
@@ -1088,6 +1099,7 @@ program
       minScore: opts.minScore,
       noRerank: opts.rerank === false,
       json: opts.json,
+      dashboardUrl: opts.dashboardUrl,
       vpsUrl: opts.vpsUrl,
     });
     if (result.stdout) process.stdout.write(result.stdout);

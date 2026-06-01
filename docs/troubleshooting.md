@@ -23,6 +23,8 @@ If `errors.log` has recent entries, the hook command failed but didn't break the
 ```bash
 memory verify                  # all checks for your role (default: operator)
 memory verify --role server    # vault / sync / search / dashboard only (no client-capture checks)
+memory verify --dashboard-url https://<whitedragon-host>/memory
+memory verify --remote-name whitedragon
 memory verify --json           # machine-readable
 ```
 
@@ -34,8 +36,36 @@ Checks worth knowing when something looks off:
 - **`compile.recent`** — fails when compile is >1 week stale. Run `memory compile --execute` (or the dashboard "Run compile now").
 - **`compile.execute-health`** — executed-compile success/strip rate.
 - **`retrieval.intent-classifier-health`** — query-intent classifier readiness.
+- **`git.remote`** — checks the configured vault sync remote. If your remote is not named `vps`, set `sync.remote_name` in `config.yaml` or pass `--remote-name`.
 
 Note: `/api/health` returns 503 when any check fails (including data-quality checks like `graph.cohesion`), so a 503 doesn't always mean the server is down — read the failing check.
+
+---
+
+## Symptom: local dashboard says "can't be reached" or shows the wrong vault
+
+Build the UI bundle, start the dashboard explicitly, and check the printed vault root:
+
+```powershell
+npm run build:ui
+memory dashboard --root "C:\Users\Admin\OneDrive\Documents\Memory Fort" --no-open
+```
+
+Then open `http://127.0.0.1:4410/memory/`. If the command reports a different port because 4410 is busy, open the printed URL instead.
+
+If you start the dashboard from a background PowerShell process, prefer `--root` over assigning `MEMORY_ROOT` inside a quoted command string. It avoids accidental early interpolation of `$env:MEMORY_ROOT` and makes the selected vault visible in stdout. Pass the root as one quoted `--root=...` argument so paths with spaces stay intact:
+
+```powershell
+$root = "C:\Users\Admin\OneDrive\Documents\Memory Fort"
+$out = Join-Path $env:TEMP "memory-dashboard.out.log"
+$err = Join-Path $env:TEMP "memory-dashboard.err.log"
+Start-Process -FilePath "node" `
+  -ArgumentList @("dist/cli.mjs", "dashboard", "`"--root=$root`"", "--no-open") `
+  -WorkingDirectory "C:\CodexProjects\memory-system" `
+  -RedirectStandardOutput $out `
+  -RedirectStandardError $err `
+  -WindowStyle Hidden
+```
 
 ---
 

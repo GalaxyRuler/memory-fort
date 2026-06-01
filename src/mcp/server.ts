@@ -268,6 +268,8 @@ export type SearchInput = z.infer<typeof SearchInput>;
 
 export interface SearchDeps extends LogObservationDeps {
   fetchFn?: typeof fetch;
+  dashboardUrl?: string;
+  // Legacy alias retained for older MCP configs.
   vpsUrl?: string;
 }
 
@@ -293,24 +295,23 @@ interface ApiSearchResponse {
   };
 }
 
-const DEFAULT_SEARCH_BASE_URL = "https://srv1317946.tail6916d8.ts.net/memory";
+const DEFAULT_SEARCH_BASE_URL = "http://127.0.0.1:4410/memory";
 
 export async function searchMemory(
   input: SearchInput,
   deps: SearchDeps = {},
 ): Promise<{ content: Array<{ type: "text"; text: string }>; isError?: boolean }> {
   const fetchFn = deps.fetchFn ?? fetch;
-  const url = buildSearchUrl(deps.vpsUrl ?? DEFAULT_SEARCH_BASE_URL, input);
+  const url = buildSearchUrl(deps.dashboardUrl ?? deps.vpsUrl ?? DEFAULT_SEARCH_BASE_URL, input);
 
   let response: Response;
   try {
     response = await fetchFn(url);
   } catch {
     return toolError(
-      "Search backend offline. The MCP server couldn't reach the VPS at " +
-        "srv1317946 over Tailscale. Try: (a) confirm Tailscale is connected, " +
-        "(b) use memory.read_page or memory.list_pages for offline browsing, " +
-        "(c) ask user to verify the VPS is healthy.",
+      "Search dashboard offline. Try: (a) start `memory dashboard`, " +
+        "(b) set the dashboard URL for this MCP server, " +
+        "(c) use memory.read_page or memory.list_pages for offline browsing.",
     );
   }
 

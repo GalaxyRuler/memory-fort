@@ -296,11 +296,11 @@ Operations:
 3. Add `[mcp_servers.memory]` to `~/.codex/config.toml`.
 4. Log.
 
-**`antigravity`:** (MCP only — Antigravity desktop has no hook system)
+**`antigravity`:** (2026-06-01 correction: not MCP-only; active installer uses MCP plus live-capture plugin hooks)
 1. Verify `~/.gemini/antigravity/` exists.
 2. Add memory entry to `~/.gemini/antigravity/mcp_config.json`.
-3. Log.
-4. (No hook scripts registered for Antigravity — there are no Antigravity hooks. Documented in install output.)
+3. Install live-capture plugin under `~/.gemini/antigravity/plugins/memory/`.
+4. Log.
 
 ### 5.3 `memory grep`
 
@@ -405,7 +405,7 @@ Each step independently committable. Tests run after each substantive step. Code
 | **CHECKPOINT** | **Manual verification gate (user-driven, NOT codex-automated).** With steps 1-7 installed on the user's machine, run a real Claude Code session. Verify a raw session file appears at `~/.memory/raw/<date>/claude-code-<id>.md` with prompt + tool-use blocks. If this fails, debug before proceeding to step #8. | Real Claude Code session produces real raw file |
 | 8 | MCP server: implement 3 tools (§4) + tests | Tools handle valid/invalid input; stateless verified |
 | 9 | CLI: `memory install codex` + test | Codex config.toml written; covers both desktop + CLI |
-| 10 | CLI: `memory install antigravity` + test | mcp_config.json written; no hooks (correctly) |
+| 10 | CLI: `memory install antigravity` + test | mcp_config.json and live-capture plugin written |
 | 11 | CLI: `memory grep` (§5.3) + test | ripgrep wrapped; scope flag works |
 | 12 | CLI: `memory log` (§5.4) + test | Manual observations land in today's raw file |
 | 13 | CLI: `memory stats`, `memory doctor`, `memory tail-errors` (§5.5-5.7) + tests | Accurate state reporting |
@@ -427,7 +427,7 @@ All must hold:
 - [ ] `memory init` on fresh machine creates full layout INCLUDING schema.md with 12 sections
 - [ ] `memory install claude-code` registers Claude Code plugin + adds MCP entry
 - [ ] `memory install codex` writes Codex config.toml entries (hooks + MCP)
-- [ ] `memory install antigravity` writes Antigravity MCP entry (no hooks; documented)
+- [ ] `memory install antigravity` writes Antigravity MCP entry and live-capture plugin hooks
 - [ ] After installing all three and using each for one real session, `memory stats` reports ≥ 1 raw file per platform
 - [ ] `memory grep` returns matches when given a known term from raw or wiki
 - [ ] `memory log "<text>"` appends to today's raw file with `source: manual` frontmatter
@@ -483,7 +483,7 @@ Subsequent phase plans address:
 |---|---|
 | Claude Code plugin install format changes between writing spec and execution | Verify against current Claude Code docs at implementation time (step #7) |
 | Codex hook event names differ between desktop and CLI | Verified May 2026 — they share `~/.codex/config.toml`; one install path covers both |
-| Antigravity hook docs unclear | Confirmed via web search May 2026 — Antigravity desktop has NO hook system; MCP-only is correct (not a workaround) |
+| Antigravity hook docs unclear | Superseded 2026-06-01 — Antigravity supports a live-capture plugin hook surface; install MCP plus plugin hooks |
 | `MEMORY_ROOT` env var conflicts | Specific enough, low collision risk |
 | Symlink/junction creation fails on Windows due to permissions | Fall back to copy; warn in install output. Junctions don't require admin |
 | Hook scripts on Windows CRLF/LF issues | `.gitattributes` from day one + tsdown build artifacts |

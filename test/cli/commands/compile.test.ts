@@ -9,7 +9,7 @@ import {
 } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { mkdtemp } from "node:fs/promises";
 import { runCompile, runCompileDrain } from "../../../src/cli/commands/compile.js";
 import type { LLMProvider } from "../../../src/llm/types.js";
@@ -401,6 +401,60 @@ describe("runCompile", () => {
       .toBe(Buffer.byteLength("first observation\nsecond observation\n", "utf-8"));
   });
 
+  it("does not advance raw watermarks when execute consolidates compressed facts instead of the raw prompt", async () => {
+    const rawPath = join(root, "raw", "2026-05-21", "manual-a.md");
+    await writeFile(rawPath, "raw prompt content that fact consolidation did not consume\n");
+    await writeFile(
+      join(root, "wiki", "projects", "memory-system.md"),
+      [
+        "---",
+        "type: projects",
+        "title: Memory System",
+        "created: 2026-05-31",
+        "updated: 2026-05-31",
+        "status: active",
+        "lifecycle: consolidated",
+        "source: compile-execute",
+        "version: 1",
+        "---",
+        "",
+        "Memory System captures raw observations.",
+        "",
+      ].join("\n"),
+    );
+    for (const id of ["a", "b", "c"]) {
+      await writeFact(`facts/2026-05-31/${id}.json`, {
+        title: `Memory System ${id}`,
+        facts: [`Memory System fact ${id}.`],
+        narrative: `Memory System narrative ${id}.`,
+        concepts: ["Memory System"],
+        files: [],
+        importance: 8,
+        sessionId: id,
+        sourceRawPath: `raw/2026-05-31/${id}.md`,
+        observedAt: "2026-05-31T12:00:00.000Z",
+        compressedAt: "2026-05-31T12:00:00.000Z",
+      });
+    }
+
+    const result = await runCompile({
+      vaultRoot: root,
+      execute: true,
+      configLoader: async () => ({ llm: { provider: "ollama", model: "llama3.2" } }),
+      llmFactory: () => fakeFactConsolidationLLM(),
+      env: {},
+    });
+
+    const statePath = join(root, "state", "compile-state.json");
+    const state = existsSync(statePath)
+      ? JSON.parse(await readFile(statePath, "utf-8"))
+      : {};
+    expect(result.execution?.applied).toEqual(["wiki/projects/memory-system.md"]);
+    expect(result.rawFilesIncluded).toEqual([rawPath]);
+    expect(result.watermarksAdvanced).toEqual([]);
+    expect(state.consumed ?? {}).not.toHaveProperty("raw/2026-05-21/manual-a.md");
+  });
+
   it("does not advance the watermark in artifact mode", async () => {
     const rawPath = join(root, "raw", "2026-05-21", "manual-a.md");
     await writeFile(rawPath, "abcdef");
@@ -595,6 +649,12 @@ async function writeCompileState(state: Record<string, unknown>): Promise<void> 
   await writeFile(join(rootForTest(), "state", "compile-state.json"), `${JSON.stringify(state, null, 2)}\n`);
 }
 
+async function writeFact(relPath: string, fact: Record<string, unknown>): Promise<void> {
+  const fullPath = join(rootForTest(), ...relPath.split("/"));
+  await mkdir(dirname(fullPath), { recursive: true });
+  await writeFile(fullPath, `${JSON.stringify({ facts: [fact] }, null, 2)}\n`);
+}
+
 async function readCompileState(): Promise<{ consumed: Record<string, { bytes: number; lastObservationAt?: string }> }> {
   return JSON.parse(await readFile(join(rootForTest(), "state", "compile-state.json"), "utf-8"));
 }
@@ -607,4 +667,41 @@ function rootForTest(): string {
 
 function rawObservation(time: string, body: string): string {
   return `## [${time}] Prompt\n\n${body}\n\n`;
+}
+
+function fakeFactConsolidationLLM(): LLMProvider {
+  return {
+    providerName: "ollama",
+    modelName: "llama3.2",
+    chat: vi.fn(async (request) => {
+      if (request.jsonSchema?.name === "NarrativeDetectOutput") {
+        return fakeJsonResponse(JSON.stringify({
+          contradicted_claims: [],
+          net_new_facts: ["Memory System fact a.", "Memory System fact b.", "Memory System fact c."],
+        }));
+      }
+      if (request.jsonSchema?.name === "NarrativeSynthesisOutput") {
+        return fakeJsonResponse(JSON.stringify({
+          body: [
+            "Memory System captures raw observations.",
+            "",
+            "Memory System fact a.",
+            "Memory System fact b.",
+            "Memory System fact c.",
+          ].join("\n"),
+        }));
+      }
+      throw new Error(`unexpected schema ${request.jsonSchema?.name ?? "none"}`);
+    }),
+  };
+}
+
+function fakeJsonResponse(content: string) {
+  return {
+    model: "llama3.2",
+    finishReason: "stop" as const,
+    rawProviderName: "ollama",
+    tokensUsed: { prompt: 10, completion: 10, total: 20 },
+    content,
+  };
 }

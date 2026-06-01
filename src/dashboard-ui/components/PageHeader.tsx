@@ -1,5 +1,5 @@
 import { type PageDetail } from "../hooks/usePageDetail.js";
-import { getConfidenceScore } from "../../storage/confidence.js";
+import { getConfidenceScore } from "../lib/confidence.js";
 import { EntityIcon, type EntityType } from "./EntityIcon.js";
 import { StatusPill, type StatusKind } from "./StatusPill.js";
 

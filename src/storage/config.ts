@@ -28,6 +28,9 @@ export interface MemoryConfig {
     install_root?: string;
     ssh_user?: string;
   };
+  sync?: {
+    remote_name?: string;
+  };
   search?: {
     hyde?: boolean;
   };
@@ -54,6 +57,7 @@ export interface MemoryConfig {
     archive_before_delete?: boolean;
   };
   dashboard?: {
+    url?: string;
     trusted_origins?: string[];
   };
   [key: string]: unknown;

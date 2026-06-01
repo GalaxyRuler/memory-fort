@@ -21,6 +21,8 @@ export interface VerifyOptions {
   offline?: boolean;
   includeSearch?: boolean;
   vaultRoot?: string;
+  dashboardUrl?: string;
+  remoteName?: string;
   now?: () => Date;
   role?: VerifyRole;
   detectRoleFn?: () => VerifyRole;
@@ -57,11 +59,13 @@ export async function runVerify(opts: VerifyOptions = {}): Promise<VerifyResult>
       opts.checkDescriptors ?? ALL_CHECKS,
       role,
       {
-          vaultRoot,
-          now,
-          offline: opts.offline,
-          includeSearch: opts.includeSearch ?? true,
-        },
+        vaultRoot,
+        now,
+        offline: opts.offline,
+        includeSearch: opts.includeSearch ?? true,
+        dashboardUrl: opts.dashboardUrl,
+        remoteName: opts.remoteName,
+      },
     );
 
   const passed = checks.filter((check) => check.status === "pass").length;
@@ -102,6 +106,8 @@ async function runDescriptorChecks(
   now: () => Date;
   offline?: boolean;
   includeSearch: boolean;
+  dashboardUrl?: string;
+  remoteName?: string;
 },
 ): Promise<VerifyCheckResult[]> {
   const checks: VerifyCheckResult[] = [];

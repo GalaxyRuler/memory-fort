@@ -134,6 +134,20 @@ describe("installAntigravity", () => {
     expect(result.mcpConfigPath).toBe(join(antigravityDir, "mcp_config.json"));
   });
 
+  it("installs the live-capture plugin when Antigravity version detection is unavailable", async () => {
+    const result = await installAntigravity({
+      antigravityDir,
+      antigravityVersion: null,
+    });
+
+    expect(result.livePluginInstalled).toBe(true);
+    expect(result.pluginDir).toBe(join(antigravityDir, "plugins", "memory"));
+    expect(existsSync(join(result.pluginDir, "plugin.json"))).toBe(true);
+    expect(result.log.join("\n")).toContain(
+      "version not detected; installed Antigravity live-capture plugin",
+    );
+  });
+
   it("installs the Antigravity 2.0 live-capture plugin with all hook handlers", async () => {
     const result = await installAntigravity({
       antigravityDir,

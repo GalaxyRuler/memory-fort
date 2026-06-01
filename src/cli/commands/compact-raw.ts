@@ -49,6 +49,20 @@ export interface CompactRawResult {
 interface CompactedText {
   text: string;
   observationsCompacted: number;
+  byteRewrites: ByteRewrite[];
+}
+
+interface ByteRewrite {
+  oldStartByte: number;
+  oldEndByte: number;
+  newStartByte: number;
+  newEndByte: number;
+}
+
+interface CompactRawRewrite {
+  relPath: string;
+  next: string;
+  byteRewrites: ByteRewrite[];
 }
 
 const DEFAULT_CAPTURE_MAX_BYTES = 8192;
@@ -61,7 +75,7 @@ export async function runCompactRaw(opts: CompactRawOptions): Promise<CompactRaw
   const maxOutputBytes = readNonNegativeInteger(opts.maxOutputBytes, DEFAULT_CAPTURE_MAX_BYTES, "maxOutputBytes");
   const rawFiles = await listRawMarkdown(root);
   const files: CompactRawFileResult[] = [];
-  const rewrites: Array<{ relPath: string; next: string }> = [];
+  const rewrites: CompactRawRewrite[] = [];
 
   for (const relPath of rawFiles) {
     const fullPath = join(root, ...relPath.split("/"));
@@ -77,7 +91,7 @@ export async function runCompactRaw(opts: CompactRawOptions): Promise<CompactRaw
       bytesReclaimed: bytesBefore - bytesAfter,
       observationsCompacted: compacted.observationsCompacted,
     });
-    rewrites.push({ relPath, next: compacted.text });
+    rewrites.push({ relPath, next: compacted.text, byteRewrites: compacted.byteRewrites });
   }
 
   const totals = totalFileBytes(files);
@@ -100,7 +114,7 @@ export async function runCompactRaw(opts: CompactRawOptions): Promise<CompactRaw
     await atomicWrite(join(root, ...rewrite.relPath.split("/")), rewrite.next);
   }
 
-  const watermarksClamped = await clampConsumedWatermarks(root, files);
+  const watermarksClamped = await clampConsumedWatermarks(root, rewrites);
   const commitPaths = [
     ...files.map((file) => file.path),
     ...archived.map((archive) => archive.to),
@@ -128,17 +142,38 @@ function compactRawText(
   caps: { maxInputBytes: number; maxOutputBytes: number },
 ): CompactedText {
   let observationsCompacted = 0;
+  let reclaimedBefore = 0;
+  const byteRewrites: ByteRewrite[] = [];
   const next = text.replace(
     TOOL_USE_RE,
-    (full, prefix: string, _time: string, _toolName: string, inputText: string, middle: string, outputText: string, suffix: string) => {
+    (...args: unknown[]) => {
+      const full = args[0] as string;
+      const prefix = args[1] as string;
+      const inputText = args[4] as string;
+      const middle = args[5] as string;
+      const outputText = args[6] as string;
+      const suffix = args[7] as string;
+      const offset = args[8] as number;
       const nextInput = truncateMiddle(inputText, caps.maxInputBytes);
       const nextOutput = truncateMiddle(outputText, caps.maxOutputBytes);
       if (nextInput === inputText && nextOutput === outputText) return full;
+      const replacement = `${prefix}${nextInput}${middle}${nextOutput}${suffix}`;
+      const oldStartByte = Buffer.byteLength(text.slice(0, offset), "utf-8");
+      const oldLength = Buffer.byteLength(full, "utf-8");
+      const newLength = Buffer.byteLength(replacement, "utf-8");
+      const newStartByte = oldStartByte - reclaimedBefore;
+      byteRewrites.push({
+        oldStartByte,
+        oldEndByte: oldStartByte + oldLength,
+        newStartByte,
+        newEndByte: newStartByte + newLength,
+      });
+      reclaimedBefore += oldLength - newLength;
       observationsCompacted += 1;
-      return `${prefix}${nextInput}${middle}${nextOutput}${suffix}`;
+      return replacement;
     },
   );
-  return { text: next, observationsCompacted };
+  return { text: next, observationsCompacted, byteRewrites };
 }
 
 async function listRawMarkdown(root: string): Promise<string[]> {
@@ -191,23 +226,37 @@ async function uniqueArchivePath(root: string, relPath: string): Promise<string>
   throw new Error(`memory compact-raw: could not allocate archive path for ${relPath}`);
 }
 
-async function clampConsumedWatermarks(root: string, files: CompactRawFileResult[]): Promise<string[]> {
+async function clampConsumedWatermarks(root: string, rewrites: CompactRawRewrite[]): Promise<string[]> {
   const state = await readCompileStateFile(root);
   const consumed = readConsumedMap(state);
   const changed: string[] = [];
-  for (const file of files) {
-    const watermark = consumed[file.path];
+  for (const rewrite of rewrites) {
+    const watermark = consumed[rewrite.relPath];
     if (!watermark) continue;
-    const size = (await stat(join(root, ...file.path.split("/")))).size;
-    if (watermark.bytes > size) {
-      consumed[file.path] = { ...watermark, bytes: size };
-      changed.push(file.path);
+    const size = (await stat(join(root, ...rewrite.relPath.split("/")))).size;
+    const mappedBytes = Math.min(mapCompactedByteOffset(watermark.bytes, rewrite.byteRewrites), size);
+    if (mappedBytes !== watermark.bytes) {
+      consumed[rewrite.relPath] = { ...watermark, bytes: mappedBytes };
+      changed.push(rewrite.relPath);
     }
   }
   if (changed.length > 0) {
     await writeCompileStateFile(root, { ...state, consumed });
   }
   return changed;
+}
+
+function mapCompactedByteOffset(offset: number, rewrites: ByteRewrite[]): number {
+  let mapped = offset;
+  for (const rewrite of rewrites) {
+    const oldLength = rewrite.oldEndByte - rewrite.oldStartByte;
+    const newLength = rewrite.newEndByte - rewrite.newStartByte;
+    const reclaimed = oldLength - newLength;
+    if (offset <= rewrite.oldStartByte) break;
+    if (offset < rewrite.oldEndByte) return rewrite.newStartByte;
+    mapped -= reclaimed;
+  }
+  return Math.max(0, mapped);
 }
 
 function totalFileBytes(files: CompactRawFileResult[]): Pick<

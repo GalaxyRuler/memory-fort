@@ -155,5 +155,6 @@ export default defineConfig([
     entry: { "hooks/mcp-server": "src/mcp/server.ts" },
     clean: false,
     dts: false,
+    deps: { onlyBundle: ["zod"] },
   },
 ]);

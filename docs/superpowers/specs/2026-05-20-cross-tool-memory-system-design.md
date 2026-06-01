@@ -325,7 +325,7 @@ Three thin manifest files, one per platform, all pointing at the same scripts:
 
 **Codex (desktop + CLI):** shares `~/.codex/config.toml` for all surfaces (verified May 2026 — `developers.openai.com/codex/hooks` confirms hooks span CLI, desktop app, and IDE extension). One Codex install path registers hooks for ALL Codex surfaces simultaneously. Hook events: SessionStart (matches startup/resume/clear), PreToolUse, PostToolUse, UserPromptSubmit, PreCompact + PostCompact (added Codex 0.129.0 April 2026), Stop.
 
-**Antigravity desktop:** **NO hook system** (verified May 2026 against `antigravity.google/docs/mcp` and surrounding pages — Antigravity desktop has no session lifecycle hooks comparable to Claude Code or Codex). Antigravity ingestion happens via the MCP server's `memory.log_observation` tool only — the in-session LLM (Gemini in Antigravity) actively calls memory tools to record observations. No passive hook firehose on Antigravity. Manifest for Antigravity is therefore the MCP server registration in `~/.gemini/antigravity/mcp_config.json`, not a hooks file.
+**Antigravity desktop:** **2026-06-01 correction:** Antigravity is not MCP-only. The active install now uses `~/.gemini/antigravity/mcp_config.json` for MCP tools plus a live-capture plugin under `~/.gemini/antigravity/plugins/memory/` for passive hook capture. Earlier versions of this spec said Antigravity had no hook system; that claim is superseded.
 
 ### 5.3 Event identification
 

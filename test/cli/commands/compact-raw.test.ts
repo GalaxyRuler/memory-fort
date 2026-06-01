@@ -111,6 +111,38 @@ describe("runCompactRaw", () => {
     const state = JSON.parse(await readFile(join(root, "state", "compile-state.json"), "utf-8"));
     expect(state.consumed["raw/2026-05-21/codex-big.md"].bytes).toBe(compactedSize);
   });
+
+  it("remaps consumed watermarks when compaction removes bytes before a non-EOF offset", async () => {
+    const rawPath = join(root, "raw", "2026-05-21", "codex-big.md");
+    const original = `${rawFixture()}\n${"large tail after the consumed prefix\n".repeat(700)}`;
+    const observationMarker = "## [09:02:00] Observation";
+    const oldOffset = Buffer.byteLength(original.slice(0, original.indexOf(observationMarker)), "utf-8");
+    await writeFile(rawPath, original);
+    await writeFile(join(root, "state", "compile-state.json"), JSON.stringify({
+      consumed: {
+        "raw/2026-05-21/codex-big.md": {
+          bytes: oldOffset,
+          lastObservationAt: "2026-05-21T09:01:00.000Z",
+        },
+      },
+    }, null, 2));
+
+    await runCompactRaw({
+      vaultRoot: root,
+      mode: "apply",
+      maxInputBytes: 300,
+      maxOutputBytes: 300,
+      commitVaultChange: async () => ({ kind: "no-changes" }),
+    });
+
+    const compacted = await readFile(rawPath, "utf-8");
+    const expectedOffset = Buffer.byteLength(compacted.slice(0, compacted.indexOf(observationMarker)), "utf-8");
+    const compactedSize = Buffer.byteLength(compacted, "utf-8");
+    const state = JSON.parse(await readFile(join(root, "state", "compile-state.json"), "utf-8"));
+    expect(expectedOffset).toBeLessThan(oldOffset);
+    expect(compactedSize).toBeGreaterThan(oldOffset);
+    expect(state.consumed["raw/2026-05-21/codex-big.md"].bytes).toBe(expectedOffset);
+  });
 });
 
 function rawFixture(): string {

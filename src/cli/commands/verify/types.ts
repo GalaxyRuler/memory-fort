@@ -25,6 +25,8 @@ export interface VerifyCheckContext {
   vaultRoot: string;
   now: () => Date;
   offline?: boolean;
+  dashboardUrl?: string;
+  remoteName?: string;
 }
 
 export interface RunCheckOptions extends VerifyCheckContext {

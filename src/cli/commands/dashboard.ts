@@ -36,6 +36,7 @@ export async function runDashboard(opts: DashboardOptions = {}): Promise<Dashboa
   const host = opts.host ?? DEFAULT_HOST;
   const requestedPort = opts.port ?? DEFAULT_PORT;
   const distRoot = opts.dashboardDistRoot ?? defaultDashboardDistRoot();
+  const vaultRoot = opts.vaultRoot ?? defaultMemoryRoot();
   const indexHtml = join(distRoot, "index.html");
   // Only enforce the real dist when using the real server. An injected
   // createServer (tests) brings its own server and manages its own assets, so
@@ -47,7 +48,7 @@ export async function runDashboard(opts: DashboardOptions = {}): Promise<Dashboa
   }
   const server = await startDashboardServer({
     createServerImpl: opts.createServer ?? createServer,
-    vaultRoot: opts.vaultRoot ?? defaultMemoryRoot(),
+    vaultRoot,
     dashboardDistRoot: distRoot,
     host,
     port: requestedPort,
@@ -55,6 +56,7 @@ export async function runDashboard(opts: DashboardOptions = {}): Promise<Dashboa
   const url = `http://${server.host}:${server.port}/memory/`;
   const writeLine = opts.stdout ?? ((line) => console.log(line));
   writeLine(`Memory dashboard: ${url}`);
+  writeLine(`Vault root: ${vaultRoot}`);
 
   if (opts.noOpen !== true) {
     await (opts.openBrowser ?? openBrowser)(url);
@@ -88,12 +90,14 @@ export function registerDashboardCommand(program: Command): void {
     .description("Serve the local dashboard against the writable local memory vault")
     .option("--port <n>", "dashboard port (default: 4410)", parsePort)
     .option("--host <h>", "dashboard host (default: 127.0.0.1)")
+    .option("--root <path>", "memory vault root (default: MEMORY_ROOT or ~/.memory)")
     .option("--no-open", "print the URL without opening a browser")
-    .action(async (opts: { port?: number; host?: string; open?: boolean }) => {
+    .action(async (opts: { port?: number; host?: string; root?: string; open?: boolean }) => {
       try {
         await runDashboard({
           port: opts.port,
           host: opts.host,
+          vaultRoot: opts.root ? resolve(opts.root) : undefined,
           noOpen: opts.open === false,
         });
       } catch (err) {

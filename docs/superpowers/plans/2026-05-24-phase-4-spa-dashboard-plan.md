@@ -189,7 +189,7 @@ Keep design references in:
 ### Slice 0 — Claude Desktop MCP Install
 
 - Goal: add `memory install claude-desktop` command that writes the memory MCP entry into Claude Desktop's config (`~/AppData/Roaming/Claude/claude_desktop_config.json` on Windows; equivalent paths on macOS/Linux).
-- Mirror the Antigravity install pattern: MCP-only, no hooks.
+- Mirror only the MCP-config merge behavior from Antigravity. Do not mirror Antigravity's live-hook plugin behavior; Claude Desktop remains MCP-only.
 - Preserve any existing `mcpServers` entries.
 - Files: `src/cli/commands/install/claude-desktop.ts`.
 - Files: `src/storage/paths.ts` to add helper if missing.

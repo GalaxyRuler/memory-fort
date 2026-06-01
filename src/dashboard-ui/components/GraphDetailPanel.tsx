@@ -7,7 +7,7 @@ import { useMediaQuery } from "../hooks/useMediaQuery.js";
 import {
   getConfidenceScore,
   getLifecycle,
-} from "../../storage/confidence.js";
+} from "../lib/confidence.js";
 import type { ConfidenceVector } from "../../storage/frontmatter.js";
 import { nodeColor } from "../lib/graph-colors.js";
 import { formatRelative } from "../lib/relative-time.js";

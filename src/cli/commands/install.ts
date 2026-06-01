@@ -58,22 +58,25 @@ export async function runInstall(
     }
     case "antigravity": {
       const result = await installAntigravity({ surface: opts.surface });
-      console.log(`Installed memory MCP for Antigravity at ${result.mcpConfigPath}`);
+      console.log(
+        result.livePluginInstalled
+          ? `Installed memory MCP + live-capture plugin for Antigravity at ${result.mcpConfigPath}`
+          : `Installed memory MCP for Antigravity at ${result.mcpConfigPath}`,
+      );
       for (const line of result.log) console.log(`  ${line}`);
       console.log(`  surfaces: ${result.surfaces.join(", ")}`);
       console.log("");
       console.log("Next steps:");
       console.log(
-        "  1. Restart Antigravity desktop (or open a new session) to load the memory MCP.",
+        "  1. Restart Antigravity desktop (or open a new session) to load the memory integration.",
       );
       console.log(
-        "  2. Antigravity has NO hook system — the LLM in your Antigravity session uses the",
+        result.livePluginInstalled
+          ? "  2. Live capture uses the installed plugin hooks; MCP tools remain available for explicit memory actions."
+          : "  2. This Antigravity version was too old for live hooks; MCP tools remain available for explicit memory actions.",
       );
       console.log(
-        "     memory MCP tools (log_observation, read_page, list_pages) to record + retrieve memory.",
-      );
-      console.log(
-        "  3. Hooks ARE active for Claude Code and Codex sessions if you ran their installs.",
+        "  3. Verify new captures under ~/.memory/raw after the next Antigravity session.",
       );
       await printVerify(opts);
       return;

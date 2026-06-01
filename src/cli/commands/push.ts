@@ -12,6 +12,6 @@ export async function runPush(opts: PushOptions = {}): Promise<PushResult> {
   return runSyncMode("push", opts);
 }
 
-export function formatPushSuccess(result: PushResult, remoteName = "vps", branch = "main"): string {
+export function formatPushSuccess(result: PushResult, remoteName = result.remoteName, branch = result.branch): string {
   return formatSyncSuccess(result, remoteName, branch).replace(/^Sync/, "Push");
 }

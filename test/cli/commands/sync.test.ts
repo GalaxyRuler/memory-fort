@@ -109,6 +109,32 @@ describe("runSync", () => {
     expect(result.finalState).toBe("clean");
   });
 
+  it("runSync uses sync.remote_name from config when no remote option is passed", async () => {
+    await writeFile(join(tmp, "config.yaml"), "sync:\n  remote_name: whitedragon\n");
+    const runner = makeRunner((call) =>
+      isPorcelain(call) ? { stdout: "" } : isRevList(call) ? { stdout: "2\t0\n" } : { stdout: "" },
+    );
+
+    const result = await runSync({ memoryRoot: tmp, runner, now });
+
+    expect(runner.calls.map(commandLine)).toContain("git fetch whitedragon main");
+    expect(runner.calls.map(commandLine)).toContain("git push whitedragon main");
+    expect(result.actionsPerformed).toEqual(["push"]);
+  });
+
+  it("runSync explicit remote option overrides sync.remote_name from config", async () => {
+    await writeFile(join(tmp, "config.yaml"), "sync:\n  remote_name: whitedragon\n");
+    const runner = makeRunner((call) =>
+      isPorcelain(call) ? { stdout: "" } : isRevList(call) ? { stdout: "2\t0\n" } : { stdout: "" },
+    );
+
+    await runSync({ memoryRoot: tmp, remoteName: "manual", runner, now });
+
+    expect(runner.calls.map(commandLine)).toContain("git fetch manual main");
+    expect(runner.calls.map(commandLine)).toContain("git push manual main");
+    expect(runner.calls.map(commandLine)).not.toContain("git fetch whitedragon main");
+  });
+
   it("runSync pull-rebases then pushes when divergent", async () => {
     const runner = makeRunner((call) =>
       isPorcelain(call) ? { stdout: "" } : isRevList(call) ? { stdout: "2\t3\n" } : { stdout: "" },

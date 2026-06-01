@@ -24,17 +24,17 @@ Lay out `/root/memory-system/` on the VPS over SSH (idempotent): `services/` (da
 Add a `tailscale serve <path> → http://127.0.0.1:<port>` route on the VPS, preserving existing routes.
 
 ### `memory sync-bootstrap [--remote-name <n>] [--ssh-host <h>] [--vps-install-root <p>] [--branch <b>] [--skip-initial-push]`
-Configure `~/.memory/` to use the VPS bare repo as a git remote (`vps`), install the post-receive hook, and do an initial push.
+Configure `~/.memory/` to use the hosted bare repo as a git remote, install the post-receive hook, and do an initial push. The default remote name remains the legacy `vps`; pass `--remote-name whitedragon` when using the Whitedragon mirror.
 
-### `memory dashboard [--port <n>] [--host <h>] [--no-open]`
-Serve the dashboard locally against the canonical writable vault (`MEMORY_ROOT` or `~/.memory`). Defaults to `127.0.0.1:4410`, prints `http://127.0.0.1:<port>/memory/`, opens a browser unless `--no-open`, and uses the local shell environment for `VOYAGE_API_KEY`, `OPENROUTER_API_KEY`, and `OLLAMA_HOST`. Run `npm run build:ui` first so `dist/dashboard-ui` exists.
+### `memory dashboard [--port <n>] [--host <h>] [--root <path>] [--no-open]`
+Serve the dashboard locally against the canonical writable vault (`--root`, `MEMORY_ROOT`, or `~/.memory`). Defaults to `127.0.0.1:4410`, prints `http://127.0.0.1:<port>/memory/` plus the selected vault root, opens a browser unless `--no-open`, and uses the local shell environment for `VOYAGE_API_KEY`, `OPENROUTER_API_KEY`, and `OLLAMA_HOST`. Run `npm run build:ui` first so `dist/dashboard-ui` exists.
 
 ---
 
 ## Memory operations
 
-### `memory search <query> [--scope wiki|raw|crystals|all] [--k <n>] [--min-score <n>] [--no-rerank] [--json] [--vps-url <url>]`
-Query the VPS dashboard `/api/search` over Tailscale; prints ranked results with provenance. Defaults to the fast `--no-rerank` path for bounded latency; omit it to add Voyage rerank. Runs no retrieval locally.
+### `memory search <query> [--scope wiki|raw|crystals|all] [--k <n>] [--min-score <n>] [--no-rerank] [--json] [--dashboard-url <url>] [--vps-url <url>]`
+Query the configured dashboard `/api/search`; prints ranked results with provenance. Resolution order is `--dashboard-url`, legacy `--vps-url`, `dashboard.url` in `config.yaml`, legacy `vps.host`, then the local dashboard at `http://127.0.0.1:4410/memory`. Defaults to the fast `--no-rerank` path for bounded latency; omit it to add Voyage rerank. Runs no retrieval locally.
 
 ### `memory compress [--plan|--apply] [--drain] [--max-sessions <n>]`
 Compress raw sessions once into structured fact bundles under `facts/YYYY-MM-DD/<session>.json`. Each fact bundle has `title`, `facts[]`, `narrative`, `concepts[]`, `files[]`, `importance` (1-10), `sessionId`, and `observedAt`. Apply mode advances `state/compile-state.json.compressed` so already-compressed sessions are skipped; `--drain` repeats bounded batches until no uncompressed sessions remain.
@@ -119,10 +119,10 @@ Archive `.audit/` logs older than the keep window (default 30 days) under `wiki/
 
 ---
 
-## Git sync (VPS)
+## Git sync
 
 ### `memory sync [--remote-name <n>] [--branch <b>]`
-Pull-rebase then push to the VPS remote; surfaces conflicts loudly (records `conflict_files` in `.sync-state.json`).
+Pull-rebase then push to the configured vault remote; surfaces conflicts loudly (records `conflict_files` in `.sync-state.json`). Use `--remote-name` or `sync.remote_name` when the remote is not the legacy `vps` name, for example a Whitedragon remote.
 ### `memory pull` / `memory push`
 Pull-rebase only / push-with-retry only.
 
@@ -157,8 +157,8 @@ Live-tail `~/.memory/errors.log`.
 File counts, install status, git state.
 ### `memory doctor`
 Structural health check; non-zero exit if any check fails.
-### `memory verify [--role operator|server] [--offline] [--json] [--schedule install|uninstall|status] [--daily HH:MM] [--shell powershell|systemd]`
-End-to-end health: vault, sync, dashboard, search, client capture. `operator` adds client-capture checks; `server` is vault/sync/search/dashboard only. Notable checks: `vault.read-write`, `search.pipeline`, `graph.cohesion`, `frontmatter.source`, `storage.atomic-write-retries`, `sync.uncommitted-vault`, `compile.recent`, `compile.execute-health`, `config.valid`, `retrieval.intent-classifier-health`. `--schedule` installs/removes a daily verify task.
+### `memory verify [--role operator|server] [--offline] [--dashboard-url <url>] [--remote-name <name>] [--json] [--schedule install|uninstall|status] [--daily HH:MM] [--shell powershell|systemd]`
+End-to-end health: vault, sync, dashboard, search, client capture. `operator` adds client-capture checks; `server` is vault/sync/search/dashboard only. Use `--dashboard-url` or `dashboard.url` for hosted dashboard checks, and `--remote-name` or `sync.remote_name` when the vault sync remote is not named `vps`. Notable checks: `vault.read-write`, `search.pipeline`, `graph.cohesion`, `frontmatter.source`, `storage.atomic-write-retries`, `sync.uncommitted-vault`, `compile.recent`, `compile.execute-health`, `config.valid`, `retrieval.intent-classifier-health`. `--schedule` installs/removes a daily verify task.
 
 ---
 

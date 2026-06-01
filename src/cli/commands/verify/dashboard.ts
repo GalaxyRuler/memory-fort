@@ -1,9 +1,10 @@
-import { loadMemoryConfig } from "../../../storage/config.js";
+import { loadMemoryConfig, type MemoryConfig } from "../../../storage/config.js";
 import { fail, pass, warn, type CheckDescriptor, type VerifyCheckContext, type VerifyCheckResult } from "./types.js";
 
 export interface DashboardVerifyOptions extends VerifyCheckContext {
   dashboardUrl?: string;
   fetchFn?: typeof fetch;
+  configLoader?: () => Promise<Pick<MemoryConfig, "dashboard" | "vps">>;
 }
 
 export interface VerifyDashboardStatus {
@@ -12,7 +13,7 @@ export interface VerifyDashboardStatus {
   [key: string]: unknown;
 }
 
-const DEFAULT_DASHBOARD_URL = "https://srv1317946.tail6916d8.ts.net/memory";
+const DEFAULT_DASHBOARD_URL = "http://127.0.0.1:4410/memory";
 
 export const dashboardStatusCheck: CheckDescriptor = {
   id: "dashboard.status",
@@ -21,9 +22,14 @@ export const dashboardStatusCheck: CheckDescriptor = {
   run: checkDashboard,
 };
 
-export async function resolveDashboardUrl(override?: string): Promise<string> {
+export async function resolveDashboardUrl(
+  override?: string,
+  configLoader: () => Promise<Pick<MemoryConfig, "dashboard" | "vps">> = loadMemoryConfig,
+): Promise<string> {
   if (override) return trimTrailingSlash(override);
-  const config = await loadMemoryConfig();
+  const config = await configLoader();
+  const dashboardUrl = config.dashboard?.url?.trim();
+  if (dashboardUrl) return trimTrailingSlash(dashboardUrl);
   const host = config.vps?.host?.trim();
   return host ? `https://${host}/memory` : DEFAULT_DASHBOARD_URL;
 }
@@ -38,7 +44,7 @@ export async function checkDashboard(
     );
   }
 
-  const baseUrl = await resolveDashboardUrl(opts.dashboardUrl);
+  const baseUrl = await resolveDashboardUrl(opts.dashboardUrl, opts.configLoader);
   const url = `${baseUrl}/api/status`;
   try {
     const response = await (opts.fetchFn ?? fetch)(url);

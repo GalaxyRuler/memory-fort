@@ -11,10 +11,11 @@ export interface DetectToolInput {
 /**
  * Identify which platform fired a hook.
  *
- * **Verified May 2026:** Antigravity desktop has NO hook system,
- * so if a hook fires it can only be Claude Code or Codex. The
- * `manual` tool name is set explicitly by the `memory log` CLI
- * (step #8) and never appears via the hook path.
+ * These shared hook scripts are installed for Claude Code and Codex.
+ * Antigravity live capture uses a separate plugin hook set, so if this
+ * script fires it can only be Claude Code or Codex. The `manual` tool
+ * name is set explicitly by the `memory log` CLI and never appears via
+ * the hook path.
  *
  * - `CLAUDECODE=1` is set by Claude Code in every hook subprocess
  *   (verified — Anthropic docs document this as the

@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { checkAutoPush } from "../../../src/cli/commands/verify/autopush.js";
 import { checkClients } from "../../../src/cli/commands/verify/clients.js";
 import { checkCompile } from "../../../src/cli/commands/verify/compile.js";
-import { checkDashboard } from "../../../src/cli/commands/verify/dashboard.js";
+import { checkDashboard, resolveDashboardUrl } from "../../../src/cli/commands/verify/dashboard.js";
 import { checkGitRemote } from "../../../src/cli/commands/verify/git.js";
 import { checkEpisodicRelations } from "../../../src/cli/commands/verify/episodic-relations.js";
 import { checkSearch } from "../../../src/cli/commands/verify/search.js";
@@ -64,6 +64,30 @@ describe("verify checks", () => {
     expect(result.status).toBe("warn");
     expect(result.label).toContain("skipped");
     expect(called).toBe(false);
+  });
+
+  it("git remote check uses the configured sync remote name", async () => {
+    let seenArgs: string[] = [];
+    const result = await checkGitRemote({
+      vaultRoot: tmp,
+      configLoader: async () => ({ sync: { remote_name: "whitedragon" } }),
+      execFile: async (_file, args) => {
+        seenArgs = args;
+      },
+    });
+
+    expect(result.status).toBe("pass");
+    expect(result.label).toContain("whitedragon");
+    expect(seenArgs).toEqual(["ls-remote", "whitedragon"]);
+  });
+
+  it("dashboard URL resolves from dashboard.url before legacy vps host", async () => {
+    await expect(
+      resolveDashboardUrl(undefined, async () => ({
+        dashboard: { url: "https://whitedragon.example/memory/" },
+        vps: { host: "old-vps.example" },
+      })),
+    ).resolves.toBe("https://whitedragon.example/memory");
   });
 
   it("dashboard check fails when /api/status does not return JSON", async () => {
@@ -135,6 +159,15 @@ describe("verify checks", () => {
     expect(
       results.find((result) => result.id === "client.claude-code.capture")?.status,
     ).toBe("warn");
+  });
+
+  it("client checks describe missing Antigravity captures as live-hook pending", async () => {
+    const results = await checkClients({ vaultRoot: tmp, now });
+    const capture = results.find((result) => result.id === "client.antigravity.capture");
+
+    expect(capture?.status).toBe("warn");
+    expect(capture?.label).toBe("antigravity live hooks have not captured yet");
+    expect(capture?.detail).toBe("no antigravity captures found");
   });
 
   it("client checks report sniffer, plugin, watcher, and extension health", async () => {

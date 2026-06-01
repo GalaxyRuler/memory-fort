@@ -20,9 +20,9 @@ The schema is defined by `~/.memory/schema.md` (the controlling document) — wh
 |---|---|---|
 | **Claude Code** | ✓ — plugin at `~/.memory/claude-code-plugin/` with `hooks/hooks.json` referencing `${CLAUDE_PLUGIN_ROOT}/scripts/*.mjs` | ✓ — `.mcp.json` inside the plugin dir; Claude Code auto-loads on plugin activation |
 | **Codex** (desktop + CLI) | ✓ — sentinel-marker block in `~/.codex/config.toml` with `[[hooks.<Event>]]` arrays referencing absolute script paths | ✓ — `[mcp_servers.memory]` section in the same `config.toml` |
-| **Antigravity desktop** | ✗ — Antigravity has no hook system (verified May 2026) | ✓ — `~/.gemini/antigravity/mcp_config.json` |
+| **Antigravity desktop** | ✓ — live-capture plugin at `~/.gemini/antigravity/plugins/memory/` | ✓ — `~/.gemini/antigravity/mcp_config.json` |
 
-A single source of truth — `~/.memory/claude-code-plugin/scripts/` — holds the compiled hook scripts. Both Claude Code (via `${CLAUDE_PLUGIN_ROOT}` substitution) and Codex (via absolute paths in `config.toml`) point at this shared directory. Antigravity uses the MCP server only — no scripts referenced for hooks since none fire.
+A single source of truth — `~/.memory/claude-code-plugin/scripts/` — holds the compiled Claude Code and Codex hook scripts. Claude Code uses `${CLAUDE_PLUGIN_ROOT}` substitution, and Codex uses absolute paths in `config.toml`. Antigravity uses its own plugin hook scripts under `~/.gemini/antigravity/plugins/memory/hooks/`, plus the same shared MCP server for active memory tools.
 
 ## What runs when
 

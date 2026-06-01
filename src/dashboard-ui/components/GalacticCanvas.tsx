@@ -11,7 +11,7 @@ import {
   type GalacticLayout,
   type GalacticNode,
 } from "../lib/galactic/layout.js";
-import { getConfidenceScore } from "../../storage/confidence.js";
+import { getConfidenceScore } from "../lib/confidence.js";
 import { confidenceGlow, edgeLensing, zoomLevelForScale, clamp } from "../lib/galactic/physics.js";
 import { hexA, PLANET_RENDERERS } from "../lib/galactic/planets.js";
 

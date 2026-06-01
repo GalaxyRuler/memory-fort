@@ -1,4 +1,4 @@
-import { loadMemoryConfig } from "../../storage/config.js";
+import { loadMemoryConfig, type MemoryConfig } from "../../storage/config.js";
 
 export interface CliSearchOptions {
   scope?: "wiki" | "raw" | "crystals" | "all";
@@ -6,9 +6,11 @@ export interface CliSearchOptions {
   minScore?: number;
   noRerank?: boolean;
   json?: boolean;
+  dashboardUrl?: string;
+  // Legacy alias retained for old scripts.
   vpsUrl?: string;
   fetchFn?: typeof fetch;
-  configLoader?: () => Promise<{ vps?: { host?: string } }>;
+  configLoader?: () => Promise<Pick<MemoryConfig, "dashboard" | "vps">>;
 }
 
 export interface CliSearchResult {
@@ -32,7 +34,7 @@ interface ApiSearchResponse {
   degraded?: boolean;
 }
 
-const DEFAULT_VPS_URL = "https://srv1317946.tail6916d8.ts.net/memory";
+const DEFAULT_DASHBOARD_URL = "http://127.0.0.1:4410/memory";
 const VALID_SCOPES = new Set(["wiki", "raw", "crystals", "all"]);
 
 export async function runSearch(
@@ -45,7 +47,7 @@ export async function runSearch(
     return { exitCode: 2, stdout: "", stderr: `${validationError}\n` };
   }
 
-  const baseUrl = await resolveVpsUrl(opts);
+  const baseUrl = await resolveDashboardUrl(opts);
   const url = buildSearchUrl(baseUrl, trimmedQuery, opts);
   const fetchFn = opts.fetchFn ?? fetch;
 
@@ -100,12 +102,15 @@ function validateOptions(query: string, opts: CliSearchOptions): string | null {
   return null;
 }
 
-async function resolveVpsUrl(opts: CliSearchOptions): Promise<string> {
+async function resolveDashboardUrl(opts: CliSearchOptions): Promise<string> {
+  if (opts.dashboardUrl) return trimTrailingSlash(opts.dashboardUrl);
   if (opts.vpsUrl) return trimTrailingSlash(opts.vpsUrl);
   const config = await (opts.configLoader ?? loadMemoryConfig)();
+  const dashboardUrl = config.dashboard?.url?.trim();
+  if (dashboardUrl) return trimTrailingSlash(dashboardUrl);
   const host = config.vps?.host?.trim();
   if (host) return `https://${host}/memory`;
-  return DEFAULT_VPS_URL;
+  return DEFAULT_DASHBOARD_URL;
 }
 
 function buildSearchUrl(baseUrl: string, query: string, opts: CliSearchOptions): string {
@@ -145,8 +150,8 @@ function backendOffline(query: string): CliSearchResult {
     exitCode: 3,
     stdout: "",
     stderr:
-      "Search backend offline. Confirm VPS reachable via Tailscale " +
-      "(try: tailscale ping srv1317946). Memory grep available as offline fallback: " +
+      "Search dashboard offline. Start `memory dashboard`, set `dashboard.url`, or pass `--dashboard-url`. " +
+      "Memory grep available as offline fallback: " +
       `memory grep '${query}' --scope raw.\n`,
   };
 }

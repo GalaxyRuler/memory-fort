@@ -113,10 +113,14 @@ export async function installAntigravity(
     opts.antigravityVersion === undefined
       ? detectAntigravityVersion()
       : opts.antigravityVersion;
-  const livePluginInstalled = isAntigravity2(version);
+  const livePluginInstalled = supportsAntigravityLivePlugin(version);
   if (livePluginInstalled) {
     await installAntigravityLivePlugin(pluginDir);
-    log.push(`installed Antigravity 2.0 live-capture plugin at ${pluginDir}`);
+    log.push(
+      version
+        ? `installed Antigravity live-capture plugin at ${pluginDir}`
+        : `version not detected; installed Antigravity live-capture plugin at ${pluginDir}`,
+    );
   } else {
     log.push(
       "Antigravity 2.0 required for live capture; you can still backfill via export",
@@ -158,10 +162,10 @@ function detectAntigravityVersion(): string | null {
   }
 }
 
-function isAntigravity2(version: string | null | undefined): boolean {
-  if (!version) return false;
+function supportsAntigravityLivePlugin(version: string | null | undefined): boolean {
+  if (!version) return true;
   const match = version.match(/(\d+)\.(\d+)(?:\.(\d+))?/);
-  if (!match) return false;
+  if (!match) return true;
   const major = Number(match[1]);
   const minor = Number(match[2]);
   if (!Number.isFinite(major) || !Number.isFinite(minor)) return false;

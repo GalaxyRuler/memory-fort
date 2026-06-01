@@ -263,7 +263,7 @@ The user just spent days believing Memory Fort was capturing their Claude Code c
 5. **Each installed client actually loads the plugin/MCP server**:
    - For claude-code: read `~/.claude/settings.json` and verify the memory entry is in `enabledPlugins`. Then check `~/.memory/raw/{today}/` for at least one `claude-*.md` file created in the last 24h. ⚠ if no file in 24h (might mean no sessions today; not a hard fail).
    - For codex: check `~/.codex/config.toml` has the memory MCP block AND check for a recent `codex-*.md` in `raw/{today}/`.
-   - For antigravity/antigravity-ide: check the shared `~/.gemini/antigravity/mcp_config.json` has the memory entry AND check for any `antigravity-*.md` in `raw/`. Antigravity has no auto-hook so this check is informational only — print "⚠ antigravity captures rely on manual MCP tool calls" if no recent files.
+   - For antigravity/antigravity-ide: check the shared `~/.gemini/antigravity/mcp_config.json` has the memory entry, check the live-capture plugin under `~/.gemini/antigravity/plugins/memory/`, and check for any `antigravity-*.md` in `raw/`. Warn "antigravity live hooks have not captured yet" if no recent files.
    - For vscode: check the resolved per-user settings.json contains the memory entry. ⚠ if not, ✓ if yes. (No capture verification — VS Code's MCP doesn't write to disk by default.)
    - For claude-desktop: same shape as vscode — config-only verification.
 6. **Auto-push worker healthy** — read `errors.log` last 100 lines, fail if any auto-push-related lines in the last hour. ⚠ if any in the last 24h, ✓ if none in 24h.

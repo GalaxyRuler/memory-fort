@@ -1,8 +1,9 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { Command } from "commander";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { runDashboard } from "../../../src/cli/commands/dashboard.js";
+import { registerDashboardCommand, runDashboard } from "../../../src/cli/commands/dashboard.js";
 import type { RunningServer, ServerOptions } from "../../../src/dashboard/server.js";
 
 describe("runDashboard", () => {
@@ -44,7 +45,10 @@ describe("runDashboard", () => {
       dashboardDistRoot: resolve(process.cwd(), "dist", "dashboard-ui"),
     }));
     expect(result.url).toBe("http://127.0.0.1:4410/memory/");
-    expect(stdout).toEqual(["Memory dashboard: http://127.0.0.1:4410/memory/"]);
+    expect(stdout).toEqual([
+      "Memory dashboard: http://127.0.0.1:4410/memory/",
+      `Vault root: ${join(tmp, ".memory")}`,
+    ]);
     expect(openBrowser).toHaveBeenCalledWith("http://127.0.0.1:4410/memory/");
 
     await result.close();
@@ -80,6 +84,41 @@ describe("runDashboard", () => {
     }));
     expect(openBrowser).not.toHaveBeenCalled();
     await result.close();
+  });
+
+  it("prefers an explicit vault root and prints it during startup", async () => {
+    const explicitRoot = join(tmp, "one-drive-vault");
+    const createServer = vi.fn(async (opts: ServerOptions): Promise<RunningServer> => ({
+      host: opts.host ?? "127.0.0.1",
+      port: opts.port ?? 4410,
+      close: async () => undefined,
+    }));
+    const stdout: string[] = [];
+
+    const result = await runDashboard({
+      vaultRoot: explicitRoot,
+      createServer,
+      openBrowser: async () => undefined,
+      stdout: (line) => stdout.push(line),
+    });
+
+    expect(createServer).toHaveBeenCalledWith(expect.objectContaining({
+      vaultRoot: explicitRoot,
+    }));
+    expect(stdout).toEqual([
+      `Memory dashboard: http://127.0.0.1:4410/memory/`,
+      `Vault root: ${explicitRoot}`,
+    ]);
+    await result.close();
+  });
+
+  it("exposes a --root option on the dashboard command", () => {
+    const program = new Command();
+    registerDashboardCommand(program);
+
+    const command = program.commands.find((candidate) => candidate.name() === "dashboard");
+
+    expect(command?.helpInformation()).toContain("--root <path>");
   });
 
   it("tries the next port when the requested port is already in use", async () => {

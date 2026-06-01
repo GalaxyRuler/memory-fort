@@ -285,7 +285,7 @@ describe("memory.search MCP tool", () => {
     }
   });
 
-  it("returns a clear tool error when the VPS is unreachable", async () => {
+  it("returns a clear tool error when the search dashboard is unreachable", async () => {
     const fetchFn = vi.fn(async () => {
       throw new Error("network down");
     }) as unknown as typeof fetch;
@@ -297,7 +297,8 @@ describe("memory.search MCP tool", () => {
       });
       expect(result.isError).toBe(true);
       const text = textFromToolResult(result);
-      expect(text).toContain("Search backend offline");
+      expect(text).toContain("Search dashboard offline");
+      expect(text).toContain("dashboard URL");
       expect(text).toContain("read_page");
       expect(text).toContain("list_pages");
     } finally {

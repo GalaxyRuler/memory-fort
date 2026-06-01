@@ -12,6 +12,6 @@ export async function runPull(opts: PullOptions = {}): Promise<PullResult> {
   return runSyncMode("pull", opts);
 }
 
-export function formatPullSuccess(result: PullResult, remoteName = "vps", branch = "main"): string {
+export function formatPullSuccess(result: PullResult, remoteName = result.remoteName, branch = result.branch): string {
   return formatSyncSuccess(result, remoteName, branch).replace(/^Sync/, "Pull");
 }

@@ -72,7 +72,7 @@ Update this file whenever a real issue is observed but deferred. Keep entries te
 
 ### F7. ~~Codex hooks fire but produce no raw files~~ — RESOLVED at d243ae2
 
-**Discovered:** 2026-05-21 step #16 E2E smoke. **Resolved:** 2026-05-21 at step #16.5 commit `d243ae2`. The fix added field-fallback chains in `src/hooks/util/payload-fields.ts` (`session_id ?? turn_id`, `tool_output ?? tool_response ?? output`, etc.) plus loud diagnostic logging on malformed stdin. Smoke verified: `codex exec` → raw file `~/.memory/raw/2026-05-21/codex-019e4bfa-3ed3-7cf0-94fe-a1a429cc0464.md` appeared with `source: codex`, real session UUID, prompt block, and ToolUse block including captured output. Phase 1 multi-platform passive ingestion now works for Claude Code + Codex (Antigravity is MCP-only by design).
+**Discovered:** 2026-05-21 step #16 E2E smoke. **Resolved:** 2026-05-21 at step #16.5 commit `d243ae2`. The fix added field-fallback chains in `src/hooks/util/payload-fields.ts` (`session_id ?? turn_id`, `tool_output ?? tool_response ?? output`, etc.) plus loud diagnostic logging on malformed stdin. Smoke verified: `codex exec` -> raw file `~/.memory/raw/2026-05-21/codex-019e4bfa-3ed3-7cf0-94fe-a1a429cc0464.md` appeared with `source: codex`, real session UUID, prompt block, and ToolUse block including captured output. Phase 1 passive ingestion was verified for Claude Code + Codex at that time; the earlier Antigravity MCP-only assumption was superseded on 2026-06-01 when live-capture plugin hooks were added.
 
 ---
 

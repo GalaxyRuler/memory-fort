@@ -38,11 +38,14 @@ describe("memory config reader", () => {
     });
   });
 
-  it("loadMemoryConfig parses dashboard trusted origins from block lists", async () => {
+  it("loadMemoryConfig parses dashboard URL, trusted origins, and sync remote", async () => {
     await writeFile(
       join(tmp, "config.yaml"),
       [
+        "sync:",
+        "  remote_name: whitedragon",
         "dashboard:",
+        "  url: https://whitedragon.example/memory",
         "  trusted_origins:",
         "    - https://srv1317946.tail6916d8.ts.net",
         "    - http://127.0.0.1:4410",
@@ -51,7 +54,9 @@ describe("memory config reader", () => {
     );
 
     await expect(loadMemoryConfig(tmp)).resolves.toEqual({
+      sync: { remote_name: "whitedragon" },
       dashboard: {
+        url: "https://whitedragon.example/memory",
         trusted_origins: [
           "https://srv1317946.tail6916d8.ts.net",
           "http://127.0.0.1:4410",

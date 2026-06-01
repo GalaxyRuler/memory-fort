@@ -13,8 +13,9 @@ export interface SessionStartDeps {
  * stdout containing schema.md + index.md + last 20 log.md lines.
  * Platform-specific output framing (JSON envelopes, structured
  * fields) deferred to Phase 2 if needed — Phase 1 plain text
- * works for Claude Code and Codex out of the box; Antigravity
- * has no hooks so this script never runs there.
+ * works for Claude Code and Codex out of the box. Antigravity
+ * live capture uses its own plugin hook scripts, so this shared
+ * script never runs there.
  */
 export async function sessionStartBody(
   payload: HookPayload,

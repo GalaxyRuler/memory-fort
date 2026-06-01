@@ -66,6 +66,7 @@ export interface CompileResult {
   rawFilesRemaining: number;
   execution?: {
     mode: "plan" | "execute";
+    rawInputConsumed?: boolean;
   } & ApplyCompileOperationsResult;
   indexRebuild?: RebuildIndexResult;
 }
@@ -468,10 +469,14 @@ async function executeCompilePrompt(opts: CompileOptions & {
   const llm = (opts.llmFactory ?? createLLMFromConfig)(llmConfig, env);
   const compressedFacts = await loadCompressedFacts(opts.root);
   if (!opts.plan && compressedFacts.length > 0) {
-    return await runFactConsolidation({
+    const result = await runFactConsolidation({
       vaultRoot: opts.root,
       llm,
     });
+    return {
+      ...result,
+      rawInputConsumed: false,
+    };
   }
   const response = await chatWithAudit({
     llm,
@@ -494,6 +499,7 @@ async function executeCompilePrompt(opts: CompileOptions & {
   if (!parsed.ok) {
     return {
       mode: opts.plan ? "plan" : "execute",
+      rawInputConsumed: true,
       applied: [],
       proposed: [],
       planned: [],
@@ -522,6 +528,7 @@ async function executeCompilePrompt(opts: CompileOptions & {
   });
   return {
     mode: opts.plan ? "plan" : "execute",
+    rawInputConsumed: true,
     ...applied,
   };
 }
@@ -640,6 +647,7 @@ async function maybeAdvanceWatermarks(opts: {
 }): Promise<string[]> {
   if (opts.watermarkMode !== "gated") return [];
   if (!opts.execution || opts.execution.mode !== "execute" || opts.plan) return [];
+  if (opts.execution.rawInputConsumed === false) return [];
   if (opts.execution.applied.length + opts.execution.proposed.length === 0) return [];
   if (opts.includedWatermarks.length === 0) return [];
 

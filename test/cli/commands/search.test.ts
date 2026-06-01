@@ -75,7 +75,7 @@ describe("runSearch CLI command", () => {
     expect(result.stderr).toContain("No results for query: nothing");
   });
 
-  it("returns exit 3 when the search backend is offline", async () => {
+  it("returns exit 3 when the search dashboard is offline", async () => {
     const fetchFn = vi.fn(async () => {
       throw new Error("network down");
     }) as unknown as typeof fetch;
@@ -84,26 +84,30 @@ describe("runSearch CLI command", () => {
 
     expect(result.exitCode).toBe(3);
     expect(result.stdout).toBe("");
-    expect(result.stderr).toContain("Search backend offline");
+    expect(result.stderr).toContain("Search dashboard offline");
+    expect(result.stderr).toContain("--dashboard-url");
     expect(result.stderr).toContain("memory grep");
   });
 
-  it("resolves VPS URL with override before config before default", async () => {
+  it("resolves dashboard URL with override before dashboard config before legacy vps config", async () => {
     const calls: string[] = [];
     const fetchFn = vi.fn(async (input) => {
       calls.push(String(input));
       return jsonResponse(responseFixture);
     }) as unknown as typeof fetch;
-    const configLoader = async () => ({ vps: { host: "config-host.example" } });
+    const configLoader = async () => ({
+      dashboard: { url: "https://whitedragon.example/memory/" },
+      vps: { host: "old-vps.example" },
+    });
 
     await runSearch("foo", { fetchFn, configLoader });
     await runSearch("foo", {
       fetchFn,
       configLoader,
-      vpsUrl: "https://override.example/memory",
+      dashboardUrl: "https://override.example/memory",
     });
 
-    expect(calls[0]).toMatch(/^https:\/\/config-host\.example\/memory\/api\/search\?/);
+    expect(calls[0]).toMatch(/^https:\/\/whitedragon\.example\/memory\/api\/search\?/);
     expect(calls[1]).toMatch(/^https:\/\/override\.example\/memory\/api\/search\?/);
   });
 

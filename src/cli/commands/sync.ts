@@ -11,6 +11,7 @@ import {
   type SyncState,
   type SyncStateFile,
 } from "../../sync/status.js";
+import { loadMemoryConfig } from "../../storage/config.js";
 
 export interface SyncOptions {
   memoryRoot?: string;
@@ -27,6 +28,8 @@ export interface SyncResult {
   retried: boolean;
   conflictFiles: string[];
   syncStateFile: SyncStateFile;
+  remoteName: string;
+  branch: string;
 }
 
 type SyncMode = "sync" | "pull" | "push";
@@ -47,7 +50,7 @@ export async function runSync(opts: SyncOptions = {}): Promise<SyncResult> {
 
 export async function runSyncMode(mode: SyncMode, opts: SyncOptions = {}): Promise<SyncResult> {
   const memoryRoot = opts.memoryRoot ?? defaultMemoryRoot();
-  const remoteName = opts.remoteName ?? "vps";
+  const remoteName = opts.remoteName ?? await resolveConfiguredRemoteName(memoryRoot);
   const branch = opts.branch ?? "main";
   const runner = opts.runner ?? makeRealCommandRunner();
   const now = opts.now ?? new Date();
@@ -128,10 +131,17 @@ export async function runSyncMode(mode: SyncMode, opts: SyncOptions = {}): Promi
     retried,
     conflictFiles: [],
     syncStateFile: nextStateFile,
+    remoteName,
+    branch,
   };
 }
 
-export function formatSyncSuccess(result: SyncResult, remoteName = "vps", branch = "main"): string {
+async function resolveConfiguredRemoteName(memoryRoot: string): Promise<string> {
+  const configured = (await loadMemoryConfig(memoryRoot)).sync?.remote_name?.trim();
+  return configured && configured.length > 0 ? configured : "vps";
+}
+
+export function formatSyncSuccess(result: SyncResult, remoteName = result.remoteName, branch = result.branch): string {
   if (result.actionsPerformed.length === 0) return "Sync clean. No changes to push or pull.\n";
   if (result.retried) return "Push rejected; rebased and retried successfully.\n";
   if (result.actionsPerformed.join(",") === "push") return `Pushed local commits to ${remoteName}/${branch}.\n`;
