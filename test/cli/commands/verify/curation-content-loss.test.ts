@@ -53,6 +53,28 @@ describe("curationContentLossCheck", () => {
     expect(result.detail).toContain("wiki/projects/memory-fort.md");
   });
 
+  it("does not warn for structural entity labels when link and code anchors survive", async () => {
+    await writeFileAt("wiki/projects/memory-fort.md", page(
+      "Memory Fort keeps [[tools/codex]] and `src/index.ts` anchors.",
+      { relations: { uses: ["wiki/tools/codex.md"] } },
+    ));
+    await writeFileAt("wiki/.history/wiki/projects/memory-fort.md/2026-05-31T12-00-00-000Z.md", page(
+      [
+        "## How it surfaced",
+        "",
+        "Memory Fort keeps [[tools/codex]] and `src/index.ts` anchors.",
+      ].join("\n"),
+      { relations: { uses: ["wiki/tools/codex.md"] } },
+    ));
+
+    const result = await curationContentLossCheck.run({ vaultRoot: tmp, now: () => new Date("2026-05-31") });
+
+    expect(result).toMatchObject({
+      id: "curation.content-loss",
+      status: "pass",
+    });
+  });
+
   async function writeFileAt(relPath: string, content: string): Promise<void> {
     const fullPath = join(tmp, ...relPath.split("/"));
     await mkdir(dirname(fullPath), { recursive: true });

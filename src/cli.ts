@@ -28,6 +28,7 @@ import { runLint } from "./cli/commands/lint.js";
 import { runLog } from "./cli/commands/log.js";
 import { runMigrateToNarrative } from "./cli/commands/migrate-to-narrative.js";
 import { runPage } from "./cli/commands/page.js";
+import { runRelinkAnchors } from "./cli/commands/relink-anchors.js";
 import {
   formatAuditSummaryResult,
   formatAuditRotateResult,
@@ -732,6 +733,30 @@ program
     }
     try {
       const result = await runMigrateToNarrative({ mode: opts.apply ? "apply" : "plan" });
+      process.stdout.write(result.report);
+    } catch (err) {
+      console.error((err as Error).message);
+      process.exit(1);
+    }
+  });
+
+program
+  .command("relink-anchors")
+  .description("Plan or apply deterministic restoration of dropped rewrite anchors")
+  .option("--plan", "dry-run report of anchor restorations")
+  .option("--apply", "restore anchors and archive the previous page version")
+  .option("--page <slug>", "restrict to one page path or slug")
+  .action(async (opts: { plan?: boolean; apply?: boolean; page?: string }) => {
+    const modes = [opts.plan, opts.apply].filter(Boolean);
+    if (modes.length !== 1) {
+      console.error("memory relink-anchors: choose exactly one of --plan or --apply");
+      process.exit(2);
+    }
+    try {
+      const result = await runRelinkAnchors({
+        mode: opts.apply ? "apply" : "plan",
+        page: opts.page,
+      });
       process.stdout.write(result.report);
     } catch (err) {
       console.error((err as Error).message);
