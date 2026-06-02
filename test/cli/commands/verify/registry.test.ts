@@ -22,6 +22,7 @@ const EXPECTED_ROLES = new Map<string, VerifyRole[]>([
   ["sync.uncommitted-vault", ["operator"]],
   ["git.remote", ["operator"]],
   ["client.claude-code.enabled", ["operator"]],
+  ["client.claude-code.hooks", ["operator"]],
   ["client.claude-code.capture", ["operator"]],
   ["sniffer.claude-code.backfill", ["operator"]],
   ["client.codex.config", ["operator"]],

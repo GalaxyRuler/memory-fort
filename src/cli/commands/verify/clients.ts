@@ -1,11 +1,13 @@
 import { existsSync } from "node:fs";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, isAbsolute, normalize, relative, resolve, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   claudeDesktopConfigDir,
   claudeDesktopConfigPath,
   formatIsoDate,
+  memoryRoot,
 } from "../../../storage/paths.js";
 import {
   isClaudeCodePluginEnabled,
@@ -15,6 +17,9 @@ import { fail, pass, warn, type CheckDescriptor, type VerifyCheckContext, type V
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+/** Enabled, historically active clients are treated as an outage after this many silent days. */
+export const CAPTURE_STALE_FAIL_DAYS = 3;
+
 export const claudeCodeEnabledCheck: CheckDescriptor = {
   id: "client.claude-code.enabled",
   label: "Claude Code plugin enabled",
@@ -22,11 +27,21 @@ export const claudeCodeEnabledCheck: CheckDescriptor = {
   run: () => checkClaudeCodeEnabled(),
 };
 
+export const claudeCodeHookPathsCheck: CheckDescriptor = {
+  id: "client.claude-code.hooks",
+  label: "Claude Code hook command paths resolve",
+  roles: ["operator"],
+  run: () => checkClaudeCodeHookPaths(),
+};
+
 export const claudeCodeCaptureCheck: CheckDescriptor = {
   id: "client.claude-code.capture",
   label: "Claude Code capture is fresh",
   roles: ["operator"],
-  run: (ctx) => checkRecentCapture(ctx, ["claude-code-", "claude-"], "client.claude-code.capture", "claude-code"),
+  run: (ctx) => checkRecentCapture(ctx, ["claude-code-", "claude-"], "client.claude-code.capture", "claude-code", {
+    staleFailWhen: () => isClaudeCodePluginEnabled(),
+    staleFailureSuggestedFix: "restart Claude Code and run one tool; then rerun `memory verify`",
+  }),
 };
 
 export const snifferClaudeCodeBackfillCheck: CheckDescriptor = {
@@ -47,7 +62,10 @@ export const codexCaptureCheck: CheckDescriptor = {
   id: "client.codex.capture",
   label: "Codex capture is fresh",
   roles: ["operator"],
-  run: (ctx) => checkRecentCapture(ctx, ["codex-"], "client.codex.capture", "codex"),
+  run: (ctx) => checkRecentCapture(ctx, ["codex-"], "client.codex.capture", "codex", {
+    staleFailWhen: () => isCodexConfigured(),
+    staleFailureSuggestedFix: "restart Codex and run one tool; then rerun `memory verify`",
+  }),
 };
 
 export const antigravityConfigCheck: CheckDescriptor = {
@@ -134,6 +152,7 @@ export const snifferClaudeDesktopCaptureCheck: CheckDescriptor = {
 
 export const CLIENT_CHECKS: CheckDescriptor[] = [
   claudeCodeEnabledCheck,
+  claudeCodeHookPathsCheck,
   claudeCodeCaptureCheck,
   snifferClaudeCodeBackfillCheck,
   codexConfigCheck,
@@ -167,19 +186,7 @@ async function checkClaudeCodeEnabled(): Promise<VerifyCheckResult> {
 }
 
 async function checkCodexConfig(): Promise<VerifyCheckResult> {
-  const configPath = join(
-    process.env["MEMORY_CODEX_DIR"] ?? join(homedir(), ".codex"),
-    "config.toml",
-  );
-  if (!existsSync(configPath)) {
-    return fail(
-      "client.codex.config",
-      "codex MCP block present",
-      "run `memory connect codex`",
-    );
-  }
-  const raw = await readFile(configPath, "utf-8");
-  const ok = raw.includes("[mcp_servers.memory]") && raw.includes("mcp-server.mjs");
+  const ok = await isCodexConfigured();
   return ok
     ? pass("client.codex.config", "codex MCP block present")
     : fail(
@@ -187,6 +194,264 @@ async function checkCodexConfig(): Promise<VerifyCheckResult> {
         "codex MCP block present",
         "run `memory connect codex`",
       );
+}
+
+async function isCodexConfigured(): Promise<boolean> {
+  const configPath = join(
+    process.env["MEMORY_CODEX_DIR"] ?? join(homedir(), ".codex"),
+    "config.toml",
+  );
+  if (!existsSync(configPath)) return false;
+  const raw = await readFile(configPath, "utf-8");
+  return raw.includes("[mcp_servers.memory]") && raw.includes("mcp-server.mjs");
+}
+
+async function checkClaudeCodeHookPaths(): Promise<VerifyCheckResult> {
+  const pluginRoots = await resolveClaudeCodePluginRoots();
+  if (pluginRoots.length === 0) {
+    return fail(
+      "client.claude-code.hooks",
+      "Claude Code hook command paths resolve",
+      "run `npm run build` and `memory connect claude-code`",
+      "missing Claude Code memory plugin root",
+    );
+  }
+
+  for (const pluginRoot of pluginRoots) {
+    const result = await validateClaudeCodePluginHooks(pluginRoot);
+    if (result.status !== "pass") return result;
+  }
+
+  return pass(
+    "client.claude-code.hooks",
+    "Claude Code hook command paths resolve",
+    `validated ${pluginRoots.length} plugin root${pluginRoots.length === 1 ? "" : "s"}`,
+  );
+}
+
+async function resolveClaudeCodePluginRoots(): Promise<string[]> {
+  const installed = await readInstalledClaudeCodePluginRoots();
+  if (installed.length > 0) return installed;
+
+  const sourceRoot = join(memoryRoot(), "claude-code-plugin");
+  return existsSync(sourceRoot) ? [sourceRoot] : [];
+}
+
+async function readInstalledClaudeCodePluginRoots(): Promise<string[]> {
+  const installedPath = join(
+    process.env["MEMORY_CLAUDE_DIR"] ?? join(homedir(), ".claude"),
+    "plugins",
+    "installed_plugins.json",
+  );
+  if (!existsSync(installedPath)) return [];
+
+  try {
+    const parsed = JSON.parse(await readFile(installedPath, "utf-8")) as Record<string, unknown>;
+    const plugins = parsed["plugins"];
+    if (typeof plugins !== "object" || plugins === null) return [];
+    const entries = (plugins as Record<string, unknown>)["memory@memory-local"];
+    if (!Array.isArray(entries)) return [];
+    return entries
+      .map((entry) => {
+        if (typeof entry !== "object" || entry === null) return null;
+        const installPath = (entry as Record<string, unknown>)["installPath"];
+        return typeof installPath === "string" && existsSync(installPath)
+          ? installPath
+          : null;
+      })
+      .filter((entry): entry is string => entry !== null);
+  } catch {
+    return [];
+  }
+}
+
+async function validateClaudeCodePluginHooks(pluginRoot: string): Promise<VerifyCheckResult> {
+  const manifestPath = join(pluginRoot, ".claude-plugin", "plugin.json");
+  if (!existsSync(manifestPath)) {
+    return fail(
+      "client.claude-code.hooks",
+      "Claude Code hook command paths resolve",
+      "run `npm run build` and `memory connect claude-code`",
+      `missing plugin manifest at ${manifestPath}`,
+    );
+  }
+
+  let manifest: Record<string, unknown>;
+  try {
+    manifest = JSON.parse(await readFile(manifestPath, "utf-8")) as Record<string, unknown>;
+  } catch {
+    return fail(
+      "client.claude-code.hooks",
+      "Claude Code hook command paths resolve",
+      "run `memory connect claude-code`",
+      `plugin manifest JSON is malformed at ${manifestPath}`,
+    );
+  }
+
+  if (manifest["hooksPath"] !== undefined || manifest["mcpConfig"] !== undefined) {
+    return fail(
+      "client.claude-code.hooks",
+      "Claude Code hook command paths resolve",
+      "run `memory connect claude-code`",
+      "plugin manifest uses legacy hooksPath/mcpConfig fields; expected hooks/mcpServers",
+    );
+  }
+
+  const hooksRel = typeof manifest["hooks"] === "string"
+    ? manifest["hooks"] as string
+    : "./hooks/hooks.json";
+  const hooksPath = resolvePluginPath(pluginRoot, hooksRel);
+  if (!isInsideRoot(pluginRoot, hooksPath)) {
+    return fail(
+      "client.claude-code.hooks",
+      "Claude Code hook command paths resolve",
+      "run `memory connect claude-code`",
+      `hooks path escapes plugin root: ${hooksRel}`,
+    );
+  }
+  if (!existsSync(hooksPath)) {
+    return fail(
+      "client.claude-code.hooks",
+      "Claude Code hook command paths resolve",
+      "run `memory connect claude-code`",
+      `missing hooks file at ${hooksPath}`,
+    );
+  }
+
+  let hooksConfig: Record<string, unknown>;
+  try {
+    hooksConfig = JSON.parse(await readFile(hooksPath, "utf-8")) as Record<string, unknown>;
+  } catch {
+    return fail(
+      "client.claude-code.hooks",
+      "Claude Code hook command paths resolve",
+      "run `memory connect claude-code`",
+      `hooks JSON is malformed at ${hooksPath}`,
+    );
+  }
+
+  const scriptRefs = extractClaudeCodeHookScriptRefs(hooksConfig);
+  if (scriptRefs.length === 0) {
+    return fail(
+      "client.claude-code.hooks",
+      "Claude Code hook command paths resolve",
+      "run `memory connect claude-code`",
+      "no Claude Code command hook script paths found",
+    );
+  }
+
+  for (const scriptRef of scriptRefs) {
+    const resolvedScript = resolveClaudePluginRootPath(pluginRoot, scriptRef);
+    if (!isInsideRoot(pluginRoot, resolvedScript)) {
+      return fail(
+        "client.claude-code.hooks",
+        "Claude Code hook command paths resolve",
+        "run `memory connect claude-code`",
+        `hook script escapes plugin root: ${scriptRef}`,
+      );
+    }
+    if (!existsSync(resolvedScript)) {
+      return fail(
+        "client.claude-code.hooks",
+        "Claude Code hook command paths resolve",
+        "run `memory connect claude-code`",
+        `missing script ${scriptRef} resolved to ${resolvedScript}`,
+      );
+    }
+    const launcherTargetFailure = await validateHookLauncherTarget(resolvedScript);
+    if (launcherTargetFailure) {
+      return fail(
+        "client.claude-code.hooks",
+        "Claude Code hook command paths resolve",
+        "run `npm run build` and `memory connect claude-code`",
+        launcherTargetFailure,
+      );
+    }
+  }
+
+  return pass(
+    "client.claude-code.hooks",
+    "Claude Code hook command paths resolve",
+    `validated ${scriptRefs.length} hook script path${scriptRefs.length === 1 ? "" : "s"} under ${pluginRoot}`,
+  );
+}
+
+function extractClaudeCodeHookScriptRefs(hooksConfig: Record<string, unknown>): string[] {
+  const hookMap = hooksConfig["hooks"];
+  if (typeof hookMap !== "object" || hookMap === null) return [];
+
+  const refs: string[] = [];
+  for (const eventEntries of Object.values(hookMap as Record<string, unknown>)) {
+    if (!Array.isArray(eventEntries)) continue;
+    for (const eventEntry of eventEntries) {
+      if (typeof eventEntry !== "object" || eventEntry === null) continue;
+      const hooks = (eventEntry as Record<string, unknown>)["hooks"];
+      if (!Array.isArray(hooks)) continue;
+      for (const hook of hooks) {
+        if (typeof hook !== "object" || hook === null) continue;
+        const scriptRef = extractCommandHookScriptRef(hook as Record<string, unknown>);
+        if (scriptRef) refs.push(scriptRef);
+      }
+    }
+  }
+  return refs;
+}
+
+function extractCommandHookScriptRef(hook: Record<string, unknown>): string | null {
+  if (hook["type"] !== "command") return null;
+  const command = hook["command"];
+  const args = hook["args"];
+  if (typeof command === "string" && command === "node" && Array.isArray(args)) {
+    const firstArg = args.find((arg) => typeof arg === "string");
+    return typeof firstArg === "string" ? firstArg : null;
+  }
+  if (typeof command !== "string") return null;
+
+  const match = command.match(/\bnode(?:\.exe)?\s+("([^"]+)"|'([^']+)'|(\S+))/i);
+  return match?.[2] ?? match?.[3] ?? match?.[4] ?? null;
+}
+
+function resolveClaudePluginRootPath(pluginRoot: string, value: string): string {
+  const normalized = value.replaceAll("\\", "/");
+  const pluginRootVar = "${CLAUDE_PLUGIN_ROOT}";
+  if (normalized === pluginRootVar) return resolve(pluginRoot);
+  if (normalized.startsWith(`${pluginRootVar}/`)) {
+    return resolve(pluginRoot, normalized.slice(pluginRootVar.length + 1));
+  }
+  return resolvePluginPath(pluginRoot, value);
+}
+
+async function validateHookLauncherTarget(scriptPath: string): Promise<string | null> {
+  const targetPath = await readHookLauncherTarget(scriptPath);
+  if (!targetPath) return null;
+  return existsSync(targetPath)
+    ? null
+    : `hook launcher target missing: ${targetPath}`;
+}
+
+async function readHookLauncherTarget(scriptPath: string): Promise<string | null> {
+  const raw = await readFile(scriptPath, "utf-8");
+  const match = raw.match(/\bmemoryHookTarget\s*=\s*("[^"]+"|'[^']+')/);
+  if (!match) return null;
+
+  try {
+    const encodedTarget = JSON.parse(match[1]) as unknown;
+    if (typeof encodedTarget !== "string") return null;
+    return encodedTarget.startsWith("file:")
+      ? fileURLToPath(encodedTarget)
+      : resolve(dirname(scriptPath), encodedTarget);
+  } catch {
+    return null;
+  }
+}
+
+function resolvePluginPath(pluginRoot: string, value: string): string {
+  return isAbsolute(value) ? normalize(value) : resolve(pluginRoot, value);
+}
+
+function isInsideRoot(root: string, candidate: string): boolean {
+  const rel = relative(resolve(root), resolve(candidate));
+  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
 }
 
 async function checkJsonServer(
@@ -228,15 +493,39 @@ async function checkRecentCapture(
   prefixes: string[],
   id: string,
   label: string,
+  opts: {
+    staleFailWhen?: () => Promise<boolean>;
+    staleFailureSuggestedFix?: string;
+  } = {},
 ): Promise<VerifyCheckResult> {
-  const count = await countRecentCaptures(ctx, prefixes, true);
-  return count > 0
-    ? pass(id, `${label} captures today`, `${count} captures today`)
-    : warn(
+  const snapshot = await readCaptureSnapshot(ctx, prefixes);
+  if (snapshot.recentCount > 0) {
+    return pass(id, `${label} captures today`, `${snapshot.recentCount} captures today`);
+  }
+
+  if (snapshot.lastSeen) {
+    const ageDays = Math.floor((ctx.now().getTime() - snapshot.lastSeen.getTime()) / DAY_MS);
+    const shouldFail = opts.staleFailWhen ? await opts.staleFailWhen() : false;
+    if (shouldFail && ageDays >= CAPTURE_STALE_FAIL_DAYS) {
+      return fail(
         id,
         `${label} captures today`,
-        "no capture file from the last 24h",
+        opts.staleFailureSuggestedFix,
+        `OUTAGE: enabled but no capture in ${ageDays} days (last seen ${formatIsoDate(snapshot.lastSeen)})`,
       );
+    }
+    return warn(
+      id,
+      `${label} captures today`,
+      `idle (no capture 24h, last seen ${formatIsoDate(snapshot.lastSeen)})`,
+    );
+  }
+
+  return warn(
+    id,
+    `${label} captures today`,
+    "no capture file from the last 24h",
+  );
 }
 
 async function checkAnyCapture(
@@ -244,9 +533,9 @@ async function checkAnyCapture(
   prefixes: string[],
   id: string,
 ): Promise<VerifyCheckResult> {
-  const count = await countRecentCaptures(ctx, prefixes, false);
-  return count > 0
-    ? pass(id, "antigravity live hooks captured", `${count} captures`)
+  const snapshot = await readCaptureSnapshot(ctx, prefixes);
+  return snapshot.historicalCount > 0
+    ? pass(id, "antigravity live hooks captured", `${snapshot.historicalCount} captures`)
     : warn(
         id,
         "antigravity live hooks have not captured yet",
@@ -356,16 +645,15 @@ async function checkVsCodeExtension(): Promise<VerifyCheckResult> {
   }
 }
 
-async function countRecentCaptures(
+async function readCaptureSnapshot(
   ctx: VerifyCheckContext,
   prefixes: string[],
-  todayOnly: boolean,
-): Promise<number> {
+): Promise<{ recentCount: number; historicalCount: number; lastSeen: Date | null }> {
   const rawRoot = join(ctx.vaultRoot, "raw");
-  const dirs = todayOnly
-    ? [formatIsoDate(ctx.now())]
-    : await listDirectoryNames(rawRoot);
-  let count = 0;
+  const dirs = await listDirectoryNames(rawRoot);
+  let recentCount = 0;
+  let historicalCount = 0;
+  let lastSeen: Date | null = null;
   for (const dir of dirs) {
     const fullDir = join(rawRoot, dir);
     let entries: string[];
@@ -378,12 +666,12 @@ async function countRecentCaptures(
       if (!entry.endsWith(".md")) continue;
       if (!prefixes.some((prefix) => entry.startsWith(prefix))) continue;
       const info = await stat(join(fullDir, entry));
-      if (!todayOnly || ctx.now().getTime() - info.mtime.getTime() <= DAY_MS) {
-        count += 1;
-      }
+      historicalCount += 1;
+      if (!lastSeen || info.mtime.getTime() > lastSeen.getTime()) lastSeen = info.mtime;
+      if (ctx.now().getTime() - info.mtime.getTime() <= DAY_MS) recentCount += 1;
     }
   }
-  return count;
+  return { recentCount, historicalCount, lastSeen };
 }
 
 async function listDirectoryNames(root: string): Promise<string[]> {

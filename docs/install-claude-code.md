@@ -18,10 +18,10 @@ The install creates:
 
 ```
 ~/.memory/claude-code-plugin/
-  .claude-plugin/plugin.json   ← plugin manifest (author as object, per Claude Code's manifest validator)
+  .claude-plugin/plugin.json   ← plugin manifest (author as object, hooks="./hooks/hooks.json", mcpServers="./.mcp.json")
   hooks/hooks.json             ← five hook events: SessionStart, UserPromptSubmit, PostToolUse, PreCompact, Stop
   .mcp.json                    ← plugin-bundled MCP config (memory server, ${CLAUDE_PLUGIN_ROOT} path)
-  scripts/                     ← symlink/junction → <source-repo>/dist/hooks/
+  scripts/                     ← generated launchers that import <source-repo>/dist/hooks/*.mjs
 ```
 
 Note: `~/.claude/.mcp.json` is **NOT** touched by Phase 1 install. If a prior install (steps #7 / #7-fix-1) left a `memory` entry there, the current install migrates it out automatically.
@@ -40,11 +40,13 @@ Each session you start this way loads the memory plugin and its hooks + MCP. Sim
 
 ### Option 2: Marketplace-style install (persistent)
 
+`memory install claude-code` registers `~/.memory` as a local Claude Code marketplace, uninstalls any stale `memory@memory-local` cache entry, and installs the current plugin source. If you need to do the same manually inside Claude Code:
+
 In an active Claude Code session:
 
 ```
-/plugin marketplace add C:\Users\Admin\.memory\claude-code-plugin
-/plugin install memory@local
+/plugin marketplace add C:\Users\Admin\.memory
+/plugin install memory@memory-local
 ```
 
 After this, the plugin is enabled persistently — every new Claude Code session in any project loads it.
@@ -54,6 +56,10 @@ After this, the plugin is enabled persistently — every new Claude Code session
 ```bash
 node dist\cli.mjs doctor
 # All checks should pass except those needing live session activity.
+
+node dist\cli.mjs verify
+# Validates the plugin manifest shape and resolves every hook command path under the active plugin root.
+# Enabled clients that captured before but have been silent for CAPTURE_STALE_FAIL_DAYS (3) fail as outages.
 
 node dist\cli.mjs stats
 # Hooks installed: claude-code ✓
@@ -90,11 +96,12 @@ A new `manual-mcp-<timestamp>.md` should appear with the observation text.
 
 `memory install claude-code` is idempotent. Re-running:
 - Overwrites the plugin manifest and hooks.json with the latest content
-- Re-creates the scripts symlink if needed
+- Rewrites plugin-local script launchers that import the built repo hooks
 - Re-writes the plugin's `.mcp.json`
 - Migrates any legacy `~/.claude/.mcp.json` entry
+- Refreshes Claude Code's installed plugin cache for `memory@memory-local` when using the default Claude config directory
 
-Safe to run anytime — e.g., after a `npm run build` that changed the hook scripts.
+Safe to run anytime after `npm run build` changes the hook scripts.
 
 ## Uninstall
 
@@ -102,7 +109,7 @@ Manual cleanup:
 
 ```bash
 rm -rf ~/.memory/claude-code-plugin/
-# In Claude Code: /plugin uninstall memory  (or /plugin marketplace remove ~/.memory/claude-code-plugin)
+# In Claude Code: /plugin uninstall memory@memory-local  (or /plugin marketplace remove ~/.memory)
 ```
 
 `~/.memory/raw/`, `~/.memory/wiki/`, etc. survive — uninstall doesn't delete your data.
