@@ -11,7 +11,7 @@
   },
   "license": "SEE LICENSE IN LICENSE",
   "scripts": {
-    "build": "node scripts/check-prompt-drift.mjs && node --max-old-space-size=8192 ./node_modules/tsdown/dist/run.mjs",
+    "build": "node scripts/check-prompt-drift.mjs && node --max-old-space-size=8192 ./node_modules/tsdown/dist/run.mjs && npm run build:ui",
     "build:ui": "vite build",
     "build:all": "npm run build && npm run build:ui",
     "typecheck": "tsc --noEmit",

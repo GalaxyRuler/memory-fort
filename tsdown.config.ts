@@ -24,11 +24,23 @@ const common = {
   },
 } as const;
 
+const serverClean = [
+  "dist/*.mjs",
+  "dist/*.d.mts",
+  "dist/*.mjs.map",
+  "dist/sync",
+  "dist/dashboard",
+  "dist/retrieval",
+  "dist/storage",
+  "dist/hooks",
+  "dist/cli",
+];
+
 export default defineConfig([
   {
     ...common,
     entry: { index: "src/index.ts" },
-    clean: true,
+    clean: serverClean,
   },
   {
     ...common,

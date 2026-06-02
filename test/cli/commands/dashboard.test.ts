@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { Command } from "commander";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { registerDashboardCommand, runDashboard } from "../../../src/cli/commands/dashboard.js";
@@ -179,13 +180,84 @@ describe("runDashboard", () => {
     expect(close).toHaveBeenCalledOnce();
   });
 
+  it("finds the dashboard source from the module path when cwd is outside the repo", async () => {
+    const outsideCwd = join(tmp, "outside");
+    const repoRoot = join(tmp, "repo");
+    const distRoot = join(repoRoot, "dist", "dashboard-ui");
+    await mkdir(outsideCwd, { recursive: true });
+    await mkdir(join(repoRoot, "src", "dashboard-ui"), { recursive: true });
+    await mkdir(join(repoRoot, "dist"), { recursive: true });
+    await writeFile(join(repoRoot, "package.json"), "{}\n");
+    await writeFile(join(repoRoot, "vite.config.ts"), "export default {};\n");
+    await writeFile(join(repoRoot, "src", "dashboard-ui", "index.html"), "<!doctype html>\n");
+    const buildDashboardUi = vi.fn(async ({ repoRoot: buildRepoRoot }) => {
+      expect(buildRepoRoot).toBe(repoRoot);
+      await mkdir(distRoot, { recursive: true });
+      await writeFile(join(distRoot, "index.html"), "<!doctype html>\n");
+    });
+    const createServer = vi.fn(async (opts: ServerOptions): Promise<RunningServer> => ({
+      host: opts.host ?? "127.0.0.1",
+      port: opts.port ?? 4410,
+      close: async () => undefined,
+    }));
+    const stdout: string[] = [];
+    const originalCwd = process.cwd();
+    process.chdir(outsideCwd);
+    try {
+      const result = await runDashboard({
+        dashboardDistRoot: distRoot,
+        dashboardModuleUrl: pathToFileURL(join(repoRoot, "dist", "cli.mjs")).href,
+        buildDashboardUi,
+        createServer,
+        openBrowser: async () => undefined,
+        stdout: (line) => stdout.push(line),
+      });
+
+      expect(buildDashboardUi).toHaveBeenCalledOnce();
+      expect(stdout[0]).toBe(`building dashboard UI (${join(distRoot, "index.html")} missing)...`);
+      await result.close();
+    } finally {
+      process.chdir(originalCwd);
+    }
+  });
+
+  it("does not rebuild when the dashboard dist index is already present", async () => {
+    const distRoot = join(tmp, "dist", "dashboard-ui");
+    await mkdir(distRoot, { recursive: true });
+    await writeFile(join(distRoot, "index.html"), "<!doctype html>\n");
+    const buildDashboardUi = vi.fn(async () => undefined);
+    const createServer = vi.fn(async (opts: ServerOptions): Promise<RunningServer> => ({
+      host: opts.host ?? "127.0.0.1",
+      port: opts.port ?? 4410,
+      close: async () => undefined,
+    }));
+    const stdout: string[] = [];
+
+    const result = await runDashboard({
+      dashboardDistRoot: distRoot,
+      buildDashboardUi,
+      createServer,
+      openBrowser: async () => undefined,
+      stdout: (line) => stdout.push(line),
+    });
+
+    expect(buildDashboardUi).not.toHaveBeenCalled();
+    expect(stdout).not.toContain(expect.stringContaining("building dashboard UI"));
+    await result.close();
+  });
+
   it("surfaces the build:ui hint when the SPA dist is missing", async () => {
+    const distRoot = join(tmp, "missing", "dashboard-ui");
     await expect(runDashboard({
-      createServer: async () => {
-        throw new Error("dashboard UI dist missing index.html at C:/x/dist/dashboard-ui/index.html; run `npm run build:ui` first");
-      },
+      dashboardDistRoot: distRoot,
+      dashboardModuleUrl: pathToFileURL(join(tmp, "not-a-real-memory-system", "dist", "cli.mjs")).href,
+      createServer: async () => ({
+        host: "127.0.0.1",
+        port: 4410,
+        close: async () => undefined,
+      }),
       openBrowser: async () => undefined,
       stdout: () => undefined,
-    })).rejects.toThrow("run `npm run build:ui` first");
+    })).rejects.toThrow(`dashboard UI dist missing index.html at ${join(distRoot, "index.html")}; run \`npm run build:ui\` in`);
   });
 });
