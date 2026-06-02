@@ -5,7 +5,7 @@ import {
   currentProjectMemoryBlock,
   whatToRememberBlock,
 } from "./session-start-helpers.js";
-import { schemaPath, indexPath, logPath } from "../storage/paths.js";
+import { schemaPath, indexPath, logPath, memoryRoot } from "../storage/paths.js";
 
 export interface SessionStartDeps {
   readFile?: (path: string) => Promise<string>;
@@ -39,7 +39,7 @@ export async function sessionStartBody(
   try {
     const projectBlock = await currentProjectMemoryBlock({
       cwd: readPayloadCwd(payload),
-      memoryRoot: deps.memoryRoot,
+      memoryRoot: deps.memoryRoot ?? memoryRoot(),
       readFile: readFn,
       maxChars: deps.maxInjectedChars,
     });
