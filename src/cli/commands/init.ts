@@ -86,6 +86,12 @@ capture:
   max_input_bytes: 8192
   max_output_bytes: 8192
 
+compress:
+  max_input_bytes: 48000
+  chunk_threshold_bytes: 48000
+  max_chunks: 8
+  max_call_tokens: 100000
+
 # llm:
 #   provider: openrouter   # openrouter | ollama
 #   model: openai/gpt-4o-mini

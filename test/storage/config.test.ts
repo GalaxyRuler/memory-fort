@@ -155,4 +155,20 @@ describe("memory config reader", () => {
     expect(config.capture?.max_input_bytes).toBe(8192);
     expect(config.capture?.max_output_bytes).toBe(8192);
   });
+
+  it("MemoryConfig types compressor coverage caps", () => {
+    const config: MemoryConfig = {
+      compress: {
+        max_input_bytes: 48_000,
+        chunk_threshold_bytes: 48_000,
+        max_chunks: 8,
+        max_call_tokens: 100_000,
+      },
+    };
+
+    expect(config.compress?.max_input_bytes).toBe(48_000);
+    expect(config.compress?.chunk_threshold_bytes).toBe(48_000);
+    expect(config.compress?.max_chunks).toBe(8);
+    expect(config.compress?.max_call_tokens).toBe(100_000);
+  });
 });

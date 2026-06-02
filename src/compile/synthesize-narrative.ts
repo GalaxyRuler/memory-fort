@@ -14,6 +14,7 @@ export const NARRATIVE_KNOWLEDGE_TYPES = [
   "references",
   "tools",
   "people",
+  "procedures",
   "prospective",
 ] as const;
 

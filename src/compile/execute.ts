@@ -117,6 +117,7 @@ export function isKnowledgePageType(type: PageType): boolean {
     type === "references" ||
     type === "tools" ||
     type === "people" ||
+    type === "procedures" ||
     type === "prospective";
 }
 

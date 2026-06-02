@@ -3,6 +3,19 @@ import { readFile, readdir } from "node:fs/promises";
 import { basename, join, relative } from "node:path";
 import { atomicWrite } from "../storage/atomic-write.js";
 
+export const COMPRESSED_FACT_TYPES = [
+  "project",
+  "decision",
+  "procedure",
+  "lesson",
+  "reference",
+  "tool",
+  "people",
+  "fact",
+] as const;
+
+export type CompressedFactType = typeof COMPRESSED_FACT_TYPES[number];
+
 export interface CompressedFact {
   title: string;
   facts: string[];
@@ -10,10 +23,13 @@ export interface CompressedFact {
   concepts: string[];
   files: string[];
   importance: number;
+  type?: CompressedFactType;
   sessionId: string;
   sourceRawPath: string;
   observedAt: string;
   compressedAt: string;
+  sampledChunks?: number;
+  totalChunks?: number;
 }
 
 export interface CompressedFactFile {
@@ -22,6 +38,10 @@ export interface CompressedFactFile {
   sessionId: string;
   observedAt: string;
   compressedAt: string;
+  sampledChunks?: number;
+  totalChunks?: number;
+  chunksCompressed?: number;
+  inputTokens?: number;
   facts: CompressedFact[];
 }
 
@@ -107,11 +127,29 @@ function readFact(value: unknown): CompressedFact | null {
     concepts,
     files: readStringArray(record.files),
     importance,
+    ...readOptionalFactType(record.type),
     sessionId,
     sourceRawPath: sourceRawPath.replace(/\\/g, "/"),
     observedAt,
     compressedAt,
+    ...readOptionalPositiveInteger(record.sampledChunks, "sampledChunks"),
+    ...readOptionalPositiveInteger(record.totalChunks, "totalChunks"),
   };
+}
+
+export function readCompressedFactType(value: unknown): CompressedFactType | null {
+  return typeof value === "string" && (COMPRESSED_FACT_TYPES as readonly string[]).includes(value)
+    ? value as CompressedFactType
+    : null;
+}
+
+function readOptionalFactType(value: unknown): { type: CompressedFactType } | Record<string, never> {
+  const type = readCompressedFactType(value);
+  return type ? { type } : {};
+}
+
+function readOptionalPositiveInteger(value: unknown, key: "sampledChunks" | "totalChunks"): Record<string, number> {
+  return typeof value === "number" && Number.isInteger(value) && value > 0 ? { [key]: value } : {};
 }
 
 function readString(value: unknown): string | null {

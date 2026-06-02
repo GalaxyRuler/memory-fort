@@ -71,6 +71,12 @@ describe("runInit", () => {
     const preferences = await readFile(join(result.root, "wiki", "preferences.md"), "utf-8");
     expect(preferences).toContain("title: Operator Preferences");
     expect(preferences).toContain("tags: [preference]");
+    const config = await readFile(join(result.root, "config.yaml"), "utf-8");
+    expect(config).toContain("compress:");
+    expect(config).toContain("max_input_bytes: 48000");
+    expect(config).toContain("chunk_threshold_bytes: 48000");
+    expect(config).toContain("max_chunks: 8");
+    expect(config).toContain("max_call_tokens: 100000");
   });
 
   it("renders schema.md template with no placeholders remaining", async () => {

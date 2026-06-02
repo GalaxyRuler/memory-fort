@@ -45,8 +45,8 @@ describe("compile execute operations", () => {
     expect(isKnowledgePageType("tools")).toBe(true);
     expect(isKnowledgePageType("people")).toBe(true);
     expect(isKnowledgePageType("prospective")).toBe(true);
+    expect(isKnowledgePageType("procedures")).toBe(true);
     expect(isKnowledgePageType("threads")).toBe(false);
-    expect(isKnowledgePageType("procedures")).toBe(false);
   });
 
   it("applies high-confidence write_page operations after grounding and redaction", async () => {

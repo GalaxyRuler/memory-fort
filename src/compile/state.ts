@@ -6,6 +6,7 @@ import { atomicWrite } from "../storage/atomic-write.js";
 export interface CompileConsumedWatermark {
   bytes: number;
   lastObservationAt?: string;
+  compressVersion?: number;
 }
 
 export interface CompileStateFile {
@@ -54,6 +55,9 @@ function readWatermarkMap(value: unknown): Record<string, CompileConsumedWaterma
     normalized[path] = {
       bytes: Math.floor(bytes),
       ...(typeof lastObservationAt === "string" ? { lastObservationAt } : {}),
+      ...(typeof record["compressVersion"] === "number" && Number.isInteger(record["compressVersion"]) && record["compressVersion"] > 0
+        ? { compressVersion: record["compressVersion"] }
+        : {}),
     };
   }
   return normalized;

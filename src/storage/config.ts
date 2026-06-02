@@ -48,6 +48,12 @@ export interface MemoryConfig {
     max_input_bytes?: number;
     max_output_bytes?: number;
   };
+  compress?: {
+    max_input_bytes?: number;
+    chunk_threshold_bytes?: number;
+    max_chunks?: number;
+    max_call_tokens?: number;
+  };
   retention?: {
     raw_window_days?: number;
     raw_compile_before_delete?: boolean;
@@ -127,6 +133,18 @@ export function validateMemoryConfig(config: MemoryConfig): string[] {
     if (capture?.[key] !== undefined && !isIntegerInRange(capture[key], 0, 1_000_000)) {
       warnings.push(`capture.${key} must be an integer between 0 and 1000000`);
     }
+  }
+  const compress = asRecord(config.compress);
+  for (const key of ["max_input_bytes", "chunk_threshold_bytes"]) {
+    if (compress?.[key] !== undefined && !isIntegerInRange(compress[key], 1_000, 1_000_000)) {
+      warnings.push(`compress.${key} must be an integer between 1000 and 1000000`);
+    }
+  }
+  if (compress?.["max_chunks"] !== undefined && !isIntegerInRange(compress["max_chunks"], 2, 100)) {
+    warnings.push("compress.max_chunks must be an integer between 2 and 100");
+  }
+  if (compress?.["max_call_tokens"] !== undefined && !isIntegerInRange(compress["max_call_tokens"], 1_000, 128_000)) {
+    warnings.push("compress.max_call_tokens must be an integer between 1000 and 128000");
   }
   const retention = asRecord(config.retention);
   for (const key of ["raw_window_days", "wiki_status_stale_days"]) {

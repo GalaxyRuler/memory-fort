@@ -99,9 +99,39 @@ describe("fact-first compile consolidation", () => {
     expect(existsSync(join(tmp, "wiki", ".history"))).toBe(false);
   });
 
-  async function writePage(relPath: string, title: string, body: string): Promise<void> {
+  it("routes typed procedure facts to a procedure page when a same-title project page exists", async () => {
+    await writePage("wiki/projects/systematic-debugging.md", "Systematic Debugging", "Systematic Debugging project notes.");
+    await writePage("wiki/procedures/systematic-debugging.md", "Systematic Debugging", "Systematic Debugging procedure notes.", "procedures");
+    for (let index = 1; index <= 3; index += 1) {
+      await writeFact(`facts/2026-05-31/procedure-${index}.json`, {
+        ...fact(`procedure-${index}`, 8),
+        title: `Systematic Debugging procedure ${index}`,
+        facts: [`Systematic Debugging procedure step ${index}.`],
+        narrative: `Systematic Debugging procedure step ${index}.`,
+        concepts: ["Systematic Debugging"],
+        type: "procedure",
+      });
+    }
+    const llm = fakeSectionPatchLLM("Systematic Debugging procedure notes. Systematic Debugging procedure step 3.");
+
+    const result = await runFactConsolidation({
+      vaultRoot: tmp,
+      llm,
+      maxCalls: 1,
+      now: new Date("2026-05-31T12:00:00.000Z"),
+    });
+
+    expect(result.applied).toEqual(["wiki/procedures/systematic-debugging.md"]);
+    const procedurePage = await readFile(join(tmp, "wiki", "procedures", "systematic-debugging.md"), "utf-8");
+    const projectPage = await readFile(join(tmp, "wiki", "projects", "systematic-debugging.md"), "utf-8");
+    expect(procedurePage).toContain("procedure step 3");
+    expect(projectPage).toContain("Systematic Debugging project notes.");
+    expect(projectPage).not.toContain("procedure step 3");
+  });
+
+  async function writePage(relPath: string, title: string, body: string, type = "projects"): Promise<void> {
     await writeFileAt(relPath, serializeFrontmatter({
-      type: "projects",
+      type,
       title,
       created: "2026-05-31",
       updated: "2026-05-31",
