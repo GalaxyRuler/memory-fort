@@ -1,11 +1,17 @@
 import { readFile } from "node:fs/promises";
 import { runHook, type HookPayload } from "./error-handler.js";
-import { confidenceAwareIndex, whatToRememberBlock } from "./session-start-helpers.js";
+import {
+  confidenceAwareIndex,
+  currentProjectMemoryBlock,
+  whatToRememberBlock,
+} from "./session-start-helpers.js";
 import { schemaPath, indexPath, logPath } from "../storage/paths.js";
 
 export interface SessionStartDeps {
   readFile?: (path: string) => Promise<string>;
   write?: (text: string) => void;
+  memoryRoot?: string;
+  maxInjectedChars?: number;
 }
 
 /**
@@ -21,7 +27,6 @@ export async function sessionStartBody(
   payload: HookPayload,
   deps: SessionStartDeps = {},
 ): Promise<void> {
-  void payload;
   const readFn =
     deps.readFile ??
     (async (p: string) => readFile(p, "utf-8"));
@@ -30,6 +35,20 @@ export async function sessionStartBody(
 
   const parts: string[] = [];
   parts.push(`[memory:session-start] context loading\n`);
+
+  try {
+    const projectBlock = await currentProjectMemoryBlock({
+      cwd: readPayloadCwd(payload),
+      memoryRoot: deps.memoryRoot,
+      readFile: readFn,
+      maxChars: deps.maxInjectedChars,
+    });
+    if (projectBlock && projectBlock.trim().length > 0) {
+      parts.push(`\n${projectBlock.trim()}\n`);
+    }
+  } catch {
+    // Project memory is opportunistic; preserve the legacy schema/index/log output.
+  }
 
   const sections: Array<{
     label: string;
@@ -65,6 +84,17 @@ export async function sessionStartBody(
 function lastLines(text: string, n: number): string {
   const lines = text.split(/\r?\n/);
   return lines.slice(Math.max(0, lines.length - n)).join("\n");
+}
+
+function readPayloadCwd(payload: HookPayload): string | null {
+  if (typeof payload.cwd === "string" && payload.cwd.trim().length > 0) return payload.cwd;
+  if (
+    typeof payload.working_directory === "string" &&
+    payload.working_directory.trim().length > 0
+  ) {
+    return payload.working_directory;
+  }
+  return null;
 }
 
 if (process.argv[1]?.endsWith("session-start.mjs")) {

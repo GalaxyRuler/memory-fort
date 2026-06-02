@@ -16,7 +16,7 @@ This is **{{user_name}}**'s (`{{user_email}}`, GitHub: `{{github_handle}}`) pers
 
 - **Claude Code** (via plugin hooks + MCP)
 - **Codex desktop + CLI** (via hooks in `~/.codex/config.toml` + MCP via the same)
-- **Antigravity desktop** (via MCP only — Antigravity has no hook system)
+- **Antigravity desktop** (via MCP + live-capture plugin hooks when Antigravity 2.x supports them)
 
 Source repo: `C:\CodexProjects\memory-system\`. Runtime data: `~/.memory\` (this directory).
 
@@ -71,6 +71,9 @@ time_range:  # optional; narrative thread time span
 confidence: 0.0..1.0    # optional legacy scalar; shorthand for confidence.extraction
 source: claude-code | codex | antigravity | manual | crystal   # who created this
 session: <id>            # optional; the session that produced this page
+repo: "C:/absolute/repo/path"       # optional on project pages; authoritative cwd match
+repo_paths:                         # optional on project pages; extra authoritative cwd matches
+  - "C:/alternate/worktree/root"
 relations:
   uses:
     - page-slug
@@ -89,6 +92,8 @@ tags: [tag1, tag2, ...]
 ```
 
 **Required:** `type`, `title`, `created`, `updated`. Everything else is optional.
+
+Project pages may set `repo:` or `repo_paths:` to make SessionStart cwd matching authoritative when a checkout directory does not exactly match the page slug. Values are absolute repo or worktree roots. Hooks normalize slashes, casing on Windows, and trailing slashes, then match when the hook `cwd` equals that root or is under it. If these fields are absent, hooks fall back to exact cwd path-segment matching against `wiki/projects/<slug>.md`.
 
 **Required body element:** the first line after frontmatter is a one-sentence summary of the page. This is what shows in `index.md` and search snippets. Lead with the summary; expand below.
 

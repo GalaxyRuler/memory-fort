@@ -156,7 +156,7 @@ Fired by host tools with a stdin JSON payload; wrapped by `runHook` (always exit
 
 | Hook | Behaviour |
 |---|---|
-| `session-start` | Emits a context block to stdout: **`schema.md` + `index.md` + last 20 `log.md` lines** (this is the only memory injected into a fresh agent context) |
+| `session-start` | Emits a context block to stdout. When hook `cwd` resolves to a project page, the block starts with **Current project memory** (that page body + status/updated) and **Related memory** (up to 5 one-hop relation/wikilink neighbors as title + `index.md` summary), bounded to 8000 chars; then it emits `schema.md`, `index.md`, and the last 20 `log.md` lines. Unknown cwd values keep the legacy schema/index/log output. |
 | `prompt-submit` | Appends `## [HH:MM:SS] Prompt` block to the raw session file |
 | `post-tool-use` | Appends `## [HH:MM:SS] ToolUse: <name>` with middle-out truncated input + output payloads (8 KB caps by default), then `scheduleAutoPush()` |
 | `pre-compact` | Appends a compaction marker before host context compaction |
@@ -436,6 +436,7 @@ dashboard:
 - **Phase 4.28** — synthesis-first consolidation (shipped): `memory compress` writes one-time importance-scored fact bundles under `facts/`, tracks compression watermarks separately from raw compile consumption, fact-backed compile execution groups facts by concept with a top-K/LLM-call cap, and page rewrites record `version`/`supersedes` lineage under `wiki/.history/`.
 - **Phase 4.29** — section-patch consolidation (superseded): existing durable knowledge pages temporarily updated through PageIR, structured-output planner/renderer calls, deterministic artifact validation, and restricted `section_patch` operations.
 - **Phase 4.31** — narrative memory records (shipped): durable knowledge pages now stay as one prose narrative body, synthesize from compressed facts with structured novelty detection, validate away headings/lists/code/tables, track `strength`/`last_accessed`/`source_facts`, and expose `memory decay` plus `memory migrate-to-narrative`.
+- **Phase 4.36** — cwd-aware SessionStart memory injection (shipped): hook payload `cwd` resolves to `wiki/projects/<slug>.md` via `repo:`/`repo_paths:` or exact slug-in-path matching, injects the current project body plus bounded one-hop related summaries before the global index, and preserves byte-equivalent legacy output for unknown cwd values.
 - **Phase 5** — deferred until evidence (advanced sniffers, eval harness).
 
 ---

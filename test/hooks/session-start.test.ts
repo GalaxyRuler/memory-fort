@@ -2,7 +2,12 @@ import { afterEach, beforeEach, describe, it, expect } from "vitest";
 import { mkdir, mkdtemp, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { confidenceAwareIndex, whatToRememberBlock } from "../../src/hooks/session-start-helpers.js";
+import {
+  confidenceAwareIndex,
+  currentProjectMemoryBlock,
+  resolveProjectForCwd,
+  whatToRememberBlock,
+} from "../../src/hooks/session-start-helpers.js";
 import { sessionStartBody } from "../../src/hooks/session-start.js";
 
 describe("sessionStartBody", () => {
@@ -154,6 +159,138 @@ describe("sessionStartBody", () => {
     expect(all).toContain("Emit paths in code blocks");
     expect(all).toContain("Memory Fort should feed recent salient observations");
     expect(all).not.toContain("Low confidence noise");
+  });
+
+  it("injects current project memory and related summaries before the global index", async () => {
+    await writeSessionStartFiles(tmp);
+    await writeProjectPage(
+      tmp,
+      "memory-system",
+      [
+        "Memory-system keeps cross-agent memory useful at session start.",
+        "",
+        "The current narrative body should be injected in full. It links to [[session-start-memory]].",
+      ].join("\n"),
+      {
+        relations: [
+          "relations:",
+          "  linked:",
+          "    - wiki/projects/agentmemory.md",
+        ],
+      },
+    );
+    await writeProjectPage(
+      tmp,
+      "agentmemory",
+      "AgentMemory is an older name for this memory system.",
+      { title: "AgentMemory", updated: "2026-05-30", strength: 0.9 },
+    );
+    await mkdir(join(tmp, "wiki", "lessons"), { recursive: true });
+    await writeFile(
+      join(tmp, "wiki", "lessons", "session-start-memory.md"),
+      [
+        "---",
+        "type: lessons",
+        "title: Session Start Memory",
+        "created: 2026-05-30",
+        "updated: 2026-06-01",
+        "strength: 0.7",
+        "---",
+        "",
+        "SessionStart memory should put local project context before broad indexes.",
+      ].join("\n"),
+    );
+    await writeFile(
+      join(tmp, "index.md"),
+      [
+        "# Index",
+        "",
+        "## Projects",
+        "",
+        "- [Memory System](wiki/projects/memory-system.md) - Memory-system keeps cross-agent memory useful at session start.",
+        "- [AgentMemory](wiki/projects/agentmemory.md) - AgentMemory is an older name for this memory system.",
+        "",
+        "## Lessons",
+        "",
+        "- [Session Start Memory](wiki/lessons/session-start-memory.md) - SessionStart memory should put local project context before broad indexes.",
+        "",
+      ].join("\n"),
+    );
+
+    const writes: string[] = [];
+    await sessionStartBody(
+      { cwd: "C:\\CodexProjects\\memory-system\\.claude\\worktrees\\x" },
+      { write: (text) => writes.push(text) },
+    );
+
+    const all = writes.join("");
+    const projectIndex = all.indexOf("--- Current project memory");
+    const relatedIndex = all.indexOf("--- Related memory");
+    const globalIndex = all.indexOf("--- Index");
+    expect(projectIndex).toBeGreaterThan(-1);
+    expect(relatedIndex).toBeGreaterThan(projectIndex);
+    expect(projectIndex).toBeLessThan(globalIndex);
+    expect(all).toContain("status: active");
+    expect(all).toContain("updated: 2026-06-02");
+    expect(all).toContain("The current narrative body should be injected in full");
+    expect(all).toContain("- AgentMemory (wiki/projects/agentmemory.md): AgentMemory is an older name");
+    expect(all).toContain("- Session Start Memory (wiki/lessons/session-start-memory.md): SessionStart memory");
+  });
+
+  it("keeps no-match output byte-for-byte equivalent to the legacy session-start output", async () => {
+    await writeSessionStartFiles(tmp);
+    await writeProjectPage(tmp, "memory-system", "Memory-system body.");
+
+    const legacyWrites: string[] = [];
+    await sessionStartBody({}, { write: (text) => legacyWrites.push(text) });
+
+    const noMatchWrites: string[] = [];
+    await sessionStartBody(
+      { cwd: "C:\\Users\\Admin\\ClaudeCodeProjects\\misc-claude-sessions" },
+      { write: (text) => noMatchWrites.push(text) },
+    );
+
+    expect(noMatchWrites.join("")).toBe(legacyWrites.join(""));
+  });
+
+  it("bounds oversized current project memory and marks truncation", async () => {
+    await writeSessionStartFiles(tmp);
+    await writeProjectPage(
+      tmp,
+      "memory-system",
+      `Memory-system summary.\n\n${"oversized project body ".repeat(200)}`,
+    );
+
+    const block = await currentProjectMemoryBlock({
+      cwd: "C:\\CodexProjects\\memory-system",
+      memoryRoot: tmp,
+      maxChars: 600,
+    });
+
+    expect(block).not.toBeNull();
+    expect(block!.length).toBeLessThanOrEqual(600);
+    expect(block).toContain("(truncated, use MCP read_page for full)");
+  });
+
+  it("falls back to the legacy output when project-memory reads fail", async () => {
+    const legacyWrites: string[] = [];
+    const readFile = async (path: string): Promise<string> => {
+      const normalized = path.replace(/\\/g, "/");
+      if (normalized.endsWith("/schema.md")) return "schema content";
+      if (normalized.endsWith("/index.md")) return "- [Memory System](wiki/projects/memory-system.md) - Summary";
+      if (normalized.endsWith("/log.md")) return "line1\nline2";
+      if (normalized.endsWith("/wiki/projects/memory-system.md")) throw new Error("project read failed");
+      throw new Error(`ENOENT: ${path}`);
+    };
+    await sessionStartBody({}, { readFile, write: (text) => legacyWrites.push(text) });
+
+    const writes: string[] = [];
+    await sessionStartBody(
+      { cwd: "C:\\CodexProjects\\memory-system" },
+      { readFile, write: (text) => writes.push(text) },
+    );
+
+    expect(writes.join("")).toBe(legacyWrites.join(""));
   });
 
   it("omits the reminder block when there are no preferences or recent salient observations", async () => {
@@ -310,6 +447,55 @@ describe("confidenceAwareIndex", () => {
   });
 });
 
+describe("resolveProjectForCwd", () => {
+  let tmp: string;
+
+  beforeEach(async () => {
+    tmp = await mkdtemp(join(tmpdir(), "project-resolve-"));
+  });
+
+  afterEach(async () => {
+    await rm(tmp, { recursive: true, force: true });
+  });
+
+  it("prefers the longest authoritative repo path match", async () => {
+    await writeProjectPage(tmp, "outer", "Outer project.", {
+      title: "Outer",
+      repo: "C:\\CodexProjects",
+    });
+    await writeProjectPage(tmp, "inner", "Inner project.", {
+      title: "Inner",
+      repo_paths: ["C:\\CodexProjects\\memory-system", "D:\\mirror\\memory-system"],
+    });
+
+    const resolved = await resolveProjectForCwd(
+      "C:\\CodexProjects\\memory-system\\src\\hooks",
+      { memoryRoot: tmp },
+    );
+
+    expect(resolved).toBe("wiki/projects/inner.md");
+  });
+
+  it("falls back to the deepest exact slug segment for worktree subpaths", async () => {
+    await writeProjectPage(tmp, "memory-system", "Memory-system project.");
+
+    const resolved = await resolveProjectForCwd(
+      "C:\\CodexProjects\\memory-system\\.claude\\worktrees\\feature-x",
+      { memoryRoot: tmp },
+    );
+
+    expect(resolved).toBe("wiki/projects/memory-system.md");
+  });
+
+  it("returns null when cwd does not match a repo path or exact project slug", async () => {
+    await writeProjectPage(tmp, "memory-system", "Memory-system project.");
+
+    await expect(
+      resolveProjectForCwd("C:\\CodexProjects\\efm-paper", { memoryRoot: tmp }),
+    ).resolves.toBeNull();
+  });
+});
+
 function makeConfidenceReadFile(): (path: string) => Promise<string> {
   return async (path) => {
     const normalized = path.replace(/\\/g, "/");
@@ -333,4 +519,52 @@ function makeConfidenceReadFile(): (path: string) => Promise<string> {
     }
     throw new Error(`ENOENT: ${path}`);
   };
+}
+
+async function writeSessionStartFiles(root: string): Promise<void> {
+  await writeFile(join(root, "schema.md"), "schema content");
+  await writeFile(join(root, "index.md"), "# Index\n\nNo curated pages yet.\n");
+  await writeFile(join(root, "log.md"), "line1\nline2");
+}
+
+async function writeProjectPage(
+  root: string,
+  slug: string,
+  body: string,
+  opts: {
+    title?: string;
+    updated?: string;
+    status?: string;
+    strength?: number;
+    repo?: string;
+    repo_paths?: string[];
+    relations?: string[];
+  } = {},
+): Promise<void> {
+  await mkdir(join(root, "wiki", "projects"), { recursive: true });
+  const extra: string[] = [];
+  if (opts.repo) extra.push(`repo: ${JSON.stringify(opts.repo)}`);
+  if (opts.repo_paths) {
+    extra.push("repo_paths:");
+    extra.push(...opts.repo_paths.map((repoPath) => `  - ${JSON.stringify(repoPath)}`));
+  }
+  if (typeof opts.strength === "number") extra.push(`strength: ${opts.strength}`);
+  if (opts.relations) extra.push(...opts.relations);
+
+  await writeFile(
+    join(root, "wiki", "projects", `${slug}.md`),
+    [
+      "---",
+      "type: projects",
+      `title: ${JSON.stringify(opts.title ?? slug)}`,
+      "created: 2026-05-20",
+      `updated: ${opts.updated ?? "2026-06-02"}`,
+      `status: ${opts.status ?? "active"}`,
+      ...extra,
+      "---",
+      "",
+      body,
+      "",
+    ].join("\n"),
+  );
 }

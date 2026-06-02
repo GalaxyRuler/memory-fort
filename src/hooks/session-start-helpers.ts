@@ -1,6 +1,7 @@
 import type { Dirent } from "node:fs";
 import { readFile as readFsFile, readdir as readFsDir, stat as statFs } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, join } from "node:path";
+import { readRelationEntry } from "../retrieval/relations.js";
 import { getConfidenceScore } from "../storage/confidence.js";
 import { parseFrontmatter } from "../storage/frontmatter.js";
 import { indexPath, memoryRoot as defaultMemoryRoot } from "../storage/paths.js";
@@ -17,6 +18,18 @@ export interface WhatToRememberOptions {
   readdir?: (path: string, options: { withFileTypes: true }) => Promise<Dirent[]>;
   maxPreferences?: number;
   maxRecent?: number;
+  maxChars?: number;
+}
+
+export interface ResolveProjectForCwdOptions {
+  memoryRoot?: string;
+  readFile?: (path: string) => Promise<string>;
+  readdir?: (path: string, options: { withFileTypes: true }) => Promise<Dirent[]>;
+  maxProjectPages?: number;
+}
+
+export interface CurrentProjectMemoryOptions extends ResolveProjectForCwdOptions {
+  cwd?: string | null;
   maxChars?: number;
 }
 
@@ -38,6 +51,11 @@ const DEFAULT_CONFIDENCE = 0.5;
 const DEFAULT_MAX_PREFERENCES = 8;
 const DEFAULT_MAX_RECENT = 10;
 const DEFAULT_EXCERPT_CHARS = 280;
+export const MAX_INJECTED_CHARS = 8000;
+const MAX_PROJECT_PAGE_SCAN = 500;
+const RELATED_MEMORY_LIMIT = 5;
+const PROJECT_TRUNCATION_MARKER = "\n(truncated, use MCP read_page for full)";
+const IGNORED_CWD_SEGMENTS = new Set(["src", ".claude", "worktrees", "node_modules"]);
 const WIKI_CATEGORIES = new Set([
   "projects",
   "people",
@@ -45,7 +63,376 @@ const WIKI_CATEGORIES = new Set([
   "lessons",
   "references",
   "tools",
+  "threads",
+  "procedures",
+  "prospective",
 ]);
+
+interface ProjectPageCandidate {
+  slug: string;
+  relPath: string;
+  fullPath: string;
+}
+
+interface IndexEntry {
+  path: string;
+  title: string;
+  summary: string;
+}
+
+interface RelatedEntry extends IndexEntry {
+  strength: number;
+  recency: number;
+}
+
+export async function resolveProjectForCwd(
+  cwd: string | null | undefined,
+  opts: ResolveProjectForCwdOptions = {},
+): Promise<string | null> {
+  if (typeof cwd !== "string" || cwd.trim().length === 0) return null;
+  const root = opts.memoryRoot ?? defaultMemoryRoot();
+  const readFile = opts.readFile ?? ((path: string) => readFsFile(path, "utf-8"));
+  const projects = await listProjectCandidates(root, opts.readdir ?? readFsDir, opts.maxProjectPages);
+  if (projects.length === 0) return null;
+
+  const cwdKey = normalizeMatchPath(cwd);
+  const repoMatches: Array<{ relPath: string; length: number }> = [];
+  for (const project of projects) {
+    let content: string;
+    try {
+      content = await readFile(project.fullPath);
+    } catch {
+      continue;
+    }
+    const { frontmatter } = parseFrontmatter(content);
+    for (const repoPath of readRepoPaths(frontmatter)) {
+      const repoKey = normalizeMatchPath(repoPath);
+      if (repoKey.length === 0) continue;
+      if (cwdKey === repoKey || cwdKey.startsWith(`${repoKey}/`)) {
+        repoMatches.push({ relPath: project.relPath, length: repoKey.length });
+      }
+    }
+  }
+
+  const bestRepoLength = Math.max(0, ...repoMatches.map((match) => match.length));
+  if (bestRepoLength > 0) {
+    const winners = [...new Set(repoMatches
+      .filter((match) => match.length === bestRepoLength)
+      .map((match) => match.relPath))];
+    return winners.length === 1 ? winners[0]! : null;
+  }
+
+  const segments = cwdKey.split("/").filter((segment) => segment.length > 0);
+  const slugMatches: Array<{ relPath: string; depth: number }> = [];
+  for (const project of projects) {
+    const slug = project.slug.toLowerCase();
+    for (let index = 0; index < segments.length; index += 1) {
+      const segment = segments[index]!;
+      if (IGNORED_CWD_SEGMENTS.has(segment)) continue;
+      if (segment === slug) slugMatches.push({ relPath: project.relPath, depth: index });
+    }
+  }
+
+  const deepest = Math.max(-1, ...slugMatches.map((match) => match.depth));
+  if (deepest < 0) return null;
+  const winners = [...new Set(slugMatches
+    .filter((match) => match.depth === deepest)
+    .map((match) => match.relPath))];
+  return winners.length === 1 ? winners[0]! : null;
+}
+
+export async function currentProjectMemoryBlock(
+  opts: CurrentProjectMemoryOptions = {},
+): Promise<string | null> {
+  const maxChars = opts.maxChars ?? MAX_INJECTED_CHARS;
+  if (maxChars <= 0) return "";
+  const root = opts.memoryRoot ?? defaultMemoryRoot();
+  const readFile = opts.readFile ?? ((path: string) => readFsFile(path, "utf-8"));
+  const projectRelPath = await resolveProjectForCwd(opts.cwd, {
+    memoryRoot: root,
+    readFile,
+    readdir: opts.readdir,
+    maxProjectPages: opts.maxProjectPages,
+  });
+  if (!projectRelPath) return null;
+
+  const projectContent = await readFile(join(root, ...projectRelPath.split("/")));
+  const { frontmatter, body } = parseFrontmatter(projectContent);
+  const indexEntries = await readIndexEntries(root, readFile);
+  const related = await collectRelatedEntries({
+    root,
+    readFile,
+    projectRelPath,
+    frontmatter,
+    body,
+    indexEntries,
+  });
+
+  const block = [
+    formatCurrentProjectSection(projectRelPath, frontmatter, body),
+    formatRelatedMemorySection(related),
+  ].join("\n");
+
+  return truncateWithMarker(block, maxChars);
+}
+
+async function listProjectCandidates(
+  root: string,
+  readdir: (path: string, options: { withFileTypes: true }) => Promise<Dirent[]>,
+  maxProjectPages = MAX_PROJECT_PAGE_SCAN,
+): Promise<ProjectPageCandidate[]> {
+  let entries: Dirent[];
+  try {
+    entries = await readdir(join(root, "wiki", "projects"), { withFileTypes: true });
+  } catch {
+    return [];
+  }
+
+  return entries
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".md") && !entry.name.startsWith("."))
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .slice(0, maxProjectPages)
+    .map((entry) => {
+      const slug = basename(entry.name, ".md");
+      const relPath = `wiki/projects/${entry.name}`;
+      return {
+        slug,
+        relPath,
+        fullPath: join(root, "wiki", "projects", entry.name),
+      };
+    });
+}
+
+function readRepoPaths(frontmatter: Record<string, unknown>): string[] {
+  const repo = frontmatter["repo"];
+  const repoPaths = frontmatter["repo_paths"];
+  const paths: string[] = [];
+  if (typeof repo === "string" && repo.trim().length > 0) paths.push(repo);
+  if (Array.isArray(repoPaths)) {
+    for (const value of repoPaths) {
+      if (typeof value === "string" && value.trim().length > 0) paths.push(value);
+    }
+  }
+  return paths;
+}
+
+function normalizeMatchPath(value: string): string {
+  return value
+    .trim()
+    .replace(/\\/g, "/")
+    .replace(/\/+/g, "/")
+    .replace(/\/+$/, "")
+    .toLowerCase();
+}
+
+async function readIndexEntries(
+  root: string,
+  readFile: (path: string) => Promise<string>,
+): Promise<IndexEntry[]> {
+  try {
+    return parseIndexEntries(await readFile(join(root, "index.md")));
+  } catch {
+    return [];
+  }
+}
+
+function parseIndexEntries(indexContent: string): IndexEntry[] {
+  const entries: IndexEntry[] = [];
+  for (const line of indexContent.split(/\r?\n/)) {
+    const markdown = line.match(/^-\s+\[([^\]]+)\]\(([^)#]+)(?:#[^)]+)?\)\s+-\s*(.*)$/);
+    if (markdown) {
+      const path = normalizeReferencePath(markdown[2]!);
+      if (path) {
+        entries.push({
+          title: markdown[1]!.trim(),
+          path,
+          summary: markdown[3]!.trim(),
+        });
+      }
+      continue;
+    }
+
+    const wiki = line.match(/^-\s+\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|([^\]]+))?\]\]\s*(?:-\s*)?(.*)$/);
+    if (wiki) {
+      const path = normalizeReferencePath(wiki[1]!);
+      if (path) {
+        const title = (wiki[2] ?? titleFromRelPath(path)).trim();
+        const summary = wiki[3]!.trim() || title;
+        entries.push({ title, path, summary });
+      }
+    }
+  }
+  return entries;
+}
+
+async function collectRelatedEntries(input: {
+  root: string;
+  readFile: (path: string) => Promise<string>;
+  projectRelPath: string;
+  frontmatter: Record<string, unknown>;
+  body: string;
+  indexEntries: IndexEntry[];
+}): Promise<RelatedEntry[]> {
+  const indexByPath = new Map(input.indexEntries.map((entry) => [entry.path, entry]));
+  const indexBySlug = buildIndexBySlug(input.indexEntries);
+  const candidates = [
+    ...relationTargets(input.frontmatter["relations"]),
+    ...wikilinkTargets(input.body),
+  ];
+  const seen = new Set<string>();
+  const related: RelatedEntry[] = [];
+
+  for (const candidate of candidates) {
+    const relPath = resolveMemoryReference(candidate, indexBySlug);
+    if (!relPath || relPath === input.projectRelPath || seen.has(relPath)) continue;
+    seen.add(relPath);
+
+    const indexEntry = indexByPath.get(relPath) ?? {
+      path: relPath,
+      title: titleFromRelPath(relPath),
+      summary: titleFromRelPath(relPath),
+    };
+    const meta = await readRelatedMetadata(input.root, input.readFile, relPath);
+    related.push({
+      ...indexEntry,
+      strength: meta.strength,
+      recency: meta.recency,
+    });
+  }
+
+  return related.sort((a, b) => {
+    if (b.strength !== a.strength) return b.strength - a.strength;
+    if (b.recency !== a.recency) return b.recency - a.recency;
+    return a.title.localeCompare(b.title) || a.path.localeCompare(b.path);
+  });
+}
+
+function relationTargets(relations: unknown): string[] {
+  if (typeof relations !== "object" || relations === null || Array.isArray(relations)) return [];
+  const targets: string[] = [];
+  for (const value of Object.values(relations as Record<string, unknown>)) {
+    if (!Array.isArray(value)) continue;
+    for (const entry of value) {
+      const target = readRelationEntry(entry)?.target;
+      if (target) targets.push(target);
+    }
+  }
+  return targets;
+}
+
+function wikilinkTargets(body: string): string[] {
+  const targets: string[] = [];
+  const re = /\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|[^\]]*)?\]\]/g;
+  for (const match of body.matchAll(re)) {
+    targets.push(match[1]!);
+  }
+  return targets;
+}
+
+function buildIndexBySlug(entries: IndexEntry[]): Map<string, string | null> {
+  const result = new Map<string, string | null>();
+  for (const entry of entries) {
+    const slug = basename(entry.path, ".md").toLowerCase();
+    if (result.has(slug)) result.set(slug, null);
+    else result.set(slug, entry.path);
+  }
+  return result;
+}
+
+function resolveMemoryReference(
+  value: string,
+  indexBySlug: Map<string, string | null>,
+): string | null {
+  const normalized = normalizeReferencePath(value);
+  if (!normalized) return null;
+  if (normalized.includes("/")) return normalized;
+  return indexBySlug.get(normalized.toLowerCase()) ?? null;
+}
+
+function normalizeReferencePath(value: string): string | null {
+  let normalized = value
+    .trim()
+    .replace(/\\/g, "/")
+    .replace(/^\.\//, "")
+    .replace(/^\/+/, "")
+    .replace(/#.*$/, "");
+  if (normalized.length === 0) return null;
+  if (!normalized.endsWith(".md") && normalized.includes("/")) normalized = `${normalized}.md`;
+  const firstSegment = normalized.split("/")[0];
+  if (firstSegment && WIKI_CATEGORIES.has(firstSegment)) {
+    return `wiki/${normalized}`;
+  }
+  if (normalized.startsWith("wiki/") || normalized.startsWith("crystals/")) {
+    return normalized;
+  }
+  return normalized;
+}
+
+async function readRelatedMetadata(
+  root: string,
+  readFile: (path: string) => Promise<string>,
+  relPath: string,
+): Promise<{ strength: number; recency: number }> {
+  try {
+    const { frontmatter } = parseFrontmatter(await readFile(join(root, ...relPath.split("/"))));
+    const strength = typeof frontmatter["strength"] === "number" && Number.isFinite(frontmatter["strength"])
+      ? frontmatter["strength"]
+      : 0;
+    const recency = timestampToSortKey(String(frontmatter["last_accessed"] ?? frontmatter["updated"] ?? "")) ?? 0;
+    return { strength, recency };
+  } catch {
+    return { strength: 0, recency: 0 };
+  }
+}
+
+function formatCurrentProjectSection(
+  relPath: string,
+  frontmatter: Record<string, unknown>,
+  body: string,
+): string {
+  const meta: string[] = [];
+  if (typeof frontmatter["title"] === "string") meta.push(`title: ${frontmatter["title"]}`);
+  if (typeof frontmatter["status"] === "string") meta.push(`status: ${frontmatter["status"]}`);
+  if (typeof frontmatter["updated"] === "string") meta.push(`updated: ${frontmatter["updated"]}`);
+  return [
+    `--- Current project memory (${relPath}) ---`,
+    meta.join("\n"),
+    "",
+    body.trim(),
+    "",
+  ].join("\n");
+}
+
+function formatRelatedMemorySection(entries: RelatedEntry[]): string {
+  const lines = ["--- Related memory ---"];
+  if (entries.length === 0) {
+    lines.push("(none found)");
+    return `${lines.join("\n")}\n`;
+  }
+
+  const top = entries.slice(0, RELATED_MEMORY_LIMIT);
+  const rest = entries.slice(RELATED_MEMORY_LIMIT);
+  lines.push(...top.map((entry) => `- ${entry.title} (${entry.path}): ${entry.summary}`));
+  if (rest.length > 0) {
+    lines.push("more:");
+    lines.push(...rest.map((entry) => `- ${entry.title}`));
+  }
+  return `${lines.join("\n")}\n`;
+}
+
+function titleFromRelPath(relPath: string): string {
+  return basename(relPath, ".md")
+    .replace(/[-_]+/g, " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function truncateWithMarker(text: string, maxChars: number): string {
+  if (text.length <= maxChars) return text;
+  if (maxChars <= PROJECT_TRUNCATION_MARKER.length) {
+    return PROJECT_TRUNCATION_MARKER.slice(0, maxChars);
+  }
+  return `${text.slice(0, maxChars - PROJECT_TRUNCATION_MARKER.length).trimEnd()}${PROJECT_TRUNCATION_MARKER}`;
+}
 
 export async function confidenceAwareIndex(
   opts: ConfidenceAwareIndexOptions = {},

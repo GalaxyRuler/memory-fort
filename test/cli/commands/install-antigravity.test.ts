@@ -210,6 +210,93 @@ describe("installAntigravity", () => {
     expect(parseFrontmatter(raw).frontmatter.cwd).toBe("C:\\CodexProjects\\memory-system");
   });
 
+  it("session_start hook emits cwd-aware project memory while preserving live capture", async () => {
+    await writeAntigravityProjectMemoryFixture(memDir);
+    const result = await installAntigravity({
+      antigravityDir,
+      antigravityVersion: "2.1.0",
+    });
+    const hookPath = join(result.pluginDir, "hooks", "session_start.mjs");
+
+    const hook = spawnSync(process.execPath, [hookPath], {
+      input: JSON.stringify({
+        sessionId: "project-memory",
+        timestamp: "2026-06-02T00:00:00.000Z",
+        cwd: "C:\\CodexProjects\\memory-system\\.claude\\worktrees\\x",
+      }),
+      encoding: "utf-8",
+      env: { ...process.env, MEMORY_ROOT: memDir },
+    });
+
+    expect(hook.status).toBe(0);
+    expect(hook.stdout).toContain("--- Current project memory");
+    expect(hook.stdout).toContain("Memory-system Antigravity body should be emitted.");
+    expect(hook.stdout).toContain("- AgentMemory (wiki/projects/agentmemory.md): AgentMemory summary from index.");
+    expect(hook.stdout.indexOf("--- Current project memory")).toBeLessThan(
+      hook.stdout.indexOf("--- Index"),
+    );
+    const raw = await readFile(
+      join(memDir, "raw", "2026-06-02", "antigravity-project-memory.md"),
+      "utf-8",
+    );
+    expect(raw).toContain("## [00:00:00] Session Start");
+  });
+
+  it("session_start hook omits project sections for unknown cwd", async () => {
+    await writeAntigravityProjectMemoryFixture(memDir);
+    const result = await installAntigravity({
+      antigravityDir,
+      antigravityVersion: "2.1.0",
+    });
+    const hookPath = join(result.pluginDir, "hooks", "session_start.mjs");
+
+    const hook = spawnSync(process.execPath, [hookPath], {
+      input: JSON.stringify({
+        sessionId: "project-memory-none",
+        timestamp: "2026-06-02T00:00:00.000Z",
+        cwd: "C:\\Users\\Admin\\ClaudeCodeProjects\\misc-claude-sessions",
+      }),
+      encoding: "utf-8",
+      env: { ...process.env, MEMORY_ROOT: memDir },
+    });
+
+    expect(hook.status).toBe(0);
+    expect(hook.stdout).toContain("--- Schema");
+    expect(hook.stdout).toContain("--- Index");
+    expect(hook.stdout).not.toContain("--- Current project memory");
+    expect(hook.stdout).not.toContain("--- Related memory");
+  });
+
+  it("session_start hook bounds oversized project memory", async () => {
+    await writeAntigravityProjectMemoryFixture(
+      memDir,
+      `Memory-system Antigravity summary.\n\n${"oversized antigravity body ".repeat(500)}`,
+    );
+    const result = await installAntigravity({
+      antigravityDir,
+      antigravityVersion: "2.1.0",
+    });
+    const hookPath = join(result.pluginDir, "hooks", "session_start.mjs");
+
+    const hook = spawnSync(process.execPath, [hookPath], {
+      input: JSON.stringify({
+        sessionId: "project-memory-cap",
+        timestamp: "2026-06-02T00:00:00.000Z",
+        cwd: "C:\\CodexProjects\\memory-system",
+      }),
+      encoding: "utf-8",
+      env: { ...process.env, MEMORY_ROOT: memDir },
+    });
+
+    expect(hook.status).toBe(0);
+    expect(hook.stdout).toContain("(truncated, use MCP read_page for full)");
+    const currentStart = hook.stdout.indexOf("--- Current project memory");
+    const schemaStart = hook.stdout.indexOf("--- Schema");
+    expect(currentStart).toBeGreaterThan(-1);
+    expect(schemaStart).toBeGreaterThan(currentStart);
+    expect(hook.stdout.slice(currentStart, schemaStart).trimEnd().length).toBeLessThanOrEqual(8000);
+  });
+
   it("skips live-capture plugin install gracefully when Antigravity is older than 2.0", async () => {
     const result = await installAntigravity({
       antigravityDir,
@@ -223,3 +310,55 @@ describe("installAntigravity", () => {
     expect(result.log.join("\n")).toContain("Antigravity 2.0 required for live capture");
   });
 });
+
+async function writeAntigravityProjectMemoryFixture(
+  memDir: string,
+  memorySystemBody = "Memory-system Antigravity summary.\n\nMemory-system Antigravity body should be emitted.",
+): Promise<void> {
+  await mkdir(join(memDir, "wiki", "projects"), { recursive: true });
+  await writeFile(
+    join(memDir, "wiki", "projects", "memory-system.md"),
+    [
+      "---",
+      "type: projects",
+      "title: Memory System",
+      "created: 2026-05-20",
+      "updated: 2026-06-02",
+      "status: active",
+      "relations:",
+      "  linked:",
+      "    - wiki/projects/agentmemory.md",
+      "---",
+      "",
+      memorySystemBody,
+      "",
+    ].join("\n"),
+  );
+  await writeFile(
+    join(memDir, "wiki", "projects", "agentmemory.md"),
+    [
+      "---",
+      "type: projects",
+      "title: AgentMemory",
+      "created: 2026-05-20",
+      "updated: 2026-06-01",
+      "strength: 0.9",
+      "---",
+      "",
+      "AgentMemory summary from index.",
+      "",
+    ].join("\n"),
+  );
+  await writeFile(
+    join(memDir, "index.md"),
+    [
+      "# Index",
+      "",
+      "## Projects",
+      "",
+      "- [Memory System](wiki/projects/memory-system.md) - Memory-system Antigravity summary.",
+      "- [AgentMemory](wiki/projects/agentmemory.md) - AgentMemory summary from index.",
+      "",
+    ].join("\n"),
+  );
+}

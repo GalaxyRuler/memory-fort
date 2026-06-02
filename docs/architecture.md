@@ -29,7 +29,7 @@ A single source of truth — `~/.memory/claude-code-plugin/scripts/` — holds t
 There is no daemon. Components are spawned by host tools and die with them:
 
 ```
-SessionStart → session-start.mjs → reads schema.md + index.md + recent log.md, emits to stdout (Claude Code injects into agent context)
+SessionStart → session-start.mjs → resolves the hook cwd to a `wiki/projects/<slug>.md` page when possible, emits that project body + 1-hop related summaries, then schema.md + index.md + recent log.md to stdout (Claude Code and Codex inject stdout into agent context)
 
 UserPromptSubmit → prompt-submit.mjs → appends ## Prompt block to raw/<date>/<tool>-<session>.md
 
@@ -45,6 +45,8 @@ MCP active tools (callable by the LLM in any host session):
   memory.list_pages(type?, tag?, status?) — discover
   memory.search(query, scope?, k?, min_score?, no_rerank?, hyde_expansion?) — query the VPS search backend
 ```
+
+The cwd-aware SessionStart path is deterministic and bounded: project pages can declare `repo:` or `repo_paths:` frontmatter for authoritative matches, otherwise the hook falls back to exact project-slug path segments such as `C:\CodexProjects\memory-system`. Unknown cwd values keep the legacy schema/index/log output. The current project body is the only full page injected; related pages are limited to titles and index summaries.
 
 Each hook script is a one-shot Node.js process that reads stdin (the hook payload as JSON), appends to a markdown file, exits 0. Errors go to `~/.memory/errors.log` — see [troubleshooting.md](troubleshooting.md).
 
