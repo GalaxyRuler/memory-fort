@@ -156,6 +156,20 @@ describe("memory config reader", () => {
     expect(config.capture?.max_output_bytes).toBe(8192);
   });
 
+  it("MemoryConfig types auto-link safety thresholds", () => {
+    const config: MemoryConfig = {
+      auto_link: {
+        enabled: true,
+        similarity_threshold: 0.75,
+        title_threshold: 0.6,
+        mass_collision_threshold: 0.2,
+      },
+    };
+
+    expect(config.auto_link?.title_threshold).toBe(0.6);
+    expect(config.auto_link?.mass_collision_threshold).toBe(0.2);
+  });
+
   it("MemoryConfig types compressor coverage caps", () => {
     const config: MemoryConfig = {
       compress: {

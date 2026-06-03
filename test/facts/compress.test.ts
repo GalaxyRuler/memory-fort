@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CURRENT_COMPRESS_VERSION, compressSession } from "../../src/facts/compress.js";
 import { runCompress } from "../../src/cli/commands/compress.js";
+import { readCompressedFactFile } from "../../src/facts/store.js";
 import type { LLMProvider, LLMRequest } from "../../src/llm/types.js";
 
 describe("memory fact compression", () => {
@@ -58,6 +59,72 @@ describe("memory fact compression", () => {
       sourceRawPath: "raw/2026-05-31/session-a.md",
     });
     expect(vi.mocked(llm.chat).mock.calls[0]![0].messages.at(-1)!.content).not.toContain("sk-live-secret");
+  });
+
+  it("preserves extracted entities and relation triples from the existing compression call", async () => {
+    const llm = fakeCompressionLLM([{
+      title: "Memory System graph coverage",
+      facts: ["Memory System added auto-linking for graph coverage."],
+      narrative: "Memory System graph coverage now uses automatic links.",
+      concepts: ["Memory System", "graph coverage"],
+      files: ["src/capture/auto-link.ts"],
+      importance: 8,
+      type: "project",
+      entities: ["Memory System", "Vitest"],
+      relations: [
+        { subject: "Memory System", predicate: "uses", object: "Vitest" },
+        { subject: "Memory System", predicate: "tested-with", object: "Vitest" },
+      ],
+    }]);
+
+    const facts = await compressSession({
+      rawText: await readFile(join(tmp, "raw", "2026-05-31", "session-a.md"), "utf-8"),
+      rawRelPath: "raw/2026-05-31/session-a.md",
+      sessionId: "session-a",
+      observedAt: "2026-05-31T00:00:00.000Z",
+      llm,
+    });
+
+    expect(facts[0]).toMatchObject({
+      entities: ["Memory System", "Vitest"],
+      relations: [
+        { subject: "Memory System", predicate: "uses", object: "Vitest" },
+        { subject: "Memory System", predicate: "tested-with", object: "Vitest" },
+      ],
+    });
+    const systemPrompt = vi.mocked(llm.chat).mock.calls[0]![0].messages[0]!.content;
+    expect(systemPrompt).toContain("entities");
+    expect(systemPrompt).toContain("relations");
+  });
+
+  it("loads old and new fact files with optional entities and relations", () => {
+    const oldFacts = readCompressedFactFile(JSON.stringify({
+      facts: [{
+        ...factBundle("Old fact without relations", "fact"),
+        sessionId: "session-a",
+        sourceRawPath: "raw/2026-05-31/session-a.md",
+        observedAt: "2026-05-31T00:00:00.000Z",
+        compressedAt: "2026-05-31T12:00:00.000Z",
+      }],
+    }));
+    const newFacts = readCompressedFactFile(JSON.stringify({
+      facts: [{
+        ...factBundle("New fact with relations", "fact"),
+        entities: ["Memory System"],
+        relations: [{ subject: "Memory System", predicate: "uses", object: "Vitest" }],
+        sessionId: "session-a",
+        sourceRawPath: "raw/2026-05-31/session-a.md",
+        observedAt: "2026-05-31T00:00:00.000Z",
+        compressedAt: "2026-05-31T12:00:00.000Z",
+      }],
+    }));
+
+    expect(oldFacts[0]?.entities).toBeUndefined();
+    expect(oldFacts[0]?.relations).toBeUndefined();
+    expect(newFacts[0]?.entities).toEqual(["Memory System"]);
+    expect(newFacts[0]?.relations).toEqual([
+      { subject: "Memory System", predicate: "uses", object: "Vitest" },
+    ]);
   });
 
   it("sends a full below-threshold session instead of the old 4KB head slice", async () => {

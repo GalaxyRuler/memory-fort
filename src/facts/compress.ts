@@ -5,6 +5,7 @@ import {
   COMPRESSED_FACT_TYPES,
   readCompressedFactType,
   type CompressedFact,
+  type CompressedFactRelation,
 } from "./store.js";
 
 export interface CompressSessionOptions {
@@ -174,6 +175,8 @@ function normalizeFact(value: unknown, opts: {
     files,
     importance,
     ...readOptionalFactType(record.type),
+    ...readOptionalStringArray(record.entities, "entities"),
+    ...readOptionalRelationTriples(record.relations),
     sessionId: opts.sessionId,
     sourceRawPath: opts.rawRelPath.replace(/\\/g, "/"),
     observedAt: opts.observedAt,
@@ -193,6 +196,28 @@ function readStringArray(value: unknown): string[] {
     .filter((item): item is string => typeof item === "string")
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+function readOptionalStringArray(value: unknown, key: "entities"): Record<string, string[]> {
+  const values = readStringArray(value);
+  return values.length > 0 ? { [key]: values } : {};
+}
+
+function readOptionalRelationTriples(value: unknown): { relations: CompressedFactRelation[] } | Record<string, never> {
+  if (!Array.isArray(value)) return {};
+  const relations = value
+    .map(readRelationTriple)
+    .filter((relation): relation is CompressedFactRelation => relation !== null);
+  return relations.length > 0 ? { relations } : {};
+}
+
+function readRelationTriple(value: unknown): CompressedFactRelation | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  const subject = readString(record.subject);
+  const predicate = readString(record.predicate);
+  const object = readString(record.object);
+  return subject && predicate && object ? { subject, predicate, object } : null;
 }
 
 function readImportance(value: unknown): number | null {
@@ -225,8 +250,9 @@ function buildCompressionRequest(opts: {
         role: "system",
         content: [
           "You compress memory observations into durable structured facts.",
-          "Return only JSON shaped like: {\"facts\":[{\"title\":string,\"type\":string,\"facts\":string[],\"narrative\":string,\"concepts\":string[],\"files\":string[],\"importance\":number}]}",
+          "Return only JSON shaped like: {\"facts\":[{\"title\":string,\"type\":string,\"facts\":string[],\"narrative\":string,\"concepts\":string[],\"files\":string[],\"importance\":number,\"entities\":string[],\"relations\":[{\"subject\":string,\"predicate\":string,\"object\":string}]}]}",
           `Type enum: ${COMPRESSED_FACT_TYPES.join(", ")}. Use procedure for durable workflows, decision for choices, lesson for reusable learnings, project for project/entity state, reference for durable docs, tool for tools, people for people, fact for uncategorized facts.`,
+          "Also extract named entities and relation triples already evidenced in the session; use concise predicates such as mentions, uses, derived_from, depends_on, tested-with.",
           "Importance scale: 1-3 routine reads, 4-6 edits/commands, 7-9 architectural decisions, 10 breaking changes.",
         ].join("\n"),
       },
@@ -394,6 +420,8 @@ function mergeCompressedFacts(facts: CompressedFact[]): CompressedFact[] {
     existing.facts = uniqueStrings([...existing.facts, ...fact.facts]);
     existing.concepts = uniqueStrings([...existing.concepts, ...fact.concepts]);
     existing.files = uniqueStrings([...existing.files, ...fact.files]);
+    existing.entities = mergeOptionalStrings(existing.entities, fact.entities);
+    existing.relations = mergeOptionalRelations(existing.relations, fact.relations);
     existing.importance = Math.max(existing.importance, fact.importance);
     if (!existing.type || existing.type === "fact") {
       if (fact.type) existing.type = fact.type;
@@ -426,6 +454,28 @@ function titleTokens(value: string): string[] {
 
 function uniqueStrings(values: string[]): string[] {
   return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
+}
+
+function mergeOptionalStrings(left: string[] | undefined, right: string[] | undefined): string[] | undefined {
+  const merged = uniqueStrings([...(left ?? []), ...(right ?? [])]);
+  return merged.length > 0 ? merged : undefined;
+}
+
+function mergeOptionalRelations(
+  left: CompressedFactRelation[] | undefined,
+  right: CompressedFactRelation[] | undefined,
+): CompressedFactRelation[] | undefined {
+  const byKey = new Map<string, CompressedFactRelation>();
+  for (const relation of [...(left ?? []), ...(right ?? [])]) {
+    const key = [
+      relation.subject.trim().toLowerCase(),
+      relation.predicate.trim().toLowerCase(),
+      relation.object.trim().toLowerCase(),
+    ].join("\0");
+    if (!byKey.has(key)) byKey.set(key, relation);
+  }
+  const merged = [...byKey.values()];
+  return merged.length > 0 ? merged : undefined;
 }
 
 function textContains(haystack: string, needle: string): boolean {

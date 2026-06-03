@@ -69,6 +69,9 @@ Shrink oversized raw `ToolUse` payloads using middle-out truncation while preser
 ### `memory consolidate [--plan|--apply] [--force] [--min-confidence <n>] [--max-links-per-observation <n>]`
 Link raw episodic observations to existing wiki pages via deterministic matching (no LLM). `--plan` previews; `--apply` writes the relation edges.
 
+### `memory link-raw [--plan|--apply] [--threshold <n>] [--title-threshold <n>] [--mass-collision-threshold <n>]`
+Plan or apply automatic `mentions` links from orphan raw observations to existing wiki entity pages. The embedding strategy is used only when sidecar vectors pass the health guard: dimensions must be sane and match `embedding.dim` when configured, raw vectors must not be byte-identical to candidate wiki vectors, and the top candidates must not all score as 1.000-style collisions. When embeddings are absent or degenerate, the command falls back to lexical title/alias/summary matching and applies `auto_link.title_threshold` (default `0.65`). In apply mode, the command plans first and refuses to write when more than `auto_link.mass_collision_threshold` (default `0.2`) of a non-trivial orphan corpus resolves to one target.
+
 ### `memory lint [--checks-only] [--stale-days <n>]`
 With `--checks-only`, run programmatic wiki checks (frontmatter validity, broken links, advisory edge grammar). Without it, assemble a lint prompt for an agent.
 
@@ -111,7 +114,7 @@ Smoke-test a provider call (needs the relevant env key).
 ### `memory provider test-classifier "<query>"`
 Run the query-intent classifier on one query; prints label, method, latency, tokens.
 ### `memory provider reindex-embeddings [--plan|--apply]`
-Plan or apply a full embedding reindex (needs `VOYAGE_API_KEY`).
+Plan or apply a full embedding reindex (needs `VOYAGE_API_KEY` for the default Voyage provider). Without the key, vector calls fail and existing sidecars may be absent or stub-like depending on the caller; BM25 and graph retrieval still work, but vector retrieval and embedding-based auto-linking should be treated as inactive. Set `VOYAGE_API_KEY` in the environment, run `memory provider reindex-embeddings --plan` to inspect scope and estimated cost, then run `memory provider reindex-embeddings --apply` to overwrite stale `[1,0,0]` or wrong-dimension sidecars with real Voyage `2048`-dimensional vectors.
 ### `memory provider audit-summary [--days <n>]`
 Summarize LLM audit-log calls over a window: per-consumer counts, cost (or `unknown`), references stripped, prose-path leaks.
 ### `memory provider audit-rotate [--plan|--apply] [--keep-days <n>]`
@@ -161,7 +164,7 @@ File counts, install status, git state.
 ### `memory doctor`
 Structural health check; non-zero exit if any check fails.
 ### `memory verify [--role operator|server] [--offline] [--dashboard-url <url>] [--remote-name <name>] [--json] [--schedule install|uninstall|status] [--daily HH:MM] [--shell powershell|systemd]`
-End-to-end health: vault, sync, dashboard, search, client capture. `operator` adds client-capture checks; `server` is vault/sync/search/dashboard only. Use `--dashboard-url` or `dashboard.url` for hosted dashboard checks, and `--remote-name` or `sync.remote_name` when the vault sync remote is not named `vps`. Notable checks: `vault.read-write`, `search.pipeline`, `graph.cohesion`, `frontmatter.source`, `storage.atomic-write-retries`, `sync.uncommitted-vault`, `compile.recent`, `compile.execute-health`, `config.valid`, `retrieval.intent-classifier-health`. `--schedule` installs/removes a daily verify task.
+End-to-end health: vault, sync, dashboard, search, client capture. `operator` adds client-capture checks; `server` is vault/sync/search/dashboard only. Use `--dashboard-url` or `dashboard.url` for hosted dashboard checks, and `--remote-name` or `sync.remote_name` when the vault sync remote is not named `vps`. Notable checks: `vault.read-write`, `search.pipeline`, `graph.cohesion`, `retrieval.embedding-health`, `frontmatter.source`, `storage.atomic-write-retries`, `sync.uncommitted-vault`, `compile.recent`, `compile.execute-health`, `config.valid`, `retrieval.intent-classifier-health`. `retrieval.embedding-health` warns when sidecars are absent and fails on stub, identical, zero, or wrong-dimension vectors. `--schedule` installs/removes a daily verify task.
 
 ---
 

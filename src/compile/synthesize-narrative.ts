@@ -1,10 +1,12 @@
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, writeFile, rename } from "node:fs/promises";
+import { mkdir, readFile, writeFile, rename, readdir } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import type { LLMProvider, LLMTokenUsage } from "../llm/types.js";
+import { readRelations, writeRelations, type RelationMap } from "../retrieval/relations.js";
 import { atomicWrite } from "../storage/atomic-write.js";
 import { parseFrontmatter, serializeFrontmatter, type Frontmatter } from "../storage/frontmatter.js";
+import { kebabCase } from "../storage/slug.js";
 import type { ConsolidationFact } from "./filter-noise.js";
 
 export const NARRATIVE_KNOWLEDGE_TYPES = [
@@ -112,6 +114,17 @@ export async function synthesizeNarrative(opts: SynthesizeNarrativeOptions): Pro
   const detect = parseDetectOutput(detectResponse.content);
 
   if (detect.contradicted_claims.length === 0 && detect.net_new_facts.length === 0) {
+    const baseFrontmatter = { ...parsed.frontmatter, updated: isoDate(opts.now) };
+    const relationFrontmatter = await applyFactRelationsToFrontmatter(
+      opts.vaultRoot,
+      opts.pageRelPath,
+      baseFrontmatter,
+      opts.facts,
+    );
+    if (relationFrontmatter !== baseFrontmatter) {
+      await atomicWrite(fullPath, serializeFrontmatter(relationFrontmatter, parsed.body));
+      return { outcome: "rewritten", path: opts.pageRelPath, proposed: false, tokensUsed };
+    }
     return { outcome: "unchanged", path: opts.pageRelPath, proposed: false, tokensUsed };
   }
   if (detect.contradicted_claims.length >= 10) {
@@ -172,7 +185,12 @@ export async function synthesizeNarrative(opts: SynthesizeNarrativeOptions): Pro
   }
 
   const history = await archivePageVersion(opts.vaultRoot, opts.pageRelPath, current, opts.now, parsed.frontmatter);
-  const nextFrontmatter = nextNarrativeFrontmatter(parsed.frontmatter, opts.now, opts.facts, history);
+  const nextFrontmatter = await applyFactRelationsToFrontmatter(
+    opts.vaultRoot,
+    opts.pageRelPath,
+    nextNarrativeFrontmatter(parsed.frontmatter, opts.now, opts.facts, history),
+    opts.facts,
+  );
   await atomicWrite(fullPath, serializeFrontmatter(nextFrontmatter, `${body}\n`));
   return { outcome: "rewritten", path: opts.pageRelPath, proposed: false, tokensUsed };
 }
@@ -306,6 +324,129 @@ export function nextNarrativeFrontmatter(
     last_accessed: isoDate(now),
     source_facts: facts.map((fact) => fact.fact_id),
   };
+}
+
+async function applyFactRelationsToFrontmatter(
+  vaultRoot: string,
+  pageRelPath: string,
+  frontmatter: Frontmatter,
+  facts: ConsolidationFact[],
+): Promise<Frontmatter> {
+  const triples = facts.flatMap((fact) => {
+    const factRecord = fact.fact;
+    return typeof factRecord === "object" && factRecord !== null && Array.isArray(factRecord.relations)
+      ? factRecord.relations
+      : [];
+  });
+  if (triples.length === 0) return frontmatter;
+
+  const resolver = await buildWikiEntityResolver(vaultRoot);
+  const pageKeys = pageIdentityKeys(pageRelPath, frontmatter.title);
+  const relations: RelationMap = readRelations(frontmatter.relations, pageRelPath);
+  let changed = false;
+
+  for (const triple of triples) {
+    if (!pageKeys.has(normalizeEntityKey(triple.subject))) continue;
+    const target = resolver(triple.object);
+    if (!target || target === pageRelPath) continue;
+    const relationType = normalizeRelationType(triple.predicate);
+    if (!relationType) continue;
+    const bucket = relations[relationType] ?? [];
+    if (bucket.some((edge) => edge.target === target)) continue;
+    relations[relationType] = [...bucket, { target }];
+    changed = true;
+  }
+
+  return changed
+    ? { ...frontmatter, relations: writeRelations(relations) }
+    : frontmatter;
+}
+
+async function buildWikiEntityResolver(vaultRoot: string): Promise<(entity: string) => string | null> {
+  const index = new Map<string, Set<string>>();
+  const wikiRoot = join(vaultRoot, "wiki");
+  if (!existsSync(wikiRoot)) return () => null;
+  for (const fullPath of await listWikiEntityPages(wikiRoot)) {
+    const relPath = `wiki/${relative(wikiRoot, fullPath).replace(/\\/g, "/")}`;
+    const parsed = parseFrontmatter(await readFile(fullPath, "utf-8"));
+    for (const key of pageIdentityKeys(relPath, typeof parsed.frontmatter.title === "string" ? parsed.frontmatter.title : "")) {
+      const bucket = index.get(key) ?? new Set<string>();
+      bucket.add(relPath);
+      index.set(key, bucket);
+    }
+  }
+
+  return (entity: string): string | null => {
+    const key = normalizeEntityKey(entity);
+    const exact = index.get(key);
+    if (exact?.size === 1) return [...exact][0]!;
+    if (exact && exact.size > 1) return null;
+    const fuzzy = [...index.entries()]
+      .filter(([candidate]) => levenshtein(candidate, key) <= 2)
+      .flatMap(([, paths]) => [...paths]);
+    const unique = [...new Set(fuzzy)];
+    return unique.length === 1 ? unique[0]! : null;
+  };
+}
+
+async function listWikiEntityPages(wikiRoot: string): Promise<string[]> {
+  const files: string[] = [];
+  async function walk(dir: string): Promise<void> {
+    const entries = await readdir(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = join(dir, entry.name);
+      const rel = relative(wikiRoot, fullPath).replace(/\\/g, "/");
+      if (entry.isDirectory()) {
+        if (rel.split("/").some((part) => part.startsWith(".") || part.endsWith("-proposed") || part === "archive")) continue;
+        await walk(fullPath);
+      } else if (entry.isFile() && entry.name.endsWith(".md")) {
+        files.push(fullPath);
+      }
+    }
+  }
+  await walk(wikiRoot);
+  return files.sort();
+}
+
+function pageIdentityKeys(relPath: string, title: string): Set<string> {
+  const slug = basename(relPath, ".md").replace(/-/g, " ");
+  return new Set([title, slug, relPath, relPath.replace(/^wiki\/[^/]+\//, "").replace(/\.md$/, "")].map(normalizeEntityKey).filter(Boolean));
+}
+
+function normalizeEntityKey(value: string): string {
+  return kebabCase(value).replace(/-/g, " ").trim().toLowerCase();
+}
+
+function normalizeRelationType(value: string): string | null {
+  const normalized = value.trim().toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "");
+  const aliases: Record<string, string> = {
+    "derived-from": "derived_from",
+    "depends-on": "depends_on",
+    "caused-by": "caused_by",
+    "fixed-by": "fixed_by",
+    "learned-from": "learned_from",
+    "mentioned-in": "mentioned_in",
+    "tested-with": "tested-with",
+  };
+  return aliases[normalized] ?? (normalized || null);
+}
+
+function levenshtein(left: string, right: string): number {
+  const previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+  const current = Array.from({ length: right.length + 1 }, () => 0);
+  for (let i = 1; i <= left.length; i += 1) {
+    current[0] = i;
+    for (let j = 1; j <= right.length; j += 1) {
+      const cost = left[i - 1] === right[j - 1] ? 0 : 1;
+      current[j] = Math.min(
+        current[j - 1]! + 1,
+        previous[j]! + 1,
+        previous[j - 1]! + cost,
+      );
+    }
+    previous.splice(0, previous.length, ...current);
+  }
+  return previous[right.length] ?? 0;
 }
 
 function buildDetectPrompt(

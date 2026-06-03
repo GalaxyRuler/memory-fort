@@ -29,6 +29,7 @@ export const RELATION_TYPES = [
   "fixed_by",
   "learned_from",
   "mentioned_in",
+  "tested-with",
   "linked",
 ] as const;
 export type RelationType = (typeof RELATION_TYPES)[number];

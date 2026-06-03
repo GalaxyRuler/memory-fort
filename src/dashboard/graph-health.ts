@@ -1,4 +1,5 @@
 import type { GraphFeed } from "./loaders.js";
+import { detectCommunities } from "../graph/community-detection.js";
 import {
   edgeClass,
   isAssociationEdge,
@@ -102,6 +103,7 @@ export function computeGraphHealth(input: GraphHealthInput): GraphHealthReport {
     metricProjectSubgraphDensity(feed),
     metricAgentAttribution(input),
     metricGraphParticipationRate(input),
+    metricSuggestedThreadCount(input),
     metricNarrativeThreadCoverage(input),
   ];
 
@@ -639,6 +641,32 @@ export function metricNarrativeThreadCoverage(input: GraphHealthInput): MetricRe
   };
 }
 
+export function metricSuggestedThreadCount(input: GraphHealthInput): MetricResult {
+  const adjacency: Record<string, Set<string>> = {};
+  for (const edge of input.feed.edges.filter(isReasoningEdge)) {
+    if (!isThreadDiscoveryEntity(edge.fromPath) || !isThreadDiscoveryEntity(edge.toPath)) continue;
+    (adjacency[edge.fromPath] ??= new Set()).add(edge.toPath);
+    (adjacency[edge.toPath] ??= new Set()).add(edge.fromPath);
+  }
+  const represented = liveThreadEntityTargets(input);
+  const clusters = detectCommunities(adjacency, { minClusterSize: 3 })
+    .filter((cluster) => !cluster.members.some((member) => represented.has(member)));
+
+  return metric({
+    id: "graph.suggested-thread-count",
+    label: "Suggested threads",
+    value: clusters.length,
+    unit: "count",
+    threshold: { rule: "informational relation clusters not yet represented by live threads" },
+    status: "pass",
+    detail: `${clusters.length} relation-graph cluster(s) could become thread proposals`,
+    topOffenders: clusters.slice(0, 5).map((cluster) => ({
+      value: cluster.members.length,
+      note: cluster.members.join(", "),
+    })),
+  });
+}
+
 function trailingRawWindow(
   input: GraphHealthInput,
   rawNodes: GraphNode[],
@@ -704,6 +732,33 @@ function dateOnlyUtcMs(day: string): number {
 
 function isLiveNarrativeThread(page: WikiHealthPage): boolean {
   return page.relPath.startsWith("wiki/threads/") && !page.relPath.includes("/archive/");
+}
+
+function isThreadDiscoveryEntity(path: string): boolean {
+  return isEntityWikiPath(path) &&
+    [
+      "wiki/projects/",
+      "wiki/issues/",
+      "wiki/people/",
+      "wiki/decisions/",
+      "wiki/lessons/",
+      "wiki/prospective/",
+      "wiki/procedures/",
+      "wiki/references/",
+      "wiki/tools/",
+    ].some((prefix) => path.startsWith(prefix));
+}
+
+function liveThreadEntityTargets(input: GraphHealthInput): Set<string> {
+  const represented = new Set<string>();
+  for (const page of graphHealthWikiPages(input).filter(isLiveNarrativeThread)) {
+    for (const relations of Object.values(page.relations ?? {})) {
+      for (const relation of relations) {
+        if (isThreadDiscoveryEntity(relation.target)) represented.add(relation.target);
+      }
+    }
+  }
+  return represented;
 }
 
 function graphHealthWikiPages(input: GraphHealthInput): WikiHealthPage[] {

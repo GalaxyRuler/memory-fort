@@ -17,12 +17,14 @@ import { errorsLogPath, memoryRoot } from "../storage/paths.js";
 import { atomicAppend } from "../storage/atomic-write.js";
 import { loadMemoryConfig, type MemoryConfig } from "../storage/config.js";
 import { scheduleAutoPush } from "../sync/auto-push.js";
+import { autoLinkRawToWiki } from "../capture/auto-link.js";
 
 export interface PostToolUseDeps {
   detectTool?: typeof detectTool;
   ensureRawSessionFile?: typeof ensureRawSessionFile;
   appendBlock?: typeof appendBlock;
   scheduleAutoPush?: typeof scheduleAutoPush;
+  autoLinkRawToWiki?: typeof autoLinkRawToWiki;
   configLoader?: (root: string) => Promise<MemoryConfig>;
   appendErrorLog?: (line: string) => Promise<void>;
   now?: () => Date;
@@ -36,6 +38,7 @@ export async function postToolUseBody(
   const ensureFn = deps.ensureRawSessionFile ?? ensureRawSessionFile;
   const appendFn = deps.appendBlock ?? appendBlock;
   const scheduleFn = deps.scheduleAutoPush ?? (deps.ensureRawSessionFile || deps.appendBlock ? null : scheduleAutoPush);
+  const autoLinkFn = deps.autoLinkRawToWiki ?? (deps.ensureRawSessionFile || deps.appendBlock ? null : autoLinkRawToWiki);
   const appendErrorFn = deps.appendErrorLog ?? ((line: string) => atomicAppend(errorsLogPath(), line));
   const nowFn = deps.now ?? (() => new Date());
 
@@ -50,7 +53,7 @@ export async function postToolUseBody(
   const cwd = readCwd(payload);
   const now = nowFn();
 
-  await ensureFn({ tool, sessionId, cwd, now });
+  const rawPath = await ensureFn({ tool, sessionId, cwd, now });
   await appendFn({
     tool,
     sessionId,
@@ -64,6 +67,20 @@ export async function postToolUseBody(
     }),
     now,
   });
+  if (autoLinkFn && readAutoLinkEnabled(config)) {
+    try {
+      await autoLinkFn(rawPath, {
+        vaultRoot: root,
+        threshold: readAutoLinkThreshold(config),
+        titleThreshold: readAutoLinkTitleThreshold(config),
+        expectedEmbeddingDim: readExpectedEmbeddingDim(config),
+        apply: true,
+        now,
+      });
+    } catch (err) {
+      await appendErrorFn(`${nowFn().toISOString()} auto-link failed for ${rawPath}: ${(err as Error).message}\n`);
+    }
+  }
   if (scheduleFn) {
     try {
       await scheduleFn({ memoryRoot: root });
@@ -71,6 +88,25 @@ export async function postToolUseBody(
       await appendErrorFn(`${nowFn().toISOString()} auto-push schedule failed: ${(err as Error).message}\n`);
     }
   }
+}
+
+function readAutoLinkEnabled(config: MemoryConfig): boolean {
+  return config.auto_link?.enabled !== false;
+}
+
+function readAutoLinkThreshold(config: MemoryConfig): number | undefined {
+  const value = config.auto_link?.similarity_threshold;
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function readAutoLinkTitleThreshold(config: MemoryConfig): number | undefined {
+  const value = config.auto_link?.title_threshold;
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function readExpectedEmbeddingDim(config: MemoryConfig): number | undefined {
+  const value = config.embedding?.dim;
+  return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : undefined;
 }
 
 function readCaptureCaps(config: MemoryConfig): { maxInputBytes: number; maxOutputBytes: number } {

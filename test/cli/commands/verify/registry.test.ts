@@ -11,6 +11,7 @@ const EXPECTED_ROLES = new Map<string, VerifyRole[]>([
   ["freshness.staleness", ["operator", "server"]],
   ["prospective.overdue", ["operator", "server"]],
   ["graph.cohesion", ["operator", "server"]],
+  ["retrieval.embedding-health", ["operator", "server"]],
   ["retrieval.intent-classifier-health", ["operator", "server"]],
   ["frontmatter.source", ["operator", "server"]],
   ["storage.atomic-write-retries", ["operator", "server"]],

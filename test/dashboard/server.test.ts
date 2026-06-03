@@ -851,7 +851,7 @@ describe("dashboard server", () => {
 
       expect(first.status).toBe(200);
       expect(second.status).toBe(200);
-      expect(firstBody.metrics).toHaveLength(16);
+      expect(firstBody.metrics).toHaveLength(17);
       expect(firstBody.overallStatus).toBe("pass");
       expect(firstBody.metrics.map((metric: { id: string }) => metric.id)).toContain("graph.participation-rate");
       expect(secondBody).toEqual(firstBody);

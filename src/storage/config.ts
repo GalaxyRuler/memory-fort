@@ -37,6 +37,12 @@ export interface MemoryConfig {
   graph?: {
     edge_weights?: Record<string, number>;
   };
+  auto_link?: {
+    enabled?: boolean;
+    similarity_threshold?: number;
+    title_threshold?: number;
+    mass_collision_threshold?: number;
+  };
   auto_promote?: {
     enabled?: boolean;
     cadence?: "weekly" | "daily" | "manual";
@@ -140,6 +146,19 @@ export function validateMemoryConfig(config: MemoryConfig): string[] {
     if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
       warnings.push(`graph.edge_weights.${key} must be a non-negative number`);
     }
+  }
+  const autoLink = asRecord(config.auto_link);
+  if (autoLink?.["enabled"] !== undefined && typeof autoLink["enabled"] !== "boolean") {
+    warnings.push("auto_link.enabled must be a boolean");
+  }
+  if (autoLink?.["similarity_threshold"] !== undefined && !isNumberInRange(autoLink["similarity_threshold"], 0, 1)) {
+    warnings.push("auto_link.similarity_threshold must be a number between 0 and 1");
+  }
+  if (autoLink?.["title_threshold"] !== undefined && !isNumberInRange(autoLink["title_threshold"], 0, 1)) {
+    warnings.push("auto_link.title_threshold must be a number between 0 and 1");
+  }
+  if (autoLink?.["mass_collision_threshold"] !== undefined && !isNumberInRange(autoLink["mass_collision_threshold"], 0, 1)) {
+    warnings.push("auto_link.mass_collision_threshold must be a number between 0 and 1");
   }
   const capture = asRecord(config.capture);
   for (const key of ["max_input_bytes", "max_output_bytes"]) {

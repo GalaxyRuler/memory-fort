@@ -130,4 +130,44 @@ describe("postToolUseBody", () => {
     expect(calls[1].block).toContain("output-tail");
     expect(Buffer.byteLength(calls[1].block, "utf-8")).toBeLessThan(1_200);
   });
+
+  it("runs auto-link after capture and logs failures without blocking the raw write", async () => {
+    const calls: string[] = [];
+    await postToolUseBody(
+      {
+        session_id: "abc",
+        cwd: "C:\\test",
+        tool_name: "Read",
+        tool_input: { path: "foo.md" },
+        tool_output: "file contents",
+      },
+      {
+        detectTool: () => "codex",
+        ensureRawSessionFile: async () => {
+          calls.push("ensure");
+          return "raw/2026-05-21/codex-abc.md";
+        },
+        appendBlock: async () => {
+          calls.push("append");
+        },
+        autoLinkRawToWiki: async () => {
+          calls.push("auto-link");
+          throw new Error("linker unavailable");
+        },
+        appendErrorLog: async (line) => {
+          calls.push(`error:${line}`);
+        },
+        configLoader: async () => ({
+          auto_link: { enabled: true, similarity_threshold: 0.75 },
+        }),
+        now: () => fixedNow,
+      },
+    );
+
+    expect(calls[0]).toBe("ensure");
+    expect(calls[1]).toBe("append");
+    expect(calls[2]).toBe("auto-link");
+    expect(calls[3]).toContain("auto-link failed");
+    expect(calls[3]).toContain("linker unavailable");
+  });
 });

@@ -106,6 +106,67 @@ describe("synthesizeNarrative", () => {
     expect(existsSync(join(tmp, "wiki", ".history"))).toBe(false);
   });
 
+  it("writes relation-only frontmatter updates when novelty detection finds no body changes", async () => {
+    await writeFileAt("wiki/tools/vitest.md", serializeFrontmatter({
+      type: "tools",
+      title: "Vitest",
+      created: "2026-05-30",
+      updated: "2026-05-30",
+    }, "Vitest test runner.\n"));
+    const llm = fakeNarrativeLLM({
+      detect: { contradicted_claims: [], net_new_facts: [] },
+      body: "unused",
+    });
+
+    const result = await synthesizeNarrative({
+      vaultRoot: tmp,
+      pageRelPath: "wiki/projects/memory-system.md",
+      facts: relationFacts(),
+      llm,
+      now: new Date("2026-06-01T10:00:00.000Z"),
+    });
+
+    expect(result.outcome).toBe("rewritten");
+    expect(llm.chat).toHaveBeenCalledTimes(1);
+    const parsed = parseFrontmatter(await readFile(join(tmp, "wiki", "projects", "memory-system.md"), "utf-8"));
+    expect(parsed.frontmatter.updated).toBe("2026-06-01");
+    expect(parsed.frontmatter.relations).toMatchObject({
+      uses: ["wiki/tools/vitest.md"],
+      "tested-with": ["wiki/tools/vitest.md"],
+    });
+    expect(existsSync(join(tmp, "wiki", ".history"))).toBe(false);
+  });
+
+  it("propagates matched relation triples from compressed source facts into frontmatter", async () => {
+    await writeFileAt("wiki/tools/vitest.md", serializeFrontmatter({
+      type: "tools",
+      title: "Vitest",
+      created: "2026-05-30",
+      updated: "2026-05-30",
+    }, "Vitest test runner.\n"));
+    const llm = fakeNarrativeLLM({
+      detect: {
+        contradicted_claims: [],
+        net_new_facts: ["Memory System graph coverage is tested with Vitest."],
+      },
+      body: "Memory System graph coverage is tested with Vitest while [[docs/ROADMAP]] tracks rollout decisions.",
+    });
+
+    await synthesizeNarrative({
+      vaultRoot: tmp,
+      pageRelPath: "wiki/projects/memory-system.md",
+      facts: relationFacts(),
+      llm,
+      now: new Date("2026-06-01T10:00:00.000Z"),
+    });
+
+    const parsed = parseFrontmatter(await readFile(join(tmp, "wiki", "projects", "memory-system.md"), "utf-8"));
+    expect(parsed.frontmatter.relations).toMatchObject({
+      uses: ["wiki/tools/vitest.md"],
+      "tested-with": ["wiki/tools/vitest.md"],
+    });
+  });
+
   it("stages synthesized output that violates narrative shape", async () => {
     const result = await synthesizeNarrative({
       vaultRoot: tmp,
@@ -157,17 +218,57 @@ function facts(): ConsolidationFact[] {
   return [
     {
       fact_id: "f_0",
-      fact: "Memory System shipped Phase 3 retrieval with BM25, vector, graph, and metadata fusion.",
+      fact: compressedFact("Memory System retrieval", [
+        "Memory System shipped Phase 3 retrieval with BM25, vector, graph, and metadata fusion.",
+      ]),
       text: "Memory System shipped Phase 3 retrieval with BM25, vector, graph, and metadata fusion.",
       needs_review: false,
     },
     {
       fact_id: "f_1",
-      fact: "Memory System dashboard added manual compile execution.",
+      fact: compressedFact("Memory System dashboard", [
+        "Memory System dashboard added manual compile execution.",
+      ]),
       text: "Memory System dashboard added manual compile execution.",
       needs_review: false,
     },
   ];
+}
+
+function relationFacts(): ConsolidationFact[] {
+  return [
+    {
+      fact_id: "f_0",
+      fact: {
+        ...compressedFact("Memory System graph coverage", [
+          "Memory System graph coverage is tested with Vitest.",
+        ]),
+        entities: ["Memory System", "Vitest"],
+        relations: [
+          { subject: "Memory System", predicate: "uses", object: "Vitest" },
+          { subject: "Memory System", predicate: "tested-with", object: "Vitest" },
+        ],
+      },
+      text: "Memory System graph coverage is tested with Vitest.",
+      needs_review: false,
+    },
+  ];
+}
+
+function compressedFact(title: string, factLines: string[]) {
+  return {
+    title,
+    facts: factLines,
+    narrative: factLines.join(" "),
+    concepts: ["Memory System"],
+    files: [],
+    importance: 8,
+    type: "project" as const,
+    sessionId: "session-a",
+    sourceRawPath: "raw/2026-05-31/session-a.md",
+    observedAt: "2026-05-31T00:00:00.000Z",
+    compressedAt: "2026-05-31T12:00:00.000Z",
+  };
 }
 
 function fakeNarrativeLLM(opts: {

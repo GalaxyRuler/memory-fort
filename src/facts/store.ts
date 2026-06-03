@@ -16,6 +16,12 @@ export const COMPRESSED_FACT_TYPES = [
 
 export type CompressedFactType = typeof COMPRESSED_FACT_TYPES[number];
 
+export interface CompressedFactRelation {
+  subject: string;
+  predicate: string;
+  object: string;
+}
+
 export interface CompressedFact {
   title: string;
   facts: string[];
@@ -24,6 +30,8 @@ export interface CompressedFact {
   files: string[];
   importance: number;
   type?: CompressedFactType;
+  entities?: string[];
+  relations?: CompressedFactRelation[];
   sessionId: string;
   sourceRawPath: string;
   observedAt: string;
@@ -128,6 +136,8 @@ function readFact(value: unknown): CompressedFact | null {
     files: readStringArray(record.files),
     importance,
     ...readOptionalFactType(record.type),
+    ...readOptionalStringArray(record.entities, "entities"),
+    ...readOptionalRelations(record.relations),
     sessionId,
     sourceRawPath: sourceRawPath.replace(/\\/g, "/"),
     observedAt,
@@ -150,6 +160,28 @@ function readOptionalFactType(value: unknown): { type: CompressedFactType } | Re
 
 function readOptionalPositiveInteger(value: unknown, key: "sampledChunks" | "totalChunks"): Record<string, number> {
   return typeof value === "number" && Number.isInteger(value) && value > 0 ? { [key]: value } : {};
+}
+
+function readOptionalStringArray(value: unknown, key: "entities"): Record<string, string[]> {
+  const values = readStringArray(value);
+  return values.length > 0 ? { [key]: values } : {};
+}
+
+function readOptionalRelations(value: unknown): { relations: CompressedFactRelation[] } | Record<string, never> {
+  if (!Array.isArray(value)) return {};
+  const relations = value
+    .map(readRelationTriple)
+    .filter((relation): relation is CompressedFactRelation => relation !== null);
+  return relations.length > 0 ? { relations } : {};
+}
+
+function readRelationTriple(value: unknown): CompressedFactRelation | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  const subject = readString(record.subject);
+  const predicate = readString(record.predicate);
+  const object = readString(record.object);
+  return subject && predicate && object ? { subject, predicate, object } : null;
 }
 
 function readString(value: unknown): string | null {

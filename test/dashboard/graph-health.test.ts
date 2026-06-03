@@ -18,6 +18,7 @@ import {
   metricProvenanceEdgeCoverage,
   metricProvenanceCoverage,
   metricSalientEpisodeAnchorRate,
+  metricSuggestedThreadCount,
   metricTemporalCoverage,
 } from "../../src/dashboard/graph-health.js";
 
@@ -26,7 +27,7 @@ describe("graph health metrics", () => {
     const input = graphInput();
 
     expect(() => computeGraphHealth(input)).not.toThrow();
-    expect(computeGraphHealth(input).metrics).toHaveLength(16);
+    expect(computeGraphHealth(input).metrics).toHaveLength(17);
     expect(metricProvenanceCoverage(input).status).toBe("pass");
     expect(metricProvenanceEdgeCoverage(input.feed).status).toBe("pass");
     expect(metricAssociationEdgeCoverage(input.feed).status).toBe("pass");
@@ -518,6 +519,42 @@ describe("graph health metrics", () => {
     expect(result.status).toBe("fail");
     expect(result.value).toBe(0);
     expect(result.detail).toContain("0/2 wiki pages participate in at least one reasoning edge");
+  });
+
+  it("counts suggested thread clusters not already represented by live threads", () => {
+    const input = graphInput({
+      feed: graphFeed({
+        nodes: [
+          node("wiki/projects/memory-system.md"),
+          node("wiki/tools/vitest.md", { type: "tools" }),
+          node("wiki/decisions/graph-health.md", { type: "decisions" }),
+        ],
+        edges: [
+          edge("wiki/projects/memory-system.md", "wiki/tools/vitest.md", { type: "uses", relationType: "uses" }),
+          edge("wiki/projects/memory-system.md", "wiki/decisions/graph-health.md", { type: "depends_on", relationType: "depends_on" }),
+          edge("wiki/tools/vitest.md", "wiki/decisions/graph-health.md", { type: "uses", relationType: "uses" }),
+        ],
+      }),
+      wikiPages: [
+        wikiPage("wiki/projects/memory-system.md"),
+        wikiPage("wiki/tools/vitest.md"),
+        wikiPage("wiki/decisions/graph-health.md"),
+      ],
+    });
+    const represented = graphInput({
+      ...input,
+      wikiPages: [
+        ...input.wikiPages,
+        wikiPage("wiki/threads/memory-system-graph-health.md", {
+          relations: {
+            derived_from: [{ target: "wiki/projects/memory-system.md" }],
+          },
+        }),
+      ],
+    });
+
+    expect(metricSuggestedThreadCount(input).value).toBe(1);
+    expect(metricSuggestedThreadCount(represented).value).toBe(0);
   });
 
   it("returns n/a for narrative thread coverage before threads exist", () => {

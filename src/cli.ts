@@ -20,12 +20,14 @@ import { runCompactRaw } from "./cli/commands/compact-raw.js";
 import { formatCompressResult, runCompress } from "./cli/commands/compress.js";
 import { formatCurateResult, runCurate } from "./cli/commands/curate.js";
 import { runDecay } from "./cli/commands/decay.js";
+import { formatDiscoverThreadsResult, runDiscoverThreads } from "./cli/commands/discover-threads.js";
 import { formatReindexResult, runReindex } from "./cli/commands/reindex.js";
 import { runImportAgentMemory } from "./cli/commands/import-agentmemory.js";
 import { runInstall } from "./cli/commands/install.js";
 import { runInstallTailscaleRoute } from "./cli/commands/install-tailscale-route.js";
 import { runInstallVps } from "./cli/commands/install-vps.js";
 import { runLint } from "./cli/commands/lint.js";
+import { formatLinkRawResult, runLinkRaw } from "./cli/commands/link-raw.js";
 import { runLog } from "./cli/commands/log.js";
 import { runMigrateToNarrative } from "./cli/commands/migrate-to-narrative.js";
 import { runPage } from "./cli/commands/page.js";
@@ -378,6 +380,64 @@ program
       }
     },
   );
+
+program
+  .command("link-raw")
+  .description("Plan or apply automatic raw observation links to wiki entity pages")
+  .option("--plan", "dry-run; do not write raw frontmatter")
+  .option("--apply", "write mentions edges into orphan raw frontmatter")
+  .option("--threshold <n>", "minimum similarity/title score (default: config auto_link.similarity_threshold or 0.75)", parseFloatOption)
+  .option("--title-threshold <n>", "minimum lexical title score when embeddings are absent or degenerate (default: config auto_link.title_threshold or 0.65)", parseFloatOption)
+  .option("--mass-collision-threshold <n>", "abort apply when this share of orphans maps to one target (default: config auto_link.mass_collision_threshold or 0.2)", parseFloatOption)
+  .action(async (opts: {
+    plan?: boolean;
+    apply?: boolean;
+    threshold?: number;
+    titleThreshold?: number;
+    massCollisionThreshold?: number;
+  }) => {
+    if (opts.plan && opts.apply) {
+      console.error("memory link-raw: choose at most one of --plan or --apply");
+      process.exit(2);
+    }
+    try {
+      const result = await runLinkRaw({
+        mode: opts.apply ? "apply" : "plan",
+        threshold: opts.threshold,
+        titleThreshold: opts.titleThreshold,
+        massCollisionThreshold: opts.massCollisionThreshold,
+      });
+      process.stdout.write(formatLinkRawResult(result));
+    } catch (err) {
+      console.error(`memory link-raw failed: ${(err as Error).message}`);
+      process.exit(1);
+    }
+  });
+
+program
+  .command("discover-threads")
+  .description("Plan or apply relation-graph community thread proposals")
+  .option("--plan", "dry-run; do not write draft thread pages")
+  .option("--apply", "write draft thread pages under wiki/threads-proposed")
+  .option("--min-cluster-size <n>", "minimum wiki entities per cluster (default: 3)", parseInteger)
+  .option("--max-proposals <n>", "maximum proposals to return/write (default: 10)", parseInteger)
+  .action(async (opts: { plan?: boolean; apply?: boolean; minClusterSize?: number; maxProposals?: number }) => {
+    if (opts.plan && opts.apply) {
+      console.error("memory discover-threads: choose at most one of --plan or --apply");
+      process.exit(2);
+    }
+    try {
+      const result = await runDiscoverThreads({
+        mode: opts.apply ? "apply" : "plan",
+        minClusterSize: opts.minClusterSize,
+        maxProposals: opts.maxProposals,
+      });
+      process.stdout.write(formatDiscoverThreadsResult(result));
+    } catch (err) {
+      console.error(`memory discover-threads failed: ${(err as Error).message}`);
+      process.exit(1);
+    }
+  });
 
 program
   .command("compress")
@@ -1208,6 +1268,14 @@ function parseInteger(value: string): number {
   const parsed = Number(value);
   if (!Number.isInteger(parsed)) {
     throw new Error(`Invalid integer: ${value}`);
+  }
+  return parsed;
+}
+
+function parseFloatOption(value: string): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    throw new Error(`Invalid number: ${value}`);
   }
   return parsed;
 }
