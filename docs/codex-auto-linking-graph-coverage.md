@@ -32,6 +32,14 @@ Key findings from 11 production systems:
 
 ---
 
+## Post-4.39 alignment (this brief predates Phase 4.39 — honor these)
+
+Phase 4.39 already shipped and changed the ground this brief stands on. Align to it, do not duplicate:
+- **Edge type for synonymy links:** type the auto-created raw→wiki edges as **`mentions`** (it already has weight `0.35` in `DEFAULT_EDGE_WEIGHTS`, graph.ts). Do NOT invent a new `similar_to` type unless you also add its weight; prefer reusing `mentions`.
+- **The success metric already exists:** 4.39 added **`graph.salient-episode-anchor-rate`** (graph-health.ts:142) — Layer 1 is exactly what moves it. Make THAT metric (not the informational all-raw `orphan-episodic`) the acceptance target.
+- **Embeddings interface:** use `loadEmbeddings()` from `src/retrieval/embeddings-store.ts` for the cosine search; do not build a parallel embedding loader.
+- **Eval harness exists:** 4.39 shipped `memory eval-retrieval` + `qa/retrieval-gold.jsonl`. After auto-linking, **re-run it** and report whether graph-lift improves (more anchored episodes → more graph signal). This is a second acceptance instrument.
+
 ## Architecture: 3-Layer Auto-Linking
 
 ### Layer 1 — Embedding Synonymy at Capture Time (zero LLM cost)
