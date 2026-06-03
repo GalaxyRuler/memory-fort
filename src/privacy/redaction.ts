@@ -8,7 +8,7 @@ const GITHUB_TOKEN = /\bgh[posru]_[0-9A-Za-z]{36,}\b/g;
 const SLACK_TOKEN = /\bxox[baprs]-[A-Za-z0-9-]{20,}\b/g;
 const BEARER_TOKEN = /\bBearer\s+[A-Za-z0-9\-._~+/]+=*/gi;
 const PRIVATE_KEY_BLOCK =
-  /[^\r\n]*-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----[^\r\n]*/g;
+  /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g;
 
 export function redactSecrets(value: string): string {
   return value
