@@ -1,6 +1,10 @@
-import { readFile } from "node:fs/promises";
+import { copyFile, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { atomicWrite } from "../storage/atomic-write.js";
+import {
+  isUnitStubVector,
+  isZeroVector,
+} from "./embedding-health.js";
 
 export type EmbeddingKind = "wiki" | "raw" | "crystal";
 
@@ -26,6 +30,18 @@ export interface EmbeddingsMeta {
 export interface LoadEmbeddingsResult {
   records: EmbeddingRecord[];
   warnings: Array<{ line: number; reason: string }>;
+}
+
+export interface SaveEmbeddingsOptions {
+  expectedDim?: number;
+  backupPrevious?: boolean;
+}
+
+export class EmbeddingWriteGuardError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "EmbeddingWriteGuardError";
+  }
 }
 
 const EMBEDDING_FILENAMES: Record<EmbeddingKind, string> = {
@@ -74,10 +90,31 @@ export async function saveEmbeddings(
   memoryRoot: string,
   kind: EmbeddingKind,
   records: EmbeddingRecord[],
+  opts: SaveEmbeddingsOptions = {},
 ): Promise<void> {
+  assertEmbeddingsWritable(records, opts.expectedDim);
+  const path = embeddingsPath(memoryRoot, kind);
+  if (opts.backupPrevious !== false) {
+    await backupExistingEmbeddings(path);
+  }
   const content =
     records.length === 0 ? "" : `${records.map((record) => JSON.stringify(record)).join("\n")}\n`;
-  await atomicWrite(embeddingsPath(memoryRoot, kind), content);
+  await atomicWrite(path, content);
+}
+
+export function assertEmbeddingsWritable(
+  records: EmbeddingRecord[],
+  expectedDim?: number,
+): void {
+  for (const record of records) {
+    const actualDim = record.vector.length;
+    if (expectedDim !== undefined && (record.dim !== expectedDim || actualDim !== expectedDim)) {
+      throw degenerateEmbeddingsError(actualDim, expectedDim, record.path);
+    }
+    if (isUnitStubVector(record.vector) || isZeroVector(record.vector)) {
+      throw degenerateEmbeddingsError(actualDim, expectedDim, record.path);
+    }
+  }
 }
 
 export async function removeStale(
@@ -133,6 +170,26 @@ function embeddingsPath(memoryRoot: string, kind: EmbeddingKind): string {
 
 function metaPath(memoryRoot: string): string {
   return join(memoryRoot, "embeddings", "embeddings.meta.json");
+}
+
+async function backupExistingEmbeddings(path: string): Promise<void> {
+  try {
+    await copyFile(path, `${path}.prev`);
+  } catch (error) {
+    if (isMissingFile(error)) return;
+    throw error;
+  }
+}
+
+function degenerateEmbeddingsError(
+  actualDim: number,
+  expectedDim: number | undefined,
+  path: string,
+): EmbeddingWriteGuardError {
+  const expected = expectedDim === undefined ? "configured provider dim" : String(expectedDim);
+  return new EmbeddingWriteGuardError(
+    `refusing to write degenerate embeddings (dim ${actualDim}, expected ${expected}) -- provider likely unavailable/rate-limited; existing embeddings preserved: ${path}`,
+  );
 }
 
 function validateEmbeddingRecord(value: unknown): EmbeddingRecord {

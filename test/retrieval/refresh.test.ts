@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -10,6 +10,7 @@ import {
 } from "../../src/retrieval/embeddings-store.js";
 import { refreshEmbeddings, type EmbedClient } from "../../src/retrieval/refresh.js";
 import type { SearchDocument } from "../../src/retrieval/corpus.js";
+import { VoyageRateLimitedError } from "../../src/retrieval/embedder/voyage.js";
 
 function hash(text: string): string {
   return createHash("sha256").update(text).digest("hex");
@@ -43,7 +44,7 @@ function embeddingRecord(
   return {
     path: searchDoc.relPath,
     hash: hash(searchDoc.body),
-    vector: [1, 2, 3],
+    vector: vector(2048, 0),
     model: "voyage-4-large",
     dim: 2048,
     ts: "2026-05-23T00:00:00.000Z",
@@ -53,17 +54,36 @@ function embeddingRecord(
 
 function fakeClient(vectors: number[][], model = "voyage-4-large", dim = 2048): EmbedClient {
   return {
-    embed: vi.fn(async () => ({ vectors, model, dim })),
+    embed: vi.fn(async () => ({
+      vectors: vectors.map((item, index) => normalizeVector(item, dim, index)),
+      model,
+      dim,
+    })),
   };
 }
 
 function capturingClient(): EmbedClient & { embed: ReturnType<typeof vi.fn> } {
   const embed = vi.fn(async (texts: string[]) => ({
-    vectors: texts.map(() => [1, 2, 3]),
+    vectors: texts.map((_, index) => vector(2048, index)),
     model: "voyage-4-large",
     dim: 2048,
   }));
   return { embed } as EmbedClient & { embed: ReturnType<typeof vi.fn> };
+}
+
+function vector(dim: number, primaryIndex: number): number[] {
+  const values = Array.from({ length: dim }, () => 0);
+  values[primaryIndex % dim] = 1;
+  return values;
+}
+
+function normalizeVector(input: number[], dim: number, index: number): number[] {
+  if (input.length === dim) return input;
+  const values = vector(dim, index);
+  for (let i = 0; i < Math.min(input.length, dim); i += 1) {
+    values[i] = input[i]!;
+  }
+  return values;
 }
 
 describe("embedding refresh", () => {
@@ -213,6 +233,119 @@ describe("embedding refresh", () => {
     expect(result.errors).toHaveLength(1);
     expect(result.errors[0]?.reason.toLowerCase()).toContain("timeout");
     expect(reloaded.records).toEqual([before]);
+  });
+
+  it("refuses wrong-dimension batch responses and preserves the existing sidecar", async () => {
+    const document = doc("wiki/a.md", "A");
+    const beforeRecord = embeddingRecord(document);
+    await saveEmbeddings(tmp, "wiki", [beforeRecord]);
+    const sidecar = join(tmp, "embeddings", "wiki.embeddings.jsonl");
+    const before = await readFile(sidecar, "utf-8");
+    const embedClient = fakeClient([[1, 0, 0]], "voyage-4-large", 3);
+
+    const result = await refreshEmbeddings({
+      memoryRoot: tmp,
+      documents: [doc("wiki/a.md", "changed")],
+      embedClient,
+    });
+
+    expect(result.embedded).toBe(0);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]?.reason).toContain("refusing to write degenerate embeddings");
+    await expect(readFile(sidecar, "utf-8")).resolves.toBe(before);
+  });
+
+  it("preserves every embedding sidecar when a later corpus kind fails validation", async () => {
+    const wikiDoc = doc("wiki/a.md", "A");
+    const rawDoc = doc("raw/2026-05-23/codex-a.md", "A", "raw");
+    await saveEmbeddings(tmp, "wiki", [embeddingRecord(wikiDoc)]);
+    await saveEmbeddings(tmp, "raw", [embeddingRecord(rawDoc)]);
+    const wikiSidecar = join(tmp, "embeddings", "wiki.embeddings.jsonl");
+    const rawSidecar = join(tmp, "embeddings", "raw.embeddings.jsonl");
+    const beforeWiki = await readFile(wikiSidecar, "utf-8");
+    const beforeRaw = await readFile(rawSidecar, "utf-8");
+    const embed = vi.fn()
+      .mockResolvedValueOnce({
+        vectors: [vector(2048, 1)],
+        model: "voyage-4-large",
+        dim: 2048,
+      })
+      .mockResolvedValueOnce({
+        vectors: [[1, 0, 0]],
+        model: "voyage-4-large",
+        dim: 3,
+      });
+
+    const result = await refreshEmbeddings({
+      memoryRoot: tmp,
+      documents: [
+        doc("wiki/a.md", "changed"),
+        doc("raw/2026-05-23/codex-a.md", "changed", "raw"),
+      ],
+      embedClient: { embed },
+      batchSize: 1,
+    });
+
+    expect(result.embedded).toBe(1);
+    expect(result.errors).toHaveLength(1);
+    await expect(readFile(wikiSidecar, "utf-8")).resolves.toBe(beforeWiki);
+    await expect(readFile(rawSidecar, "utf-8")).resolves.toBe(beforeRaw);
+  });
+
+  it("retries Voyage 429 batches with backoff before succeeding", async () => {
+    const document = doc("wiki/a.md", "A");
+    const embed = vi.fn()
+      .mockRejectedValueOnce(new VoyageRateLimitedError("HTTP 429"))
+      .mockRejectedValueOnce(new VoyageRateLimitedError("HTTP 429"))
+      .mockResolvedValueOnce({
+        vectors: [vector(2048, 0)],
+        model: "voyage-4-large",
+        dim: 2048,
+        inputTokens: 12,
+      });
+    const sleep = vi.fn(async () => undefined);
+
+    const result = await refreshEmbeddings({
+      memoryRoot: tmp,
+      documents: [document],
+      embedClient: { embed },
+      rateLimitMaxRetries: 2,
+      rateLimitBaseDelayMs: 5,
+      sleep,
+    });
+
+    expect(result.errors).toEqual([]);
+    expect(result.embedded).toBe(1);
+    expect(result.inputTokens).toBe(12);
+    expect(embed).toHaveBeenCalledTimes(3);
+    expect(sleep).toHaveBeenNthCalledWith(1, 5);
+    expect(sleep).toHaveBeenNthCalledWith(2, 10);
+  });
+
+  it("fails exhausted Voyage 429 retries without clobbering existing embeddings", async () => {
+    const document = doc("wiki/a.md", "A");
+    const beforeRecord = embeddingRecord(document);
+    await saveEmbeddings(tmp, "wiki", [beforeRecord]);
+    const sidecar = join(tmp, "embeddings", "wiki.embeddings.jsonl");
+    const before = await readFile(sidecar, "utf-8");
+    const embed = vi.fn(async () => {
+      throw new VoyageRateLimitedError("HTTP 429");
+    });
+
+    const result = await refreshEmbeddings({
+      memoryRoot: tmp,
+      documents: [doc("wiki/a.md", "changed")],
+      embedClient: { embed },
+      rateLimitMaxRetries: 2,
+      rateLimitBaseDelayMs: 5,
+      sleep: vi.fn(async () => undefined),
+    });
+
+    expect(result.embedded).toBe(0);
+    expect(result.errors).toHaveLength(1);
+    expect(result.errors[0]?.reason).toContain("HTTP 429");
+    expect(embed).toHaveBeenCalledTimes(3);
+    await expect(readFile(sidecar, "utf-8")).resolves.toBe(before);
   });
 
   it("Per-doc truncation keeps oversized raws under the Voyage item limit", async () => {

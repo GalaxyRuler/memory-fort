@@ -21,6 +21,7 @@ import {
   createEmbedderFromConfig,
   estimateEmbeddingCostUsd,
   getActiveEmbedderConfig,
+  getEmbedderExpectedDim,
   listEmbedderProviders,
   type EmbedderConfig,
   type EmbedderProvider,
@@ -493,10 +494,12 @@ export async function runReindexEmbeddings(
   if (opts.mode === "plan" || corpus.errors.length > 0) return base;
 
   const embedder = (opts.embedderFactory ?? createEmbedderFromConfig)(active, env);
+  const expectedDim = getEmbedderExpectedDim(active);
   const refresh = await refreshEmbeddings({
     memoryRoot: root,
     documents: corpus.documents,
     embedClient: embedder,
+    expectedDim,
   });
   return {
     ...base,
@@ -518,10 +521,17 @@ export function formatReindexEmbeddingsResult(result: ReindexEmbeddingsResult): 
   if (result.refresh) {
     lines.push(
       `Embedded: ${result.refresh.embedded}`,
+      `Failed: ${result.refresh.failedBatches ?? 0}`,
       `Unchanged: ${result.refresh.unchanged}`,
       `Pruned: ${result.refresh.pruned}`,
       `Errors: ${result.refresh.errors.length}`,
     );
+    if (result.refresh.inputTokens !== undefined) {
+      lines.push(
+        `Actual tokens: ${result.refresh.inputTokens}`,
+        `Actual cost: $${estimateEmbeddingCostUsd(result.provider, result.refresh.inputTokens).toFixed(4)}`,
+      );
+    }
   }
   return `${lines.join("\n")}\n`;
 }

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { autoLinkRawToWiki } from "../../src/capture/auto-link.js";
-import { saveEmbeddings, type EmbeddingRecord } from "../../src/retrieval/embeddings-store.js";
+import { saveEmbeddings, type EmbeddingKind, type EmbeddingRecord } from "../../src/retrieval/embeddings-store.js";
 import { parseFrontmatter } from "../../src/storage/frontmatter.js";
 
 describe("autoLinkRawToWiki", () => {
@@ -101,11 +101,11 @@ describe("autoLinkRawToWiki", () => {
   });
 
   it("refuses degenerate stub embeddings and falls back to title matching", async () => {
-    await saveEmbeddings(tmp, "wiki", [
+    await writeEmbeddingSidecar("wiki", [
       embedding("wiki/projects/memory-system.md", [1, 0, 0]),
       embedding("wiki/tools/vitest.md", [1, 0, 0]),
     ]);
-    await saveEmbeddings(tmp, "raw", [
+    await writeEmbeddingSidecar("raw", [
       embedding("raw/2026-06-03/codex-1.md", [1, 0, 0]),
     ]);
 
@@ -131,11 +131,11 @@ describe("autoLinkRawToWiki", () => {
       "raw/2026-06-03/codex-1.md",
       rawPage("Unrelated session", "The transcript discusses shell quoting and no known entity title."),
     );
-    await saveEmbeddings(tmp, "wiki", [
+    await writeEmbeddingSidecar("wiki", [
       embedding("wiki/projects/memory-system.md", [1, 0, 0]),
       embedding("wiki/tools/vitest.md", [1, 0, 0]),
     ]);
-    await saveEmbeddings(tmp, "raw", [
+    await writeEmbeddingSidecar("raw", [
       embedding("raw/2026-06-03/codex-1.md", [1, 0, 0]),
     ]);
 
@@ -215,6 +215,12 @@ describe("autoLinkRawToWiki", () => {
   async function resetFixture(): Promise<void> {
     await rm(tmp, { recursive: true, force: true });
     tmp = await mkdtemp(join(tmpdir(), "auto-link-"));
+  }
+
+  async function writeEmbeddingSidecar(kind: EmbeddingKind, records: EmbeddingRecord[]): Promise<void> {
+    const fullPath = join(tmp, "embeddings", `${kind}.embeddings.jsonl`);
+    await mkdir(dirname(fullPath), { recursive: true });
+    await writeFile(fullPath, `${records.map((record) => JSON.stringify(record)).join("\n")}\n`);
   }
 });
 

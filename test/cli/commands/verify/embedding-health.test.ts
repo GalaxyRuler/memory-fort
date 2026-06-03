@@ -1,11 +1,11 @@
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   checkEmbeddingHealth,
 } from "../../../../src/cli/commands/verify/embedding-health.js";
-import { saveEmbeddings, type EmbeddingRecord } from "../../../../src/retrieval/embeddings-store.js";
+import { saveEmbeddings, type EmbeddingKind, type EmbeddingRecord } from "../../../../src/retrieval/embeddings-store.js";
 
 describe("embedding health verify check", () => {
   let tmp: string;
@@ -29,12 +29,11 @@ describe("embedding health verify check", () => {
   });
 
   it("fails when embeddings are dim-3 identical stubs", async () => {
-    await mkdir(join(tmp, "embeddings"), { recursive: true });
-    await saveEmbeddings(tmp, "wiki", [
+    await writeEmbeddingSidecar(tmp, "wiki", [
       embedding("wiki/decisions/a.md", [1, 0, 0]),
       embedding("wiki/decisions/b.md", [1, 0, 0]),
     ]);
-    await saveEmbeddings(tmp, "raw", [
+    await writeEmbeddingSidecar(tmp, "raw", [
       embedding("raw/2026-06-03/codex-1.md", [1, 0, 0]),
     ]);
 
@@ -81,4 +80,16 @@ function vector(primaryIndex: number): number[] {
   const values = Array.from({ length: 16 }, () => 0);
   values[primaryIndex] = 1;
   return values;
+}
+
+async function writeEmbeddingSidecar(
+  root: string,
+  kind: EmbeddingKind,
+  records: EmbeddingRecord[],
+): Promise<void> {
+  await mkdir(join(root, "embeddings"), { recursive: true });
+  await writeFile(
+    join(root, "embeddings", `${kind}.embeddings.jsonl`),
+    `${records.map((record) => JSON.stringify(record)).join("\n")}\n`,
+  );
 }

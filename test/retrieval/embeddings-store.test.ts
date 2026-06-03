@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -12,7 +12,11 @@ import {
   type EmbeddingsMeta,
 } from "../../src/retrieval/embeddings-store.js";
 
-function record(path: string, ts = "2026-05-23T00:00:00.000Z"): EmbeddingRecord {
+function record(
+  path: string,
+  ts = "2026-05-23T00:00:00.000Z",
+  overrides: Partial<EmbeddingRecord> = {},
+): EmbeddingRecord {
   return {
     path,
     hash: `hash-${path}`,
@@ -20,7 +24,14 @@ function record(path: string, ts = "2026-05-23T00:00:00.000Z"): EmbeddingRecord 
     model: "voyage-4-large",
     dim: 3,
     ts,
+    ...overrides,
   };
+}
+
+function vector(dim: number, primaryIndex: number): number[] {
+  const values = Array.from({ length: dim }, () => 0);
+  values[primaryIndex] = 1;
+  return values;
 }
 
 describe("embeddings sidecar store", () => {
@@ -54,6 +65,27 @@ describe("embeddings sidecar store", () => {
       records,
       warnings: [],
     });
+  });
+
+  it("saveEmbeddings refuses wrong-dimension records and leaves existing sidecar intact", async () => {
+    const existing = record("wiki/existing.md", "2026-05-23T00:00:00.000Z", {
+      vector: vector(2048, 0),
+      dim: 2048,
+    });
+    await saveEmbeddings(tmp, "wiki", [existing], { expectedDim: 2048 });
+    const path = join(tmp, "embeddings", "wiki.embeddings.jsonl");
+    const before = await readFile(path, "utf-8");
+
+    await expect(
+      saveEmbeddings(tmp, "wiki", [
+        record("wiki/stub.md", "2026-05-23T00:00:00.000Z", {
+          vector: [1, 0, 0],
+          dim: 3,
+        }),
+      ], { expectedDim: 2048 }),
+    ).rejects.toThrow(/refusing to write degenerate embeddings/);
+
+    await expect(readFile(path, "utf-8")).resolves.toBe(before);
   });
 
   it("loadEmbeddings skips malformed lines and reports warnings", async () => {

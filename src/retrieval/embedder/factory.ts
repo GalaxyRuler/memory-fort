@@ -123,6 +123,12 @@ export function listEmbedderProviders(
   });
 }
 
+export function getEmbedderExpectedDim(config: EmbedderConfig): number {
+  const metadata = PROVIDERS[config.provider];
+  const model = config.model ?? metadata.defaultModel;
+  return metadata.dimByModel[model] ?? Object.values(metadata.dimByModel)[0]!;
+}
+
 export function estimateEmbeddingCostUsd(
   provider: EmbedderProvider,
   tokenEstimate: number,

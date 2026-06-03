@@ -190,7 +190,7 @@ function embedding(path: string) {
   return {
     path,
     hash: `hash-${path}`,
-    vector: [1, 0, 0],
+    vector: [1, 0, 1],
     model: "test",
     dim: 3,
     ts: "2026-05-24T00:00:00.000Z",
