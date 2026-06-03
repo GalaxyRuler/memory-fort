@@ -94,6 +94,11 @@ export default defineConfig([
   },
   {
     ...common,
+    entry: { "retrieval/rebless": "src/retrieval/rebless.ts" },
+    clean: false,
+  },
+  {
+    ...common,
     entry: { "retrieval/voyage-client": "src/retrieval/voyage-client.ts" },
     clean: false,
   },

@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import type { SearchDocument } from "./corpus.js";
 import {
   assertEmbeddingsWritable,
@@ -16,6 +15,12 @@ import {
   type EmbedResult,
 } from "./embedder/types.js";
 import { VoyageRateLimitedError } from "./embedder/voyage.js";
+import {
+  EMBEDDING_BATCH_TOKEN_LIMIT,
+  estimateEmbeddingTokens,
+  hashEmbeddingBody,
+  toEmbeddingText,
+} from "./embedding-text.js";
 
 export { type EmbedClient } from "./embedder/types.js";
 
@@ -28,6 +33,7 @@ export interface RefreshOptions {
   expectedDim?: number;
   rateLimitMaxRetries?: number;
   rateLimitBaseDelayMs?: number;
+  maxPending?: number;
   sleep?: (ms: number) => Promise<void>;
   now?: () => Date;
 }
@@ -40,6 +46,7 @@ export interface RefreshResult {
   totalRecords: number;
   failedBatches?: number;
   inputTokens?: number;
+  skippedPending?: number;
 }
 
 interface PendingDoc {
@@ -55,33 +62,37 @@ const DEFAULT_RATE_LIMIT_MAX_RETRIES = 3;
 const DEFAULT_RATE_LIMIT_BASE_DELAY_MS = 1_000;
 const DEFAULT_MODEL = "voyage-4-large";
 const DEFAULT_DIM = 2048;
-const VOYAGE_PER_DOC_TOKEN_LIMIT = 30_000;
-const VOYAGE_BATCH_TOKEN_LIMIT = 100_000;
-const CHARS_PER_TOKEN_ESTIMATE = 4;
 
-export async function refreshEmbeddings(opts: RefreshOptions): Promise<RefreshResult> {
-  const batchSize = Math.max(1, Math.floor(opts.batchSize ?? DEFAULT_BATCH_SIZE));
-  const timeoutMs = Math.max(1, Math.floor(opts.timeoutMs ?? DEFAULT_TIMEOUT_MS));
-  const expectedDim = readPositiveInteger(opts.expectedDim) ?? expectedDimFromClient(opts.embedClient);
-  const maxRateLimitRetries = readNonNegativeInteger(opts.rateLimitMaxRetries)
-    ?? DEFAULT_RATE_LIMIT_MAX_RETRIES;
-  const rateLimitBaseDelayMs = readPositiveInteger(opts.rateLimitBaseDelayMs)
-    ?? DEFAULT_RATE_LIMIT_BASE_DELAY_MS;
-  const sleep = opts.sleep ?? sleepMs;
-  const now = opts.now ?? (() => new Date());
+export interface PlanEmbeddingsRefreshOptions {
+  memoryRoot: string;
+  documents: SearchDocument[];
+  expectedDim?: number;
+  expectedModel?: string;
+}
+
+export interface PlanEmbeddingsRefreshResult {
+  corpusDocumentCount: number;
+  pendingDocuments: number;
+  unchanged: number;
+  pruned: number;
+  tokenEstimate: number;
+  errors: Array<{ path: string; reason: string }>;
+}
+
+export async function planEmbeddingsRefresh(
+  opts: PlanEmbeddingsRefreshOptions,
+): Promise<PlanEmbeddingsRefreshResult> {
+  const expectedDim = readPositiveInteger(opts.expectedDim) ?? DEFAULT_DIM;
+  const expectedModel = opts.expectedModel ?? DEFAULT_MODEL;
   const documentsByKind = groupDocumentsByKind(opts.documents);
-  const meta = await loadEmbeddingsMeta(opts.memoryRoot);
-  let expectedModel = meta?.model ?? DEFAULT_MODEL;
-  let metaCreatedAt = meta?.createdAt ?? now().toISOString();
-  const result: RefreshResult = {
-    embedded: 0,
+  const result: PlanEmbeddingsRefreshResult = {
+    corpusDocumentCount: opts.documents.length,
+    pendingDocuments: 0,
     unchanged: 0,
     pruned: 0,
+    tokenEstimate: 0,
     errors: [],
-    totalRecords: 0,
   };
-  const proposedRecordsByKind = new Map<EmbeddingKind, EmbeddingRecord[]>();
-  let proposedPruned = 0;
 
   for (const kind of documentsByKind.keys()) {
     const documents = documentsByKind.get(kind) ?? [];
@@ -97,11 +108,9 @@ export async function refreshEmbeddings(opts: RefreshOptions): Promise<RefreshRe
       loaded.records.map((record) => [record.path, record] as const),
     );
     const knownPaths = new Set(documents.map((document) => document.relPath));
-    const pending: PendingDoc[] = [];
-
     for (const document of documents) {
-      const text = truncateToTokens(document.body, VOYAGE_PER_DOC_TOKEN_LIMIT);
-      const hash = hashText(text);
+      const text = toEmbeddingText(document.body);
+      const hash = hashEmbeddingBody(document.body);
       const existing = existingByPath.get(document.relPath);
       if (
         existing &&
@@ -111,15 +120,94 @@ export async function refreshEmbeddings(opts: RefreshOptions): Promise<RefreshRe
       ) {
         result.unchanged += 1;
       } else {
-        pending.push({
+        result.pendingDocuments += 1;
+        result.tokenEstimate += estimateEmbeddingTokens(text);
+      }
+    }
+
+    result.pruned += countPrunableRecords(loaded.records, knownPaths, expectedDim);
+  }
+
+  return result;
+}
+
+export async function refreshEmbeddings(opts: RefreshOptions): Promise<RefreshResult> {
+  const batchSize = Math.max(1, Math.floor(opts.batchSize ?? DEFAULT_BATCH_SIZE));
+  const timeoutMs = Math.max(1, Math.floor(opts.timeoutMs ?? DEFAULT_TIMEOUT_MS));
+  const expectedDim = readPositiveInteger(opts.expectedDim) ?? expectedDimFromClient(opts.embedClient);
+  const maxPending = readNonNegativeInteger(opts.maxPending) ?? Number.POSITIVE_INFINITY;
+  const maxRateLimitRetries = readNonNegativeInteger(opts.rateLimitMaxRetries)
+    ?? DEFAULT_RATE_LIMIT_MAX_RETRIES;
+  const rateLimitBaseDelayMs = readPositiveInteger(opts.rateLimitBaseDelayMs)
+    ?? DEFAULT_RATE_LIMIT_BASE_DELAY_MS;
+  const sleep = opts.sleep ?? sleepMs;
+  const now = opts.now ?? (() => new Date());
+  const documentsByKind = groupDocumentsByKind(opts.documents);
+  const meta = await loadEmbeddingsMeta(opts.memoryRoot);
+  let expectedModel = expectedModelFromClient(opts.embedClient) ?? meta?.model ?? DEFAULT_MODEL;
+  let metaCreatedAt = meta?.createdAt ?? now().toISOString();
+  const result: RefreshResult = {
+    embedded: 0,
+    unchanged: 0,
+    pruned: 0,
+    errors: [],
+    totalRecords: 0,
+  };
+  let remainingPendingBudget = maxPending;
+
+  for (const kind of documentsByKind.keys()) {
+    const documents = documentsByKind.get(kind) ?? [];
+    const loaded = await loadEmbeddings(opts.memoryRoot, kind);
+    const errorsBeforeKind = result.errors.length;
+    for (const warning of loaded.warnings) {
+      result.errors.push({
+        path: `embeddings/${kind}.embeddings.jsonl:${warning.line}`,
+        reason: warning.reason,
+      });
+    }
+    if (result.errors.length > errorsBeforeKind) continue;
+
+    const existingByPath = new Map(
+      loaded.records.map((record) => [record.path, record] as const),
+    );
+    const knownPaths = new Set(documents.map((document) => document.relPath));
+    const pendingCandidates: PendingDoc[] = [];
+
+    for (const document of documents) {
+      const text = toEmbeddingText(document.body);
+      const hash = hashEmbeddingBody(document.body);
+      const existing = existingByPath.get(document.relPath);
+      if (
+        existing &&
+        existing.hash === hash &&
+        existing.model === expectedModel &&
+        existing.dim === expectedDim
+      ) {
+        result.unchanged += 1;
+      } else {
+        pendingCandidates.push({
           document,
           hash,
           text,
-          tokenEstimate: estimateTokens(text),
+          tokenEstimate: estimateEmbeddingTokens(text),
         });
       }
     }
 
+    const pendingLimit = Number.isFinite(remainingPendingBudget)
+      ? Math.max(0, remainingPendingBudget)
+      : pendingCandidates.length;
+    const pending = pendingCandidates.slice(0, pendingLimit);
+    const skippedForKind = pendingCandidates.length - pending.length;
+    if (skippedForKind > 0) {
+      result.skippedPending = (result.skippedPending ?? 0) + skippedForKind;
+    }
+    if (Number.isFinite(remainingPendingBudget)) {
+      remainingPendingBudget = Math.max(0, remainingPendingBudget - pending.length);
+    }
+
+    let savedForKind = false;
+    let kindHadBatchError = false;
     for (const batch of buildEmbeddingBatches(pending, batchSize)) {
       try {
         const response = await embedBatchWithRateLimitRetry(
@@ -147,47 +235,39 @@ export async function refreshEmbeddings(opts: RefreshOptions): Promise<RefreshRe
           existingByPath.set(record.path, record);
         }
         result.embedded += batch.length;
+        const recordsForKind = recordsForSave(existingByPath, knownPaths, expectedDim);
+        await saveEmbeddings(opts.memoryRoot, kind, recordsForKind.records, { expectedDim });
+        savedForKind = true;
+        await saveEmbeddingsMeta(opts.memoryRoot, {
+          provider: providerName(opts.embedClient),
+          model: expectedModel,
+          dim: expectedDim,
+          sdkVersion: "injected",
+          createdAt: metaCreatedAt,
+          updatedAt: now().toISOString(),
+        });
       } catch (error) {
         const reason = error instanceof Error ? error.message : String(error);
         result.failedBatches = (result.failedBatches ?? 0) + 1;
         for (const item of batch) {
           result.errors.push({ path: item.document.relPath, reason });
         }
+        kindHadBatchError = true;
+        break;
       }
     }
 
-    let prunedForKind = 0;
-    const records = [...existingByPath.values()].filter((record) => {
-      if (knownPaths.has(record.path)) return true;
-      if (record.archived && isWritableEmbeddingRecord(record, expectedDim)) return true;
-      prunedForKind += 1;
-      return false;
-    });
-    records.sort((a, b) => a.path.localeCompare(b.path));
-    proposedRecordsByKind.set(kind, records);
-    proposedPruned += prunedForKind;
-  }
-
-  if (result.errors.length > 0) {
-    return result;
-  }
-
-  for (const [kind, records] of proposedRecordsByKind) {
-    await saveEmbeddings(opts.memoryRoot, kind, records, { expectedDim });
-    result.totalRecords += records.length;
-  }
-  result.pruned = proposedPruned;
-
-  if (result.embedded > 0) {
-    const updatedAt = now().toISOString();
-    await saveEmbeddingsMeta(opts.memoryRoot, {
-      provider: providerName(opts.embedClient),
-      model: expectedModel,
-      dim: expectedDim,
-      sdkVersion: "injected",
-      createdAt: metaCreatedAt,
-      updatedAt,
-    });
+    const recordsForKind = recordsForSave(existingByPath, knownPaths, expectedDim);
+    if (!kindHadBatchError && !savedForKind && recordsForKind.pruned > 0) {
+      await saveEmbeddings(opts.memoryRoot, kind, recordsForKind.records, { expectedDim });
+      savedForKind = true;
+    }
+    if (savedForKind || !kindHadBatchError) {
+      result.pruned += recordsForKind.pruned;
+      result.totalRecords += recordsForKind.records.length;
+    } else {
+      result.totalRecords += loaded.records.length;
+    }
   }
 
   return result;
@@ -253,6 +333,12 @@ function expectedDimFromClient(embedClient: EmbedClient): number {
     : DEFAULT_DIM;
 }
 
+function expectedModelFromClient(embedClient: EmbedClient): string | undefined {
+  return isEmbedder(embedClient) && embedClient.modelName.length > 0
+    ? embedClient.modelName
+    : undefined;
+}
+
 function providerName(embedClient: EmbedClient): string {
   return isEmbedder(embedClient) ? embedClient.providerName : "voyage";
 }
@@ -266,21 +352,32 @@ function groupDocumentsByKind(documents: SearchDocument[]): Map<EmbeddingKind, S
   return grouped;
 }
 
-function hashText(text: string): string {
-  return createHash("sha256").update(text).digest("hex");
+function recordsForSave(
+  existingByPath: Map<string, EmbeddingRecord>,
+  knownPaths: Set<string>,
+  expectedDim: number,
+): { records: EmbeddingRecord[]; pruned: number } {
+  let pruned = 0;
+  const records = [...existingByPath.values()].filter((record) => {
+    if (knownPaths.has(record.path)) return true;
+    if (record.archived && isWritableEmbeddingRecord(record, expectedDim)) return true;
+    pruned += 1;
+    return false;
+  });
+  records.sort((a, b) => a.path.localeCompare(b.path));
+  return { records, pruned };
 }
 
-function estimateTokens(text: string): number {
-  return Math.ceil(text.length / CHARS_PER_TOKEN_ESTIMATE);
-}
-
-function truncateToTokens(text: string, maxTokens: number): string {
-  const maxChars = maxTokens * CHARS_PER_TOKEN_ESTIMATE;
-  if (text.length <= maxChars) return text;
-
-  const truncated = text.slice(0, maxChars);
-  const lastSpace = truncated.lastIndexOf(" ");
-  return lastSpace > maxChars * 0.9 ? truncated.slice(0, lastSpace) : truncated;
+function countPrunableRecords(
+  records: EmbeddingRecord[],
+  knownPaths: Set<string>,
+  expectedDim: number,
+): number {
+  return records.filter((record) => {
+    if (knownPaths.has(record.path)) return false;
+    if (record.archived && isWritableEmbeddingRecord(record, expectedDim)) return false;
+    return true;
+  }).length;
 }
 
 function buildEmbeddingBatches(items: PendingDoc[], maxDocs: number): PendingDoc[][] {
@@ -292,7 +389,7 @@ function buildEmbeddingBatches(items: PendingDoc[], maxDocs: number): PendingDoc
     const wouldExceedDocs = current.length >= maxDocs;
     const wouldExceedTokens =
       current.length > 0 &&
-      currentTokens + item.tokenEstimate > VOYAGE_BATCH_TOKEN_LIMIT;
+      currentTokens + item.tokenEstimate > EMBEDDING_BATCH_TOKEN_LIMIT;
 
     if (wouldExceedDocs || wouldExceedTokens) {
       batches.push(current);

@@ -13,6 +13,7 @@ import { fail, pass, warn, type CheckDescriptor, type VerifyCheckResult } from "
 
 export interface EmbeddingHealthCheckOptions {
   configLoader?: () => Promise<MemoryConfig>;
+  env?: NodeJS.ProcessEnv;
 }
 
 const EMBEDDING_KINDS: EmbeddingKind[] = ["wiki", "raw", "crystal"];
@@ -30,7 +31,9 @@ export async function checkEmbeddingHealth(
   opts: EmbeddingHealthCheckOptions = {},
 ): Promise<VerifyCheckResult> {
   const config = await (opts.configLoader ?? (() => loadMemoryConfig(vaultRoot)))();
+  const env = opts.env ?? process.env;
   const expectedDim = expectedEmbeddingDim(config);
+  const credentialIssue = activeProviderCredentialIssue(config, env);
   const records: EmbeddingRecord[] = [];
   const parseWarnings: string[] = [];
 
@@ -56,6 +59,7 @@ export async function checkEmbeddingHealth(
     minDim: MIN_EMBEDDING_DIM,
   });
   const issues = [...parseWarnings, ...analysis.issues];
+  if (credentialIssue) issues.push(credentialIssue.detail);
   const dims = analysis.dims.length > 0 ? analysis.dims.join(", ") : "none";
   const detail = `${records.length} embedding records; dim ${dims}; ${issues.length > 0 ? issues.join("; ") : "sample is diverse"}`;
 
@@ -63,7 +67,8 @@ export async function checkEmbeddingHealth(
     return fail(
       "retrieval.embedding-health",
       "embedding health",
-      "set VOYAGE_API_KEY and run `memory provider reindex-embeddings --apply` to replace stub sidecars",
+      credentialIssue?.suggestedFix ??
+        "set VOYAGE_API_KEY and run `memory provider reindex-embeddings --apply` to replace stub sidecars",
       detail,
     );
   }
@@ -86,4 +91,23 @@ function expectedEmbeddingDim(config: MemoryConfig): number | undefined {
   } catch {
     return undefined;
   }
+}
+
+function activeProviderCredentialIssue(
+  config: MemoryConfig,
+  env: NodeJS.ProcessEnv,
+): { detail: string; suggestedFix: string } | null {
+  let active;
+  try {
+    active = getActiveEmbedderConfig(config);
+  } catch {
+    return null;
+  }
+  const provider = listEmbedderProviders(active, env).find((item) => item.active);
+  if (!provider || provider.provider === "ollama" || provider.keyAvailable) return null;
+  return {
+    detail: `${provider.requiredEnv} missing in this process; stored vectors may be healthy but live query embeddings and refresh are degraded`,
+    suggestedFix:
+      `set ${provider.requiredEnv} in the service environment and restart long-running services before relying on vector search`,
+  };
 }

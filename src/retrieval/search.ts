@@ -47,6 +47,7 @@ export interface SearchOptions {
   llmProvider?: LLMProvider | null;
   graphSpread?: boolean;
   refreshEmbeddings?: boolean;
+  refreshMaxPending?: number;
   configLoader?: () => Promise<Pick<MemoryConfig, "graph">>;
   corpusLoader?: () => Promise<{
     documents: SearchDocument[];
@@ -125,6 +126,7 @@ const SIGNAL_LIMIT = 50;
 const BM25_CACHE_MAX_ENTRIES = 8;
 const BM25_TOKEN_CACHE_MAX_ENTRIES = 4096;
 const RAW_BM25_MAX_CHARS = 16_000;
+const SEARCH_REFRESH_PENDING_LIMIT = 8;
 // Voyage returns low positive cosine for unrelated text; keep vector as a signal, not a universal match.
 const MIN_VECTOR_SCORE = 0.25;
 const LEXICAL_STOPWORDS = new Set([
@@ -239,8 +241,15 @@ export async function runSearch(opts: SearchOptions): Promise<SearchResponse> {
         memoryRoot: opts.vaultRoot,
         documents,
         embedClient: opts.embedClient,
+        maxPending: opts.refreshMaxPending ?? SEARCH_REFRESH_PENDING_LIMIT,
         now: opts.now,
       });
+      if ((refresh.skippedPending ?? 0) > 0) {
+        degraded = true;
+        warnings.push(
+          `embedding refresh skipped ${refresh.skippedPending} pending documents; run memory provider reindex-embeddings --apply to refresh the backlog`,
+        );
+      }
       if (refresh.errors.length > 0) {
         degraded = true;
         warnings.push(

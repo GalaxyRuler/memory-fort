@@ -58,10 +58,27 @@ describe("embedding health verify check", () => {
 
     const result = await checkEmbeddingHealth(tmp, {
       configLoader: async () => ({ embedding: { dim: 16 } }),
+      env: { VOYAGE_API_KEY: "visible" },
     });
 
-    expect(result.status).toBe("pass");
+    expect(result).toMatchObject({ status: "pass" });
     expect(result.detail).toContain("3 embedding records");
+  });
+
+  it("fails loudly when stored embeddings are healthy but the active provider key is missing in this process", async () => {
+    await saveEmbeddings(tmp, "wiki", [
+      embedding("wiki/decisions/a.md", vector(0, 2048)),
+      embedding("wiki/decisions/b.md", vector(1, 2048)),
+    ], { expectedDim: 2048 });
+
+    const result = await checkEmbeddingHealth(tmp, {
+      configLoader: async () => ({ embedder: { provider: "voyage", model: "voyage-4-large" } }),
+      env: {},
+    });
+
+    expect(result.status).toBe("fail");
+    expect(result.detail).toContain("VOYAGE_API_KEY missing in this process");
+    expect(result.suggestedFix).toContain("restart long-running services");
   });
 });
 
@@ -76,8 +93,8 @@ function embedding(path: string, vector: number[]): EmbeddingRecord {
   };
 }
 
-function vector(primaryIndex: number): number[] {
-  const values = Array.from({ length: 16 }, () => 0);
+function vector(primaryIndex: number, dim = 16): number[] {
+  const values = Array.from({ length: dim }, () => 0);
   values[primaryIndex] = 1;
   return values;
 }

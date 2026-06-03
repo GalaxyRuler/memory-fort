@@ -38,6 +38,7 @@ import {
   formatListEmbeddersResult,
   formatListLLMsResult,
   formatReindexEmbeddingsResult,
+  formatReblessEmbeddingsResult,
   formatTestEmbedderResult,
   formatTestClassifierResult,
   formatTestLLMResult,
@@ -46,6 +47,7 @@ import {
   runListEmbedders,
   runListLLMs,
   runReindexEmbeddings,
+  runReblessEmbeddings,
   runTestEmbedder,
   runTestClassifier,
   runTestLLM,
@@ -899,6 +901,30 @@ provider
       process.exit(result.exitCode);
     } catch (err) {
       console.error(`memory provider reindex-embeddings failed: ${(err as Error).message}`);
+      process.exit(1);
+    }
+  });
+
+provider
+  .command("rebless-embeddings")
+  .description("Update stale embedding hashes for proven redaction-only rewrites without re-embedding")
+  .requiredOption("--baseline-root <path>", "vault root containing the pre-redaction markdown bytes")
+  .option("--plan", "report reblessable records without writing")
+  .option("--apply", "update matching sidecar hashes")
+  .action(async (opts: { baselineRoot: string; plan?: boolean; apply?: boolean }) => {
+    if ([opts.plan, opts.apply].filter(Boolean).length !== 1) {
+      console.error("memory provider rebless-embeddings: choose exactly one of --plan or --apply");
+      process.exit(2);
+    }
+    try {
+      const result = await runReblessEmbeddings({
+        baselineRoot: opts.baselineRoot,
+        mode: opts.apply ? "apply" : "plan",
+      });
+      process.stdout.write(formatReblessEmbeddingsResult(result));
+      process.exit(result.exitCode);
+    } catch (err) {
+      console.error(`memory provider rebless-embeddings failed: ${(err as Error).message}`);
       process.exit(1);
     }
   });

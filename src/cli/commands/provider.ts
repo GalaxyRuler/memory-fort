@@ -6,7 +6,15 @@ import {
   classifyQueryHeuristic,
   type IntentClassification,
 } from "../../retrieval/query-intent.js";
-import { refreshEmbeddings, type RefreshResult } from "../../retrieval/refresh.js";
+import {
+  planEmbeddingsRefresh,
+  refreshEmbeddings,
+  type RefreshResult,
+} from "../../retrieval/refresh.js";
+import {
+  reblessRedactionOnlyEmbeddings,
+  type ReblessRedactionOnlyResult,
+} from "../../retrieval/rebless.js";
 import { chatWithAudit, readLLMAuditSummary, type LLMAuditSummary } from "../../llm/audit.js";
 import {
   createLLMFromConfig,
@@ -68,10 +76,29 @@ export interface ReindexEmbeddingsResult {
   applied: boolean;
   provider: EmbedderProvider;
   model: string;
+  corpusDocumentCount: number;
   documentCount: number;
   tokenEstimate: number;
   estimatedCostUsd: number;
+  unchanged: number;
+  pruned: number;
   refresh?: RefreshResult;
+}
+
+export interface ReblessEmbeddingsOptions extends ListEmbeddersOptions {
+  memoryRoot?: string;
+  baselineRoot: string;
+  mode: "plan" | "apply";
+}
+
+export interface ReblessEmbeddingsResult extends ReblessRedactionOnlyResult {
+  exitCode: number;
+  applied: boolean;
+  provider: EmbedderProvider;
+  model: string;
+  expectedDim: number;
+  currentDocuments: number;
+  baselineDocuments: number;
 }
 
 export interface ListLLMsOptions {
@@ -150,8 +177,6 @@ export interface AuditRotateResult {
   candidates: AuditRotateCandidate[];
   archived: AuditRotateCandidate[];
 }
-
-const CHARS_PER_TOKEN_ESTIMATE = 4;
 
 export async function runListEmbedders(
   opts: ListEmbeddersOptions = {},
@@ -480,21 +505,33 @@ export async function runReindexEmbeddings(
   const config = await (opts.configLoader ?? (() => loadMemoryConfig(root)))();
   const active = getActiveEmbedderConfig(config);
   const corpus = await loadSearchCorpus({ vaultRoot: root, scope: "all" });
-  const tokenEstimate = estimateCorpusTokens(corpus.documents.map((document) => document.body));
+  const expectedDim = getEmbedderExpectedDim(active);
+  const plan = await planEmbeddingsRefresh({
+    memoryRoot: root,
+    documents: corpus.documents,
+    expectedDim,
+    expectedModel: active.model,
+  });
+  const errors = [
+    ...corpus.errors,
+    ...plan.errors,
+  ];
   const base: ReindexEmbeddingsResult = {
-    exitCode: corpus.errors.length > 0 ? 1 : 0,
+    exitCode: errors.length > 0 ? 1 : 0,
     applied: false,
     provider: active.provider,
     model: active.model ?? "",
-    documentCount: corpus.documents.length,
-    tokenEstimate,
-    estimatedCostUsd: estimateEmbeddingCostUsd(active.provider, tokenEstimate),
+    corpusDocumentCount: plan.corpusDocumentCount,
+    documentCount: plan.pendingDocuments,
+    tokenEstimate: plan.tokenEstimate,
+    estimatedCostUsd: estimateEmbeddingCostUsd(active.provider, plan.tokenEstimate),
+    unchanged: plan.unchanged,
+    pruned: plan.pruned,
   };
 
-  if (opts.mode === "plan" || corpus.errors.length > 0) return base;
+  if (opts.mode === "plan" || errors.length > 0) return base;
 
   const embedder = (opts.embedderFactory ?? createEmbedderFromConfig)(active, env);
-  const expectedDim = getEmbedderExpectedDim(active);
   const refresh = await refreshEmbeddings({
     memoryRoot: root,
     documents: corpus.documents,
@@ -514,9 +551,12 @@ export function formatReindexEmbeddingsResult(result: ReindexEmbeddingsResult): 
     `Mode: ${result.applied ? "apply" : "plan"}`,
     `Provider: ${result.provider}`,
     `Model: ${result.model}`,
-    `Documents: ${result.documentCount}`,
-    `Estimated tokens: ${result.tokenEstimate}`,
-    `Estimated cost: $${result.estimatedCostUsd.toFixed(4)}`,
+    `Corpus documents: ${result.corpusDocumentCount}`,
+    `Pending documents: ${result.documentCount}`,
+    `Unchanged: ${result.unchanged}`,
+    `Prunable records: ${result.pruned}`,
+    `Estimated pending tokens: ${result.tokenEstimate}`,
+    `Estimated pending cost: $${result.estimatedCostUsd.toFixed(4)}`,
   ];
   if (result.refresh) {
     lines.push(
@@ -524,6 +564,7 @@ export function formatReindexEmbeddingsResult(result: ReindexEmbeddingsResult): 
       `Failed: ${result.refresh.failedBatches ?? 0}`,
       `Unchanged: ${result.refresh.unchanged}`,
       `Pruned: ${result.refresh.pruned}`,
+      `Skipped pending: ${result.refresh.skippedPending ?? 0}`,
       `Errors: ${result.refresh.errors.length}`,
     );
     if (result.refresh.inputTokens !== undefined) {
@@ -536,11 +577,76 @@ export function formatReindexEmbeddingsResult(result: ReindexEmbeddingsResult): 
   return `${lines.join("\n")}\n`;
 }
 
-function estimateCorpusTokens(texts: string[]): number {
-  return texts.reduce(
-    (sum, text) => sum + Math.ceil(text.length / CHARS_PER_TOKEN_ESTIMATE),
-    0,
-  );
+export async function runReblessEmbeddings(
+  opts: ReblessEmbeddingsOptions,
+): Promise<ReblessEmbeddingsResult> {
+  const root = opts.memoryRoot ?? defaultMemoryRoot();
+  const config = await (opts.configLoader ?? (() => loadMemoryConfig(root)))();
+  const active = getActiveEmbedderConfig(config);
+  const expectedDim = getEmbedderExpectedDim(active);
+  const [currentCorpus, baselineCorpus] = await Promise.all([
+    loadSearchCorpus({ vaultRoot: root, scope: "all" }),
+    loadSearchCorpus({ vaultRoot: opts.baselineRoot, scope: "all" }),
+  ]);
+  const errors = [...currentCorpus.errors, ...baselineCorpus.errors];
+  if (errors.length > 0) {
+    return {
+      exitCode: 1,
+      applied: opts.mode === "apply",
+      provider: active.provider,
+      model: active.model ?? "",
+      expectedDim,
+      currentDocuments: currentCorpus.documents.length,
+      baselineDocuments: baselineCorpus.documents.length,
+      reblessed: 0,
+      unchanged: 0,
+      skipped: 0,
+      errors,
+      totalRecords: 0,
+    };
+  }
+
+  const result = await reblessRedactionOnlyEmbeddings({
+    memoryRoot: root,
+    currentDocuments: currentCorpus.documents,
+    baselineDocuments: baselineCorpus.documents,
+    expectedDim,
+    mode: opts.mode,
+  });
+
+  return {
+    ...result,
+    exitCode: result.errors.length > 0 ? 1 : 0,
+    applied: opts.mode === "apply",
+    provider: active.provider,
+    model: active.model ?? "",
+    expectedDim,
+    currentDocuments: currentCorpus.documents.length,
+    baselineDocuments: baselineCorpus.documents.length,
+  };
+}
+
+export function formatReblessEmbeddingsResult(result: ReblessEmbeddingsResult): string {
+  const lines = [
+    `Mode: ${result.applied ? "apply" : "plan"}`,
+    `Provider: ${result.provider}`,
+    `Model: ${result.model}`,
+    `Expected dim: ${result.expectedDim}`,
+    `Current documents: ${result.currentDocuments}`,
+    `Baseline documents: ${result.baselineDocuments}`,
+    `Reblessable redaction-only records: ${result.reblessed}`,
+    `Already current: ${result.unchanged}`,
+    `Skipped: ${result.skipped}`,
+    `Errors: ${result.errors.length}`,
+    `Total records scanned: ${result.totalRecords}`,
+  ];
+  if (result.errors.length > 0) {
+    lines.push(
+      "",
+      ...result.errors.slice(0, 20).map((error) => `  ${error.path}: ${error.reason}`),
+    );
+  }
+  return `${lines.join("\n")}\n`;
 }
 
 function averageReferencesStripped(referencesStripped: number, calls: number): string {

@@ -411,6 +411,42 @@ describe("search core", () => {
     expect(response.results[0]?.sources.some((source) => source.source === "bm25")).toBe(true);
   });
 
+  it("bounds query-time embedding refresh work for a large stale backlog", async () => {
+    const { voyageClient } = clients();
+    const embed = vi.fn(async (texts: string[]) => ({
+      vectors: texts.map(vectorForText),
+      model: "test-embed",
+      dim: 3,
+    }));
+    const documents = Array.from({ length: 20 }, (_, index) =>
+      makeDoc({
+        relPath: `wiki/projects/backlog-${index}.md`,
+        title: `Backlog ${index}`,
+        body: index === 19
+          ? "rare-bounded-refresh-token"
+          : `backlog document ${index}`,
+      }),
+    );
+
+    const response = await runSearch({
+      query: "rare-bounded-refresh-token",
+      noHyde: true,
+      noRerank: true,
+      vaultRoot: tmp,
+      embedClient: { embed } as EmbedClient,
+      voyageClient,
+      corpusLoader: async () => ({ documents, errors: [] }),
+    });
+
+    expect(response.results[0]?.path).toBe("wiki/projects/backlog-19.md");
+    expect(response.warnings.some((warning) => warning.includes("embedding refresh skipped 12 pending documents"))).toBe(true);
+    const documentRefreshCalls = embed.mock.calls.filter(
+      (call) => (call[1] as { inputType?: string } | undefined)?.inputType !== "query",
+    );
+    expect(documentRefreshCalls).toHaveLength(1);
+    expect(documentRefreshCalls[0]?.[0]).toHaveLength(8);
+  });
+
   it("keeps oversized raw BM25 work bounded while preserving tail search", async () => {
     const embedClient: EmbedClient = {
       embed: vi.fn(async () => {

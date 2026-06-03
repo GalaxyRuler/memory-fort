@@ -8,7 +8,10 @@ import {
   saveEmbeddings,
   type EmbeddingRecord,
 } from "../../src/retrieval/embeddings-store.js";
-import { refreshEmbeddings, type EmbedClient } from "../../src/retrieval/refresh.js";
+import {
+  refreshEmbeddings,
+  type EmbedClient,
+} from "../../src/retrieval/refresh.js";
 import type { SearchDocument } from "../../src/retrieval/corpus.js";
 import { VoyageRateLimitedError } from "../../src/retrieval/embedder/voyage.js";
 
@@ -121,6 +124,45 @@ describe("embedding refresh", () => {
     });
     expect(embedClient.embed).toHaveBeenCalledOnce();
     expect(embedClient.embed).toHaveBeenCalledWith(["A", "B", "C"]);
+  });
+
+  it("embeds redacted text and keeps redaction-only rewrites unchanged", async () => {
+    const secretBody = [
+      "Memory provider setup.",
+      "VOYAGE_API_KEY=not-a-real-test-value",
+      "Retrieval behavior stays the same.",
+    ].join("\n");
+    const redactedBody = [
+      "Memory provider setup.",
+      "VOYAGE_API_KEY=[REDACTED]",
+      "Retrieval behavior stays the same.",
+    ].join("\n");
+    const firstClient = capturingClient();
+
+    const first = await refreshEmbeddings({
+      memoryRoot: tmp,
+      documents: [doc("wiki/provider.md", secretBody)],
+      embedClient: firstClient,
+    });
+
+    const embeddedTexts = firstClient.embed.mock.calls[0]?.[0] as string[];
+    expect(first.embedded).toBe(1);
+    expect(embeddedTexts[0]).toContain("VOYAGE_API_KEY=[REDACTED]");
+    expect(embeddedTexts[0]).not.toContain("not-a-real-test-value");
+
+    const secondClient = capturingClient();
+    const second = await refreshEmbeddings({
+      memoryRoot: tmp,
+      documents: [doc("wiki/provider.md", redactedBody)],
+      embedClient: secondClient,
+    });
+
+    expect(second).toMatchObject({
+      embedded: 0,
+      unchanged: 1,
+      errors: [],
+    });
+    expect(secondClient.embed).not.toHaveBeenCalled();
   });
 
   it("Second refresh with identical content embeds zero docs", async () => {
@@ -255,7 +297,7 @@ describe("embedding refresh", () => {
     await expect(readFile(sidecar, "utf-8")).resolves.toBe(before);
   });
 
-  it("preserves every embedding sidecar when a later corpus kind fails validation", async () => {
+  it("keeps already embedded batches when a later corpus kind fails validation", async () => {
     const wikiDoc = doc("wiki/a.md", "A");
     const rawDoc = doc("raw/2026-05-23/codex-a.md", "A", "raw");
     await saveEmbeddings(tmp, "wiki", [embeddingRecord(wikiDoc)]);
@@ -288,7 +330,7 @@ describe("embedding refresh", () => {
 
     expect(result.embedded).toBe(1);
     expect(result.errors).toHaveLength(1);
-    await expect(readFile(wikiSidecar, "utf-8")).resolves.toBe(beforeWiki);
+    await expect(readFile(wikiSidecar, "utf-8")).resolves.not.toBe(beforeWiki);
     await expect(readFile(rawSidecar, "utf-8")).resolves.toBe(beforeRaw);
   });
 
@@ -377,6 +419,26 @@ describe("embedding refresh", () => {
 
     expect(result.embedded).toBe(10);
     expect(embedClient.embed).toHaveBeenCalledTimes(2);
+  });
+
+  it("caps pending refresh work and reports skipped pending documents", async () => {
+    const documents = Array.from({ length: 10 }, (_, index) =>
+      doc(`wiki/pending-${index}.md`, `pending body ${index}`),
+    );
+    const embedClient = capturingClient();
+
+    const result = await refreshEmbeddings({
+      memoryRoot: tmp,
+      documents,
+      embedClient,
+      maxPending: 3,
+    });
+
+    expect(result.embedded).toBe(3);
+    expect(result.skippedPending).toBe(7);
+    expect(embedClient.embed).toHaveBeenCalledOnce();
+    const embeddedTexts = embedClient.embed.mock.calls[0]?.[0] as string[];
+    expect(embeddedTexts).toHaveLength(3);
   });
 
   it("Single doc near per-doc limit embeds in one batch", async () => {

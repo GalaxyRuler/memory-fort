@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -75,7 +76,37 @@ describe("provider commands", () => {
     expect(result.exitCode).toBe(0);
     expect(result.applied).toBe(false);
     expect(result.documentCount).toBe(1);
+    expect(result.corpusDocumentCount).toBe(1);
     expect(formatReindexEmbeddingsResult(result)).toContain("Mode: plan");
+    expect(formatReindexEmbeddingsResult(result)).toContain("Pending documents: 1");
+  });
+
+  it("plans embedding reindex cost for only pending documents", async () => {
+    await mkdir(join(tmp, "wiki", "projects"), { recursive: true });
+    await writeFile(
+      join(tmp, "wiki", "projects", "embedded.md"),
+      "---\ntype: projects\ntitle: Embedded\ncreated: 2026-05-27\nupdated: 2026-05-27\n---\nAlready embedded.\n",
+    );
+    await writeFile(
+      join(tmp, "wiki", "projects", "new.md"),
+      "---\ntype: projects\ntitle: New\ncreated: 2026-05-27\nupdated: 2026-05-27\n---\nNeeds embedding.\n",
+    );
+    await saveEmbeddings(tmp, "wiki", [
+      embedding("wiki/projects/embedded.md", vector(768, 0), hash("Already embedded.\n"), "nomic-embed-text"),
+    ], { expectedDim: 768 });
+
+    const result = await runReindexEmbeddings({
+      memoryRoot: tmp,
+      mode: "plan",
+      configLoader: async () => ({ embedder: { provider: "ollama", model: "nomic-embed-text" } }),
+      env: {},
+    });
+    const formatted = formatReindexEmbeddingsResult(result);
+
+    expect(result.corpusDocumentCount).toBe(2);
+    expect(result.documentCount).toBe(1);
+    expect(formatted).toContain("Corpus documents: 2");
+    expect(formatted).toContain("Pending documents: 1");
   });
 
   it("fails a degenerate embedding reindex without clobbering existing vectors", async () => {
@@ -116,15 +147,24 @@ describe("provider commands", () => {
   });
 });
 
-function embedding(path: string, vector: number[]): EmbeddingRecord {
+function embedding(
+  path: string,
+  vector: number[],
+  recordHash = `hash-${path}`,
+  model = "voyage-4-large",
+): EmbeddingRecord {
   return {
     path,
-    hash: `hash-${path}`,
+    hash: recordHash,
     vector,
-    model: "voyage-4-large",
+    model,
     dim: vector.length,
     ts: "2026-06-03T00:00:00.000Z",
   };
+}
+
+function hash(text: string): string {
+  return createHash("sha256").update(text).digest("hex");
 }
 
 function vector(dim: number, primaryIndex: number): number[] {
