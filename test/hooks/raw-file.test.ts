@@ -7,6 +7,7 @@ import {
   formatPromptBlock,
   formatToolUseBlock,
   formatMarker,
+  formatObservationBlock,
   truncate,
   truncateMiddle,
   ensureRawSessionFile,
@@ -32,6 +33,13 @@ describe("raw-file formatters", () => {
     expect(out).not.toContain("   spaced");
   });
 
+  it("formatPromptBlock redacts shaped secrets", () => {
+    const out = formatPromptBlock("OPENROUTER_API_KEY=sk-live-secret-material-123456", t);
+
+    expect(out).toContain("[REDACTED]");
+    expect(out).not.toContain("sk-live-secret-material");
+  });
+
   it("formatToolUseBlock includes tool name, input JSON, output", () => {
     const out = formatToolUseBlock({
       toolName: "Read",
@@ -42,6 +50,29 @@ describe("raw-file formatters", () => {
     expect(out).toContain("## [09:08:07] ToolUse: Read");
     expect(out).toContain('"path": "foo.md"');
     expect(out).toContain("file contents");
+  });
+
+  it("formatToolUseBlock redacts shaped secrets from input and output", () => {
+    const out = formatToolUseBlock({
+      toolName: "Bash",
+      toolInput: { command: "echo VOYAGE_API_KEY=sk-input-secret-material-123456" },
+      toolOutput: "OPENAI_API_KEY=sk-output-secret-material-123456",
+      now: t,
+    });
+
+    expect(out).toContain("[REDACTED]");
+    expect(out).not.toContain("sk-input-secret-material");
+    expect(out).not.toContain("sk-output-secret-material");
+  });
+
+  it("formatObservationBlock redacts shaped secrets", () => {
+    const out = formatObservationBlock({
+      text: "ANTHROPIC_API_KEY=sk-observation-secret-material-123456",
+      now: t,
+    });
+
+    expect(out).toContain("[REDACTED]");
+    expect(out).not.toContain("sk-observation-secret-material");
   });
 
   it("formatToolUseBlock truncates output beyond maxOutputBytes", () => {

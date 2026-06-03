@@ -80,6 +80,20 @@ describe("runSniffer", () => {
     expect(result.written).toEqual(["raw/2026-05-24/codex-one.md"]);
     expect(existsSync(join(tmp, "raw", "2026-05-24", "codex-two.md"))).toBe(false);
   });
+
+  it("redacts shaped secrets before writing sniffer backfill sessions", async () => {
+    const sniffer = snifferWithSessions([
+      rawSession("secret", "OPENROUTER_API_KEY=sk-sniffer-secret-material-123456"),
+    ]);
+
+    const result = await runSniffer(sniffer, { limit: 1 });
+
+    expect(result.written).toEqual(["raw/2026-05-24/codex-secret.md"]);
+    const filePath = join(tmp, "raw", "2026-05-24", "codex-secret.md");
+    const parsed = parseFrontmatter(await readFile(filePath, "utf-8"));
+    expect(parsed.body).toContain("[REDACTED]");
+    expect(parsed.body).not.toContain("sk-sniffer-secret-material");
+  });
 });
 
 function rawSession(sessionId: string, body: string): RawSession {

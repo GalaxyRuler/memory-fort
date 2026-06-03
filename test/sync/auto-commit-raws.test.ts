@@ -1,4 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { mkdir, mkdtemp, writeFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { autoCommitRawsIfDirty } from "../../src/sync/auto-commit-raws.js";
 import type { CommandRunner } from "../../src/sync/git-remote.js";
 
@@ -60,6 +63,33 @@ describe("autoCommitRawsIfDirty", () => {
       "add raw/",
       "commit -m chore: auto-capture 2 raw observation file(s)",
     ]);
+  });
+
+  it("skips auto-commit when dirty raw files contain secret-shaped content", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "auto-commit-raw-secret-"));
+    try {
+      await mkdir(join(tmp, "raw", "2026-06-03"), { recursive: true });
+      await writeFile(
+        join(tmp, "raw", "2026-06-03", "codex-secret.md"),
+        "OPENROUTER_API_KEY=sk-live-secret-material-123456",
+      );
+      const { runner, calls } = makeRunner((call) => {
+        const args = call.args.join(" ");
+        if (args === "status --porcelain") {
+          return { stdout: "?? raw/2026-06-03/codex-secret.md\n" };
+        }
+        throw new Error(`unexpected command: ${args}`);
+      });
+
+      await expect(autoCommitRawsIfDirty({ memoryRoot: tmp, runner })).resolves.toEqual({
+        kind: "skipped-secret-raw-dirty",
+        secretRawFiles: ["raw/2026-06-03/codex-secret.md"],
+      });
+
+      expect(calls.map((call) => call.args.join(" "))).toEqual(["status --porcelain"]);
+    } finally {
+      await rm(tmp, { recursive: true, force: true });
+    }
   });
 
   it("skips when wiki/ is dirty", async () => {

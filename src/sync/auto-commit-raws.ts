@@ -1,3 +1,6 @@
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+import { containsSecretShape } from "../privacy/redaction.js";
 import type { CommandRunner } from "./git-remote.js";
 
 export interface AutoCommitOptions {
@@ -9,7 +12,8 @@ export interface AutoCommitOptions {
 export type AutoCommitResult =
   | { kind: "no-dirty-files" }
   | { kind: "committed"; filesCount: number; commitSha: string }
-  | { kind: "skipped-non-raw-dirty"; dirtyNonRawFiles: string[] };
+  | { kind: "skipped-non-raw-dirty"; dirtyNonRawFiles: string[] }
+  | { kind: "skipped-secret-raw-dirty"; secretRawFiles: string[] };
 
 interface DirtyFile {
   path: string;
@@ -31,6 +35,11 @@ export async function autoCommitRawsIfDirty(opts: AutoCommitOptions): Promise<Au
   }
 
   const rawFiles = [...new Set(dirty.map((file) => file.path))];
+  const secretRawFiles = await findSecretRawFiles(opts.memoryRoot, rawFiles);
+  if (secretRawFiles.length > 0) {
+    return { kind: "skipped-secret-raw-dirty", secretRawFiles };
+  }
+
   const message = `chore: auto-capture ${rawFiles.length} raw observation file(s)`;
   const add = await opts.runner.run("git", ["add", "raw/"], { cwd: opts.memoryRoot });
   if (add.exitCode !== 0) {
@@ -76,4 +85,17 @@ function unquotePath(path: string): string {
 
 function parseCommitSha(output: string): string | null {
   return /\[[^\s\]]+\s+([a-f0-9]+)\]/i.exec(output)?.[1] ?? null;
+}
+
+async function findSecretRawFiles(memoryRoot: string, rawFiles: string[]): Promise<string[]> {
+  const hits: string[] = [];
+  for (const rawFile of rawFiles) {
+    try {
+      const content = await readFile(join(memoryRoot, ...rawFile.split("/")), "utf-8");
+      if (containsSecretShape(content)) hits.push(rawFile);
+    } catch {
+      // Deleted or unreadable files cannot leak new content through auto-commit.
+    }
+  }
+  return hits;
 }

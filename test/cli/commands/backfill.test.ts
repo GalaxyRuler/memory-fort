@@ -12,18 +12,22 @@ describe("runBackfill", () => {
   let tmp: string;
   let memoryDir: string;
   let claudeProjectsDir: string;
+  let claudeDesktopDir: string;
   let originalEnv: Record<string, string | undefined>;
 
   beforeEach(async () => {
     tmp = await mkdtemp(join(tmpdir(), "backfill-"));
     memoryDir = join(tmp, ".memory");
     claudeProjectsDir = join(tmp, ".claude", "projects");
+    claudeDesktopDir = join(tmp, "Claude");
     originalEnv = {
       MEMORY_ROOT: process.env["MEMORY_ROOT"],
       MEMORY_CLAUDE_PROJECTS_DIR: process.env["MEMORY_CLAUDE_PROJECTS_DIR"],
+      MEMORY_CLAUDE_DESKTOP_DIR: process.env["MEMORY_CLAUDE_DESKTOP_DIR"],
     };
     process.env["MEMORY_ROOT"] = memoryDir;
     process.env["MEMORY_CLAUDE_PROJECTS_DIR"] = claudeProjectsDir;
+    process.env["MEMORY_CLAUDE_DESKTOP_DIR"] = claudeDesktopDir;
     await runInit({ sourceRepoDir: process.cwd() });
     await writeClaudeSession("session-a", "2026-05-24T10:00:00.000Z", "hello");
   });
@@ -31,6 +35,7 @@ describe("runBackfill", () => {
   afterEach(async () => {
     restoreEnv("MEMORY_ROOT");
     restoreEnv("MEMORY_CLAUDE_PROJECTS_DIR");
+    restoreEnv("MEMORY_CLAUDE_DESKTOP_DIR");
     await rm(tmp, { recursive: true, force: true });
   });
 
@@ -91,6 +96,20 @@ describe("runBackfill", () => {
     expect(result.report).toContain("Memory consolidate apply");
   });
 
+  it("supports Claude Desktop backfill through the default sniffer registry", async () => {
+    await writeClaudeDesktopSession("desktop-a", "2026-05-25T08:00:00.000Z", "desktop prompt");
+
+    const result = await runBackfill({
+      from: "claude-desktop",
+      since: "2026-05-22",
+      plan: true,
+      now: new Date("2026-05-26T12:00:00.000Z"),
+    });
+
+    expect(result.report).toContain("claude-desktop: 1 session");
+    expect(result.report).toContain("raw/2026-05-25/claude-desktop-desktop-a.md");
+  });
+
   it("rejects unknown clients", async () => {
     await expect(runBackfill({ from: "unknown" })).rejects.toThrow(/unknown sniffer/);
   });
@@ -109,7 +128,21 @@ describe("runBackfill", () => {
     );
   }
 
-  function restoreEnv(key: "MEMORY_ROOT" | "MEMORY_CLAUDE_PROJECTS_DIR"): void {
+  async function writeClaudeDesktopSession(sessionId: string, timestamp: string, prompt: string): Promise<void> {
+    const sessionDir = join(claudeDesktopDir, "local-agent-mode-sessions");
+    await mkdir(sessionDir, { recursive: true });
+    await writeFile(
+      join(sessionDir, `${sessionId}.jsonl`),
+      JSON.stringify({
+        sessionId,
+        timestamp,
+        role: "user",
+        content: prompt,
+      }) + "\n",
+    );
+  }
+
+  function restoreEnv(key: "MEMORY_ROOT" | "MEMORY_CLAUDE_PROJECTS_DIR" | "MEMORY_CLAUDE_DESKTOP_DIR"): void {
     const value = originalEnv[key];
     if (value === undefined) delete process.env[key];
     else process.env[key] = value;

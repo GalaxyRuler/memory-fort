@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { atomicWrite } from "../storage/atomic-write.js";
+import { redactSecrets } from "../privacy/redaction.js";
 import { parseFrontmatter, serializeFrontmatter, type Frontmatter } from "../storage/frontmatter.js";
 import { formatIsoDate, memoryRoot } from "../storage/paths.js";
 import type { ListOpts, RawSession, Sniffer } from "./types.js";
@@ -46,7 +47,7 @@ export async function runSniffer(
 
   const existing = await loadExistingRaw(root);
   for await (const session of sniffer.list({ since: opts.since, limit: opts.limit })) {
-    const hash = normalizedHash(session.body);
+    const hash = normalizedHash(redactSecrets(session.body));
     const duplicate = existing.find((page) => page.hash === hash);
     if (duplicate) {
       result.skipped.push({
@@ -72,7 +73,9 @@ export function rawSessionRelPath(session: RawSession): string {
   return `raw/${formatIsoDate(startedAt)}/${session.source}-${safeFilename(session.sessionId)}.md`;
 }
 
-export function renderRawSession(session: RawSession, hash = normalizedHash(session.body)): string {
+export function renderRawSession(session: RawSession, hash?: string): string {
+  const body = redactSecrets(session.body);
+  const captureHash = hash ?? normalizedHash(body);
   const startedAt = parseSessionDate(session.startedAt, "startedAt");
   const updatedAt = parseSessionDate(session.updatedAt, "updatedAt");
   const frontmatter: Frontmatter = {
@@ -83,14 +86,14 @@ export function renderRawSession(session: RawSession, hash = normalizedHash(sess
     source: session.source as never,
     session: session.sessionId,
     cwd: session.cwd,
-    capture_hash: hash,
+    capture_hash: captureHash,
     imported_from: {
       system: session.source,
       session_id: session.sessionId,
     },
     cognitive_type: "episodic",
   };
-  return serializeFrontmatter(frontmatter, session.body);
+  return serializeFrontmatter(frontmatter, body);
 }
 
 async function loadExistingRaw(root: string): Promise<ExistingRaw[]> {

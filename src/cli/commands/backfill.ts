@@ -1,6 +1,7 @@
 import { atomicWrite } from "../../storage/atomic-write.js";
 import { memoryRoot } from "../../storage/paths.js";
 import { ClaudeCodeSniffer } from "../../sniffers/claude-code.js";
+import { ClaudeDesktopSniffer } from "../../sniffers/claude-desktop.js";
 import { rawSessionRelPath, runSniffer, type RunSnifferResult } from "../../sniffers/run-sniffer.js";
 import type { RawSession, Sniffer } from "../../sniffers/types.js";
 import { join } from "node:path";
@@ -73,7 +74,7 @@ export async function runBackfill(opts: BackfillOptions = {}): Promise<BackfillR
 }
 
 function defaultSniffers(): Sniffer[] {
-  return [new ClaudeCodeSniffer()];
+  return [new ClaudeCodeSniffer(), new ClaudeDesktopSniffer()];
 }
 
 function selectSniffers(from: string | undefined, sniffers: Sniffer[]): Sniffer[] {

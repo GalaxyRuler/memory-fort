@@ -212,4 +212,37 @@ describe("runAutoPushWorker", () => {
     expect(logs.some((line) => line.includes("auto-push skipped: non-raw dirty files present"))).toBe(true);
     expect(logs.some((line) => line.includes("wiki/projects/foo.md"))).toBe(true);
   });
+
+  it("Worker skips push when dirty raw files contain secret-shaped content", async () => {
+    await writePendingFile(tmp, {
+      token: "A",
+      scheduledAt: now().toISOString(),
+      debounceMs: 5000,
+    });
+    let syncCalls = 0;
+    const logs: string[] = [];
+
+    const result = await runAutoPushWorker({
+      memoryRoot: tmp,
+      myToken: "A",
+      sleepFn,
+      autoCommitFn: async () => ({
+        kind: "skipped-secret-raw-dirty",
+        secretRawFiles: ["raw/2026-06-03/codex-secret.md"],
+      }),
+      syncFn: async () => {
+        syncCalls += 1;
+        throw new Error("should not sync");
+      },
+      logSink: async (line) => {
+        logs.push(line);
+      },
+      now,
+    });
+
+    expect(result).toEqual({ outcome: "offline", details: "secret-shaped raw observations" });
+    expect(syncCalls).toBe(0);
+    expect(logs.some((line) => line.includes("auto-push skipped: secret-shaped raw observations"))).toBe(true);
+    expect(logs.some((line) => line.includes("raw/2026-06-03/codex-secret.md"))).toBe(true);
+  });
 });

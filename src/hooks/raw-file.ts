@@ -1,6 +1,7 @@
 import { stat } from "node:fs/promises";
 import { TextDecoder } from "node:util";
 import { rawSessionFile } from "../storage/paths.js";
+import { redactSecrets } from "../privacy/redaction.js";
 import { atomicAppend, atomicWrite } from "../storage/atomic-write.js";
 import {
   serializeFrontmatter,
@@ -69,7 +70,7 @@ export function truncateMiddle(text: string, maxBytes: number): string {
 
 export function formatPromptBlock(prompt: string, now: Date): string {
   const ts = formatTimestamp(now);
-  return `\n## [${ts}] Prompt\n\n${prompt.trim()}\n`;
+  return `\n## [${ts}] Prompt\n\n${redactSecrets(prompt.trim())}\n`;
 }
 
 export function formatToolUseBlock(input: {
@@ -88,8 +89,8 @@ export function formatToolUseBlock(input: {
     typeof input.toolOutput === "string"
       ? input.toolOutput
       : safeJsonStringify(input.toolOutput);
-  const truncatedInput = truncateMiddle(inJson, maxInput);
-  const truncatedOutput = truncateMiddle(outString, maxOutput);
+  const truncatedInput = truncateMiddle(redactSecrets(inJson), maxInput);
+  const truncatedOutput = truncateMiddle(redactSecrets(outString), maxOutput);
   return (
     `\n## [${ts}] ToolUse: ${input.toolName}\n\n` +
     `**Input:**\n\n\`\`\`json\n${truncatedInput}\n\`\`\`\n\n` +
@@ -115,7 +116,7 @@ export function formatObservationBlock(input: {
     `observed_at: ${input.now.toISOString()}`,
   ].filter(Boolean);
   const metaLine = meta.length > 0 ? `_${meta.join(" · ")}_\n\n` : "";
-  return `\n## [${ts}] Observation\n\n${metaLine}${input.text}\n`;
+  return `\n## [${ts}] Observation\n\n${metaLine}${redactSecrets(input.text)}\n`;
 }
 
 /**

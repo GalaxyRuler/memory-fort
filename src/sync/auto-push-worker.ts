@@ -27,6 +27,11 @@ export interface WorkerResult {
   details?: string;
 }
 
+type AutoCommitDisposition =
+  | "clean"
+  | "committed"
+  | { kind: "skipped"; reason: string };
+
 export async function runAutoPushWorker(opts: WorkerOptions): Promise<WorkerResult> {
   const nowFn = opts.now ?? (() => new Date());
   const pending = await readPendingFile(opts.memoryRoot);
@@ -44,7 +49,7 @@ export async function runAutoPushWorker(opts: WorkerOptions): Promise<WorkerResu
       ? async () => ({ kind: "no-dirty-files" as const })
       : () => autoCommitRawsIfDirty({ memoryRoot: opts.memoryRoot, runner: makeRealCommandRunner(), now: nowFn }));
   const initialAutoCommit = await handleAutoCommit(opts.memoryRoot, autoCommitFn, nowFn, opts.logSink);
-  if (initialAutoCommit === "skipped") return { outcome: "offline", details: "non-raw dirty tree" };
+  if (isSkippedAutoCommit(initialAutoCommit)) return { outcome: "offline", details: initialAutoCommit.reason };
 
   const syncFn = opts.syncFn ?? (() => runSync({ memoryRoot: opts.memoryRoot }));
   try {
@@ -111,8 +116,8 @@ async function syncAfterRawCommits(
       lastDirtyError = err;
 
       const retryAutoCommit = await handleAutoCommit(memoryRoot, autoCommitFn, nowFn, logSink);
-      if (retryAutoCommit === "skipped") {
-        throw new AutoPushSkipError("non-raw dirty tree");
+      if (isSkippedAutoCommit(retryAutoCommit)) {
+        throw new AutoPushSkipError(retryAutoCommit.reason);
       }
       if (retryAutoCommit !== "committed") throw err;
     }
@@ -132,7 +137,7 @@ async function handleAutoCommit(
   autoCommitFn: () => Promise<AutoCommitResult>,
   nowFn: () => Date,
   logSink?: (line: string) => Promise<void>,
-): Promise<"clean" | "committed" | "skipped"> {
+): Promise<AutoCommitDisposition> {
   const autoCommit = await autoCommitFn();
   const nowIso = nowFn().toISOString();
   switch (autoCommit.kind) {
@@ -153,9 +158,23 @@ async function handleAutoCommit(
         `[${nowIso}] auto-push skipped: non-raw dirty files present (run \`memory sync\` after committing: ${shown}${suffix})\n`,
         logSink,
       );
-      return "skipped";
+      return { kind: "skipped", reason: "non-raw dirty tree" };
+    }
+    case "skipped-secret-raw-dirty": {
+      const shown = autoCommit.secretRawFiles.slice(0, 3).join(", ");
+      const suffix = autoCommit.secretRawFiles.length > 3 ? "..." : "";
+      await writeLog(
+        memoryRoot,
+        `[${nowIso}] auto-push skipped: secret-shaped raw observations require manual redaction before commit (${shown}${suffix})\n`,
+        logSink,
+      );
+      return { kind: "skipped", reason: "secret-shaped raw observations" };
     }
   }
+}
+
+function isSkippedAutoCommit(disposition: AutoCommitDisposition): disposition is { kind: "skipped"; reason: string } {
+  return typeof disposition === "object" && disposition.kind === "skipped";
 }
 
 function sleep(ms: number): Promise<void> {

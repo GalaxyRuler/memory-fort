@@ -328,6 +328,47 @@ describe("verify checks", () => {
     expect(result.label).toContain("1 errors in last hour");
   });
 
+  it("auto-push check ignores pending-lock contention entries", async () => {
+    await writeFile(join(tmp, ".auto-push-pending.lock"), "pending");
+    await writeFile(
+      join(tmp, "errors.log"),
+      "[2026-05-26T03:00:00.000Z] auto-push schedule failed: EPERM: operation not permitted, open 'C:\\Users\\Admin\\.memory\\.auto-push-pending.lock'\n",
+    );
+
+    const result = await checkAutoPush({ vaultRoot: tmp, now });
+
+    expect(result.status).toBe("pass");
+    expect(result.label).toContain("no errors in last 24h");
+  });
+
+  it("auto-push check keeps lock errors visible when no pending lock exists", async () => {
+    await writeFile(
+      join(tmp, "errors.log"),
+      "[2026-05-26T03:00:00.000Z] auto-push schedule failed: EPERM: operation not permitted, open 'C:\\Users\\Admin\\.memory\\.auto-push-pending.lock'\n",
+    );
+
+    const result = await checkAutoPush({ vaultRoot: tmp, now });
+
+    expect(result.status).toBe("fail");
+    expect(result.label).toContain("1 errors in last hour");
+  });
+
+  it("auto-push check ignores errors older than the latest successful schedule", async () => {
+    await writeFile(join(tmp, ".auto-push-last-scheduled"), "2026-05-26T03:15:00.000Z\n");
+    await writeFile(
+      join(tmp, "errors.log"),
+      [
+        "[2026-05-26T03:00:00.000Z] auto-push schedule failed: ENOENT",
+        "[2026-05-26T03:20:00.000Z] auto-push schedule failed: ENOENT",
+      ].join("\n"),
+    );
+
+    const result = await checkAutoPush({ vaultRoot: tmp, now });
+
+    expect(result.status).toBe("fail");
+    expect(result.label).toContain("1 errors in last hour");
+  });
+
   it("compile check passes when the dashboard status has a recent compile", async () => {
     const result = await checkCompile({
       vaultRoot: tmp,

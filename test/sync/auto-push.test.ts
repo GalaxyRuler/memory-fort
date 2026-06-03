@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { scheduleAutoPush, readPendingFile } from "../../src/sync/auto-push.js";
+import { scheduleAutoPush, readPendingFile, isBusyPendingFileLockError } from "../../src/sync/auto-push.js";
 
 interface SpawnCall {
   cmd: string;
@@ -33,14 +33,17 @@ describe("scheduleAutoPush", () => {
 
   it("scheduleAutoPush writes a token to .auto-push-pending", async () => {
     const { spawnFn } = makeSpawn();
+    const now = () => new Date("2026-06-03T11:55:00.000Z");
 
-    const result = await scheduleAutoPush({ memoryRoot: tmp, spawnFn: spawnFn as never });
+    const result = await scheduleAutoPush({ memoryRoot: tmp, spawnFn: spawnFn as never, now });
     const pending = await readPendingFile(tmp);
+    const lastScheduled = await readFile(join(tmp, ".auto-push-last-scheduled"), "utf-8");
 
     expect(result.scheduled).toBe(true);
     expect(pending?.token).toMatch(/^[a-f0-9]{16}$/);
-    expect(pending?.scheduledAt).toBeTruthy();
+    expect(pending?.scheduledAt).toBe("2026-06-03T11:55:00.000Z");
     expect(pending?.debounceMs).toBe(5000);
+    expect(lastScheduled.trim()).toBe("2026-06-03T11:55:00.000Z");
   });
 
   it("scheduleAutoPush invokes spawn with worker path + memoryRoot + token", async () => {
@@ -87,6 +90,13 @@ describe("scheduleAutoPush", () => {
     expect(result).toEqual({ scheduled: false, reason: "busy" });
     expect(calls).toHaveLength(0);
     expect(existsSync(join(tmp, "errors.log"))).toBe(false);
+  });
+
+  it("treats Windows lock EPERM on an existing pending lock as busy", async () => {
+    const lockPath = join(tmp, ".auto-push-pending.lock");
+    await writeFile(lockPath, "locked");
+
+    expect(isBusyPendingFileLockError(Object.assign(new Error("locked"), { code: "EPERM" }), lockPath)).toBe(true);
   });
 
   it("handles concurrent schedule attempts without errors.log entries", async () => {

@@ -22,10 +22,13 @@ export async function checkAutoPush(
   const lines = (await readFile(path, "utf-8"))
     .split(/\r?\n/)
     .filter((line) => line.includes("auto-push"))
+    .filter((line) => !isPendingLockContention(line, ctx.vaultRoot))
     .slice(-100);
   const nowMs = ctx.now().getTime();
+  const lastScheduledAt = await readLastScheduledAt(ctx.vaultRoot);
   const recentAges = lines.flatMap((line) => {
     const timestamp = parseTimestamp(line);
+    if (timestamp !== null && lastScheduledAt !== null && timestamp <= lastScheduledAt) return [];
     return timestamp === null ? [] : [nowMs - timestamp];
   });
   const lastHour = recentAges.filter((age) => age >= 0 && age <= HOUR_MS).length;
@@ -46,6 +49,20 @@ export async function checkAutoPush(
     );
   }
   return pass("autopush.errors", "auto-push: no errors in last 24h");
+}
+
+function isPendingLockContention(line: string, vaultRoot: string): boolean {
+  if (!/auto-push schedule failed: (?:EPERM|EACCES): .*open .*\.auto-push-pending\.lock/i.test(line)) {
+    return false;
+  }
+  return existsSync(join(vaultRoot, ".auto-push-pending.lock"));
+}
+
+async function readLastScheduledAt(vaultRoot: string): Promise<number | null> {
+  const path = join(vaultRoot, ".auto-push-last-scheduled");
+  if (!existsSync(path)) return null;
+  const parsed = Date.parse((await readFile(path, "utf-8")).trim());
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function parseTimestamp(line: string): number | null {
