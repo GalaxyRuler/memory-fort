@@ -16,6 +16,7 @@ export type PlanetRenderer = (
 
 export const PLANET_RENDERERS: Record<DomainType, PlanetRenderer> = {
   decisions: drawDecisionPlanet,
+  issues: drawDecisionPlanet,
   lessons: drawLessonPlanet,
   projects: drawProjectPlanet,
   references: drawReferencePlanet,

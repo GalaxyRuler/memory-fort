@@ -34,6 +34,7 @@ The wiki is organized by entity category. Every page declares one `type:` in fro
 | `people` | `wiki/people/` | `<lowercase-first-name>.md` (collisions: `-lastname`) | Someone the user works with, gets feedback from, or builds for |
 | `decisions` | `wiki/decisions/` | `<YYYY-MM-DD>-<short-slug>.md` | A choice made with alternatives considered and reasons recorded |
 | `lessons` | `wiki/lessons/` | `<short-slug>.md` (no date — lessons are timeless) | A reusable fact learned from a specific incident |
+| `issues` | `wiki/issues/` | `<short-slug>.md` | A bug, blocker, incident, failure, or constraint that may have causes and fixes |
 | `prospective` | `wiki/prospective/` | `<short-slug>.md` | A future-oriented reminder, trigger, or pending memory to revisit |
 | `procedures` | `wiki/procedures/` | `<short-slug>.md` | A reusable workflow with preconditions, ordered steps, verification, and failure cases |
 | `threads` | `wiki/threads/` | `<short-slug>.md` | A narrative thread that groups raw observations into a temporal arc |
@@ -45,7 +46,7 @@ Raw session files (`raw/<date>/<tool>-<session-id>.md`) carry `type: raw-session
 
 Wiki dot-directories such as `wiki/.audit/` are operational space, not entity space. They may contain audit logs or runtime metadata, but they are excluded from entity deduplication and graph-health wiki-page metrics. Intentional audit readers may still inspect these files directly. `wiki/compile-proposed/` is also review space for low-confidence autonomous compile operations; its files are not canonical memory until manually reviewed and applied.
 
-Dashboard browse views group curated wiki pages in this order when showing all categories: Decisions, Projects, Lessons, References, Tools, People, Threads, Procedures, Crystals. Empty groups are omitted. The category grouping is presentation-only and does not change the canonical directory layout above.
+Dashboard browse views group curated wiki pages in this order when showing all categories: Decisions, Projects, Issues, Lessons, References, Tools, People, Threads, Procedures, Crystals. Empty groups are omitted. The category grouping is presentation-only and does not change the canonical directory layout above.
 
 ---
 
@@ -55,7 +56,7 @@ Every wiki page (and every raw session file) begins with YAML frontmatter:
 
 ```yaml
 ---
-type: projects | people | decisions | lessons | prospective | procedures | threads | references | tools | crystal | raw-session
+type: projects | people | decisions | lessons | issues | prospective | procedures | threads | references | tools | crystal | raw-session
 title: "Human-readable title"
 created: 2026-05-21    # ISO 8601 date
 updated: 2026-05-21
@@ -172,7 +173,7 @@ confidence:
 - `procedural`: reusable how-to knowledge, tools, and lessons.
 - `prospective`: future-oriented memory that should be revisited when a due date, trigger, or context arrives.
 
-Pages under `wiki/prospective/*.md` infer `cognitive_type: prospective` when the field is absent. An explicit `cognitive_type: prospective` is also valid on any non-raw wiki page when a future-oriented memory naturally lives in another category.
+Pages under `wiki/prospective/*.md` infer `cognitive_type: prospective` when the field is absent. An explicit `cognitive_type: prospective` is also valid on any non-raw wiki page when a future-oriented memory naturally lives in another category. Use `wiki/issues/` for problems, blockers, incidents, failures, and constraints; use `cognitive_type: prospective` or due/trigger metadata for future orientation.
 
 Pages under `wiki/threads/*.md` infer `cognitive_type: episodic` when the field is absent. An explicit `cognitive_type` override remains valid on non-raw thread pages when a thread is being used as a stable semantic summary.
 
@@ -232,6 +233,8 @@ Thread pages should use existing `mentions` and `derived_from` relations to cite
 The `graph.narrative-thread-coverage` dashboard metric is `n/a` until at least one live thread exists. Once threads exist, it passes when at least 50% of raw observations are referenced by live thread pages, warns below 50%, and fails below 25%.
 
 The dashboard Overview treats graph health as a compact status summary. Metric tiles expand on demand and link to `/memory/health#<metric-id>` for the detailed drill-down, where thresholds and offender records are shown.
+
+Structural graph health metrics operate on reasoning edges only. Provenance and association edge coverage are still reported as informational metrics, but they do not make the reasoning graph look healthier or noisier.
 
 ## Auto-thread proposing
 
@@ -345,6 +348,24 @@ secrets.
 frontmatter date behavior: unquoted `YYYY-MM-DD` values remain strings rather
 than becoming JavaScript `Date` objects. Normal YAML features such as inline
 comments, nested maps, block lists, and flow lists are supported.
+
+### Graph retrieval config
+
+Graph spreading activation uses default edge weights that favor reasoning
+edges over provenance and association. Operators may override individual
+weights in `config.yaml`:
+
+```yaml
+graph:
+  edge_weights:
+    caused_by: 1.2
+    linked: 0.05
+```
+
+Unspecified weights inherit defaults. Values must be finite non-negative
+numbers. Superseded relation entries and relation entries whose `valid_to` has
+expired at query time are not traversed by graph expansion or spreading
+activation.
 
 ### Dashboard reverse proxies
 
@@ -473,7 +494,7 @@ Operators can override with `?intent=<bucket>` on the `/api/search` URL query, o
 
 ## 5. Edge types (knowledge graph)
 
-The graph is derived on-demand from `relations:` frontmatter (and inline `[[wikilinks]]` which create implicit `linked` edges). Ten canonical edge types are supported — the exact set `validateFrontmatter` accepts; any other key is rejected. Use them precisely.
+The graph is derived on-demand from `relations:` frontmatter (and inline `[[wikilinks]]` which create implicit `linked` edges). Eleven canonical edge types are supported — the exact set `validateFrontmatter` accepts; any other key is rejected. Use them precisely.
 
 | Type | Direction | Semantics | Example |
 |---|---|---|---|
@@ -483,12 +504,36 @@ The graph is derived on-demand from `relations:` frontmatter (and inline `[[wiki
 | `supersedes` | A → B | A replaces B; B is archived | `lisan-studio` supersedes `vs-code-arabic` |
 | `contradicts` | A → B | A's content disagrees with B; needs human resolution | `2026-05-21-restore-onedrive-data` contradicts an earlier decision page |
 | `caused_by` | A → B | A (a problem or event) was caused by B | `stale-listening-sockets` caused_by `iii-config-port-hardcoding` |
-| `fixed_by` | A → B | A was fixed by B (a decision, commit, or lesson) | `dead-pid-survivor-guard` fixed_by `2026-05-20-decide-stop-action-filter` |
+| `fixed_by` | A → B | An issue was fixed by B (a decision, procedure, or tool) | `dead-pid-survivor-guard` fixed_by `2026-05-20-decide-stop-action-filter` |
+| `learned_from` | A → B | A lesson was learned from B (an issue, decision, or procedure) | `windows-safe-vars` learned_from `powershell-parser-failure` |
 | `derived_from` | A → B | A's content was distilled from B (typical: crystal from raw thread) | `2026-05-20-agentmemory-stabilization` derived_from `raw/2026-05-20/*` |
 | `mentioned_in` | A → B | A appears in B (often auto-extracted by implicit graph) | `voyage-3.5` mentioned_in `2026-05-20-embedding-provider-choice` |
 | `linked` | A → B | Generic association; least specific. Inline `[[wikilinks]]` create implicit linked edges. | Use only when no more-specific type applies |
 
 When in doubt, pick the more specific edge. `linked` is the fallback. `mentions` is also accepted as a backwards-compatible auto-write key for raw observations and is treated as a generic mention edge.
+
+Reasoning edges are `uses`, `depends_on`, `caused_by`, `fixed_by`,
+`contradicts`, `supersedes`, and `learned_from`. Provenance edges are
+`derived_from`, `mentioned_in`, and `mentions`. Association edges are `linked`
+and implicit `wikilink` edges. Retrieval weights and graph-health structure
+use these classes so provenance and loose links do not masquerade as causal or
+dependency signal.
+
+### Advisory edge grammar
+
+`memory lint --checks-only` reports edge-grammar issues as advisory findings.
+They are included in the lint report and counts, but they do not make
+`hasBlockingIssues` true.
+
+| Relation | Expected source | Expected target |
+|---|---|---|
+| `caused_by` | `issues` | `issues`, `decisions`, `tools`, or `references` |
+| `fixed_by` | `issues` | `decisions`, `procedures`, or `tools` |
+| `learned_from` | `lessons` | `issues`, `decisions`, or `procedures` |
+
+`fixed_by` edges from or to `lessons` are suspect because lessons describe
+fixes; they do not fix issues themselves. Prefer `learned_from` when a lesson
+records what an incident taught.
 
 ### Relation entry shapes
 
@@ -677,8 +722,8 @@ existing page body with a complete curated article that preserves substantive
 facts while removing redundancy. `append_page` preserves an existing page and
 appends a dated section only for genuinely time-stamped events. For wiki page targets under `wiki/<category>/<slug>.md`, the executor
 normalizes the slug, infers `type` from the category only for known categories
-(`projects`, `people`, `decisions`, `lessons`, `references`, `tools`, `threads`,
-`procedures`, `prospective`), rejects unknown category directories, converts a
+(`projects`, `people`, `decisions`, `lessons`, `issues`, `references`, `tools`,
+`threads`, `procedures`, `prospective`), rejects unknown category directories, converts a
 missing-page `append_page` into a staged create proposal, and merges multiple
 operations for the same normalized page before writing. Every rewrite archives
 the previous page under `wiki/.history/<path>/<timestamp>.md`; rewrites that
@@ -703,6 +748,7 @@ page type and excluding `.audit/`, `*-proposed/`, and `archive/`.
 | Overdue prospective memories | `cognitive_type: prospective`, `lifecycle: proposed`, and `due` before the verify run date |
 | Narrative thread coverage | Raw observations not referenced by any live `wiki/threads/*.md` page once threads exist |
 | Contradictions | Pages whose `relations.contradicts` resolves to another page, unresolved |
+| Edge grammar | Advisory checks for suspicious `caused_by`, `fixed_by`, and `learned_from` source/target types |
 | Low-confidence drafts | `confidence: < 0.5` AND `status: active` |
 | Naming violations | Filenames not matching lowercase-kebab-case or the type's prefix pattern |
 | Privacy regressions | Any page whose content matches a §7 redaction pattern post-filter |
@@ -723,7 +769,7 @@ Do NOT:
 - **Include emojis** unless the user explicitly used them.
 - **Bypass privacy filter** to keep a "useful" credential in the wiki. There's no useful credential; rotate it.
 - **Update `confidence:` to 1.0** without evidence. New claims start at 0.5-0.7; only promote to 1.0 after the claim survives multiple uses or explicit verification.
-- **Add new edge types** beyond the ten in §5. If a new relationship type seems needed, propose it via `lint-report.md` for schema version bump.
+- **Add new edge types** beyond the eleven in §5. If a new relationship type seems needed, propose it via `lint-report.md` for schema version bump.
 
 ---
 

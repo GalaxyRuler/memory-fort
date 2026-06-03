@@ -10,6 +10,7 @@ import { WikiCard } from "./WikiCard.js";
 const CATEGORY_ORDER = [
   "decisions",
   "projects",
+  "issues",
   "lessons",
   "references",
   "tools",
@@ -22,6 +23,7 @@ const CATEGORY_ORDER = [
 const CATEGORY_LABELS: Record<string, string> = {
   decisions: "Decisions",
   projects: "Projects",
+  issues: "Issues",
   lessons: "Lessons",
   references: "References",
   tools: "Tools",

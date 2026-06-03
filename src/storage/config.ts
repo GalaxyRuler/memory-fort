@@ -34,6 +34,9 @@ export interface MemoryConfig {
   search?: {
     hyde?: boolean;
   };
+  graph?: {
+    edge_weights?: Record<string, number>;
+  };
   auto_promote?: {
     enabled?: boolean;
     cadence?: "weekly" | "daily" | "manual";
@@ -127,6 +130,16 @@ export function validateMemoryConfig(config: MemoryConfig): string[] {
   const compile = asRecord(config.compile);
   if (compile?.["cadence"] !== undefined && !["weekly", "daily", "manual"].includes(String(compile["cadence"]))) {
     warnings.push("compile.cadence must be weekly, daily, or manual");
+  }
+  const graph = asRecord(config.graph);
+  const edgeWeights = asRecord(graph?.["edge_weights"]);
+  if (graph?.["edge_weights"] !== undefined && !edgeWeights) {
+    warnings.push("graph.edge_weights must be an object mapping edge type to non-negative number");
+  }
+  for (const [key, value] of Object.entries(edgeWeights ?? {})) {
+    if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+      warnings.push(`graph.edge_weights.${key} must be a non-negative number`);
+    }
   }
   const capture = asRecord(config.capture);
   for (const key of ["max_input_bytes", "max_output_bytes"]) {

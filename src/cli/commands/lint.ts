@@ -43,6 +43,7 @@ const CATEGORIES: LintCategory[] = [
   "orphan",
   "stale",
   "draft",
+  "edge-grammar",
 ];
 
 export async function runLint(

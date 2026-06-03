@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  DEFAULT_EDGE_WEIGHTS,
+  resolveEdgeWeights,
   spreadingActivation,
   type Edge,
   type SearchGraph,
@@ -60,6 +62,38 @@ describe("spreadingActivation", () => {
     expect(result.map((item) => item.path)).toEqual(["a", "b"]);
   });
 
+  it("uses default reasoning edge weights before provenance and association edges", () => {
+    const graph = graphFromEdges([
+      ["seed", "linked-neighbor", "linked"],
+      ["seed", "causal-neighbor", "caused_by"],
+    ]);
+
+    const result = spreadingActivation(new Set(["seed"]), graph, {
+      followDirection: "outbound",
+      decay: 1,
+      inhibitionLambda: 0,
+      maxIterations: 1,
+      edgeWeights: DEFAULT_EDGE_WEIGHTS,
+    });
+
+    expect(activation(result, "causal-neighbor")).toBeGreaterThan(
+      activation(result, "linked-neighbor"),
+    );
+    expect(result.map((item) => item.path)).toEqual([
+      "seed",
+      "causal-neighbor",
+      "linked-neighbor",
+    ]);
+  });
+
+  it("merges config edge weight overrides with defaults", () => {
+    const weights = resolveEdgeWeights({ linked: 0.8 });
+
+    expect(weights.linked).toBe(0.8);
+    expect(weights.uses).toBe(DEFAULT_EDGE_WEIGHTS.uses);
+    expect(weights.wikilink).toBe(DEFAULT_EDGE_WEIGHTS.wikilink);
+  });
+
   it("handles a 1000-node chain quickly", () => {
     const edges = Array.from({ length: 999 }, (_, index): [string, string] => [
       `node-${index}`,
@@ -90,8 +124,10 @@ function activation(
   return result.find((item) => item.path === path)?.activation ?? 0;
 }
 
-function graphFromEdges(pairs: Array<[string, string]>): SearchGraph {
-  const paths = new Set(pairs.flat());
+function graphFromEdges(
+  pairs: Array<[string, string] | [string, string, string]>,
+): SearchGraph {
+  const paths = new Set(pairs.flatMap(([from, to]) => [from, to]));
   const nodes = new Map(
     [...paths].map((path) => [
       path,
@@ -102,11 +138,11 @@ function graphFromEdges(pairs: Array<[string, string]>): SearchGraph {
       },
     ]),
   );
-  const edges = pairs.map(([fromPath, toPath]): Edge => ({
+  const edges = pairs.map(([fromPath, toPath, relationType]): Edge => ({
     fromPath,
     toPath,
     kind: "relation",
-    relationType: "relates",
+    relationType: relationType ?? "relates",
   }));
 
   for (const edge of edges) {

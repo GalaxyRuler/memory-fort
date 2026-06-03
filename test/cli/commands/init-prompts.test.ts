@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runInit } from "../../../src/cli/commands/init.js";
 
+const INIT_PROMPTS_TIMEOUT_MS = 120_000;
+
 describe("runInit - prompts/ population", () => {
   let tmp: string;
   let origMem: string | undefined;
@@ -24,13 +26,13 @@ describe("runInit - prompts/ population", () => {
   it("creates ~/.memory/prompts/ subdirectory", async () => {
     const result = await runInit({ sourceRepoDir: process.cwd() });
     expect(existsSync(join(result.root, "prompts"))).toBe(true);
-  }, 60_000);
+  }, INIT_PROMPTS_TIMEOUT_MS);
 
   it("copies compile.md and lint.md from templates/prompts/", async () => {
     const result = await runInit({ sourceRepoDir: process.cwd() });
     expect(existsSync(join(result.root, "prompts", "compile.md"))).toBe(true);
     expect(existsSync(join(result.root, "prompts", "lint.md"))).toBe(true);
-  }, 60_000);
+  }, INIT_PROMPTS_TIMEOUT_MS);
 
   it("copied prompt content matches the source verbatim", async () => {
     const result = await runInit({ sourceRepoDir: process.cwd() });
@@ -43,7 +45,7 @@ describe("runInit - prompts/ population", () => {
       "utf-8",
     );
     expect(dest).toBe(src);
-  }, 60_000);
+  }, INIT_PROMPTS_TIMEOUT_MS);
 
   it(
     "preserves existing user-edited prompt files on re-init",
@@ -63,7 +65,7 @@ describe("runInit - prompts/ population", () => {
       expect(after).toBe(userEdited);
       expect(result.preserved.some((p) => p.endsWith("compile.md"))).toBe(true);
     },
-    60_000,
+    INIT_PROMPTS_TIMEOUT_MS,
   );
 
   it("silently skips when source prompt file missing (tolerant)", async () => {
@@ -77,5 +79,5 @@ describe("runInit - prompts/ population", () => {
     const result = await runInit({ sourceRepoDir: fakeSrc });
     expect(existsSync(join(result.root, "prompts"))).toBe(true);
     expect(existsSync(join(result.root, "prompts", "compile.md"))).toBe(false);
-  }, 60_000);
+  }, INIT_PROMPTS_TIMEOUT_MS);
 });

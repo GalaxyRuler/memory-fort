@@ -1,5 +1,6 @@
 export const ENTITY_COLORS: Record<string, string> = {
   projects: "#4ade80",      // green — growth, building
+  issues: "#fb7185",        // rose — failures and blockers
   decisions: "#f472b6",     // pink — critical thinking
   lessons: "#a78bfa",       // violet — wisdom
   references: "#60a5fa",     // blue — knowledge

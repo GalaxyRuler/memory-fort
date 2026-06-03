@@ -8,13 +8,16 @@ import {
   metricContradictionCoverage,
   metricCrossGalaxyRatio,
   metricDuplicateEntities,
+  metricAssociationEdgeCoverage,
   metricEdgeTypeEntropy,
   metricHubOverload,
   metricNarrativeThreadCoverage,
   metricOrphanEpisodic,
   metricGraphParticipationRate,
   metricProjectSubgraphDensity,
+  metricProvenanceEdgeCoverage,
   metricProvenanceCoverage,
+  metricSalientEpisodeAnchorRate,
   metricTemporalCoverage,
 } from "../../src/dashboard/graph-health.js";
 
@@ -23,8 +26,10 @@ describe("graph health metrics", () => {
     const input = graphInput();
 
     expect(() => computeGraphHealth(input)).not.toThrow();
-    expect(computeGraphHealth(input).metrics).toHaveLength(13);
+    expect(computeGraphHealth(input).metrics).toHaveLength(16);
     expect(metricProvenanceCoverage(input).status).toBe("pass");
+    expect(metricProvenanceEdgeCoverage(input.feed).status).toBe("pass");
+    expect(metricAssociationEdgeCoverage(input.feed).status).toBe("pass");
     expect(metricConfidenceCoverage(input).status).toBe("pass");
     expect(metricAgentAttribution(input).status).toBe("pass");
   });
@@ -47,7 +52,7 @@ describe("graph health metrics", () => {
     expect(report.metrics.find((metric) => metric.id === "graph.narrative-thread-coverage")?.status).toBe("n/a");
   });
 
-  it("reports orphan episodic raw observations over the fail threshold", () => {
+  it("keeps all-raw orphan episodic rate informational", () => {
     const result = metricOrphanEpisodic(
       graphFeed({
         nodes: [
@@ -63,9 +68,52 @@ describe("graph health metrics", () => {
       }),
     );
 
-    expect(result.status).toBe("fail");
+    expect(result.status).toBe("pass");
     expect(result.value).toBeCloseTo(66.67, 2);
+    expect(result.threshold.rule).toContain("informational");
     expect(result.topOffenders.map((offender) => offender.path)).toEqual(["raw/old.md", "raw/new.md"]);
+  });
+
+  it("fails salient recent episode anchor rate when important recent raw observations lack semantic anchors", () => {
+    const input = graphInput({
+      now: "2026-06-03T00:00:00.000Z",
+      feed: graphFeed({
+        nodes: [
+          node("raw/2026-06-01-salient-linked.md", {
+            kind: "raw",
+            created: "2026-06-01",
+            importance: 8,
+          }),
+          node("raw/2026-06-02-salient-orphan.md", {
+            kind: "raw",
+            created: "2026-06-02",
+            importance: 7,
+          }),
+          node("raw/2026-06-02-low-importance.md", {
+            kind: "raw",
+            created: "2026-06-02",
+            importance: 2,
+          }),
+          node("wiki/projects/a.md", { kind: "wiki" }),
+        ],
+        edges: [
+          edge("raw/2026-06-01-salient-linked.md", "wiki/projects/a.md", {
+            type: "mentions",
+            relationType: "mentions",
+          }),
+          edge("raw/2026-06-02-low-importance.md", "wiki/projects/a.md", {
+            type: "mentions",
+            relationType: "mentions",
+          }),
+        ],
+      }),
+    });
+
+    const result = metricSalientEpisodeAnchorRate(input);
+
+    expect(result.status).toBe("warn");
+    expect(result.value).toBe(50);
+    expect(result.detail).toContain("1/2 salient recent raw observations have semantic anchors");
   });
 
   it("finds duplicate entities by normalized and near-match titles", () => {
@@ -109,22 +157,35 @@ describe("graph health metrics", () => {
     expect(result.topOffenders).toEqual([]);
   });
 
-  it("flags low edge type entropy and reports dominant edge types", () => {
+  it("computes edge type entropy over reasoning edges only", () => {
     const result = metricEdgeTypeEntropy(
       graphFeed({
         nodes: [node("wiki/projects/a.md"), node("wiki/tools/b.md")],
         edges: [
-          ...Array.from({ length: 9 }, (_, index) =>
-            edge(`wiki/projects/a.md`, "wiki/tools/b.md", { type: "mentions", validFrom: `2026-01-0${index + 1}` }),
+          ...Array.from({ length: 50 }, (_, index) =>
+            edge(`wiki/projects/a.md`, "wiki/tools/b.md", {
+              type: "mentioned_in",
+              relationType: "mentioned_in",
+              validFrom: `2026-01-${String(index + 1).padStart(2, "0")}`,
+            }),
           ),
-          edge("wiki/tools/b.md", "wiki/projects/a.md", { type: "uses", validFrom: "2026-01-10" }),
+          ...Array.from({ length: 50 }, () =>
+            edge("wiki/projects/a.md", "wiki/tools/b.md", {
+              kind: "wikilink",
+              type: "linked",
+              relationType: null,
+            }),
+          ),
+          edge("wiki/tools/b.md", "wiki/projects/a.md", { type: "uses", relationType: "uses", validFrom: "2026-01-10" }),
+          edge("wiki/projects/a.md", "wiki/tools/b.md", { type: "depends_on", relationType: "depends_on", validFrom: "2026-01-11" }),
         ],
       }),
     );
 
-    expect(result.status).toBe("warn");
-    expect(result.value).toBeCloseTo(0.47, 2);
-    expect(result.topOffenders[0]).toMatchObject({ value: "90.0%", note: "mentions" });
+    expect(result.status).toBe("pass");
+    expect(result.value).toBeCloseTo(1, 2);
+    expect(result.detail).toContain("2 reasoning edges");
+    expect(result.topOffenders.map((offender) => offender.note)).toEqual(["depends_on", "uses"]);
   });
 
   it("uses recalibrated cross-galaxy thresholds and reports direction breakdown", () => {
@@ -188,6 +249,20 @@ describe("graph health metrics", () => {
           node("wiki/projects/agentmemory.md", { inboundCount: 1016, outboundCount: 0 }),
           node("wiki/lessons/mcp-plugin.md", { inboundCount: 157, outboundCount: 0 }),
         ],
+        edges: [
+          ...Array.from({ length: 1016 }, (_, index) =>
+            edge(`wiki/references/project-source-${index}.md`, "wiki/projects/agentmemory.md", {
+              type: "uses",
+              relationType: "uses",
+            }),
+          ),
+          ...Array.from({ length: 157 }, (_, index) =>
+            edge(`wiki/references/lesson-source-${index}.md`, "wiki/lessons/mcp-plugin.md", {
+              type: "depends_on",
+              relationType: "depends_on",
+            }),
+          ),
+        ],
       }),
     );
 
@@ -214,6 +289,12 @@ describe("graph health metrics", () => {
         nodes: [
           node("wiki/lessons/hub.md", { inboundCount: degree, outboundCount: 0 }),
         ],
+        edges: Array.from({ length: degree }, (_, index) =>
+          edge(`wiki/references/source-${index}.md`, "wiki/lessons/hub.md", {
+            type: "uses",
+            relationType: "uses",
+          }),
+        ),
       }),
     );
 
@@ -227,6 +308,14 @@ describe("graph health metrics", () => {
         nodes: [
           node("wiki/projects/a.md", { inboundCount: 900, outboundCount: 20 }),
           node("wiki/projects/b.md", { inboundCount: 700, outboundCount: 10 }),
+        ],
+        edges: [
+          ...Array.from({ length: 900 }, (_, index) =>
+            edge(`wiki/references/a-source-${index}.md`, "wiki/projects/a.md"),
+          ),
+          ...Array.from({ length: 700 }, (_, index) =>
+            edge(`wiki/references/b-source-${index}.md`, "wiki/projects/b.md"),
+          ),
         ],
       }),
     );
@@ -251,7 +340,7 @@ describe("graph health metrics", () => {
 
     expect(result.status).toBe("warn");
     expect(result.value).toBe(50);
-    expect(result.topOffenders[0]?.edge).toEqual({ from: "wiki/tools/b.md", to: "wiki/projects/a.md", type: "linked" });
+    expect(result.topOffenders[0]?.edge).toEqual({ from: "wiki/tools/b.md", to: "wiki/projects/a.md", type: "uses" });
   });
 
   it("flags low provenance coverage from existing source metadata", () => {
@@ -329,12 +418,12 @@ describe("graph health metrics", () => {
           ...Array.from({ length: 50 }, (_, index) => node(`wiki/tools/leaf-${index}.md`, { type: "tools" })),
         ],
         edges: [
-          edge("wiki/projects/dense.md", "wiki/tools/a.md"),
-          edge("wiki/tools/a.md", "wiki/projects/dense.md"),
-          edge("wiki/projects/dense.md", "wiki/tools/b.md"),
-          edge("wiki/tools/b.md", "wiki/projects/dense.md"),
-          edge("wiki/projects/sparse.md", "wiki/tools/c.md"),
-          ...Array.from({ length: 50 }, (_, index) => edge("wiki/tools/c.md", `wiki/tools/leaf-${index}.md`)),
+          edge("wiki/projects/dense.md", "wiki/tools/a.md", { type: "uses", relationType: "uses" }),
+          edge("wiki/tools/a.md", "wiki/projects/dense.md", { type: "depends_on", relationType: "depends_on" }),
+          edge("wiki/projects/dense.md", "wiki/tools/b.md", { type: "uses", relationType: "uses" }),
+          edge("wiki/tools/b.md", "wiki/projects/dense.md", { type: "depends_on", relationType: "depends_on" }),
+          edge("wiki/projects/sparse.md", "wiki/tools/c.md", { type: "uses", relationType: "uses" }),
+          ...Array.from({ length: 50 }, (_, index) => edge("wiki/tools/c.md", `wiki/tools/leaf-${index}.md`, { type: "uses", relationType: "uses" })),
         ],
       }),
     );
@@ -383,7 +472,7 @@ describe("graph health metrics", () => {
 
     expect(result.status).toBe("fail");
     expect(result.value).toBe(12.5);
-    expect(result.detail).toBe("2/16 wiki pages participate in at least one edge (12.5%)");
+    expect(result.detail).toBe("2/16 wiki pages participate in at least one reasoning edge (12.5%)");
     expect(result.topOffenders).toHaveLength(5);
     expect(result.topOffenders.every((offender) => offender.path?.includes("isolated"))).toBe(true);
   });
@@ -405,6 +494,30 @@ describe("graph health metrics", () => {
     expect(result.status).toBe("pass");
     expect(result.value).toBe(100);
     expect(result.topOffenders).toEqual([]);
+  });
+
+  it("does not count association-only edges as reasoning participation", () => {
+    const result = metricGraphParticipationRate(
+      graphInput({
+        feed: graphFeed({
+          nodes: [node("wiki/projects/a.md"), node("wiki/tools/b.md")],
+          edges: [
+            edge("wiki/projects/a.md", "wiki/tools/b.md", {
+              type: "linked",
+              relationType: "linked",
+            }),
+          ],
+        }),
+        wikiPages: [
+          wikiPage("wiki/projects/a.md"),
+          wikiPage("wiki/tools/b.md"),
+        ],
+      }),
+    );
+
+    expect(result.status).toBe("fail");
+    expect(result.value).toBe(0);
+    expect(result.detail).toContain("0/2 wiki pages participate in at least one reasoning edge");
   });
 
   it("returns n/a for narrative thread coverage before threads exist", () => {
@@ -618,6 +731,7 @@ function node(
     created: "2026-01-01",
     confidence: null,
     confidenceFull: null,
+    importance: null,
     lifecycle: null,
     tags: [],
     description: "",
@@ -637,8 +751,8 @@ function edge(
     fromPath,
     toPath,
     kind: "relation",
-    relationType: "linked",
-    type: "linked",
+    relationType: "uses",
+    type: "uses",
     validFrom: "2026-01-01",
     ...overrides,
   };

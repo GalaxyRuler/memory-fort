@@ -9,7 +9,7 @@ import {
   type Tokens,
 } from "./bm25.js";
 import { exactBoosts } from "./exact.js";
-import { buildGraph, expandGraph, spreadingActivation } from "./graph.js";
+import { buildGraph, expandGraph, resolveEdgeWeights, spreadingActivation } from "./graph.js";
 import { scoreByMetadata } from "./metadata-score.js";
 import { rrfFuse, type RankedItem, type RrfResult } from "./rrf.js";
 import { applyIntentWeights } from "./intent-weights.js";
@@ -29,6 +29,7 @@ import { refreshEmbeddings, type EmbedClient } from "./refresh.js";
 import { embedWithClient } from "./embedder/types.js";
 import type { VoyageClient } from "./voyage-client.js";
 import type { LLMProvider } from "../llm/types.js";
+import { loadMemoryConfig, type MemoryConfig } from "../storage/config.js";
 
 export interface SearchOptions {
   query: string;
@@ -44,6 +45,9 @@ export interface SearchOptions {
   embedClient: EmbedClient;
   voyageClient: VoyageClient;
   llmProvider?: LLMProvider | null;
+  graphSpread?: boolean;
+  refreshEmbeddings?: boolean;
+  configLoader?: () => Promise<Pick<MemoryConfig, "graph">>;
   corpusLoader?: () => Promise<{
     documents: SearchDocument[];
     errors: Array<{ path: string; reason: string }>;
@@ -183,6 +187,7 @@ export async function runSearch(opts: SearchOptions): Promise<SearchResponse> {
   const scope = opts.scope ?? "all";
   const resultLimit = Math.max(0, Math.floor(opts.k ?? DEFAULT_K));
   const minScore = opts.minScore ?? DEFAULT_MIN_SCORE;
+  const now = opts.now?.() ?? new Date();
 
   const corpusStarted = Date.now();
   const loaded = opts.corpusLoader
@@ -226,25 +231,29 @@ export async function runSearch(opts: SearchOptions): Promise<SearchResponse> {
   const lexicalQuery = lexicalSignalQuery(opts.query);
 
   const refreshStarted = Date.now();
-  try {
-    const refresh = await refreshEmbeddings({
-      memoryRoot: opts.vaultRoot,
-      documents,
-      embedClient: opts.embedClient,
-      now: opts.now,
-    });
-    if (refresh.errors.length > 0) {
+  if (opts.refreshEmbeddings === false) {
+    timings.refreshMs = Date.now() - refreshStarted;
+  } else {
+    try {
+      const refresh = await refreshEmbeddings({
+        memoryRoot: opts.vaultRoot,
+        documents,
+        embedClient: opts.embedClient,
+        now: opts.now,
+      });
+      if (refresh.errors.length > 0) {
+        degraded = true;
+        warnings.push(
+          ...refresh.errors.map((error) => `embedding refresh ${error.path}: ${error.reason}`),
+        );
+      }
+    } catch (error) {
+      throwIfAborted(opts.signal);
       degraded = true;
-      warnings.push(
-        ...refresh.errors.map((error) => `embedding refresh ${error.path}: ${error.reason}`),
-      );
+      warnings.push(`embedding refresh failed: ${errorMessage(error)}`);
     }
-  } catch (error) {
-    throwIfAborted(opts.signal);
-    degraded = true;
-    warnings.push(`embedding refresh failed: ${errorMessage(error)}`);
+    timings.refreshMs = Date.now() - refreshStarted;
   }
-  timings.refreshMs = Date.now() - refreshStarted;
   throwIfAborted(opts.signal);
 
   let queryVector: number[] | null = null;
@@ -298,18 +307,20 @@ export async function runSearch(opts: SearchOptions): Promise<SearchResponse> {
 
   const graphStarted = Date.now();
   const graph = buildGraph(documents);
+  const config = await (opts.configLoader ?? (() => loadMemoryConfig(opts.vaultRoot)))();
+  const edgeWeights = resolveEdgeWeights(config.graph?.edge_weights);
   const seed = new Set([
     ...bm25.slice(0, 3).map((score) => score.relPath),
     ...vector.slice(0, 3).map((score) => score.relPath),
   ]);
-  const graphRanked = [...expandGraph(seed, graph, { hops: 1 }).expanded].map(
+  const graphRanked = [...expandGraph(seed, graph, { hops: 1, asOf: now }).expanded].map(
     (relPath, index): RankedItem => ({ relPath, rank: index + 1 }),
   );
   timings.graphMs = Date.now() - graphStarted;
 
   const graphSpreadStarted = Date.now();
-  const graphSpreadRanked = spreadingActivationEnabled()
-    ? spreadingActivation(seed, graph).map(
+  const graphSpreadRanked = spreadingActivationEnabled(opts.graphSpread)
+    ? spreadingActivation(seed, graph, { edgeWeights, asOf: now }).map(
         (item, index): RankedItem => ({
           relPath: item.path,
           rank: index + 1,
@@ -320,7 +331,7 @@ export async function runSearch(opts: SearchOptions): Promise<SearchResponse> {
 
   const metadataStarted = Date.now();
   const metadata = scoreByMetadata(documents, {
-    now: opts.now?.(),
+    now,
   });
   timings.metadataMs = Date.now() - metadataStarted;
 
@@ -706,7 +717,8 @@ function throwIfAborted(signal?: AbortSignal): void {
   throw error;
 }
 
-function spreadingActivationEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+function spreadingActivationEnabled(override?: boolean, env: NodeJS.ProcessEnv = process.env): boolean {
+  if (override !== undefined) return override;
   const value = env.MEMORY_FORT_SPREADING_ACTIVATION?.trim().toLowerCase();
   return value !== "0" && value !== "false" && value !== "off";
 }

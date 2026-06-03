@@ -27,6 +27,7 @@ export const RELATION_TYPES = [
   "depends_on",
   "caused_by",
   "fixed_by",
+  "learned_from",
   "mentioned_in",
   "linked",
 ] as const;

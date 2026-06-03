@@ -1,0 +1,40 @@
+{"query":"what is the cross-tool file-system memory fort project","type":"fact","expected_paths":["wiki/projects/memory-system.md"]}
+{"query":"what app evaluates Riyadh residential investment strategies","type":"fact","expected_paths":["wiki/projects/iaqar.md"]}
+{"query":"what was the predecessor memory service before memory-system","type":"fact","expected_paths":["wiki/projects/agentmemory.md"]}
+{"query":"which SDK page describes the Voyage embedding and rerank provider","type":"fact","expected_paths":["wiki/tools/voyageai.md"]}
+{"query":"where is the MCP server registry for Claude Codex and Antigravity","type":"fact","expected_paths":["wiki/references/mcp-servers-available.md"]}
+{"query":"what reference explains the Karpathy LLM wiki pattern","type":"fact","expected_paths":["wiki/references/karpathy-llm-wiki-pattern.md"]}
+{"query":"which page records operator behavior-shaping preferences","type":"fact","expected_paths":["wiki/preferences.md"]}
+{"query":"which lesson covers bundled mcp json inside a plugin","type":"fact","expected_paths":["wiki/lessons/mcp-plugin-bundled-mcp-json.md"]}
+{"query":"why did memory-system replace the old background HTTP memory service","type":"causal","expected_paths":["wiki/projects/agentmemory.md","wiki/projects/memory-system.md"]}
+{"query":"why did consolidation move toward synthesis first rather than raw transcript distillation","type":"causal","expected_paths":["wiki/references/agentmemory-consolidation-architecture.md"]}
+{"query":"why choose Voyage AI over OpenAI Cohere and local Ollama for retrieval","type":"causal","expected_paths":["wiki/decisions/2026-05-20-voyage-ai-for-embeddings.md"]}
+{"query":"why avoid a vector database for memory embeddings","type":"causal","expected_paths":["wiki/decisions/2026-05-20-sidecar-embeddings-no-vector-db.md"]}
+{"query":"why does Antigravity use MCP-only ingestion","type":"causal","expected_paths":["wiki/lessons/antigravity-mcp-only-ingestion.md"]}
+{"query":"why does yaml date coercion matter in config and frontmatter","type":"causal","expected_paths":["wiki/lessons/js-yaml-date-auto-coercion.md"]}
+{"query":"why use sentinel markers for agent config patches","type":"causal","expected_paths":["wiki/decisions/2026-05-21-sentinel-marker-config-patches.md"]}
+{"query":"why keep curation as an orchestrator instead of direct LLM filesystem writes","type":"causal","expected_paths":["wiki/decisions/2026-05-22-curation-orchestrator-not-llm.md"]}
+{"query":"what provider does memory-system use for embeddings and reranking","type":"dependency","expected_paths":["wiki/tools/voyageai.md","wiki/decisions/2026-05-20-voyage-ai-for-embeddings.md"]}
+{"query":"which project uses Voyage AI as a retrieval dependency","type":"dependency","expected_paths":["wiki/projects/memory-system.md"]}
+{"query":"what retrieval decision depends on the voyageai npm sdk","type":"dependency","expected_paths":["wiki/decisions/2026-05-20-voyage-ai-for-embeddings.md"]}
+{"query":"what project needs Darak market data but keeps formulas separate","type":"dependency","expected_paths":["wiki/projects/iaqar.md"]}
+{"query":"which lesson should guide fragile PowerShell variable quoting","type":"dependency","expected_paths":["wiki/lessons/powershell-safe-vars.md"]}
+{"query":"which registry should agents check before asking about MCP availability","type":"dependency","expected_paths":["wiki/references/mcp-servers-available.md"]}
+{"query":"what lesson covers payload field fallback across tools","type":"dependency","expected_paths":["wiki/lessons/cross-platform-payload-field-fallback.md"]}
+{"query":"which project inherited retrieval lessons from agentmemory BM25 performance","type":"dependency","expected_paths":["wiki/projects/memory-system.md","wiki/projects/agentmemory.md"]}
+{"query":"what happened in the memory fort health hardening work thread","type":"temporal","expected_paths":["wiki/threads/memory-fort-health-hardening.md"]}
+{"query":"what happened during the May 19 agent memory system development thread","type":"temporal","expected_paths":["wiki/threads/agent-memory-system-development-may-19-2026.md"]}
+{"query":"what happened in the VPS deploy hardening thread","type":"temporal","expected_paths":["wiki/threads/vps-deploy-hardening.md"]}
+{"query":"what happened in the dashboard observability thread","type":"temporal","expected_paths":["wiki/threads/dashboard-observability.md"]}
+{"query":"what happened during cognitive graph schema evolution","type":"temporal","expected_paths":["wiki/threads/cognitive-graph-schema-evolution.md"]}
+{"query":"what happened in iAqar testing and configuration enhancements","type":"temporal","expected_paths":["wiki/threads/iaqar-project-testing-configuration-enhancements.md"]}
+{"query":"what happened in iAqar development and debugging activities","type":"temporal","expected_paths":["wiki/threads/iaqar-project-development-debugging-activities.md"]}
+{"query":"what happened in successful homelab tests and updates","type":"temporal","expected_paths":["wiki/threads/successful-execution-homelab-tests-updates.md"]}
+{"query":"which source page is prior art for memory-system consolidation redesign","type":"provenance","expected_paths":["wiki/references/agentmemory-consolidation-architecture.md"]}
+{"query":"which reference did the memory project derive its wiki pattern from","type":"provenance","expected_paths":["wiki/references/karpathy-llm-wiki-pattern.md"]}
+{"query":"which project page is derived from the Karpathy pattern and agentmemory","type":"provenance","expected_paths":["wiki/projects/memory-system.md"]}
+{"query":"which reference mentions memory-system while deriving from agentmemory","type":"provenance","expected_paths":["wiki/references/agentmemory-consolidation-architecture.md"]}
+{"query":"which page marks the codex fork smoke reference artifact","type":"provenance","expected_paths":["wiki/references/fork-smoke-marker-codex-fork-smoke-9d207734d8ff443d8dbe9fa912cc73a9.md"]}
+{"query":"which iAqar page is derived from raw May 19 observations","type":"provenance","expected_paths":["wiki/projects/iaqar.md"]}
+{"query":"which thread links iAqar bilingual audit and git operations","type":"provenance","expected_paths":["wiki/threads/git-operations-bilingual-audit-enhancements.md"]}
+{"query":"which thread links iAqar review and setup for the web application","type":"provenance","expected_paths":["wiki/threads/review-and-setup-for-iaqar-web-application.md"]}

@@ -1,10 +1,10 @@
 import type { CognitiveType, GraphEdge, GraphNode } from "../../hooks/useGraph.js";
 import { edgeWeight, massPull, type Point } from "./physics.js";
 
-export type DomainType = "projects" | "decisions" | "lessons" | "references" | "tools" | "crystals";
+export type DomainType = "projects" | "issues" | "decisions" | "lessons" | "references" | "tools" | "crystals";
 
 export const COGNITIVE_ORDER: CognitiveType[] = ["core", "semantic", "episodic", "procedural"];
-export const DOMAIN_ORDER: DomainType[] = ["projects", "decisions", "lessons", "references", "tools", "crystals"];
+export const DOMAIN_ORDER: DomainType[] = ["projects", "issues", "decisions", "lessons", "references", "tools", "crystals"];
 
 export const GALAXY_RADIUS = 900;
 export const SYSTEM_RADIUS = 220;
@@ -19,6 +19,7 @@ export const COGNITIVE_META: Record<CognitiveType, { color: string; label: strin
 
 export const DOMAIN_META: Record<DomainType, { color: string; label: string }> = {
   projects: { color: "#4ade80", label: "Projects" },
+  issues: { color: "#fb7185", label: "Issues" },
   decisions: { color: "#f472b6", label: "Decisions" },
   lessons: { color: "#a78bfa", label: "Lessons" },
   references: { color: "#60a5fa", label: "References" },

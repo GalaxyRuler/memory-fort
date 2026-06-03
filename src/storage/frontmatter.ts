@@ -62,6 +62,7 @@ export interface Frontmatter {
 
 const KNOWN_TYPES: EntityType[] = [
   "projects",
+  "issues",
   "people",
   "decisions",
   "lessons",

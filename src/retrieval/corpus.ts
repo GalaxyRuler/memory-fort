@@ -32,6 +32,7 @@ export interface SearchDocument {
   cognitiveType: CognitiveType;
   confidence: number | null;
   confidenceFull?: Frontmatter["confidence"];
+  importance?: number | null;
   lifecycle?: LifecycleStage | null;
   due?: string | null;
   triggers?: string[];
@@ -211,6 +212,7 @@ async function loadDocument(file: MarkdownFile): Promise<SearchDocument> {
     cognitiveType: explicitCognitiveType ?? "semantic",
     confidence: canonical?.confidence ?? readConfidenceScore(frontmatter.confidence),
     confidenceFull: frontmatter.confidence,
+    importance: readImportance(frontmatter.importance),
     lifecycle: readLifecycle(frontmatter.lifecycle),
     due: readOptionalDateString(frontmatter.due),
     triggers: readStringArray(frontmatter.triggers),
@@ -355,6 +357,10 @@ function readOptionalDateString(value: unknown): string | null {
 
 function readConfidenceScore(value: Partial<Frontmatter>["confidence"]): number | null {
   return value === undefined ? null : getConfidenceScore(value);
+}
+
+function readImportance(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 function readLifecycle(value: unknown): LifecycleStage | null {

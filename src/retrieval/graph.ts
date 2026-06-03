@@ -37,6 +37,7 @@ export interface SpreadingActivationOptions {
   maxIterations?: number;
   followDirection?: "outbound" | "inbound" | "both";
   edgeWeights?: Record<string, number>;
+  asOf?: Date | string;
 }
 
 export interface ActivationResult {
@@ -54,7 +55,20 @@ const DEFAULT_DECAY = 0.6;
 const DEFAULT_INHIBITION_LAMBDA = 0.15;
 const DEFAULT_EPSILON = 0.01;
 const DEFAULT_MAX_ITERATIONS = 5;
-const DEFAULT_EDGE_WEIGHTS: Record<string, number> = {};
+export const DEFAULT_EDGE_WEIGHTS: Record<string, number> = {
+  uses: 1.0,
+  depends_on: 1.0,
+  caused_by: 0.95,
+  fixed_by: 0.95,
+  contradicts: 0.9,
+  supersedes: 0.85,
+  learned_from: 0.85,
+  mentioned_in: 0.35,
+  mentions: 0.35,
+  derived_from: 0.25,
+  linked: 0.1,
+  wikilink: 0.1,
+};
 
 export function buildGraph(documents: SearchDocument[]): SearchGraph {
   const nodes = new Map<string, GraphNode>();
@@ -122,10 +136,11 @@ export function buildGraph(documents: SearchDocument[]): SearchGraph {
 export function expandGraph(
   seed: Set<string>,
   graph: SearchGraph,
-  opts: { hops?: number; followDirection?: "outbound" | "inbound" | "both" } = {},
+  opts: { hops?: number; followDirection?: "outbound" | "inbound" | "both"; asOf?: Date | string } = {},
 ): GraphExpansionResult {
   const hops = opts.hops ?? 1;
   const followDirection = opts.followDirection ?? "both";
+  const asOfMs = asOfTimestamp(opts.asOf);
   const expanded = new Set<string>();
   const pathToEdges = new Map<string, Edge[]>();
   let frontier = new Set(seed);
@@ -145,6 +160,7 @@ export function expandGraph(
       ];
 
       for (const edge of traversable) {
+        if (!isTraversableEdge(edge, asOfMs)) continue;
         const neighbor = edge.fromPath === path ? edge.toPath : edge.fromPath;
         if (seed.has(neighbor) || expanded.has(neighbor)) continue;
         next.add(neighbor);
@@ -172,7 +188,8 @@ export function spreadingActivation(
   const epsilon = opts.epsilon ?? DEFAULT_EPSILON;
   const maxIterations = opts.maxIterations ?? DEFAULT_MAX_ITERATIONS;
   const followDirection = opts.followDirection ?? "both";
-  const edgeWeights = opts.edgeWeights ?? DEFAULT_EDGE_WEIGHTS;
+  const edgeWeights = resolveEdgeWeights(opts.edgeWeights);
+  const asOfMs = asOfTimestamp(opts.asOf);
   const activations = new Map<string, number>();
   const visited = new Set<string>();
   let frontier = new Map<string, number>();
@@ -196,6 +213,7 @@ export function spreadingActivation(
       const node = graph.nodes.get(path);
       if (!node) continue;
       for (const edge of traversableEdges(node, followDirection)) {
+        if (!isTraversableEdge(edge, asOfMs)) continue;
         const neighbor = edge.fromPath === path ? edge.toPath : edge.fromPath;
         if (visited.has(neighbor)) continue;
         const contribution =
@@ -234,6 +252,17 @@ export function spreadingActivation(
   return [...activations.entries()]
     .map(([path, activation]) => ({ path, activation }))
     .sort((a, b) => b.activation - a.activation || a.path.localeCompare(b.path));
+}
+
+export function resolveEdgeWeights(overrides?: Record<string, unknown> | null): Record<string, number> {
+  const resolved: Record<string, number> = { ...DEFAULT_EDGE_WEIGHTS };
+  if (!overrides) return resolved;
+  for (const [key, value] of Object.entries(overrides)) {
+    if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
+      resolved[key] = value;
+    }
+  }
+  return resolved;
 }
 
 function createResolver(documents: SearchDocument[]): (target: string) => Resolution {
@@ -316,6 +345,27 @@ function edgeWeight(edge: Edge, edgeWeights: Record<string, number>): number {
     return edgeWeights[edge.kind]!;
   }
   return 1;
+}
+
+function isTraversableEdge(edge: Edge, asOfMs: number): boolean {
+  if (hasText(edge.supersededBy)) return false;
+  if (edge.validTo === null || edge.validTo === undefined) return true;
+  const validToMs = Date.parse(edge.validTo);
+  if (!Number.isFinite(validToMs)) return true;
+  return validToMs >= asOfMs;
+}
+
+function asOfTimestamp(asOf: Date | string | undefined): number {
+  if (asOf instanceof Date) return asOf.getTime();
+  if (typeof asOf === "string") {
+    const parsed = Date.parse(asOf);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return Date.now();
+}
+
+function hasText(value: string | undefined): boolean {
+  return typeof value === "string" && value.trim().length > 0;
 }
 
 function siblingPenalties(

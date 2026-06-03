@@ -27,6 +27,7 @@ export type LintCategory =
   | "orphan"
   | "stale"
   | "draft"
+  | "edge-grammar"
   | "superseded-dependent";
 
 export interface LintIssue {
@@ -304,6 +305,12 @@ interface RelationEdge {
   relation: string;
 }
 
+interface ResolvedRelationEdge {
+  from: WikiPage;
+  to: WikiPage;
+  relation: string;
+}
+
 function buildInboundRelationIndex(pages: WikiPage[]): Map<string, RelationEdge[]> {
   const idx = buildResolutionIndex(pages);
   const inbound = new Map<string, RelationEdge[]>();
@@ -427,6 +434,35 @@ export function checkSupersededDependents(pages: WikiPage[]): LintIssue[] {
   return issues;
 }
 
+export function checkEdgeGrammar(pages: WikiPage[]): LintIssue[] {
+  const edges = resolvedRelationEdges(pages);
+  const issues: LintIssue[] = [];
+  for (const edge of edges) {
+    const sourceType = pageType(edge.from);
+    const targetType = pageType(edge.to);
+    if (edge.relation === "caused_by") {
+      if (sourceType !== "issues" || !["issues", "decisions", "tools", "references"].includes(targetType)) {
+        issues.push(edgeGrammarIssue(edge, `relations.caused_by expects source type issues and target type issues, decisions, tools, or references; saw ${sourceType} -> ${targetType}`));
+      }
+    }
+    if (edge.relation === "fixed_by") {
+      if (sourceType === "lessons") {
+        issues.push(edgeGrammarIssue(edge, "relations.fixed_by from lessons is suspect; lessons describe fixes but do not fix issues"));
+      } else if (targetType === "lessons") {
+        issues.push(edgeGrammarIssue(edge, "relations.fixed_by to lessons is suspect; lessons describe fixes but do not fix issues"));
+      } else if (sourceType !== "issues" || !["decisions", "procedures", "tools"].includes(targetType)) {
+        issues.push(edgeGrammarIssue(edge, `relations.fixed_by expects source type issues and target type decisions, procedures, or tools; saw ${sourceType} -> ${targetType}`));
+      }
+    }
+    if (edge.relation === "learned_from") {
+      if (sourceType !== "lessons" || !["issues", "decisions", "procedures"].includes(targetType)) {
+        issues.push(edgeGrammarIssue(edge, `relations.learned_from expects source type lessons and target type issues, decisions, or procedures; saw ${sourceType} -> ${targetType}`));
+      }
+    }
+  }
+  return dedupeIssues(issues);
+}
+
 export function checkPruneCandidates(
   pages: WikiPage[],
   opts: { now?: Date; staleDays?: number } = {},
@@ -476,6 +512,58 @@ export function runAllChecks(
     ...checkOrphans(pages),
     ...checkStale(pages, { now: opts.now, thresholdDays: opts.staleDays }),
     ...checkDrafts(pages),
+    ...checkEdgeGrammar(pages),
     ...checkSupersededDependents(pages),
   ];
+}
+
+function resolvedRelationEdges(pages: WikiPage[]): ResolvedRelationEdge[] {
+  const idx = buildResolutionIndex(pages);
+  const byPath = new Map(pages.map((page) => [page.path, page]));
+  const edges: ResolvedRelationEdge[] = [];
+
+  for (const page of pages) {
+    const relations = page.frontmatter.relations;
+    if (!relations || typeof relations !== "object") continue;
+    for (const [relation, targets] of Object.entries(relations as Record<string, unknown>)) {
+      if (!Array.isArray(targets)) continue;
+      for (const relationEntry of targets) {
+        const target = readRelationTarget(relationEntry);
+        if (!target) continue;
+        const resolved = resolveLink(target, idx);
+        if (!resolved) continue;
+        const targetPage = byPath.get(resolved);
+        if (!targetPage) continue;
+        edges.push({ from: page, to: targetPage, relation });
+      }
+    }
+  }
+
+  return edges;
+}
+
+function edgeGrammarIssue(edge: ResolvedRelationEdge, message: string): LintIssue {
+  return {
+    category: "edge-grammar",
+    page: `wiki/${edge.from.path}`,
+    message,
+    suggestion: `Review ${edge.relation} edge from wiki/${edge.from.path} to wiki/${edge.to.path}; this is advisory and does not block lint.`,
+  };
+}
+
+function pageType(page: WikiPage): string {
+  const type = page.frontmatter.type;
+  return typeof type === "string" ? type : page.path.split("/")[0] ?? "unknown";
+}
+
+function dedupeIssues(issues: LintIssue[]): LintIssue[] {
+  const seen = new Set<string>();
+  const deduped: LintIssue[] = [];
+  for (const issue of issues) {
+    const key = `${issue.category}\0${issue.page}\0${issue.message}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(issue);
+  }
+  return deduped;
 }

@@ -103,6 +103,7 @@ const PAGE_TYPES_BY_CATEGORY = {
   people: "people",
   decisions: "decisions",
   lessons: "lessons",
+  issues: "issues",
   references: "references",
   tools: "tools",
   threads: "threads",
@@ -113,6 +114,7 @@ const PAGE_TYPES_BY_CATEGORY = {
 export function isKnowledgePageType(type: PageType): boolean {
   return type === "projects" ||
     type === "lessons" ||
+    type === "issues" ||
     type === "decisions" ||
     type === "references" ||
     type === "tools" ||

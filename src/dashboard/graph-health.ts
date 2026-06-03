@@ -1,4 +1,10 @@
 import type { GraphFeed } from "./loaders.js";
+import {
+  edgeClass,
+  isAssociationEdge,
+  isProvenanceEdge,
+  isReasoningEdge,
+} from "../retrieval/edge-classes.js";
 import type { RelationMap } from "../retrieval/relations.js";
 import { isEntityWikiPath } from "../retrieval/wiki-paths.js";
 
@@ -74,18 +80,23 @@ const PROJECT_HUB_EXEMPTION_REASON = "project hub - by-design anchor";
 const CROSS_GALAXY_WARN = 99;
 const CROSS_GALAXY_FAIL = 99.5;
 const NARRATIVE_THREAD_WINDOW_DAYS = 30;
+const SALIENT_EPISODE_WINDOW_DAYS = 30;
+const SALIENT_IMPORTANCE_THRESHOLD = 4;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 export function computeGraphHealth(input: GraphHealthInput): GraphHealthReport {
   const { feed } = input;
   const metrics = [
     metricOrphanEpisodic(feed),
+    metricSalientEpisodeAnchorRate(input),
     metricDuplicateEntities(input),
     metricEdgeTypeEntropy(feed),
     metricCrossGalaxyRatio(feed),
     metricHubOverload(feed),
     metricTemporalCoverage(feed),
     metricProvenanceCoverage(input),
+    metricProvenanceEdgeCoverage(feed),
+    metricAssociationEdgeCoverage(feed),
     metricConfidenceCoverage(input),
     metricContradictionCoverage(feed),
     metricProjectSubgraphDensity(feed),
@@ -111,13 +122,49 @@ export function metricOrphanEpisodic(feed: GraphFeed): MetricResult {
     label: "Orphan episodic rate",
     value,
     unit: "%",
-    threshold: { warn: 10, fail: 25, rule: "warn > 10%, fail > 25%" },
-    status: statusAbove(value, 10, 25),
-    detail: `${orphaned.length}/${episodic.length} raw observations have no relation edges`,
+    threshold: { rule: "informational all-raw rate; see graph.salient-episode-anchor-rate for health" },
+    status: "pass",
+    detail: `${orphaned.length}/${episodic.length} raw observations have no relation edges (informational all-raw rate)`,
     topOffenders: oldestNodes(orphaned, 5).map((node) => ({
       path: node.path,
       value: node.created ?? node.updated ?? "unknown",
       note: "orphan raw observation",
+    })),
+  };
+}
+
+export function metricSalientEpisodeAnchorRate(input: GraphHealthInput): MetricResult {
+  const rawNodes = input.feed.nodes.filter((node) => node.kind === "raw");
+  const rawWindow = trailingRawWindow(input, rawNodes, SALIENT_EPISODE_WINDOW_DAYS);
+  const salient = rawWindow.nodes.filter((node) => readImportance(node) >= SALIENT_IMPORTANCE_THRESHOLD);
+  if (salient.length === 0) {
+    return metric({
+      id: "graph.salient-episode-anchor-rate",
+      label: "Salient episode anchor rate",
+      value: null,
+      unit: "%",
+      threshold: { warn: 75, fail: 50, rule: "pass >= 75%, warn >= 50%, fail < 50%" },
+      status: "n/a",
+      detail: `no salient recent raw observations in trailing ${rawWindow.days}-day window`,
+    });
+  }
+
+  const anchoredRaw = semanticAnchoredRawPaths(input.feed.edges);
+  const anchored = salient.filter((node) => anchoredRaw.has(node.path));
+  const value = percentage(anchored.length, salient.length);
+
+  return {
+    id: "graph.salient-episode-anchor-rate",
+    label: "Salient episode anchor rate",
+    value,
+    unit: "%",
+    threshold: { warn: 75, fail: 50, rule: "pass >= 75%, warn >= 50%, fail < 50%" },
+    status: statusBelow(value, 75, 50),
+    detail: `${anchored.length}/${salient.length} salient recent raw observations have semantic anchors (importance >= ${SALIENT_IMPORTANCE_THRESHOLD}, trailing ${rawWindow.days}-day window ending ${rawWindow.upperDay})`,
+    topOffenders: oldestNodes(salient.filter((node) => !anchoredRaw.has(node.path)), 5).map((node) => ({
+      path: node.path,
+      value: readImportance(node),
+      note: "salient raw observation without semantic anchor",
     })),
   };
 }
@@ -172,7 +219,8 @@ export function metricDuplicateEntities(input: GraphHealthInput): MetricResult {
 }
 
 export function metricEdgeTypeEntropy(feed: GraphFeed): MetricResult {
-  if (feed.edges.length === 0) {
+  const edges = feed.edges.filter(isReasoningEdge);
+  if (edges.length === 0) {
     return metric({
       id: "graph.edge-type-entropy",
       label: "Edge type entropy",
@@ -180,14 +228,14 @@ export function metricEdgeTypeEntropy(feed: GraphFeed): MetricResult {
       unit: "bits",
       threshold: { warn: 0.8, fail: 0.4, rule: "warn < 0.8 bits, fail < 0.4 bits" },
       status: "pass",
-      detail: "no edges available for entropy measurement",
+      detail: "no reasoning edges available for entropy measurement",
     });
   }
 
-  const counts = countBy(feed.edges, (edge) => edge.type);
+  const counts = countBy(edges, (edge) => edge.type);
   const capped = capDistribution(counts, 9);
   const entropy = [...capped.values()].reduce((sum, count) => {
-    const p = count / feed.edges.length;
+    const p = count / edges.length;
     return sum - p * Math.log2(p);
   }, 0);
   const dominant = [...counts.entries()]
@@ -201,9 +249,9 @@ export function metricEdgeTypeEntropy(feed: GraphFeed): MetricResult {
     unit: "bits",
     threshold: { warn: 0.8, fail: 0.4, rule: "warn < 0.8 bits, fail < 0.4 bits" },
     status: statusBelow(entropy, 0.8, 0.4),
-    detail: `Shannon entropy across ${feed.edges.length} edges and ${counts.size} edge types`,
+    detail: `Shannon entropy across ${edges.length} reasoning edges and ${counts.size} edge types`,
     topOffenders: dominant.map(([type, count]) => ({
-      value: `${round((count / feed.edges.length) * 100, 1).toFixed(1)}%`,
+      value: `${round((count / edges.length) * 100, 1).toFixed(1)}%`,
       note: type,
     })),
   };
@@ -241,9 +289,10 @@ export function metricCrossGalaxyRatio(feed: GraphFeed): MetricResult {
 }
 
 export function metricHubOverload(feed: GraphFeed): MetricResult {
+  const degreeByPath = degreeMap(feed.edges.filter(isReasoningEdge));
   const allNodes = feed.nodes.map((node) => ({
     node,
-    degree: degree(node),
+    degree: degreeByPath.get(node.path)?.total ?? 0,
     exempt: isExemptHub(node.path),
   }));
   const nonExempt = allNodes.filter((entry) => !entry.exempt);
@@ -267,12 +316,40 @@ export function metricHubOverload(feed: GraphFeed): MetricResult {
         path: entry.node.path,
         value: entry.degree,
         note: entry.exempt
-          ? `exempt (${PROJECT_HUB_EXEMPTION_REASON}); ${entry.node.inboundCount} inbound, ${entry.node.outboundCount} outbound`
-          : `${entry.node.inboundCount} inbound, ${entry.node.outboundCount} outbound`,
+          ? `exempt (${PROJECT_HUB_EXEMPTION_REASON}); ${degreeByPath.get(entry.node.path)?.inbound ?? 0} inbound, ${degreeByPath.get(entry.node.path)?.outbound ?? 0} outbound`
+          : `${degreeByPath.get(entry.node.path)?.inbound ?? 0} inbound, ${degreeByPath.get(entry.node.path)?.outbound ?? 0} outbound`,
         exempt: entry.exempt || undefined,
         reason: entry.exempt ? PROJECT_HUB_EXEMPTION_REASON : undefined,
       })),
   };
+}
+
+export function metricProvenanceEdgeCoverage(feed: GraphFeed): MetricResult {
+  const edges = feed.edges.filter(isProvenanceEdge);
+  const value = percentage(edges.length, feed.edges.length);
+  return metric({
+    id: "graph.provenance-edge-coverage",
+    label: "Provenance edge share",
+    value,
+    unit: "%",
+    threshold: { rule: "informational" },
+    status: "pass",
+    detail: `${edges.length}/${feed.edges.length} edges are provenance edges`,
+  });
+}
+
+export function metricAssociationEdgeCoverage(feed: GraphFeed): MetricResult {
+  const edges = feed.edges.filter(isAssociationEdge);
+  const value = percentage(edges.length, feed.edges.length);
+  return metric({
+    id: "graph.association-edge-coverage",
+    label: "Association edge share",
+    value,
+    unit: "%",
+    threshold: { rule: "informational" },
+    status: "pass",
+    detail: `${edges.length}/${feed.edges.length} edges are association edges`,
+  });
 }
 
 export function metricTemporalCoverage(feed: GraphFeed): MetricResult {
@@ -402,11 +479,12 @@ export function metricProjectSubgraphDensity(feed: GraphFeed): MetricResult {
     });
   }
 
-  const adjacency = adjacencyMap(feed.edges);
+  const reasoningEdges = feed.edges.filter(isReasoningEdge);
+  const adjacency = adjacencyMap(reasoningEdges);
   const densities = projects.map((project) => {
     const reachable = bfs(project.path, adjacency, 2);
     const wikiReachable = new Set([...reachable].filter((path) => path.startsWith("wiki/")));
-    const intra = feed.edges.filter((edge) => wikiReachable.has(edge.fromPath) && wikiReachable.has(edge.toPath)).length;
+    const intra = reasoningEdges.filter((edge) => wikiReachable.has(edge.fromPath) && wikiReachable.has(edge.toPath)).length;
     const possible = Math.max(1, wikiReachable.size * (wikiReachable.size - 1));
     return {
       project,
@@ -425,7 +503,7 @@ export function metricProjectSubgraphDensity(feed: GraphFeed): MetricResult {
     unit: "ratio",
     threshold: { warn: 0.1, fail: 0.03, rule: "warn min < 0.10, fail min < 0.03" },
     status: statusBelow(minDensity, 0.1, 0.03),
-    detail: `minimum 2-hop project density across ${projects.length} projects`,
+    detail: `minimum 2-hop project density across ${projects.length} projects using reasoning edges`,
     topOffenders: densities.slice(0, 3).map((entry) => ({
       path: entry.project.path,
       value: round(entry.density, 3),
@@ -482,7 +560,7 @@ export function metricGraphParticipationRate(input: GraphHealthInput): MetricRes
   }
 
   const participatingPaths = new Set<string>();
-  for (const edge of input.feed.edges) {
+  for (const edge of input.feed.edges.filter(isReasoningEdge)) {
     if (edge.fromPath.startsWith("wiki/")) participatingPaths.add(edge.fromPath);
     if (edge.toPath.startsWith("wiki/")) participatingPaths.add(edge.toPath);
   }
@@ -498,7 +576,7 @@ export function metricGraphParticipationRate(input: GraphHealthInput): MetricRes
     unit: "%",
     threshold: { warn: 50, fail: 25, rule: "warn < 50%, fail < 25%" },
     status: statusBelow(value, 50, 25),
-    detail: `${participating.length}/${pages.length} wiki pages participate in at least one edge (${value}%)`,
+    detail: `${participating.length}/${pages.length} wiki pages participate in at least one reasoning edge (${value}%)`,
     topOffenders: randomSample(isolated, 5).map((page) => ({
       path: page.relPath,
       note: "isolated wiki page",
@@ -676,6 +754,42 @@ function round(value: number, digits: number): number {
 function degree(node: GraphNode | undefined): number {
   if (!node) return 0;
   return node.inboundCount + node.outboundCount;
+}
+
+function degreeMap(edges: GraphEdge[]): Map<string, { inbound: number; outbound: number; total: number }> {
+  const degrees = new Map<string, { inbound: number; outbound: number; total: number }>();
+  for (const edge of edges) {
+    const from = degrees.get(edge.fromPath) ?? { inbound: 0, outbound: 0, total: 0 };
+    from.outbound += 1;
+    from.total += 1;
+    degrees.set(edge.fromPath, from);
+
+    const to = degrees.get(edge.toPath) ?? { inbound: 0, outbound: 0, total: 0 };
+    to.inbound += 1;
+    to.total += 1;
+    degrees.set(edge.toPath, to);
+  }
+  return degrees;
+}
+
+function semanticAnchoredRawPaths(edges: GraphEdge[]): Set<string> {
+  const anchored = new Set<string>();
+  for (const edge of edges) {
+    if (edgeClass(edge) === "association") continue;
+    const fromRaw = edge.fromPath.startsWith("raw/");
+    const toRaw = edge.toPath.startsWith("raw/");
+    const fromWiki = edge.fromPath.startsWith("wiki/");
+    const toWiki = edge.toPath.startsWith("wiki/");
+    if (fromRaw && toWiki) anchored.add(edge.fromPath);
+    if (toRaw && fromWiki) anchored.add(edge.toPath);
+  }
+  return anchored;
+}
+
+function readImportance(node: GraphNode): number {
+  return typeof node.importance === "number" && Number.isFinite(node.importance)
+    ? node.importance
+    : 0;
 }
 
 function isExemptHub(path: string): boolean {

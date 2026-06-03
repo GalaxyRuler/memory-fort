@@ -5,6 +5,7 @@ import { cn } from "../lib/cn.js";
 
 const CATEGORY_COLORS: Record<string, string> = {
   projects: "border-t-entity-projects",
+  issues: "border-t-entity-decisions",
   decisions: "border-t-entity-decisions",
   lessons: "border-t-entity-lessons",
   references: "border-t-entity-references",

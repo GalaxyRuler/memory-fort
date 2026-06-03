@@ -34,6 +34,7 @@ export interface InitResult {
 const SUBDIRS = [
   "raw",
   "wiki/projects",
+  "wiki/issues",
   "wiki/people",
   "wiki/decisions",
   "wiki/lessons",
@@ -91,6 +92,21 @@ compress:
   chunk_threshold_bytes: 48000
   max_chunks: 8
   max_call_tokens: 100000
+
+# graph:
+#   edge_weights:
+#     uses: 1
+#     depends_on: 1
+#     caused_by: 0.95
+#     fixed_by: 0.95
+#     contradicts: 0.9
+#     supersedes: 0.85
+#     learned_from: 0.85
+#     mentioned_in: 0.35
+#     mentions: 0.35
+#     derived_from: 0.25
+#     linked: 0.1
+#     wikilink: 0.1
 
 # llm:
 #   provider: openrouter   # openrouter | ollama

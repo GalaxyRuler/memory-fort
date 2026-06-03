@@ -137,4 +137,52 @@ describe("retrieval graph signal", () => {
       },
     ]);
   });
+
+  it("does not expand across superseded edges", () => {
+    const graph = buildGraph([
+      doc("wiki/issues/outage.md", {
+        relations: {
+          caused_by: [
+            {
+              target: "wiki/tools/old-cache.md",
+              superseded_by: "wiki/tools/new-cache.md",
+            },
+          ],
+        },
+      }),
+      doc("wiki/tools/old-cache.md"),
+      doc("wiki/tools/new-cache.md"),
+    ]);
+
+    const result = expandGraph(new Set(["wiki/issues/outage.md"]), graph, {
+      followDirection: "outbound",
+    });
+
+    expect(result.expanded).toEqual(new Set());
+  });
+
+  it("filters expired edges relative to asOf while keeping still-valid edges", () => {
+    const graph = buildGraph([
+      doc("wiki/issues/outage.md", {
+        relations: {
+          caused_by: [
+            { target: "wiki/tools/cache.md", valid_to: "2026-06-10" },
+          ],
+        },
+      }),
+      doc("wiki/tools/cache.md"),
+    ]);
+
+    const beforeExpiry = expandGraph(new Set(["wiki/issues/outage.md"]), graph, {
+      followDirection: "outbound",
+      asOf: "2026-06-09T00:00:00.000Z",
+    });
+    const afterExpiry = expandGraph(new Set(["wiki/issues/outage.md"]), graph, {
+      followDirection: "outbound",
+      asOf: "2026-06-11T00:00:00.000Z",
+    });
+
+    expect(beforeExpiry.expanded).toEqual(new Set(["wiki/tools/cache.md"]));
+    expect(afterExpiry.expanded).toEqual(new Set());
+  });
 });

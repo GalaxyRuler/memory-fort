@@ -146,6 +146,64 @@ describe("runLint", () => {
     }
   });
 
+  it("reports edge grammar violations as advisory non-blocking issues", async () => {
+    await writeWikiPage(
+      "issues/build-failure.md",
+      {
+        type: "issues",
+        title: "Build failure",
+        created: "2026-05-21",
+        updated: "2026-05-21",
+        status: "active",
+        relations: {
+          fixed_by: ["lessons/debugging.md"],
+          caused_by: ["decisions/compiler-choice.md"],
+        },
+      },
+      "Build failure issue.",
+    );
+    await writeWikiPage(
+      "lessons/debugging.md",
+      {
+        type: "lessons",
+        title: "Debugging lesson",
+        created: "2026-05-21",
+        updated: "2026-05-21",
+        status: "active",
+        relations: {
+          fixed_by: ["issues/build-failure.md"],
+        },
+      },
+      "Lessons explain fixes but do not fix issues themselves. [[issues/build-failure]]",
+    );
+    await writeWikiPage(
+      "decisions/compiler-choice.md",
+      {
+        type: "decisions",
+        title: "Compiler choice",
+        created: "2026-05-21",
+        updated: "2026-05-21",
+        status: "active",
+      },
+      "Decision linked from the issue. [[issues/build-failure]]",
+    );
+
+    const result = await runLint({
+      checksOnly: true,
+      now: new Date("2026-05-22T00:00:00.000Z"),
+    });
+
+    expect(result.mode).toBe("checks");
+    if (result.mode === "checks") {
+      expect(result.hasBlockingIssues).toBe(false);
+      expect(result.counts["frontmatter"]).toBe(0);
+      expect(result.counts["edge-grammar"]).toBe(2);
+      expect(result.report).toContain("[edge-grammar]");
+      expect(result.report).toContain("relations.fixed_by from lessons");
+      expect(result.report).toContain("relations.fixed_by to lessons");
+    }
+  });
+
   it("passes staleDays through to programmatic checks", async () => {
     await writeWikiPage(
       "projects/a.md",

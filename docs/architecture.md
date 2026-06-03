@@ -9,7 +9,7 @@ Following the Karpathy LLM Wiki pattern (April 2026) with the LLM-Wiki-v2 extens
 | Layer | What it is | Who writes |
 |---|---|---|
 | **Raw observations** (`~/.memory/raw/<date>/<tool>-<session>.md`) | Session-by-session firehose: every prompt, every tool call, with frontmatter | Hooks (passive) + MCP `log_observation` (active) |
-| **Wiki** (`~/.memory/wiki/<category>/<slug>.md`) | Curated entity pages with typed frontmatter relations — projects, people, decisions, lessons, references, tools | Compile pass (Phase 2+) reads raw, writes wiki |
+| **Wiki** (`~/.memory/wiki/<category>/<slug>.md`) | Curated entity pages with typed frontmatter relations — projects, people, decisions, issues, lessons, references, tools | Compile pass (Phase 2+) reads raw, writes wiki |
 | **Crystals** (`~/.memory/crystals/<date>-<slug>.md`) | Long-form distillations of completed work threads | Crystallize pass (Phase 4+) — explicit, intentional |
 
 The schema is defined by `~/.memory/schema.md` (the controlling document) — what entity types exist, what edge types relate them, what the LLM should and shouldn't do during ingest/compile/lint/crystallize.
@@ -58,13 +58,15 @@ Ingest is passive and automated: hooks and MCP calls append markdown firehose da
 
 `compile` is the bridge from accumulated observations to curated wiki pages. The LLM reads raw observations and proposes updates to `wiki/`. The cross-session signal threshold — usually 3 or more raw mentions before creating a new page — is enforced by instructions in the prompt template, not by `memory compile` itself. The CLI reads `schema.md`, `index.md`, recent `log.md` lines, and raw files newer than the latest compile cutoff, substitutes them into `prompts/compile.md`, and prints the result.
 
-`lint` checks structural integrity. Programmatic mode (`--checks-only`) catches mechanical issues: invalid frontmatter, broken `[[wikilinks]]`, broken `relations:` targets, orphan pages, stale active pages, and low-confidence drafts. LLM mode adds judgment: distinguishing real issues from intentional edge cases, suggesting concrete next steps, and prioritizing what to fix first.
+`lint` checks structural integrity. Programmatic mode (`--checks-only`) catches mechanical issues: invalid frontmatter, broken `[[wikilinks]]`, broken `relations:` targets, advisory edge-grammar findings, orphan pages, stale active pages, and low-confidence drafts. LLM mode adds judgment: distinguishing real issues from intentional edge cases, suggesting concrete next steps, and prioritizing what to fix first.
 
 `page` is read-only inspection for one wiki page. It resolves outbound edges from `relations:` and discovers inbound edges by reverse-scanning other pages. Use it to verify that a relation points to a real page and to see which pages cite the one being inspected.
 
 ```
 raw/*.md  -> compile (LLM)  -> wiki/*.md  -> lint (LLM or --checks-only)  -> page (inspect)
 ```
+
+Search builds a transient graph from relation frontmatter and wikilinks. Retrieval graph spread weights reasoning edges above provenance and association edges by default, can be tuned with `config.yaml graph.edge_weights`, and skips superseded or expired relation entries. `memory eval-retrieval` runs the checked-in gold set with graph spread on and off so graph lift is visible rather than assumed.
 
 Most curation commands are orchestrators: the CLI assembles context and performs deterministic filesystem reads; the LLM does judgment in the user's active agent session. **Exception (Phase 4.3+/4.4):** the autonomous consumers — `thread/procedure propose`, the query-intent classifier, and `compile --execute` — call the configured LLM provider directly (audited via `chatWithAudit`, gated by `MEMORY_LLM_DISABLED`). The orchestrator-only model still holds for `compile` artifact mode, `lint`, and `page`.
 

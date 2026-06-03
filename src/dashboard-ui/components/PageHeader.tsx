@@ -6,6 +6,7 @@ import { StatusPill, type StatusKind } from "./StatusPill.js";
 const VALID_STATUS: StatusKind[] = ["active", "archived", "superseded", "draft"];
 const VALID_ENTITY_TYPES: EntityType[] = [
   "projects",
+  "issues",
   "decisions",
   "lessons",
   "references",

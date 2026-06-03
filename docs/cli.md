@@ -9,7 +9,7 @@
 ## Setup & integration
 
 ### `memory init [--reset]`
-Lay out `~/.memory/`: `schema.md`, `index.md`, `log.md`, `config.yaml`, `wiki/` (incl. seeded `wiki/preferences.md`), `raw/`, `.gitignore`, and `git init`. `--reset` archives the existing vault first.
+Lay out `~/.memory/`: `schema.md`, `index.md`, `log.md`, `config.yaml`, `wiki/` (incl. seeded `wiki/preferences.md` and category directories such as `wiki/issues/`), `raw/`, `.gitignore`, and `git init`. `--reset` archives the existing vault first.
 
 ### `memory install <platform> [--workspace <dir>] [--surface <s>] [--no-verify]`
 Install hooks + the `memory` MCP server for one platform: `claude-code` | `codex` | `antigravity` | `claude-desktop` | `vscode`. Edits shared config files between `# === BEGIN/END memory-system ===` sentinel markers. Runs `verify --role operator` afterward unless `--no-verify`.
@@ -70,7 +70,7 @@ Shrink oversized raw `ToolUse` payloads using middle-out truncation while preser
 Link raw episodic observations to existing wiki pages via deterministic matching (no LLM). `--plan` previews; `--apply` writes the relation edges.
 
 ### `memory lint [--checks-only] [--stale-days <n>]`
-With `--checks-only`, run programmatic wiki checks (frontmatter validity, broken links). Without it, assemble a lint prompt for an agent.
+With `--checks-only`, run programmatic wiki checks (frontmatter validity, broken links, advisory edge grammar). Without it, assemble a lint prompt for an agent.
 
 ### `memory page <target> [--no-inbound]`
 Pretty-print a wiki page with resolved relations and inbound references.
@@ -152,6 +152,9 @@ Live-tail `~/.memory/errors.log`.
 ---
 
 ## Diagnostics
+
+### `memory eval-retrieval [--corpus <path>] [--gold <path>] [--k <csv>] [--limit <n>] [--json]`
+Run the checked-in retrieval gold set against local search twice: with graph spreading enabled and disabled. Reports Recall@K, MRR, graph lift, and per-type breakdowns for fact, causal, temporal, dependency, and provenance questions. Defaults are `--corpus ~/.memory`, `--gold qa/retrieval-gold.jsonl`, and `--k 5,10`. The command exits non-zero and prints a loud warning when graph lift@5 is not positive.
 
 ### `memory stats`
 File counts, install status, git state.

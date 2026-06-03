@@ -147,6 +147,18 @@ describe("validateFrontmatter - relations", () => {
     }).valid).toBe(false);
   });
 
+  it("accepts issue pages and learned_from relations", () => {
+    const result = validateFrontmatter({
+      ...baseValid,
+      type: "issues",
+      relations: {
+        learned_from: ["wiki/issues/build-failure.md"],
+      },
+    });
+
+    expect(result.valid).toBe(true);
+  });
+
   it("accepts known edge types with string-array values", () => {
     const r = validateFrontmatter({
       ...baseValid,

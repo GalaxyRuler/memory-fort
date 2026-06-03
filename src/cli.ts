@@ -11,6 +11,7 @@ import { runDoctor, formatDoctorResult } from "./cli/commands/doctor.js";
 import { registerDashboardCommand } from "./cli/commands/dashboard.js";
 import { registerEntityCommand } from "./cli/commands/entity.js";
 import { registerEvalCommand } from "./cli/commands/eval.js";
+import { runEvalRetrieval } from "./cli/commands/eval-retrieval.js";
 import { runGrep, type GrepScope } from "./cli/commands/grep.js";
 import { runInit } from "./cli/commands/init.js";
 import { runBackfill } from "./cli/commands/backfill.js";
@@ -83,6 +84,32 @@ registerDashboardCommand(program);
 registerEntityCommand(program);
 registerProcedureCommand(program);
 registerThreadCommand(program);
+
+program
+  .command("eval-retrieval")
+  .description("Run the checked-in retrieval gold set and report graph-spread lift")
+  .option("--corpus <path>", "vault root (default: ~/.memory)")
+  .option("--gold <path>", "path to retrieval-gold.jsonl (default: ./qa/retrieval-gold.jsonl)")
+  .option("--k <list>", "comma-separated K values (default: 5,10)")
+  .option("--limit <n>", "stop after N questions", parseInteger)
+  .option("--json", "emit raw JSON")
+  .action(async (opts: {
+    corpus?: string;
+    gold?: string;
+    k?: string;
+    limit?: number;
+    json?: boolean;
+  }) => {
+    try {
+      const result = await runEvalRetrieval(opts);
+      process.stdout.write(result.stdout);
+      process.stderr.write(result.stderr);
+      process.exit(result.exitCode);
+    } catch (err) {
+      console.error(`memory eval-retrieval failed: ${(err as Error).message}`);
+      process.exit(1);
+    }
+  });
 
 program
   .command("init")

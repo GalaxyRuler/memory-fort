@@ -190,6 +190,7 @@ export interface GraphFeed {
     created: string | null;
     confidence: number | null;
     confidenceFull?: number | ConfidenceVector | null;
+    importance?: number | null;
     lifecycle?: LifecycleStage | null;
     tags: string[];
     description: string;
@@ -1156,6 +1157,7 @@ export async function loadGraphFeed(vaultRoot: string, scope: SearchScope = "wik
         created: document?.created ?? null,
         confidence: document?.confidence ?? null,
         confidenceFull: document?.confidenceFull ?? document?.confidence ?? null,
+        importance: document?.importance ?? null,
         lifecycle: document?.lifecycle ?? null,
         tags: document?.tags ?? [],
         description: document?.snippetSource ?? "",

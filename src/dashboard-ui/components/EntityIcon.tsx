@@ -2,6 +2,7 @@ import { cn } from "../lib/cn.js";
 
 export type EntityType =
   | "projects"
+  | "issues"
   | "decisions"
   | "lessons"
   | "references"
@@ -19,6 +20,7 @@ export interface EntityIconProps {
 const SIZE_MAP = { sm: "h-1.5 w-1.5", md: "h-2 w-2", lg: "h-3 w-3" };
 const COLOR_MAP: Record<EntityType, string> = {
   projects: "bg-entity-projects",
+  issues: "bg-entity-decisions",
   decisions: "bg-entity-decisions",
   lessons: "bg-entity-lessons",
   references: "bg-entity-references",

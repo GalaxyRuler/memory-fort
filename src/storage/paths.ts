@@ -4,6 +4,7 @@ import { join } from "node:path";
 export type ToolName = "claude-code" | "codex" | "antigravity" | "manual";
 export type PageType =
   | "projects"
+  | "issues"
   | "people"
   | "decisions"
   | "lessons"

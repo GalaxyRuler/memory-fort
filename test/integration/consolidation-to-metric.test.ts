@@ -30,6 +30,7 @@ describe("consolidation to graph health integration", () => {
         updated: "2026-05-27",
         status: "active",
         source: "codex",
+        relations: { depends_on: ["wiki/tools/vitest.md"] },
       },
       "Vitest is the local TypeScript test runner.\n",
     );

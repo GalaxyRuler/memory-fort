@@ -16,6 +16,7 @@ export interface GraphNode {
   created: string | null;
   confidence: number | null;
   confidenceFull?: number | ConfidenceVector | null;
+  importance?: number | null;
   lifecycle?: LifecycleStage | null;
   tags: string[];
   description: string;

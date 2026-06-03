@@ -40,6 +40,7 @@ describe("compile execute operations", () => {
   it("classifies only durable knowledge page types as rewrite-only", () => {
     expect(isKnowledgePageType("projects")).toBe(true);
     expect(isKnowledgePageType("lessons")).toBe(true);
+    expect(isKnowledgePageType("issues")).toBe(true);
     expect(isKnowledgePageType("decisions")).toBe(true);
     expect(isKnowledgePageType("references")).toBe(true);
     expect(isKnowledgePageType("tools")).toBe(true);

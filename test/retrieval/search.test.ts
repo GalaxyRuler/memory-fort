@@ -308,6 +308,60 @@ describe("search core", () => {
     );
   });
 
+  it("passes config edge weight overrides into spreading activation", async () => {
+    const { embedClient, voyageClient } = clients();
+    const documents = [
+      makeDoc({
+        relPath: "wiki/issues/cache-outage.md",
+        title: "Cache outage",
+        type: "issues",
+        body: "voyage cache outage incident seed",
+        relations: {
+          caused_by: ["wiki/aaa/slow-cache.md"],
+          linked: ["wiki/references/z-cache-note.md"],
+        },
+      }),
+      makeDoc({
+        relPath: "wiki/aaa/slow-cache.md",
+        title: "Slow cache",
+        type: "tools",
+        body: "unrelated causal neighbor",
+      }),
+      makeDoc({
+        relPath: "wiki/references/z-cache-note.md",
+        title: "Cache note",
+        type: "references",
+        body: "unrelated linked neighbor",
+      }),
+    ];
+
+    const response = await runSearch({
+      query: "voyage cache outage incident",
+      noHyde: true,
+      noRerank: true,
+      vaultRoot: tmp,
+      embedClient,
+      voyageClient,
+      corpusLoader: async () => ({ documents, errors: [] }),
+      configLoader: async () => ({
+        graph: { edge_weights: { linked: 2, caused_by: 0.5 } },
+      }),
+    });
+
+    const linked = response.results.find(
+      (result) => result.path === "wiki/references/z-cache-note.md",
+    );
+    const causedBy = response.results.find(
+      (result) => result.path === "wiki/aaa/slow-cache.md",
+    );
+    const linkedGraphRank = linked?.sources.find((source) => source.source === "graph-spread")?.rank;
+    const causedByGraphRank = causedBy?.sources.find((source) => source.source === "graph-spread")?.rank;
+
+    expect(linkedGraphRank).toBeGreaterThan(0);
+    expect(causedByGraphRank).toBeGreaterThan(0);
+    expect(linkedGraphRank).toBeLessThan(causedByGraphRank!);
+  });
+
   it("returns freshly-added raw files lexically when embeddings are unavailable", async () => {
     await mkdir(join(tmp, "raw", "2026-05-29"), { recursive: true });
     await writeFile(
