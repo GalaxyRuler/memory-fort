@@ -4,6 +4,7 @@ import { mkdir, readFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import type { LLMProvider, LLMTokenUsage } from "../llm/types.js";
 import { filterWikiReferencesToExisting, stripProsePathLeaksFromText } from "../llm/proposal-grounding.js";
+import { redactSecrets } from "../privacy/redaction.js";
 import { readRelationTarget, type SerializedRelationEdge } from "../retrieval/relations.js";
 import { atomicWrite } from "../storage/atomic-write.js";
 import { parseFrontmatter, serializeFrontmatter, type Frontmatter } from "../storage/frontmatter.js";
@@ -1367,15 +1368,4 @@ export function compileOperationPath(operation: CompileOperation): string {
 export function isAllowedCompileRelPath(relPath: string): boolean {
   if (relPath.includes("..") || relPath.startsWith("/") || /^[a-z]:/i.test(relPath)) return false;
   return (relPath.startsWith("wiki/") && relPath.endsWith(".md")) || relPath === "index.md" || relPath === "log.md";
-}
-
-function redactSecrets(value: string): string {
-  return value
-    .replace(/\b([A-Z0-9_]*(?:API[_-]?KEY|TOKEN|SECRET|PASSWORD)[A-Z0-9_]*)\s*=\s*\S+/gi, "$1=[REDACTED]")
-    .replace(/^-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?^-----END [A-Z ]*PRIVATE KEY-----/gm, "[REDACTED]")
-    .replace(/\bAIza[0-9A-Za-z_-]{35}\b/g, "[REDACTED]")
-    .replace(/\bgh[posru]_[0-9A-Za-z]{36,}\b/g, "[REDACTED]")
-    .replace(/\bBearer\s+[A-Za-z0-9._-]+\b/g, "Bearer [REDACTED]")
-    .replace(/\bxox[baprs]-[A-Za-z0-9-]{20,}\b/g, "[REDACTED]")
-    .replace(/\b(sk-[A-Za-z0-9_-]{8,})\b/g, "[REDACTED]");
 }

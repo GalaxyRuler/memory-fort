@@ -1,13 +1,24 @@
 const SECRET_ASSIGNMENT =
-  /\b[A-Z0-9_]*(?:API_KEY|ACCESS_TOKEN|AUTH_TOKEN|SECRET|PASSWORD)\s*=\s*\S+/gi;
-const SECRET_TOKEN = /\bsk-[A-Za-z0-9_-]{16,}\b/g;
+  /\b([A-Z0-9_]*(?:API[_-]?KEY|TOKEN|SECRET|PASSWORD)[A-Z0-9_]*\s*=\s*)(?:"[^"\r\n]*"|'[^'\r\n]*'|\S+)/gi;
+const SECRET_JSON_FIELD =
+  /(["']?[A-Z0-9_-]*(?:API[_-]?KEY|ACCESS[_-]?TOKEN|AUTH[_-]?TOKEN|SECRET|PASSWORD)["']?\s*:\s*)(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s,}\]]+)/gi;
+const SECRET_TOKEN = /\bsk-[A-Za-z0-9_-]{8,}\b/g;
+const GOOGLE_API_KEY = /\bAIza[0-9A-Za-z_-]{35}\b/g;
+const GITHUB_TOKEN = /\bgh[posru]_[0-9A-Za-z]{36,}\b/g;
+const SLACK_TOKEN = /\bxox[baprs]-[A-Za-z0-9-]{20,}\b/g;
+const BEARER_TOKEN = /\bBearer\s+[A-Za-z0-9\-._~+/]+=*/gi;
 const PRIVATE_KEY_BLOCK =
-  /^-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?^-----END [A-Z ]*PRIVATE KEY-----/gm;
+  /[^\r\n]*-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----[^\r\n]*/g;
 
 export function redactSecrets(value: string): string {
   return value
     .replace(PRIVATE_KEY_BLOCK, "[REDACTED]")
-    .replace(SECRET_ASSIGNMENT, "[REDACTED]")
+    .replace(SECRET_JSON_FIELD, "$1\"[REDACTED]\"")
+    .replace(SECRET_ASSIGNMENT, "$1[REDACTED]")
+    .replace(GOOGLE_API_KEY, "[REDACTED]")
+    .replace(GITHUB_TOKEN, "[REDACTED]")
+    .replace(SLACK_TOKEN, "[REDACTED]")
+    .replace(BEARER_TOKEN, "Bearer [REDACTED]")
     .replace(SECRET_TOKEN, "[REDACTED]");
 }
 

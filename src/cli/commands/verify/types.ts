@@ -27,6 +27,7 @@ export interface VerifyCheckContext {
   offline?: boolean;
   dashboardUrl?: string;
   remoteName?: string;
+  runningProcessNames?: () => Promise<string[]>;
 }
 
 export interface RunCheckOptions extends VerifyCheckContext {

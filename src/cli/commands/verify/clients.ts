@@ -1,7 +1,9 @@
 import { existsSync } from "node:fs";
 import { readdir, readFile, stat } from "node:fs/promises";
+import { execFile } from "node:child_process";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, normalize, relative, resolve, join } from "node:path";
+import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
 import {
   claudeDesktopConfigDir,
@@ -16,6 +18,7 @@ import { vscodeExtensionDir, vscodeMcpConfigPath } from "../install/vscode.js";
 import { fail, pass, warn, type CheckDescriptor, type VerifyCheckContext, type VerifyCheckResult } from "./types.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+const execFileAsync = promisify(execFile);
 
 /** Enabled, historically active clients are treated as an outage after this many silent days. */
 export const CAPTURE_STALE_FAIL_DAYS = 3;
@@ -120,7 +123,7 @@ export const snifferVscodeCaptureCheck: CheckDescriptor = {
   id: "sniffer.vscode.capture",
   label: "VS Code extension capture is fresh",
   roles: ["operator"],
-  run: (ctx) => checkRecentCapture(ctx, ["vscode-"], "sniffer.vscode.capture", "vscode extension"),
+  run: (ctx) => checkVsCodeCapture(ctx),
 };
 
 export const claudeDesktopConfigCheck: CheckDescriptor = {
@@ -643,6 +646,57 @@ async function checkVsCodeExtension(): Promise<VerifyCheckResult> {
       "run `memory connect vscode`",
     );
   }
+}
+
+async function checkVsCodeCapture(ctx: VerifyCheckContext): Promise<VerifyCheckResult> {
+  const snapshot = await readCaptureSnapshot(ctx, ["vscode-"]);
+  if (snapshot.recentCount > 0) {
+    return pass("sniffer.vscode.capture", "vscode extension captures today", `${snapshot.recentCount} captures today`);
+  }
+
+  const active = await isVsCodeProcessActive(ctx.runningProcessNames ?? readRunningProcessNames);
+  if (active === false) {
+    return pass(
+      "sniffer.vscode.capture",
+      "vscode extension idle",
+      "VS Code is not running; capture is expected when VS Code starts",
+    );
+  }
+
+  return checkRecentCapture(ctx, ["vscode-"], "sniffer.vscode.capture", "vscode extension");
+}
+
+async function isVsCodeProcessActive(readProcessNames: () => Promise<string[]>): Promise<boolean | null> {
+  try {
+    const names = await readProcessNames();
+    return names.some(isVsCodeProcessName);
+  } catch {
+    return null;
+  }
+}
+
+async function readRunningProcessNames(): Promise<string[]> {
+  if (process.platform === "win32") {
+    const { stdout } = await execFileAsync("tasklist", ["/fo", "csv", "/nh"], { windowsHide: true });
+    return stdout.split(/\r?\n/).map(readTasklistImageName).filter(Boolean);
+  }
+
+  const { stdout } = await execFileAsync("ps", ["-A", "-o", "comm="], { windowsHide: true });
+  return stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+}
+
+function readTasklistImageName(line: string): string {
+  const match = /^"((?:[^"]|"")*)"/.exec(line.trim());
+  return (match?.[1]?.replace(/""/g, "\"") ?? line.split(",")[0] ?? "").trim();
+}
+
+function isVsCodeProcessName(name: string): boolean {
+  const normalized = name.toLowerCase().replace(/\.exe$/, "");
+  return normalized === "code" ||
+    normalized === "code - insiders" ||
+    normalized === "code helper" ||
+    normalized === "vscodium" ||
+    normalized === "codium";
 }
 
 async function readCaptureSnapshot(

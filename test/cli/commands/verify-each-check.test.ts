@@ -235,6 +235,30 @@ describe("verify checks", () => {
     expect(capture?.detail).toContain("idle (no capture 24h, last seen 2026-05-25)");
   });
 
+  it("client checks do not warn for VS Code capture when VS Code is inactive", async () => {
+    await mkdir(process.env["MEMORY_VSCODE_USER_DIR"]!, { recursive: true });
+    await mkdir(join(tmp, ".vscode", "extensions", "memory-fort.memory"), { recursive: true });
+    await writeFile(
+      join(process.env["MEMORY_VSCODE_USER_DIR"]!, "mcp.json"),
+      JSON.stringify({ servers: { memory: { command: "node" } } }),
+    );
+    process.env["MEMORY_VSCODE_EXTENSION_DIR"] = join(tmp, ".vscode", "extensions");
+    await writeFile(
+      join(tmp, ".vscode", "extensions", "memory-fort.memory", "package.json"),
+      JSON.stringify({ contributes: { chatParticipants: [{ id: "memory-fort.memory" }] } }),
+    );
+
+    const results = await checkClients({
+      vaultRoot: tmp,
+      now,
+      runningProcessNames: async () => [],
+    });
+
+    const capture = results.find((result) => result.id === "sniffer.vscode.capture");
+    expect(capture?.status).toBe("pass");
+    expect(capture?.detail).toContain("VS Code is not running");
+  });
+
   it("client checks describe missing Antigravity captures as live-hook pending", async () => {
     const results = await checkClients({ vaultRoot: tmp, now });
     const capture = results.find((result) => result.id === "client.antigravity.capture");
