@@ -8,6 +8,7 @@ export const REASONING_EDGE_TYPES = [
   "contradicts",
   "supersedes",
   "learned_from",
+  "tested-with",
 ] as const;
 
 export const PROVENANCE_EDGE_TYPES = [
