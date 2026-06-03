@@ -31,6 +31,7 @@ describe("redactSecrets", () => {
   it("does not flag already-redacted secret shapes", () => {
     const input = [
       "OPENAI_API_KEY=[REDACTED]",
+      "VOYAGE_API_KEY=[REDACTED].",
       "Authorization: Bearer [REDACTED]",
       '"apiKey": "[REDACTED]"',
     ].join("\n");

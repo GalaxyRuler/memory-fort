@@ -90,12 +90,14 @@ function parseCommitSha(output: string): string | null {
 async function findSecretRawFiles(memoryRoot: string, rawFiles: string[]): Promise<string[]> {
   const hits: string[] = [];
   for (const rawFile of rawFiles) {
+    let content: string;
     try {
-      const content = await readFile(join(memoryRoot, ...rawFile.split("/")), "utf-8");
-      if (containsSecretShape(content)) hits.push(rawFile);
+      content = await readFile(join(memoryRoot, ...rawFile.split("/")), "utf-8");
     } catch {
       // Deleted or unreadable files cannot leak new content through auto-commit.
+      continue;
     }
+    if (containsSecretShape(content)) hits.push(rawFile);
   }
   return hits;
 }
