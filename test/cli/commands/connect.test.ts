@@ -85,6 +85,55 @@ describe("runConnect", () => {
     expect(existsSync(join(extensionDir, "memory-fort.memory"))).toBe(true);
   });
 
+  it("--dry-run reports connect paths without writing client config", async () => {
+    const writes: string[] = [];
+    const result = await runConnect({
+      client: "codex",
+      dryRun: true,
+      stdout: captureStdout(writes, false),
+      verifyFn: async () => verifyReport(),
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(writes.join("")).toContain("memory connect will write");
+    expect(existsSync(join(process.env["MEMORY_CODEX_DIR"]!, "config.toml"))).toBe(false);
+  });
+
+  it("prompts before connect writes when stdout is a TTY", async () => {
+    let promptCalls = 0;
+    const result = await runConnect({
+      client: "codex",
+      stdout: captureStdout([], true),
+      confirm: async () => {
+        promptCalls += 1;
+        return true;
+      },
+      noVerify: true,
+    });
+
+    expect(promptCalls).toBe(1);
+    expect(result.exitCode).toBe(0);
+    expect(existsSync(join(process.env["MEMORY_CODEX_DIR"]!, "config.toml"))).toBe(true);
+  });
+
+  it("--yes skips the connect prompt", async () => {
+    let promptCalls = 0;
+    const result = await runConnect({
+      client: "codex",
+      yes: true,
+      stdout: captureStdout([], true),
+      confirm: async () => {
+        promptCalls += 1;
+        return false;
+      },
+      noVerify: true,
+    });
+
+    expect(promptCalls).toBe(0);
+    expect(result.exitCode).toBe(0);
+    expect(existsSync(join(process.env["MEMORY_CODEX_DIR"]!, "config.toml"))).toBe(true);
+  });
+
   it("passes workspace path to VS Code installer", async () => {
     const workspace = join(tmp, "workspace");
     const result = await runConnect({
@@ -138,5 +187,15 @@ function verifyReport(): VerifyResult {
     failed: 0,
     warnings: 0,
     exitCode: 0,
+  };
+}
+
+function captureStdout(writes: string[], isTTY: boolean) {
+  return {
+    isTTY,
+    write(chunk: string | Uint8Array): boolean {
+      writes.push(String(chunk));
+      return true;
+    },
   };
 }

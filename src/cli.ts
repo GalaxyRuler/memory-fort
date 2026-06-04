@@ -126,9 +126,22 @@ program
     "--reset",
     "destructive — archives existing ~/.memory/ before re-init",
   )
-  .action(async (opts: { reset?: boolean }) => {
+  .option("--dry-run", "print what would be created or modified without writing")
+  .option("--yes", "skip interactive confirmation")
+  .action(async (opts: { reset?: boolean; dryRun?: boolean; yes?: boolean }) => {
     try {
-      const result = await runInit({ reset: opts.reset });
+      const result = await runInit({
+        reset: opts.reset,
+        dryRun: opts.dryRun,
+        yes: opts.yes,
+      });
+      if (result.cancelled) {
+        process.exit(1);
+      }
+      if (result.dryRun) {
+        console.log("Dry run complete; no files written.");
+        return;
+      }
       console.log(`Initialized memory at ${result.root}`);
       console.log(`  created:    ${result.created.length} paths`);
       console.log(`  preserved:  ${result.preserved.length} paths`);
@@ -148,10 +161,12 @@ program
   .option("--surface <surface>", "Antigravity surface: workspace | ide | both")
   .option("--apply", "install the Windows supervisor when platform is supervisor")
   .option("--remove", "remove the Windows supervisor when platform is supervisor")
+  .option("--dry-run", "print what would be created or modified without writing")
+  .option("--yes", "skip interactive confirmation")
   .option("--no-verify", "skip post-install memory verify")
   .action(async (
     platform: string,
-    opts: { workspace?: string; surface?: "workspace" | "ide" | "both"; apply?: boolean; remove?: boolean; verify?: boolean },
+    opts: { workspace?: string; surface?: "workspace" | "ide" | "both"; apply?: boolean; remove?: boolean; dryRun?: boolean; yes?: boolean; verify?: boolean },
   ) => {
     try {
       if (platform === "supervisor") {
@@ -226,16 +241,20 @@ program
   .description("Install MCP/hooks for one client or every supported client")
   .option("--all", "install every supported client")
   .option("--workspace <path>", "workspace path for clients that support workspace-scoped MCP")
+  .option("--dry-run", "print what would be created or modified without writing")
+  .option("--yes", "skip interactive confirmation")
   .option("--no-verify", "skip post-connect memory verify")
   .action(async (
     client: string | undefined,
-    opts: { all?: boolean; workspace?: string; verify?: boolean },
+    opts: { all?: boolean; workspace?: string; dryRun?: boolean; yes?: boolean; verify?: boolean },
   ) => {
     try {
       const result = await runConnect({
         all: opts.all,
         client: client as never,
         workspace: opts.workspace,
+        dryRun: opts.dryRun,
+        yes: opts.yes,
         noVerify: opts.verify === false,
       });
       process.stdout.write(formatConnectResult(result));

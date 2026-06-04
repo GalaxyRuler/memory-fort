@@ -40,6 +40,56 @@ describe("runInit", () => {
     expect(existsSync(join(result.root, ".archive"))).toBe(true);
   });
 
+  it("--dry-run reports the init plan without writing the vault", async () => {
+    const writes: string[] = [];
+    const result = await runInit({
+      sourceRepoDir,
+      dryRun: true,
+      stdout: captureStdout(writes, false),
+    });
+
+    expect(result.dryRun).toBe(true);
+    expect(writes.join("")).toContain("memory init will write");
+    expect(result.planned?.some((line) => line.includes("config.yaml"))).toBe(true);
+    expect(existsSync(result.root)).toBe(false);
+  });
+
+  it("prompts before writing when stdout is a TTY", async () => {
+    let promptCalls = 0;
+    const writes: string[] = [];
+
+    const result = await runInit({
+      sourceRepoDir,
+      stdout: captureStdout(writes, true),
+      confirm: async (question) => {
+        promptCalls += 1;
+        expect(question).toBe("Proceed? [Y/n] ");
+        return true;
+      },
+    });
+
+    expect(promptCalls).toBe(1);
+    expect(writes.join("")).toContain("memory init will write");
+    expect(existsSync(result.root)).toBe(true);
+  });
+
+  it("--yes skips the TTY prompt", async () => {
+    let promptCalls = 0;
+
+    const result = await runInit({
+      sourceRepoDir,
+      yes: true,
+      stdout: captureStdout([], true),
+      confirm: async () => {
+        promptCalls += 1;
+        return false;
+      },
+    });
+
+    expect(promptCalls).toBe(0);
+    expect(existsSync(result.root)).toBe(true);
+  });
+
   it("writes the baseline files", async () => {
     const result = await runInit({ sourceRepoDir });
     expect(existsSync(join(result.root, "schema.md"))).toBe(true);
@@ -157,3 +207,13 @@ describe("runInit", () => {
     }
   });
 });
+
+function captureStdout(writes: string[], isTTY: boolean) {
+  return {
+    isTTY,
+    write(chunk: string | Uint8Array): boolean {
+      writes.push(String(chunk));
+      return true;
+    },
+  };
+}

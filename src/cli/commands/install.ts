@@ -1,9 +1,13 @@
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { installAntigravity } from "./install/antigravity.js";
-import { installClaudeCode } from "./install/claude-code.js";
+import { installClaudeCode, claudeCodeSettingsPath } from "./install/claude-code.js";
 import { runInstallClaudeDesktop } from "./install/claude-desktop.js";
 import { installCodex } from "./install/codex.js";
-import { installVsCode } from "./install/vscode.js";
+import { installVsCode, vscodeExtensionDir, vscodeMcpConfigPath } from "./install/vscode.js";
 import { formatVerifyResult, runVerify, type VerifyResult } from "./verify.js";
+import { claudeDesktopConfigPath, logPath, memoryRoot } from "../../storage/paths.js";
+import { guardWrites, type CommandStdout, type ConfirmPrompt } from "./write-guard.js";
 
 export type Platform =
   | "claude-code"
@@ -17,12 +21,34 @@ export interface RunInstallOptions {
   surface?: "workspace" | "ide" | "both";
   noVerify?: boolean;
   verifyFn?: () => Promise<VerifyResult>;
+  dryRun?: boolean;
+  yes?: boolean;
+  stdout?: CommandStdout;
+  confirm?: ConfirmPrompt;
+  vscodeExtensionDir?: string;
 }
 
 export async function runInstall(
   platform: string,
   opts: RunInstallOptions = {},
 ): Promise<void> {
+  const planned = planInstallWrites(platform, opts);
+  if (!planned) {
+    console.error(
+      `Unknown platform: ${platform}. Valid: claude-code, codex, antigravity, claude-desktop, vscode`,
+    );
+    process.exit(2);
+  }
+  const guard = await guardWrites({
+    command: `memory install ${platform}`,
+    planned,
+    dryRun: opts.dryRun,
+    yes: opts.yes,
+    stdout: opts.stdout,
+    confirm: opts.confirm,
+  });
+  if (!guard.shouldWrite) return;
+
   switch (platform) {
     case "claude-code": {
       const result = await installClaudeCode();
@@ -115,10 +141,52 @@ export async function runInstall(
       return;
     }
     default:
-      console.error(
-        `Unknown platform: ${platform}. Valid: claude-code, codex, antigravity, claude-desktop, vscode`,
-      );
       process.exit(2);
+  }
+}
+
+export function planInstallWrites(
+  platform: string,
+  opts: Pick<RunInstallOptions, "workspace" | "vscodeExtensionDir"> = {},
+): string[] | null {
+  switch (platform) {
+    case "claude-code": {
+      const root = memoryRoot();
+      const pluginDir = join(root, "claude-code-plugin");
+      return [
+        join(pluginDir, ".claude-plugin", "plugin.json"),
+        join(root, ".claude-plugin", "marketplace.json"),
+        join(pluginDir, "hooks", "hooks.json"),
+        join(pluginDir, "scripts"),
+        join(pluginDir, ".mcp.json"),
+        claudeCodeSettingsPath(),
+        logPath(),
+      ];
+    }
+    case "codex": {
+      const codexDir = process.env["MEMORY_CODEX_DIR"] ?? join(homedir(), ".codex");
+      return [join(codexDir, "config.toml"), logPath()];
+    }
+    case "antigravity": {
+      const antigravityDir =
+        process.env["MEMORY_ANTIGRAVITY_DIR"] ??
+        join(homedir(), ".gemini", "antigravity");
+      return [
+        join(antigravityDir, "mcp_config.json"),
+        join(antigravityDir, "plugins", "memory"),
+        logPath(),
+      ];
+    }
+    case "claude-desktop":
+      return [claudeDesktopConfigPath()];
+    case "vscode":
+      return [
+        vscodeMcpConfigPath({ workspace: opts.workspace }),
+        join(vscodeExtensionDir(opts.vscodeExtensionDir), "memory-fort.memory"),
+        logPath(),
+      ];
+    default:
+      return null;
   }
 }
 

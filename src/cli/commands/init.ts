@@ -13,6 +13,7 @@ import {
 } from "../../storage/paths.js";
 import { atomicWrite, atomicAppend } from "../../storage/atomic-write.js";
 import { detectTemplateVars, renderTemplate } from "../template-render.js";
+import { guardWrites, type CommandStdout, type ConfirmPrompt } from "./write-guard.js";
 
 declare const __MEMORY_BUILD_COMMIT__: string | undefined;
 
@@ -22,6 +23,10 @@ export interface InitOptions {
   sourceRepoDir?: string;
   /** For tests: override the current date. */
   now?: Date;
+  dryRun?: boolean;
+  yes?: boolean;
+  stdout?: CommandStdout;
+  confirm?: ConfirmPrompt;
 }
 
 export interface InitResult {
@@ -29,6 +34,9 @@ export interface InitResult {
   created: string[];
   preserved: string[];
   archivedTo?: string;
+  planned?: string[];
+  dryRun?: boolean;
+  cancelled?: boolean;
 }
 
 const SUBDIRS = [
@@ -154,7 +162,25 @@ Durable behavior-shaping preferences for agents using Memory Fort.
 
 export async function runInit(opts: InitOptions = {}): Promise<InitResult> {
   const root = memoryRoot();
-  const result: InitResult = { root, created: [], preserved: [] };
+  const planned = planInitWrites(root, opts);
+  const guard = await guardWrites({
+    command: "memory init",
+    planned,
+    dryRun: opts.dryRun,
+    yes: opts.yes,
+    stdout: opts.stdout,
+    confirm: opts.confirm,
+  });
+  const result: InitResult = {
+    root,
+    created: [],
+    preserved: [],
+    planned,
+    dryRun: guard.dryRun,
+    cancelled: guard.cancelled,
+  };
+
+  if (!guard.shouldWrite) return result;
 
   if (opts.reset && existsSync(root)) {
     result.archivedTo = await archiveExistingRoot(root, opts.now ?? new Date());
@@ -314,6 +340,29 @@ export async function runInit(opts: InitOptions = {}): Promise<InitResult> {
   return result;
 }
 
+export function planInitWrites(root = memoryRoot(), opts: Pick<InitOptions, "reset" | "now"> = {}): string[] {
+  const paths = [
+    root,
+    ...SUBDIRS.map((sub) => join(root, sub)),
+    schemaPath(),
+    join(root, "prompts", "compile.md"),
+    join(root, "prompts", "lint.md"),
+    join(root, "prompts", "hyde.md"),
+    indexPath(),
+    join(root, "wiki", "preferences.md"),
+    logPath(),
+    configPath(),
+    errorsLogPath(),
+    join(root, ".gitignore"),
+    join(root, ".gitattributes"),
+    join(root, ".git"),
+  ];
+  if (opts.reset && existsSync(root)) {
+    paths.unshift(join(root, ".archive", `pre-reset-${archiveTimestamp(opts.now ?? new Date())}`));
+  }
+  return paths;
+}
+
 function buildInstallCommit(detectedCommit: string): string {
   if (typeof __MEMORY_BUILD_COMMIT__ !== "undefined") {
     return __MEMORY_BUILD_COMMIT__;
@@ -322,7 +371,7 @@ function buildInstallCommit(detectedCommit: string): string {
 }
 
 async function archiveExistingRoot(root: string, now: Date): Promise<string> {
-  const ts = now.toISOString().replace(/[:.]/g, "-");
+  const ts = archiveTimestamp(now);
   const archive = join(root, ".archive", `pre-reset-${ts}`);
   await mkdir(archive, { recursive: true });
 
@@ -333,6 +382,10 @@ async function archiveExistingRoot(root: string, now: Date): Promise<string> {
   }
 
   return archive;
+}
+
+function archiveTimestamp(now: Date): string {
+  return now.toISOString().replace(/[:.]/g, "-");
 }
 
 function templatePath(sourceRepoDir?: string): string {
