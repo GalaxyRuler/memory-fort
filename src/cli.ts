@@ -25,7 +25,7 @@ import { formatDiscoverThreadsResult, runDiscoverThreads } from "./cli/commands/
 import { formatReindexResult, runReindex } from "./cli/commands/reindex.js";
 import { runImportAgentMemory } from "./cli/commands/import-agentmemory.js";
 import { runInstall } from "./cli/commands/install.js";
-import { formatSupervisorResult, runInstallSupervisor, runSupervisorStatus } from "./cli/commands/supervisor.js";
+import { formatSupervisorJson, formatSupervisorResult, runInstallSupervisor, runSupervisorStatus } from "./cli/commands/supervisor.js";
 import { runInstallTailscaleRoute } from "./cli/commands/install-tailscale-route.js";
 import { runInstallVps } from "./cli/commands/install-vps.js";
 import { runLint } from "./cli/commands/lint.js";
@@ -188,14 +188,15 @@ program
 
 const supervisor = program
   .command("supervisor")
-  .description("Inspect the Windows Task Scheduler supervisor");
+  .description("Inspect the Windows HKCU Run-key supervisor");
 
 supervisor
   .command("status")
-  .description("Query the Memory Fort dashboard logon task")
-  .action(async () => {
+  .description("Query the Memory Fort dashboard HKCU Run-key autostart")
+  .option("--json", "emit structured supervisor status JSON")
+  .action(async (opts: { json?: boolean }) => {
     const result = await runSupervisorStatus();
-    process.stdout.write(formatSupervisorResult(result));
+    process.stdout.write(opts.json ? formatSupervisorJson(result) : formatSupervisorResult(result));
     process.exit(result.exitCode);
   });
 
