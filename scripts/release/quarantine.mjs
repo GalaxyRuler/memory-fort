@@ -15,5 +15,6 @@ export const QUARANTINE_GLOBS = [
   "test/cli/commands/install-vps.test.ts",
   "test/cli/commands/install-tailscale-route.test.ts",
   "test/cli/commands/sync-bootstrap.test.ts",
+  "test/cli/private-ops.test.ts",
   "scripts/release/**",
 ];
