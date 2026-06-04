@@ -121,11 +121,11 @@ export function parseMemoryConfigYaml(text: string, path = "config.yaml"): Memor
 export function validateMemoryConfig(config: MemoryConfig): string[] {
   const warnings: string[] = [];
   const embedder = asRecord(config.embedder);
-  if (embedder?.["provider"] !== undefined && !["voyage", "openai", "ollama"].includes(String(embedder["provider"]))) {
+  if (embedder?.["provider"] !== undefined && !["lexical", "voyage", "openai", "ollama"].includes(String(embedder["provider"]))) {
     warnings.push(`embedder.provider has invalid value ${JSON.stringify(embedder["provider"])}`);
   }
   const embedding = asRecord(config.embedding);
-  if (embedding?.["provider"] !== undefined && !["voyage", "openai", "ollama"].includes(String(embedding["provider"]))) {
+  if (embedding?.["provider"] !== undefined && !["lexical", "voyage", "openai", "ollama"].includes(String(embedding["provider"]))) {
     warnings.push(`embedding.provider has invalid value ${JSON.stringify(embedding["provider"])}`);
   }
   const llm = asRecord(config.llm);

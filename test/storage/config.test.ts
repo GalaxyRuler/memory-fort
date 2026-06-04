@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import yaml from "js-yaml";
 import { loadMemoryConfig, type MemoryConfig } from "../../src/storage/config.js";
 
 describe("memory config reader", () => {
@@ -35,6 +36,15 @@ describe("memory config reader", () => {
     await expect(loadMemoryConfig(tmp)).resolves.toEqual({
       embedder: { provider: "voyage", model: "voyage-4-large" },
       vps: { host: "srv1317946", install_root: "/root/memory-system" },
+    });
+  });
+
+  it("checked-in config template seeds keyless lexical retrieval", async () => {
+    const template = yaml.load(await readFile(join(process.cwd(), "templates", "config.yaml"), "utf-8"));
+
+    expect(template).toMatchObject({
+      embedder: { provider: "lexical", model: "lexical" },
+      embedding: { provider: "lexical", model: "lexical", dim: 0 },
     });
   });
 

@@ -8,7 +8,7 @@ export { type EmbedderConfig, type EmbedderProvider } from "./types.js";
 
 export interface EmbedderProviderInfo {
   provider: EmbedderProvider;
-  requiredEnv: "VOYAGE_API_KEY" | "OPENAI_API_KEY" | "OLLAMA_HOST";
+  requiredEnv: "none" | "VOYAGE_API_KEY" | "OPENAI_API_KEY" | "OLLAMA_HOST";
   defaultModel: string;
   active: boolean;
   model: string;
@@ -24,8 +24,8 @@ export class EmbedderConfigError extends Error {
 }
 
 const DEFAULT_CONFIG: EmbedderConfig = {
-  provider: "voyage",
-  model: "voyage-4-large",
+  provider: "lexical",
+  model: "lexical",
 };
 
 const PROVIDERS: Record<EmbedderProvider, {
@@ -33,6 +33,11 @@ const PROVIDERS: Record<EmbedderProvider, {
   defaultModel: string;
   dimByModel: Record<string, number>;
 }> = {
+  lexical: {
+    requiredEnv: "none",
+    defaultModel: "lexical",
+    dimByModel: { lexical: 0 },
+  },
   voyage: {
     requiredEnv: "VOYAGE_API_KEY",
     defaultModel: "voyage-4-large",
@@ -62,6 +67,8 @@ export function createEmbedderFromConfig(
   env: NodeJS.ProcessEnv = process.env,
 ): Embedder {
   switch (config.provider) {
+    case "lexical":
+      return createLexicalEmbedder();
     case "voyage": {
       const apiKey = env["VOYAGE_API_KEY"]?.trim();
       if (!apiKey) throw new EmbedderConfigError("VOYAGE_API_KEY not set");
@@ -88,7 +95,9 @@ export function getActiveEmbedderConfig(config: MemoryConfig): EmbedderConfig {
   const raw = asRecord(config.embedder) ?? asRecord(config.embedding);
   if (!raw) return { ...DEFAULT_CONFIG };
 
-  const provider = readProvider(raw["provider"]);
+  const provider = raw["provider"] === undefined
+    ? DEFAULT_CONFIG.provider
+    : readProvider(raw["provider"]);
   if (!provider) {
     throw new EmbedderConfigError(
       `unknown embedder provider: ${String(raw["provider"])}`,
@@ -106,7 +115,7 @@ export function listEmbedderProviders(
   activeConfig: EmbedderConfig,
   env: NodeJS.ProcessEnv = process.env,
 ): EmbedderProviderInfo[] {
-  return (["voyage", "openai", "ollama"] as const).map((provider) => {
+  return (["lexical", "voyage", "openai", "ollama"] as const).map((provider) => {
     const metadata = PROVIDERS[provider];
     const model = activeConfig.provider === provider
       ? activeConfig.model ?? metadata.defaultModel
@@ -134,6 +143,7 @@ export function estimateEmbeddingCostUsd(
   tokenEstimate: number,
 ): number {
   const perMillionTokens: Record<EmbedderProvider, number> = {
+    lexical: 0,
     voyage: 0.12,
     openai: 0.02,
     ollama: 0,
@@ -145,14 +155,26 @@ function hasProviderCredential(
   provider: EmbedderProvider,
   env: NodeJS.ProcessEnv,
 ): boolean {
+  if (provider === "lexical") return true;
   if (provider === "ollama") return true;
   return Boolean(env[PROVIDERS[provider].requiredEnv]?.trim());
 }
 
 function readProvider(value: unknown): EmbedderProvider | null {
-  return value === "voyage" || value === "openai" || value === "ollama"
+  return value === "lexical" || value === "voyage" || value === "openai" || value === "ollama"
     ? value
     : null;
+}
+
+function createLexicalEmbedder(): Embedder {
+  return {
+    providerName: "lexical",
+    modelName: "lexical",
+    dim: 0,
+    async embed() {
+      return { vectors: [], model: "lexical", dim: 0 };
+    },
+  };
 }
 
 function readString(value: unknown): string | undefined {

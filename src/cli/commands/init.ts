@@ -76,8 +76,8 @@ retention:
   archive_before_delete: true
 
 embedder:
-  provider: voyage
-  model: voyage-4-large
+  provider: lexical
+  model: lexical
 
 auto_heal:
   enabled: false
@@ -128,9 +128,9 @@ compress:
 
 embedding:
   # Legacy fallback. New writes should use embedder above.
-  provider: voyage
-  model: voyage-4-large
-  dim: 2048
+  provider: lexical
+  model: lexical
+  dim: 0
 
 privacy:
   allowlist: []   # regex patterns that bypass the redaction filter

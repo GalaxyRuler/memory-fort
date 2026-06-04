@@ -60,7 +60,7 @@ const SAFELISTED_PATHS = new Set([
 ]);
 
 const VALID_TOP_LEVEL_KEYS = new Set(["embedder", "llm", "auto_promote", "auto_heal", "compile", "capture", "dashboard"]);
-const VALID_EMBEDDER_PROVIDERS = new Set(["voyage", "openai", "ollama"]);
+const VALID_EMBEDDER_PROVIDERS = new Set(["lexical", "voyage", "openai", "ollama"]);
 const VALID_LLM_PROVIDERS = new Set(["openrouter", "ollama"]);
 const VALID_AUTO_PROMOTE_CADENCES = new Set(["weekly", "daily", "manual"]);
 const VALID_AUTO_PROMOTE_THRESHOLDS = new Set(["high", "none"]);

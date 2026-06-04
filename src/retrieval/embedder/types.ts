@@ -33,7 +33,7 @@ export interface EmbedderFactory {
   create(config: EmbedderConfig, env: NodeJS.ProcessEnv): Embedder;
 }
 
-export type EmbedderProvider = "voyage" | "openai" | "ollama";
+export type EmbedderProvider = "lexical" | "voyage" | "openai" | "ollama";
 
 export interface EmbedderConfig {
   provider: EmbedderProvider;
