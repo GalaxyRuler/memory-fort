@@ -4,10 +4,10 @@ import { renderTemplate } from "../../src/cli/template-render.js";
 describe("renderTemplate", () => {
   it("substitutes known variables", () => {
     const out = renderTemplate("Hello {{name}}, today is {{date}}.", {
-      name: "Abdullah",
+      name: "Example User",
       date: "2026-05-21",
     });
-    expect(out).toBe("Hello Abdullah, today is 2026-05-21.");
+    expect(out).toBe("Hello Example User, today is 2026-05-21.");
   });
 
   it("leaves unknown variables intact and visible to the user", () => {

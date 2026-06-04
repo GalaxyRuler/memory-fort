@@ -29,7 +29,7 @@ describe("makeRealSshRunner", () => {
     const proc = mockProcess();
     vi.mocked(spawn).mockReturnValue(proc as never);
 
-    const promise = makeRealSshRunner().run("srv1317946", {
+    const promise = makeRealSshRunner().run("examplehost", {
       command: "echo hello",
       description: "test",
     });
@@ -41,7 +41,7 @@ describe("makeRealSshRunner", () => {
       stderr: "",
       exitCode: 0,
     });
-    expect(spawn).toHaveBeenCalledWith("ssh", ["srv1317946", "echo hello"], {
+    expect(spawn).toHaveBeenCalledWith("ssh", ["examplehost", "echo hello"], {
       windowsHide: true,
     });
   });
@@ -50,7 +50,7 @@ describe("makeRealSshRunner", () => {
     const proc = mockProcess();
     vi.mocked(spawn).mockReturnValue(proc as never);
 
-    const promise = makeRealSshRunner().run("srv1317946", {
+    const promise = makeRealSshRunner().run("examplehost", {
       command: "echo hello",
       description: "test",
     });

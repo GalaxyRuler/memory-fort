@@ -71,24 +71,24 @@ describe("verify checks", () => {
     let seenArgs: string[] = [];
     const result = await checkGitRemote({
       vaultRoot: tmp,
-      configLoader: async () => ({ sync: { remote_name: "whitedragon" } }),
+      configLoader: async () => ({ sync: { remote_name: "mirror" } }),
       execFile: async (_file, args) => {
         seenArgs = args;
       },
     });
 
     expect(result.status).toBe("pass");
-    expect(result.label).toContain("whitedragon");
-    expect(seenArgs).toEqual(["ls-remote", "whitedragon"]);
+    expect(result.label).toContain("mirror");
+    expect(seenArgs).toEqual(["ls-remote", "mirror"]);
   });
 
   it("dashboard URL resolves from dashboard.url before legacy vps host", async () => {
     await expect(
       resolveDashboardUrl(undefined, async () => ({
-        dashboard: { url: "https://whitedragon.example/memory/" },
+        dashboard: { url: "https://mirror.example/memory/" },
         vps: { host: "old-vps.example" },
       })),
-    ).resolves.toBe("https://whitedragon.example/memory");
+    ).resolves.toBe("https://mirror.example/memory");
   });
 
   it("dashboard check fails when /api/status does not return JSON", async () => {

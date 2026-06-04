@@ -42,7 +42,7 @@ describe("dashboard config patch", () => {
       llm: { provider: "openrouter", model: "openai/gpt-4o-mini", max_tokens: 4096, temperature: 0.2 },
       auto_promote: { enabled: true, cadence: "weekly", confidence_threshold: "high" },
       compile: { scheduled: true, cadence: "daily", execute: true },
-      dashboard: { trusted_origins: ["https://srv1317946.tail6916d8.ts.net"] },
+      dashboard: { trusted_origins: ["https://examplehost.exampletail.ts.net"] },
     })).toEqual({ ok: true, errors: [] });
   });
 
@@ -91,7 +91,7 @@ describe("dashboard config patch", () => {
     const result = await applyConfigPatch(tmp, {
       embedder: { provider: "openai", model: "text-embedding-3-small", options: { baseURL: "http://proxy.test" } },
       llm: { model: "anthropic/claude-3.5-sonnet", temperature: 0.1 },
-      dashboard: { trusted_origins: ["https://srv1317946.tail6916d8.ts.net"] },
+      dashboard: { trusted_origins: ["https://examplehost.exampletail.ts.net"] },
     });
 
     expect(result.applied).toEqual([
@@ -115,7 +115,7 @@ describe("dashboard config patch", () => {
         temperature: 0.1,
       },
       dashboard: {
-        trusted_origins: ["https://srv1317946.tail6916d8.ts.net"],
+        trusted_origins: ["https://examplehost.exampletail.ts.net"],
       },
       retention: { raw_window_days: 90 },
     });

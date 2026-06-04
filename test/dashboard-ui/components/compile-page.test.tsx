@@ -103,7 +103,7 @@ describe("CompilePage", () => {
           factsExtracted: 4,
           sessionsScanned: 3,
           outcomes: [
-            { path: "wiki/projects/iaqar.md", outcome: "created", contentPreserved: true },
+            { path: "wiki/projects/acme.md", outcome: "created", contentPreserved: true },
             {
               path: "wiki/lessons/thin.md",
               outcome: "staged-for-review",
@@ -132,7 +132,7 @@ describe("CompilePage", () => {
     expect(screen.getByText(/8 applied/i)).toBeInTheDocument();
     expect(screen.getByText(/2 staged for review/i)).toBeInTheDocument();
     expect(screen.getByText(/1 rejected/i)).toBeInTheDocument();
-    expect(screen.getByText("wiki/projects/iaqar.md")).toBeInTheDocument();
+    expect(screen.getByText("wiki/projects/acme.md")).toBeInTheDocument();
     expect(screen.getByText(/unknown wiki page category: unknowns/)).toBeInTheDocument();
     expect(screen.getByText(/1,038 observations remaining/i)).toBeInTheDocument();
     expect(screen.getByText(/3 pages rewritten/i)).toBeInTheDocument();

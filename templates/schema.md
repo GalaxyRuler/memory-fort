@@ -18,7 +18,7 @@ This is **{{user_name}}**'s (`{{user_email}}`, GitHub: `{{github_handle}}`) pers
 - **Codex desktop + CLI** (via hooks in `~/.codex/config.toml` + MCP via the same)
 - **Antigravity desktop** (via MCP + live-capture plugin hooks when Antigravity 2.x supports them)
 
-Source repo: `C:\CodexProjects\memory-system\`. Runtime data: `~/.memory\` (this directory).
+Source repo: `<your source checkout>`. Runtime data: `~/.memory/` (this directory).
 
 Memory is for **the user's actual work**, not hypothetical content. If a piece of information isn't useful for future-{{user_name}} to retrieve, it doesn't belong here.
 
@@ -379,7 +379,7 @@ Unusual proxy deployments can add explicit trusted origins:
 ```yaml
 dashboard:
   trusted_origins:
-    - https://srv1317946.tail6916d8.ts.net
+    - https://example.ts.net
 ```
 
 The list is optional and defaults to empty. Genuine cross-origin requests remain
@@ -482,8 +482,8 @@ Operators can override with `?intent=<bucket>` on the `/api/search` URL query, o
 
 ## 4. Naming rules
 
-- All filenames are **lowercase kebab-case**: `lisan-studio.md`, not `LisanStudio.md` or `lisan_studio.md`.
-- Compile operation paths normalize only the filename slug segment. `wiki/projects/iAqar.md` becomes `wiki/projects/iaqar.md`; directories such as `wiki/projects/` and operational targets such as `index.md` and `log.md` are not slug-normalized.
+- All filenames are **lowercase kebab-case**: `my-app.md`, not `MyApp.md` or `my_app.md`.
+- Compile operation paths normalize only the filename slug segment. `wiki/projects/MyApp.md` becomes `wiki/projects/my-app.md`; directories such as `wiki/projects/` and operational targets such as `index.md` and `log.md` are not slug-normalized.
 - Date prefixes use **ISO 8601** (`YYYY-MM-DD`), zero-padded.
 - Slugs are short and grep-friendly — favor `windows-stale-ports` over `the-time-windows-held-stale-listening-sockets-on-3111`.
 - For decision pages, the date is the date the *decision was made*, not the date the page was written.
@@ -500,9 +500,9 @@ The graph is derived on-demand from `relations:` frontmatter (and inline `[[wiki
 |---|---|---|---|
 | `mentions` | A → B | A references B; the generic auto-write key for raw observations | `raw/2026-05-20/*` mentions `wiki/projects/agentmemory.md` |
 | `uses` | A → B | A is a project that uses B (a tool/library) | `agentmemory` uses `typescript` |
-| `depends_on` | A → B | A's functioning requires B | `lisan-studio` depends_on `qt6` |
-| `supersedes` | A → B | A replaces B; B is archived | `lisan-studio` supersedes `vs-code-arabic` |
-| `contradicts` | A → B | A's content disagrees with B; needs human resolution | `2026-05-21-restore-onedrive-data` contradicts an earlier decision page |
+| `depends_on` | A → B | A's functioning requires B | `my-app` depends_on `postgres` |
+| `supersedes` | A → B | A replaces B; B is archived | `my-app` supersedes `old-dashboard` |
+| `contradicts` | A → B | A's content disagrees with B; needs human resolution | `2026-05-21-restore-backup-data` contradicts an earlier decision page |
 | `caused_by` | A → B | A (a problem or event) was caused by B | `stale-listening-sockets` caused_by `iii-config-port-hardcoding` |
 | `fixed_by` | A → B | An issue was fixed by B (a decision, procedure, or tool) | `dead-pid-survivor-guard` fixed_by `2026-05-20-decide-stop-action-filter` |
 | `learned_from` | A → B | A lesson was learned from B (an issue, decision, or procedure) | `windows-safe-vars` learned_from `powershell-parser-failure` |
@@ -629,15 +629,15 @@ entity target. For example:
   "version": 1,
   "updatedAt": "2026-05-28T00:00:00.000Z",
   "aliases": {
-    "LisanStudio": "wiki/projects/lisan-studio.md",
-    "wiki/projects/lisanstudio.md": "wiki/projects/lisan-studio.md"
+    "MyApp": "wiki/projects/my-app.md",
+    "wiki/projects/myapp.md": "wiki/projects/my-app.md"
   }
 }
 ```
 
 Duplicate detection normalizes candidate entity names by lowercasing and
-stripping non-alphanumeric separators, so `Lisan Studio`, `lisan-studio`, and
-`LisanStudio` share the normalized form `lisanstudio`. It also surfaces
+stripping non-alphanumeric separators, so `My App`, `my-app`, and
+`MyApp` share the normalized form `myapp`. It also surfaces
 near-matches with high string similarity for review. Detection is automatic,
 but merges are never automatic: run `memory entity dedup --plan`, review the
 proposals, write them with `memory entity dedup --apply`, then approve one
@@ -777,43 +777,15 @@ Do NOT:
 
 Writes that replace existing files use the repo's atomic write primitive: write a sibling `.tmp` file, fsync it, close it, then rename it over the canonical path. On Windows, the final rename may briefly fail when another local process is reading the target file. The writer retries only transient Windows rename errors (`EPERM`, `EACCES`, `EBUSY`, `ENOENT`) with 50 ms, 150 ms, and 400 ms backoff before surfacing the original error.
 
-The `storage.atomic-write-retries` verify check reports process-local retry counters. A retry rate below 1% passes, 1% to under 10% warns, and 10% or higher fails because it usually points to a stuck file handle, Defender interference, OneDrive sync, or another host-level file-system issue.
+The `storage.atomic-write-retries` verify check reports process-local retry counters. A retry rate below 1% passes, 1% to under 10% warns, and 10% or higher fails because it usually points to a stuck file handle, antivirus interference, a cloud-sync client, or another host-level file-system issue.
 
 ---
 
 ## 12. User identity & preferences
 
-(Ported from agentmemory's slice-7 `personalize galaxyruler` plan, distilled here so the LLM doing curation knows who it's curating for.)
-
-**Persona:** {{user_name}} is a software researcher/analyst at a research center. Reverse engineering focus. Deep technical analysis preferred over surface coverage. Personal-use repos and infrastructure dominate the work.
-
-**Working style:**
-- Momentum-driven; terse confirmations are common ("ok", "yes", "go")
-- Picks options decisively; doesn't enjoy excessive clarifying-question rounds
-- Demands online grounding for any factual claim — verify before stating
-- Reads in Claude Desktop; markdown file paths should be `code "<abs-path>"` blocks for one-click copy, not vscode:// links
-- Uses Claude Code (CLI), Codex desktop (primary implementer), Antigravity desktop, plus rarely Codex CLI
-
-**Tools and contexts:**
-- Primary OS: Windows 11
-- Source repos: `C:\CodexProjects\<project>\` and `C:\Users\Admin\<project>\` (never OneDrive)
-- GitHub identity: `{{github_handle}}` / `{{user_email}}` (NOT the gmail)
-- Codex routing: handoff format is raw prompt body (no echo headers), pasted into Codex Desktop sessions
-
-**Active projects to recognize:**
-- agentmemory (GalaxyRuler/agentmemory; this system's predecessor)
-- Lisan Studio (Native Qt 6 Arabic-first IDE)
-- Arabic Python (apython dialect)
-- VeriTrace (KiCad design-agent web UI)
-- iAqar (Riyadh investment analyzer)
-- Personal Website (GalaxyRuler/mysiteagain)
-- Homelab (isolated lab runners)
-
-**Documentation conventions:**
-- File paths in chat: `code "<abs-path>"` fenced block for one-click copy
-- Commit author: `{{user_name}} <{{user_email}}>`
-- Conventional Commits prefixes (`feat:`, `fix:`, `chore:`, `test:`, `docs:`, `build:`, `refactor:`)
-- Never edit OneDrive paths
+The `memory init` wizard records your name, email, and GitHub handle into this section at
+install time. Edit it to reflect your working style, OS, source repo locations, and active
+projects - the LLM doing curation uses this to curate for YOU, not a generic user.
 
 ---
 

@@ -16,8 +16,8 @@ describe("detectCommunities", () => {
         "wiki/projects/memory-system.md",
         "wiki/tools/vitest.md",
       ]),
-      "wiki/projects/iaqar.md": new Set(["wiki/tools/postgres.md"]),
-      "wiki/tools/postgres.md": new Set(["wiki/projects/iaqar.md"]),
+      "wiki/projects/acme.md": new Set(["wiki/tools/postgres.md"]),
+      "wiki/tools/postgres.md": new Set(["wiki/projects/acme.md"]),
     }, { minClusterSize: 2 });
 
     expect(clusters.map((cluster) => cluster.members)).toEqual([
@@ -27,7 +27,7 @@ describe("detectCommunities", () => {
         "wiki/tools/vitest.md",
       ],
       [
-        "wiki/projects/iaqar.md",
+        "wiki/projects/acme.md",
         "wiki/tools/postgres.md",
       ],
     ]);

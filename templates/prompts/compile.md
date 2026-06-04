@@ -71,7 +71,7 @@ you do. Use `append_page` only for chronological surfaces such as `threads` and
 the observations, emit no page operation for that entity. Use `write_page` only
 when creating a new page that meets the cross-session threshold. Page targets
 must be `wiki/<category>/<lowercase-kebab-slug>.md`;
-for example, a project called `iAqar` should target `wiki/projects/iaqar.md`.
+for example, a project called `Acme` should target `wiki/projects/acme.md`.
 Prefer one page operation per normalized target path; combine related new
 content into the `body` or `section` for that page instead of emitting a
 separate write and append for the same page.

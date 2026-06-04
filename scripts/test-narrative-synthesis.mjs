@@ -4,9 +4,10 @@
 //
 // Usage: node scripts/test-narrative-synthesis.mjs
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 
-const VAULT = "C:/Users/Admin/.memory";
+const VAULT = process.env.MEMORY_ROOT ?? path.join(os.homedir(), ".memory");
 const PAGE_PATH = `${VAULT}/wiki/projects/memory-system.md`;
 const FACTS_DIR = `${VAULT}/facts`;
 const API_KEY = process.env.OPENROUTER_API_KEY;

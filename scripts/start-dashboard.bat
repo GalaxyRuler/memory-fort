@@ -5,7 +5,7 @@ REM  Builds the UI/server if missing, then starts the dashboard
 REM  and opens the browser. Safe to run any time.
 REM ============================================================
 setlocal
-cd /d "C:\CodexProjects\memory-system"
+cd /d "%~dp0.."
 
 echo [Memory Fort] Checking dashboard build...
 

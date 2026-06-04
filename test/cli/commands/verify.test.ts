@@ -157,8 +157,8 @@ describe("runVerify", () => {
   it("passes explicit dashboard and remote overrides to descriptor checks", async () => {
     const seen: Array<{ dashboardUrl?: string; remoteName?: string }> = [];
     await runVerify({
-      dashboardUrl: "https://whitedragon.example/memory",
-      remoteName: "whitedragon",
+      dashboardUrl: "https://mirror.example/memory",
+      remoteName: "mirror",
       now: () => new Date("2026-05-26T03:30:00.000Z"),
       checkDescriptors: [
         {
@@ -178,8 +178,8 @@ describe("runVerify", () => {
 
     expect(seen).toEqual([
       {
-        dashboardUrl: "https://whitedragon.example/memory",
-        remoteName: "whitedragon",
+        dashboardUrl: "https://mirror.example/memory",
+        remoteName: "mirror",
       },
     ]);
   });

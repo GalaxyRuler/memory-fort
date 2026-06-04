@@ -51,16 +51,6 @@ export default defineConfig({
       },
     },
   },
-  server: {
-    proxy: {
-      "/memory/api": {
-        target: "https://srv1317946.tail6916d8.ts.net",
-        changeOrigin: true,
-        secure: true,
-        ws: false,
-      },
-    },
-  },
   plugins: [
     tanstackRouter({
       target: "react",
