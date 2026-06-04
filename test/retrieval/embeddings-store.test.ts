@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -65,6 +65,16 @@ describe("embeddings sidecar store", () => {
       records,
       warnings: [],
     });
+  });
+
+  it("saveEmbeddings does not create a .prev sidecar backup by default", async () => {
+    const records = [record("wiki/a.md")];
+    const path = join(tmp, "embeddings", "wiki.embeddings.jsonl");
+
+    await saveEmbeddings(tmp, "wiki", records);
+    await saveEmbeddings(tmp, "wiki", [record("wiki/b.md")]);
+
+    await expect(access(`${path}.prev`)).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("saveEmbeddings refuses wrong-dimension records and leaves existing sidecar intact", async () => {

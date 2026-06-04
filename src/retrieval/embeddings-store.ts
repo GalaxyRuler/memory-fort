@@ -55,6 +55,7 @@ const EMBEDDING_FILENAMES: Record<EmbeddingKind, string> = {
   raw: "raw.embeddings.jsonl",
   crystal: "crystal.embeddings.jsonl",
 };
+const embeddingWriteLocks = new Map<string, Promise<void>>();
 
 export async function loadEmbeddings(
   memoryRoot: string,
@@ -119,12 +120,14 @@ export async function saveEmbeddings(
 ): Promise<void> {
   assertEmbeddingsWritable(records, opts.expectedDim);
   const path = embeddingsPath(memoryRoot, kind);
-  if (opts.backupPrevious !== false) {
-    await backupExistingEmbeddings(path);
-  }
   const content =
     records.length === 0 ? "" : `${records.map((record) => JSON.stringify(record)).join("\n")}\n`;
-  await atomicWrite(path, content);
+  await withEmbeddingWriteLock(path, async () => {
+    if (opts.backupPrevious === true) {
+      await backupExistingEmbeddings(path);
+    }
+    await atomicWrite(path, content);
+  });
 }
 
 export function assertEmbeddingsWritable(
@@ -203,6 +206,28 @@ async function backupExistingEmbeddings(path: string): Promise<void> {
   } catch (error) {
     if (isMissingFile(error)) return;
     throw error;
+  }
+}
+
+async function withEmbeddingWriteLock<T>(
+  path: string,
+  operation: () => Promise<T>,
+): Promise<T> {
+  const previous = embeddingWriteLocks.get(path) ?? Promise.resolve();
+  let release!: () => void;
+  const current = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const queued = previous.catch(() => undefined).then(() => current);
+  embeddingWriteLocks.set(path, queued);
+  await previous.catch(() => undefined);
+  try {
+    return await operation();
+  } finally {
+    release();
+    if (embeddingWriteLocks.get(path) === queued) {
+      embeddingWriteLocks.delete(path);
+    }
   }
 }
 

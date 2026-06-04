@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  readAutoHealStatus,
   runAutoHealCapture,
   runAutoHealTick,
 } from "../../src/retrieval/auto-heal.js";
@@ -40,7 +41,10 @@ describe("auto-heal embeddings", () => {
     const result = await runAutoHealCapture({
       memoryRoot: tmp,
       relPath: "raw/2026-06-04/codex-new.md",
-      configLoader: async () => ({ auto_heal: { enabled: true }, embedder: { provider: "voyage", model: "voyage-4-large" } }),
+      configLoader: async () => ({
+        auto_heal: { enabled: true, capture_debounce_seconds: 0 },
+        embedder: { provider: "voyage", model: "voyage-4-large" },
+      }),
       env: { VOYAGE_API_KEY: "test-key" },
       embedderFactory: () => ({
         providerName: "voyage",
@@ -76,7 +80,10 @@ describe("auto-heal embeddings", () => {
     const result = await runAutoHealCapture({
       memoryRoot: tmp,
       relPath: "raw/2026-06-04/codex-new.md",
-      configLoader: async () => ({ auto_heal: { enabled: true }, embedder: { provider: "voyage", model: "voyage-4-large" } }),
+      configLoader: async () => ({
+        auto_heal: { enabled: true, capture_debounce_seconds: 0 },
+        embedder: { provider: "voyage", model: "voyage-4-large" },
+      }),
       env: {},
       logWriter: async (entry) => {
         logs.push(entry);
@@ -103,7 +110,10 @@ describe("auto-heal embeddings", () => {
     const result = await runAutoHealCapture({
       memoryRoot: tmp,
       relPath: "raw/2026-06-04/codex-new.md",
-      configLoader: async () => ({ auto_heal: { enabled: true, daily_budget_usd: 0 }, embedder: { provider: "voyage", model: "voyage-4-large" } }),
+      configLoader: async () => ({
+        auto_heal: { enabled: true, daily_budget_usd: 0, capture_debounce_seconds: 0 },
+        embedder: { provider: "voyage", model: "voyage-4-large" },
+      }),
       env: { VOYAGE_API_KEY: "test-key" },
       embedderFactory: () => ({
         providerName: "voyage",
@@ -124,6 +134,139 @@ describe("auto-heal embeddings", () => {
       outcome: "skipped",
       reason: "daily budget reached",
     }));
+  });
+
+  it("uses today's auto-heal log spend as status truth", async () => {
+    await mkdir(join(tmp, "embeddings"), { recursive: true });
+    await writeFile(
+      join(tmp, "embeddings", "auto-heal-status.json"),
+      JSON.stringify({
+        day: "2026-06-04",
+        dailySpendUsd: 0.001,
+        lastTick: "2026-06-04T09:00:00.000Z",
+        lastEmbed: "2026-06-04T09:00:00.000Z",
+      }),
+    );
+    await writeFile(
+      join(tmp, "embeddings", "auto-heal.jsonl"),
+      [
+        JSON.stringify({ ts: "2026-06-03T23:59:59.000Z", source: "capture-time", path: "raw/old.md", tokens: 1, cost_usd: 0.5, outcome: "embedded" }),
+        JSON.stringify({ ts: "2026-06-04T00:01:00.000Z", source: "capture-time", path: "raw/today-a.md", tokens: 1, cost_usd: 0.002, outcome: "embedded" }),
+        JSON.stringify({ ts: "2026-06-04T00:02:00.000Z", source: "capture-time", path: "raw/today-b.md", tokens: 1, cost_usd: 0, outcome: "failed" }),
+        JSON.stringify({ ts: "2026-06-04T00:03:00.000Z", source: "reconciler", path: "raw/today-c.md", tokens: 1, cost_usd: 0.003, outcome: "embedded" }),
+        JSON.stringify({ ts: "2026-06-05T00:00:00.000Z", source: "capture-time", path: "raw/tomorrow.md", tokens: 1, cost_usd: 0.7, outcome: "embedded" }),
+        "",
+      ].join("\n"),
+    );
+
+    const status = await readAutoHealStatus(tmp, {
+      configLoader: async () => ({ auto_heal: { enabled: true, daily_budget_usd: 0.5 } }),
+      now: () => now,
+    });
+
+    expect(status.dailySpendUsd).toBeCloseTo(0.005, 12);
+  });
+
+  it("uses log-derived spend for the daily budget gate", async () => {
+    await writeRaw("raw/2026-06-04/codex-new.md", "Budgeted raw body.");
+    await mkdir(join(tmp, "embeddings"), { recursive: true });
+    await writeFile(
+      join(tmp, "embeddings", "auto-heal-status.json"),
+      JSON.stringify({ day: "2026-06-04", dailySpendUsd: 0, lastTick: null, lastEmbed: null }),
+    );
+    await writeFile(
+      join(tmp, "embeddings", "auto-heal.jsonl"),
+      `${JSON.stringify({ ts: "2026-06-04T09:00:00.000Z", source: "capture-time", path: "raw/already.md", tokens: 1, cost_usd: 0.02, outcome: "embedded" })}\n`,
+    );
+    const embed = vi.fn();
+    const logs: unknown[] = [];
+
+    const result = await runAutoHealCapture({
+      memoryRoot: tmp,
+      relPath: "raw/2026-06-04/codex-new.md",
+      configLoader: async () => ({
+        auto_heal: { enabled: true, daily_budget_usd: 0.020001, capture_debounce_seconds: 0 },
+        embedder: { provider: "voyage", model: "voyage-4-large" },
+      }),
+      env: { VOYAGE_API_KEY: "test-key" },
+      embedderFactory: () => ({
+        providerName: "voyage",
+        modelName: "voyage-4-large",
+        dim: 2048,
+        embed,
+      }),
+      logWriter: async (entry) => {
+        logs.push(entry);
+      },
+      now: () => now,
+    });
+
+    expect(result.embedded).toBe(0);
+    expect(result.skippedBudget).toBe(1);
+    expect(embed).not.toHaveBeenCalled();
+    expect(logs).toContainEqual(expect.objectContaining({
+      outcome: "skipped",
+      reason: "daily budget reached",
+    }));
+  });
+
+  it("debounces capture-time embeds for a growing raw and embeds the final body once", async () => {
+    let currentNow = new Date("2026-06-04T10:00:00.000Z");
+    const capturedTexts: string[] = [];
+    const embed = vi.fn(async (request: { texts: string[] }) => {
+      capturedTexts.push(...request.texts);
+      return {
+        vectors: request.texts.map(() => vector(2048, 4)),
+        model: "voyage-4-large",
+        dim: 2048,
+        inputTokens: 12,
+      };
+    });
+
+    for (let index = 0; index < 5; index += 1) {
+      await writeRaw("raw/2026-06-04/codex-growing.md", `Growing body ${index}`);
+      const result = await runAutoHealCapture({
+        memoryRoot: tmp,
+        relPath: "raw/2026-06-04/codex-growing.md",
+        configLoader: async () => ({
+          auto_heal: { enabled: true, capture_debounce_seconds: 30 },
+          embedder: { provider: "voyage", model: "voyage-4-large" },
+        }),
+        env: { VOYAGE_API_KEY: "test-key" },
+        embedderFactory: () => ({
+          providerName: "voyage",
+          modelName: "voyage-4-large",
+          dim: 2048,
+          embed,
+        }),
+        now: () => currentNow,
+      });
+
+      expect(result.embedded).toBe(0);
+      currentNow = new Date(currentNow.getTime() + 5_000);
+    }
+
+    currentNow = new Date(currentNow.getTime() + 31_000);
+    const tick = await runAutoHealTick({
+      memoryRoot: tmp,
+      configLoader: async () => ({
+        auto_heal: { enabled: true, capture_debounce_seconds: 30 },
+        embedder: { provider: "voyage", model: "voyage-4-large" },
+      }),
+      env: { VOYAGE_API_KEY: "test-key" },
+      embedderFactory: () => ({
+        providerName: "voyage",
+        modelName: "voyage-4-large",
+        dim: 2048,
+        embed,
+      }),
+      now: () => currentNow,
+    });
+
+    expect(tick.embedded).toBe(1);
+    expect(embed).toHaveBeenCalledOnce();
+    expect(capturedTexts[0]).toContain("Growing body 4");
+    expect(capturedTexts[0]).not.toContain("Growing body 0");
   });
 
   it("reconciler embeds missed docs with a per-tick document cap", async () => {

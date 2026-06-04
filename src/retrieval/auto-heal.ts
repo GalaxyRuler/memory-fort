@@ -25,6 +25,7 @@ export interface AutoHealSettings {
   maxDocsPerTick: number;
   maxTokensPerTick: number;
   tickIntervalSeconds: number;
+  captureDebounceSeconds: number;
 }
 
 export interface AutoHealStatus {
@@ -70,6 +71,10 @@ export interface AutoHealOptions {
   now?: () => Date;
 }
 
+export interface AutoHealTickOptions extends AutoHealOptions {
+  reconcile?: boolean;
+}
+
 export interface AutoHealCaptureOptions extends AutoHealOptions {
   relPath: string;
 }
@@ -79,6 +84,11 @@ interface PersistedAutoHealStatus {
   dailySpendUsd: number;
   lastTick: string | null;
   lastEmbed: string | null;
+}
+
+interface QueuedCapture {
+  path: string;
+  dueAt: string;
 }
 
 class AutoHealSkippedError extends Error {
@@ -95,6 +105,7 @@ const DEFAULT_DAILY_BUDGET_USD = 0.5;
 const DEFAULT_MAX_DOCS_PER_TICK = 25;
 const DEFAULT_MAX_TOKENS_PER_TICK = 50_000;
 const DEFAULT_TICK_INTERVAL_SECONDS = 300;
+const DEFAULT_CAPTURE_DEBOUNCE_SECONDS = 30;
 
 export async function runAutoHealCapture(
   opts: AutoHealCaptureOptions,
@@ -127,6 +138,18 @@ export async function runAutoHealCapture(
     }, 0);
   }
 
+  if (settings.captureDebounceSeconds > 0) {
+    await queueAutoHealCapture(opts, relPath, settings.captureDebounceSeconds);
+    return resultFromRefresh(settings, status, {
+      embedded: 0,
+      unchanged: 0,
+      pruned: 0,
+      errors: [],
+      totalRecords: 0,
+      skippedPending: 1,
+    }, 0);
+  }
+
   return runRefresh({
     ...opts,
     source: "capture-time",
@@ -140,7 +163,7 @@ export async function runAutoHealCapture(
 }
 
 export async function runAutoHealTick(
-  opts: AutoHealOptions,
+  opts: AutoHealTickOptions,
 ): Promise<AutoHealRunResult> {
   const config = await loadConfig(opts);
   const settings = readAutoHealSettings(config);
@@ -149,6 +172,25 @@ export async function runAutoHealTick(
   status.lastTick = now.toISOString();
   await savePersistedStatus(opts.memoryRoot, status);
   if (!settings.enabled) return disabledResult(settings, status);
+
+  const queuedCaptures = await runDueQueuedCaptures({
+    ...opts,
+    config,
+    settings,
+    status,
+    nowDate: now,
+  });
+  if (queuedCaptures) return queuedCaptures;
+
+  if (opts.reconcile === false) {
+    return resultFromRefresh(settings, status, {
+      embedded: 0,
+      unchanged: 0,
+      pruned: 0,
+      errors: [],
+      totalRecords: 0,
+    }, 0);
+  }
 
   const corpus = await loadSearchCorpus({ vaultRoot: opts.memoryRoot, scope: "all" });
   if (corpus.errors.length > 0) {
@@ -203,7 +245,71 @@ export function readAutoHealSettings(config: MemoryConfig): AutoHealSettings {
     maxDocsPerTick: readPositiveInteger(raw.max_docs_per_tick, DEFAULT_MAX_DOCS_PER_TICK),
     maxTokensPerTick: readPositiveInteger(raw.max_tokens_per_tick, DEFAULT_MAX_TOKENS_PER_TICK),
     tickIntervalSeconds: readPositiveInteger(raw.tick_interval_seconds, DEFAULT_TICK_INTERVAL_SECONDS),
+    captureDebounceSeconds: readNonNegativeInteger(
+      raw.capture_debounce_seconds,
+      DEFAULT_CAPTURE_DEBOUNCE_SECONDS,
+    ),
   };
+}
+
+async function runDueQueuedCaptures(opts: AutoHealOptions & {
+  config: MemoryConfig;
+  settings: AutoHealSettings;
+  status: PersistedAutoHealStatus;
+  nowDate: Date;
+}): Promise<AutoHealRunResult | null> {
+  const queued = await readDueQueuedCaptures(opts.memoryRoot, opts.nowDate);
+  if (queued.length === 0) return null;
+
+  const selected = queued.slice(0, opts.settings.maxDocsPerTick);
+  const corpus = await loadSearchCorpus({ vaultRoot: opts.memoryRoot, scope: "raw" });
+  const documentsByPath = new Map(corpus.documents.map((document) => [document.relPath, document] as const));
+  const documents: SearchDocument[] = [];
+  const missing: Array<{ path: string; reason: string }> = [];
+  for (const capture of selected) {
+    const document = documentsByPath.get(capture.path);
+    if (document) {
+      documents.push(document);
+      continue;
+    }
+    const reason = "document not found in raw corpus";
+    missing.push({ path: capture.path, reason });
+    await writeAutoHealLog(opts, {
+      ts: nowIso(opts),
+      source: "capture-time",
+      path: capture.path,
+      tokens: 0,
+      cost_usd: 0,
+      outcome: "skipped",
+      reason,
+    });
+  }
+
+  let result = documents.length > 0
+    ? await runRefresh({
+      ...opts,
+      source: "capture-time",
+      documents,
+      maxPending: documents.length,
+      preserveUnknownRecords: true,
+    })
+    : resultFromRefresh(opts.settings, opts.status, {
+      embedded: 0,
+      unchanged: 0,
+      pruned: 0,
+      errors: [],
+      totalRecords: 0,
+    }, 0);
+
+  if (missing.length > 0) {
+    result = {
+      ...result,
+      exitCode: result.exitCode === 0 ? 1 : result.exitCode,
+      errors: [...missing, ...result.errors],
+    };
+  }
+  await markQueuedCapturesProcessed(opts.memoryRoot, selected);
+  return result;
 }
 
 async function runRefresh(opts: AutoHealOptions & {
@@ -289,9 +395,7 @@ async function runRefresh(opts: AutoHealOptions & {
     onEmbedBatchSuccess: async (batch, response) => {
       const tokens = response.inputTokens ?? batch.tokenEstimate;
       const cost = estimateEmbeddingCostUsd(active.provider, tokens);
-      opts.status.dailySpendUsd += cost;
       opts.status.lastEmbed = nowIso(opts);
-      await savePersistedStatus(opts.memoryRoot, opts.status);
       await writeAutoHealLog(opts, {
         ts: opts.status.lastEmbed,
         source: opts.source,
@@ -300,6 +404,12 @@ async function runRefresh(opts: AutoHealOptions & {
         cost_usd: cost,
         outcome: "embedded",
       });
+      if (opts.logWriter) {
+        opts.status.dailySpendUsd += cost;
+      } else {
+        opts.status.dailySpendUsd = await readAutoHealDailySpendUsd(opts.memoryRoot, opts.status.day);
+      }
+      await savePersistedStatus(opts.memoryRoot, opts.status);
     },
     onEmbedBatchError: async (batch, error) => {
       if (error instanceof AutoHealSkippedError) return;
@@ -369,26 +479,25 @@ async function loadPersistedStatus(
   now: Date,
 ): Promise<PersistedAutoHealStatus> {
   const today = dayKey(now);
+  const dailySpendUsd = await readAutoHealDailySpendUsd(memoryRoot, today);
   try {
     const parsed = JSON.parse(await readFile(statusPath(memoryRoot), "utf-8")) as Partial<PersistedAutoHealStatus>;
     if (parsed.day === today) {
       return {
         day: today,
-        dailySpendUsd: typeof parsed.dailySpendUsd === "number" && Number.isFinite(parsed.dailySpendUsd)
-          ? parsed.dailySpendUsd
-          : 0,
+        dailySpendUsd,
         lastTick: typeof parsed.lastTick === "string" ? parsed.lastTick : null,
         lastEmbed: typeof parsed.lastEmbed === "string" ? parsed.lastEmbed : null,
       };
     }
     return {
       day: today,
-      dailySpendUsd: 0,
+      dailySpendUsd,
       lastTick: typeof parsed.lastTick === "string" ? parsed.lastTick : null,
       lastEmbed: typeof parsed.lastEmbed === "string" ? parsed.lastEmbed : null,
     };
   } catch {
-    return { day: today, dailySpendUsd: 0, lastTick: null, lastEmbed: null };
+    return { day: today, dailySpendUsd, lastTick: null, lastEmbed: null };
   }
 }
 
@@ -423,8 +532,133 @@ function autoHealLogPath(memoryRoot: string): string {
   return join(memoryRoot, "embeddings", "auto-heal.jsonl");
 }
 
+function autoHealCaptureQueuePath(memoryRoot: string): string {
+  return join(memoryRoot, "embeddings", "auto-heal-capture-queue.jsonl");
+}
+
+function autoHealCaptureStatePath(memoryRoot: string): string {
+  return join(memoryRoot, "embeddings", "auto-heal-capture-state.json");
+}
+
 function dayKey(now: Date): string {
   return now.toISOString().slice(0, 10);
+}
+
+async function queueAutoHealCapture(
+  opts: Pick<AutoHealOptions, "memoryRoot" | "now">,
+  relPath: string,
+  debounceSeconds: number,
+): Promise<void> {
+  const now = opts.now?.() ?? new Date();
+  const dueAt = new Date(now.getTime() + debounceSeconds * 1000).toISOString();
+  await mkdir(join(opts.memoryRoot, "embeddings"), { recursive: true });
+  await atomicAppend(
+    autoHealCaptureQueuePath(opts.memoryRoot),
+    `${JSON.stringify({ ts: now.toISOString(), path: relPath, dueAt })}\n`,
+  );
+}
+
+async function readDueQueuedCaptures(
+  memoryRoot: string,
+  now: Date,
+): Promise<QueuedCapture[]> {
+  const latestByPath = new Map<string, string>();
+  try {
+    const content = await readFile(autoHealCaptureQueuePath(memoryRoot), "utf-8");
+    for (const line of content.split(/\r?\n/)) {
+      if (line.trim().length === 0) continue;
+      const parsed = JSON.parse(line) as Partial<QueuedCapture>;
+      if (typeof parsed.path !== "string" || typeof parsed.dueAt !== "string") continue;
+      if (!Number.isFinite(Date.parse(parsed.dueAt))) continue;
+      const existing = latestByPath.get(parsed.path);
+      if (!existing || Date.parse(parsed.dueAt) >= Date.parse(existing)) {
+        latestByPath.set(normalizeRelPath(parsed.path), parsed.dueAt);
+      }
+    }
+  } catch (error) {
+    if (!isMissingFile(error)) throw error;
+  }
+
+  if (latestByPath.size === 0) return [];
+  const processed = await readCaptureQueueState(memoryRoot);
+  const nowMs = now.getTime();
+  return [...latestByPath.entries()]
+    .filter(([path, dueAt]) => {
+      const dueAtMs = Date.parse(dueAt);
+      const processedAt = processed[path];
+      return dueAtMs <= nowMs &&
+        (!processedAt || Date.parse(processedAt) < dueAtMs);
+    })
+    .map(([path, dueAt]) => ({ path, dueAt }))
+    .sort((left, right) => Date.parse(left.dueAt) - Date.parse(right.dueAt));
+}
+
+async function markQueuedCapturesProcessed(
+  memoryRoot: string,
+  captures: QueuedCapture[],
+): Promise<void> {
+  if (captures.length === 0) return;
+  const processed = await readCaptureQueueState(memoryRoot);
+  for (const capture of captures) {
+    processed[capture.path] = capture.dueAt;
+  }
+  await atomicWrite(
+    autoHealCaptureStatePath(memoryRoot),
+    `${JSON.stringify({ processed }, null, 2)}\n`,
+  );
+}
+
+async function readCaptureQueueState(memoryRoot: string): Promise<Record<string, string>> {
+  try {
+    const parsed = JSON.parse(await readFile(autoHealCaptureStatePath(memoryRoot), "utf-8")) as {
+      processed?: Record<string, unknown>;
+    };
+    const processed: Record<string, string> = {};
+    for (const [path, dueAt] of Object.entries(parsed.processed ?? {})) {
+      if (typeof dueAt === "string") {
+        processed[normalizeRelPath(path)] = dueAt;
+      }
+    }
+    return processed;
+  } catch (error) {
+    if (isMissingFile(error)) return {};
+    return {};
+  }
+}
+
+async function readAutoHealDailySpendUsd(
+  memoryRoot: string,
+  day: string,
+): Promise<number> {
+  let content: string;
+  try {
+    content = await readFile(autoHealLogPath(memoryRoot), "utf-8");
+  } catch (error) {
+    if (isMissingFile(error)) return 0;
+    throw error;
+  }
+  const start = Date.parse(`${day}T00:00:00.000Z`);
+  const end = start + 24 * 60 * 60 * 1000;
+  let spend = 0;
+  for (const line of content.split(/\r?\n/)) {
+    if (line.trim().length === 0) continue;
+    try {
+      const parsed = JSON.parse(line) as Partial<AutoHealLogEntry>;
+      const ts = typeof parsed.ts === "string" ? Date.parse(parsed.ts) : Number.NaN;
+      if (
+        parsed.outcome === "embedded" &&
+        ts >= start &&
+        ts < end &&
+        typeof parsed.cost_usd === "number" &&
+        Number.isFinite(parsed.cost_usd)
+      ) {
+        spend += parsed.cost_usd;
+      }
+    } catch {
+      // Ignore malformed log lines; status is a best-effort read of the append log.
+    }
+  }
+  return spend;
 }
 
 function nextUtcReset(day: string): string {
@@ -445,6 +679,17 @@ function readPositiveInteger(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : fallback;
 }
 
+function readNonNegativeInteger(value: unknown, fallback: number): number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : fallback;
+}
+
 function readNonNegativeNumber(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : fallback;
+}
+
+function isMissingFile(error: unknown): boolean {
+  return typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === "ENOENT";
 }

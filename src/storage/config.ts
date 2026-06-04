@@ -49,6 +49,7 @@ export interface MemoryConfig {
     max_docs_per_tick?: number;
     max_tokens_per_tick?: number;
     tick_interval_seconds?: number;
+    capture_debounce_seconds?: number;
   };
   auto_promote?: {
     enabled?: boolean;
@@ -178,6 +179,12 @@ export function validateMemoryConfig(config: MemoryConfig): string[] {
     if (autoHeal?.[key] !== undefined && !isIntegerInRange(autoHeal[key], 1, 1_000_000)) {
       warnings.push(`auto_heal.${key} must be a positive integer`);
     }
+  }
+  if (
+    autoHeal?.["capture_debounce_seconds"] !== undefined &&
+    !isIntegerInRange(autoHeal["capture_debounce_seconds"], 0, 1_000_000)
+  ) {
+    warnings.push("auto_heal.capture_debounce_seconds must be a non-negative integer");
   }
   const capture = asRecord(config.capture);
   for (const key of ["max_input_bytes", "max_output_bytes"]) {

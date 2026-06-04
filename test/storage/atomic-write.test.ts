@@ -38,6 +38,24 @@ describe("atomicWrite rename retry", () => {
     });
   });
 
+  it("uses a unique temp path for each write to the same target", async () => {
+    dir = await mkdtemp(join(tmpdir(), "memtest-atomic-unique-tmp-"));
+    const fromPaths: string[] = [];
+    const rename = vi.fn(async (from: string, to: string) => {
+      fromPaths.push(from);
+      await actualRename(from, to);
+    });
+    const { atomicWrite } = await loadAtomicWrite(rename);
+    const target = join(dir, "pending");
+
+    await atomicWrite(target, "one");
+    await atomicWrite(target, "two");
+
+    expect(await readFile(target, "utf-8")).toBe("two");
+    expect(new Set(fromPaths).size).toBe(2);
+    expect(fromPaths).not.toContain(`${target}.tmp`);
+  });
+
   it("throws the original Windows EPERM after all retries are exhausted", async () => {
     restorePlatform = stubPlatform("win32");
     dir = await mkdtemp(join(tmpdir(), "memtest-atomic-exhausted-"));

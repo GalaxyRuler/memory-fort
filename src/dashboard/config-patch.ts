@@ -50,6 +50,7 @@ const SAFELISTED_PATHS = new Set([
   "auto_heal.max_docs_per_tick",
   "auto_heal.max_tokens_per_tick",
   "auto_heal.tick_interval_seconds",
+  "auto_heal.capture_debounce_seconds",
   "compile.scheduled",
   "compile.cadence",
   "compile.execute",
@@ -180,6 +181,12 @@ function validateValue(
     (typeof value !== "number" || !Number.isInteger(value) || value < 1 || value > 1_000_000)
   ) {
     errors.push({ path, message: "auto_heal cap must be a positive integer" });
+  }
+  if (
+    path === "auto_heal.capture_debounce_seconds" &&
+    (typeof value !== "number" || !Number.isInteger(value) || value < 0 || value > 1_000_000)
+  ) {
+    errors.push({ path, message: "capture_debounce_seconds must be a non-negative integer" });
   }
   if (path === "compile.scheduled" && typeof value !== "boolean") {
     errors.push({ path, message: "scheduled must be a boolean" });

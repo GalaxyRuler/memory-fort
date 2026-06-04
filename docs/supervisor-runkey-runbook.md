@@ -82,3 +82,21 @@ pwsh.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "C:\CodexP
 ```
 
 Then verify the dashboard search endpoint reports `degraded: false`.
+
+## Auto-Heal Spend Controls
+
+Auto-heal capture-time embeds are debounced per raw path. Each post-tool-use
+hook records a pending capture in `embeddings/auto-heal-capture-queue.jsonl`;
+the worker embeds only after the raw file has been quiet for
+`auto_heal.capture_debounce_seconds` (default `30`). The reconciler remains the
+backstop for raws that were missed while the dashboard was not running.
+
+Daily spend is derived from `embeddings/auto-heal.jsonl`, filtered to the
+current UTC day and `outcome:"embedded"` rows. The persisted
+`auto-heal-status.json` file keeps last tick/embed timestamps, but it is not the
+budget source of truth.
+
+Embedding sidecar writes use temp-file atomic replace without the previous
+`.prev` copy by default. This avoids paying for an embed and then losing the
+write to a Windows `.prev` copy race. The dimension/write guard still runs
+before every sidecar write.

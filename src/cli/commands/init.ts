@@ -85,6 +85,7 @@ auto_heal:
   max_docs_per_tick: 25
   max_tokens_per_tick: 50000
   tick_interval_seconds: 300
+  capture_debounce_seconds: 30
 
 compile:
   scheduled: false
