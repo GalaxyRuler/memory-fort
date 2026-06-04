@@ -241,6 +241,33 @@ describe("dashboard server", () => {
     }
   });
 
+  it("GET /api/auto-heal/status returns bounded embedding worker state", async () => {
+    const server = await createServer({
+      vaultRoot: tmp,
+      port: 0,
+      autoHealStatusReader: async () => ({
+        enabled: true,
+        lastTick: "2026-06-04T10:00:00.000Z",
+        lastEmbed: "2026-06-04T10:00:01.000Z",
+        dailySpendUsd: 0.0012,
+        dailyBudgetUsd: 0.5,
+        nextReset: "2026-06-05T00:00:00.000Z",
+      }),
+    });
+
+    try {
+      const response = await fetch(`http://${server.host}:${server.port}/api/auto-heal/status`);
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toMatchObject({
+        enabled: true,
+        dailySpendUsd: 0.0012,
+        dailyBudgetUsd: 0.5,
+      });
+    } finally {
+      await server.close();
+    }
+  });
+
   it("GET /api/health returns cached shallow verify JSON with monitor-friendly status", async () => {
     const calls: Array<{ includeSearch?: boolean; role?: VerifyRole; vaultRoot?: string }> = [];
     const report = verifyReport("warn");

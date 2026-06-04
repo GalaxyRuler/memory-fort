@@ -8,12 +8,14 @@ import {
   getActiveEmbedderConfig,
   listEmbedderProviders,
 } from "../../../retrieval/embedder/factory.js";
+import { readAutoHealStatus, type AutoHealStatus } from "../../../retrieval/auto-heal.js";
 import { loadMemoryConfig, type MemoryConfig } from "../../../storage/config.js";
 import { fail, pass, warn, type CheckDescriptor, type VerifyCheckResult } from "./types.js";
 
 export interface EmbeddingHealthCheckOptions {
   configLoader?: () => Promise<MemoryConfig>;
   env?: NodeJS.ProcessEnv;
+  autoHealStatusReader?: (vaultRoot: string) => Promise<AutoHealStatus>;
 }
 
 const EMBEDDING_KINDS: EmbeddingKind[] = ["wiki", "raw", "crystal"];
@@ -34,6 +36,7 @@ export async function checkEmbeddingHealth(
   const env = opts.env ?? process.env;
   const expectedDim = expectedEmbeddingDim(config);
   const credentialIssue = activeProviderCredentialIssue(config, env);
+  const autoHealDetail = await autoHealStatusDetail(vaultRoot, opts);
   const records: EmbeddingRecord[] = [];
   const parseWarnings: string[] = [];
 
@@ -61,7 +64,12 @@ export async function checkEmbeddingHealth(
   const issues = [...parseWarnings, ...analysis.issues];
   if (credentialIssue) issues.push(credentialIssue.detail);
   const dims = analysis.dims.length > 0 ? analysis.dims.join(", ") : "none";
-  const detail = `${records.length} embedding records; dim ${dims}; ${issues.length > 0 ? issues.join("; ") : "sample is diverse"}`;
+  const detail = [
+    `${records.length} embedding records`,
+    `dim ${dims}`,
+    issues.length > 0 ? issues.join("; ") : "sample is diverse",
+    autoHealDetail,
+  ].filter(Boolean).join("; ");
 
   if (issues.length > 0) {
     return fail(
@@ -78,6 +86,23 @@ export async function checkEmbeddingHealth(
     "embedding health",
     detail,
   );
+}
+
+async function autoHealStatusDetail(
+  vaultRoot: string,
+  opts: EmbeddingHealthCheckOptions,
+): Promise<string | null> {
+  try {
+    const status = await (opts.autoHealStatusReader ?? readAutoHealStatus)(vaultRoot);
+    return [
+      `auto-heal ${status.enabled ? "enabled" : "disabled"}`,
+      `spend $${status.dailySpendUsd.toFixed(4)}/$${status.dailyBudgetUsd.toFixed(4)}`,
+      `last tick ${status.lastTick ?? "never"}`,
+      `last embed ${status.lastEmbed ?? "never"}`,
+    ].join(", ");
+  } catch {
+    return "auto-heal status unavailable";
+  }
 }
 
 function expectedEmbeddingDim(config: MemoryConfig): number | undefined {

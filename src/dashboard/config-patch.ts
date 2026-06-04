@@ -45,6 +45,11 @@ const SAFELISTED_PATHS = new Set([
   "auto_promote.enabled",
   "auto_promote.cadence",
   "auto_promote.confidence_threshold",
+  "auto_heal.enabled",
+  "auto_heal.daily_budget_usd",
+  "auto_heal.max_docs_per_tick",
+  "auto_heal.max_tokens_per_tick",
+  "auto_heal.tick_interval_seconds",
   "compile.scheduled",
   "compile.cadence",
   "compile.execute",
@@ -53,7 +58,7 @@ const SAFELISTED_PATHS = new Set([
   "dashboard.trusted_origins",
 ]);
 
-const VALID_TOP_LEVEL_KEYS = new Set(["embedder", "llm", "auto_promote", "compile", "capture", "dashboard"]);
+const VALID_TOP_LEVEL_KEYS = new Set(["embedder", "llm", "auto_promote", "auto_heal", "compile", "capture", "dashboard"]);
 const VALID_EMBEDDER_PROVIDERS = new Set(["voyage", "openai", "ollama"]);
 const VALID_LLM_PROVIDERS = new Set(["openrouter", "ollama"]);
 const VALID_AUTO_PROMOTE_CADENCES = new Set(["weekly", "daily", "manual"]);
@@ -162,6 +167,20 @@ function validateValue(
   ) {
     errors.push({ path, message: "confidence_threshold must be high or none" });
   }
+  if (path === "auto_heal.enabled" && typeof value !== "boolean") {
+    errors.push({ path, message: "enabled must be a boolean" });
+  }
+  if (path === "auto_heal.daily_budget_usd" && (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 1000)) {
+    errors.push({ path, message: "daily_budget_usd must be a non-negative number" });
+  }
+  if (
+    (path === "auto_heal.max_docs_per_tick" ||
+      path === "auto_heal.max_tokens_per_tick" ||
+      path === "auto_heal.tick_interval_seconds") &&
+    (typeof value !== "number" || !Number.isInteger(value) || value < 1 || value > 1_000_000)
+  ) {
+    errors.push({ path, message: "auto_heal cap must be a positive integer" });
+  }
   if (path === "compile.scheduled" && typeof value !== "boolean") {
     errors.push({ path, message: "scheduled must be a boolean" });
   }
@@ -212,7 +231,7 @@ function mergeAtSafelistedPaths(
   patch: Record<string, unknown>,
 ): MemoryConfig {
   const next: MemoryConfig = clonePlain(current);
-  for (const sectionKey of ["embedder", "llm", "auto_promote", "compile", "capture", "dashboard"] as const) {
+  for (const sectionKey of ["embedder", "llm", "auto_promote", "auto_heal", "compile", "capture", "dashboard"] as const) {
     const sectionPatch = asPlainObject(patch[sectionKey]);
     if (!sectionPatch) continue;
     const target = asPlainObject(next[sectionKey]) ?? {};
@@ -223,7 +242,7 @@ function mergeAtSafelistedPaths(
 
 function listAppliedPaths(patch: Record<string, unknown>): string[] {
   const paths: string[] = [];
-  for (const sectionKey of ["embedder", "llm", "auto_promote", "compile", "capture", "dashboard"] as const) {
+  for (const sectionKey of ["embedder", "llm", "auto_promote", "auto_heal", "compile", "capture", "dashboard"] as const) {
     const sectionPatch = asPlainObject(patch[sectionKey]);
     if (!sectionPatch) continue;
     for (const fieldKey of Object.keys(sectionPatch)) {

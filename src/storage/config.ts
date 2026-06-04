@@ -43,6 +43,13 @@ export interface MemoryConfig {
     title_threshold?: number;
     mass_collision_threshold?: number;
   };
+  auto_heal?: {
+    enabled?: boolean;
+    daily_budget_usd?: number;
+    max_docs_per_tick?: number;
+    max_tokens_per_tick?: number;
+    tick_interval_seconds?: number;
+  };
   auto_promote?: {
     enabled?: boolean;
     cadence?: "weekly" | "daily" | "manual";
@@ -159,6 +166,18 @@ export function validateMemoryConfig(config: MemoryConfig): string[] {
   }
   if (autoLink?.["mass_collision_threshold"] !== undefined && !isNumberInRange(autoLink["mass_collision_threshold"], 0, 1)) {
     warnings.push("auto_link.mass_collision_threshold must be a number between 0 and 1");
+  }
+  const autoHeal = asRecord(config.auto_heal);
+  if (autoHeal?.["enabled"] !== undefined && typeof autoHeal["enabled"] !== "boolean") {
+    warnings.push("auto_heal.enabled must be a boolean");
+  }
+  if (autoHeal?.["daily_budget_usd"] !== undefined && !isNumberInRange(autoHeal["daily_budget_usd"], 0, 1000)) {
+    warnings.push("auto_heal.daily_budget_usd must be a non-negative number");
+  }
+  for (const key of ["max_docs_per_tick", "max_tokens_per_tick", "tick_interval_seconds"]) {
+    if (autoHeal?.[key] !== undefined && !isIntegerInRange(autoHeal[key], 1, 1_000_000)) {
+      warnings.push(`auto_heal.${key} must be a positive integer`);
+    }
   }
   const capture = asRecord(config.capture);
   for (const key of ["max_input_bytes", "max_output_bytes"]) {

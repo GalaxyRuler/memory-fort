@@ -6,6 +6,7 @@ import { readFile, readdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join, relative } from "node:path";
 import { memoryRoot, wikiDir, type ToolName } from "../storage/paths.js";
+import { loadMemoryConfig, type MemoryConfig } from "../storage/config.js";
 import {
   ensureRawSessionFile,
   appendBlock,
@@ -16,6 +17,10 @@ import { atomicWrite } from "../storage/atomic-write.js";
 import { commitVaultChange as defaultCommitVaultChange } from "../sync/commit-vault-change.js";
 import { isWikiDotDirectoryPath } from "../retrieval/wiki-paths.js";
 import { isNarrativeKnowledgePagePath } from "../compile/synthesize-narrative.js";
+import {
+  getActiveEmbedderConfig,
+  listEmbedderProviders,
+} from "../retrieval/embedder/factory.js";
 
 const LogObservationInput = z.object({
   text: z.string().min(1, "text must be non-empty"),
@@ -297,6 +302,28 @@ interface ApiSearchResponse {
 
 const DEFAULT_SEARCH_BASE_URL = "http://127.0.0.1:4410/memory";
 
+export interface EmbeddingProviderPreflightOptions {
+  configLoader?: () => Promise<MemoryConfig>;
+  env?: NodeJS.ProcessEnv;
+}
+
+export async function embeddingProviderPreflight(
+  opts: EmbeddingProviderPreflightOptions = {},
+): Promise<string[]> {
+  const config = await (opts.configLoader ?? (() => loadMemoryConfig(memoryRoot())))();
+  const env = opts.env ?? process.env;
+  try {
+    const active = getActiveEmbedderConfig(config);
+    const provider = listEmbedderProviders(active, env).find((item) => item.active);
+    if (!provider || provider.provider === "ollama" || provider.keyAvailable) return [];
+    return [
+      `${provider.requiredEnv} missing in this process; MCP search can still call BM25/graph via dashboard, but live vector query embeddings and refresh are degraded until the host app restarts with the key.`,
+    ];
+  } catch (error) {
+    return [`embedding provider preflight failed: ${error instanceof Error ? error.message : String(error)}`];
+  }
+}
+
 export async function searchMemory(
   input: SearchInput,
   deps: SearchDeps = {},
@@ -411,6 +438,13 @@ export function createServer(deps: SearchDeps = {}): McpServer {
 if (process.argv[1]?.endsWith("mcp-server.mjs")) {
   const server = createServer();
   const transport = new StdioServerTransport();
+  embeddingProviderPreflight()
+    .then((warnings) => {
+      for (const warning of warnings) console.error(`[memory-mcp] warning: ${warning}`);
+    })
+    .catch((err: unknown) => {
+      console.error(`[memory-mcp] warning: preflight failed: ${(err as Error).message}`);
+    });
   server.connect(transport).catch((err: unknown) => {
     console.error(`[memory-mcp] fatal: ${(err as Error).message}`);
     process.exit(1);

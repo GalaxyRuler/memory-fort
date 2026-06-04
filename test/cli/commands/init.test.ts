@@ -73,6 +73,9 @@ describe("runInit", () => {
     expect(preferences).toContain("title: Operator Preferences");
     expect(preferences).toContain("tags: [preference]");
     const config = await readFile(join(result.root, "config.yaml"), "utf-8");
+    expect(config).toContain("auto_heal:");
+    expect(config).toContain("enabled: false");
+    expect(config).toContain("daily_budget_usd: 0.50");
     expect(config).toContain("compress:");
     expect(config).toContain("max_input_bytes: 48000");
     expect(config).toContain("chunk_threshold_bytes: 48000");

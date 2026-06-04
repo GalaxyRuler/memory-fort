@@ -170,4 +170,53 @@ describe("postToolUseBody", () => {
     expect(calls[3]).toContain("auto-link failed");
     expect(calls[3]).toContain("linker unavailable");
   });
+
+  it("runs capture-time auto-heal after the raw append when enabled", async () => {
+    const calls: string[] = [];
+    await postToolUseBody(
+      {
+        session_id: "abc",
+        cwd: "C:\\test",
+        tool_name: "Read",
+        tool_input: { path: "foo.md" },
+        tool_output: "file contents",
+      },
+      {
+        detectTool: () => "codex",
+        ensureRawSessionFile: async () => {
+          calls.push("ensure");
+          return "raw/2026-05-21/codex-abc.md";
+        },
+        appendBlock: async () => {
+          calls.push("append");
+        },
+        autoHealRaw: async (input) => {
+          calls.push(`auto-heal:${input.relPath}`);
+          return {
+            exitCode: 0,
+            enabled: true,
+            embedded: 1,
+            unchanged: 0,
+            skippedPending: 0,
+            skippedBudget: 0,
+            errors: [],
+            dailySpendUsd: 0.0001,
+            dailyBudgetUsd: 0.5,
+            nextReset: "2026-05-22T00:00:00.000Z",
+          };
+        },
+        configLoader: async () => ({
+          auto_heal: { enabled: true },
+          auto_link: { enabled: false },
+        }),
+        now: () => fixedNow,
+      },
+    );
+
+    expect(calls).toEqual([
+      "ensure",
+      "append",
+      "auto-heal:raw/2026-05-21/codex-abc.md",
+    ]);
+  });
 });

@@ -170,6 +170,21 @@ describe("memory config reader", () => {
     expect(config.auto_link?.mass_collision_threshold).toBe(0.2);
   });
 
+  it("MemoryConfig types auto-heal budget and tick caps", () => {
+    const config: MemoryConfig = {
+      auto_heal: {
+        enabled: true,
+        daily_budget_usd: 0.5,
+        max_docs_per_tick: 25,
+        max_tokens_per_tick: 50_000,
+        tick_interval_seconds: 300,
+      },
+    };
+
+    expect(config.auto_heal?.enabled).toBe(true);
+    expect(config.auto_heal?.daily_budget_usd).toBe(0.5);
+  });
+
   it("MemoryConfig types compressor coverage caps", () => {
     const config: MemoryConfig = {
       compress: {

@@ -20,7 +20,9 @@ import { createLLMFromConfig, getActiveLLMConfig } from "../llm/factory.js";
 import type { LLMProvider } from "../llm/types.js";
 import { createAutoPromoteScheduler } from "./auto-promote-scheduler.js";
 import { runScheduledCompileOnce, type DashboardCompileRunResult } from "./auto-promote-scheduler.js";
+import { createAutoHealScheduler } from "./auto-heal-scheduler.js";
 import { applyConfigPatch, ConfigPatchError, validateConfigPatch } from "./config-patch.js";
+import { readAutoHealStatus, type AutoHealStatus } from "../retrieval/auto-heal.js";
 import { buildProvidersCatalog } from "./providers-catalog.js";
 import { computeGraphHealth, type GraphHealthReport } from "./graph-health.js";
 import {
@@ -78,6 +80,7 @@ export interface ServerOptions {
   dashboardDistRoot?: string | null;
   compileRunner?: (opts?: { execute?: boolean }) => Promise<DashboardCompileRunResult>;
   writeCapability?: VaultWriteCapability;
+  autoHealStatusReader?: (vaultRoot: string) => Promise<AutoHealStatus>;
 }
 
 export interface RunningServer {
@@ -439,9 +442,17 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
     vaultRoot: opts.vaultRoot,
     writeCapability,
   });
-  const closeAutoPromoteScheduler = () => autoPromoteScheduler.close();
+  const autoHealScheduler = createAutoHealScheduler({
+    vaultRoot: opts.vaultRoot,
+    config,
+    env,
+  });
+  const closeSchedulers = () => {
+    autoPromoteScheduler.close();
+    autoHealScheduler.close();
+  };
   let compileRunActive = false;
-  process.once("SIGTERM", closeAutoPromoteScheduler);
+  process.once("SIGTERM", closeSchedulers);
 
   const server = createHttpServer(async (req, res) => {
     const method = req.method ?? "GET";
@@ -591,6 +602,15 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
           healthCache.set(cacheKey, { atMs: nowMs, report });
         }
         writeJson(res, report, report.overallStatus === "fail" ? 503 : 200);
+      } catch (err) {
+        writeJsonError(res, 500, (err as Error).message);
+      }
+      return;
+    }
+
+    if (path === "/api/auto-heal/status") {
+      try {
+        writeJson(res, await (opts.autoHealStatusReader ?? readAutoHealStatus)(opts.vaultRoot));
       } catch (err) {
         writeJsonError(res, 500, (err as Error).message);
       }
@@ -896,8 +916,8 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
     port: actualPort,
     host,
     close: async () => {
-      process.off("SIGTERM", closeAutoPromoteScheduler);
-      autoPromoteScheduler.close();
+      process.off("SIGTERM", closeSchedulers);
+      closeSchedulers();
       await closeServer(server);
     },
   };

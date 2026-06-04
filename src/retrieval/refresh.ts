@@ -36,6 +36,10 @@ export interface RefreshOptions {
   rateLimitMaxRetries?: number;
   rateLimitBaseDelayMs?: number;
   maxPending?: number;
+  preserveUnknownRecords?: boolean;
+  onEmbedBatchStart?: (batch: RefreshEmbeddingBatch) => Promise<void> | void;
+  onEmbedBatchSuccess?: (batch: RefreshEmbeddingBatch, response: EmbedResult) => Promise<void> | void;
+  onEmbedBatchError?: (batch: RefreshEmbeddingBatch, error: unknown) => Promise<void> | void;
   sleep?: (ms: number) => Promise<void>;
   now?: () => Date;
 }
@@ -54,6 +58,11 @@ export interface RefreshResult {
   failedBatches?: number;
   inputTokens?: number;
   skippedPending?: number;
+}
+
+export interface RefreshEmbeddingBatch {
+  documents: Array<{ path: string; tokenEstimate: number }>;
+  tokenEstimate: number;
 }
 
 interface PendingDoc {
@@ -217,7 +226,15 @@ export async function refreshEmbeddings(opts: RefreshOptions): Promise<RefreshRe
     let savedForKind = false;
     let kindHadBatchError = false;
     for (const batch of buildEmbeddingBatches(pending, batchSize)) {
+      const batchInfo: RefreshEmbeddingBatch = {
+        documents: batch.map((item) => ({
+          path: item.document.relPath,
+          tokenEstimate: item.tokenEstimate,
+        })),
+        tokenEstimate: batch.reduce((sum, item) => sum + item.tokenEstimate, 0),
+      };
       try {
+        await opts.onEmbedBatchStart?.(batchInfo);
         const response = await embedBatchWithRateLimitRetry(
           () =>
             withTimeout(
@@ -243,7 +260,9 @@ export async function refreshEmbeddings(opts: RefreshOptions): Promise<RefreshRe
           existingByPath.set(record.path, record);
         }
         result.embedded += batch.length;
-        const recordsForKind = recordsForSave(existingByPath, knownPaths, expectedDim);
+        const recordsForKind = recordsForSave(existingByPath, knownPaths, expectedDim, {
+          preserveUnknownRecords: opts.preserveUnknownRecords === true,
+        });
         await saveEmbeddings(opts.memoryRoot, kind, recordsForKind.records, { expectedDim });
         savedForKind = true;
         await saveEmbeddingsMeta(opts.memoryRoot, {
@@ -254,7 +273,9 @@ export async function refreshEmbeddings(opts: RefreshOptions): Promise<RefreshRe
           createdAt: metaCreatedAt,
           updatedAt: now().toISOString(),
         });
+        await opts.onEmbedBatchSuccess?.(batchInfo, response);
       } catch (error) {
+        await opts.onEmbedBatchError?.(batchInfo, error);
         const reason = error instanceof Error ? error.message : String(error);
         result.failedBatches = (result.failedBatches ?? 0) + 1;
         for (const item of batch) {
@@ -265,7 +286,9 @@ export async function refreshEmbeddings(opts: RefreshOptions): Promise<RefreshRe
       }
     }
 
-    const recordsForKind = recordsForSave(existingByPath, knownPaths, expectedDim);
+    const recordsForKind = recordsForSave(existingByPath, knownPaths, expectedDim, {
+      preserveUnknownRecords: opts.preserveUnknownRecords === true,
+    });
     if (!kindHadBatchError && !savedForKind && recordsForKind.pruned > 0) {
       await saveEmbeddings(opts.memoryRoot, kind, recordsForKind.records, { expectedDim });
       savedForKind = true;
@@ -364,10 +387,12 @@ function recordsForSave(
   existingByPath: Map<string, EmbeddingRecord>,
   knownPaths: Set<string>,
   expectedDim: number,
+  opts: { preserveUnknownRecords?: boolean } = {},
 ): { records: EmbeddingRecord[]; pruned: number } {
   let pruned = 0;
   const records = [...existingByPath.values()].filter((record) => {
     if (knownPaths.has(record.path)) return true;
+    if (opts.preserveUnknownRecords) return true;
     if (record.archived && isWritableEmbeddingRecord(record, expectedDim)) return true;
     pruned += 1;
     return false;

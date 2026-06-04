@@ -14,6 +14,7 @@ import { registerEvalCommand } from "./cli/commands/eval.js";
 import { runEvalRetrieval } from "./cli/commands/eval-retrieval.js";
 import { runGrep, type GrepScope } from "./cli/commands/grep.js";
 import { runInit } from "./cli/commands/init.js";
+import { formatAutoHealResult, runAutoHealCommand, type AutoHealAction } from "./cli/commands/auto-heal.js";
 import { runBackfill } from "./cli/commands/backfill.js";
 import { runBackfillSource } from "./cli/commands/backfill-source.js";
 import { runCompactRaw } from "./cli/commands/compact-raw.js";
@@ -24,6 +25,7 @@ import { formatDiscoverThreadsResult, runDiscoverThreads } from "./cli/commands/
 import { formatReindexResult, runReindex } from "./cli/commands/reindex.js";
 import { runImportAgentMemory } from "./cli/commands/import-agentmemory.js";
 import { runInstall } from "./cli/commands/install.js";
+import { formatSupervisorResult, runInstallSupervisor, runSupervisorStatus } from "./cli/commands/supervisor.js";
 import { runInstallTailscaleRoute } from "./cli/commands/install-tailscale-route.js";
 import { runInstallVps } from "./cli/commands/install-vps.js";
 import { runLint } from "./cli/commands/lint.js";
@@ -142,17 +144,59 @@ program
   .description("Install hooks + MCP for a platform (claude-code, codex, antigravity, claude-desktop, vscode)")
   .option("--workspace <path>", "workspace path for clients that support workspace-scoped MCP")
   .option("--surface <surface>", "Antigravity surface: workspace | ide | both")
+  .option("--apply", "install the Windows supervisor when platform is supervisor")
+  .option("--remove", "remove the Windows supervisor when platform is supervisor")
   .option("--no-verify", "skip post-install memory verify")
   .action(async (
     platform: string,
-    opts: { workspace?: string; surface?: "workspace" | "ide" | "both"; verify?: boolean },
+    opts: { workspace?: string; surface?: "workspace" | "ide" | "both"; apply?: boolean; remove?: boolean; verify?: boolean },
   ) => {
     try {
+      if (platform === "supervisor") {
+        if ([opts.apply, opts.remove].filter(Boolean).length !== 1) {
+          console.error("memory install supervisor: choose exactly one of --apply or --remove");
+          process.exit(2);
+        }
+        const result = await runInstallSupervisor({ action: opts.remove ? "remove" : "apply" });
+        process.stdout.write(formatSupervisorResult(result));
+        process.exit(result.exitCode);
+      }
       await runInstall(platform, { ...opts, noVerify: opts.verify === false });
     } catch (err) {
       console.error(`memory install ${platform} failed: ${(err as Error).message}`);
       process.exit(1);
     }
+  });
+
+program
+  .command("auto-heal <action>")
+  .description("Inspect or run bounded embedding auto-heal (status | enable | disable | tick)")
+  .action(async (action: AutoHealAction) => {
+    if (!["status", "enable", "disable", "tick"].includes(action)) {
+      console.error("memory auto-heal: action must be status, enable, disable, or tick");
+      process.exit(2);
+    }
+    try {
+      const result = await runAutoHealCommand({ action });
+      process.stdout.write(formatAutoHealResult(result));
+      process.exit(result.exitCode);
+    } catch (err) {
+      console.error(`memory auto-heal ${action} failed: ${(err as Error).message}`);
+      process.exit(1);
+    }
+  });
+
+const supervisor = program
+  .command("supervisor")
+  .description("Inspect the Windows Task Scheduler supervisor");
+
+supervisor
+  .command("status")
+  .description("Query the Memory Fort dashboard logon task")
+  .action(async () => {
+    const result = await runSupervisorStatus();
+    process.stdout.write(formatSupervisorResult(result));
+    process.exit(result.exitCode);
   });
 
 program

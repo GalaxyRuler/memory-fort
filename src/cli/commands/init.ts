@@ -79,6 +79,13 @@ embedder:
   provider: voyage
   model: voyage-4-large
 
+auto_heal:
+  enabled: false
+  daily_budget_usd: 0.50
+  max_docs_per_tick: 25
+  max_tokens_per_tick: 50000
+  tick_interval_seconds: 300
+
 compile:
   scheduled: false
   cadence: daily

@@ -5,7 +5,7 @@ import { mkdtemp, rm, mkdir, writeFile, readFile, readdir } from "node:fs/promis
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { logObservation, readPage, listPages, createServer } from "../../src/mcp/server.js";
+import { logObservation, readPage, listPages, createServer, embeddingProviderPreflight } from "../../src/mcp/server.js";
 import { parseFrontmatter } from "../../src/storage/frontmatter.js";
 
 describe("logObservation", () => {
@@ -351,6 +351,18 @@ describe("memory.search MCP tool", () => {
     } finally {
       await close();
     }
+  });
+});
+
+describe("embeddingProviderPreflight", () => {
+  it("warns when the active embedding provider key is missing", async () => {
+    const warnings = await embeddingProviderPreflight({
+      configLoader: async () => ({ embedder: { provider: "voyage", model: "voyage-4-large" } }),
+      env: {},
+    });
+
+    expect(warnings[0]).toContain("VOYAGE_API_KEY");
+    expect(warnings[0]).toContain("missing");
   });
 });
 

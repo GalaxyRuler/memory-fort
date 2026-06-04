@@ -65,6 +65,30 @@ describe("embedding health verify check", () => {
     expect(result.detail).toContain("3 embedding records");
   });
 
+  it("includes auto-heal status in the operator-visible detail", async () => {
+    await saveEmbeddings(tmp, "wiki", [
+      embedding("wiki/decisions/a.md", vector(0, 2048)),
+      embedding("wiki/decisions/b.md", vector(1, 2048)),
+    ], { expectedDim: 2048 });
+
+    const result = await checkEmbeddingHealth(tmp, {
+      configLoader: async () => ({ embedder: { provider: "voyage", model: "voyage-4-large" } }),
+      env: { VOYAGE_API_KEY: "visible" },
+      autoHealStatusReader: async () => ({
+        enabled: true,
+        lastTick: "2026-06-04T10:00:00.000Z",
+        lastEmbed: "2026-06-04T10:00:01.000Z",
+        dailySpendUsd: 0.001,
+        dailyBudgetUsd: 0.5,
+        nextReset: "2026-06-05T00:00:00.000Z",
+      }),
+    });
+
+    expect(result.status).toBe("pass");
+    expect(result.detail).toContain("auto-heal enabled");
+    expect(result.detail).toContain("$0.0010/$0.5000");
+  });
+
   it("fails loudly when stored embeddings are healthy but the active provider key is missing in this process", async () => {
     await saveEmbeddings(tmp, "wiki", [
       embedding("wiki/decisions/a.md", vector(0, 2048)),
