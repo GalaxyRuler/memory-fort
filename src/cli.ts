@@ -14,7 +14,7 @@ import { registerEntityCommand } from "./cli/commands/entity.js";
 import { registerEvalCommand } from "./cli/commands/eval.js";
 import { runEvalRetrieval } from "./cli/commands/eval-retrieval.js";
 import { runGrep, type GrepScope } from "./cli/commands/grep.js";
-import { runInit } from "./cli/commands/init.js";
+import { runInitOnboarding } from "./cli/commands/init-onboarding.js";
 import { formatAutoHealResult, runAutoHealCommand, type AutoHealAction } from "./cli/commands/auto-heal.js";
 import { runBackfill } from "./cli/commands/backfill.js";
 import { runBackfillSource } from "./cli/commands/backfill-source.js";
@@ -126,27 +126,46 @@ program
     "--reset",
     "destructive — archives existing ~/.memory/ before re-init",
   )
+  .option("--vault <path>", "vault root (default: ~/.memory)")
+  .option("--name <name>", "operator name for seeded schema variables")
+  .option("--tools <csv>", "tools to wire: csv, all, or none")
+  .option("--retrieval <mode>", "retrieval mode: lexical, voyage, openai, or ollama")
   .option("--dry-run", "print what would be created or modified without writing")
   .option("--yes", "skip interactive confirmation")
-  .action(async (opts: { reset?: boolean; dryRun?: boolean; yes?: boolean }) => {
+  .action(async (opts: {
+    reset?: boolean;
+    vault?: string;
+    name?: string;
+    tools?: string;
+    retrieval?: string;
+    dryRun?: boolean;
+    yes?: boolean;
+  }) => {
     try {
-      const result = await runInit({
+      const result = await runInitOnboarding({
         reset: opts.reset,
+        vault: opts.vault,
+        name: opts.name,
+        tools: opts.tools,
+        retrieval: opts.retrieval,
         dryRun: opts.dryRun,
         yes: opts.yes,
       });
-      if (result.cancelled) {
+      if (result.init.cancelled) {
         process.exit(1);
       }
-      if (result.dryRun) {
+      if (result.init.dryRun) {
         console.log("Dry run complete; no files written.");
         return;
       }
-      console.log(`Initialized memory at ${result.root}`);
-      console.log(`  created:    ${result.created.length} paths`);
-      console.log(`  preserved:  ${result.preserved.length} paths`);
-      if (result.archivedTo) {
-        console.log(`  archived to: ${result.archivedTo}`);
+      console.log(`Initialized memory at ${result.init.root}`);
+      console.log(`  created:    ${result.init.created.length} paths`);
+      console.log(`  preserved:  ${result.init.preserved.length} paths`);
+      if (result.init.archivedTo) {
+        console.log(`  archived to: ${result.init.archivedTo}`);
+      }
+      if (result.tools.length > 0) {
+        console.log(`  wired tools: ${result.tools.join(", ")}`);
       }
     } catch (err) {
       console.error(`memory init failed: ${(err as Error).message}`);

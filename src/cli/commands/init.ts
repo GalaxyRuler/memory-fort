@@ -12,7 +12,7 @@ import {
   configPath,
 } from "../../storage/paths.js";
 import { atomicWrite, atomicAppend } from "../../storage/atomic-write.js";
-import { detectTemplateVars, renderTemplate } from "../template-render.js";
+import { detectTemplateVars, renderTemplate, type TemplateVars } from "../template-render.js";
 import { guardWrites, type CommandStdout, type ConfirmPrompt } from "./write-guard.js";
 
 declare const __MEMORY_BUILD_COMMIT__: string | undefined;
@@ -21,6 +21,8 @@ export interface InitOptions {
   reset?: boolean;
   /** Absolute path to the source repo containing templates/. */
   sourceRepoDir?: string;
+  vault?: string;
+  templateVars?: Partial<TemplateVars>;
   /** For tests: override the current date. */
   now?: Date;
   dryRun?: boolean;
@@ -161,6 +163,10 @@ Durable behavior-shaping preferences for agents using Memory Fort.
 `;
 
 export async function runInit(opts: InitOptions = {}): Promise<InitResult> {
+  if (opts.vault && opts.vault.trim().length > 0) {
+    return withMemoryRoot(opts.vault, () => runInit({ ...opts, vault: undefined }));
+  }
+
   const root = memoryRoot();
   const planned = planInitWrites(root, opts);
   const guard = await guardWrites({
@@ -209,6 +215,7 @@ export async function runInit(opts: InitOptions = {}): Promise<InitResult> {
       sourceRepoDir: opts.sourceRepoDir,
       now: opts.now,
     });
+    Object.assign(vars, opts.templateVars);
     vars.install_commit = buildInstallCommit(vars.install_commit);
     await atomicWrite(schemaPath(), renderTemplate(template, vars));
     result.created.push(schemaPath());
@@ -249,6 +256,7 @@ export async function runInit(opts: InitOptions = {}): Promise<InitResult> {
       sourceRepoDir: opts.sourceRepoDir,
       now: opts.now,
     });
+    Object.assign(vars, opts.templateVars);
     await atomicWrite(preferencesPath, renderTemplate(DEFAULT_PREFERENCES, vars));
     result.created.push(preferencesPath);
   } else {
@@ -303,6 +311,7 @@ export async function runInit(opts: InitOptions = {}): Promise<InitResult> {
         stdio: ["ignore", "ignore", "ignore"],
       });
       const vars = detectTemplateVars({ now: opts.now });
+      Object.assign(vars, opts.templateVars);
       execFileSync("git", ["config", "user.name", vars.user_name], {
         cwd: root,
         stdio: ["ignore", "ignore", "ignore"],
@@ -338,6 +347,17 @@ export async function runInit(opts: InitOptions = {}): Promise<InitResult> {
   }
 
   return result;
+}
+
+async function withMemoryRoot<T>(root: string, fn: () => Promise<T>): Promise<T> {
+  const before = process.env["MEMORY_ROOT"];
+  process.env["MEMORY_ROOT"] = root;
+  try {
+    return await fn();
+  } finally {
+    if (before === undefined) delete process.env["MEMORY_ROOT"];
+    else process.env["MEMORY_ROOT"] = before;
+  }
 }
 
 export function planInitWrites(root = memoryRoot(), opts: Pick<InitOptions, "reset" | "now"> = {}): string[] {
