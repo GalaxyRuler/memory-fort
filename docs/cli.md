@@ -95,6 +95,16 @@ Cluster raw observations (Jaccard ≥0.5 over entities, 7-day window, ≥3 obs) 
 ### `memory thread promote <slug>` / `memory thread reject <slug>`
 Move a reviewed draft to `wiki/threads/` (promote) or archive it (reject). Both commit the vault change.
 
+### Wiki reasoning-edge activation runbook
+Use this when `/api/graph-health` reports isolated wiki pages in `graph.participation-rate`. The metric counts only reasoning edges (`uses`, `depends_on`, `caused_by`, `fixed_by`, `contradicts`, `supersedes`, `learned_from`, `tested-with`), not raw `mentions` or wikilinks.
+
+1. Enumerate isolated pages from the same corpus/graph feed used by the dashboard, and classify every page as `link-candidate`, `thread-candidate`, `genuine-standalone`, `test-fixture`, or `archive-candidate`. Read title, `type`, `lifecycle`, `tags`, and body before classifying.
+2. Propose the smallest honest edge set. Prefer intra-cluster links between related isolated threads or lessons when direct project edges would inflate a project's 2-hop neighborhood and lower `graph.project-subgraph-density`.
+3. Before applying, sample at least five proposed edges and read source/target excerpts. Do not apply if the sampled noise rate is above 20%; tighten the set instead.
+4. Apply relation edits as frontmatter changes only. Archive test fixtures or smoke markers under `wiki/.archive/<reason>/<date>/` with `status: archived`, `lifecycle: archived`, and a one-line archive note. Do not permanently delete fixture pages.
+5. Re-read `/api/graph-health` and `/api/search` after applying. Required checks: participation rate rises, overall status remains `pass`, `graph.project-subgraph-density` does not newly warn, orphan rate does not regress materially, search has `refreshMs: 0`, rerank is active when expected, and the response is not degraded.
+6. Roll back a bad edge by removing the added relation block from the source page. Roll back an archive by moving the file from `wiki/.archive/...` back to its original `wiki/...` path and restoring `status: active` / the prior lifecycle from git history. There is no `graph.participation-rate` exemption config today; adding one is a metric-contract change and needs a separate brief.
+
 ### `memory procedure propose [--plan|--apply] [--auto-promote] [--days <n>] [--max-proposals <n>]`
 Detect repeated command workflows (command-set Jaccard ≥0.4, ≥3 obs across ≥2 sessions) and draft procedures into `wiki/procedures-proposed/`.
 ### `memory procedure promote <slug>` / `memory procedure reject <slug>`
