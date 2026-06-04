@@ -7,6 +7,7 @@ import {
   runConsolidate,
 } from "./cli/commands/consolidate.js";
 import { formatConnectResult, runConnect } from "./cli/commands/connect.js";
+import { formatDisconnectResult, runDisconnect } from "./cli/commands/disconnect.js";
 import { runDoctor, formatDoctorResult } from "./cli/commands/doctor.js";
 import { registerDashboardCommand } from "./cli/commands/dashboard.js";
 import { registerEntityCommand } from "./cli/commands/entity.js";
@@ -25,6 +26,7 @@ import { formatDiscoverThreadsResult, runDiscoverThreads } from "./cli/commands/
 import { formatReindexResult, runReindex } from "./cli/commands/reindex.js";
 import { runImportAgentMemory } from "./cli/commands/import-agentmemory.js";
 import { runInstall } from "./cli/commands/install.js";
+import { formatUninstallResult, runUninstall } from "./cli/commands/uninstall.js";
 import { formatSupervisorJson, formatSupervisorResult, runInstallSupervisor, runSupervisorStatus } from "./cli/commands/supervisor.js";
 import { runInstallTailscaleRoute } from "./cli/commands/install-tailscale-route.js";
 import { runInstallVps } from "./cli/commands/install-vps.js";
@@ -169,6 +171,25 @@ program
   });
 
 program
+  .command("uninstall <platform>")
+  .description("Uninstall hooks + MCP for a platform (claude-code, codex, antigravity, claude-desktop, vscode)")
+  .option("--workspace <path>", "workspace path for clients that support workspace-scoped MCP")
+  .option("--dry-run", "print what would be removed without writing")
+  .action(async (
+    platform: string,
+    opts: { workspace?: string; dryRun?: boolean },
+  ) => {
+    try {
+      const result = await runUninstall(platform, opts);
+      process.stdout.write(formatUninstallResult(result));
+      process.exit(result.exitCode);
+    } catch (err) {
+      console.error(`memory uninstall ${platform} failed: ${(err as Error).message}`);
+      process.exit(1);
+    }
+  });
+
+program
   .command("auto-heal <action>")
   .description("Inspect or run bounded embedding auto-heal (status | enable | disable | tick)")
   .action(async (action: AutoHealAction) => {
@@ -221,6 +242,31 @@ program
       process.exit(result.exitCode);
     } catch (err) {
       console.error(`memory connect failed: ${(err as Error).message}`);
+      process.exit(1);
+    }
+  });
+
+program
+  .command("disconnect [client]")
+  .description("Remove MCP/hooks for one client or every supported client")
+  .option("--all", "remove every supported client")
+  .option("--workspace <path>", "workspace path for clients that support workspace-scoped MCP")
+  .option("--dry-run", "print what would be removed without writing")
+  .action(async (
+    client: string | undefined,
+    opts: { all?: boolean; workspace?: string; dryRun?: boolean },
+  ) => {
+    try {
+      const result = await runDisconnect({
+        all: opts.all,
+        client: client as never,
+        workspace: opts.workspace,
+        dryRun: opts.dryRun,
+      });
+      process.stdout.write(formatDisconnectResult(result));
+      process.exit(result.exitCode);
+    } catch (err) {
+      console.error(`memory disconnect failed: ${(err as Error).message}`);
       process.exit(1);
     }
   });
