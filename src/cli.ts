@@ -1310,27 +1310,29 @@ function registerStub(name: string, phase: number, description: string): void {
     });
 }
 
-registerStub(
-  "crystallize",
-  4,
-  "Distill a completed thread into a long-form digest",
-);
-registerStub("backup", 6, "git commit + push memory state to remote");
-registerStub(
-  "import-from-agentmemory",
-  5,
-  "Deprecated alias; use import-agentmemory",
-);
-registerStub(
-  "retain",
-  6,
-  "Run retention policy: archive expired raws, prune embeddings",
-);
-registerStub(
-  "schedule",
-  6,
-  "Install OS-level scheduled tasks (Windows Task Scheduler / cron)",
-);
+if (process.env.MEMORY_FORT_SHOW_STUBS === "1") {
+  registerStub(
+    "crystallize",
+    4,
+    "Distill a completed thread into a long-form digest",
+  );
+  registerStub("backup", 6, "git commit + push memory state to remote");
+  registerStub(
+    "import-from-agentmemory",
+    5,
+    "Deprecated alias; use import-agentmemory",
+  );
+  registerStub(
+    "retain",
+    6,
+    "Run retention policy: archive expired raws, prune embeddings",
+  );
+  registerStub(
+    "schedule",
+    6,
+    "Install OS-level scheduled tasks (Windows Task Scheduler / cron)",
+  );
+}
 
 printDebugLogBanner();
 program.parseAsync(process.argv);
