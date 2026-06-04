@@ -1,4 +1,4 @@
-import { copyFile, readFile } from "node:fs/promises";
+import { copyFile, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { atomicWrite } from "../storage/atomic-write.js";
 import {
@@ -35,6 +35,12 @@ export interface LoadEmbeddingsResult {
 export interface SaveEmbeddingsOptions {
   expectedDim?: number;
   backupPrevious?: boolean;
+}
+
+export interface EmbeddingsFileSignature {
+  exists: boolean;
+  sizeBytes: number;
+  mtimeMs: number;
 }
 
 export class EmbeddingWriteGuardError extends Error {
@@ -84,6 +90,25 @@ export async function loadEmbeddings(
   });
 
   return { records: [...byPath.values()], warnings };
+}
+
+export async function loadEmbeddingsFileSignature(
+  memoryRoot: string,
+  kind: EmbeddingKind,
+): Promise<EmbeddingsFileSignature> {
+  try {
+    const info = await stat(embeddingsPath(memoryRoot, kind));
+    return {
+      exists: true,
+      sizeBytes: info.size,
+      mtimeMs: info.mtimeMs,
+    };
+  } catch (error) {
+    if (isMissingFile(error)) {
+      return { exists: false, sizeBytes: 0, mtimeMs: 0 };
+    }
+    throw error;
+  }
 }
 
 export async function saveEmbeddings(

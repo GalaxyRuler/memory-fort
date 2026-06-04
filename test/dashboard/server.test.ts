@@ -64,6 +64,26 @@ function mockVoyageClient(): VoyageClient {
   };
 }
 
+function mockVoyageClient2048(): VoyageClient {
+  return {
+    embed: vi.fn(async (texts: string[]) => ({
+      vectors: texts.map((text) =>
+        vector2048(text.toLowerCase().includes("foo") ? 0.9 : 0.1),
+      ),
+      model: "test-embed",
+      dim: 2048,
+    })),
+    rerank: vi.fn(async (_query, documents) => ({
+      ranked: documents.map((document, index) => ({
+        index,
+        score: 1 - index * 0.01,
+        document,
+      })),
+      model: "test-rerank",
+    })),
+  };
+}
+
 async function writeSearchWiki(root: string, count = 3): Promise<void> {
   await mkdir(join(root, "wiki", "projects"), { recursive: true });
   for (let index = 0; index < count; index += 1) {
@@ -103,6 +123,10 @@ async function writeActivityLog(root: string): Promise<void> {
       "",
     ].join("\n"),
   );
+}
+
+function vector2048(seed: number): number[] {
+  return Array.from({ length: 2048 }, (_, index) => seed + (index % 7) * 0.001);
 }
 
 async function writeDashboardDist(root: string): Promise<string> {
@@ -478,6 +502,31 @@ describe("dashboard server", () => {
         bm25Cache: expect.any(Object),
       });
       expect(body.results.length).toBeGreaterThan(0);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("GET /api/search auto-enables Voyage rerank when VOYAGE_API_KEY is available", async () => {
+    await writeSearchWiki(tmp);
+    await mkdir(join(tmp, "embeddings"), { recursive: true });
+    const voyageClient = mockVoyageClient2048();
+    const server = await createServer({
+      vaultRoot: tmp,
+      port: 0,
+      env: { VOYAGE_API_KEY: "test-key" },
+      voyageClientFactory: () => voyageClient,
+    });
+
+    try {
+      const response = await fetch(`http://${server.host}:${server.port}/api/search?q=foo&noHyde=true`);
+      const body = await response.json();
+      expect(response.status).toBe(200);
+      expect(body.warnings).toEqual([]);
+      expect(body.degraded).toBe(false);
+      expect(body.timings.rerankMs).toEqual(expect.any(Number));
+      expect(body.results[0]?.source).toBe("rerank");
+      expect(voyageClient.embed).toHaveBeenCalledTimes(1);
     } finally {
       await server.close();
     }

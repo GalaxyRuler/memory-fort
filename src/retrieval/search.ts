@@ -1,5 +1,17 @@
-import { loadSearchCorpus, type SearchDocument, type SearchScope } from "./corpus.js";
-import { loadEmbeddings, type EmbeddingKind } from "./embeddings-store.js";
+import {
+  loadSearchCorpus,
+  loadSearchCorpusFileSignature,
+  searchCorpusSignatureFromDocuments,
+  type LoadCorpusResult,
+  type SearchDocument,
+  type SearchScope,
+} from "./corpus.js";
+import {
+  loadEmbeddings,
+  loadEmbeddingsFileSignature,
+  type EmbeddingKind,
+  type LoadEmbeddingsResult,
+} from "./embeddings-store.js";
 import {
   buildBm25IndexFromEntries,
   scoreBm25,
@@ -25,8 +37,13 @@ import {
   defaultSchemaSummary,
   shouldUseHyde,
 } from "./hyde.js";
-import { refreshEmbeddings, type EmbedClient } from "./refresh.js";
-import { embedWithClient } from "./embedder/types.js";
+import {
+  refreshEmbeddings,
+  type EmbedClient,
+  type EmbeddingsLoader,
+  type RefreshResult,
+} from "./refresh.js";
+import { embedWithClient, isEmbedder } from "./embedder/types.js";
 import type { VoyageClient } from "./voyage-client.js";
 import type { LLMProvider } from "../llm/types.js";
 import { loadMemoryConfig, type MemoryConfig } from "../storage/config.js";
@@ -53,7 +70,22 @@ export interface SearchOptions {
     documents: SearchDocument[];
     errors: Array<{ path: string; reason: string }>;
   }>;
+  embeddingLoader?: EmbeddingsLoader;
+  runtimeCache?: SearchRuntimeCache;
   now?: () => Date;
+}
+
+export interface SearchRuntimeCacheStats {
+  corpusCacheHits: number;
+  embeddingCacheHits: number;
+  refreshCacheHits: number;
+}
+
+export interface SearchRuntimeCache {
+  corpus: Map<string, CachedCorpusEntry>;
+  embeddings: Map<string, CachedEmbeddingsEntry>;
+  refresh: Map<string, CachedRefreshEntry>;
+  stats: SearchRuntimeCacheStats;
 }
 
 export interface SearchResult {
@@ -120,12 +152,28 @@ interface Candidate {
   document: SearchDocument;
 }
 
+export interface CachedCorpusEntry {
+  signature: string;
+  loaded: LoadCorpusResult;
+}
+
+export interface CachedEmbeddingsEntry {
+  signature: string;
+  loaded: LoadEmbeddingsResult;
+}
+
+export interface CachedRefreshEntry {
+  result: RefreshResult;
+}
+
 const DEFAULT_K = 10;
 const DEFAULT_MIN_SCORE = 0;
 const SIGNAL_LIMIT = 50;
 const BM25_CACHE_MAX_ENTRIES = 8;
 const BM25_TOKEN_CACHE_MAX_ENTRIES = 4096;
 const RAW_BM25_MAX_CHARS = 16_000;
+const RERANK_CANDIDATE_LIMIT = 5;
+const RERANK_TEXT_MAX_CHARS = 1_200;
 const SEARCH_REFRESH_PENDING_LIMIT = 8;
 // Voyage returns low positive cosine for unrelated text; keep vector as a signal, not a universal match.
 const MIN_VECTOR_SCORE = 0.25;
@@ -176,6 +224,19 @@ Now write the hypothetical paragraph(s):`;
 const bm25IndexCache = new Map<string, Bm25Index>();
 const bm25TokenCache = new Map<string, Bm25IndexEntry>();
 
+export function createSearchRuntimeCache(): SearchRuntimeCache {
+  return {
+    corpus: new Map(),
+    embeddings: new Map(),
+    refresh: new Map(),
+    stats: {
+      corpusCacheHits: 0,
+      embeddingCacheHits: 0,
+      refreshCacheHits: 0,
+    },
+  };
+}
+
 export async function runSearch(opts: SearchOptions): Promise<SearchResponse> {
   if (!opts.vaultRoot) throw new Error("vaultRoot is required");
   if (!opts.embedClient) throw new Error("embedClient is required");
@@ -192,9 +253,19 @@ export async function runSearch(opts: SearchOptions): Promise<SearchResponse> {
   const now = opts.now?.() ?? new Date();
 
   const corpusStarted = Date.now();
-  const loaded = opts.corpusLoader
-    ? await opts.corpusLoader()
-    : await loadSearchCorpus({ vaultRoot: opts.vaultRoot, scope });
+  const loadedWithSignature = opts.corpusLoader
+    ? {
+        loaded: await opts.corpusLoader(),
+        signature: "",
+      }
+    : await loadCorpusForSearch({
+        vaultRoot: opts.vaultRoot,
+        scope,
+        runtimeCache: opts.runtimeCache,
+      });
+  const loaded = loadedWithSignature.loaded;
+  const corpusSignature = loadedWithSignature.signature ||
+    searchCorpusSignatureFromDocuments(opts.vaultRoot, scope, loaded.documents);
   timings.corpusMs = Date.now() - corpusStarted;
   throwIfAborted(opts.signal);
 
@@ -231,9 +302,30 @@ export async function runSearch(opts: SearchOptions): Promise<SearchResponse> {
         }).embeddingInput
       : opts.query;
   const lexicalQuery = lexicalSignalQuery(opts.query);
+  const embeddingsLoader = embeddingsLoaderForSearch(opts);
+  const embeddingKinds = documentKinds(documents);
+  const refreshCacheKey = opts.runtimeCache && opts.refreshEmbeddings !== false
+    ? await buildRefreshCacheKey({
+        vaultRoot: opts.vaultRoot,
+        corpusSignature,
+        kinds: embeddingKinds,
+        embedClient: opts.embedClient,
+        maxPending: opts.refreshMaxPending ?? SEARCH_REFRESH_PENDING_LIMIT,
+      })
+    : null;
 
   const refreshStarted = Date.now();
   if (opts.refreshEmbeddings === false) {
+    timings.refreshMs = Date.now() - refreshStarted;
+  } else if (opts.runtimeCache && refreshCacheKey && opts.runtimeCache.refresh.has(refreshCacheKey)) {
+    opts.runtimeCache.stats.refreshCacheHits += 1;
+    applyRefreshWarnings(
+      opts.runtimeCache.refresh.get(refreshCacheKey)!.result,
+      warnings,
+      (value) => {
+        degraded = value;
+      },
+    );
     timings.refreshMs = Date.now() - refreshStarted;
   } else {
     try {
@@ -241,20 +333,18 @@ export async function runSearch(opts: SearchOptions): Promise<SearchResponse> {
         memoryRoot: opts.vaultRoot,
         documents,
         embedClient: opts.embedClient,
+        embeddingsLoader,
         maxPending: opts.refreshMaxPending ?? SEARCH_REFRESH_PENDING_LIMIT,
         now: opts.now,
       });
-      if ((refresh.skippedPending ?? 0) > 0) {
-        degraded = true;
-        warnings.push(
-          `embedding refresh skipped ${refresh.skippedPending} pending documents; run memory provider reindex-embeddings --apply to refresh the backlog`,
-        );
+      applyRefreshWarnings(refresh, warnings, (value) => {
+        degraded = value;
+      });
+      if (opts.runtimeCache && refreshCacheKey && cacheableRefreshResult(refresh)) {
+        opts.runtimeCache.refresh.set(refreshCacheKey, { result: refresh });
       }
-      if (refresh.errors.length > 0) {
-        degraded = true;
-        warnings.push(
-          ...refresh.errors.map((error) => `embedding refresh ${error.path}: ${error.reason}`),
-        );
+      if (opts.runtimeCache && refreshChangedEmbeddings(refresh)) {
+        invalidateEmbeddingCache(opts.runtimeCache, opts.vaultRoot, embeddingKinds);
       }
     } catch (error) {
       throwIfAborted(opts.signal);
@@ -296,7 +386,7 @@ export async function runSearch(opts: SearchOptions): Promise<SearchResponse> {
 
   const vectorStarted = Date.now();
   const vector = queryVector
-    ? await vectorScores(opts.vaultRoot, documents, queryVector, warnings)
+    ? await vectorScores(opts.vaultRoot, documents, queryVector, warnings, embeddingsLoader)
     : [];
   if (warnings.some((warning) => warning.startsWith("embeddings "))) {
     degraded = true;
@@ -390,15 +480,16 @@ export async function runSearch(opts: SearchOptions): Promise<SearchResponse> {
     source: dominantSource(candidate.rrf),
   }));
   if (!opts.noRerank && candidates.length > 0) {
+    const rerankCandidatesForCall = candidates.slice(0, RERANK_CANDIDATE_LIMIT);
     const reranked = await rerankCandidates({
       query: opts.query,
-      candidates: candidates.map((candidate) => ({
+      candidates: rerankCandidatesForCall.map((candidate) => ({
         relPath: candidate.document.relPath,
         text: rerankText(candidate.document),
       })),
       voyageClient: opts.voyageClient,
       signal: opts.signal,
-      topK: candidates.length,
+      topK: rerankCandidatesForCall.length,
     });
     throwIfAborted(opts.signal);
     if (reranked.degraded) {
@@ -406,9 +497,9 @@ export async function runSearch(opts: SearchOptions): Promise<SearchResponse> {
       if (reranked.warning) warnings.push(reranked.warning);
     } else {
       const byOriginalIndex = new Map(
-        candidates.map((candidate, index) => [index, candidate] as const),
+        rerankCandidatesForCall.map((candidate, index) => [index, candidate] as const),
       );
-      final = reranked.ranked
+      const rerankedFinal = reranked.ranked
         .map((item) => {
           const candidate = byOriginalIndex.get(item.originalIndex);
           return candidate
@@ -416,6 +507,11 @@ export async function runSearch(opts: SearchOptions): Promise<SearchResponse> {
             : null;
         })
         .filter((item): item is (typeof final)[number] => item !== null);
+      const rerankedPaths = new Set(rerankedFinal.map((item) => item.candidate.document.relPath));
+      final = [
+        ...rerankedFinal,
+        ...final.filter((item) => !rerankedPaths.has(item.candidate.document.relPath)),
+      ];
     }
     timings.rerankMs = reranked.latencyMs;
   } else {
@@ -448,6 +544,148 @@ export async function runSearch(opts: SearchOptions): Promise<SearchResponse> {
   };
 }
 
+async function loadCorpusForSearch(opts: {
+  vaultRoot: string;
+  scope: SearchScope;
+  runtimeCache?: SearchRuntimeCache;
+}): Promise<{ loaded: LoadCorpusResult; signature: string }> {
+  const key = corpusCacheKey(opts.vaultRoot, opts.scope);
+  if (opts.runtimeCache) {
+    const cached = opts.runtimeCache.corpus.get(key);
+    if (cached) {
+      try {
+        const currentSignature = await loadSearchCorpusFileSignature({
+          vaultRoot: opts.vaultRoot,
+          scope: opts.scope,
+        });
+        if (currentSignature === cached.signature) {
+          opts.runtimeCache.stats.corpusCacheHits += 1;
+          return cached;
+        }
+      } catch {
+        opts.runtimeCache.corpus.delete(key);
+      }
+    }
+  }
+
+  const loaded = await loadSearchCorpus({ vaultRoot: opts.vaultRoot, scope: opts.scope });
+  const signature = searchCorpusSignatureFromDocuments(
+    opts.vaultRoot,
+    opts.scope,
+    loaded.documents,
+  );
+  opts.runtimeCache?.corpus.set(key, { loaded, signature });
+  return { loaded, signature };
+}
+
+function embeddingsLoaderForSearch(opts: SearchOptions): EmbeddingsLoader {
+  const baseLoader = opts.embeddingLoader ?? loadEmbeddings;
+  if (!opts.runtimeCache) return baseLoader;
+  return (memoryRoot, kind) =>
+    loadCachedEmbeddings(memoryRoot, kind, opts.runtimeCache!, baseLoader);
+}
+
+async function loadCachedEmbeddings(
+  memoryRoot: string,
+  kind: EmbeddingKind,
+  runtimeCache: SearchRuntimeCache,
+  baseLoader: EmbeddingsLoader,
+): Promise<LoadEmbeddingsResult> {
+  const key = embeddingCacheKey(memoryRoot, kind);
+  const signature = embeddingSignatureKey(await loadEmbeddingsFileSignature(memoryRoot, kind));
+  const cached = runtimeCache.embeddings.get(key);
+  if (cached && cached.signature === signature) {
+    runtimeCache.stats.embeddingCacheHits += 1;
+    return cached.loaded;
+  }
+
+  const loaded = await baseLoader(memoryRoot, kind);
+  runtimeCache.embeddings.set(key, { signature, loaded });
+  return loaded;
+}
+
+async function buildRefreshCacheKey(opts: {
+  vaultRoot: string;
+  corpusSignature: string;
+  kinds: EmbeddingKind[];
+  embedClient: EmbedClient;
+  maxPending: number;
+}): Promise<string> {
+  const embeddingSignatures = await Promise.all(
+    opts.kinds.map(async (kind) =>
+      `${kind}:${embeddingSignatureKey(await loadEmbeddingsFileSignature(opts.vaultRoot, kind))}`
+    ),
+  );
+  return [
+    opts.vaultRoot,
+    opts.corpusSignature,
+    embedClientCacheKey(opts.embedClient),
+    opts.maxPending,
+    ...embeddingSignatures.sort(),
+  ].join("\u0002");
+}
+
+function applyRefreshWarnings(
+  refresh: RefreshResult,
+  warnings: string[],
+  setDegraded: (value: true) => void,
+): void {
+  if ((refresh.skippedPending ?? 0) > 0) {
+    setDegraded(true);
+    warnings.push(
+      `embedding refresh skipped ${refresh.skippedPending} pending documents; run memory provider reindex-embeddings --apply to refresh the backlog`,
+    );
+  }
+  if (refresh.errors.length > 0) {
+    setDegraded(true);
+    warnings.push(
+      ...refresh.errors.map((error) => `embedding refresh ${error.path}: ${error.reason}`),
+    );
+  }
+}
+
+function cacheableRefreshResult(refresh: RefreshResult): boolean {
+  return refresh.embedded === 0 &&
+    refresh.pruned === 0 &&
+    refresh.errors.length === 0 &&
+    (refresh.skippedPending ?? 0) === 0 &&
+    (refresh.failedBatches ?? 0) === 0;
+}
+
+function refreshChangedEmbeddings(refresh: RefreshResult): boolean {
+  return refresh.embedded > 0 || refresh.pruned > 0;
+}
+
+function invalidateEmbeddingCache(
+  runtimeCache: SearchRuntimeCache,
+  memoryRoot: string,
+  kinds: EmbeddingKind[],
+): void {
+  for (const kind of kinds) {
+    runtimeCache.embeddings.delete(embeddingCacheKey(memoryRoot, kind));
+  }
+}
+
+function corpusCacheKey(vaultRoot: string, scope: SearchScope): string {
+  return [vaultRoot, scope].join("\u0000");
+}
+
+function embeddingCacheKey(memoryRoot: string, kind: EmbeddingKind): string {
+  return [memoryRoot, kind].join("\u0000");
+}
+
+function embeddingSignatureKey(signature: { exists: boolean; sizeBytes: number; mtimeMs: number }): string {
+  return signature.exists
+    ? `${signature.sizeBytes}:${signature.mtimeMs}`
+    : "missing";
+}
+
+function embedClientCacheKey(embedClient: EmbedClient): string {
+  return isEmbedder(embedClient)
+    ? `${embedClient.providerName}:${embedClient.modelName}:${embedClient.dim}`
+    : "legacy";
+}
+
 function hydeStatus(opts: SearchOptions): HydeStatus {
   if (opts.noHyde) return { used: false, reason: "disabled-by-flag" };
   if (opts.hydeExpansion !== undefined) return { used: true, reason: "applied" };
@@ -470,11 +708,12 @@ async function vectorScores(
   documents: SearchDocument[],
   queryVector: number[],
   warnings: string[],
+  embeddingsLoader: EmbeddingsLoader,
 ): Promise<VectorScore[]> {
   const recordsByPath = new Map<string, number[]>();
   for (const kind of documentKinds(documents)) {
     try {
-      const loaded = await loadEmbeddings(memoryRoot, kind);
+      const loaded = await embeddingsLoader(memoryRoot, kind);
       for (const warning of loaded.warnings) {
         warnings.push(`embeddings ${kind}:${warning.line}: ${warning.reason}`);
       }
@@ -649,7 +888,8 @@ function dominantSource(result: RrfResult): string {
 }
 
 function rerankText(document: SearchDocument): string {
-  return `${document.title}\n\n${document.snippetSource}\n\n${document.body}`;
+  const text = `${document.title}\n\n${document.snippetSource}\n\n${document.body}`;
+  return text.length <= RERANK_TEXT_MAX_CHARS ? text : text.slice(0, RERANK_TEXT_MAX_CHARS);
 }
 
 function cosineSimilarity(a: number[], b: number[]): number {

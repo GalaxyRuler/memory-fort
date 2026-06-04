@@ -7,6 +7,7 @@ import {
   saveEmbeddingsMeta,
   type EmbeddingKind,
   type EmbeddingRecord,
+  type LoadEmbeddingsResult,
 } from "./embeddings-store.js";
 import {
   embedWithClient,
@@ -28,6 +29,7 @@ export interface RefreshOptions {
   memoryRoot: string;
   documents: SearchDocument[];
   embedClient: EmbedClient;
+  embeddingsLoader?: EmbeddingsLoader;
   batchSize?: number;
   timeoutMs?: number;
   expectedDim?: number;
@@ -37,6 +39,11 @@ export interface RefreshOptions {
   sleep?: (ms: number) => Promise<void>;
   now?: () => Date;
 }
+
+export type EmbeddingsLoader = (
+  memoryRoot: string,
+  kind: EmbeddingKind,
+) => Promise<LoadEmbeddingsResult>;
 
 export interface RefreshResult {
   embedded: number;
@@ -142,6 +149,7 @@ export async function refreshEmbeddings(opts: RefreshOptions): Promise<RefreshRe
     ?? DEFAULT_RATE_LIMIT_BASE_DELAY_MS;
   const sleep = opts.sleep ?? sleepMs;
   const now = opts.now ?? (() => new Date());
+  const embeddingsLoader = opts.embeddingsLoader ?? loadEmbeddings;
   const documentsByKind = groupDocumentsByKind(opts.documents);
   const meta = await loadEmbeddingsMeta(opts.memoryRoot);
   let expectedModel = expectedModelFromClient(opts.embedClient) ?? meta?.model ?? DEFAULT_MODEL;
@@ -157,7 +165,7 @@ export async function refreshEmbeddings(opts: RefreshOptions): Promise<RefreshRe
 
   for (const kind of documentsByKind.keys()) {
     const documents = documentsByKind.get(kind) ?? [];
-    const loaded = await loadEmbeddings(opts.memoryRoot, kind);
+    const loaded = await embeddingsLoader(opts.memoryRoot, kind);
     const errorsBeforeKind = result.errors.length;
     for (const warning of loaded.warnings) {
       result.errors.push({

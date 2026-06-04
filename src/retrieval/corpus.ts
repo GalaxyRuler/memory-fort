@@ -129,6 +129,44 @@ export async function loadSearchCorpus(
   };
 }
 
+export async function loadSearchCorpusFileSignature(
+  opts: LoadCorpusOptions,
+): Promise<string> {
+  const vaultRoot = resolve(opts.vaultRoot);
+  const scope = opts.scope ?? "all";
+  const allFiles = {
+    wiki: await collectMarkdownFiles(vaultRoot, "wiki"),
+    raw: await collectMarkdownFiles(vaultRoot, "raw"),
+    crystals: await collectMarkdownFiles(vaultRoot, "crystals"),
+  };
+  const selected = selectedFilesForScope(allFiles, scope);
+  const entries = await Promise.all(
+    selected.map(async (file) => {
+      const info = await stat(file.fullPath);
+      return [file.relPath, info.mtime.toISOString(), info.size].join("\u0000");
+    }),
+  );
+  return [vaultRoot, scope, ...entries.sort()].join("\u0001");
+}
+
+export function searchCorpusSignatureFromDocuments(
+  vaultRoot: string,
+  scope: SearchScope,
+  documents: SearchDocument[],
+): string {
+  return [
+    resolve(vaultRoot),
+    scope,
+    ...documents.map((document) =>
+      [
+        document.relPath,
+        document.mtime,
+        document.sizeBytes,
+      ].join("\u0000"),
+    ).sort(),
+  ].join("\u0001");
+}
+
 async function collectMarkdownFiles(
   vaultRoot: string,
   topLevel: keyof typeof TOP_LEVEL,

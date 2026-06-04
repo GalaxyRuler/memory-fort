@@ -4,7 +4,7 @@ import { extname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runVerify, type VerifyResult, type VerifyRole } from "../cli/commands/verify.js";
 import { detectRole } from "../cli/commands/verify/role.js";
-import { runSearch } from "../retrieval/search.js";
+import { createSearchRuntimeCache, runSearch } from "../retrieval/search.js";
 import { loadSearchCorpus, type SearchScope } from "../retrieval/corpus.js";
 import { isEntityWikiPath } from "../retrieval/wiki-paths.js";
 import { isIntentLabel, type IntentLabel } from "../retrieval/query-intent.js";
@@ -13,8 +13,8 @@ import {
   createEmbedderFromConfig,
   getActiveEmbedderConfig,
 } from "../retrieval/embedder/factory.js";
-import type { VoyageClient } from "../retrieval/voyage-client.js";
-import { loadMemoryConfig } from "../storage/config.js";
+import { makeVoyageClient, type VoyageClient, type VoyageClientOptions } from "../retrieval/voyage-client.js";
+import { loadMemoryConfig, type MemoryConfig } from "../storage/config.js";
 import { getVaultWriteCapability, type VaultWriteCapability } from "../sync/vault-capability.js";
 import { createLLMFromConfig, getActiveLLMConfig } from "../llm/factory.js";
 import type { LLMProvider } from "../llm/types.js";
@@ -71,6 +71,8 @@ export interface ServerOptions {
   loader?: (vaultRoot: string) => Promise<DashboardStatus>;
   verifyRunner?: (opts: { includeSearch: boolean; role: VerifyRole; vaultRoot: string }) => Promise<VerifyResult>;
   voyageClient?: VoyageClient | null;
+  voyageClientFactory?: (opts: VoyageClientOptions) => VoyageClient;
+  env?: NodeJS.ProcessEnv;
   embedClient?: EmbedClient | null;
   llmProvider?: LLMProvider | null;
   dashboardDistRoot?: string | null;
@@ -415,13 +417,24 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
       role: runnerOpts.role,
       vaultRoot: runnerOpts.vaultRoot,
     }));
-  const voyageClient = opts.voyageClient ?? null;
-  const embedClient = opts.embedClient ?? await makeConfiguredEmbedClient(opts.vaultRoot, voyageClient);
-  const llmProvider = opts.llmProvider ?? await makeConfiguredLLMProvider(opts.vaultRoot);
+  const env = opts.env ?? process.env;
+  const config = await loadMemoryConfig(opts.vaultRoot);
+  const voyageClient = opts.voyageClient === undefined
+    ? makeConfiguredVoyageClient(config, env, opts.voyageClientFactory ?? makeVoyageClient)
+    : opts.voyageClient;
+  const embedClient = opts.embedClient ?? await makeConfiguredEmbedClient(
+    opts.vaultRoot,
+    voyageClient,
+    config,
+    opts.voyageClient === null,
+    env,
+  );
+  const llmProvider = opts.llmProvider ?? await makeConfiguredLLMProvider(opts.vaultRoot, config, env);
   const staticAssets = await resolveStaticAssetsRoot(opts.dashboardDistRoot);
   const writeCapability = opts.writeCapability ?? await getVaultWriteCapability(opts.vaultRoot);
   const healthCache = new Map<string, HealthCacheEntry>();
   const graphHealthCache = new Map<string, GraphHealthCacheEntry>();
+  const searchRuntimeCache = createSearchRuntimeCache();
   const autoPromoteScheduler = await createAutoPromoteScheduler({
     vaultRoot: opts.vaultRoot,
     writeCapability,
@@ -669,7 +682,7 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
       }
 
       if (segments.length === 2 && segments[0] === "api" && segments[1] === "providers") {
-        writeJson(res, buildProvidersCatalog(process.env));
+        writeJson(res, buildProvidersCatalog(env));
         return;
       }
 
@@ -750,6 +763,7 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
         }
         const noRerank = parseSearchBoolean(url.searchParams.get("noRerank"));
         const hydeExpansion = url.searchParams.get("hydeExpansion") ?? undefined;
+        const intent = parseSearchIntent(url.searchParams.get("intent"));
         try {
           const result = await runSearch({
             query,
@@ -758,12 +772,14 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
             minScore: parseClampedFloat(url.searchParams.get("minScore"), 0, 0, 1),
             noRerank: noRerank || !voyageClient,
             noHyde: parseSearchBoolean(url.searchParams.get("noHyde")),
-            intent: parseSearchIntent(url.searchParams.get("intent")),
+            intent,
             hydeExpansion,
             vaultRoot: opts.vaultRoot,
             embedClient,
             voyageClient: voyageClient ?? unavailableVoyageClient,
-            llmProvider,
+            llmProvider: intent ? llmProvider : null,
+            refreshEmbeddings: false,
+            runtimeCache: searchRuntimeCache,
           });
           writeJson(res, result);
         } catch (err) {
@@ -890,15 +906,37 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
 async function makeConfiguredEmbedClient(
   vaultRoot: string,
   voyageClient: VoyageClient | null,
+  config?: MemoryConfig,
+  explicitVoyageDisabled = false,
+  env: NodeJS.ProcessEnv = process.env,
 ): Promise<EmbedClient> {
-  if (voyageClient) return makeEmbedClient(voyageClient);
+  if (explicitVoyageDisabled) return makeEmbedClient(null);
   try {
-    return createEmbedderFromConfig(
-      getActiveEmbedderConfig(await loadMemoryConfig(vaultRoot)),
-      process.env,
-    );
+    const memoryConfig = config ?? await loadMemoryConfig(vaultRoot);
+    const active = getActiveEmbedderConfig(memoryConfig);
+    if (active.provider === "voyage" && voyageClient) return makeEmbedClient(voyageClient);
+    return createEmbedderFromConfig(active, env);
   } catch {
     return makeEmbedClient(null);
+  }
+}
+
+function makeConfiguredVoyageClient(
+  config: MemoryConfig,
+  env: NodeJS.ProcessEnv,
+  factory: (opts: VoyageClientOptions) => VoyageClient,
+): VoyageClient | null {
+  const apiKey = env["VOYAGE_API_KEY"]?.trim();
+  if (!apiKey) return null;
+  try {
+    const active = getActiveEmbedderConfig(config);
+    return factory({
+      apiKey,
+      embedModel: active.provider === "voyage" ? active.model : undefined,
+      rerankModel: readOptionalString(asRecord(config.voyage)?.["rerank_model"]),
+    });
+  } catch {
+    return factory({ apiKey });
   }
 }
 
@@ -911,13 +949,27 @@ async function loadTrustedDashboardOrigins(vaultRoot: string): Promise<string[]>
   return Array.isArray(origins) ? origins.filter((origin): origin is string => typeof origin === "string") : [];
 }
 
-async function makeConfiguredLLMProvider(vaultRoot: string): Promise<LLMProvider | null> {
+async function makeConfiguredLLMProvider(
+  vaultRoot: string,
+  config?: MemoryConfig,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<LLMProvider | null> {
   try {
-    const config = await loadMemoryConfig(vaultRoot);
-    return createLLMFromConfig(getActiveLLMConfig(config), process.env);
+    const memoryConfig = config ?? await loadMemoryConfig(vaultRoot);
+    return createLLMFromConfig(getActiveLLMConfig(memoryConfig), env);
   } catch {
     return null;
   }
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function readOptionalString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
 }
 
 async function loadGraphHealthReport(vaultRoot: string): Promise<GraphHealthReport> {
