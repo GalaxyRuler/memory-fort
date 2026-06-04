@@ -433,8 +433,8 @@ program
   .description("Plan or apply automatic raw observation links to wiki entity pages")
   .option("--plan", "dry-run; do not write raw frontmatter")
   .option("--apply", "write mentions edges into orphan raw frontmatter")
-  .option("--threshold <n>", "minimum similarity/title score (default: config auto_link.similarity_threshold or 0.75)", parseFloatOption)
-  .option("--title-threshold <n>", "minimum lexical title score when embeddings are absent or degenerate (default: config auto_link.title_threshold or 0.65)", parseFloatOption)
+  .option("--threshold <n>", "minimum similarity/title score (default: config auto_link.similarity_threshold or 0.65)", parseFloatOption)
+  .option("--title-threshold <n>", "minimum lexical title score when embeddings are absent or degenerate (default: config auto_link.title_threshold or 0.55)", parseFloatOption)
   .option("--mass-collision-threshold <n>", "abort apply when this share of orphans maps to one target (default: config auto_link.mass_collision_threshold or 0.2)", parseFloatOption)
   .action(async (opts: {
     plan?: boolean;

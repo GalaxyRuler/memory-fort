@@ -53,8 +53,8 @@ interface FindMatchesResult {
   reason?: string;
 }
 
-const DEFAULT_THRESHOLD = 0.75;
-const DEFAULT_TITLE_THRESHOLD = 0.65;
+const DEFAULT_THRESHOLD = 0.65;
+const DEFAULT_TITLE_THRESHOLD = 0.55;
 const DEFAULT_MIN_EMBEDDING_DIM = 16;
 const DEFAULT_MAX_LINKS = 3;
 const RAW_MATCH_SNIPPET_CHARS = 4096;

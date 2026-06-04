@@ -43,10 +43,13 @@ export interface LinkRawResult {
   };
 }
 
-const DEFAULT_THRESHOLD = 0.75;
-const DEFAULT_TITLE_THRESHOLD = 0.65;
+const DEFAULT_THRESHOLD = 0.65;
+const DEFAULT_TITLE_THRESHOLD = 0.55;
 const DEFAULT_MASS_COLLISION_THRESHOLD = 0.2;
 const MASS_COLLISION_MIN_ORPHANS = 5;
+const DEFAULT_EXEMPT_HUB_PAGES = [
+  "wiki/references/mcp-servers-available.md",
+] as const;
 
 export async function runLinkRaw(opts: LinkRawOptions = {}): Promise<LinkRawResult> {
   const vaultRoot = opts.vaultRoot ?? defaultMemoryRoot();
@@ -61,6 +64,7 @@ export async function runLinkRaw(opts: LinkRawOptions = {}): Promise<LinkRawResu
     opts.massCollisionThreshold ?? autoLink.mass_collision_threshold,
     DEFAULT_MASS_COLLISION_THRESHOLD,
   );
+  const exemptHubPages = readExemptHubPages(autoLink.exempt_hub_pages);
   const expectedEmbeddingDim = readPositiveInteger(
     opts.expectedEmbeddingDim ?? config.embedding?.dim,
   );
@@ -96,9 +100,9 @@ export async function runLinkRaw(opts: LinkRawOptions = {}): Promise<LinkRawResu
   }
 
   if (mode === "plan") {
-    suppressMassCollisionCandidates(files, orphanPaths.length, massCollisionThreshold);
+    suppressMassCollisionCandidates(files, orphanPaths.length, massCollisionThreshold, exemptHubPages);
   } else {
-    assertNoMassCollision(files, orphanPaths.length, massCollisionThreshold);
+    assertNoMassCollision(files, orphanPaths.length, massCollisionThreshold, exemptHubPages);
     for (const file of files.filter((item) => item.links.length > 0)) {
       await autoLinkRawToWiki(file.path, {
         vaultRoot,
@@ -177,8 +181,9 @@ function assertNoMassCollision(
   files: LinkRawFileResult[],
   orphaned: number,
   threshold: number,
+  exemptHubPages: Set<string>,
 ): void {
-  const collision = findMassCollision(files, orphaned, threshold);
+  const collision = findMassCollision(files, orphaned, threshold, exemptHubPages);
   if (!collision) return;
   throw new Error(
     `refusing to link: ${Math.round(collision.share * 100)}% of orphans map to ${collision.target} — embeddings likely degenerate`,
@@ -189,10 +194,11 @@ function suppressMassCollisionCandidates(
   files: LinkRawFileResult[],
   orphaned: number,
   threshold: number,
+  exemptHubPages: Set<string>,
 ): void {
   const suppressed: string[] = [];
   for (;;) {
-    const collision = findMassCollision(files, orphaned, threshold);
+    const collision = findMassCollision(files, orphaned, threshold, exemptHubPages);
     if (!collision) return;
     suppressed.push(collision.target);
     for (const file of files) {
@@ -210,11 +216,13 @@ function findMassCollision(
   files: LinkRawFileResult[],
   orphaned: number,
   threshold: number,
+  exemptHubPages: Set<string>,
 ): { target: string; count: number; share: number } | null {
   if (orphaned < MASS_COLLISION_MIN_ORPHANS) return null;
   const targetCounts = new Map<string, number>();
   for (const file of files) {
     for (const target of new Set(file.links.map((link) => link.target))) {
+      if (exemptHubPages.has(normalizeVaultPath(target))) continue;
       targetCounts.set(target, (targetCounts.get(target) ?? 0) + 1);
     }
   }
@@ -233,6 +241,18 @@ function readThreshold(value: number | undefined, fallback = DEFAULT_THRESHOLD):
   return typeof value === "number" && Number.isFinite(value)
     ? Math.max(0, Math.min(1, value))
     : fallback;
+}
+
+function readExemptHubPages(value: unknown): Set<string> {
+  const pages = [
+    ...DEFAULT_EXEMPT_HUB_PAGES,
+    ...(Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : []),
+  ];
+  return new Set(pages.map(normalizeVaultPath).filter((page) => page.length > 0));
+}
+
+function normalizeVaultPath(path: string): string {
+  return path.replace(/\\/g, "/").replace(/^\/+/, "").trim();
 }
 
 function readPositiveInteger(value: number | undefined): number | undefined {

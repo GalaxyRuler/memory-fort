@@ -163,11 +163,34 @@ describe("memory config reader", () => {
         similarity_threshold: 0.75,
         title_threshold: 0.6,
         mass_collision_threshold: 0.2,
+        exempt_hub_pages: ["wiki/references/mcp-servers-available.md"],
       },
     };
 
     expect(config.auto_link?.title_threshold).toBe(0.6);
     expect(config.auto_link?.mass_collision_threshold).toBe(0.2);
+    expect(config.auto_link?.exempt_hub_pages).toEqual(["wiki/references/mcp-servers-available.md"]);
+  });
+
+  it("loadMemoryConfig warns when auto-link hub exemptions are not path strings", async () => {
+    await writeFile(
+      join(tmp, "config.yaml"),
+      [
+        "auto_link:",
+        "  exempt_hub_pages:",
+        "    - wiki/references/mcp-servers-available.md",
+        "    - 42",
+      ].join("\n"),
+    );
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    await expect(loadMemoryConfig(tmp)).resolves.toMatchObject({
+      auto_link: {
+        exempt_hub_pages: ["wiki/references/mcp-servers-available.md", 42],
+      },
+    });
+    expect(warn.mock.calls.map((call) => call[0]).join("\n")).toContain("auto_link.exempt_hub_pages");
+    warn.mockRestore();
   });
 
   it("MemoryConfig types auto-heal budget and tick caps", () => {

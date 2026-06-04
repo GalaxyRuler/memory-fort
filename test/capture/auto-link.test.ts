@@ -153,6 +153,31 @@ describe("autoLinkRawToWiki", () => {
     expect(parsed.frontmatter.relations).toBeUndefined();
   });
 
+  it("keeps the degenerate embedding guard effective at the lowered default threshold", async () => {
+    await writeMarkdown(
+      "raw/2026-06-03/codex-1.md",
+      rawPage("Unrelated session", "The transcript discusses shell quoting and no known entity title."),
+    );
+    await writeEmbeddingSidecar("wiki", [
+      embedding("wiki/projects/memory-system.md", [1, 0, 0]),
+      embedding("wiki/tools/vitest.md", [1, 0, 0]),
+    ]);
+    await writeEmbeddingSidecar("raw", [
+      embedding("raw/2026-06-03/codex-1.md", [1, 0, 0]),
+    ]);
+
+    const result = await autoLinkRawToWiki("raw/2026-06-03/codex-1.md", {
+      vaultRoot: tmp,
+      expectedEmbeddingDim: 2048,
+      apply: true,
+    });
+
+    expect(result.linked).toEqual([]);
+    expect(result.reason).toBe("degenerate embeddings");
+    const parsed = parseFrontmatter(await readFile(join(tmp, "raw", "2026-06-03", "codex-1.md"), "utf-8"));
+    expect(parsed.frontmatter.relations).toBeUndefined();
+  });
+
   it("does not title-link on shared generic support and date tokens alone", async () => {
     await resetFixture();
     await writeMarkdown(
@@ -169,7 +194,6 @@ describe("autoLinkRawToWiki", () => {
 
     const result = await autoLinkRawToWiki("raw/2026-06-03/codex-1.md", {
       vaultRoot: tmp,
-      titleThreshold: 0.65,
       apply: true,
     });
 

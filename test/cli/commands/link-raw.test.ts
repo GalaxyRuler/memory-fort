@@ -59,6 +59,44 @@ describe("link-raw command", () => {
     expect(result.summary).toMatchObject({ scanned: 1, orphaned: 1, linked: 1, written: 1 });
   });
 
+  it("uses real-embedding-era defaults that recover a fixture corpus of topical orphans", async () => {
+    await rm(tmp, { recursive: true, force: true });
+    tmp = await mkdtemp(join(tmpdir(), "link-raw-defaults-"));
+    const targetPaths = Array.from({ length: 10 }, (_, index) =>
+      `wiki/projects/cluster-${index + 1}.md`
+    );
+    for (const [index, targetPath] of targetPaths.entries()) {
+      await writeMarkdown(targetPath, page("projects", `Cluster ${index + 1} Project`));
+    }
+
+    const rawPaths = Array.from({ length: 100 }, (_, index) =>
+      `raw/2026-06-03/codex-${String(index + 1).padStart(3, "0")}.md`
+    );
+    for (const [index, rawPath] of rawPaths.entries()) {
+      const target = `Cluster ${(index % targetPaths.length) + 1} Project`;
+      await writeMarkdown(rawPath, rawPage(rawPath, `${target} implementation notes with focused memory work.`));
+    }
+    await saveEmbeddings(tmp, "wiki", targetPaths.map((targetPath, index) =>
+      embedding(targetPath, vector(index))
+    ));
+    await saveEmbeddings(tmp, "raw", rawPaths.map((rawPath, index) => {
+      const primaryIndex = index % targetPaths.length;
+      return embedding(rawPath, vector(primaryIndex, 1, { 15: 1.1 }));
+    }));
+
+    const result = await runLinkRaw({
+      vaultRoot: tmp,
+      mode: "plan",
+      configLoader: async () => ({ auto_link: { enabled: true } }),
+    });
+
+    expect(result.threshold).toBe(0.65);
+    expect(result.summary).toMatchObject({ scanned: 100, orphaned: 100, linked: 100, written: 0 });
+    expect(new Set(result.files.flatMap((file) => file.links.map((link) => link.target)))).toEqual(
+      new Set(targetPaths),
+    );
+  });
+
   it("aborts apply before writing when candidate links mass-collide on one target", async () => {
     const rawPaths = await writeCollisionFixture();
 
@@ -99,6 +137,33 @@ describe("link-raw command", () => {
 
     expect(result.summary).toMatchObject({ scanned: 5, orphaned: 5, linked: 0, written: 0 });
     expect(result.files.every((file) => file.reason?.includes("mass-collision candidate suppressed"))).toBe(true);
+  });
+
+  it("allows configured hub pages to exceed the mass-collision cap", async () => {
+    const rawPaths = await writeCollisionFixture();
+
+    const result = await runLinkRaw({
+      vaultRoot: tmp,
+      mode: "apply",
+      threshold: 0.8,
+      configLoader: async () => ({
+        auto_link: {
+          enabled: true,
+          similarity_threshold: 0.8,
+          mass_collision_threshold: 0.2,
+          exempt_hub_pages: ["wiki/projects/hub.md"],
+        },
+      }),
+      now: new Date("2026-06-03T10:00:00.000Z"),
+    });
+
+    expect(result.summary).toMatchObject({ scanned: 5, orphaned: 5, linked: 5, written: 5 });
+    for (const rawPath of rawPaths) {
+      const parsed = parseFrontmatter(await readFile(join(tmp, ...rawPath.split("/")), "utf-8"));
+      expect(parsed.frontmatter.relations?.mentions).toEqual([
+        expect.objectContaining({ target: "wiki/projects/hub.md" }),
+      ]);
+    }
   });
 
   async function writeMarkdown(relPath: string, content: string): Promise<void> {

@@ -42,6 +42,7 @@ export interface MemoryConfig {
     similarity_threshold?: number;
     title_threshold?: number;
     mass_collision_threshold?: number;
+    exempt_hub_pages?: string[];
   };
   auto_heal?: {
     enabled?: boolean;
@@ -167,6 +168,15 @@ export function validateMemoryConfig(config: MemoryConfig): string[] {
   }
   if (autoLink?.["mass_collision_threshold"] !== undefined && !isNumberInRange(autoLink["mass_collision_threshold"], 0, 1)) {
     warnings.push("auto_link.mass_collision_threshold must be a number between 0 and 1");
+  }
+  if (
+    autoLink?.["exempt_hub_pages"] !== undefined &&
+    (
+      !Array.isArray(autoLink["exempt_hub_pages"]) ||
+      !autoLink["exempt_hub_pages"].every((item) => typeof item === "string" && item.trim().length > 0)
+    )
+  ) {
+    warnings.push("auto_link.exempt_hub_pages must be a list of non-empty wiki path strings");
   }
   const autoHeal = asRecord(config.auto_heal);
   if (autoHeal?.["enabled"] !== undefined && typeof autoHeal["enabled"] !== "boolean") {
