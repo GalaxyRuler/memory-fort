@@ -75,6 +75,19 @@ describe("runUninstall", () => {
     await expect(readFile(codexConfig, "utf-8")).resolves.toBe(before);
   });
 
+  it("restores Codex config without adding a trailing newline", async () => {
+    const codexConfig = join(process.env["MEMORY_CODEX_DIR"]!, "config.toml");
+    const before = "[model]\nname = \"gpt-5\"\n# user comment";
+    await mkdir(join(tmp, ".codex"), { recursive: true });
+    await writeFile(codexConfig, before);
+    await installCodex();
+
+    const result = await runUninstall("codex");
+
+    expect(result.exitCode).toBe(0);
+    await expect(readFile(codexConfig, "utf-8")).resolves.toBe(before);
+  });
+
   it("uninstalling Codex when absent is a clean no-op", async () => {
     const result = await runUninstall("codex");
 
@@ -150,6 +163,54 @@ describe("runUninstall", () => {
     await runUninstall("claude-code");
 
     await expect(readFile(settingsPath, "utf-8")).resolves.toBe(before);
+    expect(existsSync(join(memDir, "claude-code-plugin"))).toBe(false);
+    expect(existsSync(join(memDir, ".claude-plugin", "marketplace.json"))).toBe(false);
+  });
+
+  it("uninstalls Claude Code plugin cache before removing plugin files", async () => {
+    const calls: string[][] = [];
+    const execFileFn = async (_file: string, args: string[]) => {
+      calls.push(args);
+      return { stdout: "", stderr: "" };
+    };
+
+    const install = await installClaudeCode({
+      claudePluginCli: true,
+      execFileFn: execFileFn as never,
+    });
+    expect(existsSync(install.pluginDir)).toBe(true);
+    const installCallCount = calls.length;
+
+    const result = await runUninstall("claude-code", {
+      claudePluginCli: true,
+      execFileFn: execFileFn as never,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(calls.slice(installCallCount)).toEqual([
+      ["plugin", "uninstall", "memory@memory-local"],
+      ["plugin", "marketplace", "remove", "memory-local"],
+    ]);
+    expect(existsSync(join(memDir, "claude-code-plugin"))).toBe(false);
+    expect(existsSync(join(memDir, ".claude-plugin", "marketplace.json"))).toBe(false);
+  });
+
+  it("continues Claude Code uninstall when claude CLI is absent", async () => {
+    const install = await installClaudeCode({ claudePluginCli: false });
+    expect(existsSync(install.pluginDir)).toBe(true);
+    const execFileFn = async () => {
+      const err = new Error("claude not found") as Error & { code: string };
+      err.code = "ENOENT";
+      throw err;
+    };
+
+    const result = await runUninstall("claude-code", {
+      claudePluginCli: true,
+      execFileFn: execFileFn as never,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.actions.some((action) => action.includes("claude CLI not found"))).toBe(true);
     expect(existsSync(join(memDir, "claude-code-plugin"))).toBe(false);
     expect(existsSync(join(memDir, ".claude-plugin", "marketplace.json"))).toBe(false);
   });

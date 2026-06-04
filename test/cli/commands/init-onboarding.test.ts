@@ -73,6 +73,7 @@ describe("init onboarding", () => {
     const result = await runInitOnboarding({
       sourceRepoDir: process.cwd(),
       stdout: captureStdout([], true),
+      stdin: { isTTY: true },
       prompt: async (question) => {
         questions.push(question);
         return answers.shift() ?? "";
@@ -122,6 +123,74 @@ describe("init onboarding", () => {
     expect(result.retrieval).toBe("lexical");
     expect(connected).toEqual(["codex"]);
     await expect(readFile(join(vault, "config.yaml"), "utf-8")).resolves.toContain("provider: lexical");
+  });
+
+  it("honors explicit --tools none and --name without --yes in non-TTY mode", async () => {
+    const vault = join(tmp, "vault");
+    await mkdir(join(tmp, ".codex"), { recursive: true });
+    const connected: InitToolName[] = [];
+
+    const result = await runInitOnboarding({
+      vault,
+      name: "X",
+      tools: "none",
+      homeDir: tmp,
+      env: {},
+      sourceRepoDir: process.cwd(),
+      stdout: captureStdout([], false),
+      connectFn: async (opts) => {
+        connected.push(opts.client as InitToolName);
+        return connectResult(opts.client as InitToolName);
+      },
+    });
+
+    expect(result.name).toBe("X");
+    expect(result.tools).toEqual([]);
+    expect(connected).toEqual([]);
+  });
+
+  it("wires detected tools for --tools all without --yes in non-TTY mode", async () => {
+    const vault = join(tmp, "vault");
+    await mkdir(join(tmp, ".codex"), { recursive: true });
+    const connected: InitToolName[] = [];
+
+    const result = await runInitOnboarding({
+      vault,
+      tools: "all",
+      homeDir: tmp,
+      env: {},
+      sourceRepoDir: process.cwd(),
+      stdout: captureStdout([], false),
+      connectFn: async (opts) => {
+        connected.push(opts.client as InitToolName);
+        return connectResult(opts.client as InitToolName);
+      },
+    });
+
+    expect(result.tools).toEqual(["codex"]);
+    expect(connected).toEqual(["codex"]);
+  });
+
+  it("skips the wizard when stdin is not a TTY even if stdout is a TTY", async () => {
+    const vault = join(tmp, "vault");
+    let promptCalls = 0;
+
+    const result = await runInitOnboarding({
+      vault,
+      homeDir: tmp,
+      env: {},
+      sourceRepoDir: process.cwd(),
+      stdout: captureStdout([], true),
+      stdin: { isTTY: false },
+      prompt: async () => {
+        promptCalls += 1;
+        return "";
+      },
+    });
+
+    expect(promptCalls).toBe(0);
+    expect(result.retrieval).toBe("lexical");
+    expect(result.tools).toEqual([]);
   });
 });
 

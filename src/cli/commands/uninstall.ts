@@ -10,7 +10,11 @@ import {
 import {
   CLAUDE_CODE_ENABLED_PLUGIN_KEY,
   CLAUDE_CODE_MARKETPLACE_NAME,
+  claudePluginExecFile,
   claudeCodeSettingsPath,
+  runClaudePluginCommand,
+  shouldSyncClaudePluginCache,
+  type ClaudePluginExecFile,
 } from "./install/claude-code.js";
 import { stripPriorBlock } from "./install/codex.js";
 import { vscodeExtensionDir, vscodeMcpConfigPath } from "./install/vscode.js";
@@ -30,6 +34,8 @@ export interface RunUninstallOptions {
   antigravityDir?: string;
   vscodeUserDir?: string;
   vscodeExtensionDir?: string;
+  claudePluginCli?: boolean;
+  execFileFn?: ClaudePluginExecFile;
 }
 
 export interface UninstallResult {
@@ -96,7 +102,10 @@ async function uninstallCodex(opts: RunUninstallOptions): Promise<UninstallResul
     return result("codex", opts, [`not installed: no memory-system block in ${configPath}`], false);
   }
 
-  const restored = normalizeCodexConfigAfterUninstall(stripped.content);
+  const restored = normalizeCodexConfigAfterUninstall(
+    stripped.content,
+    stripped.priorTrailingNewlines,
+  );
   if (restored.trim().length === 0) {
     actions.push(`remove ${configPath}`);
     if (!opts.dryRun) await unlink(configPath);
@@ -160,6 +169,7 @@ async function uninstallVsCode(opts: RunUninstallOptions): Promise<UninstallResu
 async function uninstallClaudeCode(opts: RunUninstallOptions): Promise<UninstallResult> {
   const actions: string[] = [];
   let removed = false;
+  const cacheRemoved = await uninstallClaudeCodePluginCache(opts, actions);
   const settingsRemoved = await removeClaudeCodeSettings(opts, actions);
   const pluginRemoved = await removePathIfPresent(
     join(memoryRoot(), "claude-code-plugin"),
@@ -172,9 +182,49 @@ async function uninstallClaudeCode(opts: RunUninstallOptions): Promise<Uninstall
     await removeDirIfEmpty(dirname(marketplacePath));
   }
 
-  removed = settingsRemoved || pluginRemoved || marketplaceRemoved;
+  removed = cacheRemoved || settingsRemoved || pluginRemoved || marketplaceRemoved;
   if (!removed) actions.push("not installed: Claude Code memory plugin settings/files missing");
   return result("claude-code", opts, actions, removed);
+}
+
+async function uninstallClaudeCodePluginCache(
+  opts: RunUninstallOptions,
+  actions: string[],
+): Promise<boolean> {
+  if (!shouldSyncClaudePluginCache(opts)) {
+    actions.push("skipped Claude plugin cache uninstall for custom Claude config dir");
+    return false;
+  }
+  if (opts.dryRun) {
+    actions.push(`would uninstall ${CLAUDE_CODE_ENABLED_PLUGIN_KEY} from Claude Code plugin cache`);
+    actions.push(`would remove ${CLAUDE_CODE_MARKETPLACE_NAME} Claude Code marketplace`);
+    return false;
+  }
+
+  const log: string[] = [];
+  const execFileFn = opts.execFileFn ?? claudePluginExecFile;
+  await runClaudePluginCommand(
+    execFileFn,
+    ["plugin", "uninstall", CLAUDE_CODE_ENABLED_PLUGIN_KEY],
+    `uninstalled ${CLAUDE_CODE_ENABLED_PLUGIN_KEY} from Claude Code plugin cache`,
+    log,
+    {
+      allowNotInstalled: true,
+      missingCliLog: "skipped Claude plugin cache uninstall: claude CLI not found on PATH",
+    },
+  );
+  await runClaudePluginCommand(
+    execFileFn,
+    ["plugin", "marketplace", "remove", CLAUDE_CODE_MARKETPLACE_NAME],
+    `removed ${CLAUDE_CODE_MARKETPLACE_NAME} Claude Code marketplace`,
+    log,
+    {
+      allowNotInstalled: true,
+      missingCliLog: "skipped Claude plugin cache uninstall: claude CLI not found on PATH",
+    },
+  );
+  actions.push(...log);
+  return log.some((entry) => !entry.includes("not installed") && !entry.includes("not found on PATH"));
 }
 
 async function removeClaudeCodeSettings(
@@ -272,7 +322,13 @@ async function removeDirIfEmpty(path: string): Promise<void> {
   }
 }
 
-function normalizeCodexConfigAfterUninstall(content: string): string {
+function normalizeCodexConfigAfterUninstall(
+  content: string,
+  priorTrailingNewlines?: number,
+): string {
+  if (priorTrailingNewlines !== undefined) {
+    return `${content.replace(/\n+$/u, "")}${"\n".repeat(priorTrailingNewlines)}`;
+  }
   return content.replace(/\n{2,}$/u, "\n");
 }
 

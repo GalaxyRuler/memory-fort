@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { stdin, stdout as processStdout } from "node:process";
+import { stdin as processStdin, stdout as processStdout } from "node:process";
 import { createInterface } from "node:readline/promises";
 import { atomicWrite } from "../../storage/atomic-write.js";
 import { detectTemplateVars, type TemplateVars } from "../template-render.js";
@@ -22,12 +22,17 @@ export type InitToolName = typeof INIT_TOOL_NAMES[number];
 export type RetrievalMode = "lexical" | "voyage" | "openai" | "ollama";
 export type QuestionPrompt = (question: string) => Promise<string>;
 
+export interface CommandStdin {
+  isTTY?: boolean;
+}
+
 export interface InitOnboardingOptions extends Pick<InitOptions, "reset" | "sourceRepoDir" | "now" | "dryRun" | "yes"> {
   vault?: string;
   name?: string;
   tools?: string;
   retrieval?: string;
   stdout?: CommandStdout;
+  stdin?: CommandStdin;
   prompt?: QuestionPrompt;
   connectFn?: (opts: ConnectOptions) => Promise<ConnectResult>;
   homeDir?: string;
@@ -67,6 +72,7 @@ export async function runInitOnboarding(
   opts: InitOnboardingOptions = {},
 ): Promise<InitOnboardingResult> {
   const stdout = opts.stdout ?? processStdout;
+  const input = opts.stdin ?? processStdin;
   const homeDir = opts.homeDir ?? homedir();
   const env = opts.env ?? process.env;
   const templateVars = detectTemplateVars({
@@ -79,7 +85,11 @@ export async function runInitOnboarding(
     platform: opts.platform,
     fs: opts.fs,
   });
-  const interactive = stdout.isTTY === true && opts.yes !== true && opts.dryRun !== true;
+  const interactive =
+    input.isTTY === true &&
+    stdout.isTTY === true &&
+    opts.yes !== true &&
+    opts.dryRun !== true;
 
   if (interactive) {
     const answers = await askInitWizard({
@@ -111,17 +121,29 @@ export async function runInitOnboarding(
     });
   }
 
+  const retrieval = parseRetrievalMode(opts.retrieval);
+  if (opts.name !== undefined || opts.tools !== undefined || opts.retrieval !== undefined) {
+    const selectedTools = opts.tools === undefined ? [] : parseInitTools(opts.tools, detectedTools);
+    return executeOnboarding({
+      ...opts,
+      vault: expandHome(opts.vault ?? "~/.memory", homeDir),
+      name: opts.name ?? templateVars.user_name,
+      selectedTools,
+      retrieval,
+      templateVars,
+    });
+  }
+
   const vault = opts.vault ? expandHome(opts.vault, homeDir) : undefined;
   const init = await runInit({
     reset: opts.reset,
     sourceRepoDir: opts.sourceRepoDir,
     now: opts.now,
     dryRun: opts.dryRun,
-    yes: opts.yes,
+    yes: true,
     stdout,
     vault,
   });
-  const retrieval = parseRetrievalMode(opts.retrieval);
   if (!init.dryRun && opts.retrieval) {
     await writeRetrievalMode(init.root, retrieval);
   }
@@ -159,7 +181,7 @@ export function parseInitTools(input: string | undefined, detected: InitToolName
   const raw = input?.trim();
   if (!raw) return detected;
   if (raw.toLowerCase() === "none") return [];
-  if (raw.toLowerCase() === "all") return [...INIT_TOOL_NAMES];
+  if (raw.toLowerCase() === "all") return detected;
 
   const selected = raw.split(",")
     .map((tool) => tool.trim().toLowerCase())
@@ -367,7 +389,7 @@ function expandHome(path: string, homeDir: string): string {
 }
 
 async function defaultQuestionPrompt(question: string): Promise<string> {
-  const rl = createInterface({ input: stdin, output: processStdout });
+  const rl = createInterface({ input: processStdin, output: processStdout });
   try {
     return await rl.question(question);
   } finally {
