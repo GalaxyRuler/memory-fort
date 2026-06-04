@@ -13,6 +13,12 @@ describe("providers catalog", () => {
     expect(catalog.embedders).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
+          provider: "lexical",
+          envVar: "none",
+          envVarStatus: "set",
+          models: [expect.objectContaining({ id: "lexical", dim: 0, default: true })],
+        }),
+        expect.objectContaining({
           provider: "voyage",
           envVar: "VOYAGE_API_KEY",
           envVarStatus: "set",

@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SearchDocument } from "../../src/retrieval/corpus.js";
 import type { EmbedClient } from "../../src/retrieval/refresh.js";
 import { runSearch } from "../../src/retrieval/search.js";
+import { createEmbedderFromConfig } from "../../src/retrieval/embedder/factory.js";
 import {
   VoyageUnavailableError,
   type VoyageClient,
@@ -408,6 +409,43 @@ describe("search core", () => {
 
     expect(response.degraded).toBe(true);
     expect(response.results[0]?.path).toBe("raw/2026-05-29/manual-fresh.md");
+    expect(response.results[0]?.sources.some((source) => source.source === "bm25")).toBe(true);
+  });
+
+  it("returns ranked lexical results with the keyless embedder and no API key warnings", async () => {
+    const embedClient = createEmbedderFromConfig(
+      { provider: "lexical", model: "lexical" },
+      {},
+    );
+    const { voyageClient } = clients();
+
+    const response = await runSearch({
+      query: "keyless lexical onboarding",
+      noHyde: true,
+      noRerank: true,
+      vaultRoot: tmp,
+      embedClient,
+      voyageClient,
+      corpusLoader: async () => ({
+        documents: [
+          makeDoc({
+            relPath: "wiki/projects/onboarding.md",
+            title: "Onboarding",
+            body: "keyless lexical onboarding should rank without embedding keys",
+          }),
+          makeDoc({
+            relPath: "wiki/projects/other.md",
+            title: "Other",
+            body: "unrelated notes",
+          }),
+        ],
+        errors: [],
+      }),
+    });
+
+    expect(response.degraded).toBe(false);
+    expect(response.warnings).toEqual([]);
+    expect(response.results[0]?.path).toBe("wiki/projects/onboarding.md");
     expect(response.results[0]?.sources.some((source) => source.source === "bm25")).toBe(true);
   });
 

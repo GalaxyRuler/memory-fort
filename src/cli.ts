@@ -7,13 +7,14 @@ import {
   runConsolidate,
 } from "./cli/commands/consolidate.js";
 import { formatConnectResult, runConnect } from "./cli/commands/connect.js";
+import { formatDisconnectResult, runDisconnect } from "./cli/commands/disconnect.js";
 import { runDoctor, formatDoctorResult } from "./cli/commands/doctor.js";
 import { registerDashboardCommand } from "./cli/commands/dashboard.js";
 import { registerEntityCommand } from "./cli/commands/entity.js";
 import { registerEvalCommand } from "./cli/commands/eval.js";
 import { runEvalRetrieval } from "./cli/commands/eval-retrieval.js";
 import { runGrep, type GrepScope } from "./cli/commands/grep.js";
-import { runInit } from "./cli/commands/init.js";
+import { runInitOnboarding } from "./cli/commands/init-onboarding.js";
 import { formatAutoHealResult, runAutoHealCommand, type AutoHealAction } from "./cli/commands/auto-heal.js";
 import { runBackfill } from "./cli/commands/backfill.js";
 import { runBackfillSource } from "./cli/commands/backfill-source.js";
@@ -25,6 +26,8 @@ import { formatDiscoverThreadsResult, runDiscoverThreads } from "./cli/commands/
 import { formatReindexResult, runReindex } from "./cli/commands/reindex.js";
 import { runImportAgentMemory } from "./cli/commands/import-agentmemory.js";
 import { runInstall } from "./cli/commands/install.js";
+import { formatNextSteps } from "./cli/commands/next-steps.js";
+import { formatUninstallResult, runUninstall } from "./cli/commands/uninstall.js";
 import { formatSupervisorJson, formatSupervisorResult, runInstallSupervisor, runSupervisorStatus } from "./cli/commands/supervisor.js";
 import { runInstallTailscaleRoute } from "./cli/commands/install-tailscale-route.js";
 import { runInstallVps } from "./cli/commands/install-vps.js";
@@ -77,6 +80,7 @@ import {
   type VerifyScheduleShell,
 } from "./cli/commands/verify-schedule.js";
 import { formatWatchResult, runWatch } from "./cli/commands/watch.js";
+import { memoryRoot } from "./storage/paths.js";
 
 const program = new Command();
 
@@ -124,15 +128,48 @@ program
     "--reset",
     "destructive — archives existing ~/.memory/ before re-init",
   )
-  .action(async (opts: { reset?: boolean }) => {
+  .option("--vault <path>", "vault root (default: ~/.memory)")
+  .option("--name <name>", "operator name for seeded schema variables")
+  .option("--tools <csv>", "tools to wire: csv, all, or none")
+  .option("--retrieval <mode>", "retrieval mode: lexical, voyage, openai, or ollama")
+  .option("--dry-run", "print what would be created or modified without writing")
+  .option("--yes", "skip interactive confirmation")
+  .action(async (opts: {
+    reset?: boolean;
+    vault?: string;
+    name?: string;
+    tools?: string;
+    retrieval?: string;
+    dryRun?: boolean;
+    yes?: boolean;
+  }) => {
     try {
-      const result = await runInit({ reset: opts.reset });
-      console.log(`Initialized memory at ${result.root}`);
-      console.log(`  created:    ${result.created.length} paths`);
-      console.log(`  preserved:  ${result.preserved.length} paths`);
-      if (result.archivedTo) {
-        console.log(`  archived to: ${result.archivedTo}`);
+      const result = await runInitOnboarding({
+        reset: opts.reset,
+        vault: opts.vault,
+        name: opts.name,
+        tools: opts.tools,
+        retrieval: opts.retrieval,
+        dryRun: opts.dryRun,
+        yes: opts.yes,
+      });
+      if (result.init.cancelled) {
+        process.exit(1);
       }
+      if (result.init.dryRun) {
+        console.log("Dry run complete; no files written.");
+        return;
+      }
+      console.log(`Initialized memory at ${result.init.root}`);
+      console.log(`  created:    ${result.init.created.length} paths`);
+      console.log(`  preserved:  ${result.init.preserved.length} paths`);
+      if (result.init.archivedTo) {
+        console.log(`  archived to: ${result.init.archivedTo}`);
+      }
+      if (result.tools.length > 0) {
+        console.log(`  wired tools: ${result.tools.join(", ")}`);
+      }
+      process.stdout.write(formatNextSteps({ vault: result.vault }));
     } catch (err) {
       console.error(`memory init failed: ${(err as Error).message}`);
       process.exit(1);
@@ -146,10 +183,12 @@ program
   .option("--surface <surface>", "Antigravity surface: workspace | ide | both")
   .option("--apply", "install the Windows supervisor when platform is supervisor")
   .option("--remove", "remove the Windows supervisor when platform is supervisor")
+  .option("--dry-run", "print what would be created or modified without writing")
+  .option("--yes", "skip interactive confirmation")
   .option("--no-verify", "skip post-install memory verify")
   .action(async (
     platform: string,
-    opts: { workspace?: string; surface?: "workspace" | "ide" | "both"; apply?: boolean; remove?: boolean; verify?: boolean },
+    opts: { workspace?: string; surface?: "workspace" | "ide" | "both"; apply?: boolean; remove?: boolean; dryRun?: boolean; yes?: boolean; verify?: boolean },
   ) => {
     try {
       if (platform === "supervisor") {
@@ -164,6 +203,25 @@ program
       await runInstall(platform, { ...opts, noVerify: opts.verify === false });
     } catch (err) {
       console.error(`memory install ${platform} failed: ${(err as Error).message}`);
+      process.exit(1);
+    }
+  });
+
+program
+  .command("uninstall <platform>")
+  .description("Uninstall hooks + MCP for a platform (claude-code, codex, antigravity, claude-desktop, vscode)")
+  .option("--workspace <path>", "workspace path for clients that support workspace-scoped MCP")
+  .option("--dry-run", "print what would be removed without writing")
+  .action(async (
+    platform: string,
+    opts: { workspace?: string; dryRun?: boolean },
+  ) => {
+    try {
+      const result = await runUninstall(platform, opts);
+      process.stdout.write(formatUninstallResult(result));
+      process.exit(result.exitCode);
+    } catch (err) {
+      console.error(`memory uninstall ${platform} failed: ${(err as Error).message}`);
       process.exit(1);
     }
   });
@@ -205,22 +263,54 @@ program
   .description("Install MCP/hooks for one client or every supported client")
   .option("--all", "install every supported client")
   .option("--workspace <path>", "workspace path for clients that support workspace-scoped MCP")
+  .option("--dry-run", "print what would be created or modified without writing")
+  .option("--yes", "skip interactive confirmation")
   .option("--no-verify", "skip post-connect memory verify")
   .action(async (
     client: string | undefined,
-    opts: { all?: boolean; workspace?: string; verify?: boolean },
+    opts: { all?: boolean; workspace?: string; dryRun?: boolean; yes?: boolean; verify?: boolean },
   ) => {
     try {
       const result = await runConnect({
         all: opts.all,
         client: client as never,
         workspace: opts.workspace,
+        dryRun: opts.dryRun,
+        yes: opts.yes,
         noVerify: opts.verify === false,
       });
       process.stdout.write(formatConnectResult(result));
+      if (result.exitCode === 0 && !result.dryRun && !result.cancelled) {
+        process.stdout.write(formatNextSteps({ vault: memoryRoot() }));
+      }
       process.exit(result.exitCode);
     } catch (err) {
       console.error(`memory connect failed: ${(err as Error).message}`);
+      process.exit(1);
+    }
+  });
+
+program
+  .command("disconnect [client]")
+  .description("Remove MCP/hooks for one client or every supported client")
+  .option("--all", "remove every supported client")
+  .option("--workspace <path>", "workspace path for clients that support workspace-scoped MCP")
+  .option("--dry-run", "print what would be removed without writing")
+  .action(async (
+    client: string | undefined,
+    opts: { all?: boolean; workspace?: string; dryRun?: boolean },
+  ) => {
+    try {
+      const result = await runDisconnect({
+        all: opts.all,
+        client: client as never,
+        workspace: opts.workspace,
+        dryRun: opts.dryRun,
+      });
+      process.stdout.write(formatDisconnectResult(result));
+      process.exit(result.exitCode);
+    } catch (err) {
+      console.error(`memory disconnect failed: ${(err as Error).message}`);
       process.exit(1);
     }
   });
@@ -1310,27 +1400,29 @@ function registerStub(name: string, phase: number, description: string): void {
     });
 }
 
-registerStub(
-  "crystallize",
-  4,
-  "Distill a completed thread into a long-form digest",
-);
-registerStub("backup", 6, "git commit + push memory state to remote");
-registerStub(
-  "import-from-agentmemory",
-  5,
-  "Deprecated alias; use import-agentmemory",
-);
-registerStub(
-  "retain",
-  6,
-  "Run retention policy: archive expired raws, prune embeddings",
-);
-registerStub(
-  "schedule",
-  6,
-  "Install OS-level scheduled tasks (Windows Task Scheduler / cron)",
-);
+if (process.env.MEMORY_FORT_SHOW_STUBS === "1") {
+  registerStub(
+    "crystallize",
+    4,
+    "Distill a completed thread into a long-form digest",
+  );
+  registerStub("backup", 6, "git commit + push memory state to remote");
+  registerStub(
+    "import-from-agentmemory",
+    5,
+    "Deprecated alias; use import-agentmemory",
+  );
+  registerStub(
+    "retain",
+    6,
+    "Run retention policy: archive expired raws, prune embeddings",
+  );
+  registerStub(
+    "schedule",
+    6,
+    "Install OS-level scheduled tasks (Windows Task Scheduler / cron)",
+  );
+}
 
 printDebugLogBanner();
 program.parseAsync(process.argv);

@@ -12,7 +12,8 @@ import {
   configPath,
 } from "../../storage/paths.js";
 import { atomicWrite, atomicAppend } from "../../storage/atomic-write.js";
-import { detectTemplateVars, renderTemplate } from "../template-render.js";
+import { detectTemplateVars, renderTemplate, type TemplateVars } from "../template-render.js";
+import { guardWrites, type CommandStdout, type ConfirmPrompt } from "./write-guard.js";
 
 declare const __MEMORY_BUILD_COMMIT__: string | undefined;
 
@@ -20,8 +21,14 @@ export interface InitOptions {
   reset?: boolean;
   /** Absolute path to the source repo containing templates/. */
   sourceRepoDir?: string;
+  vault?: string;
+  templateVars?: Partial<TemplateVars>;
   /** For tests: override the current date. */
   now?: Date;
+  dryRun?: boolean;
+  yes?: boolean;
+  stdout?: CommandStdout;
+  confirm?: ConfirmPrompt;
 }
 
 export interface InitResult {
@@ -29,6 +36,9 @@ export interface InitResult {
   created: string[];
   preserved: string[];
   archivedTo?: string;
+  planned?: string[];
+  dryRun?: boolean;
+  cancelled?: boolean;
 }
 
 const SUBDIRS = [
@@ -76,8 +86,8 @@ retention:
   archive_before_delete: true
 
 embedder:
-  provider: voyage
-  model: voyage-4-large
+  provider: lexical
+  model: lexical
 
 auto_heal:
   enabled: false
@@ -128,9 +138,9 @@ compress:
 
 embedding:
   # Legacy fallback. New writes should use embedder above.
-  provider: voyage
-  model: voyage-4-large
-  dim: 2048
+  provider: lexical
+  model: lexical
+  dim: 0
 
 privacy:
   allowlist: []   # regex patterns that bypass the redaction filter
@@ -153,8 +163,30 @@ Durable behavior-shaping preferences for agents using Memory Fort.
 `;
 
 export async function runInit(opts: InitOptions = {}): Promise<InitResult> {
+  if (opts.vault && opts.vault.trim().length > 0) {
+    return withMemoryRoot(opts.vault, () => runInit({ ...opts, vault: undefined }));
+  }
+
   const root = memoryRoot();
-  const result: InitResult = { root, created: [], preserved: [] };
+  const planned = planInitWrites(root, opts);
+  const guard = await guardWrites({
+    command: "memory init",
+    planned,
+    dryRun: opts.dryRun,
+    yes: opts.yes,
+    stdout: opts.stdout,
+    confirm: opts.confirm,
+  });
+  const result: InitResult = {
+    root,
+    created: [],
+    preserved: [],
+    planned,
+    dryRun: guard.dryRun,
+    cancelled: guard.cancelled,
+  };
+
+  if (!guard.shouldWrite) return result;
 
   if (opts.reset && existsSync(root)) {
     result.archivedTo = await archiveExistingRoot(root, opts.now ?? new Date());
@@ -183,6 +215,7 @@ export async function runInit(opts: InitOptions = {}): Promise<InitResult> {
       sourceRepoDir: opts.sourceRepoDir,
       now: opts.now,
     });
+    Object.assign(vars, opts.templateVars);
     vars.install_commit = buildInstallCommit(vars.install_commit);
     await atomicWrite(schemaPath(), renderTemplate(template, vars));
     result.created.push(schemaPath());
@@ -223,6 +256,7 @@ export async function runInit(opts: InitOptions = {}): Promise<InitResult> {
       sourceRepoDir: opts.sourceRepoDir,
       now: opts.now,
     });
+    Object.assign(vars, opts.templateVars);
     await atomicWrite(preferencesPath, renderTemplate(DEFAULT_PREFERENCES, vars));
     result.created.push(preferencesPath);
   } else {
@@ -277,6 +311,7 @@ export async function runInit(opts: InitOptions = {}): Promise<InitResult> {
         stdio: ["ignore", "ignore", "ignore"],
       });
       const vars = detectTemplateVars({ now: opts.now });
+      Object.assign(vars, opts.templateVars);
       execFileSync("git", ["config", "user.name", vars.user_name], {
         cwd: root,
         stdio: ["ignore", "ignore", "ignore"],
@@ -314,6 +349,40 @@ export async function runInit(opts: InitOptions = {}): Promise<InitResult> {
   return result;
 }
 
+async function withMemoryRoot<T>(root: string, fn: () => Promise<T>): Promise<T> {
+  const before = process.env["MEMORY_ROOT"];
+  process.env["MEMORY_ROOT"] = root;
+  try {
+    return await fn();
+  } finally {
+    if (before === undefined) delete process.env["MEMORY_ROOT"];
+    else process.env["MEMORY_ROOT"] = before;
+  }
+}
+
+export function planInitWrites(root = memoryRoot(), opts: Pick<InitOptions, "reset" | "now"> = {}): string[] {
+  const paths = [
+    root,
+    ...SUBDIRS.map((sub) => join(root, sub)),
+    schemaPath(),
+    join(root, "prompts", "compile.md"),
+    join(root, "prompts", "lint.md"),
+    join(root, "prompts", "hyde.md"),
+    indexPath(),
+    join(root, "wiki", "preferences.md"),
+    logPath(),
+    configPath(),
+    errorsLogPath(),
+    join(root, ".gitignore"),
+    join(root, ".gitattributes"),
+    join(root, ".git"),
+  ];
+  if (opts.reset && existsSync(root)) {
+    paths.unshift(join(root, ".archive", `pre-reset-${archiveTimestamp(opts.now ?? new Date())}`));
+  }
+  return paths;
+}
+
 function buildInstallCommit(detectedCommit: string): string {
   if (typeof __MEMORY_BUILD_COMMIT__ !== "undefined") {
     return __MEMORY_BUILD_COMMIT__;
@@ -322,7 +391,7 @@ function buildInstallCommit(detectedCommit: string): string {
 }
 
 async function archiveExistingRoot(root: string, now: Date): Promise<string> {
-  const ts = now.toISOString().replace(/[:.]/g, "-");
+  const ts = archiveTimestamp(now);
   const archive = join(root, ".archive", `pre-reset-${ts}`);
   await mkdir(archive, { recursive: true });
 
@@ -333,6 +402,10 @@ async function archiveExistingRoot(root: string, now: Date): Promise<string> {
   }
 
   return archive;
+}
+
+function archiveTimestamp(now: Date): string {
+  return now.toISOString().replace(/[:.]/g, "-");
 }
 
 function templatePath(sourceRepoDir?: string): string {

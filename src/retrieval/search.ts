@@ -304,7 +304,8 @@ export async function runSearch(opts: SearchOptions): Promise<SearchResponse> {
   const lexicalQuery = lexicalSignalQuery(opts.query);
   const embeddingsLoader = embeddingsLoaderForSearch(opts);
   const embeddingKinds = documentKinds(documents);
-  const refreshCacheKey = opts.runtimeCache && opts.refreshEmbeddings !== false
+  const vectorEmbeddingsEnabled = shouldUseVectorEmbeddings(opts.embedClient);
+  const refreshCacheKey = vectorEmbeddingsEnabled && opts.runtimeCache && opts.refreshEmbeddings !== false
     ? await buildRefreshCacheKey({
         vaultRoot: opts.vaultRoot,
         corpusSignature,
@@ -315,7 +316,7 @@ export async function runSearch(opts: SearchOptions): Promise<SearchResponse> {
     : null;
 
   const refreshStarted = Date.now();
-  if (opts.refreshEmbeddings === false) {
+  if (!vectorEmbeddingsEnabled || opts.refreshEmbeddings === false) {
     timings.refreshMs = Date.now() - refreshStarted;
   } else if (opts.runtimeCache && refreshCacheKey && opts.runtimeCache.refresh.has(refreshCacheKey)) {
     opts.runtimeCache.stats.refreshCacheHits += 1;
@@ -357,21 +358,23 @@ export async function runSearch(opts: SearchOptions): Promise<SearchResponse> {
 
   let queryVector: number[] | null = null;
   const embedStarted = Date.now();
-  try {
-    const response = await embedWithClient(opts.embedClient, {
-      texts: [embeddingInput],
-      inputType: "query",
-      signal: opts.signal,
-    });
-    queryVector = response.vectors[0] ?? null;
-    if (!queryVector) {
+  if (vectorEmbeddingsEnabled) {
+    try {
+      const response = await embedWithClient(opts.embedClient, {
+        texts: [embeddingInput],
+        inputType: "query",
+        signal: opts.signal,
+      });
+      queryVector = response.vectors[0] ?? null;
+      if (!queryVector) {
+        degraded = true;
+        warnings.push("query embedding failed: embed response contained no vector");
+      }
+    } catch (error) {
+      throwIfAborted(opts.signal);
       degraded = true;
-      warnings.push("query embedding failed: embed response contained no vector");
+      warnings.push(`query embedding failed: ${errorMessage(error)}`);
     }
-  } catch (error) {
-    throwIfAborted(opts.signal);
-    degraded = true;
-    warnings.push(`query embedding failed: ${errorMessage(error)}`);
   }
   timings.embedQueryMs = Date.now() - embedStarted;
   throwIfAborted(opts.signal);
@@ -583,6 +586,10 @@ function embeddingsLoaderForSearch(opts: SearchOptions): EmbeddingsLoader {
   if (!opts.runtimeCache) return baseLoader;
   return (memoryRoot, kind) =>
     loadCachedEmbeddings(memoryRoot, kind, opts.runtimeCache!, baseLoader);
+}
+
+function shouldUseVectorEmbeddings(embedClient: EmbedClient): boolean {
+  return !(isEmbedder(embedClient) && embedClient.providerName === "lexical");
 }
 
 async function loadCachedEmbeddings(

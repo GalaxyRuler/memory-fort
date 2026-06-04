@@ -12,7 +12,8 @@ import {
 } from "../../../storage/paths.js";
 import { atomicWrite, atomicAppend } from "../../../storage/atomic-write.js";
 
-const execFile = promisify(execFileCallback);
+export const claudePluginExecFile = promisify(execFileCallback);
+export type ClaudePluginExecFile = typeof claudePluginExecFile;
 
 export interface InstallClaudeCodeOptions {
   /** Override repo path (default: derived from this script's location). */
@@ -24,7 +25,7 @@ export interface InstallClaudeCodeOptions {
   /** For tests/portable installs: override or disable the Claude plugin CLI sync. */
   claudePluginCli?: boolean;
   /** For tests: inject command execution. */
-  execFileFn?: typeof execFile;
+  execFileFn?: ClaudePluginExecFile;
 }
 
 export interface InstallClaudeCodeResult {
@@ -351,7 +352,7 @@ async function syncClaudeCodePluginCache(
     return;
   }
 
-  const execFileFn = opts.execFileFn ?? execFile;
+  const execFileFn = opts.execFileFn ?? claudePluginExecFile;
   await runClaudePluginCommand(
     execFileFn,
     ["plugin", "marketplace", "add", marketplaceRoot],
@@ -373,7 +374,9 @@ async function syncClaudeCodePluginCache(
   );
 }
 
-function shouldSyncClaudePluginCache(opts: InstallClaudeCodeOptions): boolean {
+export function shouldSyncClaudePluginCache(
+  opts: Pick<InstallClaudeCodeOptions, "claudePluginCli" | "claudeDir">,
+): boolean {
   if (opts.claudePluginCli === false) return false;
   if (opts.claudePluginCli === true) return true;
 
@@ -385,12 +388,12 @@ function shouldSyncClaudePluginCache(opts: InstallClaudeCodeOptions): boolean {
   return true;
 }
 
-async function runClaudePluginCommand(
-  execFileFn: typeof execFile,
+export async function runClaudePluginCommand(
+  execFileFn: ClaudePluginExecFile,
   args: string[],
   successLog: string,
   log: string[],
-  opts: { allowNotInstalled?: boolean } = {},
+  opts: { allowNotInstalled?: boolean; missingCliLog?: string } = {},
 ): Promise<void> {
   try {
     const result = await execFileFn("claude", args, { windowsHide: true });
@@ -404,7 +407,7 @@ async function runClaudePluginCommand(
     };
     const output = `${error.stdout ?? ""}\n${error.stderr ?? ""}`.trim();
     if (error.code === "ENOENT") {
-      log.push("skipped Claude plugin cache install: claude CLI not found on PATH");
+      log.push(opts.missingCliLog ?? "skipped Claude plugin cache install: claude CLI not found on PATH");
       return;
     }
     if (opts.allowNotInstalled && /not installed|not found|no installed plugin/i.test(output)) {

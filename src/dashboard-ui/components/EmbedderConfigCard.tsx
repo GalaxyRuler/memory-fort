@@ -8,7 +8,7 @@ import { Card } from "./Card.js";
 import { ConfigStatusPill } from "./ConfigStatusPill.js";
 import { Input } from "./Input.js";
 
-type EmbedderProvider = "voyage" | "openai" | "ollama";
+type EmbedderProvider = "lexical" | "voyage" | "openai" | "ollama";
 
 interface EmbedderDraft {
   provider: EmbedderProvider;
@@ -42,7 +42,7 @@ export function EmbedderConfigCard({ disabledReason = null }: { disabledReason?:
     const entry = providerEntries.find((item) => item.provider === provider);
     setDraft({
       provider,
-      model: defaultModel(entry) ?? (provider === "ollama" ? "nomic-embed-text" : ""),
+      model: defaultModel(entry) ?? (provider === "lexical" ? "lexical" : provider === "ollama" ? "nomic-embed-text" : ""),
     });
   }
 
@@ -174,7 +174,7 @@ function ReadonlyModelControl(props: {
   displayValue: string;
   providers: Array<{ id: string; dim?: number }>;
 }) {
-  if (props.provider === "ollama") {
+  if (props.provider === "lexical" || props.provider === "ollama") {
     return (
       <label className="block text-sm">
         <span className="mb-1 block text-xs uppercase tracking-wide text-text-muted">Model</span>
@@ -212,7 +212,7 @@ function ModelControl(props: {
   providers: Array<{ id: string; dim?: number }>;
   onChange: (model: string) => void;
 }) {
-  if (props.provider === "ollama") {
+  if (props.provider === "lexical" || props.provider === "ollama") {
     return (
       <label className="block text-sm">
         <span className="mb-1 block text-xs uppercase tracking-wide text-text-muted">Model</span>
@@ -258,8 +258,8 @@ function KeyStatus({ provider, loading }: { provider?: ProviderCatalogEntry; loa
 function readActiveEmbedder(config: ConfigObject | undefined): EmbedderDraft {
   const embedder = asRecord(config?.embedder) ?? asRecord(config?.embedding);
   return {
-    provider: readEmbedderProvider(embedder?.provider) ?? "voyage",
-    model: readString(embedder?.model) ?? "voyage-4-large",
+    provider: readEmbedderProvider(embedder?.provider) ?? "lexical",
+    model: readString(embedder?.model) ?? "lexical",
   };
 }
 
@@ -272,7 +272,7 @@ function readEmbedderProvider(value: unknown): EmbedderProvider | null {
 }
 
 function isEmbedderProvider(value: unknown): value is EmbedderProvider {
-  return value === "voyage" || value === "openai" || value === "ollama";
+  return value === "lexical" || value === "voyage" || value === "openai" || value === "ollama";
 }
 
 function readString(value: unknown): string | undefined {

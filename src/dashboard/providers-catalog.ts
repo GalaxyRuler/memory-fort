@@ -23,6 +23,14 @@ export interface ProvidersCatalog {
 
 const EMBEDDER_MODELS: ProviderCatalogEntry[] = [
   {
+    provider: "lexical",
+    envVar: "none",
+    envVarStatus: "set",
+    models: [
+      { id: "lexical", dim: 0, default: true },
+    ],
+  },
+  {
     provider: "voyage",
     envVar: "VOYAGE_API_KEY",
     envVarStatus: "missing",
@@ -86,7 +94,7 @@ function withEnvStatus(
 ): ProviderCatalogEntry {
   return {
     ...provider,
-    envVarStatus: provider.provider === "ollama"
+    envVarStatus: provider.provider === "lexical" || provider.provider === "ollama"
       ? "set"
       : env[provider.envVar]?.trim() ? "set" : "missing",
     models: provider.models.map((model) => ({ ...model })),

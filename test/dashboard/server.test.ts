@@ -534,9 +534,13 @@ describe("dashboard server", () => {
     }
   });
 
-  it("GET /api/search auto-enables Voyage rerank when VOYAGE_API_KEY is available", async () => {
+  it("GET /api/search auto-enables Voyage rerank when config selects Voyage and VOYAGE_API_KEY is available", async () => {
     await writeSearchWiki(tmp);
     await mkdir(join(tmp, "embeddings"), { recursive: true });
+    await writeFile(
+      join(tmp, "config.yaml"),
+      ["embedder:", "  provider: voyage", "  model: voyage-4-large", ""].join("\n"),
+    );
     const voyageClient = mockVoyageClient2048();
     const server = await createServer({
       vaultRoot: tmp,

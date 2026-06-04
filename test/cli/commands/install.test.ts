@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { existsSync } from "node:fs";
 import { mkdtemp, rm, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -45,6 +46,52 @@ describe("runInstall", () => {
     expect(logSpy.mock.calls.flat().join("\n")).toContain("memory verify");
   });
 
+  it("--dry-run reports install paths without writing client config", async () => {
+    const writes: string[] = [];
+
+    await runInstall("claude-desktop", {
+      dryRun: true,
+      stdout: captureStdout(writes, false),
+      verifyFn: async () => verifyReport(),
+    });
+
+    expect(writes.join("")).toContain("memory install claude-desktop will write");
+    expect(existsSync(join(tmp, "Claude", "claude_desktop_config.json"))).toBe(false);
+  });
+
+  it("prompts before install writes when stdout is a TTY", async () => {
+    let promptCalls = 0;
+
+    await runInstall("claude-desktop", {
+      stdout: captureStdout([], true),
+      confirm: async () => {
+        promptCalls += 1;
+        return true;
+      },
+      noVerify: true,
+    });
+
+    expect(promptCalls).toBe(1);
+    expect(existsSync(join(tmp, "Claude", "claude_desktop_config.json"))).toBe(true);
+  });
+
+  it("--yes skips the install prompt", async () => {
+    let promptCalls = 0;
+
+    await runInstall("claude-desktop", {
+      yes: true,
+      stdout: captureStdout([], true),
+      confirm: async () => {
+        promptCalls += 1;
+        return false;
+      },
+      noVerify: true,
+    });
+
+    expect(promptCalls).toBe(0);
+    expect(existsSync(join(tmp, "Claude", "claude_desktop_config.json"))).toBe(true);
+  });
+
   it("skips post-install verify when disabled", async () => {
     let verifyCalls = 0;
 
@@ -70,5 +117,15 @@ function verifyReport(): VerifyResult {
     failed: 0,
     warnings: 0,
     exitCode: 0,
+  };
+}
+
+function captureStdout(writes: string[], isTTY: boolean) {
+  return {
+    isTTY,
+    write(chunk: string | Uint8Array): boolean {
+      writes.push(String(chunk));
+      return true;
+    },
   };
 }

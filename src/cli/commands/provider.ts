@@ -192,9 +192,11 @@ export async function runListEmbedders(
 
 export function formatListEmbeddersResult(result: ListEmbeddersResult): string {
   return `${result.providers.map((provider) => {
-    const availability = provider.provider === "ollama"
-      ? `host=${process.env["OLLAMA_HOST"] ?? "http://localhost:11434"}`
-      : provider.keyAvailable ? "key set" : "key missing";
+    const availability = provider.provider === "lexical"
+      ? "keyless"
+      : provider.provider === "ollama"
+        ? `host=${process.env["OLLAMA_HOST"] ?? "http://localhost:11434"}`
+        : provider.keyAvailable ? "key set" : "key missing";
     const state = provider.active
       ? `active, model=${provider.model}, dim=${provider.dim}`
       : `available, ${availability}`;

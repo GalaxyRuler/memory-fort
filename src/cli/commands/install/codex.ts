@@ -22,17 +22,19 @@ export interface InstallCodexResult {
 const VERSION = "0.1.0";
 const BEGIN_MARKER_RE = /^# === BEGIN memory-system v[^\s=]+ ===\s*$/m;
 const END_MARKER_RE = /^# === END memory-system v[^\s=]+ ===\s*$/m;
+const PRIOR_TRAILING_NEWLINES_RE = /^# prior_trailing_newlines = (\d+)$/m;
 
 function pluginScriptsAbs(): string {
   return join(memoryRoot(), "claude-code-plugin", "scripts").replace(/\\/g, "/");
 }
 
-function renderBlock(): string {
+function renderBlock(priorTrailingNewlines: number): string {
   const scripts = pluginScriptsAbs();
   const mcpServerPath = `${scripts}/mcp-server.mjs`;
   return [
     `# === BEGIN memory-system v${VERSION} ===`,
     `# DO NOT EDIT — managed by 'memory install codex'. Re-run install to update.`,
+    `# prior_trailing_newlines = ${priorTrailingNewlines}`,
     ``,
     `[[hooks.SessionStart]]`,
     `matcher = "startup|resume"`,
@@ -83,6 +85,7 @@ function renderBlock(): string {
 export function stripPriorBlock(existing: string): {
   content: string;
   replaced: boolean;
+  priorTrailingNewlines?: number;
 } {
   const beginMatch = BEGIN_MARKER_RE.exec(existing);
   if (!beginMatch) return { content: existing, replaced: false };
@@ -94,7 +97,12 @@ export function stripPriorBlock(existing: string): {
   const endAbsoluteIndex = beginMatch.index + endMatch.index + endMatch[0].length;
   const after = existing.slice(endAbsoluteIndex);
   const cleaned = existing.slice(0, beginMatch.index) + after.replace(/^\n/, "");
-  return { content: cleaned, replaced: true };
+  const block = existing.slice(beginMatch.index, endAbsoluteIndex);
+  return {
+    content: cleaned,
+    replaced: true,
+    priorTrailingNewlines: parsePriorTrailingNewlines(block),
+  };
 }
 
 export async function installCodex(
@@ -115,10 +123,11 @@ export async function installCodex(
 
   const { content: cleaned, replaced: priorBlockReplaced } =
     stripPriorBlock(existing);
+  const priorTrailingNewlines = countTrailingNewlines(cleaned);
   const prefix =
     cleaned.length > 0 && !cleaned.endsWith("\n") ? `${cleaned}\n` : cleaned;
   const sep = cleaned.length > 0 ? "\n" : "";
-  const newContent = `${prefix}${sep}${renderBlock()}`;
+  const newContent = `${prefix}${sep}${renderBlock(priorTrailingNewlines)}`;
 
   await atomicWrite(configPath, newContent);
   log.push(
@@ -136,4 +145,15 @@ export async function installCodex(
   );
 
   return { codexConfigPath: configPath, configCreated, priorBlockReplaced, log };
+}
+
+function countTrailingNewlines(content: string): number {
+  return /\n*$/u.exec(content)?.[0].length ?? 0;
+}
+
+function parsePriorTrailingNewlines(block: string): number | undefined {
+  const match = PRIOR_TRAILING_NEWLINES_RE.exec(block);
+  if (!match) return undefined;
+  const count = Number(match[1]);
+  return Number.isSafeInteger(count) && count >= 0 ? count : undefined;
 }
