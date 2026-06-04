@@ -7,6 +7,7 @@ const SOURCES: { value: RawSource | "all"; label: string }[] = [
   { value: "claude-code", label: "Claude Code" },
   { value: "codex", label: "Codex" },
   { value: "antigravity", label: "Antigravity" },
+  { value: "claude-desktop", label: "Claude Desktop" },
   { value: "manual", label: "Manual" },
 ];
 

@@ -1,6 +1,6 @@
 import { type HTMLAttributes } from "react";
 import { Link } from "@tanstack/react-router";
-import { Cpu, Rocket, Terminal, User } from "lucide-react";
+import { Bot, Cpu, Rocket, Terminal, User } from "lucide-react";
 import { type RawIndexFile } from "../hooks/useRawIndex.js";
 import { cn } from "../lib/cn.js";
 import {
@@ -15,6 +15,7 @@ const SOURCE_ICON = {
   "claude-code": Terminal,
   codex: Cpu,
   antigravity: Rocket,
+  "claude-desktop": Bot,
   manual: User,
   unknown: Terminal,
 } as const;
@@ -23,6 +24,7 @@ const SOURCE_ICON_BG: Record<RawSource, string> = {
   "claude-code": "bg-entity-projects/15",
   codex: "bg-entity-decisions/15",
   antigravity: "bg-entity-tools/15",
+  "claude-desktop": "bg-entity-tools/15",
   manual: "bg-text-muted/15",
   unknown: "bg-text-muted/15",
 };
@@ -31,6 +33,7 @@ const SOURCE_ICON_TEXT: Record<RawSource, string> = {
   "claude-code": "text-entity-projects",
   codex: "text-entity-decisions",
   antigravity: "text-entity-tools",
+  "claude-desktop": "text-entity-tools",
   manual: "text-text-muted",
   unknown: "text-text-muted",
 };

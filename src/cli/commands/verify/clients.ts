@@ -1,10 +1,11 @@
 import { existsSync } from "node:fs";
-import { readdir, readFile, stat } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, normalize, relative, resolve, join } from "node:path";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
+import { listRawCaptureFiles } from "../../../capture/raw-captures.js";
 import {
   claudeDesktopConfigDir,
   claudeDesktopConfigPath,
@@ -703,38 +704,16 @@ async function readCaptureSnapshot(
   ctx: VerifyCheckContext,
   prefixes: string[],
 ): Promise<{ recentCount: number; historicalCount: number; lastSeen: Date | null }> {
-  const rawRoot = join(ctx.vaultRoot, "raw");
-  const dirs = await listDirectoryNames(rawRoot);
   let recentCount = 0;
   let historicalCount = 0;
   let lastSeen: Date | null = null;
-  for (const dir of dirs) {
-    const fullDir = join(rawRoot, dir);
-    let entries: string[];
-    try {
-      entries = await readdir(fullDir);
-    } catch {
-      continue;
-    }
-    for (const entry of entries) {
-      if (!entry.endsWith(".md")) continue;
-      if (!prefixes.some((prefix) => entry.startsWith(prefix))) continue;
-      const info = await stat(join(fullDir, entry));
-      historicalCount += 1;
-      if (!lastSeen || info.mtime.getTime() > lastSeen.getTime()) lastSeen = info.mtime;
-      if (ctx.now().getTime() - info.mtime.getTime() <= DAY_MS) recentCount += 1;
-    }
+
+  for (const capture of await listRawCaptureFiles(ctx.vaultRoot, { prefixes })) {
+    historicalCount += 1;
+    if (!lastSeen || capture.mtime.getTime() > lastSeen.getTime()) lastSeen = capture.mtime;
+    if (ctx.now().getTime() - capture.mtime.getTime() <= DAY_MS) recentCount += 1;
   }
   return { recentCount, historicalCount, lastSeen };
-}
-
-async function listDirectoryNames(root: string): Promise<string[]> {
-  try {
-    const entries = await readdir(root, { withFileTypes: true });
-    return entries.filter((entry) => entry.isDirectory()).map((entry) => entry.name);
-  } catch {
-    return [];
-  }
 }
 
 function antigravityConfigPath(): string {

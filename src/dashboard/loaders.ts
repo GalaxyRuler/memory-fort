@@ -4,6 +4,14 @@ import { access, readdir, readFile, stat } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { promisify } from "node:util";
 import {
+  createRawCaptureScanCache,
+  listRawCaptureFiles,
+  parseRawCaptureSessionIdFromFilename,
+  parseRawCaptureSourceFromFilename,
+  type RawCaptureSource,
+  type RawCaptureScanCache,
+} from "../capture/raw-captures.js";
+import {
   checkPruneCandidates,
   checkSupersededDependents,
   loadWiki as loadCurationWiki,
@@ -61,6 +69,7 @@ const TIMELINE_LANES = [
   "claude-code",
   "codex",
   "antigravity",
+  "claude-desktop",
   "manual",
   "compile",
   "lint",
@@ -70,6 +79,7 @@ const TIMELINE_COLORS: Record<(typeof TIMELINE_LANES)[number], string> = {
   "claude-code": "#8b5fff",
   codex: "#5b8bff",
   antigravity: "#cebdff",
+  "claude-desktop": "#c084fc",
   manual: "#94a3b8",
   compile: "#22c55e",
   lint: "#f59e0b",
@@ -126,7 +136,7 @@ export interface RawSession {
   sizeBytes: number;
 }
 
-export type RawSessionSource = "claude-code" | "codex" | "antigravity" | "manual" | "unknown";
+export type RawSessionSource = "claude-code" | "codex" | "antigravity" | "claude-desktop" | "manual" | "unknown";
 
 export interface RawSessionDetail {
   date: string;
@@ -146,7 +156,17 @@ export interface LogTail {
   requestedLines: number;
 }
 
-export type ActivitySource = "git" | "compile" | "sync" | "lint" | "errors";
+export type ActivitySource =
+  | "git"
+  | "compile"
+  | "sync"
+  | "lint"
+  | "errors"
+  | "claude-code"
+  | "codex"
+  | "antigravity"
+  | "claude-desktop"
+  | "manual";
 export type ActivityLevel = "info" | "warn" | "error";
 
 export interface ActivityEvent {
@@ -161,6 +181,8 @@ export interface ActivityFeed {
   events: ActivityEvent[];
   nextCursor: string | null;
 }
+
+export type RawCaptureEventCache = RawCaptureScanCache;
 
 export type TimelineZoom = "1H" | "1D" | "1W" | "1M" | "1Y";
 
@@ -177,6 +199,7 @@ export interface TimelineFeed {
   lanes: Array<{ lane: string; events: TimelineLaneEvent[] }>;
   velocity: Array<{ bucket: string; count: number }>;
 }
+
 
 export interface GraphFeed {
   nodes: Array<{
@@ -1012,20 +1035,11 @@ export async function loadRawSession(vaultRoot: string, date: string, filename: 
 }
 
 function parseRawSourceFromFilename(filename: string): RawSessionSource {
-  if (filename.startsWith("claude-code-")) return "claude-code";
-  if (filename.startsWith("codex-")) return "codex";
-  if (filename.startsWith("antigravity-")) return "antigravity";
-  if (filename.startsWith("manual-mcp-") || filename.startsWith("manual-")) return "manual";
-  return "unknown";
+  return parseRawCaptureSourceFromFilename(filename);
 }
 
 function parseRawSessionIdFromFilename(filename: string): string {
-  const noExt = filename.replace(/\.md$/, "");
-  const prefixes = ["claude-code-", "codex-", "antigravity-", "manual-mcp-", "manual-"];
-  for (const prefix of prefixes) {
-    if (noExt.startsWith(prefix)) return noExt.slice(prefix.length);
-  }
-  return noExt;
+  return parseRawCaptureSessionIdFromFilename(filename);
 }
 
 export async function loadRawSessionDetail(
@@ -1071,18 +1085,42 @@ export async function loadLogTail(vaultRoot: string, lineCount = 100): Promise<L
   };
 }
 
+export function createRawCaptureEventCache(): RawCaptureEventCache {
+  return createRawCaptureScanCache();
+}
+
+export async function loadRawCaptureEvents(
+  vaultRoot: string,
+  opts: { from?: Date; to?: Date; cache?: RawCaptureEventCache } = {},
+): Promise<ActivityEvent[]> {
+  const captures = await listRawCaptureFiles(vaultRoot, {
+    from: opts.from,
+    to: opts.to,
+    cache: opts.cache,
+  });
+  return captures.map((capture): ActivityEvent => ({
+    timestamp: capture.mtime.toISOString(),
+    source: rawCaptureActivitySource(capture.source),
+    level: "info",
+    summary: `${rawCaptureSourceLabel(capture.source)} capture ${capture.sessionId}`.trim(),
+    details: {
+      relPath: capture.relPath,
+      filename: capture.filename,
+      date: capture.date,
+      sessionId: capture.sessionId,
+      sizeBytes: capture.sizeBytes,
+      rawSource: capture.source,
+    },
+  }));
+}
+
 export async function loadActivityEvents(
   vaultRoot: string,
-  opts: { cursor?: string | null; limit?: number } = {},
+  opts: { cursor?: string | null; limit?: number; rawCaptureCache?: RawCaptureEventCache } = {},
 ): Promise<ActivityFeed> {
   const limit = Math.max(1, Math.min(200, Math.floor(opts.limit ?? 50)));
   const cursorTime = opts.cursor ? Date.parse(opts.cursor) : Number.POSITIVE_INFINITY;
-  const allEvents = [
-    ...(await loadGitActivityEvents(vaultRoot)),
-    ...(await loadLogActivityEvents(vaultRoot)),
-    ...(await loadCheckoutActivityEvents(vaultRoot)),
-    ...(await loadErrorActivityEvents(vaultRoot)),
-  ]
+  const allEvents = (await loadAllActivityEvents(vaultRoot, { rawCaptureCache: opts.rawCaptureCache }))
     .filter((event) => Date.parse(event.timestamp) < cursorTime)
     .sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp) || a.summary.localeCompare(b.summary));
 
@@ -1095,9 +1133,13 @@ export async function loadActivityEvents(
 
 export async function loadTimelineFeed(
   vaultRoot: string,
-  opts: { from: Date; to: Date; zoom: TimelineZoom },
+  opts: { from: Date; to: Date; zoom: TimelineZoom; rawCaptureCache?: RawCaptureEventCache },
 ): Promise<TimelineFeed> {
-  const allEvents = await loadActivityEvents(vaultRoot, { limit: 200 });
+  const allEvents = { events: await loadAllActivityEvents(vaultRoot, {
+    rawCaptureCache: opts.rawCaptureCache,
+    rawFrom: opts.from,
+    rawTo: opts.to,
+  }) };
   const fromMs = opts.from.getTime();
   const toMs = opts.to.getTime();
   const visibleEvents = allEvents.events.filter((event) => {
@@ -1118,7 +1160,7 @@ export async function loadTimelineFeed(
 
   const bucketMs = TIMELINE_BUCKET_MS[opts.zoom];
   const velocity: TimelineFeed["velocity"] = [];
-  for (let bucket = fromMs; bucket <= toMs; bucket += bucketMs) {
+  for (let bucket = fromMs; bucket < toMs; bucket += bucketMs) {
     const nextBucket = bucket + bucketMs;
     velocity.push({
       bucket: new Date(bucket).toISOString(),
@@ -1211,6 +1253,27 @@ export async function loadCheckoutSyncState(vaultRoot: string, now: Date = new D
 
 export async function loadRedactedConfig(vaultRoot: string): Promise<Record<string, unknown>> {
   return redactConfig(await loadMemoryConfig(vaultRoot)) as Record<string, unknown>;
+}
+
+async function loadAllActivityEvents(
+  vaultRoot: string,
+  opts: {
+    rawCaptureCache?: RawCaptureEventCache;
+    rawFrom?: Date;
+    rawTo?: Date;
+  } = {},
+): Promise<ActivityEvent[]> {
+  return [
+    ...(await loadGitActivityEvents(vaultRoot)),
+    ...(await loadLogActivityEvents(vaultRoot)),
+    ...(await loadCheckoutActivityEvents(vaultRoot)),
+    ...(await loadErrorActivityEvents(vaultRoot)),
+    ...(await loadRawCaptureEvents(vaultRoot, {
+      from: opts.rawFrom,
+      to: opts.rawTo,
+      cache: opts.rawCaptureCache,
+    })),
+  ];
 }
 
 async function loadGitActivityEvents(vaultRoot: string): Promise<ActivityEvent[]> {
@@ -1320,9 +1383,40 @@ function normalizeActivitySource(source: string): ActivitySource {
   return "git";
 }
 
-function timelineLaneForEvent(event: ActivityEvent): (typeof TIMELINE_LANES)[number] {
-  if (event.source === "compile" || event.source === "lint" || event.source === "sync") return event.source;
+export function timelineLaneForEvent(event: ActivityEvent): (typeof TIMELINE_LANES)[number] {
+  if (
+    event.source === "claude-code" ||
+    event.source === "codex" ||
+    event.source === "antigravity" ||
+    event.source === "claude-desktop" ||
+    event.source === "compile" ||
+    event.source === "lint" ||
+    event.source === "sync"
+  ) {
+    return event.source;
+  }
   return "manual";
+}
+
+function rawCaptureActivitySource(source: RawCaptureSource): ActivitySource {
+  return source === "unknown" ? "manual" : source;
+}
+
+function rawCaptureSourceLabel(source: RawCaptureSource): string {
+  switch (source) {
+    case "claude-code":
+      return "Claude Code";
+    case "codex":
+      return "Codex";
+    case "antigravity":
+      return "Antigravity";
+    case "claude-desktop":
+      return "Claude Desktop";
+    case "manual":
+      return "Manual";
+    case "unknown":
+      return "Raw";
+  }
 }
 
 function normalizeIso(value: string): string | null {

@@ -54,6 +54,7 @@ describe("raw page helpers and components", () => {
     expect(parseSourceFromFilename("claude-code-abc.md")).toBe("claude-code");
     expect(parseSourceFromFilename("codex-abc.md")).toBe("codex");
     expect(parseSourceFromFilename("antigravity-abc.md")).toBe("antigravity");
+    expect(parseSourceFromFilename("claude-desktop-abc.md")).toBe("claude-desktop");
     expect(parseSourceFromFilename("manual-mcp-abc.md")).toBe("manual");
     expect(parseSourceFromFilename("mystery-abc.md")).toBe("unknown");
   });

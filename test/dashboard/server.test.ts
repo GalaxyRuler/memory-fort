@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { DashboardStatus } from "../../src/dashboard/loaders.js";
@@ -123,6 +123,15 @@ async function writeActivityLog(root: string): Promise<void> {
       "",
     ].join("\n"),
   );
+}
+
+async function writeRawCapture(root: string, date: string, filename: string, mtimeIso: string): Promise<void> {
+  const dir = join(root, "raw", date);
+  const fullPath = join(dir, filename);
+  const mtime = new Date(mtimeIso);
+  await mkdir(dir, { recursive: true });
+  await writeFile(fullPath, `# ${filename}\n`);
+  await utimes(fullPath, mtime, mtime);
 }
 
 function vector2048(seed: number): number[] {
@@ -794,6 +803,10 @@ describe("dashboard server", () => {
 
   it("GET /api/timeline returns lanes bucketed correctly", async () => {
     await writeActivityLog(tmp);
+    await writeRawCapture(tmp, "2026-05-01", "claude-code-agent-sub.md", "2026-05-24T09:00:00.000Z");
+    await writeRawCapture(tmp, "2026-05-24", "codex-main.md", "2026-05-24T10:00:00.000Z");
+    await writeRawCapture(tmp, "2026-05-24", "antigravity-session.md", "2026-05-24T11:00:00.000Z");
+    await writeRawCapture(tmp, "2026-05-24", "claude-desktop-desktop.md", "2026-05-24T12:00:00.000Z");
     const server = await createServer({ vaultRoot: tmp, port: 0 });
 
     try {
@@ -803,18 +816,25 @@ describe("dashboard server", () => {
       const body = await response.json();
       expect(response.status).toBe(200);
       expect(response.headers.get("content-type")).toContain("application/json");
-      expect(body.lanes).toHaveLength(7);
+      expect(body.lanes).toHaveLength(8);
       expect(body.lanes.map((lane: { lane: string }) => lane.lane)).toEqual([
         "claude-code",
         "codex",
         "antigravity",
+        "claude-desktop",
         "manual",
         "compile",
         "lint",
         "sync",
       ]);
+      expect(body.lanes.find((lane: { lane: string }) => lane.lane === "claude-code").events).toHaveLength(1);
+      expect(body.lanes.find((lane: { lane: string }) => lane.lane === "codex").events).toHaveLength(1);
+      expect(body.lanes.find((lane: { lane: string }) => lane.lane === "antigravity").events).toHaveLength(1);
+      expect(body.lanes.find((lane: { lane: string }) => lane.lane === "claude-desktop").events).toHaveLength(1);
       expect(body.lanes.find((lane: { lane: string }) => lane.lane === "compile").events).toHaveLength(1);
       expect(body.velocity.length).toBeGreaterThan(0);
+      expect(body.velocity.find((bucket: { bucket: string }) => bucket.bucket === "2026-05-24T00:00:00.000Z").count)
+        .toBeGreaterThanOrEqual(5);
     } finally {
       await server.close();
     }

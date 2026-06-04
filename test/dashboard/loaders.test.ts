@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  createRawCaptureEventCache,
   loadCompileState,
   loadConflicts,
   loadCounts,
@@ -10,10 +11,13 @@ import {
   loadLogTail,
   loadMaintenanceScan,
   loadPageDetail,
+  loadRawCaptureEvents,
   loadRawIndex,
+  loadTimelineFeed,
   redactConfig,
   loadSyncState,
   loadWikiIndex,
+  timelineLaneForEvent,
 } from "../../src/dashboard/loaders.js";
 
 function page(frontmatter: Record<string, unknown>, body: string): string {
@@ -555,6 +559,86 @@ describe("dashboard loaders", () => {
     expect(entries[1]?.files).toHaveLength(2);
   });
 
+  it("loadRawCaptureEvents emits one event per raw file with source and mtime", async () => {
+    await writeRawCapture("2026-05-01", "claude-code-agent-sub.md", "2026-06-04T08:00:00.000Z");
+    await writeRawCapture("2026-06-04", "codex-main.md", "2026-06-04T09:00:00.000Z");
+    await writeRawCapture("2026-06-04", "antigravity-session.md", "2026-06-04T10:00:00.000Z");
+    await writeRawCapture("2026-06-04", "claude-desktop-desktop.md", "2026-06-04T11:00:00.000Z");
+    await writeRawCapture("2026-06-04", "manual-mcp-note.md", "2026-06-04T12:00:00.000Z");
+    await writeRawCapture("2026-06-04", "mystery-note.md", "2026-06-04T13:00:00.000Z");
+
+    const events = await loadRawCaptureEvents(tmp, {
+      from: new Date("2026-06-04T00:00:00.000Z"),
+      to: new Date("2026-06-05T00:00:00.000Z"),
+    });
+
+    expect(events.map((event) => [event.source, event.timestamp, event.details?.["relPath"]])).toEqual([
+      ["manual", "2026-06-04T13:00:00.000Z", "raw/2026-06-04/mystery-note.md"],
+      ["manual", "2026-06-04T12:00:00.000Z", "raw/2026-06-04/manual-mcp-note.md"],
+      ["claude-desktop", "2026-06-04T11:00:00.000Z", "raw/2026-06-04/claude-desktop-desktop.md"],
+      ["antigravity", "2026-06-04T10:00:00.000Z", "raw/2026-06-04/antigravity-session.md"],
+      ["codex", "2026-06-04T09:00:00.000Z", "raw/2026-06-04/codex-main.md"],
+      ["claude-code", "2026-06-04T08:00:00.000Z", "raw/2026-05-01/claude-code-agent-sub.md"],
+    ]);
+  });
+
+  it("timelineLaneForEvent routes client captures to their lanes and legacy activity to manual", () => {
+    expect(timelineLaneForEvent(activityEvent("claude-code"))).toBe("claude-code");
+    expect(timelineLaneForEvent(activityEvent("codex"))).toBe("codex");
+    expect(timelineLaneForEvent(activityEvent("antigravity"))).toBe("antigravity");
+    expect(timelineLaneForEvent(activityEvent("claude-desktop"))).toBe("claude-desktop");
+    expect(timelineLaneForEvent(activityEvent("compile"))).toBe("compile");
+    expect(timelineLaneForEvent(activityEvent("lint"))).toBe("lint");
+    expect(timelineLaneForEvent(activityEvent("sync"))).toBe("sync");
+    expect(timelineLaneForEvent(activityEvent("git"))).toBe("manual");
+    expect(timelineLaneForEvent(activityEvent("errors"))).toBe("manual");
+    expect(timelineLaneForEvent(activityEvent("manual"))).toBe("manual");
+  });
+
+  it("loadRawCaptureEvents refreshes only changed raw directories when cached", async () => {
+    await writeRawCapture("2026-06-03", "codex-old.md", "2026-06-04T08:00:00.000Z");
+    await writeRawCapture("2026-06-04", "claude-code-new.md", "2026-06-04T09:00:00.000Z");
+    const cache = createRawCaptureEventCache();
+    const window = {
+      from: new Date("2026-06-04T00:00:00.000Z"),
+      to: new Date("2026-06-05T00:00:00.000Z"),
+    };
+
+    await loadRawCaptureEvents(tmp, { ...window, cache });
+    await loadRawCaptureEvents(tmp, { ...window, cache });
+    await utimes(
+      join(tmp, "raw", "2026-06-03", "codex-old.md"),
+      new Date("2026-06-04T10:00:00.000Z"),
+      new Date("2026-06-04T10:00:00.000Z"),
+    );
+    const events = await loadRawCaptureEvents(tmp, { ...window, cache });
+
+    expect(events[0]).toMatchObject({
+      source: "codex",
+      timestamp: "2026-06-04T10:00:00.000Z",
+    });
+    expect(cache.stats.directoryRefreshes).toBe(3);
+    expect(cache.stats.directoryCacheHits).toBe(3);
+  });
+
+  it("loadTimelineFeed includes raw captures in lanes and velocity buckets", async () => {
+    await writeRawCapture("2026-06-04", "claude-code-a.md", "2026-06-04T08:00:00.000Z");
+    await writeRawCapture("2026-06-04", "codex-b.md", "2026-06-04T09:00:00.000Z");
+    await writeRawCapture("2026-06-04", "claude-desktop-c.md", "2026-06-04T10:00:00.000Z");
+
+    const feed = await loadTimelineFeed(tmp, {
+      from: new Date("2026-06-04T00:00:00.000Z"),
+      to: new Date("2026-06-05T00:00:00.000Z"),
+      zoom: "1D",
+      rawCaptureCache: createRawCaptureEventCache(),
+    });
+
+    expect(feed.lanes.find((lane) => lane.lane === "claude-code")?.events).toHaveLength(1);
+    expect(feed.lanes.find((lane) => lane.lane === "codex")?.events).toHaveLength(1);
+    expect(feed.lanes.find((lane) => lane.lane === "claude-desktop")?.events).toHaveLength(1);
+    expect(feed.velocity).toEqual([{ bucket: "2026-06-04T00:00:00.000Z", count: 3 }]);
+  });
+
   it("loadLogTail returns last N lines", async () => {
     const lines = Array.from({ length: 200 }, (_, index) => `line ${index + 1}`);
     await writeFile(join(tmp, "log.md"), `${lines.join("\n")}\n`);
@@ -565,4 +649,22 @@ describe("dashboard loaders", () => {
     expect(tail.totalLines).toBe(200);
     expect(tail.lines.at(-1)).toBe("line 200");
   });
+
+  async function writeRawCapture(date: string, filename: string, mtimeIso: string): Promise<void> {
+    const dir = join(tmp, "raw", date);
+    const fullPath = join(dir, filename);
+    const mtime = new Date(mtimeIso);
+    await mkdir(dir, { recursive: true });
+    await writeFile(fullPath, `# ${filename}\n`);
+    await utimes(fullPath, mtime, mtime);
+  }
 });
+
+function activityEvent(source: Parameters<typeof timelineLaneForEvent>[0]["source"]): Parameters<typeof timelineLaneForEvent>[0] {
+  return {
+    timestamp: "2026-06-04T00:00:00.000Z",
+    source,
+    level: "info",
+    summary: source,
+  };
+}

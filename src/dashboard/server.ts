@@ -35,6 +35,7 @@ import {
   rejectProposedDraft,
 } from "./proposed.js";
 import {
+  createRawCaptureEventCache,
   loadActivityEvents,
   loadCompileState,
   loadConflicts,
@@ -438,6 +439,7 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
   const healthCache = new Map<string, HealthCacheEntry>();
   const graphHealthCache = new Map<string, GraphHealthCacheEntry>();
   const searchRuntimeCache = createSearchRuntimeCache();
+  const rawCaptureCache = createRawCaptureEventCache();
   const autoPromoteScheduler = await createAutoPromoteScheduler({
     vaultRoot: opts.vaultRoot,
     writeCapability,
@@ -647,6 +649,7 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
         writeJson(res, await loadActivityEvents(opts.vaultRoot, {
           cursor: url.searchParams.get("cursor"),
           limit: parseClampedInt(url.searchParams.get("limit"), 50, 1, 200),
+          rawCaptureCache,
         }));
         return;
       }
@@ -663,7 +666,7 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
           writeJsonError(res, 400, "timeline from must be before to");
           return;
         }
-        writeJson(res, await loadTimelineFeed(opts.vaultRoot, { from, to, zoom }));
+        writeJson(res, await loadTimelineFeed(opts.vaultRoot, { from, to, zoom, rawCaptureCache }));
         return;
       }
 
