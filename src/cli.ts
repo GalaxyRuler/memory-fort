@@ -26,6 +26,7 @@ import { formatDiscoverThreadsResult, runDiscoverThreads } from "./cli/commands/
 import { formatReindexResult, runReindex } from "./cli/commands/reindex.js";
 import { runImportAgentMemory } from "./cli/commands/import-agentmemory.js";
 import { runInstall } from "./cli/commands/install.js";
+import { formatNextSteps } from "./cli/commands/next-steps.js";
 import { formatUninstallResult, runUninstall } from "./cli/commands/uninstall.js";
 import { formatSupervisorJson, formatSupervisorResult, runInstallSupervisor, runSupervisorStatus } from "./cli/commands/supervisor.js";
 import { runInstallTailscaleRoute } from "./cli/commands/install-tailscale-route.js";
@@ -79,6 +80,7 @@ import {
   type VerifyScheduleShell,
 } from "./cli/commands/verify-schedule.js";
 import { formatWatchResult, runWatch } from "./cli/commands/watch.js";
+import { memoryRoot } from "./storage/paths.js";
 
 const program = new Command();
 
@@ -167,6 +169,7 @@ program
       if (result.tools.length > 0) {
         console.log(`  wired tools: ${result.tools.join(", ")}`);
       }
+      process.stdout.write(formatNextSteps({ vault: result.vault }));
     } catch (err) {
       console.error(`memory init failed: ${(err as Error).message}`);
       process.exit(1);
@@ -277,6 +280,9 @@ program
         noVerify: opts.verify === false,
       });
       process.stdout.write(formatConnectResult(result));
+      if (result.exitCode === 0 && !result.dryRun && !result.cancelled) {
+        process.stdout.write(formatNextSteps({ vault: memoryRoot() }));
+      }
       process.exit(result.exitCode);
     } catch (err) {
       console.error(`memory connect failed: ${(err as Error).message}`);
