@@ -251,8 +251,11 @@ function seededFloat(seed: number): number {
 // concentration (radius = spread * rand^1.7 packs stars toward the core),
 // each given a brightness + white/tint blend so the cluster reads as a real
 // galaxy — bright glittering core fading to a sparse halo — not a fuzzy blob.
+// Positions are LOCAL (centered on origin); the caller places each cluster at
+// its galaxy center and spins it around that local origin — so the cluster
+// stays glued to its core instead of orbiting the world origin.
 function buildStarCluster(
-  cx: number, cy: number, cz: number, spread: number, count: number, baseSeed: number, color: string, flatten: number,
+  spread: number, count: number, baseSeed: number, color: string, flatten: number,
 ): { positions: Float32Array; colors: Float32Array } {
   const positions = new Float32Array(count * 3);
   const colors = new Float32Array(count * 3);
@@ -268,9 +271,9 @@ function buildStarCluster(
     const dirZ = u;
     // Central concentration: most stars near the core, few at the rim
     const radius = spread * Math.pow(seededFloat(s++), 1.7);
-    positions[i * 3]     = cx + dirX * radius;
-    positions[i * 3 + 1] = cy + dirY * radius;
-    positions[i * 3 + 2] = cz + dirZ * radius * flatten;
+    positions[i * 3]     = dirX * radius;
+    positions[i * 3 + 1] = dirY * radius;
+    positions[i * 3 + 2] = dirZ * radius * flatten;
     // Brighter toward the core; mix in white stars so it isn't monochrome
     const centerBoost = 1 - radius / spread;
     const bright = (0.4 + seededFloat(s++) * 0.6) * (0.55 + centerBoost * 0.9);
@@ -289,22 +292,25 @@ function GalaxyVolumes({ galaxies }: { galaxies: GalacticLayout["galaxies"] }) {
     return COGNITIVE_ORDER.map((type, gi) => {
       const g = galaxies[type];
       const spread = 2.6;
-      const { positions, colors } = buildStarCluster(g.cx / W, g.cy / W, g.cz / W, spread, 900, gi + 1, g.color, 0.7);
+      const { positions, colors } = buildStarCluster(spread, 900, gi + 1, g.color, 0.7);
       return { type, color: g.color, positions, colors, center: [g.cx / W, g.cy / W, g.cz / W] as const };
     });
   }, [galaxies]);
 
-  const groupRef = useRef<THREE.Group>(null!);
+  // One ref per galaxy: each cluster spins around its OWN center so it stays
+  // locked onto the static core, instead of orbiting the world origin.
+  const refs = useRef<(THREE.Group | null)[]>([]);
   useFrame((state) => {
-    if (groupRef.current) {
-      groupRef.current.rotation.y = state.clock.getElapsedTime() * 0.004;
+    const t = state.clock.getElapsedTime() * 0.03;
+    for (const g of refs.current) {
+      if (g) g.rotation.y = t;
     }
   });
 
   return (
-    <group ref={groupRef}>
-      {clouds.map(({ type, color, positions, colors, center }) => (
-        <group key={type}>
+    <>
+      {clouds.map(({ type, color, positions, colors, center }, i) => (
+        <group key={type} position={center} ref={(el) => { refs.current[i] = el; }}>
           {/* Sharp stars — the glitter */}
           <points frustumCulled={false}>
             <bufferGeometry>
@@ -323,7 +329,7 @@ function GalaxyVolumes({ galaxies }: { galaxies: GalacticLayout["galaxies"] }) {
             />
           </points>
           {/* Single smooth glow sprite — the nebula color haze, no graininess */}
-          <sprite position={center} scale={[spreadGlow, spreadGlow, 1]}>
+          <sprite scale={[spreadGlow, spreadGlow, 1]}>
             <spriteMaterial
               map={getCircleSprite()}
               color={color}
@@ -335,7 +341,7 @@ function GalaxyVolumes({ galaxies }: { galaxies: GalacticLayout["galaxies"] }) {
           </sprite>
         </group>
       ))}
-    </group>
+    </>
   );
 }
 
