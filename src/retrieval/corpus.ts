@@ -105,15 +105,27 @@ export async function loadSearchCorpus(
   const documents: SearchDocument[] = [];
   const errors: LoadCorpusResult["errors"] = [];
 
-  for (const file of selected) {
-    try {
-      documents.push(await loadDocument(file));
-    } catch (error) {
-      errors.push({
-        path: file.relPath,
-        reason: error instanceof Error ? error.message : String(error),
-      });
-    }
+  // Read + parse every file concurrently. The previous serial `await` loop made
+  // a full-corpus load (~1900 files) take ~20s because each file's I/O latency
+  // was paid one after another; fanning them out lets libuv's threadpool
+  // overlap the reads.
+  const loaded = await Promise.all(
+    selected.map(async (file) => {
+      try {
+        return { document: await loadDocument(file) };
+      } catch (error) {
+        return {
+          error: {
+            path: file.relPath,
+            reason: error instanceof Error ? error.message : String(error),
+          },
+        };
+      }
+    }),
+  );
+  for (const result of loaded) {
+    if (result.document) documents.push(result.document);
+    else errors.push(result.error);
   }
 
   documents.sort((a, b) => a.relPath.localeCompare(b.relPath));

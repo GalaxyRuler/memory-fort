@@ -322,6 +322,7 @@ function parseLineCount(value: string | null): number {
 
 const SEARCH_SCOPES = new Set<SearchScope>(["wiki", "raw", "crystals", "all"]);
 const HEALTH_CACHE_MS = 25_000;
+const GRAPH_FEED_CACHE_MS = 25_000;
 
 interface HealthCacheEntry {
   atMs: number;
@@ -331,6 +332,11 @@ interface HealthCacheEntry {
 interface GraphHealthCacheEntry {
   atMs: number;
   report: GraphHealthReport;
+}
+
+interface GraphFeedCacheEntry {
+  atMs: number;
+  feed: Awaited<ReturnType<typeof loadGraphFeed>>;
 }
 
 function parseSearchBoolean(value: string | null): boolean {
@@ -444,6 +450,7 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
   const writeCapability = opts.writeCapability ?? await getVaultWriteCapability(opts.vaultRoot);
   const healthCache = new Map<string, HealthCacheEntry>();
   const graphHealthCache = new Map<string, GraphHealthCacheEntry>();
+  const graphFeedCache = new Map<string, GraphFeedCacheEntry>();
   const searchRuntimeCache = createSearchRuntimeCache();
   const rawCaptureCache = createRawCaptureEventCache();
   const compilePendingSummaryCache = createCompilePendingSummaryCache();
@@ -684,7 +691,15 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
           writeJsonError(res, 400, "invalid graph scope");
           return;
         }
-        writeJson(res, await loadGraphFeed(opts.vaultRoot, scope));
+        const cached = graphFeedCache.get(scope);
+        const nowMs = Date.now();
+        const feed = cached && nowMs - cached.atMs < GRAPH_FEED_CACHE_MS
+          ? cached.feed
+          : await loadGraphFeed(opts.vaultRoot, scope);
+        if (!cached || nowMs - cached.atMs >= GRAPH_FEED_CACHE_MS) {
+          graphFeedCache.set(scope, { atMs: nowMs, feed });
+        }
+        writeJson(res, feed);
         return;
       }
 
