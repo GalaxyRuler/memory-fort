@@ -1,4 +1,4 @@
-import { basename } from "node:path";
+import { basename, posix, win32 } from "node:path";
 
 export interface NextStepsOptions {
   vault: string;
@@ -22,8 +22,14 @@ export function formatNextSteps(opts: NextStepsOptions): string {
 export function deriveBinName(argv = process.argv): string {
   const raw = argv[1]?.trim();
   if (!raw) return "memory";
-  const name = basename(raw)
+  const name = shortestBasename(raw)
     .replace(/\.(cmd|ps1|bat|exe|mjs|cjs|js)$/iu, "")
     .trim();
   return name.length > 0 && name !== "cli" ? name : "memory";
+}
+
+function shortestBasename(path: string): string {
+  return [basename(path), posix.basename(path), win32.basename(path)]
+    .filter((name) => name.length > 0)
+    .sort((left, right) => left.length - right.length)[0] ?? path;
 }
