@@ -128,15 +128,19 @@ export async function loadSearchCorpus(
     else errors.push(result.error);
   }
 
-  documents.sort((a, b) => a.relPath.localeCompare(b.relPath));
-  applyCognitiveTypeInference(documents);
+  // The crystals scope over-collects (the wiki pool) so wiki/crystals/ pages are
+  // reachable; narrow to the actual crystal documents here.
+  const scopedDocuments = scope === "crystals" ? documents.filter(isCrystalDocument) : documents;
+
+  scopedDocuments.sort((a, b) => a.relPath.localeCompare(b.relPath));
+  applyCognitiveTypeInference(scopedDocuments);
   return {
-    documents,
+    documents: scopedDocuments,
     errors,
     scannedCounts: {
       wiki: allFiles.wiki.length,
       raw: allFiles.raw.length,
-      crystals: allFiles.crystals.length,
+      crystals: scope === "crystals" ? scopedDocuments.length : allFiles.crystals.length,
     },
   };
 }
@@ -228,8 +232,16 @@ function selectedFilesForScope(
 ): MarkdownFile[] {
   if (scope === "wiki") return files.wiki;
   if (scope === "raw") return files.raw;
-  if (scope === "crystals") return files.crystals;
+  // Crystals are curated pages, usually authored under `wiki/crystals/` rather
+  // than a top-level `crystals/` dir, so they are collected as wiki files. Load
+  // the wiki pool (plus any top-level crystals dir) and let the caller filter
+  // down to the crystal documents by kind/type after parsing.
+  if (scope === "crystals") return [...files.wiki, ...files.crystals];
   return [...files.wiki, ...files.raw, ...files.crystals];
+}
+
+function isCrystalDocument(document: SearchDocument): boolean {
+  return document.kind === "crystal" || document.type === "crystal" || document.type === "crystals";
 }
 
 async function loadDocument(file: MarkdownFile): Promise<SearchDocument> {
