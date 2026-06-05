@@ -19,14 +19,11 @@ describe("Galactic legend", () => {
     expect(screen.getByText("References")).toBeInTheDocument();
     expect(screen.getByText("Tools")).toBeInTheDocument();
     expect(screen.getByText("Crystals")).toBeInTheDocument();
-    expect(screen.getByText("Edge Types")).toBeInTheDocument();
-    expect(screen.getByText("Mentions")).toBeInTheDocument();
-    expect(screen.getByText("Supports")).toBeInTheDocument();
-    expect(screen.getByText("Contradicts")).toBeInTheDocument();
-    expect(screen.getByText("Supersedes")).toBeInTheDocument();
-    expect(screen.getByText("Derived From")).toBeInTheDocument();
-    expect(screen.getByText("Uses / Depends On")).toBeInTheDocument();
-    expect(screen.getByText("Caused / Fixed By")).toBeInTheDocument();
+    // No "Edge Types" section: the 3D renderer draws every edge as a uniform
+    // domain-coloured line, so advertising per-relation-type styles/colours
+    // would misrepresent what's on screen.
+    expect(screen.queryByText("Edge Types")).not.toBeInTheDocument();
+    expect(screen.queryByText("Contradicts")).not.toBeInTheDocument();
     // Physics section reflects actual 3D scene capabilities.
     expect(screen.getByText(/Physics/i)).toBeInTheDocument();
     expect(screen.getByText("orbit motion")).toBeInTheDocument();
