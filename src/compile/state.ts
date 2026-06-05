@@ -47,13 +47,38 @@ interface RawFileSize {
 
 const DEFAULT_PENDING_SUMMARY_CACHE_TTL_MS = 1_000;
 
+export function compileRuntimeDir(vaultRoot: string): string {
+  return join(vaultRoot, "var", "compile");
+}
+
 export function compileStatePath(vaultRoot: string): string {
+  return join(compileRuntimeDir(vaultRoot), "state.json");
+}
+
+export function legacyCompileStatePath(vaultRoot: string): string {
   return join(vaultRoot, "state", "compile-state.json");
+}
+
+export function scheduledCompilePromptRelPath(): string {
+  return "var/compile/scheduled-compile-prompt.md";
+}
+
+export function scheduledCompilePromptPath(vaultRoot: string): string {
+  return join(vaultRoot, ...scheduledCompilePromptRelPath().split("/"));
 }
 
 export async function readCompileStateFile(vaultRoot: string): Promise<CompileStateFile> {
   const path = compileStatePath(vaultRoot);
-  if (!existsSync(path)) return {};
+  if (existsSync(path)) return readCompileStateJson(path);
+
+  const legacyPath = legacyCompileStatePath(vaultRoot);
+  if (!existsSync(legacyPath)) return {};
+  const state = await readCompileStateJson(legacyPath);
+  await writeCompileStateFile(vaultRoot, state);
+  return state;
+}
+
+async function readCompileStateJson(path: string): Promise<CompileStateFile> {
   const parsed = JSON.parse(await readFile(path, "utf-8")) as unknown;
   return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
     ? parsed as CompileStateFile

@@ -140,7 +140,7 @@ errors.log            hook/sync failures (newline-delimited)
 .entity-aliases.json  entity dedup alias map
 .auto-push-pending    debounce coordination (lock + token)
 .sync-state.json      last_sync_success, pending_push_count, conflict_files[]
-state/compile-state.json  dashboard compile status + per-raw consumed byte offsets + fact-extraction cache
+var/compile/state.json  runtime dashboard compile status + per-raw consumed byte offsets + fact-extraction cache
 wiki/<category>/*.md  curated pages
 wiki/.audit/*.md      LLM audit logs, compile/propose run logs (operational, NOT entities)
 raw/YYYY-MM-DD/*.md   per-session observation files (<tool>-<sessionId>.md)
@@ -195,7 +195,7 @@ Adapter pattern (`Sniffer` interface: `available()`, `list({since,limit})`, opti
 
 ### Compile (raw → curated wiki)
 
-`runCompile` (`src/cli/commands/compile.ts`): walks `raw/` since the last compile on first sight of a file, then uses `state/compile-state.json.consumed` as a per-file high-water mark. Each consumed entry records `{bytes,lastObservationAt}` keyed by vault-relative raw path; byte offset is authoritative, while `lastObservationAt` is the fairness age key. For growing raw files, compile reads only bytes after the recorded offset, still respecting the per-file 10 KB / total 200 KB caps. If a file is shorter than its recorded offset, the watermark is treated as invalid and the file is re-read from byte 0. Eligible files are scheduled as never-consumed first, then oldest consumed watermark first, and raw bytes are allocated in round-robin slices so the total cap cannot permanently starve a large file behind many smaller tails. Timestamped `## [HH:MM:SS]` raw observations that start at a record boundary are not split; an oversized single record is skipped until caps are raised or reset/backfilled deliberately. Two modes:
+`runCompile` (`src/cli/commands/compile.ts`): walks `raw/` since the last compile on first sight of a file, then uses `var/compile/state.json.consumed` as a per-file high-water mark. Each consumed entry records `{bytes,lastObservationAt}` keyed by vault-relative raw path; byte offset is authoritative, while `lastObservationAt` is the fairness age key. For growing raw files, compile reads only bytes after the recorded offset, still respecting the per-file 10 KB / total 200 KB caps. If a file is shorter than its recorded offset, the watermark is treated as invalid and the file is re-read from byte 0. Eligible files are scheduled as never-consumed first, then oldest consumed watermark first, and raw bytes are allocated in round-robin slices so the total cap cannot permanently starve a large file behind many smaller tails. Timestamped `## [HH:MM:SS]` raw observations that start at a record boundary are not split; an oversized single record is skipped until caps are raised or reset/backfilled deliberately. Two modes:
 
 - **Artifact mode** (default): prints the rendered prompt to stdout (or writes to a file when `--output <path>` is given) for an agent to execute. The dashboard keeps this as the secondary **Generate prompt only** action and returns the scheduled prompt artifact path.
 - **Execute mode** (Phase 4.4, opt-in `--execute`; dashboard primary action in Phase 4.13): sends the prompt to the LLM, parses `compile-ops`, applies high-confidence operations directly, and stages low-confidence operations in `wiki/compile-proposed/`.

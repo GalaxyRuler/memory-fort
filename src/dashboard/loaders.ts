@@ -16,6 +16,7 @@ import {
   checkSupersededDependents,
   loadWiki as loadCurationWiki,
 } from "../curation/checks.js";
+import { readCompileStateFile } from "../compile/state.js";
 import { loadSearchCorpus, type CognitiveType, type SearchScope } from "../retrieval/corpus.js";
 import { buildGraph } from "../retrieval/graph.js";
 import { isWikiDotDirectoryPath } from "../retrieval/wiki-paths.js";
@@ -719,27 +720,16 @@ function parseCompileLastRun(value: unknown): CompileLastRun | null {
 }
 
 export async function loadCompileState(vaultRoot: string): Promise<CompileState> {
-  const candidates = [
-    join(vaultRoot, "state", "compile-state.json"),
-    join(vaultRoot, "state", "compile.json"),
-    join(vaultRoot, ".compile-state.json"),
-  ];
-
-  for (const path of candidates) {
-    if (!(await pathExists(path))) continue;
-    try {
-      const parsed = JSON.parse(await readFile(path, "utf-8")) as Record<string, unknown>;
-      return {
-        status: parseCompileStatus(parsed["status"]),
-        lastRun: parseCompileLastRun(parsed["lastRun"] ?? parsed["last_run"]),
-      };
-    } catch (err) {
-      console.warn(`dashboard: unable to read compile state: ${(err as Error).message}`);
-      return { status: "idle", lastRun: null };
-    }
+  try {
+    const parsed = await readCompileStateFile(vaultRoot);
+    return {
+      status: parseCompileStatus(parsed["status"]),
+      lastRun: parseCompileLastRun(parsed["lastRun"] ?? parsed["last_run"]),
+    };
+  } catch (err) {
+    console.warn(`dashboard: unable to read compile state: ${(err as Error).message}`);
+    return { status: "idle", lastRun: null };
   }
-
-  return { status: "idle", lastRun: null };
 }
 
 function parseConflictPageSummary(value: unknown): ConflictPageSummary | null {

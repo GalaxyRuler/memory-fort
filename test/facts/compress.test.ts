@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { CURRENT_COMPRESS_VERSION, compressSession } from "../../src/facts/compress.js";
 import { runCompress } from "../../src/cli/commands/compress.js";
+import { readCompileStateFile, writeCompileStateFile } from "../../src/compile/state.js";
 import { readCompressedFactFile } from "../../src/facts/store.js";
 import type { LLMProvider, LLMRequest } from "../../src/llm/types.js";
 
@@ -310,15 +311,15 @@ describe("memory fact compression", () => {
     expect(second.summary).toMatchObject({ compressed: 0, skipped: 1, factsWritten: 0 });
     expect(llm.chat).toHaveBeenCalledTimes(1);
     expect(existsSync(join(tmp, "facts", "2026-05-31", "session-a.json"))).toBe(true);
-    const state = JSON.parse(await readFile(join(tmp, "state", "compile-state.json"), "utf-8"));
-    expect(state.compressed["raw/2026-05-31/session-a.md"].bytes).toBeGreaterThan(0);
-    expect(state.compressed["raw/2026-05-31/session-a.md"].compressVersion).toBe(CURRENT_COMPRESS_VERSION);
+    const state = await readCompileStateFile(tmp);
+    expect(state.compressed?.["raw/2026-05-31/session-a.md"]?.bytes).toBeGreaterThan(0);
+    expect(state.compressed?.["raw/2026-05-31/session-a.md"]?.compressVersion).toBe(CURRENT_COMPRESS_VERSION);
   });
 
   it("re-compresses old-version watermarks and skips only current-version matches", async () => {
     const rawPath = join(tmp, "raw", "2026-05-31", "session-a.md");
     const info = await stat(rawPath);
-    await writeFileAt("state/compile-state.json", JSON.stringify({
+    await writeCompileStateFile(tmp, {
       compressed: {
         "raw/2026-05-31/session-a.md": {
           bytes: info.size,
@@ -326,7 +327,7 @@ describe("memory fact compression", () => {
           compressVersion: 1,
         },
       },
-    }, null, 2));
+    });
     const llm = fakeCompressionLLM([factBundle("Recompressed current version", "fact")]);
 
     const first = await runCompress({
@@ -349,8 +350,8 @@ describe("memory fact compression", () => {
     expect(first.summary).toMatchObject({ compressed: 1, skipped: 0 });
     expect(second.summary).toMatchObject({ compressed: 0, skipped: 1 });
     expect(llm.chat).toHaveBeenCalledTimes(1);
-    const state = JSON.parse(await readFile(join(tmp, "state", "compile-state.json"), "utf-8"));
-    expect(state.compressed["raw/2026-05-31/session-a.md"].compressVersion).toBe(CURRENT_COMPRESS_VERSION);
+    const state = await readCompileStateFile(tmp);
+    expect(state.compressed?.["raw/2026-05-31/session-a.md"]?.compressVersion).toBe(CURRENT_COMPRESS_VERSION);
   });
 
   it("continues apply mode after one raw session fails and reports the failed session", async () => {
@@ -421,9 +422,9 @@ describe("memory fact compression", () => {
     ]);
     expect(existsSync(join(tmp, "facts", "2026-05-31", "session-a.json"))).toBe(false);
     expect(existsSync(join(tmp, "facts", "2026-05-31", "session-b.json"))).toBe(true);
-    const state = JSON.parse(await readFile(join(tmp, "state", "compile-state.json"), "utf-8"));
-    expect(state.compressed["raw/2026-05-31/session-a.md"]).toBeUndefined();
-    expect(state.compressed["raw/2026-05-31/session-b.md"].bytes).toBeGreaterThan(0);
+    const state = await readCompileStateFile(tmp);
+    expect(state.compressed?.["raw/2026-05-31/session-a.md"]).toBeUndefined();
+    expect(state.compressed?.["raw/2026-05-31/session-b.md"]?.bytes).toBeGreaterThan(0);
   });
 
   async function writeFileAt(relPath: string, content: string): Promise<void> {

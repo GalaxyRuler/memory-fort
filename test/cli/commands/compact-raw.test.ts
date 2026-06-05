@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { mkdtemp } from "node:fs/promises";
 import { runCompactRaw } from "../../../src/cli/commands/compact-raw.js";
+import { readCompileStateFile, writeCompileStateFile } from "../../../src/compile/state.js";
 import { formatToolUseBlock } from "../../../src/hooks/raw-file.js";
 
 describe("runCompactRaw", () => {
@@ -15,7 +16,6 @@ describe("runCompactRaw", () => {
     tmp = await mkdtemp(join(tmpdir(), "compact-raw-"));
     root = join(tmp, ".memory");
     await mkdir(join(root, "raw", "2026-05-21"), { recursive: true });
-    await mkdir(join(root, "state"), { recursive: true });
   });
 
   afterEach(async () => {
@@ -90,14 +90,14 @@ describe("runCompactRaw", () => {
     const rawPath = join(root, "raw", "2026-05-21", "codex-big.md");
     const original = rawFixture();
     await writeFile(rawPath, original);
-    await writeFile(join(root, "state", "compile-state.json"), JSON.stringify({
+    await writeCompileStateFile(root, {
       consumed: {
         "raw/2026-05-21/codex-big.md": {
           bytes: Buffer.byteLength(original, "utf-8") + 1_000,
           lastObservationAt: "2026-05-21T09:00:00.000Z",
         },
       },
-    }, null, 2));
+    });
 
     await runCompactRaw({
       vaultRoot: root,
@@ -108,7 +108,7 @@ describe("runCompactRaw", () => {
     });
 
     const compactedSize = Buffer.byteLength(await readFile(rawPath, "utf-8"), "utf-8");
-    const state = JSON.parse(await readFile(join(root, "state", "compile-state.json"), "utf-8"));
+    const state = await readCompileStateFile(root);
     expect(state.consumed["raw/2026-05-21/codex-big.md"].bytes).toBe(compactedSize);
   });
 
@@ -118,14 +118,14 @@ describe("runCompactRaw", () => {
     const observationMarker = "## [09:02:00] Observation";
     const oldOffset = Buffer.byteLength(original.slice(0, original.indexOf(observationMarker)), "utf-8");
     await writeFile(rawPath, original);
-    await writeFile(join(root, "state", "compile-state.json"), JSON.stringify({
+    await writeCompileStateFile(root, {
       consumed: {
         "raw/2026-05-21/codex-big.md": {
           bytes: oldOffset,
           lastObservationAt: "2026-05-21T09:01:00.000Z",
         },
       },
-    }, null, 2));
+    });
 
     await runCompactRaw({
       vaultRoot: root,
@@ -138,7 +138,7 @@ describe("runCompactRaw", () => {
     const compacted = await readFile(rawPath, "utf-8");
     const expectedOffset = Buffer.byteLength(compacted.slice(0, compacted.indexOf(observationMarker)), "utf-8");
     const compactedSize = Buffer.byteLength(compacted, "utf-8");
-    const state = JSON.parse(await readFile(join(root, "state", "compile-state.json"), "utf-8"));
+    const state = await readCompileStateFile(root);
     expect(expectedOffset).toBeLessThan(oldOffset);
     expect(compactedSize).toBeGreaterThan(oldOffset);
     expect(state.consumed["raw/2026-05-21/codex-big.md"].bytes).toBe(expectedOffset);

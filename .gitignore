@@ -13,6 +13,7 @@ wiki/.audit/verify-*.json
 /wiki/
 /embeddings/
 /state/
+/var/
 /config.yaml
 /log.md
 

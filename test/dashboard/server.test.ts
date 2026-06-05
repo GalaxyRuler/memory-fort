@@ -5,6 +5,7 @@ import { join } from "node:path";
 import type { DashboardStatus } from "../../src/dashboard/loaders.js";
 import { createServer, sameOriginAllowed } from "../../src/dashboard/server.js";
 import type { VerifyResult, VerifyRole } from "../../src/cli/commands/verify.js";
+import { writeCompileStateFile } from "../../src/compile/state.js";
 import type { VoyageClient } from "../../src/retrieval/voyage-client.js";
 import { READ_ONLY_MIRROR_REASON } from "../../src/sync/vault-capability.js";
 
@@ -1034,19 +1035,15 @@ describe("dashboard server", () => {
 
   it("GET /api/compile/state returns the pending-tail summary", async () => {
     await mkdir(join(tmp, "raw", "2026-06-04"), { recursive: true });
-    await mkdir(join(tmp, "state"), { recursive: true });
     await writeFile(join(tmp, "raw", "2026-06-04", "pending.md"), "abcdef");
     await writeFile(join(tmp, "raw", "2026-06-04", "drained.md"), "12345");
     await writeFile(join(tmp, "raw", "2026-06-04", "unseen.md"), "new");
-    await writeFile(
-      join(tmp, "state", "compile-state.json"),
-      `${JSON.stringify({
-        consumed: {
-          "raw/2026-06-04/pending.md": { bytes: 2 },
-          "raw/2026-06-04/drained.md": { bytes: 5 },
-        },
-      }, null, 2)}\n`,
-    );
+    await writeCompileStateFile(tmp, {
+      consumed: {
+        "raw/2026-06-04/pending.md": { bytes: 2 },
+        "raw/2026-06-04/drained.md": { bytes: 5 },
+      },
+    });
     const server = await createServer({ vaultRoot: tmp, port: 0 });
 
     try {
@@ -1125,7 +1122,7 @@ describe("dashboard server", () => {
       resolveRun?.({
         rawFilesIncluded: ["raw/a.md", "raw/b.md"],
         rawFilesSkipped: [{ path: "raw/old.md", reason: "before since cutoff" }],
-        outputPath: "state/scheduled-compile-prompt.md",
+        outputPath: "var/compile/scheduled-compile-prompt.md",
         rawRemaining: 0,
         pendingSummary: {
           filesWithPendingTail: 0,
@@ -1150,7 +1147,7 @@ describe("dashboard server", () => {
             filesFullyDrained: 2,
             filesUnseen: 1,
           },
-          outputPath: "state/scheduled-compile-prompt.md",
+          outputPath: "var/compile/scheduled-compile-prompt.md",
         },
       });
       expect(compileRunner).toHaveBeenCalledOnce();
@@ -1163,7 +1160,7 @@ describe("dashboard server", () => {
     const compileRunner = vi.fn(async () => ({
       rawFilesIncluded: ["raw/a.md"],
       rawFilesSkipped: [],
-      outputPath: "state/scheduled-compile-prompt.md",
+      outputPath: "var/compile/scheduled-compile-prompt.md",
       rawRemaining: 0,
       pendingSummary: {
         filesWithPendingTail: 2,
@@ -1243,7 +1240,7 @@ describe("dashboard server", () => {
           sessionsScanned: 3,
           extractionTokensUsed: { prompt: 20, completion: 8, total: 28 },
           rewriteTokensUsed: { prompt: 10, completion: 5, total: 15 },
-          outputPath: "state/scheduled-compile-prompt.md",
+          outputPath: "var/compile/scheduled-compile-prompt.md",
         },
       });
       expect(compileRunner).toHaveBeenCalledWith({ execute: true });
@@ -1257,7 +1254,7 @@ describe("dashboard server", () => {
     const compileRunner = vi.fn(async () => ({
       rawFilesIncluded: [],
       rawFilesSkipped: [],
-      outputPath: "state/scheduled-compile-prompt.md",
+      outputPath: "var/compile/scheduled-compile-prompt.md",
       rawRemaining: 0,
     }));
     const server = await createServer({ vaultRoot: tmp, port: 0, compileRunner });
@@ -1281,7 +1278,7 @@ describe("dashboard server", () => {
     const compileRunner = vi.fn(async () => ({
       rawFilesIncluded: ["raw/a.md"],
       rawFilesSkipped: [],
-      outputPath: "state/scheduled-compile-prompt.md",
+      outputPath: "var/compile/scheduled-compile-prompt.md",
       rawRemaining: 0,
     }));
     const server = await createServer({ vaultRoot: tmp, port: 0, compileRunner });

@@ -177,7 +177,7 @@ describe("runAutoPushWorker", () => {
 
     expect(result).toEqual({ outcome: "pushed", details: "1 commits" });
     expect(events).toEqual(["auto-commit", "sync"]);
-    expect(logs.some((line) => line.includes("auto-committed 3 raw observation file(s) as abc1234"))).toBe(true);
+    expect(logs.some((line) => line.includes("auto-committed 3 vault system file(s) as abc1234"))).toBe(true);
   });
 
   it("Worker skips push when non-raw files are dirty", async () => {
@@ -227,8 +227,8 @@ describe("runAutoPushWorker", () => {
       myToken: "A",
       sleepFn,
       autoCommitFn: async () => ({
-        kind: "skipped-secret-raw-dirty",
-        secretRawFiles: ["raw/2026-06-03/codex-secret.md"],
+        kind: "skipped-secret-shape",
+        secretFiles: ["raw/2026-06-03/codex-secret.md"],
       }),
       syncFn: async () => {
         syncCalls += 1;
@@ -240,9 +240,9 @@ describe("runAutoPushWorker", () => {
       now,
     });
 
-    expect(result).toEqual({ outcome: "offline", details: "secret-shaped raw observations" });
+    expect(result).toEqual({ outcome: "offline", details: "secret-shaped auto-commit files" });
     expect(syncCalls).toBe(0);
-    expect(logs.some((line) => line.includes("auto-push skipped: secret-shaped raw observations"))).toBe(true);
+    expect(logs.some((line) => line.includes("auto-push skipped: secret-shaped auto-commit file(s)"))).toBe(true);
     expect(logs.some((line) => line.includes("raw/2026-06-03/codex-secret.md"))).toBe(true);
   });
 });

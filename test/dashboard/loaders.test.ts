@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { mkdtemp, mkdir, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { compileStatePath, writeCompileStateFile } from "../../src/compile/state.js";
 import {
   createRawCaptureEventCache,
   loadCompileState,
@@ -182,8 +183,7 @@ describe("dashboard loaders", () => {
     await expect(loadCompileState(tmp)).resolves.toEqual({ status: "idle", lastRun: null });
   });
 
-  it("loadCompileState parses compile-state.json with a completed last run", async () => {
-    await mkdir(join(tmp, "state"), { recursive: true });
+  it("loadCompileState parses compile state with a completed last run", async () => {
     const lastRun = {
       startedAt: "2026-05-24T10:00:00.000Z",
       finishedAt: "2026-05-24T10:00:04.250Z",
@@ -191,17 +191,14 @@ describe("dashboard loaders", () => {
       pagesCompiled: 12,
       digestPath: "wiki/crystal/compile-2026-05-24.md",
     };
-    await writeFile(
-      join(tmp, "state", "compile-state.json"),
-      JSON.stringify({ status: "completed", lastRun }, null, 2),
-    );
+    await writeCompileStateFile(tmp, { status: "completed", lastRun });
 
     await expect(loadCompileState(tmp)).resolves.toEqual({ status: "completed", lastRun });
   });
 
-  it("loadCompileState returns idle when compile-state.json is malformed", async () => {
-    await mkdir(join(tmp, "state"), { recursive: true });
-    await writeFile(join(tmp, "state", "compile-state.json"), "{ not json");
+  it("loadCompileState returns idle when compile state is malformed", async () => {
+    await mkdir(join(tmp, "var", "compile"), { recursive: true });
+    await writeFile(compileStatePath(tmp), "{ not json");
 
     await expect(loadCompileState(tmp)).resolves.toEqual({ status: "idle", lastRun: null });
   });

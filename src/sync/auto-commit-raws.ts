@@ -13,46 +13,46 @@ export type AutoCommitResult =
   | { kind: "no-dirty-files" }
   | { kind: "committed"; filesCount: number; commitSha: string }
   | { kind: "skipped-non-raw-dirty"; dirtyNonRawFiles: string[] }
-  | { kind: "skipped-secret-raw-dirty"; secretRawFiles: string[] };
+  | { kind: "skipped-secret-shape"; secretFiles: string[] };
 
 interface DirtyFile {
   path: string;
-  isRaw: boolean;
+  isAutoCommitEligible: boolean;
 }
 
 export async function autoCommitRawsIfDirty(opts: AutoCommitOptions): Promise<AutoCommitResult> {
-  const status = await opts.runner.run("git", ["status", "--porcelain"], { cwd: opts.memoryRoot });
+  const status = await opts.runner.run("git", ["status", "--porcelain", "-uall"], { cwd: opts.memoryRoot });
   if (status.exitCode !== 0) {
-    throw new Error(`git status --porcelain failed: ${status.stderr.trim() || status.stdout.trim()}`);
+    throw new Error(`git status --porcelain -uall failed: ${status.stderr.trim() || status.stdout.trim()}`);
   }
 
   const dirty = parseDirtyFiles(status.stdout);
   if (dirty.length === 0) return { kind: "no-dirty-files" };
 
-  const nonRaw = dirty.filter((file) => !file.isRaw).map((file) => file.path);
-  if (nonRaw.length > 0) {
-    return { kind: "skipped-non-raw-dirty", dirtyNonRawFiles: nonRaw };
+  const blocked = dirty.filter((file) => !file.isAutoCommitEligible).map((file) => file.path);
+  if (blocked.length > 0) {
+    return { kind: "skipped-non-raw-dirty", dirtyNonRawFiles: blocked };
   }
 
-  const rawFiles = [...new Set(dirty.map((file) => file.path))];
-  const secretRawFiles = await findSecretRawFiles(opts.memoryRoot, rawFiles);
-  if (secretRawFiles.length > 0) {
-    return { kind: "skipped-secret-raw-dirty", secretRawFiles };
+  const files = [...new Set(dirty.map((file) => file.path))];
+  const secretFiles = await findSecretFiles(opts.memoryRoot, files);
+  if (secretFiles.length > 0) {
+    return { kind: "skipped-secret-shape", secretFiles };
   }
 
-  const message = `chore: auto-capture ${rawFiles.length} raw observation file(s)`;
-  const add = await opts.runner.run("git", ["add", "raw/"], { cwd: opts.memoryRoot });
+  const message = `chore: auto-capture ${files.length} vault system file(s)`;
+  const add = await opts.runner.run("git", ["add", "--", ...files], { cwd: opts.memoryRoot });
   if (add.exitCode !== 0) {
-    throw new Error(`git add raw/ failed: ${add.stderr.trim() || add.stdout.trim()}`);
+    throw new Error(`git add auto-commit files failed: ${add.stderr.trim() || add.stdout.trim()}`);
   }
   const commit = await opts.runner.run("git", ["commit", "-m", message], { cwd: opts.memoryRoot });
   if (commit.exitCode !== 0) {
-    throw new Error(`git commit raw/ failed: ${commit.stderr.trim() || commit.stdout.trim()}`);
+    throw new Error(`git commit auto-commit files failed: ${commit.stderr.trim() || commit.stdout.trim()}`);
   }
 
   return {
     kind: "committed",
-    filesCount: rawFiles.length,
+    filesCount: files.length,
     commitSha: parseCommitSha(commit.stdout) ?? parseCommitSha(commit.stderr) ?? "",
   };
 }
@@ -66,8 +66,22 @@ function parseDirtyFiles(output: string): DirtyFile[] {
     .filter((path): path is string => path.length > 0)
     .map((path) => ({
       path,
-      isRaw: path === "raw" || path.startsWith("raw/"),
+      isAutoCommitEligible: isAutoCommitEligiblePath(path),
     }));
+}
+
+function isAutoCommitEligiblePath(path: string): boolean {
+  return isRawPath(path) || isSystemManagedPath(path);
+}
+
+function isRawPath(path: string): boolean {
+  return path === "raw" || path.startsWith("raw/");
+}
+
+function isSystemManagedPath(path: string): boolean {
+  return path === "log.md"
+    || path.startsWith("wiki/.audit/")
+    || path === "embeddings/auto-heal.jsonl";
 }
 
 function parseStatusPath(line: string): string {
@@ -87,17 +101,17 @@ function parseCommitSha(output: string): string | null {
   return /\[[^\s\]]+\s+([a-f0-9]+)\]/i.exec(output)?.[1] ?? null;
 }
 
-async function findSecretRawFiles(memoryRoot: string, rawFiles: string[]): Promise<string[]> {
+async function findSecretFiles(memoryRoot: string, files: string[]): Promise<string[]> {
   const hits: string[] = [];
-  for (const rawFile of rawFiles) {
+  for (const file of files) {
     let content: string;
     try {
-      content = await readFile(join(memoryRoot, ...rawFile.split("/")), "utf-8");
+      content = await readFile(join(memoryRoot, ...file.split("/")), "utf-8");
     } catch {
       // Deleted or unreadable files cannot leak new content through auto-commit.
       continue;
     }
-    if (containsSecretShape(content)) hits.push(rawFile);
+    if (containsSecretShape(content)) hits.push(file);
   }
   return hits;
 }

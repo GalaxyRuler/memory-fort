@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { mkdtemp } from "node:fs/promises";
 import { formatCompileExecuteSummary, runCompile, runCompileDrain, type CompileResult } from "../../../src/cli/commands/compile.js";
+import { readCompileStateFile, writeCompileStateFile } from "../../../src/compile/state.js";
 import type { LLMProvider } from "../../../src/llm/types.js";
 
 const CLI = resolve(process.cwd(), "dist", "cli.mjs");
@@ -445,10 +446,7 @@ describe("runCompile", () => {
       env: {},
     });
 
-    const statePath = join(root, "state", "compile-state.json");
-    const state = existsSync(statePath)
-      ? JSON.parse(await readFile(statePath, "utf-8"))
-      : {};
+    const state = await readCompileStateFile(root);
     expect(result.execution?.applied).toEqual(["wiki/projects/memory-system.md"]);
     expect(result.rawFilesIncluded).toEqual([rawPath]);
     expect(result.watermarksAdvanced).toEqual([]);
@@ -682,8 +680,7 @@ function fakeExecuteLLMWith(
 }
 
 async function writeCompileState(state: Record<string, unknown>): Promise<void> {
-  await mkdir(join(rootForTest(), "state"), { recursive: true });
-  await writeFile(join(rootForTest(), "state", "compile-state.json"), `${JSON.stringify(state, null, 2)}\n`);
+  await writeCompileStateFile(rootForTest(), state);
 }
 
 async function writeFact(relPath: string, fact: Record<string, unknown>): Promise<void> {
@@ -693,7 +690,7 @@ async function writeFact(relPath: string, fact: Record<string, unknown>): Promis
 }
 
 async function readCompileState(): Promise<{ consumed: Record<string, { bytes: number; lastObservationAt?: string }> }> {
-  return JSON.parse(await readFile(join(rootForTest(), "state", "compile-state.json"), "utf-8"));
+  return await readCompileStateFile(rootForTest()) as { consumed: Record<string, { bytes: number; lastObservationAt?: string }> };
 }
 
 function rootForTest(): string {

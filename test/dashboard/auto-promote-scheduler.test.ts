@@ -8,6 +8,7 @@ import {
   runScheduledCompileOnce,
   runScheduledVaultTasksOnce,
 } from "../../src/dashboard/auto-promote-scheduler.js";
+import { writeCompileStateFile } from "../../src/compile/state.js";
 
 describe("auto-promote scheduler", () => {
   let tmp: string;
@@ -112,7 +113,7 @@ describe("auto-promote scheduler", () => {
     const compileRunner = vi.fn(async () => ({
       rawFilesIncluded: [],
       rawFilesSkipped: [],
-      outputPath: "state/scheduled-compile-prompt.md",
+      outputPath: "var/compile/scheduled-compile-prompt.md",
       rawRemaining: 0,
     }));
     await createAutoPromoteScheduler({
@@ -145,22 +146,18 @@ describe("auto-promote scheduler", () => {
   it("logs scheduled compile with already-drained and pending-tail labels", async () => {
     await mkdir(join(tmp, "prompts"), { recursive: true });
     await mkdir(join(tmp, "raw", "2026-06-04"), { recursive: true });
-    await mkdir(join(tmp, "state"), { recursive: true });
     await writeFile(join(tmp, "prompts", "compile.md"), "RAW={{raw_content}}\n");
     await writeFile(join(tmp, "schema.md"), "# Schema\n");
     await writeFile(join(tmp, "index.md"), "# Index\n");
     await writeFile(join(tmp, "log.md"), "# Log\n");
     await writeFile(join(tmp, "raw", "2026-06-04", "pending.md"), "abcdef");
     await writeFile(join(tmp, "raw", "2026-06-04", "drained.md"), "12345");
-    await writeFile(
-      join(tmp, "state", "compile-state.json"),
-      `${JSON.stringify({
-        consumed: {
-          "raw/2026-06-04/pending.md": { bytes: 2 },
-          "raw/2026-06-04/drained.md": { bytes: 5 },
-        },
-      }, null, 2)}\n`,
-    );
+    await writeCompileStateFile(tmp, {
+      consumed: {
+        "raw/2026-06-04/pending.md": { bytes: 2 },
+        "raw/2026-06-04/drained.md": { bytes: 5 },
+      },
+    });
 
     const result = await runScheduledCompileOnce(tmp);
 

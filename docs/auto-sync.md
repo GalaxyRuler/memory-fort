@@ -55,7 +55,7 @@ If you have uncommitted edits in `wiki/` (or `crystals/`, or top-level files), a
 [<iso>] auto-push skipped: non-raw dirty files present (run `memory sync` after committing: wiki/projects/foo.md)
 ```
 
-This preserves in-progress wiki edits - you commit when you're ready, not when auto-sync decides. Raw observations under `raw/` are different: append-only firehose data, so auto-sync auto-commits them with a `chore: auto-capture <N> raw observation file(s)` message before pushing.
+This preserves in-progress wiki edits - you commit when you're ready, not when auto-sync decides. Raw observations and a curated set of system-managed files (`log.md`, `wiki/.audit/`, and `embeddings/auto-heal.jsonl`) are different, so auto-sync auto-commits them with a `chore: auto-capture <N> vault system file(s)` message before pushing. The same secret-shape scan runs before staging any of those paths.
 
 The auto-commit happens inside the post-hook worker, after the debounce window. One commit per debounce cycle (5+ seconds), not one per hook fire.
 

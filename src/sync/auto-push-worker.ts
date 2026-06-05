@@ -146,7 +146,7 @@ async function handleAutoCommit(
     case "committed":
       await writeLog(
         memoryRoot,
-        `[${nowIso}] auto-committed ${autoCommit.filesCount} raw observation file(s) as ${autoCommit.commitSha.slice(0, 7)}\n`,
+        `[${nowIso}] auto-committed ${autoCommit.filesCount} vault system file(s) as ${autoCommit.commitSha.slice(0, 7)}\n`,
         logSink,
       );
       return "committed";
@@ -160,15 +160,15 @@ async function handleAutoCommit(
       );
       return { kind: "skipped", reason: "non-raw dirty tree" };
     }
-    case "skipped-secret-raw-dirty": {
-      const shown = autoCommit.secretRawFiles.slice(0, 3).join(", ");
-      const suffix = autoCommit.secretRawFiles.length > 3 ? "..." : "";
+    case "skipped-secret-shape": {
+      const shown = autoCommit.secretFiles.slice(0, 3).join(", ");
+      const suffix = autoCommit.secretFiles.length > 3 ? "..." : "";
       await writeLog(
         memoryRoot,
-        `[${nowIso}] auto-push skipped: secret-shaped raw observations require manual redaction before commit (${shown}${suffix})\n`,
+        `[${nowIso}] auto-push skipped: secret-shaped auto-commit file(s) require manual redaction before commit (${shown}${suffix})\n`,
         logSink,
       );
-      return { kind: "skipped", reason: "secret-shaped raw observations" };
+      return { kind: "skipped", reason: "secret-shaped auto-commit files" };
     }
   }
 }

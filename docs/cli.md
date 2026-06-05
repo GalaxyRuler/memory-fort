@@ -37,7 +37,7 @@ Serve the dashboard locally against the canonical writable vault (`--root`, `MEM
 Query the configured dashboard `/api/search`; prints ranked results with provenance. Resolution order is `--dashboard-url`, legacy `--vps-url`, `dashboard.url` in `config.yaml`, legacy `vps.host`, then the local dashboard at `http://127.0.0.1:4410/memory`. Defaults to the fast `--no-rerank` path for bounded latency; omit it to add Voyage rerank. Runs no retrieval locally.
 
 ### `memory compress [--plan|--apply] [--drain] [--max-sessions <n>]`
-Compress raw sessions once into structured fact bundles under `facts/YYYY-MM-DD/<session>.json`. Each fact bundle has `title`, `facts[]`, `narrative`, `concepts[]`, `files[]`, `importance` (1-10), `sessionId`, and `observedAt`. Apply mode advances `state/compile-state.json.compressed` so already-compressed sessions are skipped; `--drain` repeats bounded batches until no uncompressed sessions remain.
+Compress raw sessions once into structured fact bundles under `facts/YYYY-MM-DD/<session>.json`. Each fact bundle has `title`, `facts[]`, `narrative`, `concepts[]`, `files[]`, `importance` (1-10), `sessionId`, and `observedAt`. Apply mode advances `var/compile/state.json.compressed` so already-compressed sessions are skipped; `--drain` repeats bounded batches until no uncompressed sessions remain.
 
 ### `memory compile [--since <date>] [--per-file-max-bytes <n>] [--total-max-bytes <n>] [-o|--output <path>] [--execute] [--plan] [--drain --max-passes <n>]`
 Assemble the consolidation prompt from raw observations since the last compile.

@@ -1,11 +1,16 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  compileStatePath,
   createCompilePendingSummaryCache,
+  legacyCompileStatePath,
   readCompilePendingSummary,
+  readCompileStateFile,
   summarizeCompilePending,
+  writeCompileStateFile,
 } from "../../src/compile/state.js";
 
 describe("summarizeCompilePending", () => {
@@ -43,11 +48,49 @@ describe("summarizeCompilePending", () => {
     });
   });
 
-  it("reuses cached pending summaries for repeated dashboard reads", async () => {
-    await writeFile(join(root, "raw", "2026-06-04", "pending.md"), "abcdef");
+  it("writes compile state under the gitignored var/compile runtime path", async () => {
+    await writeCompileStateFile(root, {
+      status: "completed",
+      consumed: {
+        "raw/2026-06-04/pending.md": { bytes: 2 },
+      },
+    });
+
+    expect(compileStatePath(root)).toBe(join(root, "var", "compile", "state.json"));
+    expect(existsSync(join(root, "state", "compile-state.json"))).toBe(false);
+    await expect(readFile(join(root, "var", "compile", "state.json"), "utf-8")).resolves.toContain(
+      "\"status\": \"completed\"",
+    );
+  });
+
+  it("migrates legacy state/compile-state.json into var/compile/state.json on first read", async () => {
     await mkdir(join(root, "state"), { recursive: true });
     await writeFile(
       join(root, "state", "compile-state.json"),
+      `${JSON.stringify({
+        consumed: {
+          "raw/2026-06-04/pending.md": { bytes: 2 },
+        },
+      }, null, 2)}\n`,
+    );
+
+    const state = await readCompileStateFile(root);
+
+    expect(state.consumed).toEqual({
+      "raw/2026-06-04/pending.md": { bytes: 2 },
+    });
+    expect(legacyCompileStatePath(root)).toBe(join(root, "state", "compile-state.json"));
+    expect(existsSync(join(root, "state", "compile-state.json"))).toBe(true);
+    await expect(readFile(join(root, "var", "compile", "state.json"), "utf-8")).resolves.toContain(
+      "raw/2026-06-04/pending.md",
+    );
+  });
+
+  it("reuses cached pending summaries for repeated dashboard reads", async () => {
+    await writeFile(join(root, "raw", "2026-06-04", "pending.md"), "abcdef");
+    await mkdir(join(root, "var", "compile"), { recursive: true });
+    await writeFile(
+      join(root, "var", "compile", "state.json"),
       `${JSON.stringify({
         consumed: {
           "raw/2026-06-04/pending.md": { bytes: 2 },

@@ -1,7 +1,13 @@
 import { appendFile } from "node:fs/promises";
 import { join } from "node:path";
 import { runCompile, type CompileResult } from "../cli/commands/compile.js";
-import { readCompileStateFile, writeCompileStateFile, type CompilePendingSummary } from "../compile/state.js";
+import {
+  readCompileStateFile,
+  scheduledCompilePromptPath,
+  scheduledCompilePromptRelPath,
+  writeCompileStateFile,
+  type CompilePendingSummary,
+} from "../compile/state.js";
 import { runProcedurePropose } from "../cli/commands/procedure.js";
 import { runThreadPropose } from "../cli/commands/thread.js";
 import { loadMemoryConfig, type MemoryConfig } from "../storage/config.js";
@@ -113,7 +119,8 @@ export async function runScheduledCompileOnce(
   opts: { execute?: boolean } = {},
 ): Promise<DashboardCompileRunResult> {
   const startedAt = new Date();
-  const outputPath = join(vaultRoot, "state", "scheduled-compile-prompt.md");
+  const outputPath = scheduledCompilePromptPath(vaultRoot);
+  const outputRelPath = scheduledCompilePromptRelPath();
   const initialState = await readCompileStateForScheduler(vaultRoot);
   await writeCompileStateFile(vaultRoot, {
     ...initialState,
@@ -131,7 +138,7 @@ export async function runScheduledCompileOnce(
       finishedAt: finishedAt.toISOString(),
       durationMs: finishedAt.getTime() - startedAt.getTime(),
       pagesCompiled: result.rawFilesIncluded.length,
-      digestPath: "state/scheduled-compile-prompt.md",
+      digestPath: outputRelPath,
       execute: opts.execute === true,
       operationsApplied: result.execution?.applied.length ?? 0,
       operationsProposed: result.execution?.proposed.length ?? 0,
@@ -145,7 +152,7 @@ export async function runScheduledCompileOnce(
   return {
     rawFilesIncluded: result.rawFilesIncluded,
     rawFilesSkipped: result.rawFilesSkipped,
-    outputPath: "state/scheduled-compile-prompt.md",
+    outputPath: outputRelPath,
     rawRemaining: countRemainingRawFiles(result.rawFilesSkipped),
     pendingSummary: result.pendingSummary,
     execution: result.execution,

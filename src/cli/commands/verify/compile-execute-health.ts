@@ -1,6 +1,4 @@
-import { existsSync } from "node:fs";
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { readCompileStateFile } from "../../../compile/state.js";
 import { pass, warn, type CheckDescriptor, type VerifyCheckContext, type VerifyCheckResult } from "./types.js";
 
 const ID = "compile.execute-health";
@@ -16,12 +14,9 @@ export const compileExecuteHealthCheck: CheckDescriptor = {
 export async function checkCompileExecuteHealth(
   opts: VerifyCheckContext,
 ): Promise<VerifyCheckResult> {
-  const statePath = join(opts.vaultRoot, "state", "compile-state.json");
-  if (!existsSync(statePath)) return pass(ID, LABEL, "no executed compile run recorded");
-
   let parsed: unknown;
   try {
-    parsed = JSON.parse(await readFile(statePath, "utf-8"));
+    parsed = await readCompileStateFile(opts.vaultRoot);
   } catch (error) {
     return warn(ID, LABEL, `compile state unreadable: ${error instanceof Error ? error.message : String(error)}`);
   }

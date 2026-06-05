@@ -118,7 +118,6 @@ export async function runCompactRaw(opts: CompactRawOptions): Promise<CompactRaw
   const commitPaths = [
     ...files.map((file) => file.path),
     ...archived.map((archive) => archive.to),
-    ...(watermarksClamped.length > 0 ? ["state/compile-state.json"] : []),
   ];
   const commit = await (opts.commitVaultChange ?? defaultCommitVaultChange)({
     memoryRoot: root,

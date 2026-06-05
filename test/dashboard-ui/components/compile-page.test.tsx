@@ -135,7 +135,7 @@ describe("CompilePage", () => {
           referencesStripped: 1,
           extractionTokensUsed: { prompt: 90, completion: 30, total: 120 },
           rewriteTokensUsed: { prompt: 100, completion: 50, total: 150 },
-          outputPath: "state/scheduled-compile-prompt.md",
+          outputPath: "var/compile/scheduled-compile-prompt.md",
         },
       },
       error: null,

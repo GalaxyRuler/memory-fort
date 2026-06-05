@@ -36,18 +36,18 @@ describe("autoCommitRawsIfDirty", () => {
       kind: "no-dirty-files",
     });
 
-    expect(calls.map((call) => call.args.join(" "))).toEqual(["status --porcelain"]);
+    expect(calls.map((call) => call.args.join(" "))).toEqual(["status --porcelain -uall"]);
   });
 
   it("commits when only raw/ is dirty", async () => {
     const { runner, calls } = makeRunner((call) => {
       const args = call.args.join(" ");
-      if (args === "status --porcelain") {
+      if (args === "status --porcelain -uall") {
         return { stdout: " M raw/2026-05-21/foo.md\n?? raw/2026-05-23/bar.md\n" };
       }
-      if (args === "add raw/") return {};
+      if (args === "add -- raw/2026-05-21/foo.md raw/2026-05-23/bar.md") return {};
       if (args.startsWith("commit -m")) {
-        return { stdout: "[main abc1234] chore: auto-capture 2 raw observation file(s)\n" };
+        return { stdout: "[main abc1234] chore: auto-capture 2 vault system file(s)\n" };
       }
       throw new Error(`unexpected command: ${args}`);
     });
@@ -59,10 +59,71 @@ describe("autoCommitRawsIfDirty", () => {
     });
 
     expect(calls.map((call) => call.args.join(" "))).toEqual([
-      "status --porcelain",
-      "add raw/",
-      "commit -m chore: auto-capture 2 raw observation file(s)",
+      "status --porcelain -uall",
+      "add -- raw/2026-05-21/foo.md raw/2026-05-23/bar.md",
+      "commit -m chore: auto-capture 2 vault system file(s)",
     ]);
+  });
+
+  it("commits raw files and whitelisted system-managed files together", async () => {
+    const { runner, calls } = makeRunner((call) => {
+      const args = call.args.join(" ");
+      if (args === "status --porcelain -uall") {
+        return {
+          stdout: [
+            " M raw/2026-05-21/foo.md",
+            " M log.md",
+            " M wiki/.audit/llm-2026-06-05.md",
+            " M embeddings/auto-heal.jsonl",
+            "",
+          ].join("\n"),
+        };
+      }
+      if (args === "add -- raw/2026-05-21/foo.md log.md wiki/.audit/llm-2026-06-05.md embeddings/auto-heal.jsonl") {
+        return {};
+      }
+      if (args.startsWith("commit -m")) {
+        return { stdout: "[main abc1234] chore: auto-capture 4 vault system file(s)\n" };
+      }
+      throw new Error(`unexpected command: ${args}`);
+    });
+
+    await expect(autoCommitRawsIfDirty({ memoryRoot: "/mem", runner })).resolves.toEqual({
+      kind: "committed",
+      filesCount: 4,
+      commitSha: "abc1234",
+    });
+
+    expect(calls.map((call) => call.args.join(" "))).toEqual([
+      "status --porcelain -uall",
+      "add -- raw/2026-05-21/foo.md log.md wiki/.audit/llm-2026-06-05.md embeddings/auto-heal.jsonl",
+      "commit -m chore: auto-capture 4 vault system file(s)",
+    ]);
+  });
+
+  it("enumerates untracked whitelisted files instead of collapsed directories", async () => {
+    const { runner, calls } = makeRunner((call) => {
+      const args = call.args.join(" ");
+      if (args === "status --porcelain -uall") {
+        return {
+          stdout: "?? raw/2026-06-05/codex-smoke.md\n?? wiki/.audit/llm-2026-06-05.md\n",
+        };
+      }
+      if (args === "add -- raw/2026-06-05/codex-smoke.md wiki/.audit/llm-2026-06-05.md") {
+        return {};
+      }
+      if (args.startsWith("commit -m")) {
+        return { stdout: "[main abc1234] chore: auto-capture 2 vault system file(s)\n" };
+      }
+      throw new Error(`unexpected command: ${args}`);
+    });
+
+    await expect(autoCommitRawsIfDirty({ memoryRoot: "/mem", runner })).resolves.toMatchObject({
+      kind: "committed",
+      filesCount: 2,
+    });
+
+    expect(calls[0]?.args.join(" ")).toBe("status --porcelain -uall");
   });
 
   it("skips auto-commit when dirty raw files contain secret-shaped content", async () => {
@@ -75,18 +136,44 @@ describe("autoCommitRawsIfDirty", () => {
       );
       const { runner, calls } = makeRunner((call) => {
         const args = call.args.join(" ");
-        if (args === "status --porcelain") {
+        if (args === "status --porcelain -uall") {
           return { stdout: "?? raw/2026-06-03/codex-secret.md\n" };
         }
         throw new Error(`unexpected command: ${args}`);
       });
 
       await expect(autoCommitRawsIfDirty({ memoryRoot: tmp, runner })).resolves.toEqual({
-        kind: "skipped-secret-raw-dirty",
-        secretRawFiles: ["raw/2026-06-03/codex-secret.md"],
+        kind: "skipped-secret-shape",
+        secretFiles: ["raw/2026-06-03/codex-secret.md"],
       });
 
-      expect(calls.map((call) => call.args.join(" "))).toEqual(["status --porcelain"]);
+      expect(calls.map((call) => call.args.join(" "))).toEqual(["status --porcelain -uall"]);
+    } finally {
+      await rm(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("skips auto-commit when a whitelisted file contains secret-shaped content", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "auto-commit-whitelist-secret-"));
+    try {
+      await writeFile(
+        join(tmp, "log.md"),
+        "OPENROUTER_API_KEY=sk-live-secret-material-123456",
+      );
+      const { runner, calls } = makeRunner((call) => {
+        const args = call.args.join(" ");
+        if (args === "status --porcelain -uall") {
+          return { stdout: " M log.md\n" };
+        }
+        throw new Error(`unexpected command: ${args}`);
+      });
+
+      await expect(autoCommitRawsIfDirty({ memoryRoot: tmp, runner })).resolves.toEqual({
+        kind: "skipped-secret-shape",
+        secretFiles: ["log.md"],
+      });
+
+      expect(calls.map((call) => call.args.join(" "))).toEqual(["status --porcelain -uall"]);
     } finally {
       await rm(tmp, { recursive: true, force: true });
     }
@@ -102,7 +189,7 @@ describe("autoCommitRawsIfDirty", () => {
       dirtyNonRawFiles: ["wiki/projects/foo.md"],
     });
 
-    expect(calls.map((call) => call.args.join(" "))).toEqual(["status --porcelain"]);
+    expect(calls.map((call) => call.args.join(" "))).toEqual(["status --porcelain -uall"]);
   });
 
   it("skips when crystals/ or top-level is dirty", async () => {
@@ -115,6 +202,6 @@ describe("autoCommitRawsIfDirty", () => {
       dirtyNonRawFiles: ["crystals/2026-05-22.md", "index.md"],
     });
 
-    expect(calls.map((call) => call.args.join(" "))).toEqual(["status --porcelain"]);
+    expect(calls.map((call) => call.args.join(" "))).toEqual(["status --porcelain -uall"]);
   });
 });
