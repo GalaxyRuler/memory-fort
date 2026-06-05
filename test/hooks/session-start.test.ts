@@ -219,7 +219,7 @@ describe("sessionStartBody", () => {
 
     const writes: string[] = [];
     await sessionStartBody(
-      { cwd: "C:\\CodexProjects\\memory-system\\.claude\\worktrees\\x" },
+      { cwd: "C:\\Repos\\memory-system\\.claude\\worktrees\\x" },
       { write: (text) => writes.push(text) },
     );
 
@@ -246,7 +246,7 @@ describe("sessionStartBody", () => {
 
     const noMatchWrites: string[] = [];
     await sessionStartBody(
-      { cwd: "C:\\Users\\Admin\\ClaudeCodeProjects\\misc-claude-sessions" },
+      { cwd: "C:\\Repos\\misc-claude-sessions" },
       { write: (text) => noMatchWrites.push(text) },
     );
 
@@ -262,7 +262,7 @@ describe("sessionStartBody", () => {
     );
 
     const block = await currentProjectMemoryBlock({
-      cwd: "C:\\CodexProjects\\memory-system",
+      cwd: "C:\\Repos\\memory-system",
       memoryRoot: tmp,
       maxChars: 600,
     });
@@ -286,7 +286,7 @@ describe("sessionStartBody", () => {
 
     const writes: string[] = [];
     await sessionStartBody(
-      { cwd: "C:\\CodexProjects\\memory-system" },
+      { cwd: "C:\\Repos\\memory-system" },
       { readFile, write: (text) => writes.push(text) },
     );
 
@@ -461,15 +461,15 @@ describe("resolveProjectForCwd", () => {
   it("prefers the longest authoritative repo path match", async () => {
     await writeProjectPage(tmp, "outer", "Outer project.", {
       title: "Outer",
-      repo: "C:\\CodexProjects",
+      repo: "C:\\Repos",
     });
     await writeProjectPage(tmp, "inner", "Inner project.", {
       title: "Inner",
-      repo_paths: ["C:\\CodexProjects\\memory-system", "D:\\mirror\\memory-system"],
+      repo_paths: ["C:\\Repos\\memory-system", "D:\\mirror\\memory-system"],
     });
 
     const resolved = await resolveProjectForCwd(
-      "C:\\CodexProjects\\memory-system\\src\\hooks",
+      "C:\\Repos\\memory-system\\src\\hooks",
       { memoryRoot: tmp },
     );
 
@@ -480,7 +480,7 @@ describe("resolveProjectForCwd", () => {
     await writeProjectPage(tmp, "memory-system", "Memory-system project.");
 
     const resolved = await resolveProjectForCwd(
-      "C:\\CodexProjects\\memory-system\\.claude\\worktrees\\feature-x",
+      "C:\\Repos\\memory-system\\.claude\\worktrees\\feature-x",
       { memoryRoot: tmp },
     );
 
@@ -491,7 +491,7 @@ describe("resolveProjectForCwd", () => {
     await writeProjectPage(tmp, "memory-system", "Memory-system project.");
 
     await expect(
-      resolveProjectForCwd("C:\\CodexProjects\\efm-paper", { memoryRoot: tmp }),
+      resolveProjectForCwd("C:\\Repos\\efm-paper", { memoryRoot: tmp }),
     ).resolves.toBeNull();
   });
 });

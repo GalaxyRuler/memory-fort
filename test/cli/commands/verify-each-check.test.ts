@@ -23,6 +23,7 @@ describe("verify checks", () => {
     origEnv = {
       MEMORY_ROOT: process.env["MEMORY_ROOT"],
       MEMORY_CLAUDE_DIR: process.env["MEMORY_CLAUDE_DIR"],
+      MEMORY_CLAUDE_PROJECTS_DIR: process.env["MEMORY_CLAUDE_PROJECTS_DIR"],
       MEMORY_CODEX_DIR: process.env["MEMORY_CODEX_DIR"],
       MEMORY_ANTIGRAVITY_DIR: process.env["MEMORY_ANTIGRAVITY_DIR"],
       MEMORY_VSCODE_USER_DIR: process.env["MEMORY_VSCODE_USER_DIR"],
@@ -31,6 +32,7 @@ describe("verify checks", () => {
     };
     process.env["MEMORY_ROOT"] = tmp;
     process.env["MEMORY_CLAUDE_DIR"] = join(tmp, ".claude");
+    process.env["MEMORY_CLAUDE_PROJECTS_DIR"] = join(tmp, ".claude", "projects");
     process.env["MEMORY_CODEX_DIR"] = join(tmp, ".codex");
     process.env["MEMORY_ANTIGRAVITY_DIR"] = join(tmp, ".gemini", "antigravity");
     process.env["MEMORY_VSCODE_USER_DIR"] = join(tmp, "Code", "User");

@@ -195,7 +195,7 @@ describe("installAntigravity", () => {
       input: JSON.stringify({
         sessionId: "win-cwd",
         timestamp: "2026-06-01T00:00:00.000Z",
-        cwd: "C:\\CodexProjects\\memory-system",
+        cwd: "C:\\Repos\\memory-system",
         prompt: "capture this",
       }),
       encoding: "utf-8",
@@ -207,7 +207,7 @@ describe("installAntigravity", () => {
       join(memDir, "raw", "2026-06-01", "antigravity-win-cwd.md"),
       "utf-8",
     );
-    expect(parseFrontmatter(raw).frontmatter.cwd).toBe("C:\\CodexProjects\\memory-system");
+    expect(parseFrontmatter(raw).frontmatter.cwd).toBe("C:\\Repos\\memory-system");
   });
 
   it("session_start hook emits cwd-aware project memory while preserving live capture", async () => {
@@ -222,7 +222,7 @@ describe("installAntigravity", () => {
       input: JSON.stringify({
         sessionId: "project-memory",
         timestamp: "2026-06-02T00:00:00.000Z",
-        cwd: "C:\\CodexProjects\\memory-system\\.claude\\worktrees\\x",
+        cwd: "C:\\Repos\\memory-system\\.claude\\worktrees\\x",
       }),
       encoding: "utf-8",
       env: { ...process.env, MEMORY_ROOT: memDir },
@@ -254,7 +254,7 @@ describe("installAntigravity", () => {
       input: JSON.stringify({
         sessionId: "project-memory-none",
         timestamp: "2026-06-02T00:00:00.000Z",
-        cwd: "C:\\Users\\Admin\\ClaudeCodeProjects\\misc-claude-sessions",
+        cwd: "C:\\Repos\\misc-claude-sessions",
       }),
       encoding: "utf-8",
       env: { ...process.env, MEMORY_ROOT: memDir },
@@ -282,7 +282,7 @@ describe("installAntigravity", () => {
       input: JSON.stringify({
         sessionId: "project-memory-cap",
         timestamp: "2026-06-02T00:00:00.000Z",
-        cwd: "C:\\CodexProjects\\memory-system",
+        cwd: "C:\\Repos\\memory-system",
       }),
       encoding: "utf-8",
       env: { ...process.env, MEMORY_ROOT: memDir },

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { resolve } from "node:path";
 import {
   formatSupervisorJson,
   formatSupervisorResult,
@@ -6,8 +7,8 @@ import {
   runSupervisorStatus,
 } from "../../../src/cli/commands/supervisor.js";
 
-const repoRoot = "C:\\CodexProjects\\memory-system";
-const launcherPath = `${repoRoot}\\scripts\\start-memory-fort.ps1`;
+const repoRoot = "memory-system-fixture";
+const launcherPath = resolve(repoRoot, "scripts", "start-memory-fort.ps1");
 const runKey = "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run";
 const valueName = "MemoryFortDashboard";
 const expectedPwshCommand = `pwsh.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "${launcherPath}"`;
