@@ -139,9 +139,9 @@ jobs:
 
           try {
             $status = "000"
-            foreach ($i in 1..60) {
+            foreach ($i in 1..90) {
               try {
-                $response = Invoke-WebRequest -Uri "http://localhost:4410/api/status" -UseBasicParsing -TimeoutSec 2
+                $response = Invoke-WebRequest -Uri "http://127.0.0.1:4410/api/status" -UseBasicParsing -TimeoutSec 2
                 $status = [string][int]$response.StatusCode
               } catch {
                 $status = "000"
