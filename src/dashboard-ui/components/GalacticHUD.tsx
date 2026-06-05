@@ -1,16 +1,19 @@
-import type { GraphEdge, GraphNode } from "../hooks/useGraph.js";
+import type { GraphEdge, GraphNode, GraphScope } from "../hooks/useGraph.js";
 import type { GalacticZoomLevel } from "./GalacticCanvas.js";
 import { GlassPanel } from "./GlassPanel.js";
 import { Inspector } from "./galactic/Inspector.js";
 import { Legend } from "./galactic/Legend.js";
+import { ScopeToggle } from "./galactic/ScopeToggle.js";
 import { ZoomIndicator } from "./galactic/ZoomIndicator.js";
 
 export interface GalacticHUDProps {
   zoomLevel: GalacticZoomLevel;
+  scope: GraphScope;
   selectedNode: GraphNode | null;
   nodes: GraphNode[];
   edges: GraphEdge[];
   onZoomLevelChange: (level: GalacticZoomLevel) => void;
+  onScopeChange: (scope: GraphScope) => void;
   onOpenMemory: (path: string) => void;
   onSelectNode: (path: string | null) => void;
   onDeselect: () => void;
@@ -21,13 +24,18 @@ export function GalacticHUD({
   nodes,
   onDeselect,
   onOpenMemory,
+  onScopeChange,
   onSelectNode,
   onZoomLevelChange,
+  scope,
   selectedNode,
   zoomLevel,
 }: GalacticHUDProps) {
   return (
     <div className="pointer-events-none absolute inset-0 z-20">
+      <div className="pointer-events-auto absolute left-3 top-3">
+        <ScopeToggle scope={scope} onChange={onScopeChange} />
+      </div>
       <div className="pointer-events-auto absolute left-1/2 top-3 -translate-x-1/2">
         <ZoomIndicator level={zoomLevel} onChange={onZoomLevelChange} />
       </div>

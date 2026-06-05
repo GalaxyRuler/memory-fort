@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { type GraphNode, useGraph } from "../hooks/useGraph.js";
+import { type GraphNode, type GraphScope, useGraph } from "../hooks/useGraph.js";
 import { useMediaQuery } from "../hooks/useMediaQuery.js";
 import type { GalacticZoomLevel } from "./GalacticCanvas.js";
 import { GalacticScene, type GalacticSceneHandle } from "./GalacticScene.js";
@@ -7,7 +7,8 @@ import { GalacticHUD } from "./GalacticHUD.js";
 import { MemoryModal } from "./galactic/MemoryModal.js";
 
 export function GraphPage() {
-  const graph = useGraph("wiki");
+  const [scope, setScope] = useState<GraphScope>("all");
+  const graph = useGraph(scope);
   const isBelowMd = useMediaQuery("(max-width: 767px)");
   const hasFinePointer = useMediaQuery("(pointer: fine)", true);
   const canvasRef = useRef<GalacticSceneHandle>(null);
@@ -30,6 +31,12 @@ export function GraphPage() {
   const handleZoomLevelChange = useCallback((level: GalacticZoomLevel) => {
     setZoomLevel(level);
     canvasRef.current?.setZoomLevel(level);
+  }, []);
+
+  const handleScopeChange = useCallback((next: GraphScope) => {
+    // The node set changes, so any current selection may no longer exist.
+    setScope(next);
+    setSelectedNodeId(null);
   }, []);
 
   useEffect(() => {
@@ -75,9 +82,11 @@ export function GraphPage() {
       <GalacticHUD
         edges={graph.data.edges}
         nodes={graph.data.nodes}
+        scope={scope}
         selectedNode={selectedNode}
         zoomLevel={zoomLevel}
         onOpenMemory={setOpenMemoryPath}
+        onScopeChange={handleScopeChange}
         onSelectNode={selectNode}
         onDeselect={() => setSelectedNodeId(null)}
         onZoomLevelChange={handleZoomLevelChange}
