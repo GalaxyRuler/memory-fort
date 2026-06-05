@@ -165,7 +165,7 @@ describe("map agentmemory entries", () => {
     expect(result.written).toHaveLength(1);
     expect(await readFile(join(memDir, "wiki", "references", "legacy-format.md"), "utf-8"))
       .toContain("Files contain JSON");
-    expect(result.auditLogPath).toContain("wiki\\.audit");
+    expect(result.auditLogPath).toContain(join("wiki", ".audit"));
     const audit = parseFrontmatter(await readFile(result.auditLogPath!, "utf-8"));
     expect(audit.frontmatter.source).toBe("import-agentmemory");
   });
