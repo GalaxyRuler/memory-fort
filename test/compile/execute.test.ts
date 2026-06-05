@@ -898,27 +898,27 @@ describe("compile execute operations", () => {
       vaultRoot: tmp,
       operations: [{
         kind: "append_page",
-        path: "wiki/projects/iAqar.md",
-        section: "iAqar is a real-estate project.\n\nRelations: raw observations mention marketplace work.",
+        path: "wiki/projects/Acme.md",
+        section: "Acme is a real-estate project.\n\nRelations: raw observations mention marketplace work.",
       }],
       now: new Date("2026-05-30T12:00:00.000Z"),
     });
 
     expect(result.applied).toEqual([]);
-    expect(result.proposed).toEqual(["wiki/compile-proposed/iaqar.md"]);
+    expect(result.proposed).toEqual(["wiki/compile-proposed/acme.md"]);
     expect(result.rejected).toEqual([]);
     expect(result.outcomes).toContainEqual({
-      path: "wiki/projects/iaqar.md",
+      path: "wiki/projects/acme.md",
       outcome: "staged-for-review",
       reason: "append->create: low confidence",
       contentPreserved: true,
     });
-    expect(existsSync(join(tmp, "wiki", "projects", "iAqar.md"))).toBe(false);
-    expect(existsSync(join(tmp, "wiki", "projects", "iaqar.md"))).toBe(false);
-    const proposal = await readFile(join(tmp, "wiki", "compile-proposed", "iaqar.md"), "utf-8");
+    expect(existsSync(join(tmp, "wiki", "projects", "Acme.md"))).toBe(false);
+    expect(existsSync(join(tmp, "wiki", "projects", "acme.md"))).toBe(false);
+    const proposal = await readFile(join(tmp, "wiki", "compile-proposed", "acme.md"), "utf-8");
     expect(proposal).toContain('"kind": "write_page"');
-    expect(proposal).toContain('"path": "wiki/projects/iaqar.md"');
-    expect(proposal).toContain("iAqar is a real-estate project.");
+    expect(proposal).toContain('"path": "wiki/projects/acme.md"');
+    expect(proposal).toContain("Acme is a real-estate project.");
   });
 
   it("normalizes only wiki page slugs while update_index no-ops and log paths stay unchanged", async () => {
@@ -929,24 +929,24 @@ describe("compile execute operations", () => {
       operations: [
         {
           kind: "write_page",
-          path: "wiki/projects/VeriTrace.md",
+          path: "wiki/projects/TraceKit.md",
           frontmatter: {
             type: "projects",
-            title: "VeriTrace",
+            title: "TraceKit",
             relations: { derived_from: ["raw/2026-05-28/a.md", "raw/2026-05-28/b.md"] },
           },
-          body: "VeriTrace project notes.",
+          body: "TraceKit project notes.",
         },
-        { kind: "update_index", entries: ["- [VeriTrace](wiki/projects/veritrace.md) - Project."] },
+        { kind: "update_index", entries: ["- [TraceKit](wiki/projects/tracekit.md) - Project."] },
         { kind: "append_log", line: "## [2026-05-30T12:00:00.000Z] compile | verified" },
       ],
       now: new Date("2026-05-30T12:00:00.000Z"),
     });
 
-    expect(result.applied).toEqual(["wiki/projects/veritrace.md", "index.md", "log.md"]);
+    expect(result.applied).toEqual(["wiki/projects/tracekit.md", "index.md", "log.md"]);
     const projectFiles = await readdir(join(tmp, "wiki", "projects"));
-    expect(projectFiles).not.toContain("VeriTrace.md");
-    expect(projectFiles).toContain("veritrace.md");
+    expect(projectFiles).not.toContain("TraceKit.md");
+    expect(projectFiles).toContain("tracekit.md");
     await expect(readFile(join(tmp, "index.md"), "utf-8")).resolves.toBe("# Existing Index\n\n");
     await expect(readFile(join(tmp, "log.md"), "utf-8")).resolves.toContain("compile | verified");
   });
@@ -957,33 +957,33 @@ describe("compile execute operations", () => {
       operations: [
         {
           kind: "write_page",
-          path: "wiki/projects/iAqar.md",
+          path: "wiki/projects/Acme.md",
           frontmatter: {
             type: "projects",
-            title: "iAqar",
+            title: "Acme",
             relations: { derived_from: ["raw/2026-05-28/a.md", "raw/2026-05-28/b.md"] },
           },
-          body: "iAqar summary.",
+          body: "Acme summary.",
         },
         {
           kind: "append_page",
-          path: "wiki/projects/iaqar.md",
+          path: "wiki/projects/acme.md",
           section: "## 2026-05-30\n\nAdditional marketplace details.",
         },
       ],
       now: new Date("2026-05-30T12:00:00.000Z"),
     });
 
-    expect(result.applied).toEqual(["wiki/projects/iaqar.md"]);
+    expect(result.applied).toEqual(["wiki/projects/acme.md"]);
     expect(result.rejected).toEqual([]);
     expect(result.outcomes).toContainEqual({
-      path: "wiki/projects/iaqar.md",
+      path: "wiki/projects/acme.md",
       outcome: "merged",
       reason: "merged append_page into write_page",
       contentPreserved: true,
     });
-    const written = await readFile(join(tmp, "wiki", "projects", "iaqar.md"), "utf-8");
-    expect(written).toContain("iAqar summary.");
+    const written = await readFile(join(tmp, "wiki", "projects", "acme.md"), "utf-8");
+    expect(written).toContain("Acme summary.");
     expect(written).toContain("Additional marketplace details.");
   });
 
@@ -993,29 +993,29 @@ describe("compile execute operations", () => {
       operations: [
         {
           kind: "append_page",
-          path: "wiki/projects/iAqar.md",
+          path: "wiki/projects/Acme.md",
           section: "## 2026-05-30\n\nAdditional marketplace details.",
         },
         {
           kind: "write_page",
-          path: "wiki/projects/iaqar.md",
+          path: "wiki/projects/acme.md",
           frontmatter: {
-            title: "iAqar",
+            title: "Acme",
             relations: { derived_from: ["raw/2026-05-28/a.md", "raw/2026-05-28/b.md"] },
           },
-          body: "iAqar summary.",
+          body: "Acme summary.",
         },
       ],
       now: new Date("2026-05-30T12:00:00.000Z"),
     });
 
-    expect(result.applied).toEqual(["wiki/projects/iaqar.md"]);
+    expect(result.applied).toEqual(["wiki/projects/acme.md"]);
     expect(result.proposed).toEqual([]);
     expect(result.rejected).toEqual([]);
-    const written = await readFile(join(tmp, "wiki", "projects", "iaqar.md"), "utf-8");
+    const written = await readFile(join(tmp, "wiki", "projects", "acme.md"), "utf-8");
     const parsed = parseFrontmatter(written);
     expect(parsed.frontmatter.type).toBe("projects");
-    expect(parsed.body).toContain("iAqar summary.");
+    expect(parsed.body).toContain("Acme summary.");
     expect(parsed.body).toContain("Additional marketplace details.");
   });
 

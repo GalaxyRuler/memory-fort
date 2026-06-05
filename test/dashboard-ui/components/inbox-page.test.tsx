@@ -150,14 +150,14 @@ describe("InboxPage", () => {
       data: [
         {
           kind: "compile",
-          slug: "iaqar",
-          title: "compile proposal: wiki/projects/iaqar.md",
+          slug: "acme",
+          title: "compile proposal: wiki/projects/acme.md",
           observationCount: 0,
           distinctSessions: 0,
           confidence: { level: "low", reasons: ["compile execute staged for review"] },
           prosePreview: "Reason: low confidence",
           body: "Compile proposal body",
-          targetPath: "wiki/projects/iaqar.md",
+          targetPath: "wiki/projects/acme.md",
         },
       ],
       isLoading: false,
@@ -169,10 +169,10 @@ describe("InboxPage", () => {
     fireEvent.click(screen.getByRole("button", { name: /promote/i }));
 
     expect(confirm).toHaveBeenCalledWith(
-      "Apply compile proposal compile proposal: wiki/projects/iaqar.md? This will write to your wiki.",
+      "Apply compile proposal compile proposal: wiki/projects/acme.md? This will write to your wiki.",
     );
     expect(mutate).toHaveBeenCalledWith(
-      { action: "promote", kind: "compile", slug: "iaqar" },
+      { action: "promote", kind: "compile", slug: "acme" },
       expect.any(Object),
     );
   });

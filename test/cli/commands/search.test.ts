@@ -96,7 +96,7 @@ describe("runSearch CLI command", () => {
       return jsonResponse(responseFixture);
     }) as unknown as typeof fetch;
     const configLoader = async () => ({
-      dashboard: { url: "https://whitedragon.example/memory/" },
+      dashboard: { url: "https://mirror.example/memory/" },
       vps: { host: "old-vps.example" },
     });
 
@@ -107,7 +107,7 @@ describe("runSearch CLI command", () => {
       dashboardUrl: "https://override.example/memory",
     });
 
-    expect(calls[0]).toMatch(/^https:\/\/whitedragon\.example\/memory\/api\/search\?/);
+    expect(calls[0]).toMatch(/^https:\/\/mirror\.example\/memory\/api\/search\?/);
     expect(calls[1]).toMatch(/^https:\/\/override\.example\/memory\/api\/search\?/);
   });
 

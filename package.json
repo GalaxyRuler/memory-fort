@@ -19,6 +19,7 @@
     "test": "vitest run",
     "test:ui": "vitest run test/dashboard-ui",
     "test:watch": "vitest",
+    "scan:leaks": "node scripts/scan-leaks.mjs",
     "memory": "node dist/cli.mjs"
   },
   "engines": {

@@ -31,39 +31,39 @@ describe("dashboard proposed draft actions", () => {
   });
 
   it("accepts compile as a proposed action kind", () => {
-    expect(parseProposedActionBody({ kind: "compile", slug: "iaqar" })).toEqual({
+    expect(parseProposedActionBody({ kind: "compile", slug: "acme" })).toEqual({
       ok: true,
       kind: "compile",
-      slug: "iaqar",
+      slug: "acme",
     });
   });
 
   it("promotes a compile proposal by applying the staged operation and deleting the proposal", async () => {
     await writeFileAt("index.md", "# Memory Index\n\n");
-    await writeFileAt("wiki/compile-proposed/iaqar.md", compileProposal({
+    await writeFileAt("wiki/compile-proposed/acme.md", compileProposal({
       kind: "write_page",
-      path: "wiki/projects/iaqar.md",
+      path: "wiki/projects/acme.md",
       frontmatter: {
         type: "projects",
-        title: "iAqar",
+        title: "Acme",
       },
-      body: "iAqar marketplace notes.",
+      body: "Acme marketplace notes.",
     }));
 
-    const result = await promoteProposedDraft(tmp, "compile", "iaqar");
+    const result = await promoteProposedDraft(tmp, "compile", "acme");
 
-    expect(result).toEqual({ promotedPath: "wiki/projects/iaqar.md" });
-    expect(existsSync(join(tmp, "wiki", "compile-proposed", "iaqar.md"))).toBe(false);
-    const written = await readFile(join(tmp, "wiki", "projects", "iaqar.md"), "utf-8");
+    expect(result).toEqual({ promotedPath: "wiki/projects/acme.md" });
+    expect(existsSync(join(tmp, "wiki", "compile-proposed", "acme.md"))).toBe(false);
+    const written = await readFile(join(tmp, "wiki", "projects", "acme.md"), "utf-8");
     const parsed = parseFrontmatter(written);
-    expect(parsed.frontmatter.title).toBe("iAqar");
-    expect(parsed.body).toContain("iAqar marketplace notes.");
+    expect(parsed.frontmatter.title).toBe("Acme");
+    expect(parsed.body).toContain("Acme marketplace notes.");
     await expect(readFile(join(tmp, "index.md"), "utf-8"))
-      .resolves.toContain("- [iAqar](wiki/projects/iaqar.md) - iAqar marketplace notes.");
+      .resolves.toContain("- [Acme](wiki/projects/acme.md) - Acme marketplace notes.");
     expect(commitVaultChange).toHaveBeenCalledWith({
       memoryRoot: tmp,
-      paths: ["wiki/projects/iaqar.md", "index.md", "wiki/compile-proposed/iaqar.md"],
-      message: "promote compile proposal: iaqar",
+      paths: ["wiki/projects/acme.md", "index.md", "wiki/compile-proposed/acme.md"],
+      message: "promote compile proposal: acme",
     });
   });
 
@@ -156,32 +156,32 @@ describe("dashboard proposed draft actions", () => {
   });
 
   it("rejects a compile proposal by deleting only the proposal", async () => {
-    await writeFileAt("wiki/projects/iaqar.md", [
+    await writeFileAt("wiki/projects/acme.md", [
       "---",
       "type: projects",
-      "title: iAqar",
+      "title: Acme",
       "---",
       "",
       "Original canonical content.",
       "",
     ].join("\n"));
-    await writeFileAt("wiki/compile-proposed/iaqar.md", compileProposal({
+    await writeFileAt("wiki/compile-proposed/acme.md", compileProposal({
       kind: "append_page",
-      path: "wiki/projects/iaqar.md",
+      path: "wiki/projects/acme.md",
       section: "Rejected addition.",
     }));
 
-    const result = await rejectProposedDraft(tmp, "compile", "iaqar");
+    const result = await rejectProposedDraft(tmp, "compile", "acme");
 
-    expect(result).toEqual({ rejectedPath: "wiki/compile-proposed/iaqar.md" });
-    expect(existsSync(join(tmp, "wiki", "compile-proposed", "iaqar.md"))).toBe(false);
-    const canonical = await readFile(join(tmp, "wiki", "projects", "iaqar.md"), "utf-8");
+    expect(result).toEqual({ rejectedPath: "wiki/compile-proposed/acme.md" });
+    expect(existsSync(join(tmp, "wiki", "compile-proposed", "acme.md"))).toBe(false);
+    const canonical = await readFile(join(tmp, "wiki", "projects", "acme.md"), "utf-8");
     expect(canonical).toContain("Original canonical content.");
     expect(canonical).not.toContain("Rejected addition.");
     expect(commitVaultChange).toHaveBeenCalledWith({
       memoryRoot: tmp,
-      paths: ["wiki/compile-proposed/iaqar.md"],
-      message: "reject compile proposal: iaqar",
+      paths: ["wiki/compile-proposed/acme.md"],
+      message: "reject compile proposal: acme",
     });
   });
 

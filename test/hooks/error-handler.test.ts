@@ -180,7 +180,6 @@ describe("isSdkChildContext", () => {
 
   it("returns false on a regular payload", () => {
     delete process.env["MEMORY_SDK_CHILD"];
-    delete process.env["AGENTMEMORY_SDK_CHILD"];
     expect(isSdkChildContext({ session_id: "abc" })).toBe(false);
   });
 });

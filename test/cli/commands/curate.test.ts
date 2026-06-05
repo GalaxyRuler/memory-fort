@@ -216,17 +216,17 @@ describe("runCurate", () => {
   });
 
   it("reports ambiguity when a bare page slug exists in multiple categories", async () => {
-    await writeFileAt("wiki/projects/iaqar.md", page("iAqar project."));
-    await writeFileAt("wiki/tools/iaqar.md", page("iAqar tool."));
+    await writeFileAt("wiki/projects/acme.md", page("Acme project."));
+    await writeFileAt("wiki/tools/acme.md", page("Acme tool."));
 
     await expect(runCurate({
       vaultRoot: tmp,
-      target: "iaqar",
+      target: "acme",
       apply: true,
       configLoader: async () => ({ llm: { provider: "ollama", model: "llama3.2" } }),
       llmFactory: () => fakeCurateLLM("unused"),
       env: {},
-    })).rejects.toThrow("matches: wiki/projects/iaqar.md, wiki/tools/iaqar.md");
+    })).rejects.toThrow("matches: wiki/projects/acme.md, wiki/tools/acme.md");
   });
 
   async function writeFileAt(relPath: string, content: string): Promise<void> {

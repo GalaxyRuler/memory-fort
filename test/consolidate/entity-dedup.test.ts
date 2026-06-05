@@ -34,19 +34,19 @@ describe("entity dedup", () => {
 
   it("finds normalized and high-similarity duplicate entity pairs", () => {
     const pairs = findDuplicateEntityPairs([
-      { name: "Lisan Studio", relPath: "wiki/projects/lisan-studio.md", referenceCount: 2, isWikiTitle: true },
-      { name: "lisan-studio", relPath: "wiki/tools/lisan-studio.md", referenceCount: 7 },
+      { name: "Atlas Studio", relPath: "wiki/projects/atlas-studio.md", referenceCount: 2, isWikiTitle: true },
+      { name: "atlas-studio", relPath: "wiki/tools/atlas-studio.md", referenceCount: 7 },
       { name: "Agent Memory", relPath: "wiki/projects/agent-memory.md", referenceCount: 3, isWikiTitle: true },
       { name: "AgentMemory", referenceCount: 1 },
     ]);
 
     expect(pairs).toEqual(expect.arrayContaining([
       expect.objectContaining({
-        leftName: "lisan-studio",
-        rightName: "Lisan Studio",
-        normalized: "lisanstudio",
+        leftName: "atlas-studio",
+        rightName: "Atlas Studio",
+        normalized: "atlasstudio",
         reason: "exact-normalized",
-        suggestedCanonical: "Lisan Studio",
+        suggestedCanonical: "Atlas Studio",
       }),
       expect.objectContaining({
         leftName: "AgentMemory",
@@ -91,9 +91,9 @@ describe("entity dedup", () => {
   });
 
   it("rewrites alias relation targets, records aliases, and is idempotent", async () => {
-    await writePage("wiki/projects/lisan-studio.md", {
+    await writePage("wiki/projects/atlas-studio.md", {
       type: "projects",
-      title: "Lisan Studio",
+      title: "Atlas Studio",
       created: "2026-05-28",
       updated: "2026-05-28",
       relations: { uses: ["wiki/tools/vitest.md"] },
@@ -103,25 +103,25 @@ describe("entity dedup", () => {
       title: "Vitest",
       created: "2026-05-28",
       updated: "2026-05-28",
-      relations: { linked: ["wiki/projects/lisanstudio.md"] },
+      relations: { linked: ["wiki/projects/atlasstudio.md"] },
     });
     await writePage("raw/2026-05-28/codex-session.md", {
       type: "raw-session",
       title: "Raw",
       created: "2026-05-28",
       updated: "2026-05-28",
-      relations: { mentions: [{ target: "Lisan Studio", confidence: 0.9 }] },
+      relations: { mentions: [{ target: "Atlas Studio", confidence: 0.9 }] },
     });
 
     const result = await mergeEntityAliases({
       vaultRoot: tmp,
-      canonical: "wiki/projects/lisan-studio.md",
-      aliases: ["Lisan Studio", "wiki/projects/lisanstudio.md"],
+      canonical: "wiki/projects/atlas-studio.md",
+      aliases: ["Atlas Studio", "wiki/projects/atlasstudio.md"],
     });
     const second = await mergeEntityAliases({
       vaultRoot: tmp,
-      canonical: "wiki/projects/lisan-studio.md",
-      aliases: ["Lisan Studio", "wiki/projects/lisanstudio.md"],
+      canonical: "wiki/projects/atlas-studio.md",
+      aliases: ["Atlas Studio", "wiki/projects/atlasstudio.md"],
     });
 
     expect(result.changedFiles.sort()).toEqual([
@@ -129,48 +129,48 @@ describe("entity dedup", () => {
       "wiki/tools/vitest.md",
     ]);
     expect(second.changedFiles).toEqual([]);
-    await expect(readFile(join(tmp, "wiki", ".entity-aliases.json"), "utf-8")).resolves.toContain('"Lisan Studio": "wiki/projects/lisan-studio.md"');
-    expect(await relationTargets("wiki/tools/vitest.md", "linked")).toEqual(["wiki/projects/lisan-studio.md"]);
-    expect(await relationTargets("raw/2026-05-28/codex-session.md", "mentions")).toEqual(["wiki/projects/lisan-studio.md"]);
+    await expect(readFile(join(tmp, "wiki", ".entity-aliases.json"), "utf-8")).resolves.toContain('"Atlas Studio": "wiki/projects/atlas-studio.md"');
+    expect(await relationTargets("wiki/tools/vitest.md", "linked")).toEqual(["wiki/projects/atlas-studio.md"]);
+    expect(await relationTargets("raw/2026-05-28/codex-session.md", "mentions")).toEqual(["wiki/projects/atlas-studio.md"]);
   });
 
   it("commits entity review, merge, and reject mutations with explicit vault paths", async () => {
     const commitVaultChange = vi.fn(async () => ({ kind: "committed" as const, commitSha: "abc1234" }));
-    await writePage("wiki/projects/lisan-studio.md", {
+    await writePage("wiki/projects/atlas-studio.md", {
       type: "projects",
-      title: "Lisan Studio",
+      title: "Atlas Studio",
       created: "2026-05-28",
       updated: "2026-05-28",
     });
-    await writePage("wiki/projects/lisanstudio.md", {
+    await writePage("wiki/projects/atlasstudio.md", {
       type: "projects",
-      title: "lisan-studio",
+      title: "atlas-studio",
       created: "2026-05-28",
       updated: "2026-05-28",
     });
 
     await runEntityDedup({ vaultRoot: tmp, apply: true, commitVaultChange });
     await writeEntityMergeProposals(tmp, [{
-      canonical: "Lisan Studio",
-      canonicalTarget: "wiki/projects/lisan-studio.md",
-      aliases: ["lisan-studio", "wiki/projects/lisanstudio.md"],
-      normalized: "lisanstudio",
+      canonical: "Atlas Studio",
+      canonicalTarget: "wiki/projects/atlas-studio.md",
+      aliases: ["atlas-studio", "wiki/projects/atlasstudio.md"],
+      normalized: "atlasstudio",
       reason: "exact-normalized",
-      referenceCounts: { "Lisan Studio": 1, "lisan-studio": 1 },
+      referenceCounts: { "Atlas Studio": 1, "atlas-studio": 1 },
     }]);
-    const merged = await runEntityMerge({ vaultRoot: tmp, canonical: "Lisan Studio", commitVaultChange });
+    const merged = await runEntityMerge({ vaultRoot: tmp, canonical: "Atlas Studio", commitVaultChange });
     await writeEntityMergeProposals(tmp, [{
-      canonical: "Lisan Studio",
-      canonicalTarget: "wiki/projects/lisan-studio.md",
-      aliases: ["lisan-studio"],
-      normalized: "lisanstudio",
+      canonical: "Atlas Studio",
+      canonicalTarget: "wiki/projects/atlas-studio.md",
+      aliases: ["atlas-studio"],
+      normalized: "atlasstudio",
       reason: "exact-normalized",
       referenceCounts: {},
     }]);
-    const rejected = await runEntityReject({ vaultRoot: tmp, canonical: "Lisan Studio", commitVaultChange });
+    const rejected = await runEntityReject({ vaultRoot: tmp, canonical: "Atlas Studio", commitVaultChange });
 
     expect(merged.aliasMapPath).toBe("wiki/.entity-aliases.json");
-    expect(rejected.canonical).toBe("Lisan Studio");
+    expect(rejected.canonical).toBe("Atlas Studio");
     expect(commitVaultChange).toHaveBeenCalledWith({
       memoryRoot: tmp,
       paths: ["wiki/entity-merges-proposed.json"],
@@ -179,20 +179,20 @@ describe("entity dedup", () => {
     expect(commitVaultChange).toHaveBeenCalledWith({
       memoryRoot: tmp,
       paths: ["wiki/.entity-aliases.json"],
-      message: "merge entity: Lisan Studio",
+      message: "merge entity: Atlas Studio",
     });
     expect(commitVaultChange).toHaveBeenCalledWith({
       memoryRoot: tmp,
       paths: ["wiki/entity-merges-proposed.json"],
-      message: "reject entity: Lisan Studio",
+      message: "reject entity: Atlas Studio",
     });
   });
 
   it("commits entity merge rewrites and leaves changed paths clean", async () => {
     await initGitRepo(tmp);
-    await writePage("wiki/projects/lisan-studio.md", {
+    await writePage("wiki/projects/atlas-studio.md", {
       type: "projects",
-      title: "Lisan Studio",
+      title: "Atlas Studio",
       created: "2026-05-28",
       updated: "2026-05-28",
     });
@@ -201,22 +201,22 @@ describe("entity dedup", () => {
       title: "Vitest",
       created: "2026-05-28",
       updated: "2026-05-28",
-      relations: { linked: ["Lisan Studio"] },
+      relations: { linked: ["Atlas Studio"] },
     });
     await writeEntityMergeProposals(tmp, [{
-      canonical: "Lisan Studio",
-      canonicalTarget: "wiki/projects/lisan-studio.md",
-      aliases: ["Lisan Studio"],
-      normalized: "lisanstudio",
+      canonical: "Atlas Studio",
+      canonicalTarget: "wiki/projects/atlas-studio.md",
+      aliases: ["Atlas Studio"],
+      normalized: "atlasstudio",
       reason: "exact-normalized",
       referenceCounts: {},
     }]);
-    await git(["add", "--", "wiki/projects/lisan-studio.md", "wiki/tools/vitest.md", "wiki/entity-merges-proposed.json"], tmp);
+    await git(["add", "--", "wiki/projects/atlas-studio.md", "wiki/tools/vitest.md", "wiki/entity-merges-proposed.json"], tmp);
     await git(["commit", "-m", "seed entity merge fixture"], tmp);
 
     const result = await runEntityMerge({
       vaultRoot: tmp,
-      canonical: "Lisan Studio",
+      canonical: "Atlas Studio",
       commitVaultChange: (opts) =>
         realCommitVaultChange({
           ...opts,
@@ -226,7 +226,7 @@ describe("entity dedup", () => {
 
     expect(result.changedFiles).toEqual(["wiki/tools/vitest.md"]);
     await expect(git(["status", "--porcelain", "--", ...result.changedFiles, result.aliasMapPath], tmp)).resolves.toBe("");
-    await expect(git(["log", "-1", "--pretty=%s"], tmp)).resolves.toBe("merge entity: Lisan Studio");
+    await expect(git(["log", "-1", "--pretty=%s"], tmp)).resolves.toBe("merge entity: Atlas Studio");
   });
 
   async function writePage(relPath: string, frontmatter: Frontmatter): Promise<void> {

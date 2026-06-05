@@ -167,16 +167,16 @@ describe("dashboard server", () => {
     expect(sameOriginAllowed("http://127.0.0.1:4410", directUrl, { host: "127.0.0.1:4410" })).toBe(true);
     expect(sameOriginAllowed(undefined, directUrl, { host: "127.0.0.1:4410" })).toBe(true);
 
-    expect(sameOriginAllowed("https://srv1317946.tail6916d8.ts.net", directUrl, {
+    expect(sameOriginAllowed("https://examplehost.exampletail.ts.net", directUrl, {
       host: "127.0.0.1:4410",
       "x-forwarded-proto": "https",
-      "x-forwarded-host": "srv1317946.tail6916d8.ts.net",
+      "x-forwarded-host": "examplehost.exampletail.ts.net",
     })).toBe(true);
 
     expect(sameOriginAllowed("https://evil.example.com", directUrl, {
       host: "127.0.0.1:4410",
       "x-forwarded-proto": "https",
-      "x-forwarded-host": "srv1317946.tail6916d8.ts.net",
+      "x-forwarded-host": "examplehost.exampletail.ts.net",
     })).toBe(false);
 
     expect(sameOriginAllowed("https://dashboard.example.test", directUrl, {
@@ -1291,9 +1291,9 @@ describe("dashboard server", () => {
       const allowed = await fetch(`${origin}/api/compile/run`, {
         method: "POST",
         headers: {
-          Origin: "https://srv1317946.tail6916d8.ts.net",
+          Origin: "https://examplehost.exampletail.ts.net",
           "X-Forwarded-Proto": "https",
-          "X-Forwarded-Host": "srv1317946.tail6916d8.ts.net",
+          "X-Forwarded-Host": "examplehost.exampletail.ts.net",
         },
       });
       expect(allowed.status).toBe(200);
@@ -1303,7 +1303,7 @@ describe("dashboard server", () => {
         headers: {
           Origin: "https://evil.example.com",
           "X-Forwarded-Proto": "https",
-          "X-Forwarded-Host": "srv1317946.tail6916d8.ts.net",
+          "X-Forwarded-Host": "examplehost.exampletail.ts.net",
         },
       });
       expect(blocked.status).toBe(403);
@@ -1552,9 +1552,9 @@ describe("dashboard server", () => {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
-          Origin: "https://srv1317946.tail6916d8.ts.net",
+          Origin: "https://examplehost.exampletail.ts.net",
           "X-Forwarded-Proto": "https",
-          "X-Forwarded-Host": "srv1317946.tail6916d8.ts.net",
+          "X-Forwarded-Host": "examplehost.exampletail.ts.net",
         },
         body: JSON.stringify({ embedder: { provider: "openai" } }),
       });
@@ -1566,7 +1566,7 @@ describe("dashboard server", () => {
           "Content-Type": "application/json",
           Origin: "https://evil.example.com",
           "X-Forwarded-Proto": "https",
-          "X-Forwarded-Host": "srv1317946.tail6916d8.ts.net",
+          "X-Forwarded-Host": "examplehost.exampletail.ts.net",
         },
         body: JSON.stringify({ embedder: { provider: "voyage" } }),
       });
@@ -1630,7 +1630,7 @@ describe("dashboard server", () => {
           "Content-Type": "application/json",
           Origin: "https://evil.example.com",
           "X-Forwarded-Proto": "https",
-          "X-Forwarded-Host": "srv1317946.tail6916d8.ts.net",
+          "X-Forwarded-Host": "examplehost.exampletail.ts.net",
         },
         body: JSON.stringify({ kind: "thread", slug: "memory-thread" }),
       });
@@ -1640,9 +1640,9 @@ describe("dashboard server", () => {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Origin: "https://srv1317946.tail6916d8.ts.net",
+          Origin: "https://examplehost.exampletail.ts.net",
           "X-Forwarded-Proto": "https",
-          "X-Forwarded-Host": "srv1317946.tail6916d8.ts.net",
+          "X-Forwarded-Host": "examplehost.exampletail.ts.net",
         },
         body: JSON.stringify({ kind: "thread", slug: "memory-thread" }),
       });

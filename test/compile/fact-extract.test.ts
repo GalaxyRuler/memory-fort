@@ -12,7 +12,7 @@ describe("extractEntityFacts", () => {
 
     const result = await extractEntityFacts({
       rawText: [
-        "Prompt: assess iAqar UX. Mention Memory System only as context.",
+        "Prompt: assess Acme UX. Mention Memory System only as context.",
         "Tool output: 200 unrelated lines of UX copy that must not be preserved verbatim.",
         "Memory System shipped Phase 3 retrieval with BM25, vector, graph, and metadata fusion.",
       ].join("\n"),
@@ -36,7 +36,7 @@ describe("extractEntityFacts", () => {
     const llm = fakeFactLLM([]);
 
     const result = await extractEntityFacts({
-      rawText: "The iAqar UX prompt name-dropped Memory System but made no Memory System decision or status change.",
+      rawText: "The Acme UX prompt name-dropped Memory System but made no Memory System decision or status change.",
       entity: "Memory System",
       llm,
       maxBytes: 20_000,

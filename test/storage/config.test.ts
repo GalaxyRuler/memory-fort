@@ -28,14 +28,14 @@ describe("memory config reader", () => {
         '  provider: "voyage"',
         '  model: "voyage-4-large"',
         "vps:",
-        '  host: "srv1317946"',
+        '  host: "examplehost"',
         '  install_root: "/root/memory-system"',
       ].join("\n"),
     );
 
     await expect(loadMemoryConfig(tmp)).resolves.toEqual({
       embedder: { provider: "voyage", model: "voyage-4-large" },
-      vps: { host: "srv1317946", install_root: "/root/memory-system" },
+      vps: { host: "examplehost", install_root: "/root/memory-system" },
     });
   });
 
@@ -53,22 +53,22 @@ describe("memory config reader", () => {
       join(tmp, "config.yaml"),
       [
         "sync:",
-        "  remote_name: whitedragon",
+        "  remote_name: mirror",
         "dashboard:",
-        "  url: https://whitedragon.example/memory",
+        "  url: https://mirror.example/memory",
         "  trusted_origins:",
-        "    - https://srv1317946.tail6916d8.ts.net",
+        "    - https://examplehost.exampletail.ts.net",
         "    - http://127.0.0.1:4410",
         "",
       ].join("\n"),
     );
 
     await expect(loadMemoryConfig(tmp)).resolves.toEqual({
-      sync: { remote_name: "whitedragon" },
+      sync: { remote_name: "mirror" },
       dashboard: {
-        url: "https://whitedragon.example/memory",
+        url: "https://mirror.example/memory",
         trusted_origins: [
-          "https://srv1317946.tail6916d8.ts.net",
+          "https://examplehost.exampletail.ts.net",
           "http://127.0.0.1:4410",
         ],
       },

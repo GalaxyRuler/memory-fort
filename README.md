@@ -40,14 +40,14 @@ once, then start the local server:
 
 ```bash
 npm run build:ui
-memory dashboard --root "C:\Users\Admin\OneDrive\Documents\Memory Fort"
+memory dashboard --root ~/.memory
 ```
 
 The command binds `127.0.0.1:4410` by default and prints the `/memory/` URL plus the selected vault root.
-The hosted Whitedragon dashboard remains useful for reading, browsing, search,
-and backup visibility, but write actions are disabled there because the hosted
-vault checkout is a read-only mirror without its own `.git` work tree. Point
-CLI/MCP remote search at it with `dashboard.url` in `config.yaml` or the
+A hosted dashboard can remain useful for reading, browsing, search, and backup
+visibility, but write actions should stay disabled there when the hosted vault
+checkout is a read-only mirror without its own `.git` work tree. Point CLI/MCP
+remote search at it with `dashboard.url` in `config.yaml` or the
 `--dashboard-url` flag.
 
 ## Compile and sync safety

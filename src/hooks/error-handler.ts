@@ -67,10 +67,7 @@ export async function runHook(ctx: HookContext): Promise<void> {
     try {
       payload = JSON.parse(stripLeadingJsonBom(raw)) as HookPayload;
     } catch {
-      if (
-        process.env["MEMORY_SDK_CHILD"] === "1" ||
-        process.env["AGENTMEMORY_SDK_CHILD"] === "1"
-      ) {
+      if (process.env["MEMORY_SDK_CHILD"] === "1") {
         return;
       }
       const preview =
@@ -121,7 +118,6 @@ function stripLeadingJsonBom(raw: string): string {
  * → infinite loop.
  */
 export function isSdkChildContext(payload: HookPayload): boolean {
-  if (process.env["AGENTMEMORY_SDK_CHILD"] === "1") return true;
   if (process.env["MEMORY_SDK_CHILD"] === "1") return true;
   if (payload.entrypoint === "sdk-ts") return true;
   if (payload.entrypoint === "memory-mcp") return true;

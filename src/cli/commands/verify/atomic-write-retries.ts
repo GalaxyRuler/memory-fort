@@ -20,7 +20,7 @@ export async function checkAtomicWriteRetries(): Promise<VerifyCheckResult> {
     return fail(
       "storage.atomic-write-retries",
       "storage atomic-write retries",
-      "inspect Windows file handles, Defender, or OneDrive sync",
+      "inspect Windows file handles, antivirus software, or a cloud-sync tool",
       detail,
     );
   }

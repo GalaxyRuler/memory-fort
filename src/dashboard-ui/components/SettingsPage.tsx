@@ -70,7 +70,7 @@ export function SettingsPage() {
           </p>
           <div className="flex items-start gap-2 rounded-md bg-surface-2 p-3 font-mono text-xs text-text-primary">
             <FileText size={14} strokeWidth={1.5} className="flex-shrink-0 text-text-muted" />
-            <code className="break-all">code "C:/Users/Admin/.memory/config.yaml"</code>
+            <code className="break-all">code "~/.memory/config.yaml"</code>
           </div>
           <p className="mt-3 text-xs text-text-muted">
             Changes sync to the VPS within about 5 seconds via the auto-push hook. The dashboard picks up the new
