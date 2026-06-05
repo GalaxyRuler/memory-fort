@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import { mkdtemp, rm, mkdir, writeFile, readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { isAbsolute, join } from "node:path";
 import { runInit } from "../../../src/cli/commands/init.js";
 import { installAntigravity } from "../../../src/cli/commands/install/antigravity.js";
 import { parseFrontmatter } from "../../../src/storage/frontmatter.js";
@@ -116,7 +116,8 @@ describe("installAntigravity", () => {
     const content = JSON.parse(await readFile(result.mcpConfigPath, "utf-8"));
     const arg = content.mcpServers.memory.args[0];
     expect(arg).not.toContain("${CLAUDE_PLUGIN_ROOT}");
-    expect(arg).toMatch(/[A-Za-z]:.*claude-code-plugin\/scripts\/mcp-server\.mjs$/);
+    expect(isAbsolute(arg)).toBe(true);
+    expect(arg).toContain("mcp-server.mjs");
   });
 
   it("uses MEMORY_ANTIGRAVITY_DIR when antigravityDir is not provided", async () => {
