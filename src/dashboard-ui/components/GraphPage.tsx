@@ -7,7 +7,10 @@ import { GalacticHUD } from "./GalacticHUD.js";
 import { MemoryModal } from "./galactic/MemoryModal.js";
 
 export function GraphPage() {
-  const [scope, setScope] = useState<GraphScope>("all");
+  // Default to the curated wiki scope: it loads in ~60ms (vs ~3s for the full
+  // ~1900-node corpus), so the graph paints instantly. The scope toggle lets the
+  // user pull in raw / crystals / all on demand.
+  const [scope, setScope] = useState<GraphScope>("wiki");
   const graph = useGraph(scope);
   const isBelowMd = useMediaQuery("(max-width: 767px)");
   const hasFinePointer = useMediaQuery("(pointer: fine)", true);
