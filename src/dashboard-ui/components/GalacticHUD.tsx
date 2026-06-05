@@ -9,6 +9,7 @@ import { ZoomIndicator } from "./galactic/ZoomIndicator.js";
 export interface GalacticHUDProps {
   zoomLevel: GalacticZoomLevel;
   scope: GraphScope;
+  isUpdating?: boolean;
   selectedNode: GraphNode | null;
   nodes: GraphNode[];
   edges: GraphEdge[];
@@ -21,6 +22,7 @@ export interface GalacticHUDProps {
 
 export function GalacticHUD({
   edges,
+  isUpdating,
   nodes,
   onDeselect,
   onOpenMemory,
@@ -33,13 +35,21 @@ export function GalacticHUD({
 }: GalacticHUDProps) {
   return (
     <div className="pointer-events-none absolute inset-0 z-20">
-      <div className="pointer-events-auto absolute left-3 top-3">
+      <div className="pointer-events-auto absolute left-3 top-3 flex items-center gap-2">
         <ScopeToggle scope={scope} onChange={onScopeChange} />
+        {isUpdating && (
+          <span className="animate-pulse font-mono text-[10px] uppercase tracking-wider text-text-muted">
+            updating…
+          </span>
+        )}
       </div>
       <div className="pointer-events-auto absolute left-1/2 top-3 -translate-x-1/2">
         <ZoomIndicator level={zoomLevel} onChange={onZoomLevelChange} />
       </div>
-      <GlassPanel hasBrackets={true} className="pointer-events-auto absolute right-3 top-3 w-72 bg-surface/65">
+      <GlassPanel
+        hasBrackets={true}
+        className={`pointer-events-auto absolute right-3 top-3 w-72 bg-surface/65 transition-opacity ${isUpdating ? "opacity-50" : "opacity-100"}`}
+      >
         <Legend nodes={nodes} />
       </GlassPanel>
       <GlassPanel hasBrackets={true} className="pointer-events-auto absolute bottom-3 left-3 bg-surface/65 px-3 py-2">

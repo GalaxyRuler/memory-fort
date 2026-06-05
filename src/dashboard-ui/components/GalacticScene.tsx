@@ -131,6 +131,10 @@ const SceneContent = forwardRef<GalacticSceneHandle, SceneContentProps>(
     const cameraLookAt = useRef(new THREE.Vector3(0, 0, 0));
     const animating = useRef(false);
     const startRef = useRef(0);
+    // Orbit time is accumulated (not read straight off the clock) so hovering a
+    // node can slow it to a crawl — making the moving planets easy to click.
+    const orbitMsRef = useRef(0);
+    const hoverRef = useRef(false);
 
     useImperativeHandle(ref, () => ({
       focusNode: (path: string) => {
@@ -154,8 +158,10 @@ const SceneContent = forwardRef<GalacticSceneHandle, SceneContentProps>(
 
     // Animate layout positions + camera lerp
     useFrame((state, delta) => {
-      const elapsed = state.clock.getElapsedTime() * 1000;
-      updateGalacticPositions(layout.nodes, elapsed);
+      // Near-freeze the orbit while a node is hovered so it's clickable.
+      const factor = hoverRef.current ? 0.05 : 1;
+      orbitMsRef.current += delta * 1000 * factor;
+      updateGalacticPositions(layout.nodes, orbitMsRef.current);
 
       if (animating.current) {
         camera.position.lerp(cameraTarget.current, 1 - Math.pow(0.05, delta));
@@ -178,7 +184,7 @@ const SceneContent = forwardRef<GalacticSceneHandle, SceneContentProps>(
         <DustField count={4000} />
         <GalaxyVolumes galaxies={layout.galaxies} />
         <GalaxyCores galaxies={layout.galaxies} />
-        <NodeInstances layout={layout} selectedNodeId={selectedNodeId} onSelectNode={onSelectNode} onHoverNode={onHoverNode} />
+        <NodeInstances layout={layout} selectedNodeId={selectedNodeId} hoverRef={hoverRef} onSelectNode={onSelectNode} onHoverNode={onHoverNode} />
         <EdgeLines layout={layout} selectedNodeId={selectedNodeId} />
         <OrbitControls
           ref={controlsRef}
@@ -215,6 +221,8 @@ function GalaxyCores({ galaxies }: { galaxies: GalacticLayout["galaxies"] }) {
     <>
       {COGNITIVE_ORDER.map((type) => {
         const g = galaxies[type];
+        // Don't render decoration for a galaxy the current scope left empty.
+        if (g.members.length === 0) return null;
         const color = new THREE.Color(g.color);
         return (
           <group key={type} position={[g.cx / W, g.cy / W, g.cz / W]}>
@@ -289,12 +297,18 @@ const spreadGlow = 7;
 
 function GalaxyVolumes({ galaxies }: { galaxies: GalacticLayout["galaxies"] }) {
   const clouds = useMemo(() => {
-    return COGNITIVE_ORDER.map((type, gi) => {
-      const g = galaxies[type];
-      const spread = 2.6;
-      const { positions, colors } = buildStarCluster(spread, 900, gi + 1, g.color, 0.7);
-      return { type, color: g.color, positions, colors, center: [g.cx / W, g.cy / W, g.cz / W] as const };
-    });
+    return COGNITIVE_ORDER
+      // Skip galaxies the current scope left empty — no decoration without data.
+      .filter((type) => galaxies[type].members.length > 0)
+      .map((type) => {
+        const g = galaxies[type];
+        const spread = 2.6;
+        // Seed from the galaxy's intrinsic order, not the filtered index, so a
+        // galaxy's star pattern is invariant to which others the scope hid.
+        const seed = COGNITIVE_ORDER.indexOf(type) + 1;
+        const { positions, colors } = buildStarCluster(spread, 900, seed, g.color, 0.7);
+        return { type, color: g.color, positions, colors, center: [g.cx / W, g.cy / W, g.cz / W] as const };
+      });
   }, [galaxies]);
 
   // One ref per galaxy: each cluster spins around its OWN center so it stays
@@ -392,17 +406,20 @@ gl_FragColor.rgb = mix(gl_FragColor.rgb, atmo, rim * 0.8);
 function NodeInstances({
   layout,
   selectedNodeId,
+  hoverRef,
   onSelectNode,
   onHoverNode,
 }: {
   layout: GalacticLayout;
   selectedNodeId: string | null;
+  hoverRef: { current: boolean };
   onSelectNode?: (id: string | null) => void;
   onHoverNode?: (id: string | null) => void;
 }) {
   const meshRef = useRef<THREE.InstancedMesh>(null!);
   const { nodes } = layout;
   const planetMaterial = useMemo(() => buildPlanetMaterial(), []);
+  const { raycaster, pointer, camera } = useThree();
 
   const colorArray = useMemo(() => {
     const arr = new Float32Array(nodes.length * 3);
@@ -427,6 +444,21 @@ function NodeInstances({
       mesh.setMatrixAt(i, _tempObj.matrix);
     }
     mesh.instanceMatrix.needsUpdate = true;
+
+    // R3F only re-raycasts on DOM pointer events, so a planet can orbit out from
+    // under a motionless cursor without onPointerOut ever firing — which would
+    // latch the hover-slow on forever. While hovering, re-check each frame and
+    // release the hover (and the global slow) once nothing is under the cursor.
+    // This also clears a stale hover left over when the mesh is rebuilt on a
+    // scope change.
+    if (hoverRef.current) {
+      raycaster.setFromCamera(pointer, camera);
+      if (raycaster.intersectObject(mesh, false).length === 0) {
+        hoverRef.current = false;
+        onHoverNode?.(null);
+        document.body.style.cursor = "auto";
+      }
+    }
   });
 
   // Set initial colors
@@ -455,17 +487,19 @@ function NodeInstances({
     (event: any) => {
       const id = event.instanceId;
       if (id !== undefined && id < nodes.length) {
+        hoverRef.current = true;
         onHoverNode?.(nodes[id]!.path);
         document.body.style.cursor = "pointer";
       }
     },
-    [nodes, onHoverNode],
+    [nodes, hoverRef, onHoverNode],
   );
 
   const handlePointerOut = useCallback(() => {
+    hoverRef.current = false;
     onHoverNode?.(null);
     document.body.style.cursor = "auto";
-  }, [onHoverNode]);
+  }, [hoverRef, onHoverNode]);
 
   return (
     <instancedMesh

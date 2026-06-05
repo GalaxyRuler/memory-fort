@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { apiGet } from "../lib/api.js";
 import type { ConfidenceVector, LifecycleStage } from "../../storage/frontmatter.js";
 
@@ -47,5 +47,9 @@ export function useGraph(scope: GraphScope = "wiki") {
     queryKey: ["graph", scope],
     queryFn: () => apiGet<GraphResponse>("/graph", { scope }),
     staleTime: 60_000,
+    // Keep the previous scope's graph on screen while the new one loads so
+    // switching scope doesn't flash a full-screen "Loading graph..." and tear
+    // down the WebGL canvas.
+    placeholderData: keepPreviousData,
   });
 }

@@ -83,6 +83,7 @@ export function GraphPage() {
         edges={graph.data.edges}
         nodes={graph.data.nodes}
         scope={scope}
+        isUpdating={graph.isPlaceholderData}
         selectedNode={selectedNode}
         zoomLevel={zoomLevel}
         onOpenMemory={setOpenMemoryPath}
