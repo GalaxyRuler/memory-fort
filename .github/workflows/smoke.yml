@@ -139,7 +139,7 @@ jobs:
 
           try {
             $status = "000"
-            foreach ($i in 1..30) {
+            foreach ($i in 1..60) {
               try {
                 $response = Invoke-WebRequest -Uri "http://localhost:4410/api/status" -UseBasicParsing -TimeoutSec 2
                 $status = [string][int]$response.StatusCode
