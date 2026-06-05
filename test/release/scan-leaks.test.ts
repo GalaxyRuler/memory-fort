@@ -82,6 +82,19 @@ describe("scan-leaks release gate", () => {
     expect(result.exitCode).toBe(0);
   });
 
+  it("allows OpenClaw as a public supported platform name", async () => {
+    await writeText("src/install-openclaw.ts", [
+      "export const platform = 'openclaw';",
+      "export const label = 'OpenClaw';",
+      "",
+    ].join("\n"));
+
+    const result = await runScan(["--root", tmp]);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("");
+  });
+
   it("does not flag denylist tokens in quarantined paths", async () => {
     const token = ["C:", "\\", "Users", "\\", "Admin"].join("");
     await writeText("docs/private-brief.md", `Path: ${token}\n`);

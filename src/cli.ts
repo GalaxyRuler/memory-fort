@@ -172,7 +172,7 @@ program
 
 program
   .command("install <platform>")
-  .description("Install hooks + MCP for a platform (claude-code, codex, antigravity, claude-desktop, vscode)")
+  .description("Install hooks + MCP for a platform (claude-code, codex, antigravity, hermes, pi, openclaw, claude-desktop, vscode)")
   .option("--workspace <path>", "workspace path for clients that support workspace-scoped MCP")
   .option("--surface <surface>", "Antigravity surface: workspace | ide | both")
   .option("--apply", "install the Windows supervisor when platform is supervisor")
@@ -203,7 +203,7 @@ program
 
 program
   .command("uninstall <platform>")
-  .description("Uninstall hooks + MCP for a platform (claude-code, codex, antigravity, claude-desktop, vscode)")
+  .description("Uninstall hooks + MCP for a platform (claude-code, codex, antigravity, hermes, pi, openclaw, claude-desktop, vscode)")
   .option("--workspace <path>", "workspace path for clients that support workspace-scoped MCP")
   .option("--dry-run", "print what would be removed without writing")
   .action(async (

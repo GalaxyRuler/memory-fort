@@ -23,6 +23,9 @@ export type UninstallPlatform =
   | "claude-code"
   | "codex"
   | "antigravity"
+  | "hermes"
+  | "pi"
+  | "openclaw"
   | "claude-desktop"
   | "vscode";
 
@@ -32,6 +35,9 @@ export interface RunUninstallOptions {
   codexDir?: string;
   claudeDir?: string;
   antigravityDir?: string;
+  hermesDir?: string;
+  piDir?: string;
+  openclawDir?: string;
   vscodeUserDir?: string;
   vscodeExtensionDir?: string;
   claudePluginCli?: boolean;
@@ -59,6 +65,12 @@ export async function runUninstall(
       return uninstallCodex(opts);
     case "antigravity":
       return uninstallAntigravity(opts);
+    case "hermes":
+      return uninstallHermes(opts);
+    case "pi":
+      return uninstallPi(opts);
+    case "openclaw":
+      return uninstallOpenClaw(opts);
     case "claude-desktop":
       return uninstallClaudeDesktop(opts);
     case "vscode":
@@ -68,7 +80,7 @@ export async function runUninstall(
         platform,
         dryRun: opts.dryRun === true,
         actions: [
-          `Unknown platform: ${platform}. Valid: claude-code, codex, antigravity, claude-desktop, vscode`,
+          `Unknown platform: ${platform}. Valid: claude-code, codex, antigravity, hermes, pi, openclaw, claude-desktop, vscode`,
         ],
         removed: false,
         exitCode: 2,
@@ -114,6 +126,63 @@ async function uninstallCodex(opts: RunUninstallOptions): Promise<UninstallResul
     if (!opts.dryRun) await atomicWrite(configPath, restored);
   }
   return result("codex", opts, actions, true);
+}
+
+async function uninstallHermes(opts: RunUninstallOptions): Promise<UninstallResult> {
+  const configPath = join(
+    opts.hermesDir ?? process.env["MEMORY_HERMES_DIR"] ?? join(homedir(), ".hermes"),
+    "config.yaml",
+  );
+  return uninstallSentinelYaml("hermes", configPath, opts);
+}
+
+async function uninstallPi(opts: RunUninstallOptions): Promise<UninstallResult> {
+  const configPath = join(
+    opts.piDir ?? process.env["MEMORY_PI_DIR"] ?? join(homedir(), ".pi"),
+    "config.yaml",
+  );
+  return uninstallSentinelYaml("pi", configPath, opts);
+}
+
+async function uninstallOpenClaw(opts: RunUninstallOptions): Promise<UninstallResult> {
+  const openclawDir =
+    opts.openclawDir ?? process.env["MEMORY_OPENCLAW_DIR"] ?? join(homedir(), ".openclaw");
+  return removeJsonMemoryServer({
+    platform: "openclaw",
+    configPath: join(openclawDir, "openclaw.json"),
+    serverMapKey: "mcpServers",
+    opts,
+  });
+}
+
+async function uninstallSentinelYaml(
+  platform: "hermes" | "pi",
+  configPath: string,
+  opts: RunUninstallOptions,
+): Promise<UninstallResult> {
+  const actions: string[] = [];
+  if (!existsSync(configPath)) {
+    return result(platform, opts, [`not installed: ${configPath} missing`], false);
+  }
+
+  const existing = await readFile(configPath, "utf-8");
+  const stripped = stripPriorBlock(existing);
+  if (!stripped.replaced) {
+    return result(platform, opts, [`not installed: no memory-system block in ${configPath}`], false);
+  }
+
+  const restored = normalizeSentinelConfigAfterUninstall(
+    stripped.content,
+    stripped.priorTrailingNewlines,
+  );
+  if (restored.trim().length === 0) {
+    actions.push(`remove ${configPath}`);
+    if (!opts.dryRun) await unlink(configPath);
+  } else {
+    actions.push(`remove memory-system block from ${configPath}`);
+    if (!opts.dryRun) await atomicWrite(configPath, restored);
+  }
+  return result(platform, opts, actions, true);
 }
 
 async function uninstallClaudeDesktop(opts: RunUninstallOptions): Promise<UninstallResult> {
@@ -323,6 +392,13 @@ async function removeDirIfEmpty(path: string): Promise<void> {
 }
 
 function normalizeCodexConfigAfterUninstall(
+  content: string,
+  priorTrailingNewlines?: number,
+): string {
+  return normalizeSentinelConfigAfterUninstall(content, priorTrailingNewlines);
+}
+
+function normalizeSentinelConfigAfterUninstall(
   content: string,
   priorTrailingNewlines?: number,
 ): string {

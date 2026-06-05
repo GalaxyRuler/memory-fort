@@ -2,6 +2,9 @@ import { installAntigravity } from "./install/antigravity.js";
 import { installClaudeCode } from "./install/claude-code.js";
 import { runInstallClaudeDesktop } from "./install/claude-desktop.js";
 import { installCodex } from "./install/codex.js";
+import { runInstallHermes } from "./install/hermes.js";
+import { runInstallOpenClaw } from "./install/openclaw.js";
+import { runInstallPi } from "./install/pi.js";
 import { installVsCode } from "./install/vscode.js";
 import { CLIENTS, type ClientName } from "./client-status.js";
 import { formatVerifyResult, runVerify, type VerifyResult } from "./verify.js";
@@ -135,6 +138,18 @@ async function installClient(
           ok: true,
           detail: `installed (shared workspace/IDE config: ${result.mcpConfigPath})`,
         };
+      }
+      case "hermes": {
+        const result = await runInstallHermes();
+        return { client, ok: true, detail: `installed (${result.configPath})` };
+      }
+      case "pi": {
+        const result = await runInstallPi();
+        return { client, ok: true, detail: `installed (${result.configPath}; MCP skipped)` };
+      }
+      case "openclaw": {
+        const result = await runInstallOpenClaw();
+        return { client, ok: true, detail: `installed (${result.configPath})` };
       }
       case "vscode": {
         const result = await installVsCode({

@@ -15,6 +15,9 @@ export const INIT_TOOL_NAMES = [
   "claude-desktop",
   "codex",
   "antigravity",
+  "hermes",
+  "pi",
+  "openclaw",
   "vscode",
 ] as const;
 
@@ -171,6 +174,15 @@ export function detectInitTools(opts: DetectInitToolsOptions = {}): InitToolName
   if (fs.existsSync(join(homeDir, ".codex"))) detected.push("codex");
   if (fs.existsSync(join(homeDir, ".gemini", "antigravity"))) {
     detected.push("antigravity");
+  }
+  if (fs.existsSync(env["MEMORY_HERMES_DIR"] ?? join(homeDir, ".hermes"))) {
+    detected.push("hermes");
+  }
+  if (fs.existsSync(env["MEMORY_PI_DIR"] ?? join(homeDir, ".pi"))) {
+    detected.push("pi");
+  }
+  if (fs.existsSync(env["MEMORY_OPENCLAW_DIR"] ?? join(homeDir, ".openclaw"))) {
+    detected.push("openclaw");
   }
   if (fs.existsSync(vscodeUserDirFor({ homeDir, env, platform }))) detected.push("vscode");
 

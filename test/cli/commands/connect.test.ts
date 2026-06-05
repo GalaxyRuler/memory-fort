@@ -36,6 +36,9 @@ describe("runConnect", () => {
       MEMORY_CLAUDE_DESKTOP_DIR: process.env["MEMORY_CLAUDE_DESKTOP_DIR"],
       MEMORY_CODEX_DIR: process.env["MEMORY_CODEX_DIR"],
       MEMORY_ANTIGRAVITY_DIR: process.env["MEMORY_ANTIGRAVITY_DIR"],
+      MEMORY_HERMES_DIR: process.env["MEMORY_HERMES_DIR"],
+      MEMORY_PI_DIR: process.env["MEMORY_PI_DIR"],
+      MEMORY_OPENCLAW_DIR: process.env["MEMORY_OPENCLAW_DIR"],
       MEMORY_VSCODE_USER_DIR: process.env["MEMORY_VSCODE_USER_DIR"],
     };
     process.env["MEMORY_ROOT"] = memDir;
@@ -44,6 +47,9 @@ describe("runConnect", () => {
     process.env["MEMORY_CLAUDE_DESKTOP_DIR"] = join(tmp, "Claude");
     process.env["MEMORY_CODEX_DIR"] = join(tmp, ".codex");
     process.env["MEMORY_ANTIGRAVITY_DIR"] = join(tmp, ".gemini", "antigravity");
+    process.env["MEMORY_HERMES_DIR"] = join(tmp, ".hermes");
+    process.env["MEMORY_PI_DIR"] = join(tmp, ".pi");
+    process.env["MEMORY_OPENCLAW_DIR"] = join(tmp, ".openclaw");
     process.env["MEMORY_VSCODE_USER_DIR"] = join(tmp, "Code", "User");
     await runInit({ sourceRepoDir: process.cwd() });
   });
@@ -65,6 +71,9 @@ describe("runConnect", () => {
       "codex",
       "antigravity",
       "antigravity-ide",
+      "hermes",
+      "pi",
+      "openclaw",
       "vscode",
     ]);
     expect(result.clients.find((client) => client.client === "vscode")!.ok).toBe(false);

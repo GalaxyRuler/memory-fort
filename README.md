@@ -22,6 +22,19 @@ node dist/cli.mjs install antigravity
 node dist/cli.mjs stats
 ```
 
+## Supported tools
+
+```bash
+memory-fort install claude-code     # Claude Code (full hooks + plugin)
+memory-fort install codex           # Codex desktop + CLI (hooks + MCP)
+memory-fort install antigravity     # Google Antigravity / Gemini (MCP + live-capture plugin)
+memory-fort install hermes          # Hermes agent (YAML hooks + MCP in ~/.hermes/config.yaml)
+memory-fort install pi              # Pi coding agent (YAML hooks in ~/.pi/config.yaml)
+memory-fort install openclaw        # OpenClaw (MCP server in ~/.openclaw/openclaw.json)
+memory-fort install claude-desktop  # Claude Desktop (MCP only)
+memory-fort install vscode          # VS Code (MCP only)
+```
+
 ## Development checks
 
 Before merging changes, run the focused tests for the touched area, then:

@@ -26,7 +26,6 @@ const DENYLIST = [
   literal(["One", "Drive"].join("")),
   literal(["white", "dragon"].join("")),
   literal(["vault", "warden"].join("")),
-  literal(["open", "claw"].join("")),
   word(["iaq", "ar"].join("")),
   word(["lis", "an"].join("")),
   word(["veri", "trace"].join("")),

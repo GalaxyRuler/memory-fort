@@ -15,6 +15,9 @@ export type ClientName =
   | "codex"
   | "antigravity"
   | "antigravity-ide"
+  | "hermes"
+  | "pi"
+  | "openclaw"
   | "vscode";
 
 export type ClientInstallState = "installed" | "stale" | "missing";
@@ -32,6 +35,9 @@ export const CLIENTS: ClientName[] = [
   "codex",
   "antigravity",
   "antigravity-ide",
+  "hermes",
+  "pi",
+  "openclaw",
   "vscode",
 ];
 
@@ -43,6 +49,9 @@ export async function getClientStatuses(): Promise<ClientStatus[]> {
     await readCodexStatus(),
     antigravity,
     { ...antigravity, client: "antigravity-ide" },
+    await readHermesStatus(),
+    await readPiStatus(),
+    await readOpenClawStatus(),
     await readVsCodeStatus(),
   ];
 }
@@ -138,6 +147,54 @@ async function readAntigravityStatus(client: ClientName): Promise<ClientStatus> 
     state: ok ? "installed" : existsSync(configPath) ? "stale" : "missing",
     detail: ok
       ? "installed (shared workspace/IDE config)"
+      : existsSync(configPath)
+        ? "installed but memory entry missing or invalid"
+        : "not installed",
+    configPath,
+  };
+}
+
+async function readHermesStatus(): Promise<ClientStatus> {
+  const dir = process.env["MEMORY_HERMES_DIR"] ?? join(homedir(), ".hermes");
+  const configPath = join(dir, "config.yaml");
+  if (!existsSync(configPath)) {
+    return { client: "hermes", state: "missing", detail: "not installed", configPath };
+  }
+  const raw = await readFile(configPath, "utf-8");
+  const ok = raw.includes("# === BEGIN memory-system") && raw.includes("mcp-server.mjs");
+  return {
+    client: "hermes",
+    state: ok ? "installed" : "stale",
+    detail: ok ? "installed" : "installed but memory block is stale",
+    configPath,
+  };
+}
+
+async function readPiStatus(): Promise<ClientStatus> {
+  const dir = process.env["MEMORY_PI_DIR"] ?? join(homedir(), ".pi");
+  const configPath = join(dir, "config.yaml");
+  if (!existsSync(configPath)) {
+    return { client: "pi", state: "missing", detail: "not installed", configPath };
+  }
+  const raw = await readFile(configPath, "utf-8");
+  const ok = raw.includes("# === BEGIN memory-system") && raw.includes("session-start.mjs");
+  return {
+    client: "pi",
+    state: ok ? "installed" : "stale",
+    detail: ok ? "installed (hooks; MCP skipped)" : "installed but memory hooks block is stale",
+    configPath,
+  };
+}
+
+async function readOpenClawStatus(): Promise<ClientStatus> {
+  const dir = process.env["MEMORY_OPENCLAW_DIR"] ?? join(homedir(), ".openclaw");
+  const configPath = join(dir, "openclaw.json");
+  const ok = await jsonHasServer(configPath, "mcpServers");
+  return {
+    client: "openclaw",
+    state: ok ? "installed" : existsSync(configPath) ? "stale" : "missing",
+    detail: ok
+      ? "installed"
       : existsSync(configPath)
         ? "installed but memory entry missing or invalid"
         : "not installed",

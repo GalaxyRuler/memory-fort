@@ -4,6 +4,9 @@ import { installAntigravity } from "./install/antigravity.js";
 import { installClaudeCode, claudeCodeSettingsPath } from "./install/claude-code.js";
 import { runInstallClaudeDesktop } from "./install/claude-desktop.js";
 import { installCodex } from "./install/codex.js";
+import { runInstallHermes } from "./install/hermes.js";
+import { runInstallOpenClaw } from "./install/openclaw.js";
+import { runInstallPi } from "./install/pi.js";
 import { installVsCode, vscodeExtensionDir, vscodeMcpConfigPath } from "./install/vscode.js";
 import { formatVerifyResult, runVerify, type VerifyResult } from "./verify.js";
 import { claudeDesktopConfigPath, logPath, memoryRoot } from "../../storage/paths.js";
@@ -13,6 +16,9 @@ export type Platform =
   | "claude-code"
   | "codex"
   | "antigravity"
+  | "hermes"
+  | "pi"
+  | "openclaw"
   | "claude-desktop"
   | "vscode";
 
@@ -35,7 +41,7 @@ export async function runInstall(
   const planned = planInstallWrites(platform, opts);
   if (!planned) {
     console.error(
-      `Unknown platform: ${platform}. Valid: claude-code, codex, antigravity, claude-desktop, vscode`,
+      `Unknown platform: ${platform}. Valid: claude-code, codex, antigravity, hermes, pi, openclaw, claude-desktop, vscode`,
     );
     process.exit(2);
   }
@@ -104,6 +110,41 @@ export async function runInstall(
       console.log(
         "  3. Verify new captures under ~/.memory/raw after the next Antigravity session.",
       );
+      await printVerify(opts);
+      return;
+    }
+    case "hermes": {
+      const result = await runInstallHermes();
+      console.log(`Installed memory hooks + MCP for Hermes at ${result.configPath}`);
+      for (const line of result.log) console.log(`  ${line}`);
+      console.log("");
+      console.log("Next steps:");
+      console.log("  1. Restart Hermes or start a new Hermes session to load the hooks.");
+      console.log("  2. Confirm the memory-system block is present in ~/.hermes/config.yaml.");
+      await printVerify(opts);
+      return;
+    }
+    case "pi": {
+      const result = await runInstallPi();
+      console.log(`Installed memory hooks for Pi at ${result.configPath}`);
+      for (const line of result.log) console.log(`  ${line}`);
+      console.log("");
+      console.log("Next steps:");
+      console.log("  1. Restart Pi or start a new Pi session to load the hooks.");
+      console.log("  2. MCP config is skipped for v1 because Pi MCP support varies.");
+      await printVerify(opts);
+      return;
+    }
+    case "openclaw": {
+      const result = await runInstallOpenClaw();
+      console.log(`Installed memory MCP for OpenClaw at ${result.configPath}`);
+      for (const line of result.log) console.log(`  ${line}`);
+      console.log(`  memory MCP entry ${result.memoryEntryAction}`);
+      console.log(`  preserved ${result.preservedServerCount} other MCP server(s)`);
+      console.log("");
+      console.log("Next steps:");
+      console.log("  1. Restart OpenClaw to load the memory MCP server.");
+      console.log("  2. OpenClaw hooks are gateway-level HTTP hooks, so shell hooks are skipped for v1.");
       await printVerify(opts);
       return;
     }
@@ -176,6 +217,18 @@ export function planInstallWrites(
         join(antigravityDir, "plugins", "memory"),
         logPath(),
       ];
+    }
+    case "hermes": {
+      const hermesDir = process.env["MEMORY_HERMES_DIR"] ?? join(homedir(), ".hermes");
+      return [join(hermesDir, "config.yaml"), logPath()];
+    }
+    case "pi": {
+      const piDir = process.env["MEMORY_PI_DIR"] ?? join(homedir(), ".pi");
+      return [join(piDir, "config.yaml"), logPath()];
+    }
+    case "openclaw": {
+      const openclawDir = process.env["MEMORY_OPENCLAW_DIR"] ?? join(homedir(), ".openclaw");
+      return [join(openclawDir, "openclaw.json")];
     }
     case "claude-desktop":
       return [claudeDesktopConfigPath()];
