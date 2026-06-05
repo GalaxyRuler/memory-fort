@@ -12,12 +12,14 @@ export interface GalacticHUDProps {
   edges: GraphEdge[];
   onZoomLevelChange: (level: GalacticZoomLevel) => void;
   onOpenMemory: (path: string) => void;
-  onSelectNode: (path: string) => void;
+  onSelectNode: (path: string | null) => void;
+  onDeselect: () => void;
 }
 
 export function GalacticHUD({
   edges,
   nodes,
+  onDeselect,
   onOpenMemory,
   onSelectNode,
   onZoomLevelChange,
@@ -43,7 +45,7 @@ export function GalacticHUD({
       </GlassPanel>
       {selectedNode && (
         <GlassPanel hasBrackets={true} className="pointer-events-auto absolute bottom-3 right-3 max-h-[calc(100vh-7rem)] w-[420px] overflow-auto bg-surface/75">
-          <Inspector edges={edges} node={selectedNode} nodes={nodes} onOpenMemory={onOpenMemory} onSelectNode={onSelectNode} />
+          <Inspector edges={edges} node={selectedNode} nodes={nodes} onClose={onDeselect} onOpenMemory={onOpenMemory} onSelectNode={onSelectNode} />
         </GlassPanel>
       )}
     </div>

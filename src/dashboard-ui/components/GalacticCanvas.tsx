@@ -310,16 +310,28 @@ function render(
   drawStarfield(ctx, size, elapsed);
 
   for (const galaxy of Object.values(layout.galaxies)) drawAccretionSwarm(ctx, galaxy, camera, size, elapsed);
-  // Draw within-galaxy edges first, cross-galaxy on top so they never get
-  // obscured by galaxy backdrops or other edges. Cross-galaxy connections
-  // are the most informative — they prove the whole graph is one organism,
-  // not 4 isolated clusters.
+  // Draw cross-galaxy edges FIRST (behind), within-galaxy on top. Cross-galaxy
+  // edges are ~94% of the graph; layering them on top buried the rarer, more
+  // informative within-galaxy and typed edges. They are the background, not the
+  // foreground.
+  const edgeZoom = zoomLevelForScale(camera.scale);
   const orderedEdges = [...layout.edges].sort((a, b) => {
     const aCross = a.source.cognitiveType !== a.target.cognitiveType ? 1 : 0;
     const bCross = b.source.cognitiveType !== b.target.cognitiveType ? 1 : 0;
-    return aCross - bCross;
+    return bCross - aCross;
   });
-  for (const edge of orderedEdges) drawEdge(ctx, edge, camera, size, elapsed, selectedId);
+  for (const edge of orderedEdges) {
+    // At galaxy-overview zoom, suppress the untyped cross-galaxy hairball so the
+    // cluster structure reads. Typed edges (contradicts/supersedes/…) and all
+    // within-galaxy edges still draw.
+    if (edgeZoom === 0) {
+      const crossGalaxy = edge.source.cognitiveType !== edge.target.cognitiveType;
+      const edgeType = normalizeEdgeType(edge.type ?? edge.relationType);
+      const typed = edgeType in EDGE_TYPE_TREATMENTS;
+      if (crossGalaxy && (!typed || edgeType === "derived_from")) continue;
+    }
+    drawEdge(ctx, edge, camera, size, elapsed, selectedId);
+  }
   if (camera.scale > 0.3) {
     for (const galaxy of Object.values(layout.galaxies)) {
       for (const system of Object.values(galaxy.systems)) if (system) drawSystemBackdrop(ctx, system, camera, size);
@@ -450,9 +462,9 @@ function drawEdge(ctx: CanvasRenderingContext2D, edge: GalacticLayout["edges"][n
   ctx.setLineDash(style.dash);
 
   if (style.glow && style.strokeColor) {
-    // Cross-galaxy edges are the most informative connections. Render them
-    // as bright cyan filaments with a glow shadow so they read as
-    // first-class lines against the galaxy halos. Same lensing curve.
+    // Reserved for edges that opt into a glow shadow. Untyped cross-galaxy edges
+    // no longer glow (they are the base rate, rendered quiet); this stays for
+    // any future edge style that sets glow:true.
     ctx.shadowColor = style.strokeColor;
     ctx.shadowBlur = 6;
   }
@@ -510,11 +522,12 @@ export function computeEdgeRenderStyle({
   let lineWidth: number;
   let opacity: number;
   if (crossGalaxy) {
-    // Cross-galaxy edges: visually dominant. Higher floors at galactic zoom
-    // so they punch through galaxy halos; thicker boost (2x); cap opacity
-    // near full brightness so the cyan reads cleanly.
-    lineWidth = Math.max(zoomLevel === 0 ? 1.6 : 1.2, baseLineWidth * 2);
-    opacity = Math.min(1, Math.max(zoomLevel === 0 ? 0.65 : 0.5, baseOpacity * 1.8));
+    // Cross-galaxy edges are the ~94% base rate, not exceptional bridges.
+    // Render them on the same weight-driven scale as within-galaxy edges (no
+    // boost, no raised floor). A *typed* cross edge still keeps its semantic
+    // treatment below; only the untyped bulk gets demoted to quiet slate.
+    lineWidth = baseLineWidth;
+    opacity = baseOpacity;
   } else {
     lineWidth = zoomLevel === 0 ? Math.max(0.8, baseLineWidth) : baseLineWidth;
     opacity = zoomLevel === 0 ? Math.max(0.35, baseOpacity) : baseOpacity;
@@ -534,14 +547,18 @@ export function computeEdgeRenderStyle({
     };
   }
   if (crossGalaxy) {
+    // Untyped cross-galaxy edge (mentions/linked) — the dominant base rate.
+    // Quiet slate, no glow, demoted opacity so it recedes into the background
+    // instead of drowning the rarer, more informative edges.
+    const muted = visibleOpacity * 0.55;
     return {
       lineWidth,
-      opacity: visibleOpacity,
-      strokeColor: rgba("165, 243, 252", visibleOpacity),
+      opacity: muted,
+      strokeColor: rgba("100, 116, 139", muted),
       dash: [],
       arrowhead: false,
-      glow: !historical,
-      particleColor: rgba("165, 243, 252", Math.max(0.45, visibleOpacity)),
+      glow: false,
+      particleColor: rgba("100, 116, 139", Math.max(0.25, muted)),
       useDomainGradient: false,
     };
   }
@@ -593,17 +610,29 @@ function drawPlanet(ctx: CanvasRenderingContext2D, node: GalacticNode, camera: C
   const point = worldToScreen(node, camera, size);
   const radius = node.size * camera.scale * 0.95;
   if (point.x < -50 || point.x > size.width + 50 || point.y < -50 || point.y > size.height + 50) return;
-  const glow = confidenceGlow(
-    node.confidence === null ? null : getConfidenceScore(node.confidence),
-    radius,
-  );
-  const gradient = ctx.createRadialGradient(point.x, point.y, radius * 0.5, point.x, point.y, glow.radius);
-  gradient.addColorStop(0, hexA(DOMAIN_META[node.domain].color, glow.opacity));
-  gradient.addColorStop(1, hexA(DOMAIN_META[node.domain].color, 0));
-  ctx.fillStyle = gradient;
-  ctx.beginPath();
-  ctx.arc(point.x, point.y, glow.radius, 0, Math.PI * 2);
-  ctx.fill();
+  if (node.confidence === null) {
+    // Unknown confidence is NOT medium confidence. Draw a hollow dotted ring
+    // instead of a filled glow so "we don't know" never masquerades as a real
+    // mid-confidence reading.
+    ctx.save();
+    ctx.strokeStyle = "rgba(148, 163, 184, 0.5)";
+    ctx.lineWidth = 0.8;
+    ctx.setLineDash([1.5, 2.5]);
+    ctx.beginPath();
+    ctx.arc(point.x, point.y, Math.max(2, radius) * 1.5, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
+  } else {
+    const glow = confidenceGlow(getConfidenceScore(node.confidence), radius);
+    const gradient = ctx.createRadialGradient(point.x, point.y, radius * 0.5, point.x, point.y, glow.radius);
+    gradient.addColorStop(0, hexA(DOMAIN_META[node.domain].color, glow.opacity));
+    gradient.addColorStop(1, hexA(DOMAIN_META[node.domain].color, 0));
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    ctx.arc(point.x, point.y, glow.radius, 0, Math.PI * 2);
+    ctx.fill();
+  }
 
   PLANET_RENDERERS[node.domain](ctx, point.x, point.y, Math.max(2, radius), node);
   if (hoverId === node.path || selectedId === node.path) {
@@ -612,13 +641,6 @@ function drawPlanet(ctx: CanvasRenderingContext2D, node: GalacticNode, camera: C
     ctx.beginPath();
     ctx.arc(point.x, point.y, radius + 6, 0, Math.PI * 2);
     ctx.stroke();
-  }
-  if (camera.scale > 1.1 && radius > 4) {
-    ctx.font = `500 ${Math.min(12, 9 + radius * 0.4)}px Inter, sans-serif`;
-    ctx.fillStyle = "rgba(232, 236, 244, 0.85)";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "top";
-    ctx.fillText(node.title, point.x, point.y + radius + 6);
   }
 }
 

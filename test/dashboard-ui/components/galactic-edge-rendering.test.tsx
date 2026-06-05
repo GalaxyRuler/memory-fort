@@ -15,7 +15,7 @@ describe("galactic edge rendering", () => {
     expect(style.opacity).toBeGreaterThanOrEqual(0.35);
   });
 
-  it("boosts cross-galaxy edge width and opacity by at least 1.5x", () => {
+  it("demotes untyped cross-galaxy edges below within-galaxy edges", () => {
     const within = computeEdgeRenderStyle({
       highlighted: false,
       sourceCognitiveType: "semantic",
@@ -31,8 +31,11 @@ describe("galactic edge rendering", () => {
       zoomLevel: 0,
     });
 
-    expect(cross.lineWidth).toBeGreaterThanOrEqual(within.lineWidth * 1.5);
-    expect(cross.opacity).toBeGreaterThanOrEqual(within.opacity * 1.5);
+    // Cross-galaxy is the ~94% base rate: quiet slate, no glow, fainter than the
+    // rarer within-galaxy edges — not boosted on top of them.
+    expect(cross.opacity).toBeLessThan(within.opacity);
+    expect(cross.glow).toBe(false);
+    expect(cross.strokeColor).toContain("100, 116, 139");
   });
 
   it("keeps non-galactic zoom levels on the existing weight-driven scale", () => {
@@ -79,11 +82,13 @@ describe("galactic edge rendering", () => {
       type: "contradicts",
     });
 
-    expect(style.strokeColor).toBe("rgba(252, 165, 165, 0.738)");
+    // Typed cross-galaxy edges keep their semantic color at full weight-driven
+    // opacity (no cross-galaxy mute) so meaningful relations stay legible.
+    expect(style.strokeColor).toBe("rgba(252, 165, 165, 0.41)");
     expect(style.glow).toBe(false);
   });
 
-  it("does not give dropped noncanonical supports edges a special treatment", () => {
+  it("demotes dropped noncanonical supports edges to quiet slate", () => {
     const style = computeEdgeRenderStyle({
       highlighted: false,
       sourceCognitiveType: "semantic",
@@ -93,11 +98,11 @@ describe("galactic edge rendering", () => {
       type: "supports",
     });
 
-    expect(style.strokeColor).toBe("rgba(165, 243, 252, 0.738)");
-    expect(style.glow).toBe(true);
+    expect(style.strokeColor).toBe("rgba(100, 116, 139, 0.2255)");
+    expect(style.glow).toBe(false);
   });
 
-  it("keeps cross-galaxy mentions bright and fades historical edges", () => {
+  it("mutes untyped cross-galaxy mentions and fades historical edges further", () => {
     const active = computeEdgeRenderStyle({
       highlighted: false,
       sourceCognitiveType: "semantic",
@@ -116,10 +121,10 @@ describe("galactic edge rendering", () => {
       validTo: "2026-05-23",
     });
 
-    expect(active.strokeColor).toBe("rgba(165, 243, 252, 0.738)");
-    expect(active.glow).toBe(true);
+    expect(active.strokeColor).toBe("rgba(100, 116, 139, 0.2255)");
+    expect(active.glow).toBe(false);
     expect(historical.opacity).toBeCloseTo(active.opacity * 0.4);
-    expect(historical.strokeColor).toBe("rgba(165, 243, 252, 0.2952)");
+    expect(historical.strokeColor).toBe("rgba(100, 116, 139, 0.0902)");
     expect(historical.glow).toBe(false);
   });
 });

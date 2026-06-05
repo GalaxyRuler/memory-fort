@@ -1,17 +1,8 @@
 import { COGNITIVE_ORDER, COGNITIVE_META, DOMAIN_ORDER, DOMAIN_META, normalizeDomain } from "../../lib/galactic/layout.js";
 import type { GraphNode } from "../../hooks/useGraph.js";
 
-const SHAPES: Record<(typeof DOMAIN_ORDER)[number], string> = {
-  projects: "mini-system",
-  decisions: "banded rocky",
-  lessons: "binary moons",
-  references: "ringed giant",
-  tools: "octagon",
-  crystals: "faceted hex",
-};
-
 const EDGE_TYPE_LEGEND = [
-  { label: "Mentions", detail: "default link", color: "rgb(165, 243, 252)", dash: "solid" },
+  { label: "Mentions", detail: "cross-galaxy base rate", color: "rgb(100, 116, 139)", dash: "solid" },
   { label: "Supports", detail: "reinforces", color: "rgb(110, 231, 183)", dash: "solid" },
   { label: "Contradicts", detail: "conflicts", color: "rgb(252, 165, 165)", dash: "dashed" },
   { label: "Supersedes", detail: "replaces", color: "rgb(156, 163, 175)", dash: "solid", arrow: true },
@@ -45,7 +36,7 @@ export function Legend({ nodes }: { nodes: GraphNode[] }) {
         </div>
       </section>
       <section>
-        <h2 className="mb-2 font-mono text-[11px] font-semibold uppercase tracking-wider text-text-primary">Domain Shapes</h2>
+        <h2 className="mb-2 font-mono text-[11px] font-semibold uppercase tracking-wider text-text-primary">Domain Colors</h2>
         <div className="space-y-1.5">
           {DOMAIN_ORDER.map((domain) => (
             <LegendRow
@@ -53,7 +44,6 @@ export function Legend({ nodes }: { nodes: GraphNode[] }) {
               color={DOMAIN_META[domain].color}
               count={domainCounts[domain]}
               label={DOMAIN_META[domain].label}
-              detail={SHAPES[domain]}
             />
           ))}
         </div>
@@ -67,11 +57,10 @@ export function Legend({ nodes }: { nodes: GraphNode[] }) {
       <section>
         <h2 className="mb-2 font-mono text-[11px] font-semibold uppercase tracking-wider text-text-primary">Physics · data-driven</h2>
         <div className="space-y-1.5">
-          <PhysicsRow label="orbit pull" detail="inbound count" />
+          <PhysicsRow label="orbit motion" detail="ambient animation" />
           <PhysicsRow label="planet size" detail="inbound count" />
-          <PhysicsRow label="glow halo" detail="confidence" />
-          <PhysicsRow label="edge warp" detail="relation weight" />
-          <PhysicsRow label="particle flow" detail="active relation" />
+          <PhysicsRow label="edge color" detail="domain gradient" />
+          <PhysicsRow label="edge opacity" detail="cross-galaxy = dim" />
         </div>
       </section>
     </div>
@@ -122,12 +111,12 @@ function PhysicsRow({ label, detail }: { label: string; detail: string }) {
   );
 }
 
-function LegendRow({ color, count, detail, label }: { color: string; count: number; detail: string; label: string }) {
+function LegendRow({ color, count, detail, label }: { color: string; count: number; detail?: string; label: string }) {
   return (
     <div className="grid grid-cols-[auto_minmax(5rem,auto)_1fr_auto] items-center gap-2">
       <span className="h-2.5 w-2.5 flex-shrink-0 rounded-full" style={{ backgroundColor: color }} aria-hidden="true" />
       <span className="min-w-20 text-text-secondary">{label}</span>
-      <span className="truncate font-mono text-[10px] text-text-muted">{detail}</span>
+      <span className="truncate font-mono text-[10px] text-text-muted">{detail ?? ""}</span>
       <span
         aria-label={`${label} count`}
         className={`min-w-6 text-right font-mono text-[10px] ${count === 0 ? "text-text-ghost" : "text-text-muted"}`}

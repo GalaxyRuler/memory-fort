@@ -12,7 +12,7 @@ describe("Galactic legend", () => {
     expect(screen.getByText("Semantic")).toBeInTheDocument();
     expect(screen.getByText("Episodic")).toBeInTheDocument();
     expect(screen.getByText("Procedural")).toBeInTheDocument();
-    expect(screen.getByText("Domain Shapes")).toBeInTheDocument();
+    expect(screen.getByText("Domain Colors")).toBeInTheDocument();
     expect(screen.getByText("Projects")).toBeInTheDocument();
     expect(screen.getByText("Decisions")).toBeInTheDocument();
     expect(screen.getByText("Lessons")).toBeInTheDocument();
@@ -27,12 +27,12 @@ describe("Galactic legend", () => {
     expect(screen.getByText("Derived From")).toBeInTheDocument();
     expect(screen.getByText("Uses / Depends On")).toBeInTheDocument();
     expect(screen.getByText("Caused / Fixed By")).toBeInTheDocument();
-    // Physics section: each row is split into label + detail spans now.
+    // Physics section reflects actual 3D scene capabilities.
     expect(screen.getByText(/Physics/i)).toBeInTheDocument();
-    expect(screen.getByText("orbit pull")).toBeInTheDocument();
+    expect(screen.getByText("orbit motion")).toBeInTheDocument();
     expect(screen.getByText("planet size")).toBeInTheDocument();
-    expect(screen.getByText("glow halo")).toBeInTheDocument();
-    expect(screen.getByText("edge warp")).toBeInTheDocument();
+    expect(screen.getByText("edge color")).toBeInTheDocument();
+    expect(screen.getByText("edge opacity")).toBeInTheDocument();
   });
 
   it("shows reactive node counts for cognitive galaxies and domain shapes including zero rows", () => {
@@ -57,7 +57,9 @@ describe("Galactic legend", () => {
 
     expect(screen.getByLabelText("Core count")).toHaveTextContent("0");
     expect(screen.getByLabelText("Episodic count")).toHaveTextContent("1");
-    expect(screen.getByLabelText("Lessons count")).toHaveTextContent("1");
+    // Raw captures now land in their own "Raw" domain, not masquerading as Lessons.
+    expect(screen.getByLabelText("Raw count")).toHaveTextContent("1");
+    expect(screen.getByLabelText("Lessons count")).toHaveTextContent("0");
   });
 });
 

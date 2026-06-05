@@ -14,6 +14,9 @@ export default defineConfig({
       output: {
         manualChunks(id) {
           const moduleId = id.replace(/\\/g, "/");
+          if (moduleId.includes("/node_modules/three/") || moduleId.includes("/node_modules/@react-three/") || moduleId.includes("/node_modules/postprocessing/")) {
+            return "three";
+          }
           if (moduleId.includes("/node_modules/@tanstack/")) {
             return "tanstack";
           }
@@ -36,6 +39,7 @@ export default defineConfig({
           if (
             moduleId.includes("/src/dashboard-ui/components/galactic/") ||
             moduleId.endsWith("/src/dashboard-ui/components/GalacticCanvas.tsx") ||
+            moduleId.endsWith("/src/dashboard-ui/components/GalacticScene.tsx") ||
             moduleId.endsWith("/src/dashboard-ui/components/GraphPage.tsx")
           ) {
             return "graph";

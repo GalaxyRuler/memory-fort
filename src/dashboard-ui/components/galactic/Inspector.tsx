@@ -7,6 +7,7 @@ export interface InspectorProps {
   edges: GraphEdge[];
   onOpenMemory: (path: string) => void;
   onSelectNode: (path: string) => void;
+  onClose?: () => void;
 }
 
 const STATUS_STYLES: Record<string, { border: string; bg: string; text: string }> = {
@@ -16,7 +17,7 @@ const STATUS_STYLES: Record<string, { border: string; bg: string; text: string }
   archived: { border: "border-text-muted/40", bg: "bg-text-muted/10", text: "text-text-muted" },
 };
 
-export function Inspector({ edges, node, nodes, onOpenMemory, onSelectNode }: InspectorProps) {
+export function Inspector({ edges, node, nodes, onClose, onOpenMemory, onSelectNode }: InspectorProps) {
   if (!node) return null;
 
   const domain = normalizeDomain(node);
@@ -30,9 +31,21 @@ export function Inspector({ edges, node, nodes, onOpenMemory, onSelectNode }: In
   return (
     <div className="space-y-4 text-[13px] leading-relaxed text-text-secondary">
       <header>
-        <p className="mb-1 font-mono text-[10px] uppercase tracking-[0.2em] text-text-muted">
-          {COGNITIVE_META[node.cognitiveType].label} · {DOMAIN_META[domain].label}
-        </p>
+        <div className="mb-1 flex items-center gap-2">
+          <p className="min-w-0 flex-1 truncate font-mono text-[10px] uppercase tracking-[0.2em] text-text-muted">
+            {COGNITIVE_META[node.cognitiveType].label} · {DOMAIN_META[domain].label}
+          </p>
+          {onClose && (
+            <button
+              type="button"
+              aria-label="Close inspector"
+              onClick={onClose}
+              className="-mr-1 -mt-1 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded text-text-muted transition-colors hover:bg-surface-3 hover:text-text-primary"
+            >
+              ✕
+            </button>
+          )}
+        </div>
         <div className="mb-2 flex items-start gap-2">
           <h2 className="min-w-0 flex-1 break-words text-[17px] font-semibold leading-tight text-text-primary">
             {node.title}

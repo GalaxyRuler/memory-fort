@@ -22,6 +22,8 @@ export const PLANET_RENDERERS: Record<DomainType, PlanetRenderer> = {
   references: drawReferencePlanet,
   tools: drawToolPlanet,
   crystals: drawCrystalPlanet,
+  raw: drawRawPlanet,
+  other: drawOtherPlanet,
 };
 
 export function drawGenericPlanet(ctx: CanvasRenderingContext2D, x: number, y: number, radius: number): void {
@@ -179,6 +181,50 @@ export function drawCrystalPlanet(ctx: CanvasRenderingContext2D, x: number, y: n
   ctx.fill();
   ctx.restore();
   drawPolygonPlanet(ctx, x, y, radius, node.localAngle * 0.3 - Math.PI / 2, 6, ["#0e7490", "#22d3ee", "#a5f3fc"], "rgba(255,255,255,0.6)", true);
+}
+
+// Raw episodic capture: a dim mote inside a dashed "capture" ring. Deliberately
+// unlike the lesson planet — a raw observation has NOT been curated, so it must
+// not borrow the lesson silhouette.
+export function drawRawPlanet(ctx: CanvasRenderingContext2D, x: number, y: number, radius: number, _node: PlanetRenderNode): void {
+  ctx.save();
+  ctx.fillStyle = hexA("#fb923c", 0.85);
+  ctx.beginPath();
+  ctx.arc(x, y, radius * 0.65, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "rgba(251, 146, 60, 0.7)";
+  ctx.lineWidth = 0.8;
+  ctx.setLineDash([2, 2]);
+  ctx.beginPath();
+  ctx.arc(x, y, radius * 1.2, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.restore();
+}
+
+// Unclassified node: a neutral grey asteroid. Carries no domain affordance on
+// purpose — it signals "type unknown / not yet a first-class domain".
+export function drawOtherPlanet(ctx: CanvasRenderingContext2D, x: number, y: number, radius: number, node: PlanetRenderNode): void {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(node.localAngle * 0.2);
+  ctx.beginPath();
+  const sides = 7;
+  for (let index = 0; index < sides; index += 1) {
+    const angle = (index / sides) * Math.PI * 2;
+    const r = radius * (index % 2 === 0 ? 1 : 0.66);
+    const px = Math.cos(angle) * r;
+    const py = Math.sin(angle) * r;
+    if (index === 0) ctx.moveTo(px, py);
+    else ctx.lineTo(px, py);
+  }
+  ctx.closePath();
+  ctx.fillStyle = "#94a3b8";
+  ctx.fill();
+  ctx.strokeStyle = "rgba(148, 163, 184, 0.5)";
+  ctx.lineWidth = 0.5;
+  ctx.stroke();
+  ctx.restore();
 }
 
 export function hexA(hex: string, alpha: number): string {

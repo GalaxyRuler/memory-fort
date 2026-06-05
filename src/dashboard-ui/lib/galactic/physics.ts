@@ -34,7 +34,7 @@ export function edgeLensing(
 export function confidenceGlow(confidence: number | null, radius: number): { radius: number; opacity: number } {
   const conf = clamp(confidence ?? 0.55, 0, 1);
   return {
-    radius: Math.max(8, radius * 1.9 * (0.4 + conf * 0.9)),
+    radius: Math.max(3, radius * 1.6 * (0.5 + conf * 0.5)),
     opacity: 0.08 + Math.pow(conf, 1.6) * 0.4,
   };
 }

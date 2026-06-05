@@ -18,18 +18,36 @@ function node(path: string, overrides: Partial<GraphNode> = {}): GraphNode {
 }
 
 describe("galactic layout", () => {
-  it("places the four cognitive galaxies on the prototype ring", () => {
+  it("places the four cognitive galaxies on a tetrahedron", () => {
     const layout = buildGalacticLayout([]);
 
     expect(Object.keys(layout.galaxies)).toEqual([...COGNITIVE_ORDER]);
-    expect(layout.galaxies.core.cx).toBeCloseTo(0, 5);
-    expect(layout.galaxies.core.cy).toBeCloseTo(-900, 5);
-    expect(layout.galaxies.semantic.cx).toBeCloseTo(900, 5);
-    expect(layout.galaxies.semantic.cy).toBeCloseTo(0, 5);
-    expect(layout.galaxies.episodic.cx).toBeCloseTo(0, 5);
-    expect(layout.galaxies.episodic.cy).toBeCloseTo(900, 5);
-    expect(layout.galaxies.procedural.cx).toBeCloseTo(-900, 5);
-    expect(layout.galaxies.procedural.cy).toBeCloseTo(0, 5);
+
+    const R = 900;
+    expect(layout.galaxies.core.cx).toBeCloseTo(0, 3);
+    expect(layout.galaxies.core.cy).toBeCloseTo(R, 3);
+    expect(layout.galaxies.core.cz).toBeCloseTo(0, 3);
+
+    expect(layout.galaxies.semantic.cx).toBeCloseTo(Math.sqrt(8 / 9) * R, 3);
+    expect(layout.galaxies.semantic.cy).toBeCloseTo(-R / 3, 3);
+
+    expect(layout.galaxies.episodic.cy).toBeCloseTo(-R / 3, 3);
+    expect(layout.galaxies.procedural.cy).toBeCloseTo(-R / 3, 3);
+
+    const centers = COGNITIVE_ORDER.map((k) => {
+      const g = layout.galaxies[k];
+      return [g.cx, g.cy, g.cz] as const;
+    });
+    for (let i = 0; i < centers.length; i++) {
+      for (let j = i + 1; j < centers.length; j++) {
+        const d = Math.hypot(
+          centers[i][0] - centers[j][0],
+          centers[i][1] - centers[j][1],
+          centers[i][2] - centers[j][2],
+        );
+        expect(d).toBeGreaterThan(R * 1.2);
+      }
+    }
   });
 
   it("clusters nodes into domain systems within each cognitive galaxy", () => {

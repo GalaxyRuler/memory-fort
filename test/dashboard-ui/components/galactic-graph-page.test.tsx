@@ -3,6 +3,7 @@ import React from "react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { GraphPage } from "../../../src/dashboard-ui/components/GraphPage.js";
 import type { GalacticCanvasHandle, GalacticCanvasProps } from "../../../src/dashboard-ui/components/GalacticCanvas.js";
+import type { GalacticSceneHandle, GalacticSceneProps } from "../../../src/dashboard-ui/components/GalacticScene.js";
 import type { GraphNode, GraphResponse } from "../../../src/dashboard-ui/hooks/useGraph.js";
 
 const graphHook = vi.hoisted(() => ({
@@ -26,6 +27,28 @@ vi.mock("../../../src/dashboard-ui/components/GalacticCanvas.js", async () => {
   const ReactModule = await import("react");
   return {
     GalacticCanvas: ReactModule.forwardRef((props: GalacticCanvasProps, ref: React.ForwardedRef<GalacticCanvasHandle>) => {
+      ReactModule.useImperativeHandle(ref, () => ({
+        focusNode: canvasCalls.focusNode,
+        setZoomLevel: canvasCalls.setZoomLevel,
+      }));
+
+      return (
+        <button
+          type="button"
+          data-testid="galactic-canvas-shell"
+          onClick={() => props.onSelectNode?.("wiki/projects/core.md")}
+        >
+          galactic canvas
+        </button>
+      );
+    }),
+  };
+});
+
+vi.mock("../../../src/dashboard-ui/components/GalacticScene.js", async () => {
+  const ReactModule = await import("react");
+  return {
+    GalacticScene: ReactModule.forwardRef((props: GalacticSceneProps, ref: React.ForwardedRef<GalacticSceneHandle>) => {
       ReactModule.useImperativeHandle(ref, () => ({
         focusNode: canvasCalls.focusNode,
         setZoomLevel: canvasCalls.setZoomLevel,
