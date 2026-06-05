@@ -1,7 +1,6 @@
 {
-  "name": "@galaxyruler/memory-system",
+  "name": "memory-fort",
   "version": "0.1.0",
-  "private": true,
   "type": "module",
   "description": "Memory Fort: cross-tool memory for Claude Code, Codex, and Antigravity",
   "author": {
@@ -20,13 +19,35 @@
     "test:ui": "vitest run test/dashboard-ui",
     "test:watch": "vitest",
     "scan:leaks": "node scripts/scan-leaks.mjs",
+    "prepublishOnly": "npm run scan:leaks && npm run build",
     "memory": "node dist/cli.mjs"
   },
   "engines": {
     "node": ">=20"
   },
   "bin": {
+    "memory-fort": "dist/cli.mjs",
     "memory": "dist/cli.mjs"
+  },
+  "files": [
+    "dist/",
+    "templates/",
+    "README.md",
+    "LICENSE",
+    "LICENSE-NOTICE.md",
+    "COMMERCIAL.md",
+    "AUTHORSHIP.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/GalaxyRuler/memory-fort.git"
+  },
+  "homepage": "https://github.com/GalaxyRuler/memory-fort#readme",
+  "bugs": {
+    "url": "https://github.com/GalaxyRuler/memory-fort/issues"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29",
