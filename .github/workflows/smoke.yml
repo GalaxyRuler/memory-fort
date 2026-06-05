@@ -57,6 +57,22 @@ jobs:
         shell: pwsh
         run: node dist\cli.mjs init --yes --retrieval lexical --tools none
 
+      - name: Install ripgrep
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ripgrep
+
+      - name: Install ripgrep
+        if: runner.os == 'macOS'
+        run: brew install ripgrep
+
+      - name: Install ripgrep
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: choco install ripgrep -y --no-progress
+
       - name: Smoke grep
         if: runner.os != 'Windows'
         shell: bash

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   deriveBinName,
   formatNextSteps,
@@ -23,5 +23,23 @@ describe("post-setup next steps", () => {
     expect(deriveBinName(["node", "C:\\Users\\me\\AppData\\Roaming\\npm\\memory.cmd"])).toBe("memory");
     expect(deriveBinName(["node", "C:\\repo\\dist\\cli.mjs"])).toBe("memory");
     expect(deriveBinName(["node", ""])).toBe("memory");
+  });
+
+  it("derives Windows-style command paths when running with POSIX path semantics", async () => {
+    vi.resetModules();
+    vi.doMock("node:path", async () => {
+      const path = await vi.importActual<typeof import("node:path")>("node:path");
+      return { ...path, basename: path.posix.basename };
+    });
+
+    try {
+      const mod = await import("../../../src/cli/commands/next-steps.js");
+
+      expect(mod.deriveBinName(["node", "C:\\Users\\me\\AppData\\Roaming\\npm\\memory.cmd"])).toBe("memory");
+      expect(mod.deriveBinName(["node", "C:\\repo\\dist\\cli.mjs"])).toBe("memory");
+    } finally {
+      vi.doUnmock("node:path");
+      vi.resetModules();
+    }
   });
 });

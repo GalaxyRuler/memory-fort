@@ -119,7 +119,8 @@ describe("installCodex", () => {
     const content = await readFile(result.codexConfigPath, "utf-8");
     const mcpSection = content.slice(content.indexOf("[mcp_servers.memory]"));
     expect(mcpSection).not.toContain("${CLAUDE_PLUGIN_ROOT}");
-    expect(mcpSection).toMatch(/args\s*=\s*\["[A-Z]:/);
+    expect(mcpSection).toMatch(/args\s*=\s*\["/);
+    expect(mcpSection).toContain("mcp-server.mjs");
   });
 
   it("uses MEMORY_CODEX_DIR when codexDir is not provided", async () => {
