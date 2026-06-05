@@ -29,6 +29,22 @@ describe("scan-leaks release gate", () => {
     expect(result.stdout).toContain(`src/public.ts:1: ${token}`);
   });
 
+  it("reports CodexProjects path literals in escaped and slash forms", async () => {
+    const escapedPath = ["C:", "\\", "\\", "Codex", "Projects"].join("");
+    const slashPath = ["C:", "/", "Codex", "Projects"].join("");
+    await writeText("src/paths.ts", [
+      `export const escapedPath = "${escapedPath}";`,
+      `export const slashPath = "${slashPath}";`,
+      "",
+    ].join("\n"));
+
+    const result = await runScan(["--root", tmp]);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toContain(`src/paths.ts:1: ${escapedPath}`);
+    expect(result.stdout).toContain(`src/paths.ts:2: ${slashPath}`);
+  });
+
   it("allows owner name tokens in package.json", async () => {
     const token = ["Abdul", "lah"].join("");
     await writeText("package.json", JSON.stringify({ author: token }));

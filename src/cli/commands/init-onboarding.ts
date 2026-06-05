@@ -113,7 +113,7 @@ export async function runInitOnboarding(
     const selectedTools = parseInitTools(opts.tools, detectedTools);
     return executeOnboarding({
       ...opts,
-      vault: expandHome(opts.vault ?? "~/.memory", homeDir),
+      vault: resolveVaultRoot({ vault: opts.vault, env, homeDir }),
       name: opts.name ?? templateVars.user_name,
       selectedTools,
       retrieval: parseRetrievalMode(opts.retrieval),
@@ -126,7 +126,7 @@ export async function runInitOnboarding(
     const selectedTools = opts.tools === undefined ? [] : parseInitTools(opts.tools, detectedTools);
     return executeOnboarding({
       ...opts,
-      vault: expandHome(opts.vault ?? "~/.memory", homeDir),
+      vault: resolveVaultRoot({ vault: opts.vault, env, homeDir }),
       name: opts.name ?? templateVars.user_name,
       selectedTools,
       retrieval,
@@ -134,7 +134,7 @@ export async function runInitOnboarding(
     });
   }
 
-  const vault = opts.vault ? expandHome(opts.vault, homeDir) : undefined;
+  const vault = opts.vault ? expandHome(opts.vault, homeDir) : resolveVaultRoot({ env, homeDir });
   const init = await runInit({
     reset: opts.reset,
     sourceRepoDir: opts.sourceRepoDir,
@@ -225,7 +225,11 @@ async function executeOnboarding(args: InitOnboardingOptions & {
   retrieval: RetrievalMode;
   templateVars: TemplateVars;
 }): Promise<InitOnboardingResult> {
-  const vault = expandHome(args.vault ?? "~/.memory", args.homeDir ?? homedir());
+  const vault = resolveVaultRoot({
+    vault: args.vault,
+    env: args.env ?? process.env,
+    homeDir: args.homeDir,
+  });
   const connectFn = args.connectFn ?? runConnect;
   const name = args.name?.trim() || args.templateVars.user_name;
   const initTemplateVars = { ...args.templateVars, user_name: name };
@@ -386,6 +390,19 @@ function expandHome(path: string, homeDir: string): string {
   if (path === "~") return homeDir;
   if (path.startsWith("~/") || path.startsWith("~\\")) return join(homeDir, path.slice(2));
   return path;
+}
+
+function resolveVaultRoot(opts: {
+  vault?: string;
+  env?: NodeJS.ProcessEnv;
+  homeDir?: string;
+}): string {
+  const homeDir = opts.homeDir ?? homedir();
+  const envRoot = opts.env?.["MEMORY_ROOT"];
+  return expandHome(
+    opts.vault ?? (envRoot && envRoot.trim().length > 0 ? envRoot : "~/.memory"),
+    homeDir,
+  );
 }
 
 async function defaultQuestionPrompt(question: string): Promise<string> {

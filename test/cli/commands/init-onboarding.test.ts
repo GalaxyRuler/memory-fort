@@ -125,6 +125,43 @@ describe("init onboarding", () => {
     await expect(readFile(join(vault, "config.yaml"), "utf-8")).resolves.toContain("provider: lexical");
   });
 
+  it("--yes uses MEMORY_ROOT when --root is omitted", async () => {
+    const vault = join(tmp, "env-vault");
+    const defaultVault = join(tmp, ".memory");
+
+    const result = await runInitOnboarding({
+      yes: true,
+      homeDir: tmp,
+      env: { MEMORY_ROOT: vault },
+      sourceRepoDir: process.cwd(),
+      stdout: captureStdout([], false),
+    });
+
+    expect(result.vault).toBe(vault);
+    expect(result.init.root).toBe(vault);
+    expect(existsSync(join(vault, "config.yaml"))).toBe(true);
+    expect(existsSync(join(defaultVault, "config.yaml"))).toBe(false);
+  });
+
+  it("--yes lets explicit --root override MEMORY_ROOT", async () => {
+    const vault = join(tmp, "explicit-vault");
+    const envVault = join(tmp, "env-vault");
+
+    const result = await runInitOnboarding({
+      yes: true,
+      vault,
+      homeDir: tmp,
+      env: { MEMORY_ROOT: envVault },
+      sourceRepoDir: process.cwd(),
+      stdout: captureStdout([], false),
+    });
+
+    expect(result.vault).toBe(vault);
+    expect(result.init.root).toBe(vault);
+    expect(existsSync(join(vault, "config.yaml"))).toBe(true);
+    expect(existsSync(join(envVault, "config.yaml"))).toBe(false);
+  });
+
   it("honors explicit --tools none and --name without --yes in non-TTY mode", async () => {
     const vault = join(tmp, "vault");
     await mkdir(join(tmp, ".codex"), { recursive: true });

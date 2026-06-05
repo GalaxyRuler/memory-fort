@@ -21,6 +21,7 @@ const DENYLIST = [
   literal(["C:", "\\", "Users", "\\", "Admin"].join("")),
   literal(["Users", "/", "Admin"].join("")),
   literal(["C:", "\\", "Codex", "Projects"].join("")),
+  literal(["C:", "\\", "\\", "Codex", "Projects"].join("")),
   literal(["C:", "/", "Codex", "Projects"].join("")),
   literal(["One", "Drive"].join("")),
   literal(["white", "dragon"].join("")),
