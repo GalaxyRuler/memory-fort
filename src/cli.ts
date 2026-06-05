@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { Command } from "commander";
 import { printDebugLogBanner } from "./cli/debug-banner.js";
-import { runCompile, runCompileDrain } from "./cli/commands/compile.js";
+import { formatCompileExecuteSummary, runCompile, runCompileDrain } from "./cli/commands/compile.js";
 import {
   formatConsolidateResult,
   runConsolidate,
@@ -690,16 +690,14 @@ program
           if (result.watermarksAdvanced.length > 0) {
             console.error(`  watermarks advanced: ${result.watermarksAdvanced.length}`);
           }
-          console.error(`  raw files included: ${result.rawFilesIncluded.length}`);
-          console.error(`  raw files skipped:  ${result.rawFilesSkipped.length}`);
-          console.error(`  operations applied: ${result.execution.applied.length}`);
-          console.error(`  operations proposed: ${result.execution.proposed.length}`);
-          console.error(`  operations planned: ${result.execution.planned.length}`);
-          console.error(`  operations rejected: ${result.execution.rejected.length}`);
+          for (const line of formatCompileExecuteSummary(result)) {
+            console.error(`  ${line}`);
+          }
+          if (result.execution.planned.length > 0) {
+            console.error(`  operations planned: ${result.execution.planned.length}`);
+          }
           console.error(`  pages rewritten:    ${result.execution.pagesRewritten}`);
           console.error(`  pages updated:      ${result.execution.pagesUpdated}`);
-          console.error(`  pages unchanged:    ${result.execution.pagesUnchanged}`);
-          console.error(`  sessions scanned:   ${result.execution.sessionsScanned}`);
           console.error(`  facts extracted:    ${result.execution.factsExtracted}`);
           if (result.execution.extractionTokensUsed) {
             console.error(`  extraction tokens:  ${result.execution.extractionTokensUsed.total} total (${result.execution.extractionTokensUsed.prompt} prompt, ${result.execution.extractionTokensUsed.completion} completion)`);

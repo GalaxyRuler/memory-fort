@@ -11,9 +11,18 @@ export interface CompileLastRun {
   digestPath: string;
 }
 
+export interface CompilePendingSummary {
+  filesWithPendingTail: number;
+  pendingTailBytes: number;
+  totalRawFiles: number;
+  filesFullyDrained: number;
+  filesUnseen: number;
+}
+
 export interface CompileState {
   status: CompileStatus;
   lastRun: CompileLastRun | null;
+  pendingSummary?: CompilePendingSummary;
   schedule?: {
     scheduled: boolean;
     cadence: "daily" | "weekly" | "manual";
@@ -31,6 +40,7 @@ export interface CompileRunResponse {
     rawIncluded: number;
     rawSkipped: number;
     rawRemaining: number;
+    pendingSummary: CompilePendingSummary;
     opsApplied: number;
     opsStaged: number;
     opsRejected: number;

@@ -1032,6 +1032,40 @@ describe("dashboard server", () => {
     }
   });
 
+  it("GET /api/compile/state returns the pending-tail summary", async () => {
+    await mkdir(join(tmp, "raw", "2026-06-04"), { recursive: true });
+    await mkdir(join(tmp, "state"), { recursive: true });
+    await writeFile(join(tmp, "raw", "2026-06-04", "pending.md"), "abcdef");
+    await writeFile(join(tmp, "raw", "2026-06-04", "drained.md"), "12345");
+    await writeFile(join(tmp, "raw", "2026-06-04", "unseen.md"), "new");
+    await writeFile(
+      join(tmp, "state", "compile-state.json"),
+      `${JSON.stringify({
+        consumed: {
+          "raw/2026-06-04/pending.md": { bytes: 2 },
+          "raw/2026-06-04/drained.md": { bytes: 5 },
+        },
+      }, null, 2)}\n`,
+    );
+    const server = await createServer({ vaultRoot: tmp, port: 0 });
+
+    try {
+      const response = await fetch(`http://${server.host}:${server.port}/api/compile/state`);
+      const body = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(body.pendingSummary).toEqual({
+        filesWithPendingTail: 1,
+        pendingTailBytes: 4,
+        totalRawFiles: 3,
+        filesFullyDrained: 1,
+        filesUnseen: 1,
+      });
+    } finally {
+      await server.close();
+    }
+  });
+
   it("GET /api/compile/state explains when execute mode is unavailable", async () => {
     const previous = process.env["MEMORY_LLM_DISABLED"];
     process.env["MEMORY_LLM_DISABLED"] = "true";
@@ -1058,12 +1092,24 @@ describe("dashboard server", () => {
   });
 
   it("POST /api/compile/run runs compile and returns 409 while a run is active", async () => {
-    let resolveRun: ((value: { rawFilesIncluded: string[]; rawFilesSkipped: { path: string; reason: string }[]; outputPath: string; rawRemaining: number }) => void) | null = null;
+    let resolveRun: ((value: {
+      rawFilesIncluded: string[];
+      rawFilesSkipped: { path: string; reason: string }[];
+      outputPath: string;
+      rawRemaining: number;
+      pendingSummary?: {
+        filesWithPendingTail: number;
+        pendingTailBytes: number;
+        totalRawFiles: number;
+        filesFullyDrained: number;
+        filesUnseen: number;
+      };
+    }) => void) | null = null;
     let markStarted: (() => void) | null = null;
     const started = new Promise<void>((resolve) => {
       markStarted = resolve;
     });
-    const compileRunner = vi.fn(() => new Promise<{ rawFilesIncluded: string[]; rawFilesSkipped: { path: string; reason: string }[]; outputPath: string; rawRemaining: number }>((resolve) => {
+    const compileRunner = vi.fn(() => new Promise<NonNullable<Parameters<NonNullable<typeof resolveRun>>[0]>>((resolve) => {
       markStarted?.();
       resolveRun = resolve;
     }));
@@ -1081,6 +1127,13 @@ describe("dashboard server", () => {
         rawFilesSkipped: [{ path: "raw/old.md", reason: "before since cutoff" }],
         outputPath: "state/scheduled-compile-prompt.md",
         rawRemaining: 0,
+        pendingSummary: {
+          filesWithPendingTail: 0,
+          pendingTailBytes: 0,
+          totalRawFiles: 3,
+          filesFullyDrained: 2,
+          filesUnseen: 1,
+        },
       });
       const response = await first;
       const body = await response.json();
@@ -1090,6 +1143,13 @@ describe("dashboard server", () => {
         summary: {
           rawIncluded: 2,
           rawSkipped: 1,
+          pendingSummary: {
+            filesWithPendingTail: 0,
+            pendingTailBytes: 0,
+            totalRawFiles: 3,
+            filesFullyDrained: 2,
+            filesUnseen: 1,
+          },
           outputPath: "state/scheduled-compile-prompt.md",
         },
       });
@@ -1105,6 +1165,13 @@ describe("dashboard server", () => {
       rawFilesSkipped: [],
       outputPath: "state/scheduled-compile-prompt.md",
       rawRemaining: 0,
+      pendingSummary: {
+        filesWithPendingTail: 2,
+        pendingTailBytes: 20,
+        totalRawFiles: 10,
+        filesFullyDrained: 3,
+        filesUnseen: 5,
+      },
       execution: {
         mode: "execute" as const,
         applied: ["wiki/projects/a.md"],
@@ -1149,6 +1216,13 @@ describe("dashboard server", () => {
           rawIncluded: 1,
           rawSkipped: 0,
           rawRemaining: 0,
+          pendingSummary: {
+            filesWithPendingTail: 2,
+            pendingTailBytes: 20,
+            totalRawFiles: 10,
+            filesFullyDrained: 3,
+            filesUnseen: 5,
+          },
           opsApplied: 1,
           opsStaged: 1,
           opsRejected: 0,

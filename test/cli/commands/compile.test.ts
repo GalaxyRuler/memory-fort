@@ -11,7 +11,7 @@ import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { mkdtemp } from "node:fs/promises";
-import { runCompile, runCompileDrain } from "../../../src/cli/commands/compile.js";
+import { formatCompileExecuteSummary, runCompile, runCompileDrain, type CompileResult } from "../../../src/cli/commands/compile.js";
 import type { LLMProvider } from "../../../src/llm/types.js";
 
 const CLI = resolve(process.cwd(), "dist", "cli.mjs");
@@ -583,6 +583,43 @@ describe("runCompile", () => {
     expect(r.stderr).toContain(`Compile prompt written to ${outputPath}`);
     expect(existsSync(outputPath)).toBe(true);
     expect(await readFile(outputPath, "utf-8")).toContain("SCHEMA=# Schema");
+  });
+
+  it("formats execute summaries with honest pending-tail labels", () => {
+    const lines = formatCompileExecuteSummary({
+      rawFilesIncluded: Array.from({ length: 40 }, (_, index) => `raw/${index}.md`),
+      rawFilesRemaining: 6,
+      pendingSummary: {
+        filesWithPendingTail: 2,
+        pendingTailBytes: 9,
+        totalRawFiles: 10,
+        filesFullyDrained: 3,
+        filesUnseen: 5,
+      },
+      execution: {
+        mode: "execute",
+        rawInputConsumed: true,
+        applied: [],
+        proposed: [],
+        planned: [],
+        rejected: [],
+        outcomes: [],
+        referencesStripped: 0,
+        prosePathLeaks: 0,
+        pagesRewritten: 0,
+        pagesUpdated: 0,
+        pagesUnchanged: 2,
+        factsExtracted: 0,
+        sessionsScanned: 603,
+      },
+    } as CompileResult);
+
+    expect(lines).toContain("Consolidated 40 observations -> 0 applied, 0 staged, 0 rejected.");
+    expect(lines).toContain("Pending tails: 2 raw files have fresh content since the last compile read them (9 bytes).");
+    expect(lines).toContain("Already-drained: 3 raw files have no new bytes since the last pass.");
+    expect(lines).toContain("Future batches: 6 raw files queued for upcoming runs (batch cap 40).");
+    expect(lines).toContain("603 sessions scanned. 2 pages unchanged.");
+    expect(lines.join("\n")).not.toMatch(/observations remaining|raw files skipped|staged for review/i);
   });
 });
 

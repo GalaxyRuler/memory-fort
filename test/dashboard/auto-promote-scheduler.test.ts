@@ -1,10 +1,11 @@
-import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createAutoPromoteScheduler,
   runAutoPromoteOnce,
+  runScheduledCompileOnce,
   runScheduledVaultTasksOnce,
 } from "../../src/dashboard/auto-promote-scheduler.js";
 
@@ -139,6 +140,38 @@ describe("auto-promote scheduler", () => {
     });
 
     expect(calls).toEqual(["compile", "auto-promote"]);
+  });
+
+  it("logs scheduled compile with already-drained and pending-tail labels", async () => {
+    await mkdir(join(tmp, "prompts"), { recursive: true });
+    await mkdir(join(tmp, "raw", "2026-06-04"), { recursive: true });
+    await mkdir(join(tmp, "state"), { recursive: true });
+    await writeFile(join(tmp, "prompts", "compile.md"), "RAW={{raw_content}}\n");
+    await writeFile(join(tmp, "schema.md"), "# Schema\n");
+    await writeFile(join(tmp, "index.md"), "# Index\n");
+    await writeFile(join(tmp, "log.md"), "# Log\n");
+    await writeFile(join(tmp, "raw", "2026-06-04", "pending.md"), "abcdef");
+    await writeFile(join(tmp, "raw", "2026-06-04", "drained.md"), "12345");
+    await writeFile(
+      join(tmp, "state", "compile-state.json"),
+      `${JSON.stringify({
+        consumed: {
+          "raw/2026-06-04/pending.md": { bytes: 2 },
+          "raw/2026-06-04/drained.md": { bytes: 5 },
+        },
+      }, null, 2)}\n`,
+    );
+
+    const result = await runScheduledCompileOnce(tmp);
+
+    expect(result.pendingSummary).toMatchObject({
+      filesWithPendingTail: 1,
+      filesFullyDrained: 1,
+    });
+    await expect(readFile(join(tmp, "log.md"), "utf-8")).resolves.toMatch(
+      /compile \| scheduled prompt: 1 raw included, 1 already-drained, 1 pending tails/,
+    );
+    await expect(readFile(join(tmp, "log.md"), "utf-8")).resolves.not.toMatch(/raw included, \d+ skipped/);
   });
 
   it("logs scheduler failures without throwing", async () => {

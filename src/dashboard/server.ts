@@ -21,6 +21,12 @@ import type { LLMProvider } from "../llm/types.js";
 import { createAutoPromoteScheduler } from "./auto-promote-scheduler.js";
 import { runScheduledCompileOnce, type DashboardCompileRunResult } from "./auto-promote-scheduler.js";
 import { createAutoHealScheduler } from "./auto-heal-scheduler.js";
+import {
+  createCompilePendingSummaryCache,
+  emptyCompilePendingSummary,
+  invalidateCompilePendingSummaryCache,
+  readCompilePendingSummary,
+} from "../compile/state.js";
 import { applyConfigPatch, ConfigPatchError, validateConfigPatch } from "./config-patch.js";
 import { readAutoHealStatus, type AutoHealStatus } from "../retrieval/auto-heal.js";
 import { buildProvidersCatalog } from "./providers-catalog.js";
@@ -440,6 +446,7 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
   const graphHealthCache = new Map<string, GraphHealthCacheEntry>();
   const searchRuntimeCache = createSearchRuntimeCache();
   const rawCaptureCache = createRawCaptureEventCache();
+  const compilePendingSummaryCache = createCompilePendingSummaryCache();
   const autoPromoteScheduler = await createAutoPromoteScheduler({
     vaultRoot: opts.vaultRoot,
     writeCapability,
@@ -537,6 +544,7 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
           return;
         }
         const result = await (opts.compileRunner ?? ((runOpts) => runScheduledCompileOnce(opts.vaultRoot, runOpts)))({ execute });
+        invalidateCompilePendingSummaryCache(compilePendingSummaryCache, opts.vaultRoot);
         writeJson(res, {
           ok: true,
           summary: compileRunSummaryForResponse(result, execute),
@@ -730,12 +738,14 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
       }
 
       if (segments.length === 3 && segments[0] === "api" && segments[1] === "compile" && segments[2] === "state") {
-        const [state, config] = await Promise.all([
+        const [state, config, pendingSummary] = await Promise.all([
           loadCompileState(opts.vaultRoot),
           loadMemoryConfig(opts.vaultRoot),
+          readCompilePendingSummary(opts.vaultRoot, { cache: compilePendingSummaryCache }),
         ]);
         writeJson(res, {
           ...state,
+          pendingSummary,
           schedule: compileScheduleForResponse(config),
           execute: compileExecuteAvailability(config, process.env),
         });
@@ -1033,6 +1043,7 @@ function compileRunSummaryForResponse(result: DashboardCompileRunResult, execute
     rawIncluded: result.rawFilesIncluded.length,
     rawSkipped: result.rawFilesSkipped.length,
     rawRemaining: result.rawRemaining,
+    pendingSummary: result.pendingSummary ?? emptyCompilePendingSummary(),
     opsApplied: execution?.applied.length ?? 0,
     opsStaged: execution?.proposed.length ?? 0,
     opsRejected: execution?.rejected.length ?? 0,

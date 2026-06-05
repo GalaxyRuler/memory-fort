@@ -55,7 +55,15 @@ describe("CompilePage", () => {
   });
 
   test("does not render decorative mock node identifiers", () => {
-    renderIdle();
+    renderIdle({
+      pendingSummary: {
+        filesWithPendingTail: 7,
+        pendingTailBytes: 42,
+        totalRawFiles: 20,
+        filesFullyDrained: 8,
+        filesUnseen: 5,
+      },
+    });
 
     render(<CompilePage />);
 
@@ -94,6 +102,13 @@ describe("CompilePage", () => {
           rawIncluded: 101,
           rawSkipped: 4,
           rawRemaining: 1038,
+          pendingSummary: {
+            filesWithPendingTail: 7,
+            pendingTailBytes: 42,
+            totalRawFiles: 20,
+            filesFullyDrained: 8,
+            filesUnseen: 5,
+          },
           opsApplied: 8,
           opsStaged: 2,
           opsRejected: 1,
@@ -134,7 +149,10 @@ describe("CompilePage", () => {
     expect(screen.getByText(/1 rejected/i)).toBeInTheDocument();
     expect(screen.getByText("wiki/projects/iaqar.md")).toBeInTheDocument();
     expect(screen.getByText(/unknown wiki page category: unknowns/)).toBeInTheDocument();
-    expect(screen.getByText(/1,038 observations remaining/i)).toBeInTheDocument();
+    expect(screen.getByText(/7 raw files have fresh content/i)).toBeInTheDocument();
+    expect(screen.getByText(/8 raw files are already-drained/i)).toBeInTheDocument();
+    expect(screen.getByText(/1,038 raw files are queued for future batches/i)).toBeInTheDocument();
+    expect(screen.queryByText(/observations remaining/i)).not.toBeInTheDocument();
     expect(screen.getByText(/3 pages rewritten/i)).toBeInTheDocument();
     expect(screen.getByText(/2 pages updated/i)).toBeInTheDocument();
     expect(screen.getByText(/5 pages unchanged/i)).toBeInTheDocument();

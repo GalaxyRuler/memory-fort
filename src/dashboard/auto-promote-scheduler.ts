@@ -1,7 +1,7 @@
 import { appendFile } from "node:fs/promises";
 import { join } from "node:path";
 import { runCompile, type CompileResult } from "../cli/commands/compile.js";
-import { readCompileStateFile, writeCompileStateFile } from "../compile/state.js";
+import { readCompileStateFile, writeCompileStateFile, type CompilePendingSummary } from "../compile/state.js";
 import { runProcedurePropose } from "../cli/commands/procedure.js";
 import { runThreadPropose } from "../cli/commands/thread.js";
 import { loadMemoryConfig, type MemoryConfig } from "../storage/config.js";
@@ -27,6 +27,7 @@ export interface DashboardCompileRunResult {
   rawFilesSkipped: CompileResult["rawFilesSkipped"];
   outputPath: string;
   rawRemaining: number;
+  pendingSummary?: CompilePendingSummary;
   execution?: CompileResult["execution"];
 }
 
@@ -138,7 +139,7 @@ export async function runScheduledCompileOnce(
   });
   await appendFile(
     join(vaultRoot, "log.md"),
-    `## [${finishedAt.toISOString()}] compile | scheduled prompt: ${result.rawFilesIncluded.length} raw included, ${result.rawFilesSkipped.length} skipped\n`,
+    `## [${finishedAt.toISOString()}] compile | scheduled prompt: ${result.rawFilesIncluded.length} raw included, ${result.pendingSummary.filesFullyDrained} already-drained, ${result.pendingSummary.filesWithPendingTail} pending tails\n`,
     "utf-8",
   );
   return {
@@ -146,6 +147,7 @@ export async function runScheduledCompileOnce(
     rawFilesSkipped: result.rawFilesSkipped,
     outputPath: "state/scheduled-compile-prompt.md",
     rawRemaining: countRemainingRawFiles(result.rawFilesSkipped),
+    pendingSummary: result.pendingSummary,
     execution: result.execution,
   };
 }

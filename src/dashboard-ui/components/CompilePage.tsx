@@ -1,6 +1,12 @@
 import { useState } from "react";
 import { CheckCircle2, Clock, Cpu, FileText, Network, Play, Terminal } from "lucide-react";
-import { type CompileLastRun, type CompileRunResponse, useCompileState, useRunCompileNow } from "../hooks/useCompileState.js";
+import {
+  type CompileLastRun,
+  type CompilePendingSummary,
+  type CompileRunResponse,
+  useCompileState,
+  useRunCompileNow,
+} from "../hooks/useCompileState.js";
 import { useStatus } from "../hooks/useStatus.js";
 import { Button } from "./Button.js";
 import { GlassPanel } from "./GlassPanel.js";
@@ -23,10 +29,13 @@ function formatNumber(value: number): string {
 
 function CompileResultSummary({ response }: { response: CompileRunResponse }) {
   const summary = response.summary;
+  const pending = summary.pendingSummary ?? emptyPendingSummary();
   if (!summary.execute) {
     return (
       <GlassPanel className="border-primary/30 bg-primary/5 text-sm text-text-secondary">
-        Prompt generated from {formatNumber(summary.rawIncluded)} raw observations; {formatNumber(summary.rawSkipped)} skipped.
+        Prompt generated from {formatNumber(summary.rawIncluded)} raw observations;{" "}
+        {formatNumber(pending.filesFullyDrained)} already-drained;{" "}
+        {formatNumber(pending.filesWithPendingTail)} pending tails.
         <span className="ml-1 break-all font-mono text-text-primary">{summary.outputPath}</span>
       </GlassPanel>
     );
@@ -43,8 +52,16 @@ function CompileResultSummary({ response }: { response: CompileRunResponse }) {
         </strong>.
       </p>
       <p>
-        <strong className="text-text-primary">{formatNumber(summary.rawRemaining)} observations remaining</strong>
-        {summary.rawRemaining > 0 ? " - run again to continue." : "."}
+        <strong className="text-text-primary">
+          {formatNumber(pending.filesWithPendingTail)} raw file{pending.filesWithPendingTail === 1 ? "" : "s"} have fresh content
+        </strong>{" "}
+        since the last compile read them.{" "}
+        <strong className="text-text-primary">
+          {formatNumber(pending.filesFullyDrained)} raw file{pending.filesFullyDrained === 1 ? " is" : "s are"} already-drained
+        </strong>.{" "}
+        <strong className="text-text-primary">
+          {formatNumber(summary.rawRemaining)} raw file{summary.rawRemaining === 1 ? " is" : "s are"} queued for future batches
+        </strong>.
         {summary.pagesRewritten > 0 ? ` ${formatNumber(summary.pagesRewritten)} page${summary.pagesRewritten === 1 ? "" : "s"} rewritten.` : ""}
         {summary.pagesUpdated > 0 ? ` ${formatNumber(summary.pagesUpdated)} page${summary.pagesUpdated === 1 ? "" : "s"} updated.` : ""}
         {summary.pagesUnchanged > 0 ? ` ${formatNumber(summary.pagesUnchanged)} page${summary.pagesUnchanged === 1 ? "" : "s"} unchanged.` : ""}
@@ -89,6 +106,16 @@ function CompileResultSummary({ response }: { response: CompileRunResponse }) {
       {summary.error ? <p className="text-status-red">{summary.error}</p> : null}
     </GlassPanel>
   );
+}
+
+function emptyPendingSummary(): CompilePendingSummary {
+  return {
+    filesWithPendingTail: 0,
+    pendingTailBytes: 0,
+    totalRawFiles: 0,
+    filesFullyDrained: 0,
+    filesUnseen: 0,
+  };
 }
 
 function CompileConfirmDialog({ onCancel, onConfirm }: { onCancel: () => void; onConfirm: () => void }) {
@@ -214,32 +241,38 @@ function CompileLogPanel({ isRunning, lastRun }: { isRunning: boolean; lastRun: 
   );
 }
 
-function CompilePagesPanel({
+function CompilePendingPanel({
   disabledReason,
   isRunning,
   lastRun,
   onRun,
+  pendingSummary,
 }: {
   disabledReason: string | null;
   isRunning: boolean;
   lastRun: CompileLastRun | null;
   onRun: () => void;
+  pendingSummary: CompilePendingSummary | null;
 }) {
-  const pagesCompiled = lastRun?.pagesCompiled ?? 0;
-  const percent = Math.max(0, Math.min(100, pagesCompiled === 0 ? 0 : 100));
+  const pendingTails = pendingSummary?.filesWithPendingTail ?? 0;
+  const totalRawFiles = pendingSummary?.totalRawFiles ?? 0;
+  const percent = totalRawFiles === 0 ? 0 : Math.max(0, Math.min(100, (pendingTails / totalRawFiles) * 100));
   const disabled = isRunning || disabledReason !== null;
 
   return (
     <GlassPanel className="flex flex-col justify-between bg-surface/70">
       <div>
-        <span className="text-xs font-semibold uppercase tracking-wide text-text-muted">Pages compiled</span>
+        <span className="text-xs font-semibold uppercase tracking-wide text-text-muted">Pending tails</span>
         <div className="mt-3 flex items-end gap-2">
-          <span className="text-3xl font-semibold text-text-primary">{pagesCompiled}</span>
-          <span className="mb-1 text-sm text-text-secondary">pages</span>
+          <span className="text-3xl font-semibold text-text-primary">{formatNumber(pendingTails)}</span>
+          <span className="mb-1 text-sm text-text-secondary">raw file{pendingTails === 1 ? "" : "s"}</span>
         </div>
         <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-surface-2">
           <div className="h-full rounded-full bg-entity-decisions" style={{ width: `${percent}%` }} />
         </div>
+        <p className="mt-2 text-xs text-text-muted">
+          {formatNumber(pendingSummary?.filesFullyDrained ?? 0)} already-drained · {formatNumber(pendingSummary?.filesUnseen ?? 0)} unseen
+        </p>
       </div>
       <Button
         type="button"
@@ -368,9 +401,10 @@ export function CompilePage() {
 
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
             <CompileLogPanel isRunning={isRunning} lastRun={lastRun} />
-            <CompilePagesPanel
+            <CompilePendingPanel
               lastRun={lastRun}
               isRunning={isRunning}
+              pendingSummary={state?.pendingSummary ?? null}
               disabledReason={executeDisabledReason}
               onRun={() => setConfirmOpen(true)}
             />

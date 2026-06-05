@@ -27,7 +27,9 @@ import { parseFrontmatter } from "../../storage/frontmatter.js";
 import {
   readCompileStateFile,
   readConsumedMap,
+  summarizeCompilePending,
   writeCompileStateFile,
+  type CompilePendingSummary,
   type CompileStateFile,
 } from "../../compile/state.js";
 
@@ -61,6 +63,7 @@ export interface CompileResult {
   watermarkMode: "gated" | "bypassed";
   watermarkReset?: { pattern: string | null; cleared: number };
   watermarksAdvanced: string[];
+  pendingSummary: CompilePendingSummary;
   truncatedAtTotalCap: boolean;
   rawBytesRemaining: number;
   rawFilesRemaining: number;
@@ -111,7 +114,7 @@ const DEFAULT_EXISTING_PAGES_MAX_BYTES = 40_000;
 // prompt overhead (path headers + fences + truncation notices) explodes the
 // rendered prompt past the LLM context window. Aging + `--drain` rotate through
 // the deferred files across passes, so nothing is starved.
-const DEFAULT_MAX_FILES_PER_PASS = 40;
+export const DEFAULT_MAX_FILES_PER_PASS = 40;
 const COMPILE_LOG_RE =
   /^## \[(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})\] compile \|/gm;
 
@@ -336,6 +339,10 @@ export async function runCompile(
     && execution.applied.length + execution.proposed.length > 0
     ? await rebuildIndex(root)
     : undefined;
+  const pendingSummary = await summarizeCompilePending(
+    root,
+    watermarksAdvanced.length > 0 ? await readCompileStateForCompile(root) : compileState,
+  );
 
   return {
     prompt,
@@ -345,12 +352,27 @@ export async function runCompile(
     watermarkMode,
     ...(watermarkReset ? { watermarkReset } : {}),
     watermarksAdvanced,
+    pendingSummary,
     truncatedAtTotalCap,
     rawBytesRemaining,
     rawFilesRemaining,
     execution,
     ...(indexRebuild ? { indexRebuild } : {}),
   };
+}
+
+export function formatCompileExecuteSummary(result: CompileResult): string[] {
+  const execution = result.execution;
+  if (!execution) return [];
+  const pending = result.pendingSummary;
+  const lines = [
+    `Consolidated ${formatNumber(result.rawFilesIncluded.length)} observations -> ${formatNumber(execution.applied.length)} applied, ${formatNumber(execution.proposed.length)} staged, ${formatNumber(execution.rejected.length)} rejected.`,
+    `Pending tails: ${formatNumber(pending.filesWithPendingTail)} ${plural(pending.filesWithPendingTail, "raw file")} ${pending.filesWithPendingTail === 1 ? "has" : "have"} fresh content since the last compile read them (${formatNumber(pending.pendingTailBytes)} ${plural(pending.pendingTailBytes, "byte")}).`,
+    `Already-drained: ${formatNumber(pending.filesFullyDrained)} ${plural(pending.filesFullyDrained, "raw file")} ${pending.filesFullyDrained === 1 ? "has" : "have"} no new bytes since the last pass.`,
+    `Future batches: ${formatNumber(result.rawFilesRemaining)} ${plural(result.rawFilesRemaining, "raw file")} queued for upcoming runs (batch cap ${DEFAULT_MAX_FILES_PER_PASS}).`,
+    `${formatNumber(execution.sessionsScanned)} ${plural(execution.sessionsScanned, "session")} scanned. ${formatNumber(execution.pagesUnchanged)} ${plural(execution.pagesUnchanged, "page")} unchanged.`,
+  ];
+  return lines;
 }
 
 export async function runCompileDrain(
@@ -734,6 +756,14 @@ function parseCutoff(value: string): Date {
     throw new Error(`memory compile: invalid --since value: ${value}`);
   }
   return parsed;
+}
+
+function formatNumber(value: number): string {
+  return new Intl.NumberFormat("en-US").format(value);
+}
+
+function plural(count: number, singular: string, pluralValue = `${singular}s`): string {
+  return count === 1 ? singular : pluralValue;
 }
 
 async function readRequiredFile(path: string, label: string): Promise<string> {
