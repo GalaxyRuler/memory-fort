@@ -22,7 +22,7 @@ const common = {
   define: {
     __MEMORY_BUILD_COMMIT__: JSON.stringify(commit),
   },
-} as const;
+};
 
 const serverClean = [
   "dist/*.mjs",
