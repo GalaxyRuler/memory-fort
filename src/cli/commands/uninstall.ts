@@ -170,12 +170,26 @@ async function uninstallOpenClaw(opts: RunUninstallOptions): Promise<UninstallRe
 
 async function uninstallOpenCode(opts: RunUninstallOptions): Promise<UninstallResult> {
   const openCodeDir = opencodeConfigDir(opts.opencodeDir);
-  const configResult = await removeJsonMemoryServer({
-    platform: "opencode",
-    configPath: opencodeConfigPath(openCodeDir),
-    serverMapKey: "mcp",
-    opts,
-  });
+  const configPath = opencodeConfigPath(openCodeDir);
+  let configResult: UninstallResult;
+  try {
+    configResult = await removeJsonMemoryServer({
+      platform: "opencode",
+      configPath,
+      serverMapKey: "mcp",
+      opts,
+    });
+  } catch (err) {
+    if (!(err instanceof SyntaxError)) throw err;
+    configResult = result(
+      "opencode",
+      opts,
+      [
+        `skipped memory MCP removal from ${configPath}: failed to parse config; repair opencode.json and rerun uninstall`,
+      ],
+      false,
+    );
+  }
   const pluginRemoved = await removePathIfPresent(
     opencodePluginPath(openCodeDir),
     opts,

@@ -162,6 +162,20 @@ describe("runInstallOpenCode", () => {
     expect(existsSync(pluginPath)).toBe(false);
   });
 
+  it("throws on non-object opencode.json without creating plugin", async () => {
+    const configPath = join(opencodeDir, "opencode.json");
+    const pluginPath = join(opencodeDir, "plugins", "memory-fort.js");
+    const nonObjectConfig = "[]\n";
+    await mkdir(opencodeDir, { recursive: true });
+    await writeFile(configPath, nonObjectConfig);
+
+    await expect(runInstallOpenCode({ opencodeDir })).rejects.toThrow(
+      /memory install opencode: failed to parse existing config/i,
+    );
+    await expect(readFile(configPath, "utf-8")).resolves.toBe(nonObjectConfig);
+    expect(existsSync(pluginPath)).toBe(false);
+  });
+
   it("uninstall removes only Memory Fort entries", async () => {
     const configPath = join(opencodeDir, "opencode.json");
     const before = `${JSON.stringify({
@@ -188,5 +202,52 @@ describe("runInstallOpenCode", () => {
     await expect(readFile(configPath, "utf-8")).resolves.toBe(before);
     expect(existsSync(install.pluginPath)).toBe(false);
     expect(existsSync(join(opencodeDir, "plugins", "team-plugin.js"))).toBe(true);
+  });
+
+  it("uninstall removes generated plugin when opencode.json is malformed", async () => {
+    const configPath = join(opencodeDir, "opencode.json");
+    const pluginDir = join(opencodeDir, "plugins");
+    const memoryPluginPath = join(pluginDir, "memory-fort.js");
+    const teamPluginPath = join(pluginDir, "team-plugin.js");
+    const malformedConfig = "not json {";
+    await mkdir(pluginDir, { recursive: true });
+    await writeFile(configPath, malformedConfig);
+    await writeFile(memoryPluginPath, "// generated plugin\n");
+    await writeFile(teamPluginPath, "// team plugin\n");
+
+    const result = await runUninstall("opencode", { opencodeDir });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.removed).toBe(true);
+    expect(result.actions).toEqual(
+      expect.arrayContaining([
+        expect.stringMatching(/skipped memory MCP removal from .*opencode\.json.*failed to parse config/i),
+        `remove ${memoryPluginPath}`,
+      ]),
+    );
+    await expect(readFile(configPath, "utf-8")).resolves.toBe(malformedConfig);
+    await expect(readFile(teamPluginPath, "utf-8")).resolves.toBe("// team plugin\n");
+    expect(existsSync(memoryPluginPath)).toBe(false);
+  });
+
+  it("uninstall dry run reports generated plugin removal without deleting it", async () => {
+    const configPath = join(opencodeDir, "opencode.json");
+    const pluginDir = join(opencodeDir, "plugins");
+    const memoryPluginPath = join(pluginDir, "memory-fort.js");
+    await mkdir(pluginDir, { recursive: true });
+    await writeFile(configPath, "not json {");
+    await writeFile(memoryPluginPath, "// generated plugin\n");
+
+    const result = await runUninstall("opencode", { opencodeDir, dryRun: true });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.removed).toBe(true);
+    expect(result.actions).toEqual(
+      expect.arrayContaining([
+        expect.stringMatching(/skipped memory MCP removal from .*opencode\.json.*failed to parse config/i),
+        `remove ${memoryPluginPath}`,
+      ]),
+    );
+    expect(existsSync(memoryPluginPath)).toBe(true);
   });
 });

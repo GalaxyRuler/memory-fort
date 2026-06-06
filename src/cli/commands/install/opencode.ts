@@ -113,7 +113,10 @@ export async function runInstallOpenCode(
 
 function parseJsonObject(raw: string): Record<string, unknown> {
   const parsed = raw.trim().length === 0 ? {} : JSON.parse(raw);
-  return isRecord(parsed) ? parsed : {};
+  if (!isRecord(parsed)) {
+    throw new Error("expected top-level JSON object");
+  }
+  return parsed;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
