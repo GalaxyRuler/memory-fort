@@ -108,11 +108,15 @@ describe("scan-leaks release gate", () => {
   it("flags denylist tokens in public release docs", async () => {
     const token = ["C:", "\\", "Users", "\\", "Admin"].join("");
     await writeText("docs/compatibility-matrix.md", `Path: ${token}\n`);
+    await writeText("docs/release-evidence/2026-06-07-v1.1-credibility.md", `Evidence path: ${token}\n`);
+    await writeText("docs/release-evidence/private.txt", `Private evidence path: ${token}\n`);
 
     const result = await runScan(["--root", tmp]);
 
     expect(result.exitCode).toBe(1);
     expect(result.stdout).toContain(`docs/compatibility-matrix.md:1: ${token}`);
+    expect(result.stdout).toContain(`docs/release-evidence/2026-06-07-v1.1-credibility.md:1: ${token}`);
+    expect(result.stdout).not.toContain("docs/release-evidence/private.txt");
   });
 
   async function writeText(relPath: string, content: string): Promise<void> {

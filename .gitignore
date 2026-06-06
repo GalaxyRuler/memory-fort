@@ -38,4 +38,4 @@ docs/*
 !docs/public-release-readiness.md
 !docs/release-evidence/
 docs/release-evidence/*
-!docs/release-evidence/2026-06-06-v1.1-credibility.md
+!docs/release-evidence/*.md
