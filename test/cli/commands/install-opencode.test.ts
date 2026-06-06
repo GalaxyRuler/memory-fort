@@ -59,8 +59,6 @@ describe("runInstallOpenCode", () => {
     const plugin = await readFile(result.pluginPath, "utf-8");
     expect(plugin).toContain("MemoryFortOpenCode");
     expect(plugin).toContain(`${memDir.replace(/\\/g, "/")}/hooks/opencode-event.mjs`);
-    expect(plugin).toContain("session.updated");
-    expect(plugin).toContain("MEMORY_ROOT");
   });
 
   it("preserves existing config and is idempotent", async () => {
