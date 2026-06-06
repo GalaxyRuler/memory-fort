@@ -285,6 +285,12 @@ interface ApiSearchResult {
   score?: number;
   source?: string;
   sources?: Array<{ source: string; rank: number }>;
+  provenance?: {
+    path: string;
+    kind: "wiki" | "raw" | "crystal";
+    dominantSource: string;
+    signals: Array<{ source: string; rank: number }>;
+  };
   kind?: "wiki" | "raw" | "crystal";
 }
 
@@ -490,6 +496,12 @@ function formatSearchToolResponse(body: ApiSearchResponse): string {
       score: item.score ?? 0,
       source: item.source ?? "unknown",
       sources: item.sources ?? [],
+      provenance: item.provenance ?? {
+        path: item.path,
+        kind: item.kind ?? "wiki",
+        dominantSource: item.source ?? "unknown",
+        signals: item.sources ?? [],
+      },
       kind: item.kind ?? "wiki",
     })),
     ...(body.hyde?.reason === "triggered-pending-expansion" &&

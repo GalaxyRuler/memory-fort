@@ -95,6 +95,12 @@ export interface SearchResult {
   score: number;
   source: string;
   sources: Array<{ source: string; rank: number }>;
+  provenance: {
+    path: string;
+    kind: "wiki" | "raw" | "crystal";
+    dominantSource: string;
+    signals: Array<{ source: string; rank: number }>;
+  };
   kind: "wiki" | "raw" | "crystal";
 }
 
@@ -531,6 +537,12 @@ export async function runSearch(opts: SearchOptions): Promise<SearchResponse> {
       score,
       source,
       sources: candidate.rrf.sources,
+      provenance: {
+        path: candidate.document.relPath,
+        kind: candidate.document.kind,
+        dominantSource: source,
+        signals: candidate.rrf.sources,
+      },
       kind: candidate.document.kind,
     }));
 

@@ -273,6 +273,17 @@ describe("memory.search MCP tool", () => {
       const parsed = JSON.parse(extractJsonFence(text));
       expect(parsed.result_count).toBe(2);
       expect(parsed.results[0].path).toBe("wiki/tools/voyageai.md");
+      expect(parsed.results[0].provenance).toEqual({
+        path: parsed.results[0].path,
+        kind: parsed.results[0].kind,
+        dominantSource: parsed.results[0].source,
+        signals: expect.arrayContaining([
+          expect.objectContaining({
+            source: expect.any(String),
+            rank: expect.any(Number),
+          }),
+        ]),
+      });
       expect(parsed.results.some((item: { path: string }) => item.path.startsWith("wiki/.audit/"))).toBe(false);
       const parsedPage = parseFrontmatter(await readFile(join(tmp, "wiki", "tools", "voyageai.md"), "utf-8"));
       expect(parsedPage.frontmatter.last_accessed).toBe("2026-06-02");
