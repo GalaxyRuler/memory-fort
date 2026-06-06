@@ -25,6 +25,37 @@ function KeyboardList({ onActivate = vi.fn() }: { onActivate?: (item: string) =>
   );
 }
 
+function KeyboardListWithDisclosure({ onActivate = vi.fn() }: { onActivate?: (item: string) => void }) {
+  const items = ["alpha", "beta"];
+  const nav = useListKeyNav({
+    items,
+    getKey: (item) => item,
+    onActivate,
+  });
+
+  return (
+    <ul aria-label="Keyboard list" {...nav.listProps}>
+      {items.map((item, index) => (
+        <li key={item} {...nav.getItemProps(index)}>
+          {item}
+          {index === 0 ? (
+            <details data-testid="match-details">
+              <summary
+                onKeyDown={(event) => {
+                  if (event.key !== "Enter" && event.key !== " ") return;
+                  event.currentTarget.parentElement?.toggleAttribute("open");
+                }}
+              >
+                Why this matched
+              </summary>
+            </details>
+          ) : null}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 describe("useListKeyNav", () => {
   test("J advances focus and K retreats", () => {
     render(<KeyboardList />);
@@ -69,5 +100,23 @@ describe("useListKeyNav", () => {
     expect(screen.getByRole("listbox", { name: "Keyboard list" })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: "alpha" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("option", { name: "beta" })).toHaveAttribute("aria-selected", "false");
+  });
+
+  test("Enter and Space on an interactive summary toggle it without activating the option", () => {
+    const onActivate = vi.fn();
+    render(<KeyboardListWithDisclosure onActivate={onActivate} />);
+    const summary = screen.getByText("Why this matched");
+    const details = screen.getByTestId("match-details");
+
+    summary.focus();
+    fireEvent.keyDown(summary, { key: "Enter" });
+
+    expect(details).toHaveAttribute("open");
+    expect(onActivate).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(summary, { key: " " });
+
+    expect(details).not.toHaveAttribute("open");
+    expect(onActivate).not.toHaveBeenCalled();
   });
 });

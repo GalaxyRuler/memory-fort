@@ -60,7 +60,7 @@ export function useListKeyNav<T>({
 
   const onKeyDown = useCallback(
     (event: KeyboardEvent<HTMLElement>) => {
-      if (isEditableElement(document.activeElement)) return;
+      if (isEditableElement(document.activeElement) || isInteractiveEventTarget(event)) return;
 
       if (event.key === "j" || event.key === "J") {
         event.preventDefault();
@@ -118,6 +118,29 @@ export function useListKeyNav<T>({
   );
 
   return { focusedIndex, listProps, getItemProps };
+}
+
+const INTERACTIVE_DESCENDANT_SELECTOR = [
+  "a[href]",
+  "button",
+  "summary",
+  "[role='button']",
+  "[role='link']",
+  "[role='checkbox']",
+  "[role='menuitem']",
+  "[role='radio']",
+  "[role='switch']",
+  "[role='tab']",
+].join(",");
+
+function isInteractiveEventTarget(event: KeyboardEvent<HTMLElement>): boolean {
+  const target = event.target;
+  if (!(target instanceof Element)) return false;
+  if (isEditableElement(target)) return true;
+  if (target === event.currentTarget) return false;
+
+  const interactiveElement = target.closest(INTERACTIVE_DESCENDANT_SELECTOR);
+  return interactiveElement !== null && event.currentTarget.contains(interactiveElement);
 }
 
 function isEditableElement(element: Element | null): boolean {

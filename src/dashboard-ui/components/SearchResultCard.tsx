@@ -2,7 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { type HTMLAttributes, useState } from "react";
 import { type SearchResult } from "../hooks/useSearch.js";
 import { cn } from "../lib/cn.js";
-import { formatSearchSourceLabel } from "../lib/search-sources.js";
+import { formatSearchSourceLabel, normalizeSearchSignals } from "../lib/search-sources.js";
 import { BottomSheet } from "./BottomSheet.js";
 import { Card } from "./Card.js";
 import { ScoreBreakdown } from "./ScoreBreakdown.js";
@@ -17,25 +17,14 @@ export type ResultLinkProps =
   | { to: "/wiki/$category/$slug"; params: { category: string; slug: string } }
   | { to: "/raw/$date/$filename"; params: { date: string; filename: string } };
 
-type RuntimeSearchSignal = { source: string; rank: number | string };
 type RuntimeResult = SearchResult & {
   provenance?: {
     signals?: unknown;
   };
 };
 
-function provenanceSignals(result: SearchResult): RuntimeSearchSignal[] {
-  const signals = (result as RuntimeResult).provenance?.signals;
-  if (!Array.isArray(signals)) return [];
-  return signals.flatMap((signal) => {
-    if (!signal || typeof signal !== "object") return [];
-    const source = "source" in signal ? signal.source : undefined;
-    const rank = "rank" in signal ? signal.rank : undefined;
-    if (typeof source !== "string" || (typeof rank !== "number" && typeof rank !== "string")) {
-      return [];
-    }
-    return [{ source, rank }];
-  });
+function provenanceSignals(result: SearchResult) {
+  return normalizeSearchSignals((result as RuntimeResult).provenance?.signals);
 }
 
 export function SearchResultCard({

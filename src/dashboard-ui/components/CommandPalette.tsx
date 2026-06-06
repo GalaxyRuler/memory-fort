@@ -23,6 +23,7 @@ export function CommandPalette() {
   const search = useSearch({ query: debouncedQuery, scope, k: 12, noRerank: true });
   const navigate = useNavigate();
   const results = search.data?.results ?? [];
+  const resultSourceSummary = search.data ? sourceSummary(results) : "";
 
   useEffect(() => {
     if (open) setQuery("");
@@ -112,7 +113,7 @@ export function CommandPalette() {
         <div className="flex items-center justify-between border-t border-border-subtle px-3 py-2 font-mono text-[10px] text-text-muted">
           <span>
             {results.length} results
-            {sourceSummary(search.data.results) ? ` · ${sourceSummary(search.data.results)}` : ""}
+            {resultSourceSummary ? ` · ${resultSourceSummary}` : ""}
           </span>
           <span>
             {search.data.timings.totalMs}ms{search.data.degraded ? " · degraded" : ""} · fast

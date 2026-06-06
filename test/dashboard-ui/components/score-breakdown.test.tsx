@@ -37,4 +37,54 @@ describe("ScoreBreakdown", () => {
     expect(screen.getByText("graph spread")).toBeInTheDocument();
     expect(screen.getByLabelText("graph spread: 100%")).toHaveClass("bg-entity-tools");
   });
+
+  test("drops invalid ranks instead of rendering bogus widths", () => {
+    render(
+      <ScoreBreakdown
+        sources={
+          [
+            { source: "", rank: 1 },
+            { source: "bm25", rank: -1 },
+            { source: "vector", rank: 0 },
+            { source: "exact", rank: 1.5 },
+            { source: "graph", rank: Number.MAX_SAFE_INTEGER + 1 },
+            { source: "rerank", rank: 3 },
+          ] as Array<{ source: string; rank: number }>
+        }
+      />,
+    );
+
+    const bar = screen.getByTestId("score-breakdown-bar");
+    const segments = Array.from(bar.querySelectorAll("span"));
+
+    expect(segments).toHaveLength(1);
+    expect(segments[0]?.style.width).toBe("100%");
+    expect(screen.getByText("rerank")).toBeInTheDocument();
+    expect(screen.queryByText("BM25")).not.toBeInTheDocument();
+    expect(screen.queryByText("embed")).not.toBeInTheDocument();
+    expect(screen.queryByText("exact")).not.toBeInTheDocument();
+    expect(screen.queryByText("graph")).not.toBeInTheDocument();
+  });
+
+  test("renders an empty neutral bar when no valid sources remain", () => {
+    render(
+      <ScoreBreakdown
+        sources={
+          [
+            { source: "bm25", rank: Number.POSITIVE_INFINITY },
+            { source: "vector", rank: Number.NaN },
+            { source: "rerank", rank: 0 },
+          ] as Array<{ source: string; rank: number }>
+        }
+      />,
+    );
+
+    const bar = screen.getByTestId("score-breakdown-bar");
+    const segments = Array.from(bar.querySelectorAll("span"));
+
+    expect(segments).toHaveLength(0);
+    expect(screen.queryByText("BM25")).not.toBeInTheDocument();
+    expect(screen.queryByText("embed")).not.toBeInTheDocument();
+    expect(screen.queryByText("rerank")).not.toBeInTheDocument();
+  });
 });

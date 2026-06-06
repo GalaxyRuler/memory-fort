@@ -1,5 +1,5 @@
 import { cn } from "../lib/cn.js";
-import { formatSearchSourceLabel, searchSourceColorClass } from "../lib/search-sources.js";
+import { formatSearchSourceLabel, normalizeSearchSignals, searchSourceColorClass } from "../lib/search-sources.js";
 
 export interface ScoreBreakdownProps {
   sources: Array<{ source: string; rank: number }>;
@@ -7,7 +7,8 @@ export interface ScoreBreakdownProps {
 }
 
 export function ScoreBreakdown({ sources, className }: ScoreBreakdownProps) {
-  const contributions = sources.map((source) => ({
+  const normalizedSources = normalizeSearchSignals(sources);
+  const contributions = normalizedSources.map((source) => ({
     source: source.source,
     weight: 1 / (60 + source.rank),
   }));

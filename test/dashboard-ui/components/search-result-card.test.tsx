@@ -117,4 +117,52 @@ describe("SearchResultCard", () => {
     expect(receipt).toHaveClass("max-w-full");
     expect(receipt).toHaveClass("break-all");
   });
+
+  test("drops invalid provenance signals before rendering receipt chips", () => {
+    const result = {
+      ...RESULT,
+      provenance: {
+        ...RESULT.provenance,
+        signals: [
+          { source: "", rank: 1 },
+          { source: "bm25", rank: "garbage" },
+          { source: "vector", rank: -1 },
+          { source: "exact", rank: 0 },
+          { source: "graph", rank: 1.5 },
+          { source: "metadata", rank: Number.MAX_SAFE_INTEGER + 1 },
+          { source: "rerank", rank: "2" },
+        ],
+      },
+    } as unknown as SearchResult;
+
+    render(<SearchResultCard result={result} />);
+    fireEvent.click(screen.getByText("Why this matched"));
+
+    expect(screen.getByText("rerank rank 2")).toBeVisible();
+    expect(screen.queryByText(" rank 1")).not.toBeInTheDocument();
+    expect(screen.queryByText("BM25 rank garbage")).not.toBeInTheDocument();
+    expect(screen.queryByText("embed rank -1")).not.toBeInTheDocument();
+    expect(screen.queryByText("exact rank 0")).not.toBeInTheDocument();
+    expect(screen.queryByText("graph rank 1.5")).not.toBeInTheDocument();
+    expect(screen.queryByText(`meta rank ${Number.MAX_SAFE_INTEGER + 1}`)).not.toBeInTheDocument();
+  });
+
+  test("renders without a provenance receipt when all signals are invalid", () => {
+    const result = {
+      ...RESULT,
+      provenance: {
+        ...RESULT.provenance,
+        signals: [
+          { source: " ", rank: 1 },
+          { source: "bm25", rank: "1.5" },
+          { source: "vector", rank: Number.POSITIVE_INFINITY },
+        ],
+      },
+    } as unknown as SearchResult;
+
+    render(<SearchResultCard result={result} />);
+
+    expect(screen.getByText("Provenance Signals")).toBeVisible();
+    expect(screen.queryByText("Why this matched")).not.toBeInTheDocument();
+  });
 });
