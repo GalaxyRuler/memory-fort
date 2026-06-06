@@ -1,7 +1,12 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-export type ToolName = "claude-code" | "codex" | "antigravity" | "manual";
+export type ToolName =
+  | "claude-code"
+  | "codex"
+  | "antigravity"
+  | "opencode"
+  | "manual";
 export type PageType =
   | "projects"
   | "issues"
