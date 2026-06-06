@@ -2,7 +2,8 @@
 
 **Cross-tool persistent memory for AI agents — local, private, and free.**
 
-Memory Fort gives every AI coding session a shared long-term memory: observations flow in automatically from Claude Code, Codex, Antigravity, Hermes, Pi, and OpenClaw; a curated wiki of markdown pages grows over time; and retrieval (BM25 + semantic + graph) surfaces the right context at session start. No database. No external service. No API key to get started.
+Memory Fort gives every AI coding session a shared long-term memory: observations flow in automatically from Claude Code, Codex, Antigravity, Hermes, and Pi.
+MCP integrations, including OpenClaw in v1, can log and recall memory on demand; a curated wiki of markdown pages grows over time; and retrieval (BM25 + semantic + graph) surfaces the right context at session start. No database. No external service. No API key to get started.
 
 Your memory is a folder of plain text files — a git repo, an Obsidian vault, and a typed knowledge graph all at once.
 
@@ -16,7 +17,8 @@ Most agent memory tools require a cloud account, a running database, or a paid A
 - **No vendor lock-in.** Open schema, plain text format, vault is just a git repo.
 - **No account required to start.** Lexical search (BM25 + graph) works on day one with zero API keys.
 - **Obsidian-native.** Open `~/.memory/` in Obsidian and get a knowledge graph, backlinks, and full-text search for free.
-- **Cross-tool hooks.** Claude Code, Codex, Antigravity, Hermes, Pi, and OpenClaw all write to the same vault automatically — one memory across all your AI tools.
+- **Cross-tool hooks.** Claude Code, Codex, Antigravity, Hermes, and Pi write to the same vault automatically.
+- **MCP-only clients.** OpenClaw uses the same vault through MCP without passive capture in v1.
 
 ---
 
@@ -62,12 +64,13 @@ flowchart TD
         CX["Codex"]
         AG["Antigravity"]
         HE["Hermes"]
-        PI["Pi / OpenClaw"]
+        PI["Pi"]
+        OC["OpenClaw"]
         CD["Claude Desktop"]
         VS["VS Code"]
     end
 
-    subgraph Capture ["📥 Capture (automatic)"]
+    subgraph Capture ["📥 Capture"]
         H["⚡ Hook Scripts<br/>(PreToolUse · PostToolUse · UserPromptSubmit · Stop)"]
         MCP_IN["🔌 MCP Server<br/>(log_observation)"]
     end
@@ -90,7 +93,7 @@ flowchart TD
     end
 
     CC & CX & HE & PI -->|hooks fire| H
-    AG & CD & VS & PI -->|MCP calls| MCP_IN
+    AG & CD & VS & OC -->|MCP calls| MCP_IN
     H --> RAW
     MCP_IN --> RAW
     RAW --> COMPILE
@@ -109,7 +112,7 @@ flowchart TD
     classDef curation fill:#b45309,stroke:#f59e0b,stroke-width:2px,color:#fff;
     classDef retrieval fill:#9d174d,stroke:#db2777,stroke-width:2px,color:#fff;
 
-    class CC,CX,AG,HE,PI,CD,VS tool;
+    class CC,CX,AG,HE,PI,OC,CD,VS tool;
     class H,MCP_IN capture;
     class RAW,WIKI,IDX,EMB vault;
     class COMPILE curation;
@@ -191,6 +194,7 @@ memory-fort install vscode          # VS Code (MCP only)
 ```
 
 All installs are **non-destructive and idempotent** — sentinel-block writes, re-running is safe. The OpenCoven target is read-only: it checks the `coven` CLI and the local `coven.daemon.v1` health contract, but does not launch sessions or write Memory Fort config.
+OpenClaw support is MCP-only in v1: the installer preserves/updates its MCP config, but it does not install passive capture hooks or automatic observation capture.
 OpenCode support has an implemented CLI surface, MCP config, and selected event plugin; live/operator smoke remains pending.
 
 ```bash
