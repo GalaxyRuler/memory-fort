@@ -185,11 +185,13 @@ memory-fort install hermes          # Hermes agent (YAML hooks + MCP in ~/.herme
 memory-fort install pi              # Pi coding agent (YAML hooks in ~/.pi/config.yaml)
 memory-fort install openclaw        # OpenClaw (MCP server in ~/.openclaw/openclaw.json)
 memory-fort install opencoven       # OpenCoven / Coven (read-only daemon readiness check)
+memory-fort install opencode        # OpenCode (MCP config + selected event plugin)
 memory-fort install claude-desktop  # Claude Desktop (MCP only)
 memory-fort install vscode          # VS Code (MCP only)
 ```
 
 All installs are **non-destructive and idempotent** — sentinel-block writes, re-running is safe. The OpenCoven target is read-only: it checks the `coven` CLI and the local `coven.daemon.v1` health contract, but does not launch sessions or write Memory Fort config.
+OpenCode support has an implemented CLI surface, MCP config, and selected event plugin; live/operator smoke remains pending.
 
 ```bash
 # Undo any integration cleanly
@@ -204,7 +206,7 @@ memory-fort disconnect --all
 | Mode | Needs | When to use |
 |---|---|---|
 | **Lexical (default)** | Nothing | Day 1, offline, private projects |
-| **Voyage embeddings** | `VOYAGE_API_KEY` | Best semantic recall |
+| **Voyage embeddings** | `VOYAGE_API_KEY` | Hosted semantic retrieval |
 | **OpenAI embeddings** | `OPENAI_API_KEY` | Alternative to Voyage |
 | **Ollama (local)** | Ollama running locally | Full local, no cloud at all |
 
@@ -214,7 +216,7 @@ Switch any time: edit `~/.memory/config.yaml` or re-run `memory-fort init`.
 
 ## Evidence posture
 
-All comparison claims are release notes, vendor-doc references, or Memory Fort local evidence. Vendor-reported benchmark rows are marked as vendor-reported unless Memory Fort can reproduce them locally.
+Memory Fort avoids reproduced-score and third-party benchmark claims unless they have been reproduced locally. Vendor-reported benchmark numbers must stay labeled as vendor-reported, and public claims should point to release evidence or implemented local behavior.
 
 Current local evidence is intentionally narrower than a benchmark claim:
 
