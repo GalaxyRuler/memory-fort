@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
-import type { ReactNode } from "react";
+import type { AnchorHTMLAttributes, ReactNode } from "react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { RawFilters } from "../../../src/dashboard-ui/components/RawFilters.js";
 import { RawBrowsePage } from "../../../src/dashboard-ui/components/RawBrowsePage.js";
@@ -24,15 +24,16 @@ vi.mock("@tanstack/react-router", () => ({
     className,
     params,
     to,
+    ...props
   }: {
     children: ReactNode;
     className?: string;
     params?: Record<string, string>;
     to: string;
-  }) => {
+  } & AnchorHTMLAttributes<HTMLAnchorElement>) => {
     const href = params ? to.replace("$date", params.date).replace("$filename", params.filename) : to;
     return (
-      <a className={className} href={href}>
+      <a className={className} href={href} {...props}>
         {children}
       </a>
     );
@@ -147,5 +148,32 @@ describe("raw page helpers and components", () => {
       "href",
       "/raw/2026-05-24/codex-alpha.md",
     );
+    expect(within(item).getByRole("link", { name: /codex-alpha/i })).toHaveAttribute("tabindex", "0");
+  });
+
+  test("RawBrowsePage j/k navigation focuses native raw session links", () => {
+    rawHook.useRawIndex.mockReturnValue({
+      data: [
+        {
+          date: "2026-05-24",
+          files: [
+            { filename: "codex-alpha.md", mtime: "2026-05-24T10:00:00.000Z", sizeBytes: 100 },
+            { filename: "codex-beta.md", mtime: "2026-05-24T11:00:00.000Z", sizeBytes: 100 },
+          ],
+        },
+      ],
+      isLoading: false,
+    });
+
+    render(<RawBrowsePage />);
+
+    const region = screen.getByText(/2026-05-24 - 2 sessions/).parentElement?.parentElement;
+    expect(region).not.toBeNull();
+    (region as HTMLElement).focus();
+    fireEvent.keyDown(region as HTMLElement, { key: "j" });
+
+    const betaLink = screen.getByRole("link", { name: /codex-beta/i });
+    expect(betaLink).toHaveFocus();
+    expect(betaLink).toHaveAttribute("data-focused", "true");
   });
 });

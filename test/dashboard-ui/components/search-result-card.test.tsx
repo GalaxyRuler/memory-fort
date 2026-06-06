@@ -10,16 +10,21 @@ vi.mock("@tanstack/react-router", async (importOriginal) => {
     Link: ({
       children,
       className,
+      params,
       to,
     }: {
       children: React.ReactNode;
       className?: string;
+      params?: Record<string, string>;
       to: string;
-    }) => (
-      <a className={className} href={to}>
-        {children}
-      </a>
-    ),
+    }) => {
+      const href = params ? to.replace("$category", params.category).replace("$slug", params.slug) : to;
+      return (
+        <a className={className} href={href}>
+          {children}
+        </a>
+      );
+    },
   };
 });
 
@@ -48,10 +53,29 @@ const RESULT: SearchResult = {
 };
 
 describe("SearchResultCard", () => {
-  test("links crystal results to the crystals page", () => {
-    render(<SearchResultCard result={RESULT} />);
+  test("links wiki crystal results to the crystal wiki detail page", () => {
+    const result: SearchResult = {
+      ...RESULT,
+      path: "wiki/crystals/retrieval.md",
+      provenance: { ...RESULT.provenance, path: "wiki/crystals/retrieval.md" },
+      title: "Retrieval Crystal",
+    };
 
-    expect(screen.getByRole("link", { name: "Provenance Signals" })).toHaveAttribute("href", "/crystals");
+    render(<SearchResultCard result={result} />);
+
+    expect(screen.getByRole("link", { name: "Retrieval Crystal" })).toHaveAttribute("href", "/wiki/crystals/retrieval");
+  });
+
+  test("normalizes legacy crystal result paths to the crystal wiki detail page", () => {
+    const result: SearchResult = {
+      ...RESULT,
+      path: "crystals/provenance-signals.md",
+      provenance: { ...RESULT.provenance, path: "crystals/provenance-signals.md" },
+    };
+
+    render(<SearchResultCard result={result} />);
+
+    expect(screen.getByRole("link", { name: "Provenance Signals" })).toHaveAttribute("href", "/wiki/crystals/provenance-signals");
   });
 
   test("renders a compact provenance receipt for search signals", () => {

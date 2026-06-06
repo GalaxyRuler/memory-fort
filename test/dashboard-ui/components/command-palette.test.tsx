@@ -59,12 +59,12 @@ function makeCrystalSearchResponse() {
     results: [
       {
         ...response.results[0],
-        path: "crystals/usage-patterns.md",
+        path: "wiki/crystals/retrieval.md",
         title: "Usage Patterns",
         snippet: "Usage patterns snippet",
         provenance: {
           ...response.results[0].provenance,
-          path: "crystals/usage-patterns.md",
+          path: "wiki/crystals/retrieval.md",
           kind: "crystal",
         },
         kind: "crystal",
@@ -218,7 +218,7 @@ describe("CommandPalette", () => {
     });
   });
 
-  test("selecting a crystal result navigates to the crystals page", async () => {
+  test("selecting a crystal result navigates to the crystal wiki detail page", async () => {
     const fetchMock = vi.fn(
       async (_input: RequestInfo | URL) => new Response(JSON.stringify(makeCrystalSearchResponse()), { status: 200 }),
     );
@@ -233,6 +233,9 @@ describe("CommandPalette", () => {
     expect(await screen.findByText("Usage Patterns")).toBeInTheDocument();
     fireEvent.click(screen.getByText("Usage Patterns"));
 
-    expect(routerMock.navigate).toHaveBeenCalledWith({ to: "/crystals" });
+    expect(routerMock.navigate).toHaveBeenCalledWith({
+      to: "/wiki/$category/$slug",
+      params: { category: "crystals", slug: "retrieval" },
+    });
   });
 });

@@ -51,14 +51,13 @@ export function CrystalsPage() {
         {crystals.map((crystal, index) => (
           <li
             key={crystal.relPath}
-            className="rounded-lg border border-border-subtle bg-surface transition-all hover:border-border-emphasis hover:bg-surface-2 data-[focused=true]:border-primary/60 data-[focused=true]:bg-surface-2 data-[focused=true]:ring-1 data-[focused=true]:ring-primary/60"
-            {...listNav.getItemProps(index)}
+            className="rounded-lg border border-border-subtle bg-surface transition-all hover:border-border-emphasis hover:bg-surface-2 focus-within:border-primary/60 focus-within:bg-surface-2 focus-within:ring-1 focus-within:ring-primary/60"
           >
             <Link
               to="/wiki/$category/$slug"
               params={{ category: "crystals", slug: crystal.slug }}
               className="block h-full rounded-lg p-4 focus:outline-none"
-              tabIndex={-1}
+              {...listNav.getItemProps(index)}
             >
               <div className="mb-2 flex items-start gap-3">
                 <CrystalRotatingIcon className="mt-0.5 h-6 w-6 flex-shrink-0" />

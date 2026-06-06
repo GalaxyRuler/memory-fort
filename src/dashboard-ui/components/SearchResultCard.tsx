@@ -96,13 +96,7 @@ export function SearchResultCard({
 
 export function resultLinkProps(result: SearchResult): ResultLinkProps | null {
   if (result.kind === "wiki" && result.path.startsWith("wiki/")) {
-    const parts = result.path.replace(/^wiki\//, "").replace(/\.md$/, "").split("/");
-    if (parts.length >= 2) {
-      return {
-        to: "/wiki/$category/$slug",
-        params: { category: parts[0] ?? "", slug: parts.slice(1).join("/") },
-      };
-    }
+    return wikiLinkFromPath(result.path);
   }
   if (result.kind === "raw" && result.path.startsWith("raw/")) {
     const parts = result.path.replace(/^raw\//, "").replace(/\.md$/, "").split("/");
@@ -114,7 +108,36 @@ export function resultLinkProps(result: SearchResult): ResultLinkProps | null {
     }
   }
   if (result.kind === "crystal") {
-    return { to: "/crystals" };
+    return crystalLinkFromPath(result.path) ?? { to: "/crystals" };
   }
   return null;
+}
+
+function crystalLinkFromPath(path: string): ResultLinkProps | null {
+  const normalized = normalizeMarkdownPath(path);
+  if (normalized.startsWith("wiki/crystals/")) {
+    return wikiLinkFromParts("crystals", normalized.replace(/^wiki\/crystals\//, ""));
+  }
+  if (normalized.startsWith("crystals/")) {
+    return wikiLinkFromParts("crystals", normalized.replace(/^crystals\//, ""));
+  }
+  return null;
+}
+
+function wikiLinkFromPath(path: string): ResultLinkProps | null {
+  const parts = normalizeMarkdownPath(path).replace(/^wiki\//, "").split("/");
+  if (parts.length < 2) return null;
+  return wikiLinkFromParts(parts[0] ?? "", parts.slice(1).join("/"));
+}
+
+function wikiLinkFromParts(category: string, slug: string): ResultLinkProps | null {
+  if (!category || !slug) return null;
+  return {
+    to: "/wiki/$category/$slug",
+    params: { category, slug },
+  };
+}
+
+function normalizeMarkdownPath(path: string): string {
+  return path.replace(/\\/g, "/").replace(/^\/+/, "").replace(/\.md$/, "");
 }

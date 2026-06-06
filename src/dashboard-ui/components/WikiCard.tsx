@@ -22,7 +22,7 @@ export function WikiCard({
   keyboardProps?: HTMLAttributes<HTMLLIElement>;
 }) {
   const cardClassName = cn(
-    "rounded-lg border border-t-4 border-border-subtle bg-surface transition-colors hover:bg-surface-2 data-[focused=true]:bg-surface-2 data-[focused=true]:ring-1 data-[focused=true]:ring-primary/60",
+    "rounded-lg border border-t-4 border-border-subtle bg-surface transition-colors hover:bg-surface-2 focus-within:bg-surface-2 focus-within:ring-1 focus-within:ring-primary/60",
     CATEGORY_COLORS[entry.category] ?? "border-t-text-muted",
   );
   const content = (
@@ -38,13 +38,14 @@ export function WikiCard({
 
   if (keyboardProps) {
     const { className, ...itemProps } = keyboardProps;
+    const linkProps = itemProps as HTMLAttributes<HTMLAnchorElement>;
     return (
-      <li className={cn(cardClassName, className)} {...itemProps}>
+      <li className={cn(cardClassName, className)}>
         <Link
           className="block h-full rounded-lg p-4 focus:outline-none"
           params={{ category: entry.category, slug: entry.slug }}
-          tabIndex={-1}
           to="/wiki/$category/$slug"
+          {...linkProps}
         >
           {content}
         </Link>

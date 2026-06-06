@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
-import type { ReactNode } from "react";
+import type { AnchorHTMLAttributes, ReactNode } from "react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { CategorySidebar } from "../../../src/dashboard-ui/components/CategorySidebar.js";
 import { WikiBrowsePage } from "../../../src/dashboard-ui/components/WikiBrowsePage.js";
@@ -21,15 +21,16 @@ vi.mock("@tanstack/react-router", () => ({
     className,
     params,
     to,
+    ...props
   }: {
     children: ReactNode;
     className?: string;
     params?: Record<string, string>;
     to: string;
-  }) => {
+  } & AnchorHTMLAttributes<HTMLAnchorElement>) => {
     const href = params ? to.replace("$category", params.category).replace("$slug", params.slug) : to;
     return (
-      <a className={className} href={href}>
+      <a className={className} href={href} {...props}>
         {children}
       </a>
     );
@@ -144,5 +145,39 @@ describe("wiki browse components", () => {
       "href",
       "/wiki/projects/memory-system",
     );
+    expect(within(item).getByRole("link", { name: /memory-system/i })).toHaveAttribute("tabindex", "0");
+  });
+
+  test("WikiBrowsePage j/k navigation focuses native wiki links", () => {
+    routerState.search = { category: "projects" };
+    wikiHook.useWikiIndex.mockReturnValue({
+      data: {
+        byCategory: {
+          projects: [
+            INDEX.byCategory.projects[0]!,
+            {
+              category: "projects",
+              slug: "memory-system-next",
+              relPath: "wiki/projects/memory-system-next.md",
+              title: "memory-system-next",
+              summary: "Next project page",
+              updated: "2026-05-25",
+            },
+          ],
+        },
+        total: 2,
+      },
+      isLoading: false,
+    });
+
+    render(<WikiBrowsePage />);
+
+    const list = screen.getByRole("list", { name: "Wiki pages" });
+    list.focus();
+    fireEvent.keyDown(list, { key: "j" });
+
+    const nextLink = screen.getByRole("link", { name: /memory-system-next/i });
+    expect(nextLink).toHaveFocus();
+    expect(nextLink).toHaveAttribute("data-focused", "true");
   });
 });

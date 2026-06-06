@@ -19,16 +19,27 @@ vi.mock("@tanstack/react-router", async (importOriginal) => {
     Link: ({
       children,
       className,
+      params,
       to,
     }: {
       children: React.ReactNode;
       className?: string;
+      params?: Record<string, string>;
       to: string;
-    }) => (
-      <a className={className} href={to}>
-        {children}
-      </a>
-    ),
+    }) => {
+      const href = params
+        ? to
+            .replace("$category", params.category ?? "")
+            .replace("$slug", params.slug ?? "")
+            .replace("$date", params.date ?? "")
+            .replace("$filename", params.filename ?? "")
+        : to;
+      return (
+        <a className={className} href={href}>
+          {children}
+        </a>
+      );
+    },
     useNavigate: () => routerState.navigate,
     useSearch: () => routerState.search,
   };
@@ -69,11 +80,11 @@ function makeResult(): SearchResult {
 function makeCrystalResult(): SearchResult {
   return {
     ...makeResult(),
-    path: "crystals/usage-patterns.md",
+    path: "wiki/crystals/retrieval.md",
     title: "Usage Patterns",
     snippet: "A durable crystal result.",
     provenance: {
-      path: "crystals/usage-patterns.md",
+      path: "wiki/crystals/retrieval.md",
       kind: "crystal",
       dominantSource: "rerank",
       signals: [
@@ -166,7 +177,7 @@ describe("SearchPage", () => {
     });
   });
 
-  test("renders crystal results as links to the crystals page", () => {
+  test("renders crystal results as links to the crystal wiki detail page", () => {
     routerState.search = { q: "crystal" };
     searchHook.useSearch.mockReturnValue({
       data: {
@@ -180,10 +191,10 @@ describe("SearchPage", () => {
 
     render(<SearchPage />);
 
-    expect(screen.getByRole("link", { name: "Usage Patterns" })).toHaveAttribute("href", "/crystals");
+    expect(screen.getByRole("link", { name: "Usage Patterns" })).toHaveAttribute("href", "/wiki/crystals/retrieval");
   });
 
-  test("activating a focused crystal result navigates to the crystals page", () => {
+  test("activating a focused crystal result navigates to the crystal wiki detail page", () => {
     routerState.search = { q: "crystal" };
     searchHook.useSearch.mockReturnValue({
       data: {
@@ -201,6 +212,9 @@ describe("SearchPage", () => {
     list.focus();
     fireEvent.keyDown(list, { key: "Enter" });
 
-    expect(routerState.navigate).toHaveBeenCalledWith({ to: "/crystals" });
+    expect(routerState.navigate).toHaveBeenCalledWith({
+      to: "/wiki/$category/$slug",
+      params: { category: "crystals", slug: "retrieval" },
+    });
   });
 });

@@ -22,7 +22,7 @@ export function SessionRow({
   const sessionId = parseSessionIdFromFilename(file.filename);
   const truncatedId = sessionId.length > 24 ? `${sessionId.slice(0, 8)}...${sessionId.slice(-12)}` : sessionId;
   const rowClassName =
-    "mb-1.5 rounded-md border border-border-subtle transition-colors hover:bg-surface-2 data-[focused=true]:bg-surface-2 data-[focused=true]:ring-1 data-[focused=true]:ring-primary/60";
+    "mb-1.5 rounded-md border border-border-subtle transition-colors hover:bg-surface-2 focus-within:bg-surface-2 focus-within:ring-1 focus-within:ring-primary/60";
   const content = (
     <div className="flex flex-col gap-2 md:flex-row md:items-center md:gap-3">
       <span className={cn("hidden h-2 w-2 flex-shrink-0 rounded-full md:block", sourceColorClass(source))} aria-hidden />
@@ -38,13 +38,14 @@ export function SessionRow({
 
   if (keyboardProps) {
     const { className, ...itemProps } = keyboardProps;
+    const linkProps = itemProps as HTMLAttributes<HTMLAnchorElement>;
     return (
-      <li className={cn(rowClassName, className)} {...itemProps}>
+      <li className={cn(rowClassName, className)}>
         <Link
           to="/raw/$date/$filename"
           params={{ date, filename: file.filename }}
           className="block rounded-md px-3 py-3 focus:outline-none md:py-2"
-          tabIndex={-1}
+          {...linkProps}
         >
           {content}
         </Link>
