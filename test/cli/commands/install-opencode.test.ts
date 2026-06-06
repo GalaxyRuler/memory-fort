@@ -120,16 +120,19 @@ describe("runInstallOpenCode", () => {
     const configPath = join(opencodeDir, "opencode.json");
     const pluginDir = join(opencodeDir, "plugins");
     const pluginPath = join(pluginDir, "memory-fort.js");
+    const teamPluginPath = join(pluginDir, "team-plugin.js");
     const malformedConfig = "not json {";
-    await mkdir(opencodeDir, { recursive: true });
+    const teamPlugin = "// team plugin\n";
+    await mkdir(pluginDir, { recursive: true });
     await writeFile(configPath, malformedConfig);
+    await writeFile(teamPluginPath, teamPlugin);
 
     await expect(runInstallOpenCode({ opencodeDir })).rejects.toThrow(
       /memory install opencode: failed to parse existing config/i,
     );
     await expect(readFile(configPath, "utf-8")).resolves.toBe(malformedConfig);
+    await expect(readFile(teamPluginPath, "utf-8")).resolves.toBe(teamPlugin);
     expect(existsSync(pluginPath)).toBe(false);
-    expect(existsSync(pluginDir)).toBe(false);
   });
 
   it("uninstall removes only Memory Fort entries", async () => {
