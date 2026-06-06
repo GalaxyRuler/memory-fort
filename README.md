@@ -45,8 +45,19 @@ memory-fort dashboard
 ### System architecture
 
 ```mermaid
+%%{init: {
+  'theme': 'base',
+  'themeVariables': {
+    'primaryColor': '#1e293b',
+    'primaryTextColor': '#f8fafc',
+    'primaryBorderColor': '#475569',
+    'lineColor': '#38bdf8',
+    'secondaryColor': '#0f172a',
+    'tertiaryColor': '#1e1b4b'
+  }
+}}%%
 flowchart TD
-    subgraph Tools["AI Tools"]
+    subgraph Tools ["🤖 AI Tools"]
         CC["Claude Code"]
         CX["Codex"]
         AG["Antigravity"]
@@ -56,26 +67,26 @@ flowchart TD
         VS["VS Code"]
     end
 
-    subgraph Capture["Capture (automatic)"]
-        H["Hook scripts\nPreToolUse · PostToolUse\nUserPromptSubmit · Stop"]
-        MCP_IN["MCP server\nlog_observation"]
+    subgraph Capture ["📥 Capture (automatic)"]
+        H["⚡ Hook Scripts<br/>(PreToolUse · PostToolUse · UserPromptSubmit · Stop)"]
+        MCP_IN["🔌 MCP Server<br/>(log_observation)"]
     end
 
-    subgraph Vault["~/.memory/ (vault)"]
-        RAW["raw/YYYY-MM-DD/\nsession.md"]
-        WIKI["wiki/\nprojects · decisions · lessons\ntools · threads · procedures"]
-        IDX["index.md · schema.md\npreferences.md"]
-        EMB["embeddings/\n*.jsonl sidecars"]
+    subgraph Vault ["💾 ~/.memory/ (vault)"]
+        RAW["📝 raw/YYYY-MM-DD/<br/>session.md"]
+        WIKI["📚 wiki/<br/>projects · decisions · lessons<br/>tools · threads · procedures"]
+        IDX["🗂️ index.md · schema.md<br/>preferences.md"]
+        EMB["🧠 embeddings/<br/>*.jsonl sidecars"]
     end
 
-    subgraph Curation["Curation"]
-        COMPILE["memory compile\n(distills raw → wiki)"]
+    subgraph Curation ["🧹 Curation"]
+        COMPILE["⚙️ memory compile<br/>(distills raw → wiki)"]
     end
 
-    subgraph Retrieval["Retrieval — three routes"]
-        SS["① Session-start hook\nautomatically at every session"]
-        SEARCH["② MCP memory.search\nBM25 + vectors + graph + RRF"]
-        GREP["③ memory grep\nripgrep over raw + wiki"]
+    subgraph Retrieval ["🔍 Retrieval (three routes)"]
+        SS["① Session-start hook<br/>(automatic push)"]
+        SEARCH["② MCP memory.search<br/>(BM25 + vector + graph + RRF)"]
+        GREP["③ memory grep<br/>(ripgrep over raw + wiki)"]
     end
 
     CC & CX & HE & PI -->|hooks fire| H
@@ -88,36 +99,59 @@ flowchart TD
     IDX --> SS
     WIKI & RAW & EMB --> SEARCH
     RAW & WIKI --> GREP
-    SS -->|context injected at session start| Tools
-    SEARCH -->|ranked results via MCP| Tools
-    GREP -->|matching lines via CLI| Tools
+    SS -->|context injected| Tools
+    SEARCH -->|ranked results| Tools
+    GREP -->|matching lines| Tools
+
+    classDef tool fill:#0284c7,stroke:#0ea5e9,stroke-width:2px,color:#fff;
+    classDef capture fill:#0f766e,stroke:#14b8a6,stroke-width:2px,color:#fff;
+    classDef vault fill:#4c1d95,stroke:#7c3aed,stroke-width:2px,color:#fff;
+    classDef curation fill:#b45309,stroke:#f59e0b,stroke-width:2px,color:#fff;
+    classDef retrieval fill:#9d174d,stroke:#db2777,stroke-width:2px,color:#fff;
+
+    class CC,CX,AG,HE,PI,CD,VS tool;
+    class H,MCP_IN capture;
+    class RAW,WIKI,IDX,EMB vault;
+    class COMPILE curation;
+    class SS,SEARCH,GREP retrieval;
 ```
 
 ### How memories reach your AI tools
 
 ```mermaid
+%%{init: {
+  'theme': 'base',
+  'themeVariables': {
+    'primaryColor': '#1e293b',
+    'primaryTextColor': '#f8fafc',
+    'primaryBorderColor': '#475569',
+    'lineColor': '#38bdf8',
+    'secondaryColor': '#0f172a',
+    'tertiaryColor': '#1e1b4b'
+  }
+}}%%
 flowchart LR
-    subgraph V["~/.memory/"]
-        S["schema.md"]
-        I["index.md"]
-        L["log.md"]
-        P["wiki/preferences.md"]
-        W["wiki/projects/&lt;cwd&gt;.md"]
-        WK["wiki/ pages"]
-        EM["embeddings/"]
-        R["raw/"]
+    subgraph V ["💾 ~/.memory/ (vault)"]
+        S["📄 schema.md"]
+        I["📄 index.md"]
+        L["📄 log.md"]
+        P["⚙️ wiki/preferences.md"]
+        W["📂 wiki/projects/&lt;cwd&gt;.md"]
+        WK["📚 wiki/ pages"]
+        EM["🧠 embeddings/"]
+        R["📝 raw/"]
     end
 
-    subgraph Routes["Retrieval routes"]
-        R1["(1) Session-start\nautomatic push\nevery session"]
-        R2["(2) MCP search\non-demand pull\nBM25 + vectors + graph"]
-        R3["(3) grep\nCLI / manual"]
+    subgraph Routes ["🔄 Retrieval routes"]
+        R1["(1) Session-start<br/>automatic push<br/>every session"]
+        R2["(2) MCP search<br/>on-demand pull<br/>BM25 + vectors + graph"]
+        R3["(3) grep<br/>CLI / manual"]
     end
 
-    subgraph AI["AI Tool"]
-        CTX["Session context\n(prompt prefix)"]
-        TOOL["Agent tool call\n(MCP response)"]
-        CLI2["CLI output"]
+    subgraph AI ["🤖 AI Tool Context"]
+        CTX["⚡ Session context<br/>(prompt prefix)"]
+        TOOL["🔌 Agent tool call<br/>(MCP response)"]
+        CLI2["💻 CLI output"]
     end
 
     S & I & L & P & W -->|reads on session start| R1
@@ -127,6 +161,14 @@ flowchart LR
     R1 -->|stdout injected by tool| CTX
     R2 -->|ranked snippets| TOOL
     R3 -->|matching lines| CLI2
+
+    classDef vault fill:#4c1d95,stroke:#7c3aed,stroke-width:2px,color:#fff;
+    classDef route fill:#0f766e,stroke:#14b8a6,stroke-width:2px,color:#fff;
+    classDef ai fill:#0284c7,stroke:#0ea5e9,stroke-width:2px,color:#fff;
+
+    class S,I,L,P,W,WK,EM,R vault;
+    class R1,R2,R3 route;
+    class CTX,TOOL,CLI2 ai;
 ```
 
 **Route (1)** fires automatically — you always get your top context injected. **Routes (2) and (3)** are on-demand (agent or human asks).
