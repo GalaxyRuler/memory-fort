@@ -376,6 +376,71 @@ describe("memory.search MCP tool", () => {
     }
   });
 
+  it("uses known path prefixes over conflicting top-level result kinds", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "mcp-search-kind-"));
+    const origEnv = process.env["MEMORY_ROOT"];
+    process.env["MEMORY_ROOT"] = tmp;
+    await mkdir(join(tmp, "wiki", "tools"), { recursive: true });
+    await writeFile(
+      join(tmp, "wiki", "tools", "path-kind.md"),
+      `---\ntype: tools\ntitle: Path Kind\ncreated: "2026-05-20"\nupdated: "2026-05-21"\nversion: 1\nlast_accessed: "2026-05-30"\n---\n\nPath kind conflict page.\n`,
+    );
+    const fetchFn = vi.fn(async () =>
+      jsonResponse({
+        query: "kind conflict",
+        results: [
+          {
+            path: "wiki/tools/path-kind.md",
+            title: "Path Kind",
+            snippet: "Wiki path with forged raw kind.",
+            score: 0.9,
+            source: "bm25",
+            sources: [{ source: "bm25", rank: 1 }],
+            kind: "raw",
+          },
+          {
+            path: "raw/2026-06-01/session.md",
+            title: "Raw Session",
+            snippet: "Raw path with forged wiki kind.",
+            score: 0.8,
+            source: "vector",
+            sources: [{ source: "vector", rank: 1 }],
+            kind: "wiki",
+          },
+        ],
+        warnings: [],
+        timings: { totalMs: 2, rerankMs: 0 },
+        degraded: false,
+      }),
+    ) as unknown as typeof fetch;
+    const { client, close } = await connectMcp(fetchFn, { now: () => new Date("2026-06-02T00:00:00.000Z") });
+    try {
+      const result = await client.callTool({
+        name: "search",
+        arguments: { query: "kind conflict" },
+      });
+      const parsed = JSON.parse(extractJsonFence(textFromToolResult(result)));
+
+      expect(parsed.results[0]).toMatchObject({
+        path: "wiki/tools/path-kind.md",
+        kind: "wiki",
+        provenance: { kind: "wiki" },
+      });
+      expect(parsed.results[1]).toMatchObject({
+        path: "raw/2026-06-01/session.md",
+        kind: "raw",
+        provenance: { kind: "raw" },
+      });
+      const parsedPage = parseFrontmatter(await readFile(join(tmp, "wiki", "tools", "path-kind.md"), "utf-8"));
+      expect(parsedPage.frontmatter.last_accessed).toBe("2026-06-02");
+    } finally {
+      await close();
+      if (origEnv === undefined) delete process.env["MEMORY_ROOT"];
+      else process.env["MEMORY_ROOT"] = origEnv;
+      await rm(tmp, { recursive: true, force: true });
+    }
+  });
+
   it("returns a clear tool error when search results are not an array", async () => {
     const fetchFn = vi.fn(async () =>
       jsonResponse({

@@ -492,11 +492,13 @@ type SearchSignal = { source: string; rank: number };
 type ApiSearchResultWithPath = ApiSearchResult & { path: string };
 
 function inferSearchKind(item: ApiSearchResultWithPath): SearchKind {
-  if (isSearchKind(item.kind)) return item.kind;
-  if (item.path.startsWith("raw/")) return "raw";
-  if (item.path.startsWith("crystals/") || item.path.startsWith("crystal/")) {
+  const normalizedPath = item.path.replace(/\\/g, "/");
+  if (normalizedPath.startsWith("wiki/")) return "wiki";
+  if (normalizedPath.startsWith("raw/")) return "raw";
+  if (normalizedPath.startsWith("crystals/") || normalizedPath.startsWith("crystal/")) {
     return "crystal";
   }
+  if (isSearchKind(item.kind)) return item.kind;
   return "wiki";
 }
 
