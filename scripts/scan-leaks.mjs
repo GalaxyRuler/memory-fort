@@ -77,6 +77,55 @@ if (args.json) {
 
 process.exitCode = hits.length > 0 ? 1 : 0;
 
+// Second pass: scan dist/ for the two infra tokens that leaked in 0.1.0.
+// dist/** is quarantined from the main scan (too large/minified), but these
+// specific literals must never appear there.
+const INFRA_TOKENS = [["srv", "1317946"].join(""), ["tail", "6916d8"].join("")];
+const distDir = join(root, "dist");
+if (await pathExists(distDir)) {
+  const distFiles = await walkDistFiles(distDir);
+  for (const fullPath of distFiles) {
+    let content;
+    try {
+      content = await readFile(fullPath, "utf8");
+    } catch {
+      continue;
+    }
+    const lines = content.split(/\r?\n/);
+    for (const [index, line] of lines.entries()) {
+      for (const token of INFRA_TOKENS) {
+        if (line.includes(token)) {
+          const rel = toPosixPath(relative(root, fullPath));
+          process.stderr.write(`dist/ contains private infra token\n${rel}:${index + 1}: ${token}\n`);
+          process.exit(1);
+        }
+      }
+    }
+  }
+}
+
+async function walkDistFiles(dir) {
+  const results = [];
+  async function walk(current) {
+    let entries;
+    try {
+      entries = await readdir(current, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const fullPath = join(current, entry.name);
+      if (entry.isDirectory()) {
+        await walk(fullPath);
+      } else if (entry.isFile()) {
+        results.push(fullPath);
+      }
+    }
+  }
+  await walk(dir);
+  return results;
+}
+
 function parseArgs(argv) {
   const parsed = { json: false, root: undefined };
   for (let index = 0; index < argv.length; index += 1) {
