@@ -40,10 +40,6 @@ export function searchSourceColorClass(source: string): string {
   return SEARCH_SOURCE_COLORS[source] ?? "bg-text-muted";
 }
 
-export function isValidSearchRank(rank: unknown): boolean {
-  return parseSearchRank(rank) !== null;
-}
-
 export function normalizeSearchSignals(signals: unknown): SearchSignal[] {
   if (!Array.isArray(signals)) return [];
 

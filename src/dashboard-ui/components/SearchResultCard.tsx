@@ -118,9 +118,6 @@ function crystalLinkFromPath(path: string): ResultLinkProps | null {
   if (normalized.startsWith("wiki/crystals/")) {
     return wikiLinkFromParts("crystals", normalized.replace(/^wiki\/crystals\//, ""));
   }
-  if (normalized.startsWith("crystals/")) {
-    return wikiLinkFromParts("crystals", normalized.replace(/^crystals\//, ""));
-  }
   return null;
 }
 

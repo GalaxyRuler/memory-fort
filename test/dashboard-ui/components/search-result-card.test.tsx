@@ -66,7 +66,7 @@ describe("SearchResultCard", () => {
     expect(screen.getByRole("link", { name: "Retrieval Crystal" })).toHaveAttribute("href", "/wiki/crystals/retrieval");
   });
 
-  test("normalizes legacy crystal result paths to the crystal wiki detail page", () => {
+  test("falls back to the crystals page for top-level crystal result paths", () => {
     const result: SearchResult = {
       ...RESULT,
       path: "crystals/provenance-signals.md",
@@ -75,7 +75,7 @@ describe("SearchResultCard", () => {
 
     render(<SearchResultCard result={result} />);
 
-    expect(screen.getByRole("link", { name: "Provenance Signals" })).toHaveAttribute("href", "/wiki/crystals/provenance-signals");
+    expect(screen.getByRole("link", { name: "Provenance Signals" })).toHaveAttribute("href", "/crystals");
   });
 
   test("renders a compact provenance receipt for search signals", () => {
