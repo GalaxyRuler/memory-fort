@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { describe, expect, test, vi } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vitest";
 import { CategorySidebar } from "../../../src/dashboard-ui/components/CategorySidebar.js";
 import { WikiBrowsePage } from "../../../src/dashboard-ui/components/WikiBrowsePage.js";
 import { WikiCard } from "../../../src/dashboard-ui/components/WikiCard.js";
@@ -73,6 +73,12 @@ const INDEX: WikiIndex = {
 };
 
 describe("wiki browse components", () => {
+  beforeEach(() => {
+    routerState.search = {};
+    routerState.navigate.mockReset();
+    wikiHook.useWikiIndex.mockReset();
+  });
+
   test("CategorySidebar renders categories with counts", () => {
     render(<CategorySidebar index={INDEX} onSelect={() => {}} selectedCategory={null} />);
 
@@ -120,5 +126,23 @@ describe("wiki browse components", () => {
     expect(screen.queryByRole("heading", { name: "Lessons", level: 2 })).not.toBeInTheDocument();
     expect(screen.getByText("memory-system")).toBeInTheDocument();
     expect(screen.getByText("Voyage")).toBeInTheDocument();
+  });
+
+  test("WikiBrowsePage exposes wiki cards as list items with nested links", () => {
+    routerState.search = { category: "projects" };
+    wikiHook.useWikiIndex.mockReturnValue({
+      data: INDEX,
+      isLoading: false,
+    });
+
+    render(<WikiBrowsePage />);
+
+    const list = screen.getByRole("list", { name: "Wiki pages" });
+    const item = within(list).getByRole("listitem");
+
+    expect(within(item).getByRole("link", { name: /memory-system/i })).toHaveAttribute(
+      "href",
+      "/wiki/projects/memory-system",
+    );
   });
 });

@@ -16,29 +16,49 @@ export function SessionRow({
 }: {
   file: RawIndexFile;
   date: string;
-  keyboardProps?: HTMLAttributes<HTMLAnchorElement>;
+  keyboardProps?: HTMLAttributes<HTMLLIElement>;
 }) {
   const source = parseSourceFromFilename(file.filename);
   const sessionId = parseSessionIdFromFilename(file.filename);
   const truncatedId = sessionId.length > 24 ? `${sessionId.slice(0, 8)}...${sessionId.slice(-12)}` : sessionId;
+  const rowClassName =
+    "mb-1.5 rounded-md border border-border-subtle transition-colors hover:bg-surface-2 data-[focused=true]:bg-surface-2 data-[focused=true]:ring-1 data-[focused=true]:ring-primary/60";
+  const content = (
+    <div className="flex flex-col gap-2 md:flex-row md:items-center md:gap-3">
+      <span className={cn("hidden h-2 w-2 flex-shrink-0 rounded-full md:block", sourceColorClass(source))} aria-hidden />
+      <div className="flex-1 min-w-0">
+        <p className="break-all font-mono text-sm text-text-primary md:truncate">{source}-{truncatedId}</p>
+      </div>
+      <div className="flex flex-wrap items-center gap-3 font-mono text-xs text-text-muted md:flex-shrink-0">
+        <span>{formatBytes(file.sizeBytes)}</span>
+        <span>{new Date(file.mtime).toLocaleTimeString()}</span>
+      </div>
+    </div>
+  );
+
+  if (keyboardProps) {
+    const { className, ...itemProps } = keyboardProps;
+    return (
+      <li className={cn(rowClassName, className)} {...itemProps}>
+        <Link
+          to="/raw/$date/$filename"
+          params={{ date, filename: file.filename }}
+          className="block rounded-md px-3 py-3 focus:outline-none md:py-2"
+          tabIndex={-1}
+        >
+          {content}
+        </Link>
+      </li>
+    );
+  }
 
   return (
     <Link
       to="/raw/$date/$filename"
       params={{ date, filename: file.filename }}
-      className="mb-1.5 block rounded-md border border-border-subtle px-3 py-3 transition-colors hover:bg-surface-2 data-[focused=true]:bg-surface-2 data-[focused=true]:ring-1 data-[focused=true]:ring-primary/60 md:py-2"
-      {...keyboardProps}
+      className={cn("block px-3 py-3 md:py-2", rowClassName)}
     >
-      <div className="flex flex-col gap-2 md:flex-row md:items-center md:gap-3">
-        <span className={cn("hidden h-2 w-2 flex-shrink-0 rounded-full md:block", sourceColorClass(source))} aria-hidden />
-        <div className="flex-1 min-w-0">
-          <p className="break-all font-mono text-sm text-text-primary md:truncate">{source}-{truncatedId}</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-3 font-mono text-xs text-text-muted md:flex-shrink-0">
-          <span>{formatBytes(file.sizeBytes)}</span>
-          <span>{new Date(file.mtime).toLocaleTimeString()}</span>
-        </div>
-      </div>
+      {content}
     </Link>
   );
 }

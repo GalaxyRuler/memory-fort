@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { AuditPage } from "../../../src/dashboard-ui/components/AuditPage.js";
@@ -183,6 +183,34 @@ describe("sessions, crystals, and audit secondary screens", () => {
     expect(screen.queryByText("claude-code")).not.toBeInTheDocument();
   });
 
+  test("SessionsPage exposes keyboard cards as list items with nested links", () => {
+    rawHook.useRawIndex.mockReturnValue({
+      data: [
+        {
+          date: "2026-05-24",
+          files: [
+            {
+              filename: "codex-alpha.md",
+              mtime: "2026-05-24T11:00:00.000Z",
+              sizeBytes: 2048,
+            },
+          ],
+        },
+      ],
+      isLoading: false,
+    });
+
+    render(<SessionsPage />);
+
+    const list = screen.getByRole("list", { name: "Sessions" });
+    const item = within(list).getByRole("listitem");
+
+    expect(within(item).getByRole("link", { name: /codex/i })).toHaveAttribute(
+      "href",
+      "/raw/2026-05-24/codex-alpha.md",
+    );
+  });
+
   test("SessionsPage starts at the URL page size and loads more", () => {
     routerState.search = { per: "2" };
     rawHook.useRawIndex.mockReturnValue({
@@ -279,6 +307,37 @@ describe("sessions, crystals, and audit secondary screens", () => {
     expect(screen.getByText("Crystal Three")).toBeInTheDocument();
     expect(screen.getByText("Crystal Four")).toBeInTheDocument();
     expect(screen.queryByText("No crystals yet")).not.toBeInTheDocument();
+  });
+
+  test("CrystalsPage exposes crystal cards as list items with nested links", () => {
+    wikiHook.useWikiIndex.mockReturnValue({
+      data: {
+        byCategory: {
+          crystals: [
+            {
+              category: "crystals",
+              slug: "one",
+              relPath: "crystals/one.md",
+              title: "Crystal One",
+              summary: "First distilled thread.",
+              updated: "2026-05-24",
+            },
+          ],
+        },
+        total: 1,
+      },
+      isLoading: false,
+    });
+
+    render(<CrystalsPage />);
+
+    const list = screen.getByRole("list", { name: "Crystals" });
+    const item = within(list).getByRole("listitem");
+
+    expect(within(item).getByRole("link", { name: /Crystal One/i })).toHaveAttribute(
+      "href",
+      "/wiki/crystal/one",
+    );
   });
 
   test("AuditRow uses the correct level color class", () => {

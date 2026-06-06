@@ -1,6 +1,6 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { describe, expect, test, vi } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vitest";
 import { RawFilters } from "../../../src/dashboard-ui/components/RawFilters.js";
 import { RawBrowsePage } from "../../../src/dashboard-ui/components/RawBrowsePage.js";
 import { SessionRow } from "../../../src/dashboard-ui/components/SessionRow.js";
@@ -50,6 +50,12 @@ vi.mock("../../../src/dashboard-ui/hooks/useRawIndex.js", async (importOriginal)
 });
 
 describe("raw page helpers and components", () => {
+  beforeEach(() => {
+    routerState.search = {};
+    routerState.navigate.mockReset();
+    rawHook.useRawIndex.mockReset();
+  });
+
   test("parseSourceFromFilename classifies session sources", () => {
     expect(parseSourceFromFilename("claude-code-abc.md")).toBe("claude-code");
     expect(parseSourceFromFilename("codex-abc.md")).toBe("codex");
@@ -119,5 +125,27 @@ describe("raw page helpers and components", () => {
     fireEvent.click(screen.getByRole("button", { name: /load more raw sessions/i }));
 
     expect(screen.getByText(/gamma/)).toBeInTheDocument();
+  });
+
+  test("RawBrowsePage exposes session rows as list items with nested links", () => {
+    rawHook.useRawIndex.mockReturnValue({
+      data: [
+        {
+          date: "2026-05-24",
+          files: [{ filename: "codex-alpha.md", mtime: "2026-05-24T10:00:00.000Z", sizeBytes: 100 }],
+        },
+      ],
+      isLoading: false,
+    });
+
+    render(<RawBrowsePage />);
+
+    const list = screen.getByRole("list", { name: "Raw sessions on 2026-05-24" });
+    const item = within(list).getByRole("listitem");
+
+    expect(within(item).getByRole("link", { name: /codex-alpha/i })).toHaveAttribute(
+      "href",
+      "/raw/2026-05-24/codex-alpha.md",
+    );
   });
 });

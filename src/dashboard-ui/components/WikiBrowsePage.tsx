@@ -86,19 +86,26 @@ export function WikiBrowsePage() {
             />
           ) : null}
           {selectedCategory ? (
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3" {...listNav.listProps}>
+            <ul
+              aria-label="Wiki pages"
+              className="m-0 grid list-none grid-cols-1 gap-3 p-0 sm:grid-cols-2 lg:grid-cols-3"
+              {...listNav.listProps}
+            >
               {entries.map((entry, index) => (
                 <WikiCard entry={entry} key={entry.relPath} keyboardProps={listNav.getItemProps(index)} />
               ))}
-            </div>
+            </ul>
           ) : (
             <div className="space-y-8" {...listNav.listProps}>
               {groups.map((group) => (
                 <section key={group.category}>
-                  <h2 className="mb-3 break-words text-lg font-semibold tracking-tight">
+                  <h2 className="mb-3 break-words text-lg font-semibold tracking-tight" id={`wiki-group-${group.category}`}>
                     {CATEGORY_LABELS[group.category] ?? titleCase(group.category)}
                   </h2>
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  <ul
+                    aria-labelledby={`wiki-group-${group.category}`}
+                    className="m-0 grid list-none grid-cols-1 gap-3 p-0 sm:grid-cols-2 lg:grid-cols-3"
+                  >
                     {group.entries.map((entry) => (
                       <WikiCard
                         entry={entry}
@@ -106,7 +113,7 @@ export function WikiBrowsePage() {
                         keyboardProps={listNav.getItemProps(entries.findIndex((item) => item.relPath === entry.relPath))}
                       />
                     ))}
-                  </div>
+                  </ul>
                 </section>
               ))}
             </div>

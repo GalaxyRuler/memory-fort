@@ -47,26 +47,31 @@ export function CrystalsPage() {
         />
       )}
 
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-2" {...listNav.listProps}>
+      <ul aria-label="Crystals" className="m-0 grid list-none grid-cols-1 gap-3 p-0 md:grid-cols-2" {...listNav.listProps}>
         {crystals.map((crystal, index) => (
-          <Link
+          <li
             key={crystal.relPath}
-            to="/wiki/$category/$slug"
-            params={{ category: "crystal", slug: crystal.slug }}
-            className="block rounded-lg border border-border-subtle bg-surface p-4 transition-all hover:border-border-emphasis hover:bg-surface-2 data-[focused=true]:border-primary/60 data-[focused=true]:bg-surface-2 data-[focused=true]:ring-1 data-[focused=true]:ring-primary/60"
+            className="rounded-lg border border-border-subtle bg-surface transition-all hover:border-border-emphasis hover:bg-surface-2 data-[focused=true]:border-primary/60 data-[focused=true]:bg-surface-2 data-[focused=true]:ring-1 data-[focused=true]:ring-primary/60"
             {...listNav.getItemProps(index)}
           >
-            <div className="mb-2 flex items-start gap-3">
-              <CrystalRotatingIcon className="mt-0.5 h-6 w-6 flex-shrink-0" />
-              <div className="min-w-0 flex-1">
-                <h3 className="break-words text-base font-semibold text-text-primary md:truncate">{crystal.title}</h3>
-                <p className="break-words font-mono text-xs text-text-muted">{crystal.updated}</p>
+            <Link
+              to="/wiki/$category/$slug"
+              params={{ category: "crystal", slug: crystal.slug }}
+              className="block h-full rounded-lg p-4 focus:outline-none"
+              tabIndex={-1}
+            >
+              <div className="mb-2 flex items-start gap-3">
+                <CrystalRotatingIcon className="mt-0.5 h-6 w-6 flex-shrink-0" />
+                <div className="min-w-0 flex-1">
+                  <h3 className="break-words text-base font-semibold text-text-primary md:truncate">{crystal.title}</h3>
+                  <p className="break-words font-mono text-xs text-text-muted">{crystal.updated}</p>
+                </div>
               </div>
-            </div>
-            <p className="ml-9 line-clamp-3 text-sm text-text-secondary">{crystal.summary || "(no summary)"}</p>
-          </Link>
+              <p className="ml-9 line-clamp-3 text-sm text-text-secondary">{crystal.summary || "(no summary)"}</p>
+            </Link>
+          </li>
         ))}
-      </div>
+      </ul>
     </div>
   );
 }
