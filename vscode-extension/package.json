@@ -4,6 +4,7 @@
   "description": "Capture VS Code chat turns into the local Memory Fort vault.",
   "version": "0.1.0",
   "publisher": "memory-fort",
+  "license": "GPL-3.0-only",
   "engines": {
     "vscode": "^1.90.0"
   },

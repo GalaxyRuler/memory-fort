@@ -4,27 +4,26 @@
 Copyright (c) 2026 Abdullah Al Kulaib
 Contact: Abdullah@alkulaib.io
 
-Memory Fort is licensed under the **PolyForm Noncommercial License 1.0.0** (see [LICENSE](LICENSE)).
+Memory Fort is licensed under the **GNU General Public License v3.0 only** (`GPL-3.0-only`). See [LICENSE](LICENSE) for the authoritative license text.
 
 ---
 
-## Quick summary (not legal advice — the LICENSE file is the authoritative text)
+## Quick summary (not legal advice)
 
-### You may freely
+### You may
 
-- Use Memory Fort for personal research, learning, hobby projects, and experimentation
-- Use Memory Fort inside a charitable organization, educational institution, public research organization, public safety/health organization, environmental protection organization, or government institution
-- Modify Memory Fort and create derivative works for any non-commercial purpose
-- Redistribute Memory Fort and your modifications, provided you include this license
+- Use Memory Fort for personal, research, educational, nonprofit, internal, or commercial purposes.
+- Study, modify, and redistribute Memory Fort.
+- Redistribute modified versions, provided you comply with GPLv3's source, copyright notice, and license requirements.
 
-### You may not (without a commercial license)
+### You must
 
-- Use Memory Fort within a for-profit company in furtherance of that company's business
-- Sell Memory Fort, modified versions, or services built around it
-- Host Memory Fort as a paid service
-- Embed Memory Fort in a commercial product
+- Keep the copyright and license notices intact.
+- Provide the corresponding source code when distributing covered binaries or modified versions.
+- License covered derivative works under GPLv3 when you distribute them.
+- Follow the GPLv3 patent, anti-circumvention, and installation-information requirements where they apply.
 
-For commercial use, see [COMMERCIAL.md](COMMERCIAL.md) for licensing inquiries.
+There is no separate commercial license requirement for this repository. Commercial use is permitted under the GPLv3 terms.
 
 ---
 
@@ -32,6 +31,6 @@ For commercial use, see [COMMERCIAL.md](COMMERCIAL.md) for licensing inquiries.
 
 Memory Fort was authored by Abdullah Al Kulaib with assistance from AI coding agents (Claude Code and Codex CLI). See [AUTHORSHIP.md](AUTHORSHIP.md) for details on AI-assisted contributions and IP ownership.
 
-## "Open source"?
+## Open source
 
-PolyForm Noncommercial is a **source-available** license, not an OSI-approved open-source license. The source code is public and freely modifiable for non-commercial use, but commercial use requires a separate paid license. This is the same model used by projects such as Sentry (BSL), Elasticsearch (ELv2), and MongoDB (SSPL).
+GPLv3 is an OSI-approved and FSF-approved copyleft open-source license. The full license text in [LICENSE](LICENSE) controls over this summary.

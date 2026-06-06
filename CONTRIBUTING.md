@@ -130,6 +130,6 @@ PRs that break the typecheck, build, scan:leaks, or test gates will not be revie
 
 ## License
 
-By contributing you agree that your contributions will be released under the same [PolyForm Noncommercial License](LICENSE) that covers the rest of the project.
+By contributing you agree that your contributions will be released under the same [GNU General Public License v3.0](LICENSE) (`GPL-3.0-only`) that covers the rest of the project.
 
-If you are contributing on behalf of a company or intend to use memory-fort in a commercial product, you must contact the maintainers to arrange a Contributor License Agreement (CLA) before your PR can be merged. Reach out via the repository issues or at the email listed in the package manifest.
+If you are contributing on behalf of a company, make sure you are authorized to contribute GPLv3-licensed code before opening a PR.

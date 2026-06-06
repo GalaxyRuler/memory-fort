@@ -35,7 +35,7 @@ Direction, architecture decisions, design choices, code review, brief authoring,
 
 ## Future contributors
 
-Memory Fort is currently a sole-authored project. If outside contributions are accepted in the future, a Contributor License Agreement (CLA) will be required to ensure the project can continue to be dual-licensed (free for non-commercial use under PolyForm Noncommercial 1.0.0, paid for commercial use). Contributors will be asked to grant the project author the right to relicense their contributions on commercial terms.
+Memory Fort is currently a sole-authored project. If outside contributions are accepted in the future, they will be accepted under the same GPLv3 terms that cover the rest of the project unless a separate written agreement says otherwise.
 
 Until a CLA process is in place, pull requests from outside contributors will be discussed individually with the author before being merged.
 
