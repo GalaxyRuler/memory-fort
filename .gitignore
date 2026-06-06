@@ -31,4 +31,11 @@ test/cli/private-ops.test.ts
 test/cli/commands/install-vps.test.ts
 test/cli/commands/install-tailscale-route.test.ts
 test/cli/commands/sync-bootstrap.test.ts
-docs/
+docs/*
+!docs/architecture.md
+!docs/cli.md
+!docs/compatibility-matrix.md
+!docs/public-release-readiness.md
+!docs/release-evidence/
+docs/release-evidence/*
+!docs/release-evidence/2026-06-06-v1.1-credibility.md

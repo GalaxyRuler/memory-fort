@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { constants } from "node:fs";
 import { access, readdir, readFile, stat } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
-import { QUARANTINE_GLOBS } from "./release/quarantine.mjs";
+import { isReleaseQuarantined } from "./release/quarantine.mjs";
 
 const ALLOWLIST_PATHS = new Set([
   "AUTHORSHIP.md",
@@ -37,8 +37,6 @@ const DENYLIST = [
   literal(["personal", " ", "website"].join("")),
   word(["Abdul", "lah"].join("")),
 ].map((source) => new RegExp(source, "i"));
-
-const quarantineMatchers = QUARANTINE_GLOBS.map(globToRegExp);
 
 const args = parseArgs(process.argv.slice(2));
 const root = resolve(args.root ?? process.cwd());
@@ -202,26 +200,7 @@ async function pathExists(path) {
 }
 
 function isQuarantined(relPath) {
-  const normalized = toPosixPath(relPath);
-  return quarantineMatchers.some((matcher) => matcher.test(normalized));
-}
-
-function globToRegExp(glob) {
-  let source = "^";
-  for (let index = 0; index < glob.length; index += 1) {
-    const char = glob[index];
-    const next = glob[index + 1];
-    if (char === "*" && next === "*") {
-      source += ".*";
-      index += 1;
-    } else if (char === "*") {
-      source += "[^/]*";
-    } else {
-      source += escapeRegExp(char);
-    }
-  }
-  source += "$";
-  return new RegExp(source, "i");
+  return isReleaseQuarantined(relPath);
 }
 
 function literal(value) {

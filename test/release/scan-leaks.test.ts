@@ -105,6 +105,16 @@ describe("scan-leaks release gate", () => {
     expect(result.exitCode).toBe(0);
   });
 
+  it("flags denylist tokens in public release docs", async () => {
+    const token = ["C:", "\\", "Users", "\\", "Admin"].join("");
+    await writeText("docs/compatibility-matrix.md", `Path: ${token}\n`);
+
+    const result = await runScan(["--root", tmp]);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toContain(`docs/compatibility-matrix.md:1: ${token}`);
+  });
+
   async function writeText(relPath: string, content: string): Promise<void> {
     const fullPath = join(tmp, ...relPath.split("/"));
     await mkdir(join(fullPath, ".."), { recursive: true });
