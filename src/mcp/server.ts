@@ -279,30 +279,29 @@ export interface SearchDeps extends LogObservationDeps {
 }
 
 interface ApiSearchResult {
-  path: string;
-  title?: string;
-  snippet?: string;
-  score?: number;
-  source?: string;
+  path?: unknown;
+  title?: unknown;
+  snippet?: unknown;
+  score?: unknown;
+  source?: unknown;
   sources?: unknown;
   provenance?: {
     path?: unknown;
     kind?: unknown;
     dominantSource?: unknown;
-    signals?: unknown;
   };
   kind?: unknown;
 }
 
 interface ApiSearchResponse {
-  query: string;
-  results: ApiSearchResult[];
-  warnings?: string[];
-  timings?: { totalMs?: number; rerankMs?: number };
-  degraded?: boolean;
+  query?: unknown;
+  results?: unknown;
+  warnings?: unknown;
+  timings?: unknown;
+  degraded?: unknown;
   hyde?: {
-    reason?: string;
-    promptEmitted?: string;
+    reason?: unknown;
+    promptEmitted?: unknown;
   };
 }
 
@@ -362,8 +361,12 @@ export async function searchMemory(
     const message = err instanceof Error ? err.message : String(err);
     return toolError(`Failed to parse search backend JSON: ${message}`);
   }
+  if (!Array.isArray(body.results)) {
+    return toolError("Search backend returned invalid results: expected results array.");
+  }
   await Promise.all(
-    (body.results ?? [])
+    body.results
+      .filter(isSearchResultWithStringPath)
       .filter((item) => inferSearchKind(item) === "wiki")
       .map((item) => bumpLastAccessed(item.path, deps.now?.() ?? new Date()).catch(() => undefined)),
   );
@@ -483,8 +486,9 @@ function buildSearchUrl(baseUrl: string, input: SearchInput): string {
 
 type SearchKind = "wiki" | "raw" | "crystal";
 type SearchSignal = { source: string; rank: number };
+type ApiSearchResultWithPath = ApiSearchResult & { path: string };
 
-function inferSearchKind(item: ApiSearchResult): SearchKind {
+function inferSearchKind(item: ApiSearchResultWithPath): SearchKind {
   if (isSearchKind(item.kind)) return item.kind;
   if (item.path.startsWith("raw/")) return "raw";
   if (item.path.startsWith("crystals/") || item.path.startsWith("crystal/")) {
@@ -495,6 +499,14 @@ function inferSearchKind(item: ApiSearchResult): SearchKind {
 
 function isSearchKind(value: unknown): value is SearchKind {
   return value === "wiki" || value === "raw" || value === "crystal";
+}
+
+function isSearchResultWithStringPath(value: unknown): value is ApiSearchResultWithPath {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as { path?: unknown }).path === "string"
+  );
 }
 
 function normalizeSearchSignals(value: unknown): SearchSignal[] {
@@ -511,35 +523,39 @@ function normalizeSearchSignals(value: unknown): SearchSignal[] {
 }
 
 function formatSearchToolResponse(body: ApiSearchResponse): string {
-  const results = (body.results ?? []).filter((item) => !isWikiDotDirectoryPath(item.path));
+  const rawResults = Array.isArray(body.results) ? body.results : [];
+  const results = rawResults
+    .filter(isSearchResultWithStringPath)
+    .filter((item) => !isWikiDotDirectoryPath(item.path));
   const result = {
-    query: body.query,
+    query: typeof body.query === "string" ? body.query : "",
     result_count: results.length,
     degraded: body.degraded === true,
-    warnings: body.warnings ?? [],
+    warnings: normalizeStringArray(body.warnings),
     results: results.map((item, index) => {
       const kind = inferSearchKind(item);
       const sources = normalizeSearchSignals(item.sources);
-      const provenanceSignals = normalizeSearchSignals(item.provenance?.signals);
+      const source = typeof item.source === "string" ? item.source : "unknown";
       return {
         rank: index + 1,
         path: item.path,
-        title: item.title ?? item.path,
-        snippet: item.snippet ?? "",
-        score: item.score ?? 0,
-        source: item.source ?? "unknown",
+        title: typeof item.title === "string" ? item.title : item.path,
+        snippet: typeof item.snippet === "string" ? item.snippet : "",
+        score: finiteNumberOrZero(item.score),
+        source,
         sources,
         provenance: {
           path: item.path,
           kind,
-          dominantSource: item.source ?? "unknown",
-          signals: provenanceSignals.length > 0 ? provenanceSignals : sources,
+          dominantSource: source,
+          signals: sources.map((signal) => ({ ...signal })),
         },
         kind,
       };
     }),
-    ...(body.hyde?.reason === "triggered-pending-expansion" &&
-    body.hyde.promptEmitted
+    ...(isRecord(body.hyde) &&
+    body.hyde.reason === "triggered-pending-expansion" &&
+    typeof body.hyde.promptEmitted === "string"
       ? {
           hyde_prompt_pending: {
             prompt: body.hyde.promptEmitted,
@@ -549,8 +565,8 @@ function formatSearchToolResponse(body: ApiSearchResponse): string {
         }
       : {}),
     timings: {
-      total_ms: body.timings?.totalMs ?? 0,
-      rerank_ms: body.timings?.rerankMs ?? 0,
+      total_ms: isRecord(body.timings) ? finiteNumberOrZero(body.timings.totalMs) : 0,
+      rerank_ms: isRecord(body.timings) ? finiteNumberOrZero(body.timings.rerankMs) : 0,
     },
   };
 
@@ -566,6 +582,18 @@ function formatSearchToolResponse(body: ApiSearchResponse): string {
     return `${text}\n\nHyDE prompt pending: expand the prompt, then call memory.search again with hyde_expansion.`;
   }
   return text;
+}
+
+function normalizeStringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+}
+
+function finiteNumberOrZero(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }
 
 function toolError(message: string): {

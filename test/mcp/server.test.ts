@@ -296,7 +296,7 @@ describe("memory.search MCP tool", () => {
     }
   });
 
-  it("sanitizes provenance and infers legacy raw and crystal result kinds", async () => {
+  it("ignores forged nested provenance signals and infers legacy raw and crystal result kinds", async () => {
     const fetchFn = vi.fn(async () =>
       jsonResponse({
         query: "legacy",
@@ -350,22 +350,141 @@ describe("memory.search MCP tool", () => {
       expect(parsed.results[0]).toMatchObject({
         path: "raw/2026-06-01/session.md",
         kind: "raw",
+        sources: [{ source: "bm25", rank: 2 }],
         provenance: {
           path: "raw/2026-06-01/session.md",
           kind: "raw",
           dominantSource: "bm25",
-          signals: [{ source: "graph-spread", rank: 4 }],
+          signals: [{ source: "bm25", rank: 2 }],
         },
       });
+      expect(parsed.results[0].provenance.signals).not.toBe(parsed.results[0].sources);
       expect(parsed.results[0].provenance).not.toHaveProperty("auditTrail");
       expect(parsed.results[1]).toMatchObject({
         path: "crystals/retrieval.md",
         kind: "crystal",
+        sources: [{ source: "vector", rank: 1 }],
         provenance: {
           path: "crystals/retrieval.md",
           kind: "crystal",
           dominantSource: "vector",
           signals: [{ source: "vector", rank: 1 }],
+        },
+      });
+    } finally {
+      await close();
+    }
+  });
+
+  it("returns a clear tool error when search results are not an array", async () => {
+    const fetchFn = vi.fn(async () =>
+      jsonResponse({
+        query: "malformed",
+        results: { path: "wiki/not-an-array.md" },
+      }),
+    ) as unknown as typeof fetch;
+    const { client, close } = await connectMcp(fetchFn);
+    try {
+      const result = await client.callTool({
+        name: "search",
+        arguments: { query: "malformed" },
+      });
+
+      expect(result.isError).toBe(true);
+      expect(textFromToolResult(result)).toContain("Search backend returned invalid results");
+    } finally {
+      await close();
+    }
+  });
+
+  it("skips search result entries without a string path", async () => {
+    const fetchFn = vi.fn(async () =>
+      jsonResponse({
+        query: "invalid path",
+        results: [
+          {
+            path: 42,
+            title: "Forged numeric path",
+            snippet: "This result should be skipped.",
+            score: 0.9,
+            source: "bm25",
+            sources: [{ source: "bm25", rank: 1 }],
+          },
+          {
+            path: "wiki/valid.md",
+            title: "Valid",
+            snippet: "This result remains.",
+            score: 0.8,
+            source: "vector",
+            sources: [{ source: "vector", rank: 1 }],
+            kind: "wiki",
+          },
+        ],
+        warnings: [],
+        timings: { totalMs: 1, rerankMs: 0 },
+        degraded: false,
+      }),
+    ) as unknown as typeof fetch;
+    const { client, close } = await connectMcp(fetchFn);
+    try {
+      const result = await client.callTool({
+        name: "search",
+        arguments: { query: "invalid path" },
+      });
+      const parsed = JSON.parse(extractJsonFence(textFromToolResult(result)));
+
+      expect(parsed.result_count).toBe(1);
+      expect(parsed.results).toHaveLength(1);
+      expect(parsed.results[0].path).toBe("wiki/valid.md");
+    } finally {
+      await close();
+    }
+  });
+
+  it("sanitizes non-string source fields and non-finite scores", async () => {
+    const fetchFn = vi.fn(async () =>
+      ({
+        ok: true,
+        json: async () => ({
+          query: "unsafe fields",
+          results: [
+            {
+              path: "wiki/unsafe.md",
+              title: 99,
+              snippet: { text: "not a string" },
+              score: Number.POSITIVE_INFINITY,
+              source: { forged: true },
+              sources: [{ source: "bm25", rank: 1 }],
+              provenance: {
+                dominantSource: "forged",
+                signals: [{ source: "graph-spread", rank: 2 }],
+              },
+              kind: "wiki",
+            },
+          ],
+          warnings: [],
+          timings: { totalMs: 1, rerankMs: 0 },
+          degraded: false,
+        }),
+      }) as Response,
+    ) as unknown as typeof fetch;
+    const { client, close } = await connectMcp(fetchFn);
+    try {
+      const result = await client.callTool({
+        name: "search",
+        arguments: { query: "unsafe fields" },
+      });
+      const parsed = JSON.parse(extractJsonFence(textFromToolResult(result)));
+
+      expect(parsed.results[0]).toMatchObject({
+        path: "wiki/unsafe.md",
+        title: "wiki/unsafe.md",
+        snippet: "",
+        score: 0,
+        source: "unknown",
+        provenance: {
+          dominantSource: "unknown",
+          signals: [{ source: "bm25", rank: 1 }],
         },
       });
     } finally {
