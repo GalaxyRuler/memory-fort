@@ -6,6 +6,10 @@ import { join } from "node:path";
 import { runInstallOpenCode } from "../../../src/cli/commands/install/opencode.js";
 import { runUninstall } from "../../../src/cli/commands/uninstall.js";
 
+function posixPath(path: string): string {
+  return path.replace(/\\/g, "/");
+}
+
 describe("runInstallOpenCode", () => {
   let tmp: string;
   let memDir: string;
@@ -42,6 +46,7 @@ describe("runInstallOpenCode", () => {
   });
 
   it("installs local MCP and global plugin files", async () => {
+    const memoryRoot = posixPath(memDir);
     const result = await runInstallOpenCode({ opencodeDir });
 
     expect(result.configPath).toBe(join(opencodeDir, "opencode.json"));
@@ -52,13 +57,13 @@ describe("runInstallOpenCode", () => {
     const config = JSON.parse(await readFile(result.configPath, "utf-8"));
     expect(config.mcp.memory).toEqual({
       type: "local",
-      command: ["node", `${memDir.replace(/\\/g, "/")}/hooks/mcp-server.mjs`],
+      command: ["node", `${memoryRoot}/hooks/mcp-server.mjs`],
       enabled: true,
     });
 
     const plugin = await readFile(result.pluginPath, "utf-8");
     expect(plugin).toContain("MemoryFortOpenCode");
-    expect(plugin).toContain(`${memDir.replace(/\\/g, "/")}/hooks/opencode-event.mjs`);
+    expect(plugin).toContain(`${memoryRoot}/hooks/opencode-event.mjs`);
   });
 
   it("preserves existing config and is idempotent", async () => {
@@ -112,12 +117,19 @@ describe("runInstallOpenCode", () => {
   });
 
   it("throws on malformed opencode.json", async () => {
+    const configPath = join(opencodeDir, "opencode.json");
+    const pluginDir = join(opencodeDir, "plugins");
+    const pluginPath = join(pluginDir, "memory-fort.js");
+    const malformedConfig = "not json {";
     await mkdir(opencodeDir, { recursive: true });
-    await writeFile(join(opencodeDir, "opencode.json"), "not json {");
+    await writeFile(configPath, malformedConfig);
 
     await expect(runInstallOpenCode({ opencodeDir })).rejects.toThrow(
       /memory install opencode: failed to parse existing config/i,
     );
+    await expect(readFile(configPath, "utf-8")).resolves.toBe(malformedConfig);
+    expect(existsSync(pluginPath)).toBe(false);
+    expect(existsSync(pluginDir)).toBe(false);
   });
 
   it("uninstall removes only Memory Fort entries", async () => {
