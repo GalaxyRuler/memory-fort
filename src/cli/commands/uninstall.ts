@@ -7,6 +7,7 @@ import {
   claudeDesktopConfigPath,
   memoryRoot,
 } from "../../storage/paths.js";
+import { opencodeConfigDir, opencodeConfigPath, opencodePluginPath } from "./install/opencode.js";
 import {
   CLAUDE_CODE_ENABLED_PLUGIN_KEY,
   CLAUDE_CODE_MARKETPLACE_NAME,
@@ -26,6 +27,7 @@ export type UninstallPlatform =
   | "hermes"
   | "pi"
   | "openclaw"
+  | "opencode"
   | "opencoven"
   | "claude-desktop"
   | "vscode";
@@ -39,6 +41,7 @@ export interface RunUninstallOptions {
   hermesDir?: string;
   piDir?: string;
   openclawDir?: string;
+  opencodeDir?: string;
   vscodeUserDir?: string;
   vscodeExtensionDir?: string;
   claudePluginCli?: boolean;
@@ -53,7 +56,7 @@ export interface UninstallResult {
   exitCode: 0 | 2;
 }
 
-type JsonServerMapKey = "mcpServers" | "servers";
+type JsonServerMapKey = "mcpServers" | "servers" | "mcp";
 
 export async function runUninstall(
   platform: string,
@@ -72,6 +75,8 @@ export async function runUninstall(
       return uninstallPi(opts);
     case "openclaw":
       return uninstallOpenClaw(opts);
+    case "opencode":
+      return uninstallOpenCode(opts);
     case "opencoven":
       return result(
         "opencoven",
@@ -88,7 +93,7 @@ export async function runUninstall(
         platform,
         dryRun: opts.dryRun === true,
         actions: [
-          `Unknown platform: ${platform}. Valid: claude-code, codex, antigravity, hermes, pi, openclaw, opencoven, claude-desktop, vscode`,
+          `Unknown platform: ${platform}. Valid: claude-code, codex, antigravity, hermes, pi, openclaw, opencode, opencoven, claude-desktop, vscode`,
         ],
         removed: false,
         exitCode: 2,
@@ -161,6 +166,25 @@ async function uninstallOpenClaw(opts: RunUninstallOptions): Promise<UninstallRe
     serverMapKey: "mcpServers",
     opts,
   });
+}
+
+async function uninstallOpenCode(opts: RunUninstallOptions): Promise<UninstallResult> {
+  const openCodeDir = opencodeConfigDir(opts.opencodeDir);
+  const configResult = await removeJsonMemoryServer({
+    platform: "opencode",
+    configPath: opencodeConfigPath(openCodeDir),
+    serverMapKey: "mcp",
+    opts,
+  });
+  const pluginRemoved = await removePathIfPresent(
+    opencodePluginPath(openCodeDir),
+    opts,
+    configResult.actions,
+  );
+  return {
+    ...configResult,
+    removed: configResult.removed || pluginRemoved,
+  };
 }
 
 async function uninstallSentinelYaml(
