@@ -10,14 +10,17 @@ describe("runInstall", () => {
   let tmp: string;
   let origMem: string | undefined;
   let origClaudeDesktop: string | undefined;
+  let origOpenCode: string | undefined;
   let logSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(async () => {
     tmp = await mkdtemp(join(tmpdir(), "install-command-"));
     origMem = process.env["MEMORY_ROOT"];
     origClaudeDesktop = process.env["MEMORY_CLAUDE_DESKTOP_DIR"];
+    origOpenCode = process.env["MEMORY_OPENCODE_DIR"];
     process.env["MEMORY_ROOT"] = join(tmp, ".memory");
     process.env["MEMORY_CLAUDE_DESKTOP_DIR"] = join(tmp, "Claude");
+    process.env["MEMORY_OPENCODE_DIR"] = join(tmp, ".config", "opencode");
     await mkdir(join(tmp, ".memory"), { recursive: true });
     await writeFile(join(tmp, ".memory", "log.md"), "");
     logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
@@ -29,6 +32,8 @@ describe("runInstall", () => {
     else process.env["MEMORY_ROOT"] = origMem;
     if (origClaudeDesktop === undefined) delete process.env["MEMORY_CLAUDE_DESKTOP_DIR"];
     else process.env["MEMORY_CLAUDE_DESKTOP_DIR"] = origClaudeDesktop;
+    if (origOpenCode === undefined) delete process.env["MEMORY_OPENCODE_DIR"];
+    else process.env["MEMORY_OPENCODE_DIR"] = origOpenCode;
     await rm(tmp, { recursive: true, force: true });
   });
 
@@ -90,6 +95,19 @@ describe("runInstall", () => {
 
     expect(promptCalls).toBe(0);
     expect(existsSync(join(tmp, "Claude", "claude_desktop_config.json"))).toBe(true);
+  });
+
+  it("dispatches OpenCode install through the platform command", async () => {
+    await runInstall("opencode", {
+      yes: true,
+      noVerify: true,
+      stdout: captureStdout([], true),
+    });
+
+    expect(existsSync(join(tmp, ".config", "opencode", "opencode.json"))).toBe(true);
+    expect(existsSync(join(tmp, ".config", "opencode", "plugins", "memory-fort.js"))).toBe(
+      true,
+    );
   });
 
   it("skips post-install verify when disabled", async () => {
