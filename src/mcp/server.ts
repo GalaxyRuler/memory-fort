@@ -309,6 +309,19 @@ const DEFAULT_SEARCH_BASE_URL = "http://127.0.0.1:4410/memory";
 const DEFAULT_SEARCH_RESULT_LIMIT = 10;
 const MAX_SEARCH_RESULT_LIMIT = 50;
 const MAX_SEARCH_SIGNALS = 10;
+// MCP normalizers must cap source work as well as response size; backend data is untrusted.
+const SEARCH_RESULT_SCAN_MULTIPLIER = 4;
+const MIN_SEARCH_RESULT_SCAN_LIMIT = 50;
+const MAX_SEARCH_SIGNALS_INSPECTED = 40;
+const MAX_SEARCH_WARNING_COUNT = 10;
+const MAX_SEARCH_WARNINGS_INSPECTED = 40;
+const MAX_SEARCH_QUERY_LENGTH = 200;
+const MAX_SEARCH_PATH_LENGTH = 300;
+const MAX_SEARCH_TITLE_LENGTH = 300;
+const MAX_SEARCH_SNIPPET_LENGTH = 1_000;
+const MAX_SEARCH_SOURCE_LENGTH = 120;
+const MAX_SEARCH_WARNING_LENGTH = 300;
+const MAX_SEARCH_HYDE_PROMPT_LENGTH = 1_000;
 
 export interface EmbeddingProviderPreflightOptions {
   configLoader?: () => Promise<MemoryConfig>;
@@ -530,42 +543,62 @@ function clampSearchResultLimit(value: unknown): number {
 
 function normalizeSearchResults(value: unknown, limit: number): ApiSearchResultWithPath[] {
   if (!Array.isArray(value)) return [];
-  return value
-    .filter(isSearchResultWithStringPath)
-    .filter((item) => !isWikiDotDirectoryPath(item.path))
-    .slice(0, limit);
+  const results: ApiSearchResultWithPath[] = [];
+  const maxInspected = Math.min(value.length, searchResultScanLimit(limit));
+  for (let index = 0; index < maxInspected && results.length < limit; index += 1) {
+    const item = value[index];
+    if (!isSearchResultWithStringPath(item)) continue;
+    const path = truncate(item.path, MAX_SEARCH_PATH_LENGTH);
+    if (isWikiDotDirectoryPath(path)) continue;
+    results.push({ ...item, path });
+  }
+  return results;
 }
 
 function normalizeSearchSignals(value: unknown): SearchSignal[] {
   if (!Array.isArray(value)) return [];
-  return value
-    .filter((signal): signal is SearchSignal =>
-      typeof signal === "object" &&
-      signal !== null &&
-      typeof (signal as { source?: unknown }).source === "string" &&
-      typeof (signal as { rank?: unknown }).rank === "number" &&
-      Number.isSafeInteger((signal as { rank: number }).rank) &&
-      (signal as { rank: number }).rank > 0,
-    )
-    .slice(0, MAX_SEARCH_SIGNALS)
-    .map((signal) => ({ source: signal.source, rank: signal.rank }));
+  const signals: SearchSignal[] = [];
+  const maxInspected = Math.min(value.length, MAX_SEARCH_SIGNALS_INSPECTED);
+  for (let index = 0; index < maxInspected && signals.length < MAX_SEARCH_SIGNALS; index += 1) {
+    const signal = value[index];
+    if (
+      typeof signal !== "object" ||
+      signal === null ||
+      typeof (signal as { source?: unknown }).source !== "string" ||
+      typeof (signal as { rank?: unknown }).rank !== "number" ||
+      !Number.isSafeInteger((signal as { rank: number }).rank) ||
+      (signal as { rank: number }).rank <= 0
+    ) {
+      continue;
+    }
+    signals.push({
+      source: truncate((signal as { source: string }).source, MAX_SEARCH_SOURCE_LENGTH),
+      rank: (signal as { rank: number }).rank,
+    });
+  }
+  return signals;
 }
 
 function formatSearchToolResponse(body: ApiSearchResponse, results: ApiSearchResultWithPath[]): string {
   const result = {
-    query: typeof body.query === "string" ? body.query : "",
+    query: sanitizeString(body.query, MAX_SEARCH_QUERY_LENGTH, ""),
     result_count: results.length,
     degraded: body.degraded === true,
-    warnings: normalizeStringArray(body.warnings),
+    warnings: normalizeStringArray(
+      body.warnings,
+      MAX_SEARCH_WARNING_COUNT,
+      MAX_SEARCH_WARNING_LENGTH,
+      MAX_SEARCH_WARNINGS_INSPECTED,
+    ),
     results: results.map((item, index) => {
       const kind = inferSearchKind(item);
       const sources = normalizeSearchSignals(item.sources);
-      const source = typeof item.source === "string" ? item.source : "unknown";
+      const source = sanitizeString(item.source, MAX_SEARCH_SOURCE_LENGTH, "unknown");
       return {
         rank: index + 1,
         path: item.path,
-        title: typeof item.title === "string" ? item.title : item.path,
-        snippet: typeof item.snippet === "string" ? item.snippet : "",
+        title: sanitizeString(item.title, MAX_SEARCH_TITLE_LENGTH, item.path),
+        snippet: sanitizeString(item.snippet, MAX_SEARCH_SNIPPET_LENGTH, ""),
         score: finiteNumberOrZero(item.score),
         source,
         sources,
@@ -583,7 +616,7 @@ function formatSearchToolResponse(body: ApiSearchResponse, results: ApiSearchRes
     typeof body.hyde.promptEmitted === "string"
       ? {
           hyde_prompt_pending: {
-            prompt: body.hyde.promptEmitted,
+            prompt: truncate(body.hyde.promptEmitted, MAX_SEARCH_HYDE_PROMPT_LENGTH),
             instruction:
               "To get better semantic matches, expand this prompt with the LLM, then call memory.search again with hyde_expansion set to your expansion.",
           },
@@ -609,8 +642,28 @@ function formatSearchToolResponse(body: ApiSearchResponse, results: ApiSearchRes
   return text;
 }
 
-function normalizeStringArray(value: unknown): string[] {
-  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+function searchResultScanLimit(limit: number): number {
+  return Math.max(limit * SEARCH_RESULT_SCAN_MULTIPLIER, MIN_SEARCH_RESULT_SCAN_LIMIT);
+}
+
+function normalizeStringArray(
+  value: unknown,
+  maxItems: number,
+  maxLength: number,
+  maxInspected: number,
+): string[] {
+  if (!Array.isArray(value)) return [];
+  const strings: string[] = [];
+  const inspected = Math.min(value.length, maxInspected);
+  for (let index = 0; index < inspected && strings.length < maxItems; index += 1) {
+    const item = value[index];
+    if (typeof item === "string") strings.push(truncate(item, maxLength));
+  }
+  return strings;
+}
+
+function sanitizeString(value: unknown, maxLength: number, fallback: string): string {
+  return typeof value === "string" ? truncate(value, maxLength) : fallback;
 }
 
 function finiteNumberOrZero(value: unknown): number {

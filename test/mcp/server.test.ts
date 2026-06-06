@@ -493,6 +493,91 @@ describe("memory.search MCP tool", () => {
     }
   });
 
+  it("stops result inspection at the scan cap even when later entries are valid", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "mcp-search-scan-cap-"));
+    const origEnv = process.env["MEMORY_ROOT"];
+    process.env["MEMORY_ROOT"] = tmp;
+    await mkdir(join(tmp, "wiki", "tools"), { recursive: true });
+    await writeFile(
+      join(tmp, "wiki", "tools", "late-valid.md"),
+      `---\ntype: tools\ntitle: Late Valid\ncreated: "2026-05-20"\nupdated: "2026-05-21"\nlast_accessed: "2026-05-30"\n---\n\nLate valid page.\n`,
+    );
+    const fetchFn = vi.fn(async () =>
+      jsonResponse({
+        query: "late valid",
+        results: [
+          ...Array.from({ length: 60 }, (_, index) => ({ title: `Invalid ${index}` })),
+          {
+            path: "wiki/tools/late-valid.md",
+            title: "Late Valid",
+            snippet: "This appears after the scan cap.",
+            score: 0.9,
+            source: "bm25",
+            sources: [{ source: "bm25", rank: 1 }],
+            kind: "wiki",
+          },
+        ],
+        warnings: [],
+        timings: { totalMs: 1, rerankMs: 0 },
+        degraded: false,
+      }),
+    ) as unknown as typeof fetch;
+    const { client, close } = await connectMcp(fetchFn, { now: () => new Date("2026-06-02T00:00:00.000Z") });
+    try {
+      const result = await client.callTool({
+        name: "search",
+        arguments: { query: "late valid" },
+      });
+      const parsed = JSON.parse(extractJsonFence(textFromToolResult(result)));
+
+      expect(parsed.result_count).toBe(0);
+      expect(parsed.results).toHaveLength(0);
+      const parsedPage = parseFrontmatter(await readFile(join(tmp, "wiki", "tools", "late-valid.md"), "utf-8"));
+      expect(parsedPage.frontmatter.last_accessed).toBe("2026-05-30");
+    } finally {
+      await close();
+      if (origEnv === undefined) delete process.env["MEMORY_ROOT"];
+      else process.env["MEMORY_ROOT"] = origEnv;
+      await rm(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("does not access result entries past the bounded scan window", async () => {
+    const results: unknown[] = Array.from({ length: 50 }, (_, index) => ({
+      path: `raw/2026-06-01/${index}.md`,
+      title: `Raw ${index}`,
+      snippet: `Raw ${index}.`,
+      score: 1,
+      source: "bm25",
+      sources: [{ source: "bm25", rank: 1 }],
+    }));
+    Object.defineProperty(results, 50, {
+      get() {
+        throw new Error("result beyond scan cap was read");
+      },
+    });
+    results.length = 100;
+    const fetchFn = vi.fn(async () =>
+      ({
+        ok: true,
+        json: async () => ({
+          query: "bounded access",
+          results,
+          warnings: [],
+          timings: { totalMs: 1, rerankMs: 0 },
+          degraded: false,
+        }),
+      }) as Response,
+    ) as unknown as typeof fetch;
+
+    const result = await searchMemory({ query: "bounded access" }, { fetchFn });
+    const parsed = JSON.parse(extractJsonFence(result.content[0]!.text));
+
+    expect(parsed.result_count).toBe(10);
+    expect(parsed.results).toHaveLength(10);
+    expect(parsed.results.at(-1).path).toBe("raw/2026-06-01/9.md");
+  });
+
   it("clamps untrusted direct search limits to the hard maximum", async () => {
     const fetchFn = vi.fn(async () =>
       jsonResponse({
@@ -561,6 +646,43 @@ describe("memory.search MCP tool", () => {
     }
   });
 
+  it("stops source signal inspection at the scan cap", async () => {
+    const fetchFn = vi.fn(async () =>
+      jsonResponse({
+        query: "signal scan",
+        results: [
+          {
+            path: "raw/2026-06-01/signals.md",
+            title: "Signals",
+            snippet: "Only early source signals are inspected.",
+            score: 0.9,
+            source: "bm25",
+            sources: [
+              ...Array.from({ length: 40 }, (_, index) => ({ source: index, rank: index + 1 })),
+              { source: "late-valid", rank: 41 },
+            ],
+          },
+        ],
+        warnings: [],
+        timings: { totalMs: 1, rerankMs: 0 },
+        degraded: false,
+      }),
+    ) as unknown as typeof fetch;
+    const { client, close } = await connectMcp(fetchFn);
+    try {
+      const result = await client.callTool({
+        name: "search",
+        arguments: { query: "signal scan" },
+      });
+      const parsed = JSON.parse(extractJsonFence(textFromToolResult(result)));
+
+      expect(parsed.results[0].sources).toEqual([]);
+      expect(parsed.results[0].provenance.signals).toEqual([]);
+    } finally {
+      await close();
+    }
+  });
+
   it("drops non-positive, fractional, and unsafe source ranks", async () => {
     const fetchFn = vi.fn(async () =>
       jsonResponse({
@@ -599,6 +721,57 @@ describe("memory.search MCP tool", () => {
     } finally {
       await close();
     }
+  });
+
+  it("caps warnings and truncates backend-copied response strings", async () => {
+    const longQuery = `query-${"q".repeat(800)}-tail`;
+    const longPath = `raw/2026-06-01/${"p".repeat(800)}-tail.md`;
+    const longTitle = `title-${"t".repeat(800)}-tail`;
+    const longSnippet = `snippet-${"s".repeat(4_000)}-tail`;
+    const longSource = `source-${"b".repeat(800)}-tail`;
+    const longHydePrompt = `hyde-${"h".repeat(4_000)}-tail`;
+    const warnings = Array.from({ length: 25 }, (_, index) => `warning-${index}-${"w".repeat(800)}-tail`);
+    const fetchFn = vi.fn(async () =>
+      jsonResponse({
+        query: longQuery,
+        results: [
+          {
+            path: longPath,
+            title: longTitle,
+            snippet: longSnippet,
+            score: 0.9,
+            source: longSource,
+            sources: [{ source: longSource, rank: 1 }],
+          },
+        ],
+        warnings,
+        timings: { totalMs: 1, rerankMs: 0 },
+        degraded: false,
+        hyde: {
+          reason: "triggered-pending-expansion",
+          promptEmitted: longHydePrompt,
+        },
+      }),
+    ) as unknown as typeof fetch;
+
+    const result = await searchMemory({ query: "oversized strings" }, { fetchFn });
+    const parsed = JSON.parse(extractJsonFence(result.content[0]!.text));
+
+    expect(parsed.query).toHaveLength(200);
+    expect(parsed.query).toMatch(/\.\.\.$/);
+    expect(parsed.query).not.toContain("-tail");
+    expect(parsed.warnings).toHaveLength(10);
+    expect(parsed.warnings[0]).toHaveLength(300);
+    expect(parsed.warnings[0]).toMatch(/\.\.\.$/);
+    expect(parsed.warnings.join("\n")).not.toContain("warning-10");
+    expect(parsed.results[0].path).toHaveLength(300);
+    expect(parsed.results[0].title).toHaveLength(300);
+    expect(parsed.results[0].snippet).toHaveLength(1_000);
+    expect(parsed.results[0].source).toHaveLength(120);
+    expect(parsed.results[0].provenance.dominantSource).toBe(parsed.results[0].source);
+    expect(parsed.results[0].sources[0].source).toHaveLength(120);
+    expect(parsed.hyde_prompt_pending.prompt).toHaveLength(1_000);
+    expect(parsed.hyde_prompt_pending.prompt).toMatch(/\.\.\.$/);
   });
 
   it("returns a clear tool error when search results are not an array", async () => {

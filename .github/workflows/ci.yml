@@ -29,6 +29,9 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      - name: Typecheck UI
+        run: npm run typecheck:ui
+
       - name: Build
         run: npm run build
 
