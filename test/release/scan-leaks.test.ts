@@ -29,7 +29,7 @@ describe("scan-leaks release gate", () => {
     expect(result.stdout).toContain(`src/public.ts:1: ${token}`);
   });
 
-  it("reports CodexProjects path literals in escaped and slash forms", async () => {
+  it("reports private project path literals in escaped and slash forms", async () => {
     const escapedPath = ["C:", "\\", "\\", "Codex", "Projects"].join("");
     const slashPath = ["C:", "/", "Codex", "Projects"].join("");
     await writeText("src/paths.ts", [
@@ -43,6 +43,35 @@ describe("scan-leaks release gate", () => {
     expect(result.exitCode).toBe(1);
     expect(result.stdout).toContain(`src/paths.ts:1: ${escapedPath}`);
     expect(result.stdout).toContain(`src/paths.ts:2: ${slashPath}`);
+  });
+
+  it("reports escaped user-profile paths and private project-root slugs in public examples", async () => {
+    const escapedUserPath = ["C:", "\\", "\\", "Users", "\\", "\\", "Admin"].join("");
+    const escapedProjectPath = `${escapedUserPath}${["\\", "\\", "Claude", "Code", "Projects"].join("")}`;
+    const jsonEscapedProjectPath = [
+      "C:",
+      "\\",
+      "\\",
+      "Users",
+      "\\",
+      "\\",
+      "Admin",
+      "\\",
+      "\\",
+      "Codex",
+      "Projects",
+    ].join("");
+    const jsonRenderedUserPath = JSON.stringify(jsonEscapedProjectPath).match(/^"(.+?Admin)/)?.[1] ?? "";
+    await writeText("README.md", `example: "${escapedProjectPath}"\n`);
+    await writeText("src/example.json", `${JSON.stringify({ cwd: jsonEscapedProjectPath }, null, 2)}\n`);
+
+    const result = await runScan(["--root", tmp]);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toContain(`README.md:1: ${escapedUserPath}`);
+    expect(result.stdout).toContain(["Claude", "Code", "Projects"].join(""));
+    expect(result.stdout).toContain(`src/example.json:2: ${jsonRenderedUserPath}`);
+    expect(result.stdout).toContain(["Codex", "Projects"].join(""));
   });
 
   it("allows owner name tokens in package.json", async () => {

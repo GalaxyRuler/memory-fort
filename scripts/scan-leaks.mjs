@@ -14,29 +14,33 @@ const ALLOWLIST_PATHS = new Set([
 ]);
 
 const DENYLIST = [
-  literal(["aoa", "@", "live", ".", "ca"].join("")),
-  literal(["a", ".o", ".alku", "laib"].join("")),
-  literal(["srv", "1317946"].join("")),
-  literal(["tail", "6916d8"].join("")),
-  literal(["C:", "\\", "Users", "\\", "Admin"].join("")),
-  literal(["Users", "/", "Admin"].join("")),
-  literal(["C:", "\\", "Codex", "Projects"].join("")),
-  literal(["C:", "\\", "\\", "Codex", "Projects"].join("")),
-  literal(["C:", "/", "Codex", "Projects"].join("")),
-  literal(["One", "Drive"].join("")),
-  literal(["white", "dragon"].join("")),
-  literal(["vault", "warden"].join("")),
-  word(["iaq", "ar"].join("")),
-  word(["lis", "an"].join("")),
-  word(["veri", "trace"].join("")),
-  word(["apyt", "hon"].join("")),
-  literal(["my", "site", "again"].join("")),
-  word(["Riy", "adh"].join("")),
-  literal(["native", " ", "qt"].join("")),
-  literal(["arabic", " ", "python"].join("")),
-  literal(["personal", " ", "website"].join("")),
-  word(["Abdul", "lah"].join("")),
-].map((source) => new RegExp(source, "i"));
+  deny(literal(["aoa", "@", "live", ".", "ca"].join(""))),
+  deny(literal(["a", ".o", ".alku", "laib"].join(""))),
+  deny(literal(["srv", "1317946"].join(""))),
+  deny(literal(["tail", "6916d8"].join(""))),
+  deny(literal(["C:", "\\", "Users", "\\", "Admin"].join(""))),
+  deny(literal(["Users", "/", "Admin"].join(""))),
+  deny(pathSegments(["C:", ["Codex", "Projects"].join("")])),
+  exampleDeny(pathSegments(["C:", "Users", "Admin"])),
+  exampleDeny(pathSegments(["Users", "Admin"])),
+  exampleDeny(literal(["Codex", "Projects"].join(""))),
+  exampleDeny(literal(["Claude", "Code", "Projects"].join(""))),
+  exampleDeny(literal(["command", "-", "center"].join(""))),
+  deny(literal(["One", "Drive"].join(""))),
+  deny(literal(["white", "dragon"].join(""))),
+  exampleDeny(literal(["WHITE", "DRAGON"].join(""))),
+  deny(literal(["vault", "warden"].join(""))),
+  deny(word(["iaq", "ar"].join(""))),
+  deny(word(["lis", "an"].join(""))),
+  deny(word(["veri", "trace"].join(""))),
+  deny(word(["apyt", "hon"].join(""))),
+  deny(literal(["my", "site", "again"].join(""))),
+  deny(word(["Riy", "adh"].join(""))),
+  deny(literal(["native", " ", "qt"].join(""))),
+  deny(literal(["arabic", " ", "python"].join(""))),
+  deny(literal(["personal", " ", "website"].join(""))),
+  deny(word(["Abdul", "lah"].join(""))),
+];
 
 const args = parseArgs(process.argv.slice(2));
 const root = resolve(args.root ?? process.cwd());
@@ -56,8 +60,9 @@ for (const relPath of files) {
 
   const lines = content.split(/\r?\n/);
   for (const [index, line] of lines.entries()) {
-    for (const pattern of DENYLIST) {
-      const match = pattern.exec(line);
+    for (const rule of DENYLIST) {
+      if (rule.exampleOnly && !isMarkdownOrJson(relPath)) continue;
+      const match = rule.regex.exec(line);
       if (match) {
         hits.push({ path: relPath, line: index + 1, token: match[0] });
       }
@@ -209,6 +214,22 @@ function literal(value) {
 
 function word(value) {
   return `\\b${escapeRegExp(value)}\\b`;
+}
+
+function deny(source, options = {}) {
+  return { regex: new RegExp(source, "i"), exampleOnly: Boolean(options.exampleOnly) };
+}
+
+function exampleDeny(source) {
+  return deny(source, { exampleOnly: true });
+}
+
+function isMarkdownOrJson(relPath) {
+  return /\.(?:md|mdx|json|jsonc)$/i.test(relPath);
+}
+
+function pathSegments(segments) {
+  return segments.map(escapeRegExp).join("[\\\\/]+");
 }
 
 function escapeRegExp(value) {
