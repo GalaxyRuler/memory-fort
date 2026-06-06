@@ -11,7 +11,7 @@ Your memory is a folder of plain text files — a git repo, an Obsidian vault, a
 
 ## Why Memory Fort?
 
-Most agent memory tools require a cloud account, a running database, or a paid API to work at all. Memory Fort does not.
+Memory Fort does not require a cloud account, a running database, or a paid API key to get started; its local vault and lexical search run from plain markdown files.
 
 - **Your data, your machine.** Everything lives under `~/.memory/` as markdown files you can read, edit, grep, and version-control.
 - **No vendor lock-in.** Open schema, plain text format, vault is just a git repo.
