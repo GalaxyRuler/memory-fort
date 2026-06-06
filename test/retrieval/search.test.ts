@@ -74,6 +74,8 @@ describe("search core", () => {
       kind: expect.stringMatching(/^(wiki|raw|crystal)$/),
     });
     expect(first.sources.length).toBeGreaterThan(0);
+    expect(first.provenance.signals).toEqual(first.sources);
+    expect(first.provenance.signals).not.toBe(first.sources);
     for (const result of response.results) {
       expect(result.provenance).toEqual({
         path: result.path,

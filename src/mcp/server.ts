@@ -284,14 +284,14 @@ interface ApiSearchResult {
   snippet?: string;
   score?: number;
   source?: string;
-  sources?: Array<{ source: string; rank: number }>;
+  sources?: unknown;
   provenance?: {
-    path: string;
-    kind: "wiki" | "raw" | "crystal";
-    dominantSource: string;
-    signals: Array<{ source: string; rank: number }>;
+    path?: unknown;
+    kind?: unknown;
+    dominantSource?: unknown;
+    signals?: unknown;
   };
-  kind?: "wiki" | "raw" | "crystal";
+  kind?: unknown;
 }
 
 interface ApiSearchResponse {
@@ -364,7 +364,7 @@ export async function searchMemory(
   }
   await Promise.all(
     (body.results ?? [])
-      .filter((item) => item.kind === "wiki" || item.path.startsWith("wiki/"))
+      .filter((item) => inferSearchKind(item) === "wiki")
       .map((item) => bumpLastAccessed(item.path, deps.now?.() ?? new Date()).catch(() => undefined)),
   );
 
@@ -481,6 +481,35 @@ function buildSearchUrl(baseUrl: string, input: SearchInput): string {
   return url.toString();
 }
 
+type SearchKind = "wiki" | "raw" | "crystal";
+type SearchSignal = { source: string; rank: number };
+
+function inferSearchKind(item: ApiSearchResult): SearchKind {
+  if (isSearchKind(item.kind)) return item.kind;
+  if (item.path.startsWith("raw/")) return "raw";
+  if (item.path.startsWith("crystals/") || item.path.startsWith("crystal/")) {
+    return "crystal";
+  }
+  return "wiki";
+}
+
+function isSearchKind(value: unknown): value is SearchKind {
+  return value === "wiki" || value === "raw" || value === "crystal";
+}
+
+function normalizeSearchSignals(value: unknown): SearchSignal[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((signal): signal is SearchSignal =>
+      typeof signal === "object" &&
+      signal !== null &&
+      typeof (signal as { source?: unknown }).source === "string" &&
+      typeof (signal as { rank?: unknown }).rank === "number" &&
+      Number.isFinite((signal as { rank: number }).rank),
+    )
+    .map((signal) => ({ source: signal.source, rank: signal.rank }));
+}
+
 function formatSearchToolResponse(body: ApiSearchResponse): string {
   const results = (body.results ?? []).filter((item) => !isWikiDotDirectoryPath(item.path));
   const result = {
@@ -488,22 +517,27 @@ function formatSearchToolResponse(body: ApiSearchResponse): string {
     result_count: results.length,
     degraded: body.degraded === true,
     warnings: body.warnings ?? [],
-    results: results.map((item, index) => ({
-      rank: index + 1,
-      path: item.path,
-      title: item.title ?? item.path,
-      snippet: item.snippet ?? "",
-      score: item.score ?? 0,
-      source: item.source ?? "unknown",
-      sources: item.sources ?? [],
-      provenance: item.provenance ?? {
+    results: results.map((item, index) => {
+      const kind = inferSearchKind(item);
+      const sources = normalizeSearchSignals(item.sources);
+      const provenanceSignals = normalizeSearchSignals(item.provenance?.signals);
+      return {
+        rank: index + 1,
         path: item.path,
-        kind: item.kind ?? "wiki",
-        dominantSource: item.source ?? "unknown",
-        signals: item.sources ?? [],
-      },
-      kind: item.kind ?? "wiki",
-    })),
+        title: item.title ?? item.path,
+        snippet: item.snippet ?? "",
+        score: item.score ?? 0,
+        source: item.source ?? "unknown",
+        sources,
+        provenance: {
+          path: item.path,
+          kind,
+          dominantSource: item.source ?? "unknown",
+          signals: provenanceSignals.length > 0 ? provenanceSignals : sources,
+        },
+        kind,
+      };
+    }),
     ...(body.hyde?.reason === "triggered-pending-expansion" &&
     body.hyde.promptEmitted
       ? {

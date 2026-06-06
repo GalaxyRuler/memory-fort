@@ -536,12 +536,12 @@ export async function runSearch(opts: SearchOptions): Promise<SearchResponse> {
       snippet: candidate.document.snippetSource,
       score,
       source,
-      sources: candidate.rrf.sources,
+      sources: [...candidate.rrf.sources],
       provenance: {
         path: candidate.document.relPath,
         kind: candidate.document.kind,
         dominantSource: source,
-        signals: candidate.rrf.sources,
+        signals: [...candidate.rrf.sources],
       },
       kind: candidate.document.kind,
     }));

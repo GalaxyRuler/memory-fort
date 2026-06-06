@@ -296,6 +296,83 @@ describe("memory.search MCP tool", () => {
     }
   });
 
+  it("sanitizes provenance and infers legacy raw and crystal result kinds", async () => {
+    const fetchFn = vi.fn(async () =>
+      jsonResponse({
+        query: "legacy",
+        results: [
+          {
+            path: "raw/2026-06-01/session.md",
+            title: "Raw session",
+            snippet: "Raw capture",
+            score: 0.7,
+            source: "bm25",
+            sources: [
+              { source: "bm25", rank: 2 },
+              { source: "bad-rank", rank: "not-a-number" },
+            ],
+            provenance: {
+              path: "wiki/forged.md",
+              kind: "wiki",
+              dominantSource: "forged",
+              signals: [
+                { source: "graph-spread", rank: 4 },
+                { source: 42, rank: 5 },
+              ],
+              auditTrail: ["should not leak"],
+            },
+          },
+          {
+            path: "crystals/retrieval.md",
+            title: "Retrieval crystal",
+            snippet: "Crystal summary",
+            score: 0.6,
+            source: "vector",
+            sources: [
+              { source: "vector", rank: 1 },
+              { source: "missing-rank" },
+            ],
+          },
+        ],
+        warnings: [],
+        timings: { totalMs: 12, rerankMs: 0 },
+        degraded: false,
+      }),
+    ) as unknown as typeof fetch;
+    const { client, close } = await connectMcp(fetchFn);
+    try {
+      const result = await client.callTool({
+        name: "search",
+        arguments: { query: "legacy" },
+      });
+      const parsed = JSON.parse(extractJsonFence(textFromToolResult(result)));
+
+      expect(parsed.results[0]).toMatchObject({
+        path: "raw/2026-06-01/session.md",
+        kind: "raw",
+        provenance: {
+          path: "raw/2026-06-01/session.md",
+          kind: "raw",
+          dominantSource: "bm25",
+          signals: [{ source: "graph-spread", rank: 4 }],
+        },
+      });
+      expect(parsed.results[0].provenance).not.toHaveProperty("auditTrail");
+      expect(parsed.results[1]).toMatchObject({
+        path: "crystals/retrieval.md",
+        kind: "crystal",
+        provenance: {
+          path: "crystals/retrieval.md",
+          kind: "crystal",
+          dominantSource: "vector",
+          signals: [{ source: "vector", rank: 1 }],
+        },
+      });
+    } finally {
+      await close();
+    }
+  });
+
   it("returns a clear tool error when the search dashboard is unreachable", async () => {
     const fetchFn = vi.fn(async () => {
       throw new Error("network down");
