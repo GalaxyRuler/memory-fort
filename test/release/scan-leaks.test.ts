@@ -45,6 +45,22 @@ describe("scan-leaks release gate", () => {
     expect(result.stdout).toContain(`src/paths.ts:2: ${slashPath}`);
   });
 
+  it("reports escaped user-profile paths in source files", async () => {
+    const escapedUserPath = ["C:", "\\", "\\", "Users", "\\", "\\", "Admin"].join("");
+    const repeatedEscapedUserPath = ["C:", "\\", "\\", "\\", "\\", "Users", "\\", "\\", "\\", "\\", "Admin"].join("");
+    await writeText("src/paths.ts", [
+      `export const escapedUserPath = "${escapedUserPath}";`,
+      `export const repeatedEscapedUserPath = "${repeatedEscapedUserPath}";`,
+      "",
+    ].join("\n"));
+
+    const result = await runScan(["--root", tmp]);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toContain(`src/paths.ts:1: ${escapedUserPath}`);
+    expect(result.stdout).toContain(`src/paths.ts:2: ${repeatedEscapedUserPath}`);
+  });
+
   it("reports escaped user-profile paths and private project-root slugs in public examples", async () => {
     const escapedUserPath = ["C:", "\\", "\\", "Users", "\\", "\\", "Admin"].join("");
     const escapedProjectPath = `${escapedUserPath}${["\\", "\\", "Claude", "Code", "Projects"].join("")}`;

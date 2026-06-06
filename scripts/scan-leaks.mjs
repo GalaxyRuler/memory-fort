@@ -21,7 +21,7 @@ const DENYLIST = [
   deny(literal(["C:", "\\", "Users", "\\", "Admin"].join(""))),
   deny(literal(["Users", "/", "Admin"].join(""))),
   deny(pathSegments(["C:", ["Codex", "Projects"].join("")])),
-  exampleDeny(pathSegments(["C:", "Users", "Admin"])),
+  deny(pathSegments(["C:", "Users", "Admin"]), { skipTests: true }),
   exampleDeny(pathSegments(["Users", "Admin"])),
   exampleDeny(literal(["Codex", "Projects"].join(""))),
   exampleDeny(literal(["Claude", "Code", "Projects"].join(""))),
@@ -62,6 +62,7 @@ for (const relPath of files) {
   for (const [index, line] of lines.entries()) {
     for (const rule of DENYLIST) {
       if (rule.exampleOnly && !isMarkdownOrJson(relPath)) continue;
+      if (rule.skipTests && isTestPath(relPath)) continue;
       const match = rule.regex.exec(line);
       if (match) {
         hits.push({ path: relPath, line: index + 1, token: match[0] });
@@ -217,7 +218,11 @@ function word(value) {
 }
 
 function deny(source, options = {}) {
-  return { regex: new RegExp(source, "i"), exampleOnly: Boolean(options.exampleOnly) };
+  return {
+    regex: new RegExp(source, "i"),
+    exampleOnly: Boolean(options.exampleOnly),
+    skipTests: Boolean(options.skipTests),
+  };
 }
 
 function exampleDeny(source) {
@@ -226,6 +231,10 @@ function exampleDeny(source) {
 
 function isMarkdownOrJson(relPath) {
   return /\.(?:md|mdx|json|jsonc)$/i.test(relPath);
+}
+
+function isTestPath(relPath) {
+  return relPath.startsWith("test/");
 }
 
 function pathSegments(segments) {
