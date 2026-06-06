@@ -142,4 +142,46 @@ describe("useSearch", () => {
       expect(result.current.data?.query).toBe("second");
     });
   });
+
+  test("normalizes malformed provenance signals at the API boundary", async () => {
+    const response = makeSearchResponse();
+    response.results[0] = {
+      ...response.results[0],
+      sources: [
+        { source: "bm25", rank: 1 },
+        { source: "", rank: 2 },
+        { source: "vector", rank: 0 },
+        { source: "rerank", rank: 3 },
+      ],
+      provenance: {
+        ...response.results[0].provenance,
+        signals: [
+          { source: "bm25", rank: 1 },
+          { source: "", rank: 2 },
+          { source: "vector", rank: 0 },
+          { source: "rerank", rank: "3" },
+        ] as unknown as Array<{ source: string; rank: number }>,
+      },
+    };
+    const fetchMock = vi.fn(
+      async (_input: RequestInfo | URL) => new Response(JSON.stringify(response), { status: 200 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { result } = renderHook(
+      () => useSearch({ query: "voyage", scope: "all", k: 12, noRerank: true }),
+      { wrapper: wrapperWithQueryClient },
+    );
+
+    await waitFor(() => {
+      expect(result.current.data?.results[0]?.provenance.signals).toEqual([
+        { source: "bm25", rank: 1 },
+        { source: "rerank", rank: 3 },
+      ]);
+    });
+    expect(result.current.data?.results[0]?.sources).toEqual([
+      { source: "bm25", rank: 1 },
+      { source: "rerank", rank: 3 },
+    ]);
+  });
 });

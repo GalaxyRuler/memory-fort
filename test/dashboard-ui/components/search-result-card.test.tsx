@@ -41,27 +41,6 @@ describe("SearchResultCard", () => {
     expect(screen.getByText("rerank rank 3")).toBeVisible();
   });
 
-  test("renders without a provenance receipt when provenance is missing", () => {
-    const result = { ...RESULT, provenance: undefined } as unknown as SearchResult;
-
-    render(<SearchResultCard result={result} />);
-
-    expect(screen.getByText("Provenance Signals")).toBeVisible();
-    expect(screen.queryByText("Why this matched")).not.toBeInTheDocument();
-  });
-
-  test("renders without a provenance receipt when signals are missing", () => {
-    const result = {
-      ...RESULT,
-      provenance: { ...RESULT.provenance, signals: undefined },
-    } as unknown as SearchResult;
-
-    render(<SearchResultCard result={result} />);
-
-    expect(screen.getByText("Provenance Signals")).toBeVisible();
-    expect(screen.queryByText("Why this matched")).not.toBeInTheDocument();
-  });
-
   test("renders without a provenance receipt when signals are empty", () => {
     const result: SearchResult = {
       ...RESULT,
@@ -112,10 +91,11 @@ describe("SearchResultCard", () => {
     render(<SearchResultCard result={result} />);
     fireEvent.click(screen.getByText("Why this matched"));
 
-    const receipt = screen.getByText(`${longSource} rank 4`);
+    const receipt = screen.getByText("unknown-source-with-a-very-long-... rank 4");
     expect(receipt).toBeVisible();
     expect(receipt).toHaveClass("max-w-full");
     expect(receipt).toHaveClass("break-all");
+    expect(screen.queryByText(`${longSource} rank 4`)).not.toBeInTheDocument();
   });
 
   test("drops invalid provenance signals before rendering receipt chips", () => {

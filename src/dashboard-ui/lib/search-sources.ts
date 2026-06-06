@@ -19,6 +19,7 @@ const SEARCH_SOURCE_COLORS: Record<string, string> = {
 };
 
 export const KNOWN_SEARCH_SOURCES = Object.keys(SEARCH_SOURCE_LABELS);
+const MAX_UNKNOWN_SOURCE_LABEL_LENGTH = 32;
 
 export interface SearchSignal {
   source: string;
@@ -26,7 +27,13 @@ export interface SearchSignal {
 }
 
 export function formatSearchSourceLabel(source: string): string {
-  return SEARCH_SOURCE_LABELS[source] ?? source;
+  const knownLabel = SEARCH_SOURCE_LABELS[source];
+  if (knownLabel) return knownLabel;
+
+  const sanitized = source.replace(/[^\x20-\x7E]+/g, " ").replace(/\s+/g, " ").trim();
+  if (sanitized.length === 0) return "unknown";
+  if (sanitized.length <= MAX_UNKNOWN_SOURCE_LABEL_LENGTH) return sanitized;
+  return `${sanitized.slice(0, MAX_UNKNOWN_SOURCE_LABEL_LENGTH)}...`;
 }
 
 export function searchSourceColorClass(source: string): string {

@@ -87,4 +87,17 @@ describe("ScoreBreakdown", () => {
     expect(screen.queryByText("embed")).not.toBeInTheDocument();
     expect(screen.queryByText("rerank")).not.toBeInTheDocument();
   });
+
+  test("clamps and wraps unknown source labels in the legend", () => {
+    const unknownSource = "untrusted source label with enough length to break compact layouts";
+
+    render(<ScoreBreakdown sources={[{ source: unknownSource, rank: 1 }]} />);
+
+    const label = screen.getByText("untrusted source label with enou...");
+    expect(label).toBeInTheDocument();
+    expect(label).toHaveClass("max-w-full");
+    expect(label).toHaveClass("break-all");
+    expect(screen.queryByText(unknownSource)).not.toBeInTheDocument();
+    expect(screen.getByLabelText("untrusted source label with enou...: 100%")).toBeInTheDocument();
+  });
 });

@@ -17,16 +17,6 @@ export type ResultLinkProps =
   | { to: "/wiki/$category/$slug"; params: { category: string; slug: string } }
   | { to: "/raw/$date/$filename"; params: { date: string; filename: string } };
 
-type RuntimeResult = SearchResult & {
-  provenance?: {
-    signals?: unknown;
-  };
-};
-
-function provenanceSignals(result: SearchResult) {
-  return normalizeSearchSignals((result as RuntimeResult).provenance?.signals);
-}
-
 export function SearchResultCard({
   result,
   keyboardProps,
@@ -36,7 +26,7 @@ export function SearchResultCard({
 }) {
   const [isScoreOpen, setIsScoreOpen] = useState(false);
   const linkProps = resultLinkProps(result);
-  const signals = provenanceSignals(result);
+  const signals = normalizeSearchSignals(result.provenance.signals);
 
   return (
     <Card

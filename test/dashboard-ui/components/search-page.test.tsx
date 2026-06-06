@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { SearchPage } from "../../../src/dashboard-ui/components/SearchPage.js";
 import type { SearchResult } from "../../../src/dashboard-ui/hooks/useSearch.js";
@@ -108,6 +108,29 @@ describe("SearchPage", () => {
 
     expect(screen.getByText("Foo Project")).toBeInTheDocument();
     vi.useRealTimers();
+  });
+
+  test("renders search results as a list instead of a listbox", () => {
+    routerState.search = { q: "voyage" };
+    searchHook.useSearch.mockReturnValue({
+      data: {
+        results: [makeResult()],
+        timings: { totalMs: 42 },
+        degraded: false,
+        warnings: [],
+      },
+      isLoading: false,
+    });
+
+    render(<SearchPage />);
+
+    const list = screen.getByRole("list", { name: "Search results" });
+    const item = screen.getByRole("listitem");
+
+    expect(list).toBeInTheDocument();
+    expect(within(item).getByText("Foo Project")).toBeInTheDocument();
+    expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+    expect(screen.queryByRole("option")).not.toBeInTheDocument();
   });
 
   test("filter change updates scope in the URL state", () => {

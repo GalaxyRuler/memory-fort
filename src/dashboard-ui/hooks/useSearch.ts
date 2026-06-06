@@ -1,5 +1,6 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { apiGet } from "../lib/api.js";
+import { normalizeSearchSignals } from "../lib/search-sources.js";
 
 export type SearchScope = "all" | "wiki" | "raw" | "crystals";
 
@@ -46,6 +47,20 @@ export interface UseSearchOptions {
   enabled?: boolean;
 }
 
+type RuntimeSearchResult = Omit<SearchResult, "provenance" | "sources"> & {
+  sources?: unknown;
+  provenance?: {
+    path?: unknown;
+    kind?: unknown;
+    dominantSource?: unknown;
+    signals?: unknown;
+  };
+};
+
+type RuntimeSearchResponse = Omit<SearchResponse, "results"> & {
+  results?: RuntimeSearchResult[];
+};
+
 export function useSearch({
   query,
   scope = "all",
@@ -55,15 +70,42 @@ export function useSearch({
 }: UseSearchOptions) {
   return useQuery({
     queryKey: ["search", query, scope, k, noRerank],
-    queryFn: () =>
-      apiGet<SearchResponse>("/search", {
+    queryFn: async () => {
+      const response = await apiGet<RuntimeSearchResponse>("/search", {
         q: query,
         scope,
         k,
         noRerank: noRerank ? "true" : undefined,
-      }),
+      });
+      return normalizeSearchResponse(response);
+    },
     enabled: enabled && query.trim().length > 0,
     placeholderData: keepPreviousData,
     staleTime: 30_000,
   });
+}
+
+function normalizeSearchResponse(response: RuntimeSearchResponse): SearchResponse {
+  return {
+    ...response,
+    results: Array.isArray(response.results) ? response.results.map(normalizeSearchResult) : [],
+  };
+}
+
+function normalizeSearchResult(result: RuntimeSearchResult): SearchResult {
+  const provenance = result.provenance;
+  return {
+    ...result,
+    sources: normalizeSearchSignals(result.sources),
+    provenance: {
+      path: typeof provenance?.path === "string" ? provenance.path : result.path,
+      kind: isSearchResultKind(provenance?.kind) ? provenance.kind : result.kind,
+      dominantSource: typeof provenance?.dominantSource === "string" ? provenance.dominantSource : result.source,
+      signals: normalizeSearchSignals(provenance?.signals),
+    },
+  };
+}
+
+function isSearchResultKind(kind: unknown): kind is SearchResult["kind"] {
+  return kind === "wiki" || kind === "raw" || kind === "crystal";
 }

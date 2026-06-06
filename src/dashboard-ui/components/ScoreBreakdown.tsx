@@ -43,10 +43,10 @@ export function ScoreBreakdown({ sources, className }: ScoreBreakdownProps) {
         {segments.map((segment, index) => {
           const label = formatSearchSourceLabel(segment.source);
           return (
-            <span key={`${segment.source}-${index}`} className="flex items-center gap-1">
+            <span key={`${segment.source}-${index}`} className="flex max-w-full items-center gap-1 break-all">
               <span
                 aria-hidden
-                className={cn("h-1.5 w-1.5 rounded-full", searchSourceColorClass(segment.source))}
+                className={cn("h-1.5 w-1.5 flex-shrink-0 rounded-full", searchSourceColorClass(segment.source))}
               />
               {label}
             </span>

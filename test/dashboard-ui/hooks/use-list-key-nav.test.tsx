@@ -59,7 +59,7 @@ function KeyboardListWithDisclosure({ onActivate = vi.fn() }: { onActivate?: (it
 describe("useListKeyNav", () => {
   test("J advances focus and K retreats", () => {
     render(<KeyboardList />);
-    const list = screen.getByRole("listbox", { name: "Keyboard list" });
+    const list = screen.getByRole("list", { name: "Keyboard list" });
 
     list.focus();
     fireEvent.keyDown(list, { key: "j" });
@@ -74,7 +74,7 @@ describe("useListKeyNav", () => {
   test("Enter activates the focused item", () => {
     const onActivate = vi.fn();
     render(<KeyboardList onActivate={onActivate} />);
-    const list = screen.getByRole("listbox", { name: "Keyboard list" });
+    const list = screen.getByRole("list", { name: "Keyboard list" });
 
     list.focus();
     fireEvent.keyDown(list, { key: "j" });
@@ -86,7 +86,7 @@ describe("useListKeyNav", () => {
   test("J and K do nothing when an input has focus", () => {
     render(<KeyboardList />);
     const input = screen.getByLabelText("Editable field");
-    const list = screen.getByRole("listbox", { name: "Keyboard list" });
+    const list = screen.getByRole("list", { name: "Keyboard list" });
 
     input.focus();
     fireEvent.keyDown(list, { key: "j" });
@@ -94,12 +94,18 @@ describe("useListKeyNav", () => {
     expect(screen.getByText("alpha")).toHaveAttribute("data-focused", "true");
   });
 
-  test("uses listbox and option roles so aria-selected is valid", () => {
+  test("keeps native list semantics without listbox-only attributes", () => {
     render(<KeyboardList />);
 
-    expect(screen.getByRole("listbox", { name: "Keyboard list" })).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: "alpha" })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByRole("option", { name: "beta" })).toHaveAttribute("aria-selected", "false");
+    const list = screen.getByRole("list", { name: "Keyboard list" });
+    const items = screen.getAllByRole("listitem");
+
+    expect(list).toBeInTheDocument();
+    expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+    expect(screen.queryByRole("option")).not.toBeInTheDocument();
+    expect(items[0]).toHaveAttribute("data-focused", "true");
+    expect(items[0]).not.toHaveAttribute("aria-selected");
+    expect(items[1]).not.toHaveAttribute("aria-selected");
   });
 
   test("Enter and Space on an interactive summary toggle it without activating the option", () => {
