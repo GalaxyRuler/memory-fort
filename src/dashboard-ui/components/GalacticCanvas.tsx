@@ -1,6 +1,5 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import type { CognitiveType, GraphEdge, GraphNode } from "../hooks/useGraph.js";
-import { RELATION_TYPES, type RelationType } from "../../retrieval/relations.js";
 import {
   buildGalacticLayout,
   COGNITIVE_META,
@@ -78,6 +77,22 @@ const LEVEL_SCALE: Record<GalacticZoomLevel, number> = {
   1: 0.55,
   2: 1.4,
 };
+
+const RELATION_TYPES = [
+  "mentions",
+  "contradicts",
+  "supersedes",
+  "derived_from",
+  "uses",
+  "depends_on",
+  "caused_by",
+  "fixed_by",
+  "learned_from",
+  "mentioned_in",
+  "tested-with",
+  "linked",
+] as const;
+type RelationType = (typeof RELATION_TYPES)[number];
 
 export const GalacticCanvas = forwardRef<GalacticCanvasHandle, GalacticCanvasProps>(function GalacticCanvas(
   { edges, nodes, onHoverNode, onSelectNode, onZoomLevelChange, selectedNodeId = null, zoomLevel },
