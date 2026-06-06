@@ -9,6 +9,11 @@ import { redactSecrets } from "../privacy/redaction.js";
 
 const OPENCODE_TOOL = "opencode" as const;
 const MAX_EVENT_BYTES = 8192;
+const SUPPORTED_EVENT_TYPES = new Set([
+  "session.created",
+  "session.idle",
+  "tool.execute.after",
+]);
 
 export interface OpenCodeEventDeps {
   ensureRawSessionFile?: typeof ensureRawSessionFile;
@@ -20,7 +25,7 @@ export async function opencodeEventBody(
   payload: HookPayload,
   deps: OpenCodeEventDeps = {},
 ): Promise<void> {
-  const eventType = readNonEmptyString(payload["type"]);
+  const eventType = readSupportedEventType(payload["type"]);
   if (!eventType) return;
 
   const ensureFn = deps.ensureRawSessionFile ?? ensureRawSessionFile;
@@ -62,6 +67,8 @@ function readSessionId(payload: HookPayload): string {
   return (
     readNonEmptyString(payload["sessionID"]) ??
     readNonEmptyString(payload["session_id"]) ??
+    readNonEmptyString(readPath(payload, ["properties", "sessionID"])) ??
+    readNonEmptyString(readPath(payload, ["properties", "info", "id"])) ??
     "unknown"
   );
 }
@@ -71,8 +78,30 @@ function readCwd(payload: HookPayload): string {
     readNonEmptyString(payload["cwd"]) ??
     readNonEmptyString(payload["directory"]) ??
     readNonEmptyString(payload["working_directory"]) ??
+    readNonEmptyString(readPath(payload, ["properties", "directory"])) ??
+    readNonEmptyString(readPath(payload, ["properties", "info", "directory"])) ??
+    readNonEmptyString(payload["worktree"]) ??
     process.cwd()
   );
+}
+
+function readSupportedEventType(value: unknown): string | null {
+  const eventType = readNonEmptyString(value);
+  if (!eventType) return null;
+  return SUPPORTED_EVENT_TYPES.has(eventType) ? eventType : null;
+}
+
+function readPath(value: unknown, path: string[]): unknown {
+  let current = value;
+  for (const part of path) {
+    if (!isRecord(current)) return undefined;
+    current = current[part];
+  }
+  return current;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function readNonEmptyString(value: unknown): string | null {

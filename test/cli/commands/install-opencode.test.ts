@@ -69,12 +69,19 @@ describe("runInstallOpenCode", () => {
     const plugin = await readFile(result.pluginPath, "utf-8");
     expect(plugin).toContain("MemoryFortOpenCode");
     expect(plugin).toContain(`${memoryRoot}/hooks/opencode-event.mjs`);
-    expect(plugin).toContain("export const MemoryFortOpenCode = async ({ $ }) =>");
+    expect(plugin).toContain("export const MemoryFortOpenCode = async ({ $, directory, worktree }) =>");
     expect(plugin).toContain("async function record(event)");
+    expect(plugin).toContain("function objectOrEmpty(value)");
     expect(plugin).toContain(".stdin(JSON.stringify(event))");
     expect(plugin).toContain('event?.type === "session.created"');
     expect(plugin).toContain('event?.type === "session.idle"');
-    expect(plugin).toContain('event?.type === "tool.execute.after"');
+    expect(plugin).toContain('"tool.execute.after": async (input, output) =>');
+    expect(plugin).toContain('type: "tool.execute.after"');
+    expect(plugin).toContain("...objectOrEmpty(input),");
+    expect(plugin).toContain("input,");
+    expect(plugin).toContain("output,");
+    expect(plugin).toContain("directory,");
+    expect(plugin).toContain("worktree,");
   });
 
   it("preserves existing config and is idempotent", async () => {

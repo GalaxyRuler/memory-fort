@@ -67,6 +67,97 @@ describe("opencodeEventBody", () => {
     expect(block).not.toContain("sk-live-secret-material-123456");
   });
 
+  it("reads session id and cwd from nested OpenCode event properties", async () => {
+    const calls: Array<{
+      tool: string;
+      sessionId: string;
+      cwd: string;
+    }> = [];
+
+    await opencodeEventBody(
+      {
+        type: "session.created",
+        properties: {
+          sessionID: "sess-from-properties",
+          info: {
+            id: "sess-from-info",
+            directory: "C:/nested/app",
+          },
+        },
+      },
+      {
+        ensureRawSessionFile: async (input) => {
+          calls.push(input);
+          return "raw.md";
+        },
+        appendBlock: async () => undefined,
+      },
+    );
+
+    expect(calls[0]).toMatchObject({
+      tool: "opencode",
+      sessionId: "sess-from-properties",
+      cwd: "C:/nested/app",
+    });
+  });
+
+  it("falls back to nested OpenCode info id and directory", async () => {
+    const calls: Array<{
+      tool: string;
+      sessionId: string;
+      cwd: string;
+    }> = [];
+
+    await opencodeEventBody(
+      {
+        type: "session.idle",
+        properties: {
+          info: {
+            id: "sess-from-info",
+            directory: "C:/info/app",
+          },
+        },
+      },
+      {
+        ensureRawSessionFile: async (input) => {
+          calls.push(input);
+          return "raw.md";
+        },
+        appendBlock: async () => undefined,
+      },
+    );
+
+    expect(calls[0]).toMatchObject({
+      tool: "opencode",
+      sessionId: "sess-from-info",
+      cwd: "C:/info/app",
+    });
+  });
+
+  it("ignores unsupported or malicious event types", async () => {
+    let ensureCalls = 0;
+    let appendCalls = 0;
+
+    await opencodeEventBody(
+      {
+        type: "session.created\n## Injected Heading",
+        sessionID: "sess-malicious",
+      },
+      {
+        ensureRawSessionFile: async () => {
+          ensureCalls += 1;
+          return "raw.md";
+        },
+        appendBlock: async () => {
+          appendCalls += 1;
+        },
+      },
+    );
+
+    expect(ensureCalls).toBe(0);
+    expect(appendCalls).toBe(0);
+  });
+
   it("ignores payloads without an event type", async () => {
     let appendCalls = 0;
 
