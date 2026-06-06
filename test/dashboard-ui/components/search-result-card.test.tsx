@@ -1,7 +1,27 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
 import { SearchResultCard } from "../../../src/dashboard-ui/components/SearchResultCard.js";
 import type { SearchResult } from "../../../src/dashboard-ui/hooks/useSearch.js";
+
+vi.mock("@tanstack/react-router", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@tanstack/react-router")>();
+  return {
+    ...actual,
+    Link: ({
+      children,
+      className,
+      to,
+    }: {
+      children: React.ReactNode;
+      className?: string;
+      to: string;
+    }) => (
+      <a className={className} href={to}>
+        {children}
+      </a>
+    ),
+  };
+});
 
 const RESULT: SearchResult = {
   path: "wiki/projects/provenance.md",
@@ -28,6 +48,12 @@ const RESULT: SearchResult = {
 };
 
 describe("SearchResultCard", () => {
+  test("links crystal results to the crystals page", () => {
+    render(<SearchResultCard result={RESULT} />);
+
+    expect(screen.getByRole("link", { name: "Provenance Signals" })).toHaveAttribute("href", "/crystals");
+  });
+
   test("renders a compact provenance receipt for search signals", () => {
     render(<SearchResultCard result={RESULT} />);
 
@@ -96,6 +122,27 @@ describe("SearchResultCard", () => {
     expect(receipt).toHaveClass("max-w-full");
     expect(receipt).toHaveClass("break-all");
     expect(screen.queryByText(`${longSource} rank 4`)).not.toBeInTheDocument();
+  });
+
+  test("uses sanitized source labels in the compact score column", () => {
+    const longSource = "unknown-source-with-a-very-long-label-that-should-not-render-raw\nwith-control";
+    const result: SearchResult = {
+      ...RESULT,
+      source: longSource,
+      sources: [],
+      provenance: {
+        ...RESULT.provenance,
+        dominantSource: longSource,
+        signals: [{ source: "bm25", rank: 1 }],
+      },
+    };
+
+    render(<SearchResultCard result={result} />);
+
+    const scoreColumn = screen.getByText("Score").closest("div");
+    expect(scoreColumn).not.toBeNull();
+    expect(within(scoreColumn as HTMLElement).getByText("unknown-source-with-a-very-long-...")).toBeVisible();
+    expect(within(scoreColumn as HTMLElement).queryByText("unknown-source-with-a-very-long-label-that-should-not-render-raw with-control")).not.toBeInTheDocument();
   });
 
   test("drops invalid provenance signals before rendering receipt chips", () => {

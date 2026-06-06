@@ -15,7 +15,8 @@ const KIND_COLOR: Record<string, string> = {
 
 export type ResultLinkProps =
   | { to: "/wiki/$category/$slug"; params: { category: string; slug: string } }
-  | { to: "/raw/$date/$filename"; params: { date: string; filename: string } };
+  | { to: "/raw/$date/$filename"; params: { date: string; filename: string } }
+  | { to: "/crystals" };
 
 export function SearchResultCard({
   result,
@@ -27,6 +28,7 @@ export function SearchResultCard({
   const [isScoreOpen, setIsScoreOpen] = useState(false);
   const linkProps = resultLinkProps(result);
   const signals = normalizeSearchSignals(result.provenance.signals);
+  const sourceLabel = formatSearchSourceLabel(result.source);
 
   return (
     <Card
@@ -74,7 +76,7 @@ export function SearchResultCard({
           <div>
             <p className="text-xs uppercase tracking-wider text-text-muted">Score</p>
             <p className="font-mono text-lg font-semibold">{result.score.toFixed(2)}</p>
-            <p className="break-words font-mono text-[10px] text-text-muted">{result.source}</p>
+            <p className="break-words font-mono text-[10px] text-text-muted">{sourceLabel}</p>
           </div>
           <button
             type="button"
@@ -110,6 +112,9 @@ export function resultLinkProps(result: SearchResult): ResultLinkProps | null {
         params: { date: parts[0] ?? "", filename: parts.slice(1).join("/") },
       };
     }
+  }
+  if (result.kind === "crystal") {
+    return { to: "/crystals" };
   }
   return null;
 }

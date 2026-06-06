@@ -7,6 +7,7 @@ import { useDebouncedValue } from "../hooks/useDebouncedValue.js";
 import { useSearch, type SearchResult, type SearchScope } from "../hooks/useSearch.js";
 import { cn } from "../lib/cn.js";
 import { formatSearchSourceLabel, KNOWN_SEARCH_SOURCES } from "../lib/search-sources.js";
+import { resultLinkProps } from "./SearchResultCard.js";
 
 const SCOPES: { value: SearchScope; label: string }[] = [
   { value: "all", label: "All" },
@@ -145,28 +146,6 @@ function kindToColor(kind: SearchResult["kind"]): string {
 }
 
 function navigateToResult(result: SearchResult, navigate: ReturnType<typeof useNavigate>) {
-  if (result.kind === "wiki" && result.path.startsWith("wiki/")) {
-    const parts = result.path.replace(/^wiki\//, "").replace(/\.md$/, "").split("/");
-    if (parts.length >= 2) {
-      void navigate({
-        to: "/wiki/$category/$slug",
-        params: { category: parts[0], slug: parts.slice(1).join("/") },
-      });
-      return;
-    }
-  }
-
-  if (result.kind === "raw" && result.path.startsWith("raw/")) {
-    const parts = result.path.replace(/^raw\//, "").replace(/\.md$/, "").split("/");
-    if (parts.length >= 2) {
-      void navigate({
-        to: "/raw/$date/$filename",
-        params: { date: parts[0], filename: parts.slice(1).join("/") },
-      });
-    }
-  }
-
-  if (result.kind === "crystal") {
-    void navigate({ to: "/crystals" });
-  }
+  const linkProps = resultLinkProps(result);
+  if (linkProps) void navigate(linkProps);
 }

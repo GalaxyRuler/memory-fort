@@ -52,6 +52,27 @@ function makeSearchResponse(source = "rerank") {
   };
 }
 
+function makeCrystalSearchResponse() {
+  const response = makeSearchResponse();
+  return {
+    ...response,
+    results: [
+      {
+        ...response.results[0],
+        path: "crystals/usage-patterns.md",
+        title: "Usage Patterns",
+        snippet: "Usage patterns snippet",
+        provenance: {
+          ...response.results[0].provenance,
+          path: "crystals/usage-patterns.md",
+          kind: "crystal",
+        },
+        kind: "crystal",
+      },
+    ],
+  };
+}
+
 function renderPalette(children?: ReactNode) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -195,5 +216,23 @@ describe("CommandPalette", () => {
     await waitFor(() => {
       expect(screen.queryByRole("combobox", { name: "Search memory" })).not.toBeInTheDocument();
     });
+  });
+
+  test("selecting a crystal result navigates to the crystals page", async () => {
+    const fetchMock = vi.fn(
+      async (_input: RequestInfo | URL) => new Response(JSON.stringify(makeCrystalSearchResponse()), { status: 200 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    renderPalette();
+    openWithShortcut();
+
+    fireEvent.change(screen.getByRole("combobox", { name: "Search memory" }), {
+      target: { value: "crystal" },
+    });
+
+    expect(await screen.findByText("Usage Patterns")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("Usage Patterns"));
+
+    expect(routerMock.navigate).toHaveBeenCalledWith({ to: "/crystals" });
   });
 });

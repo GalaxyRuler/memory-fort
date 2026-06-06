@@ -66,6 +66,25 @@ function makeResult(): SearchResult {
   };
 }
 
+function makeCrystalResult(): SearchResult {
+  return {
+    ...makeResult(),
+    path: "crystals/usage-patterns.md",
+    title: "Usage Patterns",
+    snippet: "A durable crystal result.",
+    provenance: {
+      path: "crystals/usage-patterns.md",
+      kind: "crystal",
+      dominantSource: "rerank",
+      signals: [
+        { source: "bm25", rank: 1 },
+        { source: "rerank", rank: 1 },
+      ],
+    },
+    kind: "crystal",
+  };
+}
+
 describe("SearchPage", () => {
   beforeEach(() => {
     routerState.search = {};
@@ -145,5 +164,43 @@ describe("SearchPage", () => {
       q: "voyage",
       scope: "all",
     });
+  });
+
+  test("renders crystal results as links to the crystals page", () => {
+    routerState.search = { q: "crystal" };
+    searchHook.useSearch.mockReturnValue({
+      data: {
+        results: [makeCrystalResult()],
+        timings: { totalMs: 42 },
+        degraded: false,
+        warnings: [],
+      },
+      isLoading: false,
+    });
+
+    render(<SearchPage />);
+
+    expect(screen.getByRole("link", { name: "Usage Patterns" })).toHaveAttribute("href", "/crystals");
+  });
+
+  test("activating a focused crystal result navigates to the crystals page", () => {
+    routerState.search = { q: "crystal" };
+    searchHook.useSearch.mockReturnValue({
+      data: {
+        results: [makeCrystalResult()],
+        timings: { totalMs: 42 },
+        degraded: false,
+        warnings: [],
+      },
+      isLoading: false,
+    });
+
+    render(<SearchPage />);
+
+    const list = screen.getByRole("list", { name: "Search results" });
+    list.focus();
+    fireEvent.keyDown(list, { key: "Enter" });
+
+    expect(routerState.navigate).toHaveBeenCalledWith({ to: "/crystals" });
   });
 });

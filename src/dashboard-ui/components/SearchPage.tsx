@@ -39,11 +39,7 @@ export function SearchPage() {
     onActivate: (result) => {
       const linkProps = resultLinkProps(result);
       if (!linkProps) return;
-      if (linkProps.to === "/wiki/$category/$slug") {
-        navigate({ to: linkProps.to, params: linkProps.params });
-      } else {
-        navigate({ to: linkProps.to, params: linkProps.params });
-      }
+      navigate(linkProps);
     },
   });
 
