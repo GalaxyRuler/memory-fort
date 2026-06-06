@@ -278,7 +278,7 @@ Built-in React dashboard: browse the wiki, search (BM25 + semantic + graph), rev
 
 ## Roadmap
 
-- **OpenCode** integration (`memory-fort install opencode`) — plugin drop into `~/.config/opencode/plugins/`
+- **OpenCode** integration (`memory-fort install opencode`) - local MCP config plus global plugin event capture.
 - **Optional SQLite-FTS index** — rebuildable cache for sub-10ms lexical search at large vault sizes
 - **Community integrations** — pull requests welcome; hook pattern documented in `docs/architecture.md`
 
