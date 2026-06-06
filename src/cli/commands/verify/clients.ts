@@ -15,7 +15,7 @@ import {
 import {
   isClaudeCodePluginEnabled,
 } from "../install/claude-code.js";
-import { opencodeConfigPath, opencodePluginPath } from "../install/opencode.js";
+import { validateOpenCodeConfig, validateOpenCodePlugin } from "../install/opencode.js";
 import { readOpenCovenReadiness } from "../install/opencoven.js";
 import { vscodeExtensionDir, vscodeMcpConfigPath } from "../install/vscode.js";
 import { fail, pass, warn, type CheckDescriptor, type VerifyCheckContext, type VerifyCheckResult } from "./types.js";
@@ -595,59 +595,53 @@ async function checkOpenCovenReadiness(): Promise<VerifyCheckResult> {
 }
 
 async function checkOpenCodeConfig(): Promise<VerifyCheckResult> {
-  const configPath = opencodeConfigPath();
-  if (!existsSync(configPath)) {
+  const validation = await validateOpenCodeConfig();
+  if (validation.reason === "missing") {
     return fail(
       "client.opencode.config",
       "OpenCode MCP entry present",
       "run `memory connect opencode`",
-      `missing at ${configPath}`,
+      `missing at ${validation.path}`,
     );
   }
 
-  try {
-    const parsed = JSON.parse(await readFile(configPath, "utf-8")) as Record<string, unknown>;
-    const mcp = asRecord(parsed["mcp"]);
-    const memory = asRecord(mcp?.["memory"]);
-    const ok = isValidOpenCodeMemoryEntry(memory);
-    return ok
-      ? pass("client.opencode.config", "OpenCode MCP entry present")
-      : fail(
-          "client.opencode.config",
-          "OpenCode MCP entry present",
-          "run `memory connect opencode`",
-          `memory MCP entry missing or stale at ${configPath}`,
-        );
-  } catch {
+  if (validation.reason === "malformed") {
     return fail(
       "client.opencode.config",
       "OpenCode MCP entry present",
       "repair opencode.json, then run `memory connect opencode`",
-      `malformed JSON at ${configPath}`,
+      `malformed JSON at ${validation.path}`,
     );
   }
+
+  return validation.ok
+    ? pass("client.opencode.config", "OpenCode MCP entry present")
+    : fail(
+        "client.opencode.config",
+        "OpenCode MCP entry present",
+        "run `memory connect opencode`",
+        `memory MCP entry missing or stale at ${validation.path}`,
+      );
 }
 
 async function checkOpenCodePlugin(): Promise<VerifyCheckResult> {
-  const pluginPath = opencodePluginPath();
-  if (!existsSync(pluginPath)) {
+  const validation = await validateOpenCodePlugin();
+  if (validation.reason === "missing") {
     return fail(
       "client.opencode.plugin",
       "OpenCode Memory Fort plugin installed",
       "run `memory connect opencode`",
-      `missing at ${pluginPath}`,
+      `missing at ${validation.path}`,
     );
   }
 
-  const raw = await readFile(pluginPath, "utf-8");
-  const ok = raw.includes("MemoryFortOpenCode") && raw.includes("opencode-event.mjs");
-  return ok
+  return validation.ok
     ? pass("client.opencode.plugin", "OpenCode Memory Fort plugin installed")
     : fail(
         "client.opencode.plugin",
         "OpenCode Memory Fort plugin installed",
         "run `memory connect opencode`",
-        `plugin file missing MemoryFortOpenCode or opencode-event.mjs at ${pluginPath}`,
+        `plugin file missing generated OpenCode hook markers at ${validation.path}`,
       );
 }
 
@@ -802,35 +796,6 @@ function isVsCodeProcessName(name: string): boolean {
     normalized === "code helper" ||
     normalized === "vscodium" ||
     normalized === "codium";
-}
-
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : null;
-}
-
-function isValidOpenCodeMemoryEntry(memory: Record<string, unknown> | null): boolean {
-  return memory?.["type"] === "local" &&
-    memory["enabled"] === true &&
-    isValidOpenCodeCommand(memory["command"]);
-}
-
-function isValidOpenCodeCommand(value: unknown): boolean {
-  if (!Array.isArray(value)) return false;
-  const parts = value.filter((entry): entry is string => typeof entry === "string");
-  return parts.some(isNodeCommandPart) && parts.some(isMemoryFortMcpServerPath);
-}
-
-function isNodeCommandPart(value: string): boolean {
-  const leaf = value.replace(/\\/g, "/").split("/").pop()?.toLowerCase();
-  return leaf === "node" || leaf === "node.exe";
-}
-
-function isMemoryFortMcpServerPath(value: string): boolean {
-  const normalized = value.replace(/\\/g, "/").toLowerCase();
-  return normalized === "hooks/mcp-server.mjs" ||
-    normalized.endsWith("/hooks/mcp-server.mjs");
 }
 
 async function readCaptureSnapshot(

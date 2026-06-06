@@ -12,6 +12,7 @@ import { checkGitRemote } from "../../../src/cli/commands/verify/git.js";
 import { checkEpisodicRelations } from "../../../src/cli/commands/verify/episodic-relations.js";
 import { checkSearch } from "../../../src/cli/commands/verify/search.js";
 import { checkVaultReadWrite } from "../../../src/cli/commands/verify/vault.js";
+import { runInstallOpenCode } from "../../../src/cli/commands/install/opencode.js";
 
 describe("verify checks", () => {
   let tmp: string;
@@ -314,6 +315,54 @@ describe("verify checks", () => {
     expect(config?.detail).toContain("memory MCP entry missing or stale");
   });
 
+  it("client checks fail when the OpenCode MCP command is reversed", async () => {
+    await writeOpenCodeConfig({ command: [join(tmp, "hooks", "mcp-server.mjs"), "node"] });
+
+    const results = await checkClients({ vaultRoot: tmp, now });
+
+    const config = results.find((result) => result.id === "client.opencode.config");
+    expect(config?.status).toBe("fail");
+    expect(config?.detail).toContain("memory MCP entry missing or stale");
+  });
+
+  it("client checks fail when the OpenCode MCP command has an earlier wrong script", async () => {
+    await writeOpenCodeConfig({
+      command: [
+        "node",
+        join(tmp, "hooks", "wrong-server.mjs"),
+        join(tmp, "hooks", "mcp-server.mjs"),
+      ],
+    });
+
+    const results = await checkClients({ vaultRoot: tmp, now });
+
+    const config = results.find((result) => result.id === "client.opencode.config");
+    expect(config?.status).toBe("fail");
+    expect(config?.detail).toContain("memory MCP entry missing or stale");
+  });
+
+  it("client checks fail when the OpenCode MCP command targets another root", async () => {
+    await writeOpenCodeConfig({
+      command: ["node", join(tmp, "other-root", "hooks", "mcp-server.mjs")],
+    });
+
+    const results = await checkClients({ vaultRoot: tmp, now });
+
+    const config = results.find((result) => result.id === "client.opencode.config");
+    expect(config?.status).toBe("fail");
+    expect(config?.detail).toContain("memory MCP entry missing or stale");
+  });
+
+  it("client checks fail when the OpenCode MCP command includes non-string entries", async () => {
+    await writeOpenCodeConfig({ command: ["node", join(tmp, "hooks", "mcp-server.mjs"), 42] });
+
+    const results = await checkClients({ vaultRoot: tmp, now });
+
+    const config = results.find((result) => result.id === "client.opencode.config");
+    expect(config?.status).toBe("fail");
+    expect(config?.detail).toContain("memory MCP entry missing or stale");
+  });
+
   it("client checks fail when the OpenCode MCP command uses a loose string", async () => {
     await writeOpenCodeConfig({ command: `node ${join(tmp, "hooks", "mcp-server.mjs")}` });
 
@@ -325,13 +374,23 @@ describe("verify checks", () => {
   });
 
   it("client checks pass when the OpenCode plugin is installed", async () => {
-    await writeOpenCodePlugin();
+    await runInstallOpenCode({ opencodeDir: process.env["MEMORY_OPENCODE_DIR"]! });
 
     const results = await checkClients({ vaultRoot: tmp, now });
 
     const plugin = results.find((result) => result.id === "client.opencode.plugin");
     expect(plugin?.status).toBe("pass");
     expect(plugin?.label).toBe("OpenCode Memory Fort plugin installed");
+  });
+
+  it("client checks fail when the OpenCode plugin has loose markers but no hooks", async () => {
+    await writeOpenCodePlugin();
+
+    const results = await checkClients({ vaultRoot: tmp, now });
+
+    const plugin = results.find((result) => result.id === "client.opencode.plugin");
+    expect(plugin?.status).toBe("fail");
+    expect(plugin?.detail).toContain("plugin file missing generated OpenCode hook markers");
   });
 
   it("client checks pass when OpenCode has a recent capture", async () => {

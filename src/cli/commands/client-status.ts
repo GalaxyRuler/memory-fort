@@ -7,7 +7,7 @@ import {
   memoryRoot,
 } from "../../storage/paths.js";
 import { isClaudeCodePluginEnabled } from "./install/claude-code.js";
-import { opencodeConfigPath, opencodePluginPath } from "./install/opencode.js";
+import { readOpenCodeReadiness } from "./install/opencode.js";
 import { readOpenCovenReadiness } from "./install/opencoven.js";
 import { vscodeMcpConfigPath } from "./install/vscode.js";
 
@@ -221,23 +221,23 @@ async function readOpenCovenStatus(): Promise<ClientStatus> {
 }
 
 async function readOpenCodeStatus(): Promise<ClientStatus> {
-  const configPath = opencodeConfigPath();
-  const configOk = await hasValidOpenCodeConfig(configPath);
-  const pluginPath = opencodePluginPath();
-  const pluginOk = await hasValidOpenCodePlugin(pluginPath);
+  const readiness = await readOpenCodeReadiness();
+  const configOk = readiness.config.ok;
+  const pluginOk = readiness.plugin.ok;
+  const anyOpenCodeFile = readiness.config.exists || readiness.plugin.exists;
   return {
     client: "opencode",
     state: configOk && pluginOk
       ? "installed"
-      : existsSync(configPath) || existsSync(pluginPath)
+      : anyOpenCodeFile
         ? "stale"
         : "missing",
     detail: configOk && pluginOk
       ? "installed"
-      : existsSync(configPath) || existsSync(pluginPath)
+      : anyOpenCodeFile
         ? "installed but memory MCP or plugin file is missing or stale"
         : "not installed",
-    configPath,
+    configPath: readiness.configPath,
   };
 }
 
@@ -273,47 +273,4 @@ async function jsonHasServer(
   } catch {
     return false;
   }
-}
-
-async function hasValidOpenCodeConfig(configPath: string): Promise<boolean> {
-  if (!existsSync(configPath)) return false;
-  try {
-    const parsed = JSON.parse(await readFile(configPath, "utf-8")) as Record<string, unknown>;
-    const mcp = asRecord(parsed["mcp"]);
-    const memory = asRecord(mcp?.["memory"]);
-    return memory?.["type"] === "local" &&
-      memory["enabled"] === true &&
-      isValidOpenCodeCommand(memory["command"]);
-  } catch {
-    return false;
-  }
-}
-
-async function hasValidOpenCodePlugin(pluginPath: string): Promise<boolean> {
-  if (!existsSync(pluginPath)) return false;
-  const raw = await readFile(pluginPath, "utf-8");
-  return raw.includes("MemoryFortOpenCode") && raw.includes("opencode-event.mjs");
-}
-
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : null;
-}
-
-function isValidOpenCodeCommand(value: unknown): boolean {
-  if (!Array.isArray(value)) return false;
-  const parts = value.filter((entry): entry is string => typeof entry === "string");
-  return parts.some(isNodeCommandPart) && parts.some(isMemoryFortMcpServerPath);
-}
-
-function isNodeCommandPart(value: string): boolean {
-  const leaf = value.replace(/\\/g, "/").split("/").pop()?.toLowerCase();
-  return leaf === "node" || leaf === "node.exe";
-}
-
-function isMemoryFortMcpServerPath(value: string): boolean {
-  const normalized = value.replace(/\\/g, "/").toLowerCase();
-  return normalized === "hooks/mcp-server.mjs" ||
-    normalized.endsWith("/hooks/mcp-server.mjs");
 }
