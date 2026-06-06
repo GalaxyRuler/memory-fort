@@ -212,38 +212,20 @@ Switch any time: edit `~/.memory/config.yaml` or re-run `memory-fort init`.
 
 ---
 
-## Memory Fort vs. other agent memory tools
+## Evidence posture
 
-All claims below are sourced from 2026 benchmarks and vendor documentation.
+All comparison claims are release notes, vendor-doc references, or Memory Fort local evidence. Vendor-reported benchmark rows are marked as vendor-reported unless Memory Fort can reproduce them locally.
 
-| | **Memory Fort** | **mem0** | **Zep / Graphiti** | **Letta** | **Cognee** | **LangMem** | **OMEGA** |
-|---|---|---|---|---|---|---|---|
-| **Storage** | Markdown files | Cloud DB / OSS | Cloud only¹ | PostgreSQL | SQLite + LanceDB | You choose | SQLite |
-| **Requires API key** | ❌ No (lexical default) | ✅ Yes | ✅ Yes | ✅ Yes (LLM) | ✅ Yes (LLM) | ✅ Yes (LLM) | ❌ No |
-| **Self-hosted** | ✅ Always | ✅ OSS option | ❌ Dropped¹ | ✅ Free | ✅ Local | ✅ OSS | ✅ |
-| **Offline / air-gapped** | ✅ | ❌ | ❌ | ❌ | ✅ (local LLM) | ❌ | ✅ |
-| **Human-readable** | ✅ Markdown + YAML | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| **Obsidian-compatible** | ✅ Native | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| **Git-backed** | ✅ Built-in | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| **Multi-tool hooks** | ✅ 6 tools | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| **Knowledge graph** | ✅ Typed edges (free) | ✅ Pro only ($249/mo) | ✅ Graphiti | ✅ All tiers | ✅ All tiers | ❌ | ❌ |
-| **LongMemEval** | — | 49.0%² | 63.8%² | — | — | 59.8s p95 latency³ | 95.4%⁴ |
-| **Free tier** | Unlimited (local) | 10K memories, 1K calls/mo | ❌ | ✅ self-hosted | ✅ self-hosted | ✅ OSS | Unlimited |
-| **TypeScript SDK** | ✅ Native CLI + MCP | ✅ | ✅ | partial | ❌ Python only | partial | ❌ |
+Current local evidence is intentionally narrower than a benchmark claim:
 
-¹ Zep dropped its self-hosted Community Edition in 2025; Zep Cloud is now the only supported path.  
-² [Agent Memory at Scale 2026 — AgentMarketCap](https://agentmarketcap.ai/blog/2026/04/10/agent-memory-vendor-landscape-2026-letta-zep-mem0-langmem)  
-³ [Best AI Agent Memory Frameworks 2026 — Atlan](https://atlan.com/know/best-ai-agent-memory-frameworks-2026/)  
-⁴ [OMEGA comparison page](https://omegamax.co/compare)
+| Area | Current public claim | Evidence status |
+|---|---|---|
+| Default storage | Markdown + YAML files under `~/.memory/` | Implemented local package behavior |
+| Default search | Lexical search works without an API key | Implemented local package behavior |
+| Optional retrieval | Semantic and graph-assisted retrieval are available when configured | Local smoke evidence is recorded in `docs/release-evidence/2026-06-06-v1.1-credibility.md` |
+| Package surface | Package uses the `files` whitelist in `package.json` | Local `npm pack --dry-run --json` evidence is recorded in the release evidence note |
 
-### When to choose something else
-
-- **mem0** — managed cloud, polished dashboard, widest language support, largest community.
-- **Zep / Graphiti** — best temporal fact tracking; reason about *when* facts changed.
-- **Letta** — full stateful agent runtime, not just memory.
-- **Cognee** — rich multimodal pipeline (images, audio, documents); Python-only.
-- **LangMem** — natural fit on LangChain/LangGraph; note the high p95 latency for interactive use.
-- **OMEGA** — fully local + AES-256 encryption at rest; no multi-tool hook support.
+Memory Fort does not currently publish a reproduced LongMemEval score or a reproduced third-party benchmark row. Use vendor benchmark numbers only as vendor-reported claims, not as Memory Fort certification.
 
 ---
 
@@ -278,7 +260,6 @@ Built-in React dashboard: browse the wiki, search (BM25 + semantic + graph), rev
 
 ## Roadmap
 
-- **OpenCode** integration (`memory-fort install opencode`) - local MCP config plus global plugin event capture.
 - **Optional SQLite-FTS index** — rebuildable cache for sub-10ms lexical search at large vault sizes
 - **Community integrations** — pull requests welcome; hook pattern documented in `docs/architecture.md`
 
