@@ -609,8 +609,7 @@ async function checkOpenCodeConfig(): Promise<VerifyCheckResult> {
     const parsed = JSON.parse(await readFile(configPath, "utf-8")) as Record<string, unknown>;
     const mcp = asRecord(parsed["mcp"]);
     const memory = asRecord(mcp?.["memory"]);
-    const ok = memory?.["type"] === "local" &&
-      commandContains(memory["command"], "mcp-server.mjs");
+    const ok = isValidOpenCodeMemoryEntry(memory);
     return ok
       ? pass("client.opencode.config", "OpenCode MCP entry present")
       : fail(
@@ -811,12 +810,27 @@ function asRecord(value: unknown): Record<string, unknown> | null {
     : null;
 }
 
-function commandContains(value: unknown, needle: string): boolean {
-  if (typeof value === "string") return value.includes(needle);
-  if (Array.isArray(value)) {
-    return value.some((entry) => typeof entry === "string" && entry.includes(needle));
-  }
-  return false;
+function isValidOpenCodeMemoryEntry(memory: Record<string, unknown> | null): boolean {
+  return memory?.["type"] === "local" &&
+    memory["enabled"] === true &&
+    isValidOpenCodeCommand(memory["command"]);
+}
+
+function isValidOpenCodeCommand(value: unknown): boolean {
+  if (!Array.isArray(value)) return false;
+  const parts = value.filter((entry): entry is string => typeof entry === "string");
+  return parts.some(isNodeCommandPart) && parts.some(isMemoryFortMcpServerPath);
+}
+
+function isNodeCommandPart(value: string): boolean {
+  const leaf = value.replace(/\\/g, "/").split("/").pop()?.toLowerCase();
+  return leaf === "node" || leaf === "node.exe";
+}
+
+function isMemoryFortMcpServerPath(value: string): boolean {
+  const normalized = value.replace(/\\/g, "/").toLowerCase();
+  return normalized === "hooks/mcp-server.mjs" ||
+    normalized.endsWith("/hooks/mcp-server.mjs");
 }
 
 async function readCaptureSnapshot(

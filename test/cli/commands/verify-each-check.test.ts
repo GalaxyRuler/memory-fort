@@ -294,6 +294,36 @@ describe("verify checks", () => {
     expect(config?.label).toBe("OpenCode MCP entry present");
   });
 
+  it("client checks fail when the OpenCode MCP entry is disabled", async () => {
+    await writeOpenCodeConfig({ enabled: false });
+
+    const results = await checkClients({ vaultRoot: tmp, now });
+
+    const config = results.find((result) => result.id === "client.opencode.config");
+    expect(config?.status).toBe("fail");
+    expect(config?.detail).toContain("memory MCP entry missing or stale");
+  });
+
+  it("client checks fail when the OpenCode MCP command does not target the Memory Fort server", async () => {
+    await writeOpenCodeConfig({ command: ["node", join(tmp, "hooks", "other-server.mjs")] });
+
+    const results = await checkClients({ vaultRoot: tmp, now });
+
+    const config = results.find((result) => result.id === "client.opencode.config");
+    expect(config?.status).toBe("fail");
+    expect(config?.detail).toContain("memory MCP entry missing or stale");
+  });
+
+  it("client checks fail when the OpenCode MCP command uses a loose string", async () => {
+    await writeOpenCodeConfig({ command: `node ${join(tmp, "hooks", "mcp-server.mjs")}` });
+
+    const results = await checkClients({ vaultRoot: tmp, now });
+
+    const config = results.find((result) => result.id === "client.opencode.config");
+    expect(config?.status).toBe("fail");
+    expect(config?.detail).toContain("memory MCP entry missing or stale");
+  });
+
   it("client checks pass when the OpenCode plugin is installed", async () => {
     await writeOpenCodePlugin();
 
@@ -538,7 +568,9 @@ describe("verify checks", () => {
     await utimes(fullPath, mtime, mtime);
   }
 
-  async function writeOpenCodeConfig(): Promise<void> {
+  async function writeOpenCodeConfig(
+    overrides: Partial<{ command: unknown; enabled: boolean }> = {},
+  ): Promise<void> {
     const opencodeDir = process.env["MEMORY_OPENCODE_DIR"]!;
     await mkdir(opencodeDir, { recursive: true });
     await writeFile(
@@ -547,7 +579,8 @@ describe("verify checks", () => {
         mcp: {
           memory: {
             type: "local",
-            command: ["node", join(tmp, "hooks", "mcp-server.mjs")],
+            command: overrides.command ?? ["node", join(tmp, "hooks", "mcp-server.mjs")],
+            enabled: overrides.enabled ?? true,
           },
         },
       }),

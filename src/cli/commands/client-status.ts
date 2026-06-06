@@ -222,19 +222,20 @@ async function readOpenCovenStatus(): Promise<ClientStatus> {
 
 async function readOpenCodeStatus(): Promise<ClientStatus> {
   const configPath = opencodeConfigPath();
-  const configOk = await jsonHasServer(configPath, "mcp");
-  const pluginOk = existsSync(opencodePluginPath());
+  const configOk = await hasValidOpenCodeConfig(configPath);
+  const pluginPath = opencodePluginPath();
+  const pluginOk = await hasValidOpenCodePlugin(pluginPath);
   return {
     client: "opencode",
     state: configOk && pluginOk
       ? "installed"
-      : existsSync(configPath) || pluginOk
+      : existsSync(configPath) || existsSync(pluginPath)
         ? "stale"
         : "missing",
     detail: configOk && pluginOk
       ? "installed"
-      : existsSync(configPath) || pluginOk
-        ? "installed but memory MCP or plugin file is missing"
+      : existsSync(configPath) || existsSync(pluginPath)
+        ? "installed but memory MCP or plugin file is missing or stale"
         : "not installed",
     configPath,
   };
@@ -272,4 +273,47 @@ async function jsonHasServer(
   } catch {
     return false;
   }
+}
+
+async function hasValidOpenCodeConfig(configPath: string): Promise<boolean> {
+  if (!existsSync(configPath)) return false;
+  try {
+    const parsed = JSON.parse(await readFile(configPath, "utf-8")) as Record<string, unknown>;
+    const mcp = asRecord(parsed["mcp"]);
+    const memory = asRecord(mcp?.["memory"]);
+    return memory?.["type"] === "local" &&
+      memory["enabled"] === true &&
+      isValidOpenCodeCommand(memory["command"]);
+  } catch {
+    return false;
+  }
+}
+
+async function hasValidOpenCodePlugin(pluginPath: string): Promise<boolean> {
+  if (!existsSync(pluginPath)) return false;
+  const raw = await readFile(pluginPath, "utf-8");
+  return raw.includes("MemoryFortOpenCode") && raw.includes("opencode-event.mjs");
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function isValidOpenCodeCommand(value: unknown): boolean {
+  if (!Array.isArray(value)) return false;
+  const parts = value.filter((entry): entry is string => typeof entry === "string");
+  return parts.some(isNodeCommandPart) && parts.some(isMemoryFortMcpServerPath);
+}
+
+function isNodeCommandPart(value: string): boolean {
+  const leaf = value.replace(/\\/g, "/").split("/").pop()?.toLowerCase();
+  return leaf === "node" || leaf === "node.exe";
+}
+
+function isMemoryFortMcpServerPath(value: string): boolean {
+  const normalized = value.replace(/\\/g, "/").toLowerCase();
+  return normalized === "hooks/mcp-server.mjs" ||
+    normalized.endsWith("/hooks/mcp-server.mjs");
 }
