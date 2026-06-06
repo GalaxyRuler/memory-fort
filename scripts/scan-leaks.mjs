@@ -7,7 +7,6 @@ import { QUARANTINE_GLOBS } from "./release/quarantine.mjs";
 
 const ALLOWLIST_PATHS = new Set([
   "AUTHORSHIP.md",
-  "COMMERCIAL.md",
   "LICENSE",
   "LICENSE-NOTICE.md",
   "package.json",

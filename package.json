@@ -8,7 +8,7 @@
     "email": "Abdullah@alkulaib.io",
     "url": "https://github.com/GalaxyRuler"
   },
-  "license": "SEE LICENSE IN LICENSE",
+  "license": "GPL-3.0-only",
   "scripts": {
     "build": "node scripts/check-prompt-drift.mjs && node --max-old-space-size=8192 ./node_modules/tsdown/dist/run.mjs && npm run build:ui",
     "build:ui": "vite build",
@@ -36,7 +36,6 @@
     "README.md",
     "LICENSE",
     "LICENSE-NOTICE.md",
-    "COMMERCIAL.md",
     "AUTHORSHIP.md"
   ],
   "publishConfig": {

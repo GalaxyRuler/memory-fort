@@ -286,9 +286,9 @@ Built-in React dashboard: browse the wiki, search (BM25 + semantic + graph), rev
 
 ## License
 
-Memory Fort is **source-available** under the [PolyForm Noncommercial License 1.0.0](LICENSE) — free for personal use, hobby projects, and non-commercial research.
+Memory Fort is open source under the [GNU General Public License v3.0](LICENSE) (`GPL-3.0-only`).
 
-Commercial use requires a paid license. See [COMMERCIAL.md](COMMERCIAL.md).
+Commercial use is permitted under the GPLv3 terms. There is no separate commercial license requirement for this repository.
 
 ## For contributors / private dev repo
 
