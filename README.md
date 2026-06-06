@@ -108,10 +108,10 @@ flowchart LR
         R["raw/"]
     end
 
-    subgraph Routes[""]
-        R1["① Session-start\nautomatic push\nevery session"]
-        R2["② MCP search\non-demand pull\nBM25 + vectors + graph"]
-        R3["③ grep\nCLI / manual"]
+    subgraph Routes["Retrieval routes"]
+        R1["(1) Session-start\nautomatic push\nevery session"]
+        R2["(2) MCP search\non-demand pull\nBM25 + vectors + graph"]
+        R3["(3) grep\nCLI / manual"]
     end
 
     subgraph AI["AI Tool"]
@@ -129,7 +129,7 @@ flowchart LR
     R3 -->|matching lines| CLI2
 ```
 
-**Route ①** fires automatically — you always get your top context injected. **Routes ② and ③** are on-demand (agent or human asks).
+**Route (1)** fires automatically — you always get your top context injected. **Routes (2) and (3)** are on-demand (agent or human asks).
 
 ---
 
