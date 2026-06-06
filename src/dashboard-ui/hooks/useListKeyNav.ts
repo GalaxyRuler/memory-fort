@@ -147,7 +147,9 @@ function isInteractiveEventTarget(event: KeyboardEvent<HTMLElement>): boolean {
 }
 
 function isManagedListKeyNavTarget(event: KeyboardEvent<HTMLElement>): boolean {
-  return event.target instanceof HTMLElement && event.target.dataset.listKeyNavItem === "true";
+  if (!(event.target instanceof HTMLElement)) return false;
+  const managedElement = event.target.closest("[data-list-key-nav-item='true']");
+  return managedElement instanceof HTMLElement && event.currentTarget.contains(managedElement);
 }
 
 function isEditableElement(element: Element | null): boolean {

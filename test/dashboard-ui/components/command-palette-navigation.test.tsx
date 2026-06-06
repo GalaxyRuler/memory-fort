@@ -128,7 +128,7 @@ describe("CommandPalette navigation", () => {
       }),
       {
         to: "/raw/$date/$filename",
-        params: { date: "2026-05-24", filename: "codex-session" },
+        params: { date: "2026-05-24", filename: "codex-session.md" },
       },
     ],
     [

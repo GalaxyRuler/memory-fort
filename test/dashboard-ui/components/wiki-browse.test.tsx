@@ -156,15 +156,19 @@ describe("wiki browse components", () => {
 
     render(<WikiBrowsePage />);
 
-    const list = screen.getByRole("list", { name: "Wiki pages" });
+    const region = screen.getByRole("region", { name: "Wiki pages keyboard navigation" });
     const decisionLink = screen.getByRole("link", { name: /voyage/i });
     const projectLink = screen.getByRole("link", { name: /memory-system/i });
+    const pageItems = within(region).getAllByRole("listitem");
 
     expect(decisionLink).toHaveAttribute("tabindex", "0");
     expect(projectLink).toHaveAttribute("tabindex", "-1");
+    expect(pageItems).toHaveLength(2);
+    expect(within(pageItems[0]!).getByRole("link", { name: /voyage/i })).toBeInTheDocument();
+    expect(within(pageItems[1]!).getByRole("link", { name: /memory-system/i })).toBeInTheDocument();
 
-    list.focus();
-    fireEvent.keyDown(list, { key: "j" });
+    region.focus();
+    fireEvent.keyDown(region, { key: "j" });
 
     expect(projectLink).toHaveFocus();
     expect(projectLink).toHaveAttribute("data-focused", "true");

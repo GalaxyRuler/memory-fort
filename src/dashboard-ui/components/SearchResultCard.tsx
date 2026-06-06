@@ -99,7 +99,7 @@ export function resultLinkProps(result: SearchResult): ResultLinkProps | null {
     return wikiLinkFromPath(result.path);
   }
   if (result.kind === "raw" && result.path.startsWith("raw/")) {
-    const parts = result.path.replace(/^raw\//, "").replace(/\.md$/, "").split("/");
+    const parts = result.path.replace(/^raw\//, "").split("/");
     if (parts.length >= 2) {
       return {
         to: "/raw/$date/$filename",

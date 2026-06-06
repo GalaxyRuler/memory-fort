@@ -56,6 +56,25 @@ function KeyboardListWithDisclosure({ onActivate = vi.fn() }: { onActivate?: (it
   );
 }
 
+function KeyboardListWithLinks({ onActivate = vi.fn() }: { onActivate?: (item: string) => void }) {
+  const items = ["alpha", "beta", "gamma"];
+  const nav = useListKeyNav({
+    items,
+    getKey: (item) => item,
+    onActivate,
+  });
+
+  return (
+    <ul aria-label="Keyboard list" {...nav.listProps}>
+      {items.map((item, index) => (
+        <li key={item} {...nav.getItemProps(index)}>
+          <a href={`#${item}`}>{item}</a>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 describe("useListKeyNav", () => {
   test("J advances focus and K retreats", () => {
     render(<KeyboardList />);
@@ -124,5 +143,17 @@ describe("useListKeyNav", () => {
 
     expect(details).not.toHaveAttribute("open");
     expect(onActivate).not.toHaveBeenCalled();
+  });
+
+  test("J and K move focus when a managed item's title link has focus", () => {
+    render(<KeyboardListWithLinks />);
+    const alphaLink = screen.getByRole("link", { name: "alpha" });
+    const betaItem = screen.getByText("beta").closest("li");
+
+    alphaLink.focus();
+    fireEvent.keyDown(alphaLink, { key: "j" });
+
+    expect(betaItem).toHaveFocus();
+    expect(betaItem).toHaveAttribute("data-focused", "true");
   });
 });

@@ -18,7 +18,13 @@ vi.mock("@tanstack/react-router", async (importOriginal) => {
       params?: Record<string, string>;
       to: string;
     }) => {
-      const href = params ? to.replace("$category", params.category).replace("$slug", params.slug) : to;
+      const href = params
+        ? to
+            .replace("$category", params.category ?? "")
+            .replace("$slug", params.slug ?? "")
+            .replace("$date", params.date ?? "")
+            .replace("$filename", params.filename ?? "")
+        : to;
       return (
         <a className={className} href={href}>
           {children}
@@ -76,6 +82,27 @@ describe("SearchResultCard", () => {
     render(<SearchResultCard result={result} />);
 
     expect(screen.getByRole("link", { name: "Provenance Signals" })).toHaveAttribute("href", "/crystals");
+  });
+
+  test("preserves raw markdown filenames in result links", () => {
+    const result: SearchResult = {
+      ...RESULT,
+      kind: "raw",
+      path: "raw/2026-05-24/codex-session.md",
+      provenance: {
+        ...RESULT.provenance,
+        kind: "raw",
+        path: "raw/2026-05-24/codex-session.md",
+      },
+      title: "Codex Session",
+    };
+
+    render(<SearchResultCard result={result} />);
+
+    expect(screen.getByRole("link", { name: "Codex Session" })).toHaveAttribute(
+      "href",
+      "/raw/2026-05-24/codex-session.md",
+    );
   });
 
   test("renders a compact provenance receipt for search signals", () => {

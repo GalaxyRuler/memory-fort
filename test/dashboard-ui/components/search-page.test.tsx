@@ -217,4 +217,39 @@ describe("SearchPage", () => {
       params: { category: "crystals", slug: "retrieval" },
     });
   });
+
+  test("j navigation from a focused result title link moves to the next managed result", () => {
+    routerState.search = { q: "voyage" };
+    searchHook.useSearch.mockReturnValue({
+      data: {
+        results: [
+          makeResult(),
+          {
+            ...makeResult(),
+            path: "wiki/projects/bar.md",
+            title: "Bar Project",
+            provenance: {
+              ...makeResult().provenance,
+              path: "wiki/projects/bar.md",
+            },
+          },
+        ],
+        timings: { totalMs: 42 },
+        degraded: false,
+        warnings: [],
+      },
+      isLoading: false,
+    });
+
+    render(<SearchPage />);
+
+    const firstTitleLink = screen.getByRole("link", { name: "Foo Project" });
+    const nextResult = screen.getByText("Bar Project").closest("[role='listitem']");
+
+    firstTitleLink.focus();
+    fireEvent.keyDown(firstTitleLink, { key: "j" });
+
+    expect(nextResult).toHaveFocus();
+    expect(nextResult).toHaveAttribute("data-focused", "true");
+  });
 });

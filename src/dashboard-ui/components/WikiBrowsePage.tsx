@@ -98,9 +98,9 @@ export function WikiBrowsePage() {
               ))}
             </ul>
           ) : (
-            <div aria-label="Wiki pages" className="space-y-8" role="list" {...listNav.listProps}>
+            <div aria-label="Wiki pages keyboard navigation" className="space-y-8" role="region" {...listNav.listProps}>
               {groups.map((group) => (
-                <section key={group.category} role="listitem">
+                <section key={group.category}>
                   <h2 className="mb-3 break-words text-lg font-semibold tracking-tight" id={`wiki-group-${group.category}`}>
                     {CATEGORY_LABELS[group.category] ?? titleCase(group.category)}
                   </h2>

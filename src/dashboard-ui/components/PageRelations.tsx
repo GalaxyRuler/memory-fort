@@ -51,7 +51,7 @@ export function PageRelations({
 
   if (grouped.size === 0 && inbound.length === 0) {
     return (
-      <section className={cn("mt-8", className)}>
+      <section aria-label="Page relations" className={cn("mt-8", className)} role="region">
         <EmptyState
           icon={GitBranch}
           title="No relations yet"
