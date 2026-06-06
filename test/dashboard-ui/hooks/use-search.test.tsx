@@ -184,4 +184,55 @@ describe("useSearch", () => {
       { source: "rerank", rank: 3 },
     ]);
   });
+
+  test("normalizes omitted provenance at the API boundary", async () => {
+    const response = makeSearchResponse();
+    const resultWithoutProvenance = { ...response.results[0] } as Record<string, unknown>;
+    delete resultWithoutProvenance.provenance;
+    response.results[0] = resultWithoutProvenance as unknown as (typeof response.results)[number];
+    const fetchMock = vi.fn(
+      async (_input: RequestInfo | URL) => new Response(JSON.stringify(response), { status: 200 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { result } = renderHook(
+      () => useSearch({ query: "voyage", scope: "all", k: 12, noRerank: true }),
+      { wrapper: wrapperWithQueryClient },
+    );
+
+    await waitFor(() => {
+      expect(result.current.data?.results[0]?.provenance).toEqual({
+        path: "wiki/projects/voyage.md",
+        kind: "wiki",
+        dominantSource: "bm25",
+        signals: [],
+      });
+    });
+  });
+
+  test("normalizes empty provenance at the API boundary", async () => {
+    const response = makeSearchResponse();
+    response.results[0] = {
+      ...response.results[0],
+      provenance: {},
+    } as unknown as (typeof response.results)[number];
+    const fetchMock = vi.fn(
+      async (_input: RequestInfo | URL) => new Response(JSON.stringify(response), { status: 200 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { result } = renderHook(
+      () => useSearch({ query: "voyage", scope: "all", k: 12, noRerank: true }),
+      { wrapper: wrapperWithQueryClient },
+    );
+
+    await waitFor(() => {
+      expect(result.current.data?.results[0]?.provenance).toEqual({
+        path: "wiki/projects/voyage.md",
+        kind: "wiki",
+        dominantSource: "bm25",
+        signals: [],
+      });
+    });
+  });
 });
