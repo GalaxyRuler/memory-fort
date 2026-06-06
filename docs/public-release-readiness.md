@@ -11,8 +11,8 @@ Scope: read-only public-release audit for Memory Fort from the checkout at `<rep
 | area | current behavior | evidence |
 |---|---|---|
 | Canonical substrate | The vault root is `MEMORY_ROOT` or `~/.memory`; schema, index, log, config, raw, wiki, crystals, threads, procedures, and embeddings are path-derived files and directories. | src/storage/paths.ts:16-99 |
-| First-run substrate creation | `memory init` creates the root/subdirs, renders `templates/schema.md`, copies prompt templates, writes index/log/config/preferences, creates .gitignore/.gitattributes, and initializes a git repo when git is available. | src/cli/commands/init.ts:131-290 |
-| Template variables | Template user fields come from global git config and source-repo HEAD; there is no interactive prompt/wizard in this path. | src/cli/template-render.ts:28-49 |
+| First-run substrate creation | Historical 2026-06-03 substrate behavior: the lower-level init path creates the root/subdirs, renders `templates/schema.md`, copies prompt templates, writes index/log/config/preferences, creates .gitignore/.gitattributes, and initializes a git repo when git is available. Current CLI onboarding is corrected in section 4. | src/cli/commands/init.ts:131-290; src/cli/commands/init-onboarding.ts:74-160 |
+| Template variables | Historical 2026-06-03 template behavior: defaults came from global git config and source-repo HEAD. Current TTY onboarding prompts for the display name and still uses detected defaults for omitted fields. | src/cli/template-render.ts:28-49; src/cli/commands/init-onboarding.ts:97-112; src/cli/commands/init-onboarding.ts:304-320 |
 | Raw ingest | Client installers wire hooks that write raw session/observation markdown into the vault. Codex installs SessionStart, UserPromptSubmit, PostToolUse, PreCompact, and Stop hooks plus the MCP server. | src/cli/commands/install/codex.ts:30-74; src/cli/commands/install/codex.ts:100-136 |
 | Tool integrations | Historical as of 2026-06-03: the audited install targets were Claude Code, Codex, Antigravity, Claude Desktop, and VS Code. See the 2026-06-06 current-status note below and `docs/compatibility-matrix.md` for the authoritative platform list. | src/cli.ts:110-126; src/cli/commands/install/claude-code.ts:17-28; src/cli/commands/install/antigravity.ts:49-57; src/cli/commands/install/vscode.ts:53-75 |
 | MCP server | The stdio MCP server is named `memory` and registers `log_observation`, `read_page`, `list_pages`, and `search`. | src/mcp/server.ts:365-417 |
@@ -29,7 +29,7 @@ Scope: read-only public-release audit for Memory Fort from the checkout at `<rep
 
 | command | purpose | evidence |
 |---|---|---|
-| init | Initialize the vault with schema, index, log, config, wiki/preferences.md, and a git repo when git is available. | src/cli.ts:88-89; src/cli/commands/init.ts:131-290 |
+| init | Initialize the vault through onboarding; supports `--vault`, `--name`, `--tools`, `--retrieval`, `--dry-run`, and `--yes`, then creates schema/index/log/config/preferences and a git repo when git is available. | src/cli.ts:120-149; src/cli/commands/init-onboarding.ts:74-160 |
 | install <platform> | Install hooks and MCP wiring for claude-code, codex, antigravity, claude-desktop, or vscode. | src/cli.ts:110-126 |
 | connect [client] | Alias path for installing one or all supported client integrations. | src/cli.ts:128-129 |
 | install-vps | Provision /root/memory-system on a VPS over SSH. | src/cli.ts:153-156; src/cli/commands/install-vps.ts:45-47 |
@@ -349,15 +349,17 @@ These files are local operating instructions/config and should not be part of th
 
 ## 4. Installability gap analysis
 
-### What first-run does today
+### What first-run did in the 2026-06-03 audit
 
-- `memory init` uses `MEMORY_ROOT` or `~/.memory`, creates the root and subdirectories, renders `templates/schema.md`, writes prompts/index/log/config/preferences, and initializes a git repo when possible. Evidence: src/storage/paths.ts:16-99; src/cli/commands/init.ts:131-290.
-- Template values are detected from global git config and source repo HEAD; there is no interactive wizard, no readline flow, and no user choice of tools/provider/storage in the init path. Evidence: src/cli/template-render.ts:28-49; src/cli/commands/init.ts:156-164.
-- `memory install <platform>` writes hook/MCP config for one target tool; Codex install writes config TOML hooks plus an MCP server block, Claude Code install writes settings/plugin wiring, Antigravity install writes MCP/config/plugin files, and VS Code uses user profile/extension paths. Evidence: src/cli/commands/install/codex.ts:30-74; src/cli/commands/install/claude-code.ts:44-90; src/cli/commands/install/antigravity.ts:30-57; src/cli/commands/install/vscode.ts:53-75.
+- Historical 2026-06-03 finding: the lower-level init path used `MEMORY_ROOT` or `~/.memory`, created the root and subdirectories, rendered `templates/schema.md`, wrote prompts/index/log/config/preferences, and initialized a git repo when possible. Evidence: src/storage/paths.ts:16-99; src/cli/commands/init.ts:131-290.
+- Historical 2026-06-03 finding: template values were detected from global git config and source repo HEAD, and the audited CLI path did not yet expose the onboarding wizard now present in the current branch. Evidence from the old path: src/cli/template-render.ts:28-49; src/cli/commands/init.ts:156-164.
+- Historical 2026-06-03 finding: `memory install <platform>` wrote hook/MCP config for one target tool; Codex install wrote config TOML hooks plus an MCP server block, Claude Code install wrote settings/plugin wiring, Antigravity install wrote MCP/config/plugin files, and VS Code used user profile/extension paths. Evidence: src/cli/commands/install/codex.ts:30-74; src/cli/commands/install/claude-code.ts:44-90; src/cli/commands/install/antigravity.ts:30-57; src/cli/commands/install/vscode.ts:53-75.
 
-### Current tool support note (2026-06-06)
+### Current onboarding correction (2026-06-06)
 
-`memory init` remains storage-first and does not require choosing a client integration. Current install/status support extends beyond the 2026-06-03 audit snapshot; `docs/compatibility-matrix.md` is the authoritative status source for platform coverage, including MCP-only OpenClaw support with v1 hooks intentionally skipped.
+Current `memory init` routes through `runInitOnboarding`. In an interactive TTY, it asks four pre-defaulted questions: vault location, display name, tools to wire, and retrieval mode. The default tool answer comes from detected local tool config, and retrieval supports lexical/keyless, Voyage, OpenAI, and Ollama. Non-interactive runs still work through `--yes` or explicit `--name`, `--tools`, and `--retrieval`; selected tools are wired by calling `runConnect` after init. Evidence: src/cli.ts:120-149; src/cli/commands/init-onboarding.ts:74-160; src/cli/commands/init-onboarding.ts:163-213; src/cli/commands/init-onboarding.ts:235-320.
+
+The 2026-06-03 wizard gap is resolved for first-run vault/name/tool/retrieval onboarding. Remaining onboarding limits are narrower: the wizard does not collect separate email/handle fields, does not offer a storage-backend choice, and does not ask about dashboard or sync/deploy setup. Current install/status support extends beyond the 2026-06-03 audit snapshot; `docs/compatibility-matrix.md` is the authoritative status source for platform coverage, including MCP-only OpenClaw support with v1 hooks intentionally skipped.
 
 ### Keyless first run
 
@@ -372,13 +374,13 @@ These files are local operating instructions/config and should not be part of th
 | gap | effect | evidence | release action |
 |---|---|---|---|
 | `private: true` | Cannot publish to npm as-is. | package.json:4 | Flip only in the scrubbed public export. |
-| Scoped name `@<author-handle>/memory-system` | Does not match the stated `npx memory-fort init` product shape. | package.json:2 | Decide `memory-fort` vs scoped package. |
+| Scoped name `@<author-handle>/memory-system` | Historical gap, resolved as of 2026-06-06: package name is `memory-fort`, with `memory-fort` and `memory` bins pointing at `dist/cli.mjs`. | package.json:2; package.json:30-32 | No release action remains for package naming in this branch. |
 | Bin points to `dist/cli.mjs` | The package must include built dist output. | package.json:24-28 | Keep build step and whitelist dist. |
-| No `files`, `.npmignore`, `exports`, or `publishConfig` observed. | npm packs docs/tests/source/ignored worktrees; public package is huge and leaky. | package.json:1-44; npm pack dry-run output | Add `files` whitelist and publishConfig in public export. |
+| No `files`, `.npmignore`, `exports`, or `publishConfig` observed. | Historical gap, partially resolved as of 2026-06-06: package `files` now whitelists runtime assets and `publishConfig.access` is public. | package.json:34-45 | No action remains for the package whitelist/publishConfig in this branch; separate pack-smoke evidence should confirm the shipped surface before publish. |
 | Current pack is 72,189,897 bytes compressed, 107,531,029 bytes unpacked, 4,257 entries. | Too large and includes private history/worktrees. | npm pack dry-run output | Whitelist only package runtime assets. |
 | npm warned `gitignore-fallback No .npmignore file found`. | npm is relying on .gitignore and ignores .git/info/exclude, which is why .claude/worktrees ships. | npm pack dry-run output | Add public `files` whitelist; do not rely on ignore files. |
 | README quickstart is dev-checkout oriented. | Stranger cannot follow a simple `npx memory-fort init` path. | README.md:13-23; README.md:37-47 | Rewrite public README around npm install/npx and wizard. |
-| Init wizard does not exist today. | Fixed distribution constraint is unmet. | src/cli/template-render.ts:28-49; src/cli/commands/init.ts:131-290 | Add interactive init wizard in public release branch/export. |
+| Init wizard did not exist in the 2026-06-03 audit path. | Historical gap, resolved as of 2026-06-06 for vault/name/tools/retrieval onboarding; remaining gaps are email/handle, storage-backend choice, dashboard, and sync/deploy prompts. | src/cli.ts:120-149; src/cli/commands/init-onboarding.ts:74-160; src/cli/commands/init-onboarding.ts:304-320 | Keep the wizard and add only the narrower missing prompts/docs if required by release scope. |
 
 ## 5. Storage & interface pluggability assessment
 
@@ -400,7 +402,7 @@ Recommendation: keep markdown-on-disk as the single canonical store for v1. Publ
 |---|---|---:|---|
 | Scrub | Build `scripts/scan-leaks.mjs` with the denylist in this report, an author-attribution allowlist for package/license/authorship files, and a fail-fast mode for public export. Remove/genericize `templates/schema.md` section 12, README examples, Vite proxy target, runtime defaults, and tests that will be exported. Quarantine `docs/codex-*`, `docs/superpowers/`, `docs/archive/`, `docs/design/`, `.claude/`, `.codex/`, private AGENTS/runner config, and private VPS docs unless deliberately genericized. | M | High: leak risk is broad and npm currently includes hidden worktrees. |
 | Release plumbing | Build `scripts/build-public.mjs` that exports a clean tree from the private repo using a positive whitelist. Add package `files`, `publishConfig`, final package name, public README, license files, dist/templates, and maybe minimal tests. Keep the private repo authoritative for development. | M | High: packaging mistake can publish private files. |
-| Onboarding | Implement the interactive `memory init` wizard required by the release constraint: vault root, display name/email/handle, supported tools to install, keyless vs Voyage/OpenAI/Ollama, optional dashboard, and optional sync/deploy. Add clean first-run docs for Windows/macOS/Linux. | M | Medium: changes user-facing defaults and init behavior. |
+| Onboarding | Current branch has the interactive `memory init` wizard for vault root, display name, supported tools to wire, and keyless/Voyage/OpenAI/Ollama retrieval. Remaining release work is separate email/handle prompts if needed, optional dashboard/sync/deploy onboarding, and clean first-run docs for Windows/macOS/Linux. | S-M | Medium: changes user-facing defaults and init behavior. |
 | Verification gates | Add CI for typecheck/build, scan-leaks, npm pack dry-run inspection, and clean-temp-home smoke: `npx/package-bin memory init`, `memory dashboard --no-open`, `memory grep`, and optional `memory search` with dashboard running and no API keys. | M | Medium: cross-platform path and HOME isolation bugs likely surface. |
 | Launch | Publish a scrubbed public repo, run one final clean export audit, tag, publish npm, and smoke install from npm on Windows/macOS/Linux. Keep VPS/Tailscale deployment docs private or publish only after genericization. | S-M | Medium: npm package name and dual-license messaging must be settled. |
 

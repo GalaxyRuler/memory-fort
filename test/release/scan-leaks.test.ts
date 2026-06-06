@@ -164,6 +164,22 @@ describe("scan-leaks release gate", () => {
     expect(result.stdout).not.toContain("docs/release-evidence/private.txt");
   });
 
+  it("reports dist-only infra token hits as json", async () => {
+    const token = ["tail", "6916d8"].join("");
+    await writeText("dist/cli.mjs", `const route = "${token}";\n`);
+
+    const result = await runScan(["--root", tmp, "--json"]);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toBe("");
+    expect(JSON.parse(result.stdout)).toEqual([{
+      path: "dist/cli.mjs",
+      line: 1,
+      token,
+      scope: "dist",
+    }]);
+  });
+
   async function writeText(relPath: string, content: string): Promise<void> {
     const fullPath = join(tmp, ...relPath.split("/"));
     await mkdir(join(fullPath, ".."), { recursive: true });

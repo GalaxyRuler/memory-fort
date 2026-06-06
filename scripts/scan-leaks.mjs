@@ -71,16 +71,6 @@ for (const relPath of files) {
   }
 }
 
-if (args.json) {
-  process.stdout.write(hits.length > 0 ? `${JSON.stringify(hits, null, 2)}\n` : "");
-} else {
-  for (const hit of hits) {
-    process.stdout.write(`${hit.path}:${hit.line}: ${hit.token}\n`);
-  }
-}
-
-process.exitCode = hits.length > 0 ? 1 : 0;
-
 // Second pass: scan dist/ for the two infra tokens that leaked in 0.1.0.
 // dist/** is quarantined from the main scan (too large/minified), but these
 // specific literals must never appear there.
@@ -100,13 +90,22 @@ if (await pathExists(distDir)) {
       for (const token of INFRA_TOKENS) {
         if (line.includes(token)) {
           const rel = toPosixPath(relative(root, fullPath));
-          process.stderr.write(`dist/ contains private infra token\n${rel}:${index + 1}: ${token}\n`);
-          process.exit(1);
+          hits.push({ path: rel, line: index + 1, token, scope: "dist" });
         }
       }
     }
   }
 }
+
+if (args.json) {
+  process.stdout.write(hits.length > 0 ? `${JSON.stringify(hits, null, 2)}\n` : "");
+} else {
+  for (const hit of hits) {
+    process.stdout.write(`${hit.path}:${hit.line}: ${hit.token}\n`);
+  }
+}
+
+process.exitCode = hits.length > 0 ? 1 : 0;
 
 async function walkDistFiles(dir) {
   const results = [];
