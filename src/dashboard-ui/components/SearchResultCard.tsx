@@ -12,6 +12,11 @@ const KIND_COLOR: Record<string, string> = {
   crystal: "bg-entity-crystals",
 };
 
+const PROVENANCE_LABELS: Record<string, string> = {
+  bm25: "BM25",
+  "graph-spread": "graph spread",
+};
+
 export type ResultLinkProps =
   | { to: "/wiki/$category/$slug"; params: { category: string; slug: string } }
   | { to: "/raw/$date/$filename"; params: { date: string; filename: string } };
@@ -48,6 +53,24 @@ export function SearchResultCard({
           )}
           <p className="mb-2 break-all font-mono text-xs text-text-muted md:truncate">{result.path}</p>
           <p className="mb-3 line-clamp-2 text-sm text-text-secondary">{result.snippet}</p>
+          {result.provenance.signals.length > 0 ? (
+            <details className="mt-3 text-xs text-text-muted">
+              <summary className="cursor-pointer font-medium text-text-secondary">Why this matched</summary>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {result.provenance.signals.map((signal) => {
+                  const label = PROVENANCE_LABELS[signal.source] ?? signal.source;
+                  return (
+                    <span
+                      key={`${signal.source}-${signal.rank}`}
+                      className="rounded border border-border-subtle px-1.5 py-0.5 font-mono"
+                    >
+                      {label} rank {signal.rank}
+                    </span>
+                  );
+                })}
+              </div>
+            </details>
+          ) : null}
           <ScoreBreakdown className="hidden md:flex" sources={result.sources} />
         </div>
         <div className="flex flex-shrink-0 items-center justify-between gap-3 border-t border-border-subtle pt-3 md:block md:border-t-0 md:pt-0 md:text-right">

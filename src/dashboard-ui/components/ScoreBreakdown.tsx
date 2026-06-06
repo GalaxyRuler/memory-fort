@@ -10,6 +10,7 @@ const SOURCE_COLORS: Record<string, string> = {
   vector: "bg-entity-decisions",
   exact: "bg-status-green",
   graph: "bg-entity-references",
+  "graph-spread": "bg-entity-tools",
   metadata: "bg-text-muted",
   rerank: "bg-entity-crystals",
 };
@@ -19,6 +20,7 @@ const SOURCE_LABELS: Record<string, string> = {
   vector: "embed",
   exact: "exact",
   graph: "graph",
+  "graph-spread": "graph spread",
   metadata: "meta",
   rerank: "rerank",
 };
