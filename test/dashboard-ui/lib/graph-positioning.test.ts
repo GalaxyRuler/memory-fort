@@ -12,7 +12,13 @@ function graphNode(path: string, overrides: Partial<GraphNode> = {}): GraphNode 
     title: path,
     kind: "wiki",
     type: "projects",
+    cognitiveType: "semantic",
+    status: "active",
+    source: "manual",
+    created: "2026-05-20",
     confidence: 0.9,
+    tags: [],
+    description: "",
     updated: "2026-05-24",
     inboundCount: 0,
     outboundCount: 0,
@@ -26,6 +32,7 @@ function graphEdge(fromPath: string, toPath: string): GraphEdge {
     toPath,
     kind: "relation",
     relationType: "uses",
+    type: "uses",
   };
 }
 

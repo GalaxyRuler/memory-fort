@@ -90,7 +90,7 @@ describe("settings page", () => {
 
   test("useConfig fetches /api/config", async () => {
     const fetchMock = vi.fn(
-      async () =>
+      async (_input: RequestInfo | URL) =>
         new Response(JSON.stringify({ retention: { raw_window_days: 90 } }), {
           status: 200,
         }),
@@ -104,7 +104,9 @@ describe("settings page", () => {
       const config = actual.useConfig();
       if (config.isLoading) return <p>loading</p>;
       if (config.isError) return <p>error</p>;
-      return <p>raw window: {String(config.data.retention?.raw_window_days)}</p>;
+      if (!config.data) return <p>empty</p>;
+      const retention = config.data.retention as { raw_window_days?: number } | undefined;
+      return <p>raw window: {String(retention?.raw_window_days)}</p>;
     }
 
     renderWithQueryClient(<ConfigProbe />);

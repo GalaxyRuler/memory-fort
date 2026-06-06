@@ -7,7 +7,7 @@ import { EmbedderConfigCard } from "./EmbedderConfigCard.js";
 import { LLMConfigCard } from "./LLMConfigCard.js";
 import { SettingsSection } from "./SettingsSection.js";
 
-function isSection(value: ConfigValue): value is Record<string, ConfigValue> {
+function isSection(value: ConfigValue | undefined): value is Record<string, ConfigValue> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 

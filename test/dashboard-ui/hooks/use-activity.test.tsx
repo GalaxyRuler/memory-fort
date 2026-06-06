@@ -23,7 +23,7 @@ describe("useActivity", () => {
 
   test("passes limit to URL", async () => {
     const fetchMock = vi.fn(
-      async () =>
+      async (_input: RequestInfo | URL) =>
         new Response(JSON.stringify({ events: [], nextCursor: null }), {
           status: 200,
         }),

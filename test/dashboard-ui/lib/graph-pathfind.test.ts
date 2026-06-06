@@ -8,6 +8,7 @@ function edge(fromPath: string, toPath: string): GraphEdge {
     toPath,
     kind: "relation",
     relationType: "uses",
+    type: "uses",
   };
 }
 

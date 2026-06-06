@@ -28,6 +28,12 @@ function makeSearchResponse() {
         score: 0.91,
         source: "rerank",
         sources: [{ source: "rerank", rank: 1 }],
+        provenance: {
+          path: "wiki/projects/foo.md",
+          kind: "wiki",
+          dominantSource: "rerank",
+          signals: [{ source: "rerank", rank: 1 }],
+        },
         kind: "wiki",
       },
     ],
@@ -105,7 +111,7 @@ describe("CommandPalette", () => {
   test("typing fires a debounced search", async () => {
     vi.useFakeTimers();
     const fetchMock = vi.fn(
-      async () => new Response(JSON.stringify(makeSearchResponse()), { status: 200 }),
+      async (_input: RequestInfo | URL) => new Response(JSON.stringify(makeSearchResponse()), { status: 200 }),
     );
     vi.stubGlobal("fetch", fetchMock);
     renderPalette();
@@ -136,7 +142,7 @@ describe("CommandPalette", () => {
 
   test("labels palette search responses as fast", async () => {
     const fetchMock = vi.fn(
-      async () => new Response(JSON.stringify(makeSearchResponse()), { status: 200 }),
+      async (_input: RequestInfo | URL) => new Response(JSON.stringify(makeSearchResponse()), { status: 200 }),
     );
     vi.stubGlobal("fetch", fetchMock);
     renderPalette();
@@ -151,7 +157,7 @@ describe("CommandPalette", () => {
 
   test("selecting a result navigates and closes the palette", async () => {
     const fetchMock = vi.fn(
-      async () => new Response(JSON.stringify(makeSearchResponse()), { status: 200 }),
+      async (_input: RequestInfo | URL) => new Response(JSON.stringify(makeSearchResponse()), { status: 200 }),
     );
     vi.stubGlobal("fetch", fetchMock);
     renderPalette();

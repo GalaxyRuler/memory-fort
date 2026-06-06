@@ -5,7 +5,7 @@ import { mkdtemp, rm, mkdir, writeFile, readFile, readdir } from "node:fs/promis
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { logObservation, readPage, listPages, createServer, embeddingProviderPreflight } from "../../src/mcp/server.js";
+import { logObservation, readPage, listPages, createServer, searchMemory, embeddingProviderPreflight } from "../../src/mcp/server.js";
 import { parseFrontmatter } from "../../src/storage/frontmatter.js";
 
 describe("logObservation", () => {
@@ -438,6 +438,166 @@ describe("memory.search MCP tool", () => {
       if (origEnv === undefined) delete process.env["MEMORY_ROOT"];
       else process.env["MEMORY_ROOT"] = origEnv;
       await rm(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("caps backend results before wiki access updates and serialization", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "mcp-search-cap-"));
+    const origEnv = process.env["MEMORY_ROOT"];
+    process.env["MEMORY_ROOT"] = tmp;
+    await mkdir(join(tmp, "wiki", "tools"), { recursive: true });
+    const pageBody = (index: number) =>
+      `---\ntype: projects\ntitle: Bulk ${index}\ncreated: "2026-05-20"\nupdated: "2026-05-21"\nlast_accessed: "2026-05-30"\n---\n\nBulk page ${index}.\n`;
+    await Promise.all(
+      Array.from({ length: 80 }, (_, index) =>
+        writeFile(join(tmp, "wiki", "tools", `bulk-${index}.md`), pageBody(index)),
+      ),
+    );
+    const fetchFn = vi.fn(async () =>
+      jsonResponse({
+        query: "bulk",
+        results: Array.from({ length: 80 }, (_, index) => ({
+          path: `wiki/tools/bulk-${index}.md`,
+          title: `Bulk ${index}`,
+          snippet: `Bulk page ${index}.`,
+          score: 1 - index / 100,
+          source: "bm25",
+          sources: [{ source: "bm25", rank: index + 1 }],
+          kind: "wiki",
+        })),
+        warnings: [],
+        timings: { totalMs: 10, rerankMs: 0 },
+        degraded: false,
+      }),
+    ) as unknown as typeof fetch;
+    const { client, close } = await connectMcp(fetchFn, { now: () => new Date("2026-06-02T00:00:00.000Z") });
+    try {
+      const result = await client.callTool({
+        name: "search",
+        arguments: { query: "bulk" },
+      });
+      const parsed = JSON.parse(extractJsonFence(textFromToolResult(result)));
+
+      expect(parsed.result_count).toBe(10);
+      expect(parsed.results).toHaveLength(10);
+      expect(parsed.results.at(-1).path).toBe("wiki/tools/bulk-9.md");
+      const cappedPage = parseFrontmatter(await readFile(join(tmp, "wiki", "tools", "bulk-9.md"), "utf-8"));
+      const excessPage = parseFrontmatter(await readFile(join(tmp, "wiki", "tools", "bulk-10.md"), "utf-8"));
+      expect(cappedPage.frontmatter.last_accessed).toBe("2026-06-02");
+      expect(excessPage.frontmatter.last_accessed).toBe("2026-05-30");
+    } finally {
+      await close();
+      if (origEnv === undefined) delete process.env["MEMORY_ROOT"];
+      else process.env["MEMORY_ROOT"] = origEnv;
+      await rm(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("clamps untrusted direct search limits to the hard maximum", async () => {
+    const fetchFn = vi.fn(async () =>
+      jsonResponse({
+        query: "direct",
+        results: Array.from({ length: 80 }, (_, index) => ({
+          path: `raw/2026-06-01/${index}.md`,
+          title: `Raw ${index}`,
+          snippet: `Raw item ${index}.`,
+          score: 1,
+          source: "bm25",
+          sources: [{ source: "bm25", rank: index + 1 }],
+        })),
+        warnings: [],
+        timings: { totalMs: 10, rerankMs: 0 },
+        degraded: false,
+      }),
+    ) as unknown as typeof fetch;
+
+    const result = await searchMemory(
+      { query: "direct", k: 500 } as Parameters<typeof searchMemory>[0],
+      { fetchFn },
+    );
+    const parsed = JSON.parse(extractJsonFence(result.content[0]!.text));
+
+    expect(parsed.result_count).toBe(50);
+    expect(parsed.results).toHaveLength(50);
+    expect(parsed.results.at(-1).path).toBe("raw/2026-06-01/49.md");
+  });
+
+  it("caps source signals in top-level sources and provenance", async () => {
+    const sources = Array.from({ length: 12 }, (_, index) => ({
+      source: `source-${index}`,
+      rank: index + 1,
+    }));
+    const fetchFn = vi.fn(async () =>
+      jsonResponse({
+        query: "signals",
+        results: [
+          {
+            path: "raw/2026-06-01/signals.md",
+            title: "Signals",
+            snippet: "Many source signals.",
+            score: 0.9,
+            source: "bm25",
+            sources,
+          },
+        ],
+        warnings: [],
+        timings: { totalMs: 1, rerankMs: 0 },
+        degraded: false,
+      }),
+    ) as unknown as typeof fetch;
+    const { client, close } = await connectMcp(fetchFn);
+    try {
+      const result = await client.callTool({
+        name: "search",
+        arguments: { query: "signals" },
+      });
+      const parsed = JSON.parse(extractJsonFence(textFromToolResult(result)));
+
+      expect(parsed.results[0].sources).toHaveLength(10);
+      expect(parsed.results[0].sources.at(-1)).toEqual({ source: "source-9", rank: 10 });
+      expect(parsed.results[0].provenance.signals).toEqual(parsed.results[0].sources);
+    } finally {
+      await close();
+    }
+  });
+
+  it("drops non-positive, fractional, and unsafe source ranks", async () => {
+    const fetchFn = vi.fn(async () =>
+      jsonResponse({
+        query: "rank validation",
+        results: [
+          {
+            path: "raw/2026-06-01/ranks.md",
+            title: "Ranks",
+            snippet: "Rank validation.",
+            score: 0.9,
+            source: "bm25",
+            sources: [
+              { source: "negative", rank: -1 },
+              { source: "zero", rank: 0 },
+              { source: "fractional", rank: 1.5 },
+              { source: "unsafe", rank: Number.MAX_SAFE_INTEGER + 1 },
+              { source: "valid", rank: 2 },
+            ],
+          },
+        ],
+        warnings: [],
+        timings: { totalMs: 1, rerankMs: 0 },
+        degraded: false,
+      }),
+    ) as unknown as typeof fetch;
+    const { client, close } = await connectMcp(fetchFn);
+    try {
+      const result = await client.callTool({
+        name: "search",
+        arguments: { query: "rank validation" },
+      });
+      const parsed = JSON.parse(extractJsonFence(textFromToolResult(result)));
+
+      expect(parsed.results[0].sources).toEqual([{ source: "valid", rank: 2 }]);
+      expect(parsed.results[0].provenance.signals).toEqual([{ source: "valid", rank: 2 }]);
+    } finally {
+      await close();
     }
   });
 

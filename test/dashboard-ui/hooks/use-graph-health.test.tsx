@@ -22,7 +22,7 @@ describe("useGraphHealth", () => {
   });
 
   test("fetches /api/graph-health", async () => {
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify(report("pass")), { status: 200 }));
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL) => new Response(JSON.stringify(report("pass")), { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
 
     renderWithQueryClient(<GraphHealthProbe />);
@@ -34,7 +34,7 @@ describe("useGraphHealth", () => {
   });
 
   test("accepts a 503 response when it contains a fail report", async () => {
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify(report("fail")), { status: 503 }));
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL) => new Response(JSON.stringify(report("fail")), { status: 503 }));
     vi.stubGlobal("fetch", fetchMock);
 
     renderWithQueryClient(<GraphHealthProbe />);

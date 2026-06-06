@@ -34,6 +34,12 @@ function makeSearchResponse(query = "voyage") {
         score: 0.75,
         source: "bm25",
         sources: [{ source: "bm25", rank: 1 }],
+        provenance: {
+          path: `wiki/projects/${query}.md`,
+          kind: "wiki",
+          dominantSource: "bm25",
+          signals: [{ source: "bm25", rank: 1 }],
+        },
         kind: "wiki",
       },
     ],
@@ -68,7 +74,7 @@ describe("useSearch", () => {
 
   test("fires query when query is non-empty", async () => {
     const fetchMock = vi.fn(
-      async () => new Response(JSON.stringify(makeSearchResponse()), { status: 200 }),
+      async (_input: RequestInfo | URL) => new Response(JSON.stringify(makeSearchResponse()), { status: 200 }),
     );
     vi.stubGlobal("fetch", fetchMock);
 
@@ -82,7 +88,7 @@ describe("useSearch", () => {
 
   test("passes noRerank through to the search URL", async () => {
     const fetchMock = vi.fn(
-      async () => new Response(JSON.stringify(makeSearchResponse()), { status: 200 }),
+      async (_input: RequestInfo | URL) => new Response(JSON.stringify(makeSearchResponse()), { status: 200 }),
     );
     vi.stubGlobal("fetch", fetchMock);
 

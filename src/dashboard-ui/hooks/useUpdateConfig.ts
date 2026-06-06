@@ -3,7 +3,7 @@ import { apiPatch } from "../lib/api.js";
 
 export interface ConfigPatchBody {
   embedder?: {
-    provider?: "voyage" | "openai" | "ollama";
+    provider?: "lexical" | "voyage" | "openai" | "ollama";
     model?: string;
     options?: Record<string, unknown>;
   };

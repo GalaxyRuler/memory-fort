@@ -306,6 +306,9 @@ interface ApiSearchResponse {
 }
 
 const DEFAULT_SEARCH_BASE_URL = "http://127.0.0.1:4410/memory";
+const DEFAULT_SEARCH_RESULT_LIMIT = 10;
+const MAX_SEARCH_RESULT_LIMIT = 50;
+const MAX_SEARCH_SIGNALS = 10;
 
 export interface EmbeddingProviderPreflightOptions {
   configLoader?: () => Promise<MemoryConfig>;
@@ -367,9 +370,9 @@ export async function searchMemory(
   if (!Array.isArray(body.results)) {
     return toolError("Search backend returned invalid results: expected results array.");
   }
+  const results = normalizeSearchResults(body.results, clampSearchResultLimit(input.k));
   await Promise.all(
-    body.results
-      .filter(isSearchResultWithStringPath)
+    results
       .filter((item) => inferSearchKind(item) === "wiki")
       .map((item) => bumpLastAccessed(item.path, deps.now?.() ?? new Date()).catch(() => undefined)),
   );
@@ -378,7 +381,7 @@ export async function searchMemory(
     content: [
       {
         type: "text",
-        text: formatSearchToolResponse(body),
+        text: formatSearchToolResponse(body, results),
       },
     ],
   };
@@ -518,6 +521,21 @@ function isSearchResponseBody(value: unknown): value is ApiSearchResponse {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+function clampSearchResultLimit(value: unknown): number {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0) {
+    return DEFAULT_SEARCH_RESULT_LIMIT;
+  }
+  return Math.min(value, MAX_SEARCH_RESULT_LIMIT);
+}
+
+function normalizeSearchResults(value: unknown, limit: number): ApiSearchResultWithPath[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter(isSearchResultWithStringPath)
+    .filter((item) => !isWikiDotDirectoryPath(item.path))
+    .slice(0, limit);
+}
+
 function normalizeSearchSignals(value: unknown): SearchSignal[] {
   if (!Array.isArray(value)) return [];
   return value
@@ -526,16 +544,14 @@ function normalizeSearchSignals(value: unknown): SearchSignal[] {
       signal !== null &&
       typeof (signal as { source?: unknown }).source === "string" &&
       typeof (signal as { rank?: unknown }).rank === "number" &&
-      Number.isFinite((signal as { rank: number }).rank),
+      Number.isSafeInteger((signal as { rank: number }).rank) &&
+      (signal as { rank: number }).rank > 0,
     )
+    .slice(0, MAX_SEARCH_SIGNALS)
     .map((signal) => ({ source: signal.source, rank: signal.rank }));
 }
 
-function formatSearchToolResponse(body: ApiSearchResponse): string {
-  const rawResults = Array.isArray(body.results) ? body.results : [];
-  const results = rawResults
-    .filter(isSearchResultWithStringPath)
-    .filter((item) => !isWikiDotDirectoryPath(item.path));
+function formatSearchToolResponse(body: ApiSearchResponse, results: ApiSearchResultWithPath[]): string {
   const result = {
     query: typeof body.query === "string" ? body.query : "",
     result_count: results.length,

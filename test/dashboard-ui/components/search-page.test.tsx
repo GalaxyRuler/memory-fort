@@ -53,6 +53,15 @@ function makeResult(): SearchResult {
       { source: "bm25", rank: 1 },
       { source: "rerank", rank: 1 },
     ],
+    provenance: {
+      path: "wiki/projects/foo.md",
+      kind: "wiki",
+      dominantSource: "rerank",
+      signals: [
+        { source: "bm25", rank: 1 },
+        { source: "rerank", rank: 1 },
+      ],
+    },
     kind: "wiki",
   };
 }
