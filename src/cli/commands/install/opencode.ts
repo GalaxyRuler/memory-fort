@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { mkdir, readFile } from "node:fs/promises";
+import { mkdir, readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { atomicAppend, atomicWrite } from "../../../storage/atomic-write.js";
@@ -92,15 +92,25 @@ export async function validateOpenCodePlugin(
     return { path: pluginPath, exists: false, ok: false, reason: "missing" };
   }
 
-  const raw = await readFile(pluginPath, "utf-8");
-  const ok = normalizeOpenCodePluginContent(raw) ===
-    normalizeOpenCodePluginContent(renderOpenCodePlugin());
-  return {
-    path: pluginPath,
-    exists: true,
-    ok,
-    reason: ok ? null : "stale",
-  };
+  try {
+    const pluginStat = await stat(pluginPath);
+    if (!pluginStat.isFile()) {
+      return { path: pluginPath, exists: true, ok: false, reason: "malformed" };
+    }
+
+    const raw = await readFile(pluginPath, "utf-8");
+    const ok = normalizeOpenCodePluginContent(raw) ===
+      normalizeOpenCodePluginContent(renderOpenCodePlugin()) &&
+      existsSync(expectedOpenCodeEventHookPath());
+    return {
+      path: pluginPath,
+      exists: true,
+      ok,
+      reason: ok ? null : "stale",
+    };
+  } catch {
+    return { path: pluginPath, exists: true, ok: false, reason: "malformed" };
+  }
 }
 
 export async function runInstallOpenCode(
@@ -195,6 +205,11 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 }
 
 function isValidOpenCodeMemoryEntry(memory: Record<string, unknown> | null): boolean {
+  const keys = Object.keys(memory ?? {}).sort();
+  if (keys.length !== 3 || keys[0] !== "command" || keys[1] !== "enabled" || keys[2] !== "type") {
+    return false;
+  }
+
   return memory?.["type"] === "local" &&
     memory["enabled"] === true &&
     isValidOpenCodeCommand(memory["command"]);
@@ -206,18 +221,21 @@ function isValidOpenCodeCommand(value: unknown): boolean {
   }
   if (value.length !== 2) return false;
 
-  return isNodeExecutable(value[0]) &&
-    isExpectedOpenCodeMcpServerPath(value[1]);
-}
-
-function isNodeExecutable(value: string): boolean {
-  const leaf = value.replace(/\\/g, "/").split("/").pop()?.toLowerCase();
-  return leaf === "node" || leaf === "node.exe";
+  return value[0] === "node" &&
+    isExpectedOpenCodeMcpServerPath(value[1]) &&
+    existsSync(expectedOpenCodeMcpServerPath());
 }
 
 function isExpectedOpenCodeMcpServerPath(value: string): boolean {
-  const expected = join(memoryRoot(), "hooks", "mcp-server.mjs");
-  return normalizeOpenCodePath(value) === normalizeOpenCodePath(expected);
+  return normalizeOpenCodePath(value) === normalizeOpenCodePath(expectedOpenCodeMcpServerPath());
+}
+
+function expectedOpenCodeMcpServerPath(): string {
+  return join(memoryRoot(), "hooks", "mcp-server.mjs");
+}
+
+function expectedOpenCodeEventHookPath(): string {
+  return join(memoryRoot(), "hooks", "opencode-event.mjs");
 }
 
 function normalizeOpenCodePath(value: string): string {

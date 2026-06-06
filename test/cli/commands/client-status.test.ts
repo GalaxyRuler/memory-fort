@@ -38,6 +38,7 @@ describe("getClientStatuses", () => {
     await mkdir(join(memDir, "claude-code-plugin", ".claude-plugin"), {
       recursive: true,
     });
+    await mkdir(join(memDir, "hooks"), { recursive: true });
     await mkdir(join(memDir, "claude-code-plugin", "scripts"), { recursive: true });
     await writeFile(
       join(memDir, "claude-code-plugin", ".claude-plugin", "plugin.json"),
@@ -51,6 +52,8 @@ describe("getClientStatuses", () => {
       join(memDir, "claude-code-plugin", "scripts", "mcp-server.mjs"),
       "// stub\n",
     );
+    await writeFile(join(memDir, "hooks", "mcp-server.mjs"), "// mcp stub\n");
+    await writeFile(join(memDir, "hooks", "opencode-event.mjs"), "// event stub\n");
   });
 
   afterEach(async () => {
@@ -120,6 +123,30 @@ describe("getClientStatuses", () => {
     expect(status.detail).toBe("installed but memory MCP or plugin file is missing or stale");
   });
 
+  it("reports OpenCode stale when the referenced MCP hook target is missing", async () => {
+    const opencodeDir = process.env["MEMORY_OPENCODE_DIR"]!;
+    await runInstallOpenCode({ opencodeDir });
+    await rm(join(memDir, "hooks", "mcp-server.mjs"), { force: true });
+
+    const statuses = await getClientStatuses();
+
+    const status = statuses.find((item) => item.client === "opencode")!;
+    expect(status.state).toBe("stale");
+    expect(status.detail).toBe("installed but memory MCP or plugin file is missing or stale");
+  });
+
+  it("reports OpenCode stale when the referenced event hook target is missing", async () => {
+    const opencodeDir = process.env["MEMORY_OPENCODE_DIR"]!;
+    await runInstallOpenCode({ opencodeDir });
+    await rm(join(memDir, "hooks", "opencode-event.mjs"), { force: true });
+
+    const statuses = await getClientStatuses();
+
+    const status = statuses.find((item) => item.client === "opencode")!;
+    expect(status.state).toBe("stale");
+    expect(status.detail).toBe("installed but memory MCP or plugin file is missing or stale");
+  });
+
   it("reports OpenCode stale when the MCP entry is disabled", async () => {
     const opencodeDir = process.env["MEMORY_OPENCODE_DIR"]!;
     await writeOpenCodeConfig(opencodeDir, { enabled: false });
@@ -137,6 +164,37 @@ describe("getClientStatuses", () => {
     await runInstallOpenCode({ opencodeDir });
     await writeOpenCodeConfig(opencodeDir, {
       command: ["node", join(opencodeDir, "hooks", "other-server.mjs")],
+    });
+
+    const statuses = await getClientStatuses();
+
+    const status = statuses.find((item) => item.client === "opencode")!;
+    expect(status.state).toBe("stale");
+    expect(status.detail).toBe("installed but memory MCP or plugin file is missing or stale");
+  });
+
+  it("reports OpenCode stale when the MCP entry has extra keys", async () => {
+    const opencodeDir = process.env["MEMORY_OPENCODE_DIR"]!;
+    await runInstallOpenCode({ opencodeDir });
+    await writeOpenCodeConfig(opencodeDir, {
+      extraMemoryKeys: {
+        cwd: tmp,
+        env: { MEMORY_ROOT: memDir },
+      },
+    });
+
+    const statuses = await getClientStatuses();
+
+    const status = statuses.find((item) => item.client === "opencode")!;
+    expect(status.state).toBe("stale");
+    expect(status.detail).toBe("installed but memory MCP or plugin file is missing or stale");
+  });
+
+  it("reports OpenCode stale when the MCP command uses an absolute node executable", async () => {
+    const opencodeDir = process.env["MEMORY_OPENCODE_DIR"]!;
+    await runInstallOpenCode({ opencodeDir });
+    await writeOpenCodeConfig(opencodeDir, {
+      command: ["C:/tmp/node.exe", join(memDir, "hooks", "mcp-server.mjs")],
     });
 
     const statuses = await getClientStatuses();
@@ -249,6 +307,18 @@ describe("getClientStatuses", () => {
     expect(status.detail).toBe("installed but memory MCP or plugin file is missing or stale");
   });
 
+  it("reports OpenCode stale when the plugin path is a directory", async () => {
+    const opencodeDir = process.env["MEMORY_OPENCODE_DIR"]!;
+    await writeOpenCodeConfig(opencodeDir);
+    await mkdir(join(opencodeDir, "plugins", "memory-fort.js"), { recursive: true });
+
+    const statuses = await getClientStatuses();
+
+    const status = statuses.find((item) => item.client === "opencode")!;
+    expect(status.state).toBe("stale");
+    expect(status.detail).toBe("installed but memory MCP or plugin file is missing or stale");
+  });
+
   it("reports OpenCode stale when all plugin markers are only comments", async () => {
     const opencodeDir = process.env["MEMORY_OPENCODE_DIR"]!;
     await writeOpenCodeConfig(opencodeDir);
@@ -288,7 +358,11 @@ describe("getClientStatuses", () => {
 
   async function writeOpenCodeConfig(
     opencodeDir: string,
-    overrides: Partial<{ command: unknown; enabled: boolean }> = {},
+    overrides: Partial<{
+      command: unknown;
+      enabled: boolean;
+      extraMemoryKeys: Record<string, unknown>;
+    }> = {},
   ): Promise<void> {
     await mkdir(opencodeDir, { recursive: true });
     await writeFile(
@@ -299,6 +373,7 @@ describe("getClientStatuses", () => {
             type: "local",
             command: overrides.command ?? ["node", join(memDir, "hooks", "mcp-server.mjs")],
             enabled: overrides.enabled ?? true,
+            ...overrides.extraMemoryKeys,
           },
         },
       }),
