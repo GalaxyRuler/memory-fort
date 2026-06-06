@@ -18,9 +18,11 @@ describe("runInstallOpenCode", () => {
     memDir = join(tmp, ".memory");
     repoDir = join(tmp, "repo");
     opencodeDir = join(tmp, ".config", "opencode");
-    await mkdir(join(repoDir, "dist", "hooks"), { recursive: true });
+    await mkdir(join(memDir, "hooks"), { recursive: true });
+    await mkdir(repoDir, { recursive: true });
     await writeFile(join(repoDir, "package.json"), "{}");
-    await writeFile(join(repoDir, "dist", "hooks", "mcp-server.mjs"), "// mcp stub\n");
+    await writeFile(join(memDir, "hooks", "mcp-server.mjs"), "// mcp stub\n");
+    await writeFile(join(memDir, "hooks", "opencode-event.mjs"), "// event stub\n");
 
     envBefore = {
       MEMORY_ROOT: process.env["MEMORY_ROOT"],
@@ -50,19 +52,13 @@ describe("runInstallOpenCode", () => {
     const config = JSON.parse(await readFile(result.configPath, "utf-8"));
     expect(config.mcp.memory).toEqual({
       type: "local",
-      command: [
-        "node",
-        `${repoDir.replace(/\\/g, "/")}/dist/hooks/mcp-server.mjs`,
-      ],
+      command: ["node", `${memDir.replace(/\\/g, "/")}/hooks/mcp-server.mjs`],
       enabled: true,
-      environment: {
-        MEMORY_ROOT: memDir.replace(/\\/g, "/"),
-      },
     });
 
     const plugin = await readFile(result.pluginPath, "utf-8");
-    expect(plugin).toContain("export const MemoryFort");
-    expect(plugin).toContain("event");
+    expect(plugin).toContain("MemoryFortOpenCode");
+    expect(plugin).toContain(`${memDir.replace(/\\/g, "/")}/hooks/opencode-event.mjs`);
     expect(plugin).toContain("session.updated");
     expect(plugin).toContain("MEMORY_ROOT");
   });
@@ -146,7 +142,7 @@ describe("runInstallOpenCode", () => {
     await writeFile(join(opencodeDir, "plugins", "team-plugin.js"), "// keep\n");
     const install = await runInstallOpenCode({ opencodeDir });
 
-    const result = await runUninstall("opencode", { opencodeDir } as never);
+    const result = await runUninstall("opencode", { opencodeDir });
 
     expect(result.exitCode).toBe(0);
     await expect(readFile(configPath, "utf-8")).resolves.toBe(before);
