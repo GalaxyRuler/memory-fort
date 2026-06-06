@@ -1,0 +1,138 @@
+import {
+  loadEmbeddings,
+  type EmbeddingKind,
+  type EmbeddingRecord,
+} from "../../../retrieval/embeddings-store.js";
+import { analyzeEmbeddingHealth } from "../../../retrieval/embedding-health.js";
+import {
+  getActiveEmbedderConfig,
+  listEmbedderProviders,
+} from "../../../retrieval/embedder/factory.js";
+import { readAutoHealStatus, type AutoHealStatus } from "../../../retrieval/auto-heal.js";
+import { loadMemoryConfig, type MemoryConfig } from "../../../storage/config.js";
+import { fail, pass, warn, type CheckDescriptor, type VerifyCheckResult } from "./types.js";
+
+export interface EmbeddingHealthCheckOptions {
+  configLoader?: () => Promise<MemoryConfig>;
+  env?: NodeJS.ProcessEnv;
+  autoHealStatusReader?: (vaultRoot: string) => Promise<AutoHealStatus>;
+}
+
+const EMBEDDING_KINDS: EmbeddingKind[] = ["wiki", "raw", "crystal"];
+const MIN_EMBEDDING_DIM = 16;
+
+export const embeddingHealthCheck: CheckDescriptor = {
+  id: "retrieval.embedding-health",
+  label: "embedding health",
+  roles: ["operator", "server"],
+  run: async (ctx) => checkEmbeddingHealth(ctx.vaultRoot),
+};
+
+export async function checkEmbeddingHealth(
+  vaultRoot: string,
+  opts: EmbeddingHealthCheckOptions = {},
+): Promise<VerifyCheckResult> {
+  const config = await (opts.configLoader ?? (() => loadMemoryConfig(vaultRoot)))();
+  const env = opts.env ?? process.env;
+  const expectedDim = expectedEmbeddingDim(config);
+  const credentialIssue = activeProviderCredentialIssue(config, env);
+  const autoHealDetail = await autoHealStatusDetail(vaultRoot, opts);
+  const records: EmbeddingRecord[] = [];
+  const parseWarnings: string[] = [];
+
+  for (const kind of EMBEDDING_KINDS) {
+    const loaded = await loadEmbeddings(vaultRoot, kind);
+    records.push(...loaded.records);
+    for (const warning of loaded.warnings) {
+      parseWarnings.push(`${kind}:${warning.line} ${warning.reason}`);
+    }
+  }
+
+  if (records.length === 0) {
+    return warn(
+      "retrieval.embedding-health",
+      "embedding health",
+      "no embedding sidecars found; vector retrieval is inactive and BM25+graph are the live retrieval signals",
+      "set VOYAGE_API_KEY and run `memory provider reindex-embeddings --apply` before relying on vector search",
+    );
+  }
+
+  const analysis = analyzeEmbeddingHealth(records, {
+    expectedDim,
+    minDim: MIN_EMBEDDING_DIM,
+  });
+  const issues = [...parseWarnings, ...analysis.issues];
+  if (credentialIssue) issues.push(credentialIssue.detail);
+  const dims = analysis.dims.length > 0 ? analysis.dims.join(", ") : "none";
+  const detail = [
+    `${records.length} embedding records`,
+    `dim ${dims}`,
+    issues.length > 0 ? issues.join("; ") : "sample is diverse",
+    autoHealDetail,
+  ].filter(Boolean).join("; ");
+
+  if (issues.length > 0) {
+    return fail(
+      "retrieval.embedding-health",
+      "embedding health",
+      credentialIssue?.suggestedFix ??
+        "set VOYAGE_API_KEY and run `memory provider reindex-embeddings --apply` to replace stub sidecars",
+      detail,
+    );
+  }
+
+  return pass(
+    "retrieval.embedding-health",
+    "embedding health",
+    detail,
+  );
+}
+
+async function autoHealStatusDetail(
+  vaultRoot: string,
+  opts: EmbeddingHealthCheckOptions,
+): Promise<string | null> {
+  try {
+    const status = await (opts.autoHealStatusReader ?? readAutoHealStatus)(vaultRoot);
+    return [
+      `auto-heal ${status.enabled ? "enabled" : "disabled"}`,
+      `spend $${status.dailySpendUsd.toFixed(4)}/$${status.dailyBudgetUsd.toFixed(4)}`,
+      `last tick ${status.lastTick ?? "never"}`,
+      `last embed ${status.lastEmbed ?? "never"}`,
+    ].join(", ");
+  } catch {
+    return "auto-heal status unavailable";
+  }
+}
+
+function expectedEmbeddingDim(config: MemoryConfig): number | undefined {
+  const explicit = config.embedding?.dim;
+  if (typeof explicit === "number" && Number.isInteger(explicit) && explicit > 0) {
+    return explicit;
+  }
+  try {
+    const active = getActiveEmbedderConfig(config);
+    return listEmbedderProviders(active).find((provider) => provider.active)?.dim;
+  } catch {
+    return undefined;
+  }
+}
+
+function activeProviderCredentialIssue(
+  config: MemoryConfig,
+  env: NodeJS.ProcessEnv,
+): { detail: string; suggestedFix: string } | null {
+  let active;
+  try {
+    active = getActiveEmbedderConfig(config);
+  } catch {
+    return null;
+  }
+  const provider = listEmbedderProviders(active, env).find((item) => item.active);
+  if (!provider || provider.provider === "ollama" || provider.keyAvailable) return null;
+  return {
+    detail: `${provider.requiredEnv} missing in this process; stored vectors may be healthy but live query embeddings and refresh are degraded`,
+    suggestedFix:
+      `set ${provider.requiredEnv} in the service environment and restart long-running services before relying on vector search`,
+  };
+}

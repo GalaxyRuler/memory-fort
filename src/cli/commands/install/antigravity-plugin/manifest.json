@@ -1,0 +1,6 @@
+{
+  "name": "memory",
+  "version": "0.1.0",
+  "description": "Memory Fort live capture hooks for Antigravity 2.0",
+  "hooks": "./hooks.json"
+}

@@ -1,0 +1,101 @@
+{
+  "name": "memory-fort",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Memory Fort: cross-tool memory for Claude Code, Codex, and Antigravity",
+  "author": {
+    "name": "Abdullah Al Kulaib",
+    "email": "Abdullah@alkulaib.io",
+    "url": "https://github.com/GalaxyRuler"
+  },
+  "license": "SEE LICENSE IN LICENSE",
+  "scripts": {
+    "build": "node scripts/check-prompt-drift.mjs && node --max-old-space-size=8192 ./node_modules/tsdown/dist/run.mjs && npm run build:ui",
+    "build:ui": "vite build",
+    "build:all": "npm run build && npm run build:ui",
+    "typecheck": "tsc --noEmit",
+    "dev:ui": "vite",
+    "test": "vitest run",
+    "test:ui": "vitest run test/dashboard-ui",
+    "test:watch": "vitest",
+    "install:dev-hooks": "node scripts/install-dev-hooks.mjs",
+    "scan:leaks": "node scripts/scan-leaks.mjs",
+    "prepublishOnly": "npm run scan:leaks && npm run build",
+    "memory": "node dist/cli.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "memory-fort": "dist/cli.mjs",
+    "memory": "dist/cli.mjs"
+  },
+  "files": [
+    "dist/",
+    "templates/",
+    "README.md",
+    "LICENSE",
+    "LICENSE-NOTICE.md",
+    "COMMERCIAL.md",
+    "AUTHORSHIP.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/GalaxyRuler/memory-fort.git"
+  },
+  "homepage": "https://github.com/GalaxyRuler/memory-fort#readme",
+  "bugs": {
+    "url": "https://github.com/GalaxyRuler/memory-fort/issues"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29",
+    "@react-three/drei": "^10.7.7",
+    "@react-three/fiber": "^9.6.1",
+    "@react-three/postprocessing": "^3.0.4",
+    "@tanstack/react-query": "^5.100.14",
+    "@tanstack/react-router": "^1.170.8",
+    "clsx": "^2.1.1",
+    "cmdk": "^1.1.1",
+    "commander": "^12",
+    "gray-matter": "^4",
+    "js-yaml": "^4",
+    "lucide-react": "^1.16.0",
+    "openai": "^6.39.0",
+    "postprocessing": "^6.39.1",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6",
+    "react-markdown": "^9.1.0",
+    "remark-gfm": "^4.0.1",
+    "remark-parse": "^11.0.0",
+    "tailwind-merge": "^3.6.0",
+    "three": "^0.184.0",
+    "unified": "^11.0.5",
+    "voyageai": "~0.2.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/typography": "^0.5.19",
+    "@tanstack/router-plugin": "^1.168.11",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@types/js-yaml": "^4",
+    "@types/jsdom": "^28.0.3",
+    "@types/node": "^20",
+    "@types/react": "^19.2.15",
+    "@types/react-dom": "^19.2.3",
+    "@types/three": "^0.184.1",
+    "@vitejs/plugin-react": "^4.7.0",
+    "autoprefixer": "^10.5.0",
+    "jsdom": "^25.0.1",
+    "postcss": "^8.5.15",
+    "tailwindcss": "^3.4.19",
+    "tsdown": "^0.22",
+    "typescript": "^5",
+    "unrun": "^0.3.0",
+    "vite": "^6.4.2",
+    "vitest": "^2"
+  }
+}

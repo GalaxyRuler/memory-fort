@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "lib": ["DOM", "DOM.Iterable", "ES2023"],
+    "jsx": "react-jsx",
+    "moduleResolution": "Bundler",
+    "noEmit": true,
+    "rootDir": ".",
+    "types": ["vite/client", "vitest/globals"]
+  },
+  "include": ["src/dashboard-ui/**/*", "test/dashboard-ui/**/*", "vite.config.ts", "tailwind.config.ts"]
+}

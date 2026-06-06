@@ -1,0 +1,34 @@
+node_modules/
+dist/
+*.tsbuildinfo
+coverage/
+.vitest/
+src/dashboard-ui/routeTree.gen.ts
+~/.memory/datasets/
+wiki/.audit/verify-*.json
+
+# Memory vault runtime data belongs under ~/.memory, not the source checkout.
+/raw/
+/facts/
+/wiki/
+/embeddings/
+/state/
+/var/
+/config.yaml
+/log.md
+
+# Brainstorming session working dir (visual companion server)
+.superpowers/
+
+# Private dev-only files — not part of the public release
+AGENTS.md
+.codex/homelab-runner.json
+src/cli/commands/install-vps.ts
+src/cli/commands/install-tailscale-route.ts
+src/cli/commands/sync-bootstrap.ts
+src/cli/commands/private-ops.ts
+test/cli/private-ops.test.ts
+test/cli/commands/install-vps.test.ts
+test/cli/commands/install-tailscale-route.test.ts
+test/cli/commands/sync-bootstrap.test.ts
+docs/
