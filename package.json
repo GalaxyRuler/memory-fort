@@ -2,7 +2,7 @@
   "name": "memory-fort",
   "version": "0.1.1",
   "type": "module",
-  "description": "Memory Fort: cross-tool memory for Claude Code, Codex, and Antigravity",
+  "description": "Cross-tool persistent memory for AI agents — works with Claude Code, Codex, Antigravity, Hermes, Pi, OpenClaw, Claude Desktop, and VS Code",
   "author": {
     "name": "Abdullah Al Kulaib",
     "email": "Abdullah@alkulaib.io",
