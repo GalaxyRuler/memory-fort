@@ -6,6 +6,7 @@ import { useCommandPaletteContext } from "../hooks/useCommandPalette.js";
 import { useDebouncedValue } from "../hooks/useDebouncedValue.js";
 import { useSearch, type SearchResult, type SearchScope } from "../hooks/useSearch.js";
 import { cn } from "../lib/cn.js";
+import { formatSearchSourceLabel, KNOWN_SEARCH_SOURCES } from "../lib/search-sources.js";
 
 const SCOPES: { value: SearchScope; label: string }[] = [
   { value: "all", label: "All" },
@@ -13,15 +14,6 @@ const SCOPES: { value: SearchScope; label: string }[] = [
   { value: "raw", label: "Raw" },
   { value: "crystals", label: "Crystals" },
 ];
-
-const SOURCE_LABELS = {
-  bm25: "BM25",
-  vector: "embed",
-  exact: "exact",
-  graph: "graph",
-  metadata: "meta",
-  rerank: "rerank",
-} as const;
 
 export function CommandPalette() {
   const { open, setOpen, close } = useCommandPaletteContext();
@@ -132,11 +124,11 @@ export function CommandPalette() {
 }
 
 function sourceSummary(results: SearchResult[]): string {
-  return Object.keys(SOURCE_LABELS)
+  return KNOWN_SEARCH_SOURCES
     .filter((source) =>
       results.some((result) => result.sources.some((item) => item.source === source)),
     )
-    .map((source) => SOURCE_LABELS[source as keyof typeof SOURCE_LABELS])
+    .map((source) => formatSearchSourceLabel(source))
     .join(" · ");
 }
 

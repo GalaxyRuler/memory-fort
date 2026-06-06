@@ -30,4 +30,11 @@ describe("ScoreBreakdown", () => {
     expect(screen.getByText("embed")).toBeInTheDocument();
     expect(screen.getByText("rerank")).toBeInTheDocument();
   });
+
+  test("renders graph-spread with the shared label and color", () => {
+    render(<ScoreBreakdown sources={[{ source: "graph-spread", rank: 2 }]} />);
+
+    expect(screen.getByText("graph spread")).toBeInTheDocument();
+    expect(screen.getByLabelText("graph spread: 100%")).toHaveClass("bg-entity-tools");
+  });
 });
