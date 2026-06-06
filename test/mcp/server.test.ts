@@ -397,6 +397,22 @@ describe("memory.search MCP tool", () => {
     }
   });
 
+  it("returns a clear tool error when the search body is null", async () => {
+    const fetchFn = vi.fn(async () => jsonResponse(null)) as unknown as typeof fetch;
+    const { client, close } = await connectMcp(fetchFn);
+    try {
+      const result = await client.callTool({
+        name: "search",
+        arguments: { query: "null body" },
+      });
+
+      expect(result.isError).toBe(true);
+      expect(textFromToolResult(result)).toContain("Search backend returned invalid results");
+    } finally {
+      await close();
+    }
+  });
+
   it("skips search result entries without a string path", async () => {
     const fetchFn = vi.fn(async () =>
       jsonResponse({

@@ -354,12 +354,15 @@ export async function searchMemory(
     );
   }
 
-  let body: ApiSearchResponse;
+  let body: unknown;
   try {
-    body = (await response.json()) as ApiSearchResponse;
+    body = await response.json();
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return toolError(`Failed to parse search backend JSON: ${message}`);
+  }
+  if (!isSearchResponseBody(body)) {
+    return toolError("Search backend returned invalid results: expected results array.");
   }
   if (!Array.isArray(body.results)) {
     return toolError("Search backend returned invalid results: expected results array.");
@@ -507,6 +510,10 @@ function isSearchResultWithStringPath(value: unknown): value is ApiSearchResultW
     value !== null &&
     typeof (value as { path?: unknown }).path === "string"
   );
+}
+
+function isSearchResponseBody(value: unknown): value is ApiSearchResponse {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function normalizeSearchSignals(value: unknown): SearchSignal[] {
