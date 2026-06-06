@@ -1,9 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
-import { runInstallOpenCode } from "../../../src/cli/commands/install/opencode.js";
+import {
+  opencodeConfigDir,
+  runInstallOpenCode,
+} from "../../../src/cli/commands/install/opencode.js";
 import { runUninstall } from "../../../src/cli/commands/uninstall.js";
 
 function posixPath(path: string): string {
@@ -32,6 +35,8 @@ describe("runInstallOpenCode", () => {
       MEMORY_ROOT: process.env["MEMORY_ROOT"],
       MEMORY_REPO_DIR: process.env["MEMORY_REPO_DIR"],
       MEMORY_OPENCODE_DIR: process.env["MEMORY_OPENCODE_DIR"],
+      OPENCODE_CONFIG_DIR: process.env["OPENCODE_CONFIG_DIR"],
+      APPDATA: process.env["APPDATA"],
     };
     process.env["MEMORY_ROOT"] = memDir;
     process.env["MEMORY_REPO_DIR"] = repoDir;
@@ -120,6 +125,22 @@ describe("runInstallOpenCode", () => {
     expect(result.pluginPath).toBe(join(opencodeDir, "plugins", "memory-fort.js"));
     expect(existsSync(result.configPath)).toBe(true);
     expect(existsSync(result.pluginPath)).toBe(true);
+  });
+
+  it("respects OPENCODE_CONFIG_DIR when Memory Fort override is not set", () => {
+    const officialConfigDir = join(tmp, "official-opencode");
+    delete process.env["MEMORY_OPENCODE_DIR"];
+    process.env["OPENCODE_CONFIG_DIR"] = officialConfigDir;
+
+    expect(opencodeConfigDir()).toBe(officialConfigDir);
+  });
+
+  it("defaults to the official OpenCode config directory on every OS", () => {
+    delete process.env["MEMORY_OPENCODE_DIR"];
+    delete process.env["OPENCODE_CONFIG_DIR"];
+    process.env["APPDATA"] = join(tmp, "AppData", "Roaming");
+
+    expect(opencodeConfigDir()).toBe(join(homedir(), ".config", "opencode"));
   });
 
   it("throws on malformed opencode.json", async () => {

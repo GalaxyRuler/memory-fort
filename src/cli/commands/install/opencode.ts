@@ -23,10 +23,8 @@ export function opencodeConfigDir(override?: string): string {
   if (override && override.trim().length > 0) return override;
   const envOverride = process.env["MEMORY_OPENCODE_DIR"];
   if (envOverride && envOverride.trim().length > 0) return envOverride;
-  const appData = process.env["APPDATA"];
-  if (process.platform === "win32" && appData && appData.trim().length > 0) {
-    return join(appData, "opencode");
-  }
+  const officialConfigDir = process.env["OPENCODE_CONFIG_DIR"];
+  if (officialConfigDir && officialConfigDir.trim().length > 0) return officialConfigDir;
   return join(homedir(), ".config", "opencode");
 }
 
