@@ -1,5 +1,5 @@
-import { existsSync } from "node:fs";
-import { mkdir, readFile, stat } from "node:fs/promises";
+import { constants, existsSync } from "node:fs";
+import { access, mkdir, readFile, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { atomicAppend, atomicWrite } from "../../../storage/atomic-write.js";
@@ -73,7 +73,7 @@ export async function validateOpenCodeConfig(
     const parsed = parseJsonObject(await readFile(configPath, "utf-8"));
     const mcp = asRecord(parsed["mcp"]);
     const memory = asRecord(mcp?.["memory"]);
-    const ok = isValidOpenCodeMemoryEntry(memory);
+    const ok = await isValidOpenCodeMemoryEntry(memory);
     return {
       path: configPath,
       exists: true,
@@ -101,7 +101,7 @@ export async function validateOpenCodePlugin(
     const raw = await readFile(pluginPath, "utf-8");
     const ok = normalizeOpenCodePluginContent(raw) ===
       normalizeOpenCodePluginContent(renderOpenCodePlugin()) &&
-      existsSync(expectedOpenCodeEventHookPath());
+      await isReadableRegularFile(expectedOpenCodeEventHookPath());
     return {
       path: pluginPath,
       exists: true,
@@ -204,7 +204,7 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return isRecord(value) ? value : null;
 }
 
-function isValidOpenCodeMemoryEntry(memory: Record<string, unknown> | null): boolean {
+async function isValidOpenCodeMemoryEntry(memory: Record<string, unknown> | null): Promise<boolean> {
   const keys = Object.keys(memory ?? {}).sort();
   if (keys.length !== 3 || keys[0] !== "command" || keys[1] !== "enabled" || keys[2] !== "type") {
     return false;
@@ -212,10 +212,10 @@ function isValidOpenCodeMemoryEntry(memory: Record<string, unknown> | null): boo
 
   return memory?.["type"] === "local" &&
     memory["enabled"] === true &&
-    isValidOpenCodeCommand(memory["command"]);
+    await isValidOpenCodeCommand(memory["command"]);
 }
 
-function isValidOpenCodeCommand(value: unknown): boolean {
+async function isValidOpenCodeCommand(value: unknown): Promise<boolean> {
   if (!Array.isArray(value) || !value.every((entry) => typeof entry === "string")) {
     return false;
   }
@@ -223,7 +223,18 @@ function isValidOpenCodeCommand(value: unknown): boolean {
 
   return value[0] === "node" &&
     isExpectedOpenCodeMcpServerPath(value[1]) &&
-    existsSync(expectedOpenCodeMcpServerPath());
+    await isReadableRegularFile(expectedOpenCodeMcpServerPath());
+}
+
+async function isReadableRegularFile(path: string): Promise<boolean> {
+  try {
+    const pathStat = await stat(path);
+    if (!pathStat.isFile()) return false;
+    await access(path, constants.R_OK);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function isExpectedOpenCodeMcpServerPath(value: string): boolean {
