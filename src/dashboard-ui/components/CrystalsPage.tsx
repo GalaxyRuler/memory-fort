@@ -15,7 +15,7 @@ export function CrystalsPage() {
     onActivate: (crystal) =>
       navigate({
         to: "/wiki/$category/$slug",
-        params: { category: "crystal", slug: crystal.slug },
+        params: { category: "crystals", slug: crystal.slug },
       }),
   });
 
@@ -56,7 +56,7 @@ export function CrystalsPage() {
           >
             <Link
               to="/wiki/$category/$slug"
-              params={{ category: "crystal", slug: crystal.slug }}
+              params={{ category: "crystals", slug: crystal.slug }}
               className="block h-full rounded-lg p-4 focus:outline-none"
               tabIndex={-1}
             >

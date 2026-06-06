@@ -336,7 +336,7 @@ describe("sessions, crystals, and audit secondary screens", () => {
 
     expect(within(item).getByRole("link", { name: /Crystal One/i })).toHaveAttribute(
       "href",
-      "/wiki/crystal/one",
+      "/wiki/crystals/one",
     );
   });
 
