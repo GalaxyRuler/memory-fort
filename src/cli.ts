@@ -1283,13 +1283,6 @@ if (process.env.MEMORY_FORT_SHOW_STUBS === "1") {
   );
 }
 
-try {
-  const m = await import("./cli/commands/private-ops.js");
-  m.registerPrivateOps?.(program);
-} catch {
-  // private-ops excluded in public build
-}
-
 printDebugLogBanner();
 await program.parseAsync(process.argv);
 

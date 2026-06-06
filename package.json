@@ -1,6 +1,6 @@
 {
   "name": "memory-fort",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "description": "Memory Fort: cross-tool memory for Claude Code, Codex, and Antigravity",
   "author": {
