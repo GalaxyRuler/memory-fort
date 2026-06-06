@@ -15,6 +15,7 @@ import {
 import {
   isClaudeCodePluginEnabled,
 } from "../install/claude-code.js";
+import { opencodeConfigPath, opencodePluginPath } from "../install/opencode.js";
 import { readOpenCovenReadiness } from "../install/opencoven.js";
 import { vscodeExtensionDir, vscodeMcpConfigPath } from "../install/vscode.js";
 import { fail, pass, warn, type CheckDescriptor, type VerifyCheckContext, type VerifyCheckResult } from "./types.js";
@@ -108,6 +109,27 @@ export const openCovenReadinessCheck: CheckDescriptor = {
   run: () => checkOpenCovenReadiness(),
 };
 
+export const openCodeConfigCheck: CheckDescriptor = {
+  id: "client.opencode.config",
+  label: "OpenCode MCP entry present",
+  roles: ["operator"],
+  run: () => checkOpenCodeConfig(),
+};
+
+export const openCodePluginCheck: CheckDescriptor = {
+  id: "client.opencode.plugin",
+  label: "OpenCode Memory Fort plugin installed",
+  roles: ["operator"],
+  run: () => checkOpenCodePlugin(),
+};
+
+export const openCodeCaptureCheck: CheckDescriptor = {
+  id: "client.opencode.capture",
+  label: "OpenCode capture is fresh",
+  roles: ["operator"],
+  run: (ctx) => checkRecentCapture(ctx, ["opencode-"], "client.opencode.capture", "opencode"),
+};
+
 export const vscodeConfigCheck: CheckDescriptor = {
   id: "client.vscode.config",
   label: "VS Code MCP entry present",
@@ -173,6 +195,9 @@ export const CLIENT_CHECKS: CheckDescriptor[] = [
   snifferAntigravityPluginCheck,
   antigravityCaptureCheck,
   openCovenReadinessCheck,
+  openCodeConfigCheck,
+  openCodePluginCheck,
+  openCodeCaptureCheck,
   vscodeConfigCheck,
   snifferVscodeExtensionCheck,
   snifferVscodeCaptureCheck,
@@ -569,6 +594,64 @@ async function checkOpenCovenReadiness(): Promise<VerifyCheckResult> {
   );
 }
 
+async function checkOpenCodeConfig(): Promise<VerifyCheckResult> {
+  const configPath = opencodeConfigPath();
+  if (!existsSync(configPath)) {
+    return fail(
+      "client.opencode.config",
+      "OpenCode MCP entry present",
+      "run `memory connect opencode`",
+      `missing at ${configPath}`,
+    );
+  }
+
+  try {
+    const parsed = JSON.parse(await readFile(configPath, "utf-8")) as Record<string, unknown>;
+    const mcp = asRecord(parsed["mcp"]);
+    const memory = asRecord(mcp?.["memory"]);
+    const ok = memory?.["type"] === "local" &&
+      commandContains(memory["command"], "mcp-server.mjs");
+    return ok
+      ? pass("client.opencode.config", "OpenCode MCP entry present")
+      : fail(
+          "client.opencode.config",
+          "OpenCode MCP entry present",
+          "run `memory connect opencode`",
+          `memory MCP entry missing or stale at ${configPath}`,
+        );
+  } catch {
+    return fail(
+      "client.opencode.config",
+      "OpenCode MCP entry present",
+      "repair opencode.json, then run `memory connect opencode`",
+      `malformed JSON at ${configPath}`,
+    );
+  }
+}
+
+async function checkOpenCodePlugin(): Promise<VerifyCheckResult> {
+  const pluginPath = opencodePluginPath();
+  if (!existsSync(pluginPath)) {
+    return fail(
+      "client.opencode.plugin",
+      "OpenCode Memory Fort plugin installed",
+      "run `memory connect opencode`",
+      `missing at ${pluginPath}`,
+    );
+  }
+
+  const raw = await readFile(pluginPath, "utf-8");
+  const ok = raw.includes("MemoryFortOpenCode") && raw.includes("opencode-event.mjs");
+  return ok
+    ? pass("client.opencode.plugin", "OpenCode Memory Fort plugin installed")
+    : fail(
+        "client.opencode.plugin",
+        "OpenCode Memory Fort plugin installed",
+        "run `memory connect opencode`",
+        `plugin file missing MemoryFortOpenCode or opencode-event.mjs at ${pluginPath}`,
+      );
+}
+
 async function checkClaudeCodeBackfillStore(): Promise<VerifyCheckResult> {
   const projectsDir =
     process.env["MEMORY_CLAUDE_PROJECTS_DIR"] ?? join(homedir(), ".claude", "projects");
@@ -720,6 +803,20 @@ function isVsCodeProcessName(name: string): boolean {
     normalized === "code helper" ||
     normalized === "vscodium" ||
     normalized === "codium";
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function commandContains(value: unknown, needle: string): boolean {
+  if (typeof value === "string") return value.includes(needle);
+  if (Array.isArray(value)) {
+    return value.some((entry) => typeof entry === "string" && entry.includes(needle));
+  }
+  return false;
 }
 
 async function readCaptureSnapshot(

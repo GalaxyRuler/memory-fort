@@ -39,6 +39,7 @@ describe("runConnect", () => {
       MEMORY_HERMES_DIR: process.env["MEMORY_HERMES_DIR"],
       MEMORY_PI_DIR: process.env["MEMORY_PI_DIR"],
       MEMORY_OPENCLAW_DIR: process.env["MEMORY_OPENCLAW_DIR"],
+      MEMORY_OPENCODE_DIR: process.env["MEMORY_OPENCODE_DIR"],
       MEMORY_OPENCOVEN_COMMAND: process.env["MEMORY_OPENCOVEN_COMMAND"],
       MEMORY_VSCODE_USER_DIR: process.env["MEMORY_VSCODE_USER_DIR"],
     };
@@ -51,6 +52,7 @@ describe("runConnect", () => {
     process.env["MEMORY_HERMES_DIR"] = join(tmp, ".hermes");
     process.env["MEMORY_PI_DIR"] = join(tmp, ".pi");
     process.env["MEMORY_OPENCLAW_DIR"] = join(tmp, ".openclaw");
+    process.env["MEMORY_OPENCODE_DIR"] = join(tmp, ".config", "opencode");
     process.env["MEMORY_OPENCOVEN_COMMAND"] = join(tmp, "missing-coven");
     process.env["MEMORY_VSCODE_USER_DIR"] = join(tmp, "Code", "User");
     await runInit({ sourceRepoDir: process.cwd() });
@@ -77,6 +79,7 @@ describe("runConnect", () => {
       "pi",
       "openclaw",
       "opencoven",
+      "opencode",
       "vscode",
     ]);
     expect(result.clients.find((client) => client.client === "vscode")!.ok).toBe(false);
@@ -95,6 +98,23 @@ describe("runConnect", () => {
     expect(result.clients[0]!.client).toBe("vscode");
     expect(result.clients[0]!.ok).toBe(true);
     expect(existsSync(join(extensionDir, "memory-fort.memory"))).toBe(true);
+  });
+
+  it("runs the selected OpenCode installer", async () => {
+    const result = await runConnect({
+      client: "opencode",
+      noVerify: true,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.clients).toHaveLength(1);
+    expect(result.clients[0]).toEqual({
+      client: "opencode",
+      ok: true,
+      detail: `installed (${join(process.env["MEMORY_OPENCODE_DIR"]!, "opencode.json")}; plugin ${join(process.env["MEMORY_OPENCODE_DIR"]!, "plugins", "memory-fort.js")})`,
+    });
+    expect(existsSync(join(process.env["MEMORY_OPENCODE_DIR"]!, "opencode.json"))).toBe(true);
+    expect(existsSync(join(process.env["MEMORY_OPENCODE_DIR"]!, "plugins", "memory-fort.js"))).toBe(true);
   });
 
   it("--dry-run reports connect paths without writing client config", async () => {

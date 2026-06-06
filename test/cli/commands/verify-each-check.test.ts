@@ -26,6 +26,7 @@ describe("verify checks", () => {
       MEMORY_CLAUDE_PROJECTS_DIR: process.env["MEMORY_CLAUDE_PROJECTS_DIR"],
       MEMORY_CODEX_DIR: process.env["MEMORY_CODEX_DIR"],
       MEMORY_ANTIGRAVITY_DIR: process.env["MEMORY_ANTIGRAVITY_DIR"],
+      MEMORY_OPENCODE_DIR: process.env["MEMORY_OPENCODE_DIR"],
       MEMORY_OPENCOVEN_COMMAND: process.env["MEMORY_OPENCOVEN_COMMAND"],
       MEMORY_VSCODE_USER_DIR: process.env["MEMORY_VSCODE_USER_DIR"],
       MEMORY_VSCODE_EXTENSION_DIR: process.env["MEMORY_VSCODE_EXTENSION_DIR"],
@@ -36,6 +37,7 @@ describe("verify checks", () => {
     process.env["MEMORY_CLAUDE_PROJECTS_DIR"] = join(tmp, ".claude", "projects");
     process.env["MEMORY_CODEX_DIR"] = join(tmp, ".codex");
     process.env["MEMORY_ANTIGRAVITY_DIR"] = join(tmp, ".gemini", "antigravity");
+    process.env["MEMORY_OPENCODE_DIR"] = join(tmp, ".config", "opencode");
     process.env["MEMORY_OPENCOVEN_COMMAND"] = join(tmp, "missing-coven");
     process.env["MEMORY_VSCODE_USER_DIR"] = join(tmp, "Code", "User");
     process.env["MEMORY_CLAUDE_DESKTOP_DIR"] = join(tmp, "Claude");
@@ -282,6 +284,40 @@ describe("verify checks", () => {
     expect(readiness?.suggestedFix).toContain("npx @opencoven/cli doctor");
   });
 
+  it("client checks pass when the OpenCode MCP config is wired", async () => {
+    await writeOpenCodeConfig();
+
+    const results = await checkClients({ vaultRoot: tmp, now });
+
+    const config = results.find((result) => result.id === "client.opencode.config");
+    expect(config?.status).toBe("pass");
+    expect(config?.label).toBe("OpenCode MCP entry present");
+  });
+
+  it("client checks pass when the OpenCode plugin is installed", async () => {
+    await writeOpenCodePlugin();
+
+    const results = await checkClients({ vaultRoot: tmp, now });
+
+    const plugin = results.find((result) => result.id === "client.opencode.plugin");
+    expect(plugin?.status).toBe("pass");
+    expect(plugin?.label).toBe("OpenCode Memory Fort plugin installed");
+  });
+
+  it("client checks pass when OpenCode has a recent capture", async () => {
+    await writeCapture(
+      "raw/2026-05-26/opencode-live.md",
+      "opencode live",
+      "2026-05-26T03:00:00.000Z",
+    );
+
+    const results = await checkClients({ vaultRoot: tmp, now });
+
+    const capture = results.find((result) => result.id === "client.opencode.capture");
+    expect(capture?.status).toBe("pass");
+    expect(capture?.detail).toBe("1 captures today");
+  });
+
   it("client checks report sniffer, plugin, watcher, and extension health", async () => {
     await mkdir(join(process.env["MEMORY_CLAUDE_DIR"]!, "projects"), { recursive: true });
     await mkdir(join(process.env["MEMORY_ANTIGRAVITY_DIR"]!, "plugins", "memory", "hooks"), { recursive: true });
@@ -500,5 +536,30 @@ describe("verify checks", () => {
     await writeFile(fullPath, content);
     const mtime = new Date(mtimeIso);
     await utimes(fullPath, mtime, mtime);
+  }
+
+  async function writeOpenCodeConfig(): Promise<void> {
+    const opencodeDir = process.env["MEMORY_OPENCODE_DIR"]!;
+    await mkdir(opencodeDir, { recursive: true });
+    await writeFile(
+      join(opencodeDir, "opencode.json"),
+      JSON.stringify({
+        mcp: {
+          memory: {
+            type: "local",
+            command: ["node", join(tmp, "hooks", "mcp-server.mjs")],
+          },
+        },
+      }),
+    );
+  }
+
+  async function writeOpenCodePlugin(): Promise<void> {
+    const opencodeDir = process.env["MEMORY_OPENCODE_DIR"]!;
+    await mkdir(join(opencodeDir, "plugins"), { recursive: true });
+    await writeFile(
+      join(opencodeDir, "plugins", "memory-fort.js"),
+      "export const MemoryFortOpenCode = async () => import('file:///tmp/opencode-event.mjs');\n",
+    );
   }
 });
