@@ -235,4 +235,68 @@ describe("useSearch", () => {
       });
     });
   });
+
+  test("drops invalid top-level results and defaults malformed fields", async () => {
+    const response = makeSearchResponse();
+    response.results = [
+      {
+        path: 42,
+        title: "Dropped",
+        snippet: "Missing string path",
+        score: 1,
+        source: "bm25",
+        kind: "wiki",
+      },
+      {
+        path: "wiki/projects/dropped.md",
+        title: "Dropped",
+        snippet: "Invalid kind",
+        score: 1,
+        source: "bm25",
+        kind: "unknown",
+      },
+      {
+        path: "wiki/projects/kept.md",
+        title: null,
+        snippet: 99,
+        score: Number.POSITIVE_INFINITY,
+        source: { label: "bm25" },
+        sources: [{ source: "bm25", rank: 1 }],
+        kind: "wiki",
+        provenance: {
+          path: "wiki/projects/kept.md",
+          kind: "wiki",
+          dominantSource: 123,
+          signals: [{ source: "rerank", rank: "2" }],
+        },
+      },
+    ] as unknown as typeof response.results;
+    const fetchMock = vi.fn(
+      async (_input: RequestInfo | URL) => new Response(JSON.stringify(response), { status: 200 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { result } = renderHook(
+      () => useSearch({ query: "voyage", scope: "all", k: 12, noRerank: true }),
+      { wrapper: wrapperWithQueryClient },
+    );
+
+    await waitFor(() => {
+      expect(result.current.data?.results).toHaveLength(1);
+    });
+    expect(result.current.data?.results[0]).toMatchObject({
+      path: "wiki/projects/kept.md",
+      title: "",
+      snippet: "",
+      score: 0,
+      source: "",
+      kind: "wiki",
+      provenance: {
+        path: "wiki/projects/kept.md",
+        kind: "wiki",
+        dominantSource: "",
+        signals: [{ source: "rerank", rank: 2 }],
+      },
+    });
+  });
 });

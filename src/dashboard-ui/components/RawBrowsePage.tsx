@@ -68,7 +68,7 @@ export function RawBrowsePage() {
             replace: true,
           })}
         />
-        <div {...listNav.listProps}>
+        <div aria-label="Raw sessions" role="list" {...listNav.listProps}>
           {raw.isLoading && (
             <div className="space-y-3" aria-label="Loading raw observations">
               {Array.from({ length: 5 }).map((_, index) => (
@@ -84,7 +84,7 @@ export function RawBrowsePage() {
             />
           )}
           {visibleEntries.map((entry) => (
-            <section key={entry.date} className="mb-6">
+            <section key={entry.date} className="mb-6" role="listitem">
               <h2 className="mb-2 break-words font-mono text-xs uppercase tracking-wider text-text-muted">
                 {entry.date} - {entry.files.length} session{entry.files.length === 1 ? "" : "s"}
               </h2>

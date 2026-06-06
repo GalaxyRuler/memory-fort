@@ -141,6 +141,8 @@ describe("raw page helpers and components", () => {
 
     render(<RawBrowsePage />);
 
+    expect(screen.getByRole("list", { name: "Raw sessions" })).toBeInTheDocument();
+
     const list = screen.getByRole("list", { name: "Raw sessions on 2026-05-24" });
     const item = within(list).getByRole("listitem");
 
@@ -167,10 +169,9 @@ describe("raw page helpers and components", () => {
 
     render(<RawBrowsePage />);
 
-    const region = screen.getByText(/2026-05-24 - 2 sessions/).parentElement?.parentElement;
-    expect(region).not.toBeNull();
-    (region as HTMLElement).focus();
-    fireEvent.keyDown(region as HTMLElement, { key: "j" });
+    const list = screen.getByRole("list", { name: "Raw sessions" });
+    list.focus();
+    fireEvent.keyDown(list, { key: "j" });
 
     const betaLink = screen.getByRole("link", { name: /codex-beta/i });
     expect(betaLink).toHaveFocus();

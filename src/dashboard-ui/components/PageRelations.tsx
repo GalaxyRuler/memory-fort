@@ -62,7 +62,7 @@ export function PageRelations({
   }
 
   return (
-    <section className={cn("mt-8 space-y-4", className)} {...listNav.listProps}>
+    <section aria-label="Page relations" className={cn("mt-8 space-y-4", className)} role="region" {...listNav.listProps}>
       {grouped.size > 0 ? (
         <Card>
           <h2 className="mb-3 text-sm font-semibold">Relations</h2>

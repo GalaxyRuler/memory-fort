@@ -47,7 +47,7 @@ export interface UseSearchOptions {
   enabled?: boolean;
 }
 
-type RuntimeSearchResult = Omit<SearchResult, "provenance" | "sources"> & {
+type RuntimeSearchResult = Partial<Omit<SearchResult, "provenance" | "sources">> & {
   sources?: unknown;
   provenance?: {
     path?: unknown;
@@ -88,22 +88,32 @@ export function useSearch({
 function normalizeSearchResponse(response: RuntimeSearchResponse): SearchResponse {
   return {
     ...response,
-    results: Array.isArray(response.results) ? response.results.map(normalizeSearchResult) : [],
+    results: Array.isArray(response.results) ? response.results.flatMap(normalizeSearchResult) : [],
   };
 }
 
-function normalizeSearchResult(result: RuntimeSearchResult): SearchResult {
+function normalizeSearchResult(result: RuntimeSearchResult): SearchResult[] {
+  if (typeof result.path !== "string" || !isSearchResultKind(result.kind)) return [];
+
   const provenance = result.provenance;
-  return {
+  const source = typeof result.source === "string" ? result.source : "";
+  const normalizedResult: SearchResult = {
     ...result,
+    path: result.path,
+    title: typeof result.title === "string" ? result.title : "",
+    snippet: typeof result.snippet === "string" ? result.snippet : "",
+    score: typeof result.score === "number" && Number.isFinite(result.score) ? result.score : 0,
+    source,
     sources: normalizeSearchSignals(result.sources),
+    kind: result.kind,
     provenance: {
       path: typeof provenance?.path === "string" ? provenance.path : result.path,
       kind: isSearchResultKind(provenance?.kind) ? provenance.kind : result.kind,
-      dominantSource: typeof provenance?.dominantSource === "string" ? provenance.dominantSource : result.source,
+      dominantSource: typeof provenance?.dominantSource === "string" ? provenance.dominantSource : source,
       signals: normalizeSearchSignals(provenance?.signals),
     },
   };
+  return [normalizedResult];
 }
 
 function isSearchResultKind(kind: unknown): kind is SearchResult["kind"] {

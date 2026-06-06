@@ -42,8 +42,10 @@ export function WikiBrowsePage() {
     ? wiki.data?.byCategory[selectedCategory] ?? []
     : Object.values(wiki.data?.byCategory ?? {}).flat();
   const groups = selectedCategory ? [] : groupedEntries(wiki.data?.byCategory ?? {});
+  const navEntries = selectedCategory ? entries : groups.flatMap((group) => group.entries);
+  const navIndexByRelPath = new Map(navEntries.map((entry, index) => [entry.relPath, index]));
   const listNav = useListKeyNav({
-    items: entries,
+    items: navEntries,
     getKey: (entry) => entry.relPath,
     onActivate: (entry) =>
       navigate({
@@ -96,9 +98,9 @@ export function WikiBrowsePage() {
               ))}
             </ul>
           ) : (
-            <div className="space-y-8" {...listNav.listProps}>
+            <div aria-label="Wiki pages" className="space-y-8" role="list" {...listNav.listProps}>
               {groups.map((group) => (
-                <section key={group.category}>
+                <section key={group.category} role="listitem">
                   <h2 className="mb-3 break-words text-lg font-semibold tracking-tight" id={`wiki-group-${group.category}`}>
                     {CATEGORY_LABELS[group.category] ?? titleCase(group.category)}
                   </h2>
@@ -110,7 +112,7 @@ export function WikiBrowsePage() {
                       <WikiCard
                         entry={entry}
                         key={entry.relPath}
-                        keyboardProps={listNav.getItemProps(entries.findIndex((item) => item.relPath === entry.relPath))}
+                        keyboardProps={listNav.getItemProps(navIndexByRelPath.get(entry.relPath) ?? 0)}
                       />
                     ))}
                   </ul>

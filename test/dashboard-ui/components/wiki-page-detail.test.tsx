@@ -69,6 +69,7 @@ describe("wiki page detail components", () => {
 
     render(<PageRelations inbound={[]} relations={relations} />);
 
+    expect(screen.getByRole("region", { name: "Page relations" })).toBeInTheDocument();
     expect(screen.getByText("uses")).toBeInTheDocument();
     expect(screen.getByText("depends_on")).toBeInTheDocument();
   });

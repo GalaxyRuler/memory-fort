@@ -148,6 +148,28 @@ describe("wiki browse components", () => {
     expect(within(item).getByRole("link", { name: /memory-system/i })).toHaveAttribute("tabindex", "0");
   });
 
+  test("WikiBrowsePage all-pages navigation follows the visual category order", () => {
+    wikiHook.useWikiIndex.mockReturnValue({
+      data: INDEX,
+      isLoading: false,
+    });
+
+    render(<WikiBrowsePage />);
+
+    const list = screen.getByRole("list", { name: "Wiki pages" });
+    const decisionLink = screen.getByRole("link", { name: /voyage/i });
+    const projectLink = screen.getByRole("link", { name: /memory-system/i });
+
+    expect(decisionLink).toHaveAttribute("tabindex", "0");
+    expect(projectLink).toHaveAttribute("tabindex", "-1");
+
+    list.focus();
+    fireEvent.keyDown(list, { key: "j" });
+
+    expect(projectLink).toHaveFocus();
+    expect(projectLink).toHaveAttribute("data-focused", "true");
+  });
+
   test("WikiBrowsePage j/k navigation focuses native wiki links", () => {
     routerState.search = { category: "projects" };
     wikiHook.useWikiIndex.mockReturnValue({
