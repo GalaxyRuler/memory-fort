@@ -21,6 +21,7 @@ describe("getClientStatuses", () => {
       MEMORY_CLAUDE_DESKTOP_DIR: process.env["MEMORY_CLAUDE_DESKTOP_DIR"],
       MEMORY_CODEX_DIR: process.env["MEMORY_CODEX_DIR"],
       MEMORY_ANTIGRAVITY_DIR: process.env["MEMORY_ANTIGRAVITY_DIR"],
+      MEMORY_OPENCOVEN_COMMAND: process.env["MEMORY_OPENCOVEN_COMMAND"],
       MEMORY_VSCODE_USER_DIR: process.env["MEMORY_VSCODE_USER_DIR"],
     };
     process.env["MEMORY_ROOT"] = memDir;
@@ -28,6 +29,7 @@ describe("getClientStatuses", () => {
     process.env["MEMORY_CLAUDE_DESKTOP_DIR"] = join(tmp, "Claude");
     process.env["MEMORY_CODEX_DIR"] = join(tmp, ".codex");
     process.env["MEMORY_ANTIGRAVITY_DIR"] = join(tmp, ".gemini", "antigravity");
+    process.env["MEMORY_OPENCOVEN_COMMAND"] = join(tmp, "missing-coven");
     process.env["MEMORY_VSCODE_USER_DIR"] = join(tmp, "Code", "User");
     await runInit({ sourceRepoDir: process.cwd() });
     await mkdir(join(memDir, "claude-code-plugin", ".claude-plugin"), {
@@ -82,5 +84,14 @@ describe("getClientStatuses", () => {
     const status = statuses.find((item) => item.client === "claude-code")!;
     expect(status.state).toBe("installed");
     expect(status.detail).toContain("installed and enabled");
+  });
+
+  it("reports OpenCoven as missing when the coven CLI is unavailable", async () => {
+    const statuses = await getClientStatuses();
+
+    const status = statuses.find((item) => item.client === "opencoven")!;
+    expect(status.state).toBe("missing");
+    expect(status.detail).toContain("coven CLI not found");
+    expect(status.configPath).toContain("coven.sock");
   });
 });

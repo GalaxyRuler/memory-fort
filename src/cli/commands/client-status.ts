@@ -7,6 +7,7 @@ import {
   memoryRoot,
 } from "../../storage/paths.js";
 import { isClaudeCodePluginEnabled } from "./install/claude-code.js";
+import { readOpenCovenReadiness } from "./install/opencoven.js";
 import { vscodeMcpConfigPath } from "./install/vscode.js";
 
 export type ClientName =
@@ -18,6 +19,7 @@ export type ClientName =
   | "hermes"
   | "pi"
   | "openclaw"
+  | "opencoven"
   | "vscode";
 
 export type ClientInstallState = "installed" | "stale" | "missing";
@@ -38,6 +40,7 @@ export const CLIENTS: ClientName[] = [
   "hermes",
   "pi",
   "openclaw",
+  "opencoven",
   "vscode",
 ];
 
@@ -52,6 +55,7 @@ export async function getClientStatuses(): Promise<ClientStatus[]> {
     await readHermesStatus(),
     await readPiStatus(),
     await readOpenClawStatus(),
+    await readOpenCovenStatus(),
     await readVsCodeStatus(),
   ];
 }
@@ -199,6 +203,16 @@ async function readOpenClawStatus(): Promise<ClientStatus> {
         ? "installed but memory entry missing or invalid"
         : "not installed",
     configPath,
+  };
+}
+
+async function readOpenCovenStatus(): Promise<ClientStatus> {
+  const status = await readOpenCovenReadiness();
+  return {
+    client: "opencoven",
+    state: status.state,
+    detail: status.detail,
+    configPath: status.socketPath,
   };
 }
 

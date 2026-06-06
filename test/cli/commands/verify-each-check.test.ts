@@ -26,6 +26,7 @@ describe("verify checks", () => {
       MEMORY_CLAUDE_PROJECTS_DIR: process.env["MEMORY_CLAUDE_PROJECTS_DIR"],
       MEMORY_CODEX_DIR: process.env["MEMORY_CODEX_DIR"],
       MEMORY_ANTIGRAVITY_DIR: process.env["MEMORY_ANTIGRAVITY_DIR"],
+      MEMORY_OPENCOVEN_COMMAND: process.env["MEMORY_OPENCOVEN_COMMAND"],
       MEMORY_VSCODE_USER_DIR: process.env["MEMORY_VSCODE_USER_DIR"],
       MEMORY_VSCODE_EXTENSION_DIR: process.env["MEMORY_VSCODE_EXTENSION_DIR"],
       MEMORY_CLAUDE_DESKTOP_DIR: process.env["MEMORY_CLAUDE_DESKTOP_DIR"],
@@ -35,6 +36,7 @@ describe("verify checks", () => {
     process.env["MEMORY_CLAUDE_PROJECTS_DIR"] = join(tmp, ".claude", "projects");
     process.env["MEMORY_CODEX_DIR"] = join(tmp, ".codex");
     process.env["MEMORY_ANTIGRAVITY_DIR"] = join(tmp, ".gemini", "antigravity");
+    process.env["MEMORY_OPENCOVEN_COMMAND"] = join(tmp, "missing-coven");
     process.env["MEMORY_VSCODE_USER_DIR"] = join(tmp, "Code", "User");
     process.env["MEMORY_CLAUDE_DESKTOP_DIR"] = join(tmp, "Claude");
   });
@@ -268,6 +270,16 @@ describe("verify checks", () => {
     expect(capture?.status).toBe("warn");
     expect(capture?.label).toBe("antigravity live hooks have not captured yet");
     expect(capture?.detail).toBe("no antigravity captures found");
+  });
+
+  it("client checks warn when OpenCoven is not ready", async () => {
+    const results = await checkClients({ vaultRoot: tmp, now });
+
+    const readiness = results.find((result) => result.id === "client.opencoven.readiness");
+    expect(readiness?.status).toBe("warn");
+    expect(readiness?.label).toBe("OpenCoven readiness");
+    expect(readiness?.detail).toContain("coven CLI not found");
+    expect(readiness?.suggestedFix).toContain("npx @opencoven/cli doctor");
   });
 
   it("client checks report sniffer, plugin, watcher, and extension health", async () => {

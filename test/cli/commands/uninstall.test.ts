@@ -101,6 +101,13 @@ describe("runUninstall", () => {
     expect(result.actions.some((action) => action.includes("not installed"))).toBe(true);
   });
 
+  it("uninstalling OpenCoven is a clean read-only no-op", async () => {
+    const result = await runUninstall("opencoven");
+
+    expect(result.exitCode).toBe(0);
+    expect(result.actions).toEqual(["read-only integration; no Memory Fort files to remove"]);
+  });
+
   it("dry-runs Codex uninstall without modifying config", async () => {
     const codexConfig = join(process.env["MEMORY_CODEX_DIR"]!, "config.toml");
     await installCodex();

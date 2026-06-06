@@ -184,11 +184,12 @@ memory-fort install antigravity     # Google Antigravity / Gemini (MCP + live-ca
 memory-fort install hermes          # Hermes agent (YAML hooks + MCP in ~/.hermes/config.yaml)
 memory-fort install pi              # Pi coding agent (YAML hooks in ~/.pi/config.yaml)
 memory-fort install openclaw        # OpenClaw (MCP server in ~/.openclaw/openclaw.json)
+memory-fort install opencoven       # OpenCoven / Coven (read-only daemon readiness check)
 memory-fort install claude-desktop  # Claude Desktop (MCP only)
 memory-fort install vscode          # VS Code (MCP only)
 ```
 
-All installs are **non-destructive and idempotent** — sentinel-block writes, re-running is safe.
+All installs are **non-destructive and idempotent** — sentinel-block writes, re-running is safe. The OpenCoven target is read-only: it checks the `coven` CLI and the local `coven.daemon.v1` health contract, but does not launch sessions or write Memory Fort config.
 
 ```bash
 # Undo any integration cleanly

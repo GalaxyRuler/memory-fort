@@ -4,6 +4,7 @@ import { runInstallClaudeDesktop } from "./install/claude-desktop.js";
 import { installCodex } from "./install/codex.js";
 import { runInstallHermes } from "./install/hermes.js";
 import { runInstallOpenClaw } from "./install/openclaw.js";
+import { runInstallOpenCoven } from "./install/opencoven.js";
 import { runInstallPi } from "./install/pi.js";
 import { installVsCode } from "./install/vscode.js";
 import { CLIENTS, type ClientName } from "./client-status.js";
@@ -150,6 +151,10 @@ async function installClient(
       case "openclaw": {
         const result = await runInstallOpenClaw();
         return { client, ok: true, detail: `installed (${result.configPath})` };
+      }
+      case "opencoven": {
+        const result = await runInstallOpenCoven();
+        return { client, ok: result.state === "installed", detail: result.detail };
       }
       case "vscode": {
         const result = await installVsCode({

@@ -15,6 +15,7 @@ import {
 import {
   isClaudeCodePluginEnabled,
 } from "../install/claude-code.js";
+import { readOpenCovenReadiness } from "../install/opencoven.js";
 import { vscodeExtensionDir, vscodeMcpConfigPath } from "../install/vscode.js";
 import { fail, pass, warn, type CheckDescriptor, type VerifyCheckContext, type VerifyCheckResult } from "./types.js";
 
@@ -100,6 +101,13 @@ export const antigravityCaptureCheck: CheckDescriptor = {
   run: (ctx) => checkAnyCapture(ctx, ["antigravity-"], "client.antigravity.capture"),
 };
 
+export const openCovenReadinessCheck: CheckDescriptor = {
+  id: "client.opencoven.readiness",
+  label: "OpenCoven readiness",
+  roles: ["operator"],
+  run: () => checkOpenCovenReadiness(),
+};
+
 export const vscodeConfigCheck: CheckDescriptor = {
   id: "client.vscode.config",
   label: "VS Code MCP entry present",
@@ -164,6 +172,7 @@ export const CLIENT_CHECKS: CheckDescriptor[] = [
   antigravityConfigCheck,
   snifferAntigravityPluginCheck,
   antigravityCaptureCheck,
+  openCovenReadinessCheck,
   vscodeConfigCheck,
   snifferVscodeExtensionCheck,
   snifferVscodeCaptureCheck,
@@ -545,6 +554,19 @@ async function checkAnyCapture(
         "antigravity live hooks have not captured yet",
         "no antigravity captures found",
       );
+}
+
+async function checkOpenCovenReadiness(): Promise<VerifyCheckResult> {
+  const status = await readOpenCovenReadiness();
+  if (status.state === "installed") {
+    return pass("client.opencoven.readiness", "OpenCoven readiness", status.detail);
+  }
+  return warn(
+    "client.opencoven.readiness",
+    "OpenCoven readiness",
+    status.detail,
+    "run `npx @opencoven/cli doctor`, then `coven daemon start`",
+  );
 }
 
 async function checkClaudeCodeBackfillStore(): Promise<VerifyCheckResult> {

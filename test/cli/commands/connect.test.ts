@@ -39,6 +39,7 @@ describe("runConnect", () => {
       MEMORY_HERMES_DIR: process.env["MEMORY_HERMES_DIR"],
       MEMORY_PI_DIR: process.env["MEMORY_PI_DIR"],
       MEMORY_OPENCLAW_DIR: process.env["MEMORY_OPENCLAW_DIR"],
+      MEMORY_OPENCOVEN_COMMAND: process.env["MEMORY_OPENCOVEN_COMMAND"],
       MEMORY_VSCODE_USER_DIR: process.env["MEMORY_VSCODE_USER_DIR"],
     };
     process.env["MEMORY_ROOT"] = memDir;
@@ -50,6 +51,7 @@ describe("runConnect", () => {
     process.env["MEMORY_HERMES_DIR"] = join(tmp, ".hermes");
     process.env["MEMORY_PI_DIR"] = join(tmp, ".pi");
     process.env["MEMORY_OPENCLAW_DIR"] = join(tmp, ".openclaw");
+    process.env["MEMORY_OPENCOVEN_COMMAND"] = join(tmp, "missing-coven");
     process.env["MEMORY_VSCODE_USER_DIR"] = join(tmp, "Code", "User");
     await runInit({ sourceRepoDir: process.cwd() });
   });
@@ -74,6 +76,7 @@ describe("runConnect", () => {
       "hermes",
       "pi",
       "openclaw",
+      "opencoven",
       "vscode",
     ]);
     expect(result.clients.find((client) => client.client === "vscode")!.ok).toBe(false);
@@ -141,6 +144,23 @@ describe("runConnect", () => {
     expect(promptCalls).toBe(0);
     expect(result.exitCode).toBe(0);
     expect(existsSync(join(process.env["MEMORY_CODEX_DIR"]!, "config.toml"))).toBe(true);
+  });
+
+  it("does not prompt for the read-only OpenCoven connect target", async () => {
+    let promptCalls = 0;
+    const result = await runConnect({
+      client: "opencoven",
+      stdout: captureStdout([], true),
+      confirm: async () => {
+        promptCalls += 1;
+        return false;
+      },
+      noVerify: true,
+    });
+
+    expect(promptCalls).toBe(0);
+    expect(result.planned).toEqual([]);
+    expect(result.clients[0]!.client).toBe("opencoven");
   });
 
   it("passes workspace path to VS Code installer", async () => {

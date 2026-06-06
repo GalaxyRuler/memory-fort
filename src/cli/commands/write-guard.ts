@@ -26,7 +26,8 @@ export interface WriteGuardResult {
 export async function guardWrites(opts: WriteGuardOptions): Promise<WriteGuardResult> {
   const stdout = opts.stdout ?? processStdout;
   const dryRun = opts.dryRun === true;
-  const shouldPrompt = stdout.isTTY === true && opts.yes !== true && !dryRun;
+  const shouldPrompt =
+    stdout.isTTY === true && opts.yes !== true && !dryRun && opts.planned.length > 0;
 
   if (dryRun || shouldPrompt) {
     stdout.write(formatWritePlan(opts.command, opts.planned));

@@ -31,6 +31,7 @@ const EXPECTED_ROLES = new Map<string, VerifyRole[]>([
   ["client.antigravity.config", ["operator"]],
   ["sniffer.antigravity.plugin", ["operator"]],
   ["client.antigravity.capture", ["operator"]],
+  ["client.opencoven.readiness", ["operator"]],
   ["client.vscode.config", ["operator"]],
   ["sniffer.vscode.extension", ["operator"]],
   ["sniffer.vscode.capture", ["operator"]],

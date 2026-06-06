@@ -26,6 +26,7 @@ export type UninstallPlatform =
   | "hermes"
   | "pi"
   | "openclaw"
+  | "opencoven"
   | "claude-desktop"
   | "vscode";
 
@@ -71,6 +72,13 @@ export async function runUninstall(
       return uninstallPi(opts);
     case "openclaw":
       return uninstallOpenClaw(opts);
+    case "opencoven":
+      return result(
+        "opencoven",
+        opts,
+        ["read-only integration; no Memory Fort files to remove"],
+        true,
+      );
     case "claude-desktop":
       return uninstallClaudeDesktop(opts);
     case "vscode":
@@ -80,7 +88,7 @@ export async function runUninstall(
         platform,
         dryRun: opts.dryRun === true,
         actions: [
-          `Unknown platform: ${platform}. Valid: claude-code, codex, antigravity, hermes, pi, openclaw, claude-desktop, vscode`,
+          `Unknown platform: ${platform}. Valid: claude-code, codex, antigravity, hermes, pi, openclaw, opencoven, claude-desktop, vscode`,
         ],
         removed: false,
         exitCode: 2,

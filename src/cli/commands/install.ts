@@ -6,6 +6,7 @@ import { runInstallClaudeDesktop } from "./install/claude-desktop.js";
 import { installCodex } from "./install/codex.js";
 import { runInstallHermes } from "./install/hermes.js";
 import { runInstallOpenClaw } from "./install/openclaw.js";
+import { runInstallOpenCoven } from "./install/opencoven.js";
 import { runInstallPi } from "./install/pi.js";
 import { installVsCode, vscodeExtensionDir, vscodeMcpConfigPath } from "./install/vscode.js";
 import { formatVerifyResult, runVerify, type VerifyResult } from "./verify.js";
@@ -19,6 +20,7 @@ export type Platform =
   | "hermes"
   | "pi"
   | "openclaw"
+  | "opencoven"
   | "claude-desktop"
   | "vscode";
 
@@ -41,7 +43,7 @@ export async function runInstall(
   const planned = planInstallWrites(platform, opts);
   if (!planned) {
     console.error(
-      `Unknown platform: ${platform}. Valid: claude-code, codex, antigravity, hermes, pi, openclaw, claude-desktop, vscode`,
+      `Unknown platform: ${platform}. Valid: claude-code, codex, antigravity, hermes, pi, openclaw, opencoven, claude-desktop, vscode`,
     );
     process.exit(2);
   }
@@ -148,6 +150,18 @@ export async function runInstall(
       await printVerify(opts);
       return;
     }
+    case "opencoven": {
+      const result = await runInstallOpenCoven();
+      console.log(`Checked OpenCoven readiness at ${result.socketPath}`);
+      for (const line of result.log) console.log(`  ${line}`);
+      console.log("");
+      console.log("Next steps:");
+      console.log("  1. If missing, run: npx @opencoven/cli doctor");
+      console.log("  2. If the daemon is stopped, run: coven daemon start");
+      console.log("  3. Memory Fort uses OpenCoven read-only for readiness in this release.");
+      await printVerify(opts);
+      return;
+    }
     case "vscode": {
       const result = await installVsCode({ workspace: opts.workspace });
       if (result.status === "skipped") {
@@ -230,6 +244,8 @@ export function planInstallWrites(
       const openclawDir = process.env["MEMORY_OPENCLAW_DIR"] ?? join(homedir(), ".openclaw");
       return [join(openclawDir, "openclaw.json")];
     }
+    case "opencoven":
+      return [];
     case "claude-desktop":
       return [claudeDesktopConfigPath()];
     case "vscode":
