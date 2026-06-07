@@ -38,12 +38,19 @@ export function runGrep(opts: GrepOptions): GrepResult {
   const writeErr = opts.stderr ?? ((text) => process.stderr.write(text));
 
   const dirs: string[] = [];
+  const dirLabels: string[] = [];
   if (scope === "raw" || scope === "both") {
     const rawRoot = rawDir().replace(/[\\/][0-9-]+$/, "");
-    if (existsSync(rawRoot)) dirs.push(rawRoot);
+    if (existsSync(rawRoot)) {
+      dirs.push(rawRoot);
+      dirLabels.push("raw/");
+    }
   }
   if (scope === "wiki" || scope === "both") {
-    if (existsSync(wikiDir())) dirs.push(wikiDir());
+    if (existsSync(wikiDir())) {
+      dirs.push(wikiDir());
+      dirLabels.push("wiki/");
+    }
   }
 
   if (dirs.length === 0) {
@@ -81,5 +88,8 @@ export function runGrep(opts: GrepOptions): GrepResult {
 
   const rawExit = result.status ?? 2;
   const exitCode: 0 | 1 | 2 = rawExit === 0 ? 0 : rawExit === 1 ? 1 : 2;
+  if (exitCode === 1 && !result.stdout && !result.stderr) {
+    writeErr(`No matches for ${JSON.stringify(opts.pattern)} in ${dirLabels.join(" + ")}.\n`);
+  }
   return { exitCode, argsUsed: rgArgs, dirsSearched: dirs };
 }

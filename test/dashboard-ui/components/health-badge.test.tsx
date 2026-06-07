@@ -1,5 +1,5 @@
-import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { HealthBadge } from "../../../src/dashboard-ui/components/HealthBadge.js";
 import { useHealth, type VerifyReport } from "../../../src/dashboard-ui/hooks/useHealth.js";
 
@@ -10,6 +10,12 @@ vi.mock("../../../src/dashboard-ui/hooks/useHealth.js", () => ({
 const mockUseHealth = vi.mocked(useHealth);
 
 describe("HealthBadge", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    mockUseHealth.mockReset();
+    window.history.replaceState(null, "", "/");
+  });
+
   it("renders a compact all-healthy state", () => {
     mockUseHealth.mockReturnValue(query(allPassReport()));
 
@@ -17,6 +23,37 @@ describe("HealthBadge", () => {
 
     expect(screen.getByText("All systems connected")).toBeInTheDocument();
     expect(screen.getByText("2 checks")).toBeInTheDocument();
+  });
+
+  it("keeps the loading state before the first-run timeout", () => {
+    vi.useFakeTimers();
+    mockUseHealth.mockReturnValue(loadingQuery());
+
+    render(<HealthBadge />);
+
+    expect(screen.getByText("Checking memory health")).toBeInTheDocument();
+    expect(screen.getByText("waiting for verify report")).toBeInTheDocument();
+
+    act(() => {
+      vi.advanceTimersByTime(9_999);
+    });
+
+    expect(screen.getByText("Checking memory health")).toBeInTheDocument();
+    expect(screen.queryByText("Health status unknown — run memory verify to check")).not.toBeInTheDocument();
+  });
+
+  it("falls back to an actionable unknown state after the first-run timeout", () => {
+    vi.useFakeTimers();
+    mockUseHealth.mockReturnValue(loadingQuery());
+
+    render(<HealthBadge />);
+
+    act(() => {
+      vi.advanceTimersByTime(10_000);
+    });
+
+    expect(screen.getByText("Health status unknown — run memory verify to check")).toBeInTheDocument();
+    expect(screen.getByText("run memory verify")).toBeInTheDocument();
   });
 
   it("renders warning and failure counts in compact mode", () => {
@@ -47,7 +84,6 @@ describe("HealthBadge", () => {
 
     expect(screen.getByText("claude-code plugin enabled")).toBeInTheDocument();
     expect(screen.getByText("run `memory connect claude-code`")).toBeInTheDocument();
-    window.history.replaceState(null, "", "/");
   });
 
   it("surfaces capture watchdog outages on the health card", () => {
@@ -62,6 +98,15 @@ describe("HealthBadge", () => {
     ).toBeInTheDocument();
   });
 });
+
+function loadingQuery(): ReturnType<typeof useHealth> {
+  return {
+    data: undefined,
+    isLoading: true,
+    isError: false,
+    error: null,
+  } as ReturnType<typeof useHealth>;
+}
 
 function query(data: VerifyReport): ReturnType<typeof useHealth> {
   return {

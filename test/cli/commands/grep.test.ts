@@ -72,14 +72,104 @@ describe("runGrep (mocked spawn)", () => {
   });
 
   it("returns exit 1 when rg reports no matches", () => {
+    let stderrCapture = "";
     const result = runGrep({
       pattern: "nonexistent",
       spawn: () =>
         ({ status: 1, stdout: "", stderr: "", pid: 0, output: [], signal: null }) as never,
       stdout: () => {},
-      stderr: () => {},
+      stderr: (text) => {
+        stderrCapture += text;
+      },
     });
     expect(result.exitCode).toBe(1);
+    expect(stderrCapture).toBe('No matches for "nonexistent" in raw/ + wiki/.\n');
+  });
+
+  it("prints raw/ for no matches when scope=raw", () => {
+    let stderrCapture = "";
+    const result = runGrep({
+      pattern: "nonexistent",
+      scope: "raw",
+      spawn: () =>
+        ({ status: 1, stdout: "", stderr: "", pid: 0, output: [], signal: null }) as never,
+      stdout: () => {},
+      stderr: (text) => {
+        stderrCapture += text;
+      },
+    });
+    expect(result.exitCode).toBe(1);
+    expect(stderrCapture).toBe('No matches for "nonexistent" in raw/.\n');
+  });
+
+  it("prints wiki/ for no matches when scope=wiki", () => {
+    let stderrCapture = "";
+    const result = runGrep({
+      pattern: "nonexistent",
+      scope: "wiki",
+      spawn: () =>
+        ({ status: 1, stdout: "", stderr: "", pid: 0, output: [], signal: null }) as never,
+      stdout: () => {},
+      stderr: (text) => {
+        stderrCapture += text;
+      },
+    });
+    expect(result.exitCode).toBe(1);
+    expect(stderrCapture).toBe('No matches for "nonexistent" in wiki/.\n');
+  });
+
+  it("escapes quotes and newlines in the no-match pattern", () => {
+    let stderrCapture = "";
+    const result = runGrep({
+      pattern: 'quoted "pattern"\nnext line',
+      spawn: () =>
+        ({ status: 1, stdout: "", stderr: "", pid: 0, output: [], signal: null }) as never,
+      stdout: () => {},
+      stderr: (text) => {
+        stderrCapture += text;
+      },
+    });
+    expect(result.exitCode).toBe(1);
+    expect(stderrCapture).toBe(
+      'No matches for "quoted \\"pattern\\"\\nnext line" in raw/ + wiki/.\n',
+    );
+  });
+
+  it("does not print the no-match message when rg reports stderr", () => {
+    let stderrCapture = "";
+    const result = runGrep({
+      pattern: "nonexistent",
+      spawn: () =>
+        ({
+          status: 1,
+          stdout: "",
+          stderr: "rg: raw: Permission denied\n",
+          pid: 0,
+          output: [],
+          signal: null,
+        }) as never,
+      stdout: () => {},
+      stderr: (text) => {
+        stderrCapture += text;
+      },
+    });
+    expect(result.exitCode).toBe(1);
+    expect(stderrCapture).toBe("rg: raw: Permission denied\n");
+  });
+
+  it("does not print the no-match message when rg reports an error status", () => {
+    let stderrCapture = "";
+    const result = runGrep({
+      pattern: "nonexistent",
+      spawn: () =>
+        ({ status: 2, stdout: "", stderr: "", pid: 0, output: [], signal: null }) as never,
+      stdout: () => {},
+      stderr: (text) => {
+        stderrCapture += text;
+      },
+    });
+    expect(result.exitCode).toBe(2);
+    expect(stderrCapture).toBe("");
   });
 
   it("returns exit 2 when rg is not found", () => {

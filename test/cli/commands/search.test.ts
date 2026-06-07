@@ -84,7 +84,27 @@ describe("runSearch CLI command", () => {
 
     expect(result.exitCode).toBe(3);
     expect(result.stdout).toBe("");
-    expect(result.stderr).toContain("Search dashboard offline");
+    expect(result.stderr).toContain(
+      "Could not connect to dashboard at http://127.0.0.1:4410/memory. Start it with: memory dashboard",
+    );
+    expect(result.stderr).toContain("--dashboard-url");
+    expect(result.stderr).toContain("memory grep");
+  });
+
+  it("returns exit 3 with the resolved dashboard URL when the search dashboard returns an error", async () => {
+    const fetchFn = vi.fn(async () => jsonResponse({ error: "offline" }, 503)) as unknown as typeof fetch;
+
+    const result = await runSearch("voyage", {
+      fetchFn,
+      configLoader: emptyConfigLoader,
+      dashboardUrl: "https://dashboard.example/memory/",
+    });
+
+    expect(result.exitCode).toBe(3);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain(
+      "Could not connect to dashboard at https://dashboard.example/memory. Start it with: memory dashboard",
+    );
     expect(result.stderr).toContain("--dashboard-url");
     expect(result.stderr).toContain("memory grep");
   });

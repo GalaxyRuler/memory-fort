@@ -45,6 +45,7 @@ export interface GalacticSceneProps {
   zoomLevel?: GalacticZoomLevel;
   onSelectNode?: (id: string | null) => void;
   onHoverNode?: (id: string | null) => void;
+  onGalaxyClusterClick?: (type: CognitiveType) => void;
   onZoomLevelChange?: (level: GalacticZoomLevel) => void;
 }
 
@@ -54,7 +55,7 @@ export interface GalacticSceneProps {
 
 export const GalacticScene = forwardRef<GalacticSceneHandle, GalacticSceneProps>(
   function GalacticScene(props, ref) {
-    const { nodes, edges, selectedNodeId, onSelectNode, onHoverNode, onZoomLevelChange } = props;
+    const { nodes, edges, selectedNodeId, onSelectNode, onHoverNode, onGalaxyClusterClick, onZoomLevelChange } = props;
 
     const layout = useMemo(() => buildGalacticLayout(nodes, edges), [nodes, edges]);
     const handleRef = useRef<GalacticSceneHandle | null>(null);
@@ -85,12 +86,18 @@ export const GalacticScene = forwardRef<GalacticSceneHandle, GalacticSceneProps>
       };
     }, []);
 
+    useEffect(() => {
+      return () => setBodyCursor("auto");
+    }, []);
+
     return (
       <div ref={wrapperRef} className="absolute inset-0 overflow-hidden bg-[#050508]">
         <Canvas
+          aria-label="Memory knowledge graph"
           camera={{ position: [0, 0, LEVEL_DISTANCE[0]], fov: 60, near: 0.1, far: 500 }}
           dpr={[1, 1.5]}
           gl={{ antialias: true, alpha: false, toneMapping: THREE.ACESFilmicToneMapping }}
+          role="img"
           style={{ width: "100%", height: "100%" }}
         >
           <color attach="background" args={["#030308"]} />
@@ -103,6 +110,7 @@ export const GalacticScene = forwardRef<GalacticSceneHandle, GalacticSceneProps>
             selectedNodeId={selectedNodeId ?? null}
             onSelectNode={onSelectNode}
             onHoverNode={onHoverNode}
+            onGalaxyClusterClick={onGalaxyClusterClick}
             onZoomLevelChange={onZoomLevelChange}
           />
         </Canvas>
@@ -120,17 +128,18 @@ interface SceneContentProps {
   selectedNodeId: string | null;
   onSelectNode?: (id: string | null) => void;
   onHoverNode?: (id: string | null) => void;
+  onGalaxyClusterClick?: (type: CognitiveType) => void;
   onZoomLevelChange?: (level: GalacticZoomLevel) => void;
 }
 
 const SceneContent = forwardRef<GalacticSceneHandle, SceneContentProps>(
-  function SceneContent({ layout, selectedNodeId, onSelectNode, onHoverNode, onZoomLevelChange }, ref) {
+  function SceneContent({ layout, selectedNodeId, onSelectNode, onHoverNode, onGalaxyClusterClick, onZoomLevelChange }, ref) {
     const { camera } = useThree();
     const controlsRef = useRef<any>(null);
     const cameraTarget = useRef(new THREE.Vector3(0, 0, LEVEL_DISTANCE[0]));
     const cameraLookAt = useRef(new THREE.Vector3(0, 0, 0));
     const animating = useRef(false);
-    const startRef = useRef(0);
+    const lastZoomLevelRef = useRef<GalacticZoomLevel>(zoomLevelForScale(5 / camera.position.length()));
     // Orbit time is accumulated (not read straight off the clock) so hovering a
     // node can slow it to a crawl — making the moving planets easy to click.
     const orbitMsRef = useRef(0);
@@ -175,7 +184,10 @@ const SceneContent = forwardRef<GalacticSceneHandle, SceneContentProps>(
       const dist = camera.position.length();
       const scale = 5 / dist;
       const level = zoomLevelForScale(scale);
-      startRef.current = level;
+      if (level !== lastZoomLevelRef.current) {
+        lastZoomLevelRef.current = level;
+        onZoomLevelChange?.(level);
+      }
     });
 
     return (
@@ -183,7 +195,7 @@ const SceneContent = forwardRef<GalacticSceneHandle, SceneContentProps>(
         <Stars radius={200} depth={80} count={6000} factor={3} saturation={0.1} fade speed={0.5} />
         <DustField count={4000} />
         <GalaxyVolumes galaxies={layout.galaxies} />
-        <GalaxyCores galaxies={layout.galaxies} />
+        <GalaxyCores galaxies={layout.galaxies} onGalaxyClusterClick={onGalaxyClusterClick} />
         <NodeInstances layout={layout} selectedNodeId={selectedNodeId} hoverRef={hoverRef} onSelectNode={onSelectNode} onHoverNode={onHoverNode} />
         <EdgeLines layout={layout} selectedNodeId={selectedNodeId} />
         <OrbitControls
@@ -216,7 +228,19 @@ const SceneContent = forwardRef<GalacticSceneHandle, SceneContentProps>(
 // Galaxy cores — glowing spheres at each galaxy center
 // ---------------------------------------------------------------------------
 
-function GalaxyCores({ galaxies }: { galaxies: GalacticLayout["galaxies"] }) {
+function setBodyCursor(cursor: string) {
+  if (typeof document !== "undefined") {
+    document.body.style.cursor = cursor;
+  }
+}
+
+function GalaxyCores({
+  galaxies,
+  onGalaxyClusterClick,
+}: {
+  galaxies: GalacticLayout["galaxies"];
+  onGalaxyClusterClick?: (type: CognitiveType) => void;
+}) {
   return (
     <>
       {COGNITIVE_ORDER.map((type) => {
@@ -226,7 +250,17 @@ function GalaxyCores({ galaxies }: { galaxies: GalacticLayout["galaxies"] }) {
         const color = new THREE.Color(g.color);
         return (
           <group key={type} position={[g.cx / W, g.cy / W, g.cz / W]}>
-            <mesh>
+            <mesh
+              onClick={(event: any) => {
+                event.stopPropagation();
+                onGalaxyClusterClick?.(type);
+              }}
+              onPointerOut={() => setBodyCursor("auto")}
+              onPointerOver={(event: any) => {
+                event.stopPropagation();
+                setBodyCursor("pointer");
+              }}
+            >
               <sphereGeometry args={[0.35, 32, 32]} />
               <meshStandardMaterial
                 emissive={color}
@@ -456,7 +490,7 @@ function NodeInstances({
       if (raycaster.intersectObject(mesh, false).length === 0) {
         hoverRef.current = false;
         onHoverNode?.(null);
-        document.body.style.cursor = "auto";
+        setBodyCursor("auto");
       }
     }
   });
@@ -489,7 +523,7 @@ function NodeInstances({
       if (id !== undefined && id < nodes.length) {
         hoverRef.current = true;
         onHoverNode?.(nodes[id]!.path);
-        document.body.style.cursor = "pointer";
+        setBodyCursor("pointer");
       }
     },
     [nodes, hoverRef, onHoverNode],
@@ -498,7 +532,7 @@ function NodeInstances({
   const handlePointerOut = useCallback(() => {
     hoverRef.current = false;
     onHoverNode?.(null);
-    document.body.style.cursor = "auto";
+    setBodyCursor("auto");
   }, [hoverRef, onHoverNode]);
 
   return (

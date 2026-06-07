@@ -55,11 +55,11 @@ export async function runSearch(
   try {
     response = await fetchFn(url);
   } catch {
-    return backendOffline(trimmedQuery);
+    return backendOffline(trimmedQuery, baseUrl);
   }
 
   if (!response.ok) {
-    return backendOffline(trimmedQuery);
+    return backendOffline(trimmedQuery, baseUrl);
   }
 
   let body: ApiSearchResponse;
@@ -145,12 +145,13 @@ function formatPretty(body: ApiSearchResponse): string {
   return `${lines.join("\n")}\n`;
 }
 
-function backendOffline(query: string): CliSearchResult {
+function backendOffline(query: string, dashboardUrl: string): CliSearchResult {
   return {
     exitCode: 3,
     stdout: "",
     stderr:
-      "Search dashboard offline. Start `memory dashboard`, set `dashboard.url`, or pass `--dashboard-url`. " +
+      `Could not connect to dashboard at ${dashboardUrl}. Start it with: memory dashboard. ` +
+      "Set `dashboard.url` or pass `--dashboard-url`. " +
       "Memory grep available as offline fallback: " +
       `memory grep '${query}' --scope raw.\n`,
   };

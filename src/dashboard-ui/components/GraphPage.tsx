@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { type GraphNode, type GraphScope, useGraph } from "../hooks/useGraph.js";
+import { type CognitiveType, type GraphNode, type GraphScope, useGraph } from "../hooks/useGraph.js";
 import { useMediaQuery } from "../hooks/useMediaQuery.js";
 import type { GalacticZoomLevel } from "./GalacticCanvas.js";
 import { GalacticScene, type GalacticSceneHandle } from "./GalacticScene.js";
@@ -18,6 +18,7 @@ export function GraphPage() {
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
   const [zoomLevel, setZoomLevel] = useState<GalacticZoomLevel>(0);
+  const [showGalaxyZoomHint, setShowGalaxyZoomHint] = useState(false);
   const [openMemoryPath, setOpenMemoryPath] = useState<string | null>(null);
 
   const selectedNode = useMemo(() => {
@@ -26,6 +27,7 @@ export function GraphPage() {
 
   const selectNode = useCallback((path: string | null) => {
     setSelectedNodeId(path);
+    setShowGalaxyZoomHint(false);
     if (path) {
       canvasRef.current?.focusNode(path);
     }
@@ -33,13 +35,28 @@ export function GraphPage() {
 
   const handleZoomLevelChange = useCallback((level: GalacticZoomLevel) => {
     setZoomLevel(level);
+    setShowGalaxyZoomHint(false);
     canvasRef.current?.setZoomLevel(level);
   }, []);
+
+  const handleSceneZoomLevelChange = useCallback((level: GalacticZoomLevel) => {
+    setZoomLevel(level);
+    if (level !== 0) {
+      setShowGalaxyZoomHint(false);
+    }
+  }, []);
+
+  const handleGalaxyClusterClick = useCallback((_type: CognitiveType) => {
+    if (zoomLevel === 0) {
+      setShowGalaxyZoomHint(true);
+    }
+  }, [zoomLevel]);
 
   const handleScopeChange = useCallback((next: GraphScope) => {
     // The node set changes, so any current selection may no longer exist.
     setScope(next);
     setSelectedNodeId(null);
+    setShowGalaxyZoomHint(false);
   }, []);
 
   useEffect(() => {
@@ -50,6 +67,7 @@ export function GraphPage() {
 
       if (event.key === "Escape") {
         setSelectedNodeId(null);
+        setShowGalaxyZoomHint(false);
         setZoomLevel(0);
         canvasRef.current?.setZoomLevel(0);
       } else if (event.key === "1" || event.key === "2" || event.key === "3") {
@@ -78,10 +96,25 @@ export function GraphPage() {
         edges={graph.data.edges}
         selectedNodeId={selectedNodeId}
         zoomLevel={zoomLevel}
+        onGalaxyClusterClick={handleGalaxyClusterClick}
         onHoverNode={setHoveredNodeId}
         onSelectNode={selectNode}
-        onZoomLevelChange={setZoomLevel}
+        onZoomLevelChange={handleSceneZoomLevelChange}
       />
+      <GraphMobileFallback
+        className="sr-only"
+        nodes={graph.data.nodes}
+        edgeCount={graph.data.edges.length}
+      />
+      {showGalaxyZoomHint && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="pointer-events-none absolute left-1/2 top-14 z-30 -translate-x-1/2 rounded-md border border-border-subtle bg-surface/85 px-3 py-2 text-center text-xs font-medium text-text-primary shadow-lg backdrop-blur"
+        >
+          Zoom in to select individual memories
+        </div>
+      )}
       <GalacticHUD
         edges={graph.data.edges}
         nodes={graph.data.nodes}
@@ -108,7 +141,15 @@ export function GraphPage() {
   );
 }
 
-function GraphMobileFallback({ edgeCount, nodes }: { edgeCount: number; nodes: GraphNode[] }) {
+function GraphMobileFallback({
+  className = "min-h-[calc(100vh-3.5rem)] bg-[#050508] p-4",
+  edgeCount,
+  nodes,
+}: {
+  className?: string;
+  edgeCount: number;
+  nodes: GraphNode[];
+}) {
   const grouped = useMemo(() => {
     const groups = new Map<string, GraphNode[]>();
     for (const node of nodes) {
@@ -130,7 +171,7 @@ function GraphMobileFallback({ edgeCount, nodes }: { edgeCount: number; nodes: G
   }, [nodes]);
 
   return (
-    <div className="min-h-[calc(100vh-3.5rem)] bg-[#050508] p-4">
+    <section aria-label="Memory knowledge graph text alternative" className={className}>
       <div className="mx-auto max-w-2xl space-y-4">
         <div className="glass-blur rounded-lg p-4">
           <p className="text-xs font-semibold uppercase tracking-wider text-primary">Graph fallback</p>
@@ -163,6 +204,6 @@ function GraphMobileFallback({ edgeCount, nodes }: { edgeCount: number; nodes: G
           </section>
         ))}
       </div>
-    </div>
+    </section>
   );
 }

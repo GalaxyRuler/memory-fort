@@ -140,10 +140,82 @@ describe("runDashboard", () => {
       createServer,
       openBrowser: async () => undefined,
       stdout: () => undefined,
+      stderr: () => undefined,
     });
 
     expect(result.port).toBe(4411);
     expect(createServer).toHaveBeenCalledTimes(2);
+    await result.close();
+  });
+
+  it("warns on stderr when falling back from a busy requested port", async () => {
+    const createServer = vi.fn(async (opts: ServerOptions): Promise<RunningServer> => {
+      if (opts.port === 4410) {
+        const error = new Error("listen EADDRINUSE") as NodeJS.ErrnoException;
+        error.code = "EADDRINUSE";
+        throw error;
+      }
+      return {
+        host: opts.host ?? "127.0.0.1",
+        port: opts.port ?? 4411,
+        close: async () => undefined,
+      };
+    });
+    const stderr: string[] = [];
+
+    const result = await runDashboard({
+      createServer,
+      openBrowser: async () => undefined,
+      stdout: () => undefined,
+      stderr: (line) => stderr.push(line),
+    });
+
+    expect(result.port).toBe(4411);
+    expect(stderr).toEqual(["Port 4410 busy, using 4411 instead."]);
+    await result.close();
+  });
+
+  it("does not warn when the requested port succeeds", async () => {
+    const createServer = vi.fn(async (opts: ServerOptions): Promise<RunningServer> => ({
+      host: opts.host ?? "127.0.0.1",
+      port: opts.port ?? 4410,
+      close: async () => undefined,
+    }));
+    const stderr: string[] = [];
+
+    const result = await runDashboard({
+      createServer,
+      openBrowser: async () => undefined,
+      stdout: () => undefined,
+      stderr: (line) => stderr.push(line),
+    });
+
+    expect(result.port).toBe(4410);
+    expect(createServer).toHaveBeenCalledOnce();
+    expect(stderr).toEqual([]);
+    await result.close();
+  });
+
+  it("does not warn when port 0 resolves to an assigned port", async () => {
+    const createServer = vi.fn(async (_opts: ServerOptions): Promise<RunningServer> => ({
+      host: "127.0.0.1",
+      port: 51234,
+      close: async () => undefined,
+    }));
+    const stderr: string[] = [];
+
+    const result = await runDashboard({
+      port: 0,
+      createServer,
+      openBrowser: async () => undefined,
+      stdout: () => undefined,
+      stderr: (line) => stderr.push(line),
+    });
+
+    expect(result.port).toBe(51234);
+    expect(createServer).toHaveBeenCalledWith(expect.objectContaining({ port: 0 }));
+    expect(createServer).toHaveBeenCalledOnce();
+    expect(stderr).toEqual([]);
     await result.close();
   });
 
