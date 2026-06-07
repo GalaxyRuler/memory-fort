@@ -10,11 +10,13 @@ export interface MemoryConfig {
     max_tokens?: number;
     temperature?: number;
     options?: Record<string, unknown>;
+    allow_internal_hosts?: boolean;
   };
   embedder?: {
     provider?: string;
     model?: string;
     options?: Record<string, unknown>;
+    allow_internal_hosts?: boolean;
   };
   embedding?: {
     provider?: string;
@@ -83,6 +85,8 @@ export interface MemoryConfig {
   dashboard?: {
     url?: string;
     trusted_origins?: string[];
+    /** Honor X-Forwarded-* headers in the same-origin gate (reverse-proxy deployments). */
+    behind_proxy?: boolean;
   };
   [key: string]: unknown;
 }

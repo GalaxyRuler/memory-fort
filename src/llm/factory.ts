@@ -1,4 +1,10 @@
 import type { MemoryConfig } from "../storage/config.js";
+import {
+  classifyConfiguredOutboundUrl,
+  classifyOutboundUrl,
+  getOutboundHttpUrlRejectionReason,
+  normalizeOutboundHttpUrl,
+} from "../storage/url-safety.js";
 import { createOllamaLLM } from "./ollama.js";
 import { createOpenRouterLLM } from "./openrouter.js";
 import { LLMConfigError, LLMDisabledError, type LLMProvider } from "./types.js";
@@ -13,6 +19,7 @@ export interface LLMConfig {
   max_tokens?: number;
   temperature?: number;
   options?: Record<string, unknown>;
+  allowInternalHosts?: boolean;
 }
 
 export interface LLMProviderInfo {
@@ -45,13 +52,16 @@ export function getActiveLLMConfig(config: MemoryConfig): LLMConfig | null {
   if (!provider) {
     throw new LLMConfigError(`unknown llm provider: ${String(raw["provider"])}`);
   }
-  return {
+  const result: LLMConfig = {
     provider,
     model: readString(raw["model"]) ?? PROVIDERS[provider].defaultModel,
     max_tokens: readNumber(raw["max_tokens"]),
     temperature: readNumber(raw["temperature"]),
-    options: asRecord(raw["options"]) ?? undefined,
   };
+  const options = asRecord(raw["options"]);
+  if (options) result.options = options;
+  if (raw["allow_internal_hosts"] === true) result.allowInternalHosts = true;
+  return result;
 }
 
 export function createLLMFromConfig(
@@ -76,13 +86,21 @@ export function createLLMFromConfig(
         temperature: config.temperature,
       });
     }
-    case "ollama":
+    case "ollama": {
+      const configuredHost = readString(config.options?.["host"]);
+      const envHost = readString(env["OLLAMA_HOST"]);
+      const host = configuredHost
+        ? assertConfiguredOutboundUrl(configuredHost, "OLLAMA host", config.allowInternalHosts === true)
+        : envHost
+          ? assertHttpUrl(envHost, "OLLAMA host")
+          : undefined;
       return createOllamaLLM({
-        host: readString(config.options?.["host"]) ?? env["OLLAMA_HOST"],
+        host,
         model: config.model,
         maxTokens: config.max_tokens,
         temperature: config.temperature,
       });
+    }
     default:
       throw new LLMConfigError(
         `unknown llm provider: ${String((config as { provider?: unknown }).provider)}`,
@@ -117,6 +135,47 @@ function hasProviderCredential(provider: LLMProviderName, env: NodeJS.ProcessEnv
 
 function readProvider(value: unknown): LLMProviderName | null {
   return value === "openrouter" || value === "ollama" ? value : null;
+}
+
+function assertHttpUrl(value: string, label: string): string {
+  rejectInvalidOutboundHttpUrl(value, label);
+  return normalizeOutboundHttpUrl(value) ?? value;
+}
+
+function assertConfiguredOutboundUrl(
+  value: string,
+  label: string,
+  allowInternalHosts: boolean,
+): string {
+  rejectInvalidOutboundHttpUrl(value, label);
+  const verdict = allowInternalHosts
+    ? classifyOutboundUrl(value)
+    : classifyConfiguredOutboundUrl(value);
+  if (verdict === "invalid-scheme") {
+    throw new LLMConfigError(`${label} must be an http(s) URL`);
+  }
+  if (verdict === "internal" && !allowInternalHosts) {
+    throw new LLMConfigError(`${label} must not target an internal host unless llm.allow_internal_hosts is true`);
+  }
+  if (verdict === "dns-hostname") {
+    throw new LLMConfigError(
+      `${label} DNS hostnames are blocked unless llm.allow_internal_hosts is true; use an explicit public IP literal or an official provider endpoint`,
+    );
+  }
+  return normalizeOutboundHttpUrl(value) ?? value;
+}
+
+function rejectInvalidOutboundHttpUrl(value: string, label: string): void {
+  const reason = getOutboundHttpUrlRejectionReason(value);
+  if (reason === "invalid-scheme") {
+    throw new LLMConfigError(`${label} must be an http(s) URL`);
+  }
+  if (reason === "userinfo") {
+    throw new LLMConfigError(`${label} must not include URL credentials`);
+  }
+  if (reason === "query-or-fragment") {
+    throw new LLMConfigError(`${label} must not include query strings or fragments`);
+  }
 }
 
 function readNumber(value: unknown): number | undefined {

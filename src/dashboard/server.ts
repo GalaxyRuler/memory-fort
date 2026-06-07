@@ -27,7 +27,7 @@ import {
   invalidateCompilePendingSummaryCache,
   readCompilePendingSummary,
 } from "../compile/state.js";
-import { applyConfigPatch, ConfigPatchError, validateConfigPatch } from "./config-patch.js";
+import { applyConfigPatch, ConfigPatchError } from "./config-patch.js";
 import { readAutoHealStatus, type AutoHealStatus } from "../retrieval/auto-heal.js";
 import { buildProvidersCatalog } from "./providers-catalog.js";
 import { computeGraphHealth, type GraphHealthReport } from "./graph-health.js";
@@ -268,30 +268,67 @@ export function sameOriginAllowed(
   requestUrl: URL,
   headers: IncomingHttpHeaders,
   trustedOrigins: string[] = [],
+  trustForwardedHeaders = false,
+  remoteAddress?: string,
 ): boolean {
-  const origin = normalizeOrigin(firstHeaderValue(reqOrigin));
-  if (!origin) return true;
+  const rawOrigin = singleOriginValue(reqOrigin);
+  if (rawOrigin === undefined) return true;
+  if (rawOrigin === null) return false;
+
+  const origin = normalizeOrigin(rawOrigin);
+  if (!origin) return false;
 
   const normalizedTrusted = trustedOrigins.map(normalizeOrigin).filter((value): value is string => value !== null);
   if (normalizedTrusted.includes(origin)) return true;
 
   const directOrigin = normalizeOrigin(requestUrl.origin);
-  if (directOrigin === origin) return true;
+  if (
+    directOrigin === origin &&
+    isLoopbackHostAuthority(requestUrl.hostname) &&
+    isLoopbackRemoteAddress(remoteAddress)
+  ) {
+    return true;
+  }
+
+  // X-Forwarded-* are client-controlled. Honoring them lets an attacker who
+  // sets both Origin and X-Forwarded-Host to the same value pass this check.
+  // Only trust them when the operator has declared a reverse proxy
+  // (dashboard.behind_proxy). Legitimate proxied origins should otherwise be
+  // listed in dashboard.trusted_origins.
+  if (!trustForwardedHeaders || !isLoopbackRemoteAddress(remoteAddress)) return false;
 
   return effectiveRequestOrigin(requestUrl, headers) === origin;
 }
 
 function effectiveRequestOrigin(requestUrl: URL, headers: IncomingHttpHeaders): string | null {
-  const forwardedProto = firstCommaValue(headers["x-forwarded-proto"]);
-  const forwardedHost = firstCommaValue(headers["x-forwarded-host"]);
+  const forwardedProto = singleForwardedValue(headers["x-forwarded-proto"]);
+  const forwardedHost = singleForwardedValue(headers["x-forwarded-host"]);
+  if (forwardedProto === null || forwardedHost === null) return null;
   const scheme = (forwardedProto ?? requestUrl.protocol.replace(/:$/, "")).toLowerCase();
   const host = forwardedHost ?? firstHeaderValue(headers.host) ?? requestUrl.host;
   return normalizeOrigin(`${scheme}://${host}`);
 }
 
-function firstCommaValue(value: string | string[] | undefined): string | undefined {
+function singleForwardedValue(value: string | string[] | undefined): string | null | undefined {
   const raw = firstHeaderValue(value);
-  return raw?.split(",")[0]?.trim() || undefined;
+  if (Array.isArray(value) && value.length > 1) return null;
+  if (!raw) return undefined;
+  // Forwarded header chains are ambiguous here: a local proxy may append instead
+  // of overwrite, leaving attacker-controlled values in either position.
+  if (raw.includes(",")) return null;
+  return raw.trim() || undefined;
+}
+
+function singleOriginValue(value: string | string[] | undefined): string | null | undefined {
+  if (value === undefined) return undefined;
+  if (Array.isArray(value)) {
+    if (value.length !== 1) return null;
+    value = value[0];
+  }
+  if (value === undefined) return null;
+  const raw = value.trim();
+  if (!raw || raw.includes(",")) return null;
+  return raw;
 }
 
 function firstHeaderValue(value: string | string[] | undefined): string | undefined {
@@ -311,6 +348,47 @@ function normalizeOrigin(value: string | undefined): string | null {
   } catch {
     return null;
   }
+}
+
+function isLoopbackRemoteAddress(value: string | undefined): boolean {
+  if (!value) return false;
+  let address = value.toLowerCase();
+  if (address.startsWith("[") && address.endsWith("]")) address = address.slice(1, -1);
+  if (address === "::1") return true;
+  return isLoopbackIpv4Literal(address) || isLoopbackIpv4MappedLiteral(address);
+}
+
+function isLoopbackHostAuthority(value: string | undefined): boolean {
+  if (!value) return false;
+  let host = value.trim().toLowerCase();
+  if (host.startsWith("[") && host.endsWith("]")) host = host.slice(1, -1);
+  while (host.endsWith(".") && host.length > 1) host = host.slice(0, -1);
+  if (host === "localhost" || host.endsWith(".localhost")) return true;
+  if (host === "::1") return true;
+  return isLoopbackIpv4Literal(host) || isLoopbackIpv4MappedLiteral(host);
+}
+
+function isLoopbackIpv4Literal(value: string): boolean {
+  const match = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(value);
+  if (!match) return false;
+  const octets = match.slice(1, 5).map((octet) => Number(octet));
+  return octets.every((octet) => octet >= 0 && octet <= 255) && octets[0] === 127;
+}
+
+function isLoopbackIpv4MappedLiteral(value: string): boolean {
+  const rest = value.startsWith("::ffff:")
+    ? value.slice("::ffff:".length)
+    : value.startsWith("0:0:0:0:0:ffff:")
+      ? value.slice("0:0:0:0:0:ffff:".length)
+      : null;
+  if (!rest) return false;
+  if (isLoopbackIpv4Literal(rest)) return true;
+
+  const match = /^([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(rest);
+  if (!match) return false;
+  const highWord = Number.parseInt(match[1]!, 16);
+  const lowWord = Number.parseInt(match[2]!, 16);
+  return highWord <= 0xffff && lowWord <= 0xffff && (highWord >> 8) === 127;
 }
 
 function parseLineCount(value: string | null): number {
@@ -476,7 +554,8 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
     const path = normalizeDashboardPath(url.pathname);
 
     if (method === "PATCH" && path === "/api/config") {
-      if (!sameOriginAllowed(req.headers.origin, url, req.headers, await loadTrustedDashboardOrigins(opts.vaultRoot))) {
+      const policy = await loadDashboardOriginPolicy(opts.vaultRoot);
+      if (!sameOriginAllowed(req.headers.origin, url, req.headers, policy.trustedOrigins, policy.trustForwardedHeaders, req.socket.remoteAddress)) {
         writeJson(res, { ok: false, error: "cross-origin config updates are not allowed" }, 403);
         return;
       }
@@ -486,11 +565,6 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
       }
       try {
         const body = await readJsonBody(req);
-        const validation = validateConfigPatch(body);
-        if (!validation.ok) {
-          writeJson(res, { ok: false, errors: validation.errors }, 400);
-          return;
-        }
         const result = await applyConfigPatch(opts.vaultRoot, body as Record<string, unknown>);
         writeJson(res, { ok: true, applied: result.applied });
       } catch (err) {
@@ -504,7 +578,8 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
     }
 
     if ((method === "POST" && path === "/api/proposed/promote") || (method === "POST" && path === "/api/proposed/reject")) {
-      if (!sameOriginAllowed(req.headers.origin, url, req.headers, await loadTrustedDashboardOrigins(opts.vaultRoot))) {
+      const policy = await loadDashboardOriginPolicy(opts.vaultRoot);
+      if (!sameOriginAllowed(req.headers.origin, url, req.headers, policy.trustedOrigins, policy.trustForwardedHeaders, req.socket.remoteAddress)) {
         writeJson(res, { ok: false, error: "cross-origin proposed draft updates are not allowed" }, 403);
         return;
       }
@@ -534,7 +609,8 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
     }
 
     if (method === "POST" && path === "/api/compile/run") {
-      if (!sameOriginAllowed(req.headers.origin, url, req.headers, await loadTrustedDashboardOrigins(opts.vaultRoot))) {
+      const policy = await loadDashboardOriginPolicy(opts.vaultRoot);
+      if (!sameOriginAllowed(req.headers.origin, url, req.headers, policy.trustedOrigins, policy.trustForwardedHeaders, req.socket.remoteAddress)) {
         writeJsonError(res, 403, "cross-origin compile runs are not allowed");
         return;
       }
@@ -988,13 +1064,23 @@ function makeConfiguredVoyageClient(
   }
 }
 
-async function loadTrustedDashboardOrigins(vaultRoot: string): Promise<string[]> {
+interface DashboardOriginPolicy {
+  trustedOrigins: string[];
+  trustForwardedHeaders: boolean;
+}
+
+async function loadDashboardOriginPolicy(vaultRoot: string): Promise<DashboardOriginPolicy> {
   const config = await loadMemoryConfig(vaultRoot);
   const dashboard = typeof config.dashboard === "object" && config.dashboard !== null
     ? config.dashboard as Record<string, unknown>
     : {};
   const origins = dashboard["trusted_origins"];
-  return Array.isArray(origins) ? origins.filter((origin): origin is string => typeof origin === "string") : [];
+  return {
+    trustedOrigins: Array.isArray(origins)
+      ? origins.filter((origin): origin is string => typeof origin === "string")
+      : [],
+    trustForwardedHeaders: dashboard["behind_proxy"] === true,
+  };
 }
 
 async function makeConfiguredLLMProvider(
