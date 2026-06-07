@@ -28,7 +28,7 @@ function KeyboardList({ onActivate = vi.fn() }: { onActivate?: (item: string) =>
 describe("useListKeyNav", () => {
   test("J advances focus and K retreats", () => {
     render(<KeyboardList />);
-    const list = screen.getByRole("listbox", { name: "Keyboard list" });
+    const list = screen.getByRole("list", { name: "Keyboard list" });
 
     list.focus();
     fireEvent.keyDown(list, { key: "j" });
@@ -43,7 +43,7 @@ describe("useListKeyNav", () => {
   test("Enter activates the focused item", () => {
     const onActivate = vi.fn();
     render(<KeyboardList onActivate={onActivate} />);
-    const list = screen.getByRole("listbox", { name: "Keyboard list" });
+    const list = screen.getByRole("list", { name: "Keyboard list" });
 
     list.focus();
     fireEvent.keyDown(list, { key: "j" });
@@ -55,7 +55,7 @@ describe("useListKeyNav", () => {
   test("J and K do nothing when an input has focus", () => {
     render(<KeyboardList />);
     const input = screen.getByLabelText("Editable field");
-    const list = screen.getByRole("listbox", { name: "Keyboard list" });
+    const list = screen.getByRole("list", { name: "Keyboard list" });
 
     input.focus();
     fireEvent.keyDown(list, { key: "j" });
@@ -63,11 +63,22 @@ describe("useListKeyNav", () => {
     expect(screen.getByText("alpha")).toHaveAttribute("data-focused", "true");
   });
 
-  test("uses listbox and option roles so aria-selected is valid", () => {
+  test("preserves native list semantics without selection ARIA", () => {
     render(<KeyboardList />);
 
-    expect(screen.getByRole("listbox", { name: "Keyboard list" })).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: "alpha" })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByRole("option", { name: "beta" })).toHaveAttribute("aria-selected", "false");
+    const list = screen.getByRole("list", { name: "Keyboard list" });
+    const alpha = screen.getByText("alpha");
+    const beta = screen.getByText("beta");
+
+    expect(screen.queryByRole("listbox", { name: "Keyboard list" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "alpha" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "beta" })).not.toBeInTheDocument();
+    expect(list).not.toHaveAttribute("role");
+    expect(alpha).not.toHaveAttribute("role");
+    expect(alpha).not.toHaveAttribute("aria-selected");
+    expect(beta).not.toHaveAttribute("role");
+    expect(beta).not.toHaveAttribute("aria-selected");
+    expect(alpha).toHaveAttribute("tabindex", "0");
+    expect(beta).toHaveAttribute("tabindex", "-1");
   });
 });

@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { describe, expect, test, vi } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vitest";
 import { RawFilters } from "../../../src/dashboard-ui/components/RawFilters.js";
 import { RawBrowsePage } from "../../../src/dashboard-ui/components/RawBrowsePage.js";
 import { SessionRow } from "../../../src/dashboard-ui/components/SessionRow.js";
@@ -50,6 +50,12 @@ vi.mock("../../../src/dashboard-ui/hooks/useRawIndex.js", async (importOriginal)
 });
 
 describe("raw page helpers and components", () => {
+  beforeEach(() => {
+    routerState.search = {};
+    routerState.navigate.mockReset();
+    rawHook.useRawIndex.mockReset();
+  });
+
   test("parseSourceFromFilename classifies session sources", () => {
     expect(parseSourceFromFilename("claude-code-abc.md")).toBe("claude-code");
     expect(parseSourceFromFilename("codex-abc.md")).toBe("codex");
@@ -119,5 +125,45 @@ describe("raw page helpers and components", () => {
     fireEvent.click(screen.getByRole("button", { name: /load more raw sessions/i }));
 
     expect(screen.getByText(/gamma/)).toBeInTheDocument();
+  });
+
+  test("RawBrowsePage shows capture setup guidance when all tools have no raw observations", () => {
+    rawHook.useRawIndex.mockReturnValue({
+      data: [],
+      isLoading: false,
+    });
+
+    render(<RawBrowsePage />);
+
+    expect(screen.getByText("No observations captured yet")).toBeInTheDocument();
+    expect(screen.getByText(
+      "Run memory verify to check your capture setup, or start an AI session to begin.",
+    )).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Open health details" })).toHaveAttribute(
+      "href",
+      "/memory/#memory-health",
+    );
+    expect(screen.queryByText("No sessions match this filter")).not.toBeInTheDocument();
+  });
+
+  test("RawBrowsePage preserves filter-empty guidance when another tool has captures", () => {
+    routerState.search = { source: "claude-code" };
+    rawHook.useRawIndex.mockReturnValue({
+      data: [
+        {
+          date: "2026-05-24",
+          files: [
+            { filename: "codex-alpha.md", mtime: "2026-05-24T10:00:00.000Z", sizeBytes: 100 },
+          ],
+        },
+      ],
+      isLoading: false,
+    });
+
+    render(<RawBrowsePage />);
+
+    expect(screen.getByText("No sessions match this filter")).toBeInTheDocument();
+    expect(screen.getByText("Choose another tool filter to inspect captured raw observations.")).toBeInTheDocument();
+    expect(screen.queryByText("No observations captured yet")).not.toBeInTheDocument();
   });
 });

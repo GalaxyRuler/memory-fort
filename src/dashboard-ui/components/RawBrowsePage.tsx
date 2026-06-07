@@ -17,8 +17,11 @@ export function RawBrowsePage() {
   const sourceFilter = params.source ?? "all";
   const pageSize = readPageSize(params.per);
   const [visibleCount, setVisibleCount] = useState(pageSize);
+  const rawEntries = raw.data ?? [];
+  const totalRaw = rawEntries.reduce((sum, entry) => sum + entry.files.length, 0);
+  const isCaptureEmpty = sourceFilter === "all" && totalRaw === 0;
 
-  const filteredEntries = (raw.data ?? [])
+  const filteredEntries = rawEntries
     .map((entry) => ({
       ...entry,
       files: sourceFilter === "all"
@@ -77,11 +80,27 @@ export function RawBrowsePage() {
             </div>
           )}
           {filteredEntries.length === 0 && !raw.isLoading && (
-            <EmptyState
-              icon={Terminal}
-              title="No sessions match this filter"
-              description="Choose another tool filter to inspect captured raw observations."
-            />
+            isCaptureEmpty ? (
+              <EmptyState
+                icon={Terminal}
+                title="No observations captured yet"
+                description="Run memory verify to check your capture setup, or start an AI session to begin."
+                action={
+                  <a
+                    href="/memory/#memory-health"
+                    className="inline-flex min-h-11 items-center justify-center rounded-md border border-border-subtle px-3 py-2 text-sm text-text-secondary transition-colors hover:bg-surface-2 hover:text-text-primary md:min-h-8"
+                  >
+                    Open health details
+                  </a>
+                }
+              />
+            ) : (
+              <EmptyState
+                icon={Terminal}
+                title="No sessions match this filter"
+                description="Choose another tool filter to inspect captured raw observations."
+              />
+            )
           )}
           {visibleEntries.map((entry) => (
             <section key={entry.date} className="mb-6">

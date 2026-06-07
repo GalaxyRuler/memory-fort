@@ -17,7 +17,7 @@ export default {
         "border-emphasis": "rgba(255, 255, 255, 0.12)",
         "text-primary": "#e8ecf4",
         "text-secondary": "#9ba4b8",
-        "text-muted": "#5c6478",
+        "text-muted": "#8b93a7",
         "text-ghost": "#2e3444",
         primary: "#06b6d4", // cyan-500 as primary
         cyan: {

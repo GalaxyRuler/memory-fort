@@ -89,7 +89,6 @@ export function useListKeyNav<T>({
       ref: (element: HTMLElement | null) => {
         listElementRef.current = element;
       },
-      role: "listbox",
       tabIndex: 0,
       onKeyDown,
     }),
@@ -106,9 +105,7 @@ export function useListKeyNav<T>({
           if (element) itemRefs.current.set(key, element);
           else itemRefs.current.delete(key);
         },
-        role: "option",
         tabIndex: isFocused ? 0 : -1,
-        "aria-selected": isFocused,
         "data-focused": isFocused ? "true" : "false",
         onFocus: () => setFocusedIndex(index),
         onClick: () => setFocusedIndex(index),

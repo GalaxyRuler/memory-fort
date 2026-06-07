@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { stat } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import {
   memoryRoot,
   schemaPath,
@@ -14,7 +14,10 @@ import {
   getClientStatuses,
   type ClientStatus,
 } from "./client-status.js";
-import { isClaudeCodePluginEnabled } from "./install/claude-code.js";
+import {
+  claudeCodeSettingsPath,
+  isClaudeCodePluginEnabled,
+} from "./install/claude-code.js";
 
 export interface DoctorCheck {
   name: string;
@@ -29,35 +32,46 @@ export interface DoctorResult {
   failed: number;
 }
 
-const SUBDIRS = [
-  "raw",
-  "wiki/projects",
-  "wiki/people",
-  "wiki/decisions",
-  "wiki/lessons",
-  "wiki/references",
-  "wiki/tools",
-  "crystals",
-  "embeddings",
-  ".archive",
+const SUBDIRS: { display: string; alternatives: string[]; missingOkHint?: string }[] = [
+  { display: "raw/", alternatives: ["raw"] },
+  { display: "wiki/projects/", alternatives: ["wiki/projects"] },
+  { display: "wiki/people/", alternatives: ["wiki/people"] },
+  { display: "wiki/decisions/", alternatives: ["wiki/decisions"] },
+  { display: "wiki/lessons/", alternatives: ["wiki/lessons"] },
+  { display: "wiki/references/", alternatives: ["wiki/references"] },
+  { display: "wiki/tools/", alternatives: ["wiki/tools"] },
+  { display: "crystals/ or wiki/crystals/", alternatives: ["crystals", "wiki/crystals"] },
+  {
+    display: "embeddings/",
+    alternatives: ["embeddings"],
+    missingOkHint:
+      "embeddings/ missing; skipping vector retrieval checks until embeddings are created",
+  },
+  {
+    display: ".archive/ or wiki/.archive/ or wiki/archive/",
+    alternatives: [".archive", "wiki/.archive", "wiki/archive"],
+  },
 ];
 
 export async function runDoctor(): Promise<DoctorResult> {
   const checks: DoctorCheck[] = [];
   const root = memoryRoot();
+  const rootExists = existsSync(root);
 
   checks.push({
     name: `~/.memory/ exists (${root})`,
-    ok: existsSync(root),
-    hint: existsSync(root) ? undefined : "Run: memory init",
+    ok: rootExists,
+    hint: rootExists ? undefined : "Run: memory init",
   });
 
   for (const sub of SUBDIRS) {
-    const path = join(root, sub);
+    const exists = sub.alternatives.some((candidate) => existsSync(join(root, candidate)));
+    const missingOk = rootExists && sub.missingOkHint !== undefined;
+    const ok = exists || missingOk;
     checks.push({
-      name: `subdir ${sub}/`,
-      ok: existsSync(path),
-      hint: existsSync(path) ? undefined : "Run: memory init",
+      name: `subdir ${sub.display}`,
+      ok,
+      hint: exists ? undefined : sub.missingOkHint ?? "Run: memory init",
     });
   }
 
@@ -92,6 +106,32 @@ export async function runDoctor(): Promise<DoctorResult> {
     ".claude-plugin",
     "plugin.json",
   );
+  const claudeCodePresent = isClaudeCodePresent();
+  if (!claudeCodePresent) {
+    const hint = "Claude Code not installed; skipping Memory Fort plugin checks";
+    checks.push(
+      {
+        name: "claude-code plugin manifest",
+        ok: true,
+        hint,
+      },
+      {
+        name: "claude-code scripts symlink resolves",
+        ok: true,
+        hint,
+      },
+      {
+        name: "claude-code plugin enabled",
+        ok: true,
+        hint,
+      },
+    );
+    const passed = checks.filter((check) => check.ok).length;
+    const failed = checks.length - passed;
+    const clients = await getClientStatuses();
+    return { checks, clients, passed, failed };
+  }
+
   checks.push({
     name: "claude-code plugin manifest",
     ok: existsSync(pluginManifest),
@@ -125,6 +165,11 @@ export async function runDoctor(): Promise<DoctorResult> {
   const failed = checks.length - passed;
   const clients = await getClientStatuses();
   return { checks, clients, passed, failed };
+}
+
+function isClaudeCodePresent(): boolean {
+  const settingsPath = claudeCodeSettingsPath();
+  return existsSync(settingsPath) || existsSync(dirname(settingsPath));
 }
 
 export function formatDoctorResult(result: DoctorResult): string {

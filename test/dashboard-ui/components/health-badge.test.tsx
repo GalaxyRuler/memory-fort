@@ -39,6 +39,17 @@ describe("HealthBadge", () => {
     expect(screen.getByText("run `memory connect claude-code`")).toBeInTheDocument();
   });
 
+  it("expands when opened from the memory-health anchor", () => {
+    mockUseHealth.mockReturnValue(query(mixedReport()));
+    window.history.replaceState(null, "", "#memory-health");
+
+    render(<HealthBadge />);
+
+    expect(screen.getByText("claude-code plugin enabled")).toBeInTheDocument();
+    expect(screen.getByText("run `memory connect claude-code`")).toBeInTheDocument();
+    window.history.replaceState(null, "", "/");
+  });
+
   it("surfaces capture watchdog outages on the health card", () => {
     mockUseHealth.mockReturnValue(query(watchdogOutageReport()));
 

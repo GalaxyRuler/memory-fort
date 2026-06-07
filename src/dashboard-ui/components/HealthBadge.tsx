@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, CheckCircle2, Clipboard, HelpCircle, XCircle } from "lucide-react";
 import { GlassPanel } from "./GlassPanel.js";
 import { cn } from "../lib/cn.js";
@@ -32,8 +32,20 @@ const STATUS_META: Record<CheckStatus, {
 
 export function HealthBadge() {
   const health = useHealth();
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(() =>
+    typeof window !== "undefined" && window.location.hash === "#memory-health",
+  );
   const report = health.data;
+
+  useEffect(() => {
+    const expandFromHash = () => {
+      if (window.location.hash === "#memory-health") setExpanded(true);
+    };
+
+    expandFromHash();
+    window.addEventListener("hashchange", expandFromHash);
+    return () => window.removeEventListener("hashchange", expandFromHash);
+  }, []);
 
   const counts = useMemo(() => {
     const checks = report?.checks ?? [];
@@ -59,7 +71,7 @@ export function HealthBadge() {
           : "Health has warnings";
 
   return (
-    <GlassPanel hasBrackets={true} className="p-0">
+    <GlassPanel id="memory-health" hasBrackets={true} className="p-0">
       <button
         type="button"
         aria-expanded={expanded}
