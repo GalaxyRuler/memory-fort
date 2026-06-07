@@ -42,4 +42,28 @@ export const NAV_ITEMS: NavItem[] = [
   { to: "/settings", label: "Settings", icon: SettingsIcon },
 ];
 
+const PRIMARY_NAV_LABELS = ["Overview", "Search", "Wiki", "Graph", "Settings"];
+const OPERATIONS_NAV_LABELS = [
+  "Raw",
+  "Timeline",
+  "Activity",
+  "Sessions",
+  "Inbox",
+  "Audit",
+  "Compile",
+  "Maintenance",
+];
+const ADVANCED_NAV_LABELS = ["Crystals", "Conflict Resolution"];
+
+export const PRIMARY_NAV_ITEMS = navItemsForLabels(PRIMARY_NAV_LABELS);
+export const OPERATIONS_NAV_ITEMS = navItemsForLabels(OPERATIONS_NAV_LABELS);
+export const ADVANCED_NAV_ITEMS = navItemsForLabels(ADVANCED_NAV_LABELS);
 export const MOBILE_NAV_ITEMS = NAV_ITEMS.filter((item) => item.inMobileNav);
+
+function navItemsForLabels(labels: string[]): NavItem[] {
+  return labels.map((label) => {
+    const item = NAV_ITEMS.find((candidate) => candidate.label === label);
+    if (!item) throw new Error(`Unknown dashboard navigation item: ${label}`);
+    return item;
+  });
+}

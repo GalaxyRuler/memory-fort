@@ -87,6 +87,7 @@ const SAFELISTED_PATHS = new Set([
 
 // Keys inside embedder.options / llm.options whose value is an outbound URL.
 const URL_LIKE_OPTION_KEY = /^(base[_-]?url|url|host|endpoint)$/i;
+const PROTOTYPE_POLLUTION_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 
 const VALID_TOP_LEVEL_KEYS = new Set(["embedder", "llm", "auto_promote", "auto_heal", "compile", "capture", "dashboard"]);
 const VALID_EMBEDDER_PROVIDERS = new Set(["lexical", "voyage", "openai", "ollama"]);
@@ -209,6 +210,7 @@ function validateValue(
     errors.push({ path, message: "options must be a plain object" });
   }
   if (path === "embedder.options" || path === "llm.options") {
+    rejectPrototypePollutionKeys(path, value, errors);
     rejectSecretLikeKeys(path, value, errors);
     rejectUnsafeOutboundUrls(
       path,
@@ -388,6 +390,10 @@ function validateMergedOutboundState(config: MemoryConfig): ConfigPatchValidatio
     if (!section) continue;
     const options = section["options"];
     if (options === undefined) continue;
+    if (!asPlainObject(options)) {
+      errors.push({ path: `${sectionKey}.options`, message: "options must be a plain object" });
+      continue;
+    }
     rejectUnsafeOutboundUrls(
       `${sectionKey}.options`,
       options,
@@ -436,6 +442,28 @@ function rejectSecretLikeKeys(
   }
 }
 
+function rejectPrototypePollutionKeys(
+  path: string,
+  value: unknown,
+  errors: ConfigPatchValidationError[],
+): void {
+  if (Array.isArray(value)) {
+    value.forEach((child, index) => rejectPrototypePollutionKeys(`${path}[${index}]`, child, errors));
+    return;
+  }
+
+  const record = asPlainObject(value);
+  if (!record) return;
+  for (const [key, child] of Object.entries(record)) {
+    const childPath = `${path}.${key}`;
+    if (PROTOTYPE_POLLUTION_KEYS.has(key)) {
+      errors.push({ path: childPath, message: "option key is not allowed" });
+      continue;
+    }
+    rejectPrototypePollutionKeys(childPath, child, errors);
+  }
+}
+
 function isSecretLikeKey(key: string): boolean {
   return /(^|[_-])(api[_-]?key|token|secret|password)($|[_-])/i.test(key) ||
     /^(api[_-]?key|token|secret|password)$/i.test(key);
@@ -450,9 +478,64 @@ function mergeAtSafelistedPaths(
     const sectionPatch = asPlainObject(patch[sectionKey]);
     if (!sectionPatch) continue;
     const target = asPlainObject(next[sectionKey]) ?? {};
-    next[sectionKey] = { ...target, ...clonePlain(sectionPatch) } as never;
+    const mergedSection = { ...target, ...clonePlain(sectionPatch) };
+    if (sectionKey === "embedder" || sectionKey === "llm") {
+      const targetOptions = asPlainObject(target["options"]);
+      const patchOptions = asPlainObject(sectionPatch["options"]);
+      if (patchOptions) {
+        mergedSection["options"] = targetOptions
+          ? mergePlainProviderOptions(targetOptions, patchOptions)
+          : clonePlainProviderOptionObject(patchOptions);
+      }
+    }
+    next[sectionKey] = mergedSection as never;
   }
   return next;
+}
+
+function mergePlainProviderOptions(
+  target: Record<string, unknown>,
+  patch: Record<string, unknown>,
+): Record<string, unknown> {
+  const merged = clonePlainProviderOptionObject(target);
+  for (const [key, patchValue] of Object.entries(patch)) {
+    const targetValue = asPlainObject(merged[key]);
+    const patchObject = asPlainObject(patchValue);
+    definePlainDataProperty(merged, key, targetValue && patchObject
+      ? mergePlainProviderOptions(targetValue, patchObject)
+      : clonePlainProviderOptionValue(patchValue));
+  }
+  return merged;
+}
+
+function clonePlainProviderOptionValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((child) => clonePlainProviderOptionValue(child));
+  }
+  const record = asPlainObject(value);
+  if (!record) return value;
+  return clonePlainProviderOptionObject(record);
+}
+
+function clonePlainProviderOptionObject(value: Record<string, unknown>): Record<string, unknown> {
+  const clone = Object.create(null) as Record<string, unknown>;
+  for (const [key, child] of Object.entries(value)) {
+    definePlainDataProperty(clone, key, clonePlainProviderOptionValue(child));
+  }
+  return clone;
+}
+
+function definePlainDataProperty(
+  target: Record<string, unknown>,
+  key: string,
+  value: unknown,
+): void {
+  Object.defineProperty(target, key, {
+    value,
+    enumerable: true,
+    configurable: true,
+    writable: true,
+  });
 }
 
 function listAppliedPaths(patch: Record<string, unknown>): string[] {

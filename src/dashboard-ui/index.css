@@ -78,43 +78,45 @@
     box-shadow: 0 0 40px rgba(6, 182, 212, 0.30);
   }
 
-  @keyframes glow-pulse-anim {
-    0%, 100% {
-      box-shadow: 0 0 16px rgba(6, 182, 212, 0.15);
+  @media (prefers-reduced-motion: no-preference) {
+    @keyframes glow-pulse-anim {
+      0%, 100% {
+        box-shadow: 0 0 16px rgba(6, 182, 212, 0.15);
+      }
+      50% {
+        box-shadow: 0 0 28px rgba(6, 182, 212, 0.30);
+      }
     }
-    50% {
-      box-shadow: 0 0 28px rgba(6, 182, 212, 0.30);
-    }
-  }
 
-  .glow-pulse {
-    animation: glow-pulse-anim 2s ease-in-out infinite;
-  }
-
-  @keyframes spin-slow {
-    from {
-      transform: rotate(0deg);
+    .glow-pulse {
+      animation: glow-pulse-anim 2s ease-in-out infinite;
     }
-    to {
-      transform: rotate(360deg);
-    }
-  }
 
-  .animate-spin-slow {
-    animation: spin-slow 8s linear infinite;
-  }
-
-  @keyframes shimmer {
-    from {
-      background-position: 200% 0;
+    @keyframes spin-slow {
+      from {
+        transform: rotate(0deg);
+      }
+      to {
+        transform: rotate(360deg);
+      }
     }
-    to {
-      background-position: -200% 0;
-    }
-  }
 
-  .animate-shimmer {
-    animation: shimmer 1.5s linear infinite;
+    .animate-spin-slow {
+      animation: spin-slow 8s linear infinite;
+    }
+
+    @keyframes shimmer {
+      from {
+        background-position: 200% 0;
+      }
+      to {
+        background-position: -200% 0;
+      }
+    }
+
+    .animate-shimmer {
+      animation: shimmer 1.5s linear infinite;
+    }
   }
 }
 

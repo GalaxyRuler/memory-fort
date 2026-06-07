@@ -47,7 +47,7 @@ describe("TimelineChart", () => {
 
     const { container } = render(<TimelineChart data={data} />);
 
-    expect(screen.getByRole("img", { name: "Timeline chart" })).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "Event velocity chart showing activity over time" })).toBeInTheDocument();
     expect(container.querySelectorAll('line[data-testid="lane-track"]')).toHaveLength(3);
   });
 

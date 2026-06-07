@@ -52,10 +52,16 @@ export function AppShell() {
 
   return (
     <div className="flex min-h-screen flex-col bg-background md:flex-row">
+      <a
+        className="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-50 focus:rounded-md focus:bg-surface focus:px-3 focus:py-2 focus:text-sm focus:font-medium focus:text-text-primary focus:outline-none focus:ring-2 focus:ring-accent"
+        href="#main-content"
+      >
+        Skip to main content
+      </a>
       <Sidebar className="hidden md:flex" />
       <div className="flex min-w-0 flex-1 flex-col">
         <TopBar onOpenMobileMenu={() => setIsMobileSidebarOpen(true)} />
-        <main className="flex-1 overflow-auto pb-16 md:pb-0">
+        <main id="main-content" className="flex-1 overflow-auto pb-16 md:pb-0">
           <Outlet />
         </main>
       </div>

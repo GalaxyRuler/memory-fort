@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdir, mkdtemp, rm, utimes, writeFile } from "node:fs/promises";
 import { request } from "node:http";
+import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { DashboardStatus } from "../../src/dashboard/loaders.js";
@@ -40,6 +41,33 @@ function httpRequest(options: {
     req.end();
   });
 }
+
+function rawHttpRequest(options: {
+  host: string;
+  port: number;
+  request: string;
+}): Promise<{ status: number; body: string }> {
+  return new Promise((resolve, reject) => {
+    const socket = connect(options.port, options.host);
+    const chunks: Buffer[] = [];
+
+    socket.on("connect", () => {
+      socket.write(options.request);
+    });
+    socket.on("data", (chunk) => {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    });
+    socket.on("error", reject);
+    socket.on("end", () => {
+      const raw = Buffer.concat(chunks).toString("utf-8");
+      const [head = "", ...bodyParts] = raw.split("\r\n\r\n");
+      const status = Number(head.match(/^HTTP\/\d\.\d\s+(\d+)/)?.[1] ?? 0);
+      resolve({ status, body: bodyParts.join("\r\n\r\n") });
+    });
+  });
+}
+
+const REQUEST_BODY_LIMIT_BYTES = 1024 * 1024;
 
 function fixture(): DashboardStatus {
   return {
@@ -1334,6 +1362,63 @@ describe("dashboard server", () => {
     }
   });
 
+  it("POST /api/compile/run rejects bodies that exceed the streaming size limit", async () => {
+    const compileRunner = vi.fn(async () => ({
+      rawFilesIncluded: [],
+      rawFilesSkipped: [],
+      outputPath: "var/compile/scheduled-compile-prompt.md",
+      rawRemaining: 0,
+    }));
+    const server = await createServer({ vaultRoot: tmp, port: 0, compileRunner });
+
+    try {
+      const body = `{"padding":"${"a".repeat(REQUEST_BODY_LIMIT_BYTES)}"}`;
+      const response = await httpRequest({
+        host: server.host,
+        port: server.port,
+        method: "POST",
+        path: "/api/compile/run",
+        headers: { "Content-Type": "application/json" },
+        body,
+      });
+
+      expect(response.status).toBe(413);
+      expect(JSON.parse(response.body)).toEqual({ ok: false, error: "request body too large" });
+      expect(compileRunner).not.toHaveBeenCalled();
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("POST /api/compile/run rejects malformed JSON bodies with a sanitized 400", async () => {
+    const compileRunner = vi.fn(async () => ({
+      rawFilesIncluded: [],
+      rawFilesSkipped: [],
+      outputPath: "var/compile/scheduled-compile-prompt.md",
+      rawRemaining: 0,
+    }));
+    const server = await createServer({ vaultRoot: tmp, port: 0, compileRunner });
+
+    try {
+      const response = await httpRequest({
+        host: server.host,
+        port: server.port,
+        method: "POST",
+        path: "/api/compile/run",
+        headers: { "Content-Type": "application/json" },
+        body: "{",
+      });
+
+      expect(response.status).toBe(400);
+      expect(JSON.parse(response.body)).toEqual({ ok: false, error: "invalid JSON body" });
+      expect(response.body).not.toContain("Unexpected");
+      expect(response.body).not.toContain("SyntaxError");
+      expect(compileRunner).not.toHaveBeenCalled();
+    } finally {
+      await server.close();
+    }
+  });
+
   it("POST /api/compile/run refuses execute mode on a read-only mirror", async () => {
     await rm(join(tmp, ".git"), { recursive: true, force: true });
     const compileRunner = vi.fn(async () => ({
@@ -1771,6 +1856,64 @@ describe("dashboard server", () => {
           ],
         });
       }
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("PATCH /api/config rejects oversized Content-Length before reading the body", async () => {
+    await writeFile(join(tmp, "config.yaml"), ["embedder:", "  provider: voyage", ""].join("\n"));
+    const server = await createServer({ vaultRoot: tmp, port: 0 });
+
+    try {
+      const response = await httpRequest({
+        host: server.host,
+        port: server.port,
+        method: "PATCH",
+        path: "/api/config",
+        headers: {
+          "Content-Type": "application/json",
+          "Content-Length": String(REQUEST_BODY_LIMIT_BYTES + 1),
+        },
+      });
+
+      expect(response.status).toBe(413);
+      expect(JSON.parse(response.body)).toEqual({ ok: false, error: "request body too large" });
+    } finally {
+      await server.close();
+    }
+  });
+
+  it.each([
+    ["exponent", "Content-Length: 1e9\r\n"],
+    ["hex", "Content-Length: 0x200000\r\n"],
+    ["infinity", "Content-Length: Infinity\r\n"],
+    ["negative", "Content-Length: -1\r\n"],
+    ["empty", "Content-Length: \r\n"],
+    ["prefix", "Content-Length: 1048577x\r\n"],
+    ["unsafe", "Content-Length: 9007199254740992\r\n"],
+    ["duplicate", "Content-Length: 2\r\nContent-Length: 2\r\n"],
+  ])("PATCH /api/config rejects malformed %s Content-Length with sanitized JSON", async (_name, contentLength) => {
+    await writeFile(join(tmp, "config.yaml"), ["embedder:", "  provider: voyage", ""].join("\n"));
+    const server = await createServer({ vaultRoot: tmp, port: 0 });
+
+    try {
+      const response = await rawHttpRequest({
+        host: server.host,
+        port: server.port,
+        request: [
+          "PATCH /api/config HTTP/1.1",
+          `Host: ${server.host}:${server.port}`,
+          "Content-Type: application/json",
+          contentLength.trimEnd(),
+          "Connection: close",
+          "",
+          "{}",
+        ].join("\r\n"),
+      });
+
+      expect(response.status).toBe(400);
+      expect(JSON.parse(response.body)).toEqual({ ok: false, error: "invalid Content-Length" });
     } finally {
       await server.close();
     }

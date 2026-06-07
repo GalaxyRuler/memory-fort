@@ -45,6 +45,21 @@ describe("runGrep (mocked spawn)", () => {
     expect(capturedArgs).toContain("foo");
   });
 
+  it("sets a 64 MiB maxBuffer for ripgrep output", () => {
+    let capturedOptions: { encoding: "utf-8"; maxBuffer?: number } | undefined;
+    const result = runGrep({
+      pattern: "foo",
+      spawn: (_cmd, _args, opts) => {
+        capturedOptions = opts;
+        return { status: 0, stdout: "", stderr: "", pid: 0, output: [], signal: null } as never;
+      },
+      stdout: () => {},
+      stderr: () => {},
+    });
+    expect(result.exitCode).toBe(0);
+    expect(capturedOptions).toEqual({ encoding: "utf-8", maxBuffer: 64 * 1024 * 1024 });
+  });
+
   it("restricts to raw/ only when scope=raw", () => {
     const result = runGrep({
       pattern: "x",
@@ -192,6 +207,34 @@ describe("runGrep (mocked spawn)", () => {
       stderr: () => {},
     });
     expect(result.exitCode).toBe(2);
+  });
+
+  it("returns exit 2 with a clear message when ripgrep output exceeds maxBuffer", () => {
+    let stderrCapture = "";
+    const result = runGrep({
+      pattern: "x",
+      spawn: () => {
+        const err = new Error("spawnSync rg ENOBUFS") as NodeJS.ErrnoException;
+        err.code = "ENOBUFS";
+        return {
+          status: null,
+          stdout: "",
+          stderr: "",
+          pid: 0,
+          output: [],
+          signal: null,
+          error: err,
+        } as never;
+      },
+      stdout: () => {},
+      stderr: (text) => {
+        stderrCapture += text;
+      },
+    });
+    expect(result.exitCode).toBe(2);
+    expect(stderrCapture).toBe(
+      "memory grep: ripgrep output exceeded 64 MiB; narrow the pattern or scope and retry.\n",
+    );
   });
 
   it("returns exit 2 when both raw/ and wiki/ are absent", async () => {

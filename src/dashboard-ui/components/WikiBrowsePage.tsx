@@ -2,23 +2,14 @@ import { useNavigate, useSearch } from "@tanstack/react-router";
 import { BookOpen } from "lucide-react";
 import { useListKeyNav } from "../hooks/useListKeyNav.js";
 import { useWikiIndex } from "../hooks/useWikiIndex.js";
-import { CategorySidebar } from "./CategorySidebar.js";
+import {
+  CategorySidebar,
+  CONFIGURED_WIKI_CATEGORIES,
+  getVisibleWikiCategoryTotal,
+} from "./CategorySidebar.js";
 import { EmptyState } from "./EmptyState.js";
 import { Skeleton } from "./Skeleton.js";
 import { WikiCard } from "./WikiCard.js";
-
-const CATEGORY_ORDER = [
-  "decisions",
-  "projects",
-  "issues",
-  "lessons",
-  "references",
-  "tools",
-  "people",
-  "threads",
-  "procedures",
-  "crystals",
-];
 
 const CATEGORY_LABELS: Record<string, string> = {
   decisions: "Decisions",
@@ -38,6 +29,7 @@ export function WikiBrowsePage() {
   const params = useSearch({ from: "/wiki/" }) as { category?: string };
   const navigate = useNavigate({ from: "/wiki/" });
   const selectedCategory = params.category ?? null;
+  const visibleCategoryTotal = getVisibleWikiCategoryTotal(wiki.data?.byCategory);
   const entries = selectedCategory
     ? wiki.data?.byCategory[selectedCategory] ?? []
     : Object.values(wiki.data?.byCategory ?? {}).flat();
@@ -56,7 +48,7 @@ export function WikiBrowsePage() {
     <div className="mx-auto max-w-7xl p-4 md:p-6">
       <header className="mb-6">
         <h1 className="break-words text-2xl font-semibold tracking-tight">Wiki</h1>
-        <p className="text-sm text-text-secondary">{wiki.data?.total ?? 0} curated pages</p>
+        <p className="text-sm text-text-secondary">{visibleCategoryTotal} curated pages</p>
       </header>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-[256px_1fr]">
@@ -119,8 +111,8 @@ export function WikiBrowsePage() {
 
 function groupedEntries(byCategory: NonNullable<ReturnType<typeof useWikiIndex>["data"]>["byCategory"]) {
   const categoryKeys = [
-    ...CATEGORY_ORDER,
-    ...Object.keys(byCategory).filter((category) => !CATEGORY_ORDER.includes(category)).sort(),
+    ...CONFIGURED_WIKI_CATEGORIES,
+    ...Object.keys(byCategory).filter((category) => !CONFIGURED_WIKI_CATEGORIES.includes(category)).sort(),
   ];
   return categoryKeys
     .map((category) => ({

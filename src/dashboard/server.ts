@@ -107,6 +107,7 @@ function closeServer(server: HttpServer): Promise<void> {
 
 const SAFE_SEGMENT_RE = /^[A-Za-z0-9._-]+$/;
 const DASHBOARD_MOUNT_PREFIX = "/memory";
+const REQUEST_BODY_LIMIT_BYTES = 1024 * 1024;
 
 interface StaticAssetsRoot {
   root: string;
@@ -253,14 +254,93 @@ function writeJsonError(res: ServerResponse, status: number, message: string): v
   writeJson(res, { error: message }, status);
 }
 
+function writeRequestBodyTooLarge(res: ServerResponse): void {
+  writeJson(res, { ok: false, error: "request body too large" }, 413);
+}
+
+function writeInvalidJsonBody(res: ServerResponse): void {
+  writeJson(res, { ok: false, error: "invalid JSON body" }, 400);
+}
+
+function writeInvalidContentLength(res: ServerResponse): void {
+  const body = JSON.stringify({ ok: false, error: "invalid Content-Length" }, null, 2);
+  res.writeHead(400, {
+    "Content-Type": "application/json; charset=utf-8",
+    "Content-Length": Buffer.byteLength(body),
+    "Connection": "close",
+  });
+  res.end(body);
+}
+
+function invalidContentLengthResponse(): string {
+  const body = JSON.stringify({ ok: false, error: "invalid Content-Length" }, null, 2);
+  return [
+    "HTTP/1.1 400 Bad Request",
+    "Content-Type: application/json; charset=utf-8",
+    `Content-Length: ${Buffer.byteLength(body)}`,
+    "Connection: close",
+    "",
+    body,
+  ].join("\r\n");
+}
+
+class RequestBodyTooLargeError extends Error {
+  constructor() {
+    super("request body too large");
+  }
+}
+
+class InvalidContentLengthError extends Error {
+  constructor() {
+    super("invalid Content-Length");
+  }
+}
+
+class InvalidJsonBodyError extends Error {
+  constructor() {
+    super("invalid JSON body");
+  }
+}
+
+function parseContentLengthHeader(value: string | string[] | undefined): number | undefined {
+  if (value === undefined) return undefined;
+  if (Array.isArray(value)) throw new InvalidContentLengthError();
+  if (!/^[0-9]+$/.test(value)) throw new InvalidContentLengthError();
+
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed)) throw new InvalidContentLengthError();
+  return parsed;
+}
+
+function isContentLengthClientError(err: Error): boolean {
+  const code = (err as Error & { code?: string }).code ?? "";
+  const rawPacket = (err as Error & { rawPacket?: Buffer }).rawPacket?.toString("latin1") ?? "";
+  return /content-length\s*:/i.test(rawPacket) || /content[-_\s]?length/i.test(`${code} ${err.message}`);
+}
+
 async function readJsonBody(req: IncomingMessage): Promise<unknown> {
+  const declaredLength = parseContentLengthHeader(req.headers["content-length"]);
+  if (declaredLength !== undefined && declaredLength > REQUEST_BODY_LIMIT_BYTES) {
+    throw new RequestBodyTooLargeError();
+  }
+
   const chunks: Buffer[] = [];
+  let totalBytes = 0;
   for await (const chunk of req) {
-    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    totalBytes += buffer.byteLength;
+    if (totalBytes > REQUEST_BODY_LIMIT_BYTES) {
+      throw new RequestBodyTooLargeError();
+    }
+    chunks.push(buffer);
   }
   const text = Buffer.concat(chunks).toString("utf-8");
   if (text.trim().length === 0) return {};
-  return JSON.parse(text) as unknown;
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    throw new InvalidJsonBodyError();
+  }
 }
 
 export function sameOriginAllowed(
@@ -568,6 +648,18 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
         const result = await applyConfigPatch(opts.vaultRoot, body as Record<string, unknown>);
         writeJson(res, { ok: true, applied: result.applied });
       } catch (err) {
+        if (err instanceof RequestBodyTooLargeError) {
+          writeRequestBodyTooLarge(res);
+          return;
+        }
+        if (err instanceof InvalidContentLengthError) {
+          writeInvalidContentLength(res);
+          return;
+        }
+        if (err instanceof InvalidJsonBodyError) {
+          writeInvalidJsonBody(res);
+          return;
+        }
         if (err instanceof ConfigPatchError) {
           writeJson(res, { ok: false, errors: err.errors }, 400);
           return;
@@ -602,6 +694,18 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
           writeJson(res, { ok: true, rejectedPath: result.rejectedPath });
         }
       } catch (err) {
+        if (err instanceof RequestBodyTooLargeError) {
+          writeRequestBodyTooLarge(res);
+          return;
+        }
+        if (err instanceof InvalidContentLengthError) {
+          writeInvalidContentLength(res);
+          return;
+        }
+        if (err instanceof InvalidJsonBodyError) {
+          writeInvalidJsonBody(res);
+          return;
+        }
         const message = (err as Error).message;
         writeJsonError(res, message.includes("not found") ? 404 : 500, message);
       }
@@ -633,6 +737,18 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
           summary: compileRunSummaryForResponse(result, execute),
         });
       } catch (error) {
+        if (error instanceof RequestBodyTooLargeError) {
+          writeRequestBodyTooLarge(res);
+          return;
+        }
+        if (error instanceof InvalidContentLengthError) {
+          writeInvalidContentLength(res);
+          return;
+        }
+        if (error instanceof InvalidJsonBodyError) {
+          writeInvalidJsonBody(res);
+          return;
+        }
         writeJsonError(res, 500, error instanceof Error ? error.message : String(error));
       } finally {
         compileRunActive = false;
@@ -1003,6 +1119,14 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
     }
 
     writeHtml(res, 404, renderNotFound(path));
+  });
+  server.on("clientError", (err, socket) => {
+    if (!socket.writable) return;
+    socket.end(
+      isContentLengthClientError(err)
+        ? invalidContentLengthResponse()
+        : "HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n",
+    );
   });
 
   await new Promise<void>((resolve, reject) => {

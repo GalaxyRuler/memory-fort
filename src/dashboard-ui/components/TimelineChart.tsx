@@ -37,7 +37,12 @@ export function TimelineChart({ data, width = 800 }: { data: TimelineResponse; w
   const totalHeight = VELOCITY_HEIGHT + 16 + chartHeight + 24;
 
   return (
-    <svg viewBox={`0 0 ${width} ${totalHeight}`} className="w-full h-auto" role="img" aria-label="Timeline chart">
+    <svg
+      viewBox={`0 0 ${width} ${totalHeight}`}
+      className="w-full h-auto"
+      role="img"
+      aria-label="Event velocity chart showing activity over time"
+    >
       <g>
         <text
           x={LABEL_WIDTH + CHART_PADDING_X}

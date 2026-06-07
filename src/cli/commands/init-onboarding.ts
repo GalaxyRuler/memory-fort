@@ -309,7 +309,7 @@ async function askInitWizard(args: {
   const nameAnswer = await prompt(`Your name [${args.templateVars.user_name}] `);
   const toolsAnswer = await prompt(`Tools to wire [${toolsDefault}] `);
   const retrievalAnswer = await prompt(
-    "Retrieval mode [lexical (keyless) | voyage | openai | ollama] ",
+    "Retrieval mode [lexical (keyless, recommended if unsure) | voyage | openai | ollama] ",
   );
 
   return {

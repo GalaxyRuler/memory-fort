@@ -38,7 +38,7 @@ export function GalacticHUD({
       <div className="pointer-events-auto absolute left-3 top-3 flex items-center gap-2">
         <ScopeToggle scope={scope} onChange={onScopeChange} />
         {isUpdating && (
-          <span className="animate-pulse font-mono text-[10px] uppercase tracking-wider text-text-muted">
+          <span className="motion-safe:animate-pulse font-mono text-[10px] uppercase tracking-wider text-text-muted">
             updating…
           </span>
         )}

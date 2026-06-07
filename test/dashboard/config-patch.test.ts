@@ -650,6 +650,184 @@ describe("dashboard config patch", () => {
     await expect(readFile(join(tmp, ".config-backups", backups[0]!), "utf-8")).resolves.toContain("provider: voyage");
   });
 
+  it("deep-merges embedder and llm options without replacing sibling option keys", async () => {
+    await writeFile(
+      join(tmp, "config.yaml"),
+      [
+        "embedder:",
+        "  provider: openai",
+        "  model: text-embedding-3-small",
+        "  options:",
+        "    host: http://8.8.8.8:11434",
+        "    baseURL: https://api.openai.com/v1/",
+        "llm:",
+        "  provider: ollama",
+        "  model: llama3.2",
+        "  options:",
+        "    host: http://8.8.8.8:11434",
+        "    num_ctx: 2048",
+        "",
+      ].join("\n"),
+    );
+
+    const result = await applyConfigPatch(tmp, {
+      embedder: { options: { baseURL: "https://api.openai.com/v1" } },
+      llm: { options: { num_ctx: 4096 } },
+    });
+
+    expect(result.applied).toEqual(["embedder.options", "llm.options"]);
+    await expect(loadMemoryConfig(tmp)).resolves.toMatchObject({
+      embedder: {
+        options: {
+          host: "http://8.8.8.8:11434",
+          baseURL: "https://api.openai.com/v1",
+        },
+      },
+      llm: {
+        options: {
+          host: "http://8.8.8.8:11434",
+          num_ctx: 4096,
+        },
+      },
+    });
+  });
+
+  it("recursively merges plain objects in provider options while replacing arrays and scalars", async () => {
+    await writeFile(
+      join(tmp, "config.yaml"),
+      [
+        "embedder:",
+        "  provider: voyage",
+        "  model: voyage-4-large",
+        "  options:",
+        "    request:",
+        "      labels:",
+        "        env: prod",
+        "        priority: normal",
+        "      tags:",
+        "        - stable",
+        "    mode: standard",
+        "llm:",
+        "  provider: ollama",
+        "  model: llama3.2",
+        "  options:",
+        "    transport:",
+        "      retries: 3",
+        "      retryStatusCodes:",
+        "        - 500",
+        "      headers:",
+        "        accept: application/json",
+        "    mode: local",
+        "",
+      ].join("\n"),
+    );
+
+    await applyConfigPatch(tmp, {
+      embedder: {
+        options: {
+          request: {
+            labels: { priority: "high" },
+            tags: ["patched"],
+          },
+          mode: "custom",
+        },
+      },
+      llm: {
+        options: {
+          transport: {
+            timeoutMs: 30_000,
+            retryStatusCodes: [429],
+            headers: { userAgent: "memory-fort" },
+          },
+        },
+      },
+    });
+
+    await expect(loadMemoryConfig(tmp)).resolves.toMatchObject({
+      embedder: {
+        options: {
+          request: {
+            labels: {
+              env: "prod",
+              priority: "high",
+            },
+            tags: ["patched"],
+          },
+          mode: "custom",
+        },
+      },
+      llm: {
+        options: {
+          transport: {
+            retries: 3,
+            timeoutMs: 30_000,
+            retryStatusCodes: [429],
+            headers: {
+              accept: "application/json",
+              userAgent: "memory-fort",
+            },
+          },
+          mode: "local",
+        },
+      },
+    });
+  });
+
+  it("rejects nested __proto__ option patches before retained outbound URL validation can be bypassed", async () => {
+    await writeFile(
+      join(tmp, "config.yaml"),
+      [
+        "embedder:",
+        "  provider: ollama",
+        "  allow_internal_hosts: true",
+        "  options:",
+        "    host: http://127.0.0.1:11434",
+        "",
+      ].join("\n"),
+    );
+
+    const pollutedOptions = JSON.parse(
+      `{"__proto__":{"headers":{"accept":"application/json"}}}`,
+    ) as Record<string, unknown>;
+
+    await expect(
+      applyConfigPatch(tmp, {
+        embedder: {
+          allow_internal_hosts: false,
+          options: pollutedOptions,
+        },
+      }),
+    ).rejects.toMatchObject({
+      name: "ConfigPatchError",
+      errors: expect.arrayContaining([
+        {
+          path: "embedder.options.__proto__",
+          message: "option key is not allowed",
+        },
+      ]),
+    });
+  });
+
+  it("rejects constructor and prototype keys nested under provider options", () => {
+    for (const key of ["constructor", "prototype"]) {
+      const result = validateConfigPatch({
+        llm: {
+          options: {
+            request: {
+              [key]: { headers: { accept: "application/json" } },
+            },
+          },
+        },
+      });
+
+      expect(result.ok, key).toBe(false);
+      expect(result.errors).toContainEqual({
+        path: `llm.options.request.${key}`,
+        message: "option key is not allowed",
+      });
+    }
+  });
+
   it("leaves the original config intact when the atomic write fails", async () => {
     const original = await readFile(join(tmp, "config.yaml"), "utf-8");
 

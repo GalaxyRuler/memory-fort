@@ -77,7 +77,7 @@ export function ActivityFeedPage() {
               description="Adjust the source or level filter to inspect the activity stream."
             />
           )}
-          <ul {...listNav.listProps}>
+          <ul {...listNav.listProps} aria-label="Recent activity" tabIndex={0}>
             {visibleEvents.map((event, index) => (
               <ActivityEventRow
                 key={`${event.timestamp}-${index}`}

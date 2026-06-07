@@ -2,10 +2,18 @@ import { render, screen } from "@testing-library/react";
 import React from "react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { GalacticScene } from "../../../src/dashboard-ui/components/GalacticScene.js";
+import { updateGalacticPositions } from "../../../src/dashboard-ui/lib/galactic/layout.js";
 
 const r3fState = vi.hoisted(() => ({
   cameraDistance: 32,
+  cameraCopy: vi.fn(),
+  cameraLerp: vi.fn(),
   frameCallbacks: [] as Array<(state: any, delta: number) => void>,
+  orbitControlsProps: [] as Array<Record<string, unknown>>,
+}));
+
+const reducedMotionState = vi.hoisted(() => ({
+  value: false,
 }));
 
 vi.mock("@react-three/fiber", async () => {
@@ -25,10 +33,10 @@ vi.mock("@react-three/fiber", async () => {
     useThree: vi.fn(() => ({
       camera: {
         position: {
-          copy: vi.fn(),
+          copy: r3fState.cameraCopy,
           distanceTo: vi.fn(() => 10),
           length: vi.fn(() => r3fState.cameraDistance),
-          lerp: vi.fn(),
+          lerp: r3fState.cameraLerp,
         },
       },
     })),
@@ -36,7 +44,10 @@ vi.mock("@react-three/fiber", async () => {
 });
 
 vi.mock("@react-three/drei", () => ({
-  OrbitControls: () => null,
+  OrbitControls: (props: Record<string, unknown>) => {
+    r3fState.orbitControlsProps.push(props);
+    return null;
+  },
   Stars: () => null,
 }));
 
@@ -45,12 +56,30 @@ vi.mock("@react-three/postprocessing", () => ({
   EffectComposer: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 
+vi.mock("../../../src/dashboard-ui/lib/reduced-motion.js", () => ({
+  prefersReducedMotion: () => reducedMotionState.value,
+  useReducedMotion: () => reducedMotionState.value,
+}));
+
+vi.mock("../../../src/dashboard-ui/lib/galactic/layout.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../../src/dashboard-ui/lib/galactic/layout.js")>();
+  return {
+    ...actual,
+    updateGalacticPositions: vi.fn(actual.updateGalacticPositions),
+  };
+});
+
 describe("GalacticScene accessibility", () => {
   let originalConsoleError: typeof console.error;
 
   beforeEach(() => {
     r3fState.cameraDistance = 32;
+    r3fState.cameraCopy.mockReset();
+    r3fState.cameraLerp.mockReset();
     r3fState.frameCallbacks = [];
+    r3fState.orbitControlsProps = [];
+    reducedMotionState.value = false;
+    vi.mocked(updateGalacticPositions).mockClear();
     originalConsoleError = console.error;
     vi.spyOn(console, "error").mockImplementation((...args: unknown[]) => {
       const message = String(args[0] ?? "");
@@ -129,5 +158,22 @@ describe("GalacticScene accessibility", () => {
 
     expect(onZoomLevelChange).toHaveBeenCalledWith(1);
     expect(onZoomLevelChange).toHaveBeenCalledTimes(1);
+  });
+
+  test("does not advance graph layout or camera animation when reduced motion is requested", () => {
+    reducedMotionState.value = true;
+    render(
+      <GalacticScene
+        nodes={[]}
+        edges={[]}
+      />,
+    );
+
+    r3fState.frameCallbacks[0]?.({ clock: { getElapsedTime: () => 10 } }, 0.016);
+
+    expect(updateGalacticPositions).not.toHaveBeenCalled();
+    expect(r3fState.cameraLerp).not.toHaveBeenCalled();
+    expect(r3fState.cameraCopy).not.toHaveBeenCalled();
+    expect(r3fState.orbitControlsProps.at(-1)).toMatchObject({ enableDamping: false });
   });
 });
