@@ -108,6 +108,12 @@ function closeServer(server: HttpServer): Promise<void> {
 const SAFE_SEGMENT_RE = /^[A-Za-z0-9._-]+$/;
 const DASHBOARD_MOUNT_PREFIX = "/memory";
 const REQUEST_BODY_LIMIT_BYTES = 1024 * 1024;
+const COMMON_SECURITY_HEADERS = {
+  "X-Content-Type-Options": "nosniff",
+  "X-Frame-Options": "DENY",
+  "Referrer-Policy": "no-referrer",
+};
+const DASHBOARD_HTML_CSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'";
 
 interface StaticAssetsRoot {
   root: string;
@@ -125,6 +131,18 @@ const MIME_TYPES: Record<string, string> = {
 };
 
 type StaticServeResult = "served" | "miss" | "bad-request";
+type ResponseHeaderMap = Record<string, number | string | string[]>;
+
+function withSecurityHeaders(
+  headers: ResponseHeaderMap,
+  opts: { contentSecurityPolicy?: boolean } = {},
+): ResponseHeaderMap {
+  return {
+    ...headers,
+    ...COMMON_SECURITY_HEADERS,
+    ...(opts.contentSecurityPolicy ? { "Content-Security-Policy": DASHBOARD_HTML_CSP } : {}),
+  };
+}
 
 function isStrictChild(parent: string, child: string): boolean {
   const rel = relative(resolve(parent), resolve(child));
@@ -184,10 +202,14 @@ async function writeStaticFile(
   cacheControl: string,
 ): Promise<void> {
   const body = await readFile(filePath);
-  res.writeHead(200, {
-    "Content-Type": contentTypeForPath(filePath),
-    "Cache-Control": cacheControl,
-  });
+  const contentType = contentTypeForPath(filePath);
+  res.writeHead(200, withSecurityHeaders(
+    {
+      "Content-Type": contentType,
+      "Cache-Control": cacheControl,
+    },
+    { contentSecurityPolicy: contentType.startsWith("text/html") },
+  ));
   res.end(body);
 }
 
@@ -241,12 +263,15 @@ function assertVaultChild(vaultRoot: string, ...parts: string[]): boolean {
 }
 
 function writeHtml(res: ServerResponse, status: number, body: string): void {
-  res.writeHead(status, { "Content-Type": "text/html; charset=utf-8" });
+  res.writeHead(status, withSecurityHeaders(
+    { "Content-Type": "text/html; charset=utf-8" },
+    { contentSecurityPolicy: true },
+  ));
   res.end(body);
 }
 
 function writeJson(res: ServerResponse, body: unknown, status = 200): void {
-  res.writeHead(status, { "Content-Type": "application/json; charset=utf-8" });
+  res.writeHead(status, withSecurityHeaders({ "Content-Type": "application/json; charset=utf-8" }));
   res.end(JSON.stringify(body, null, 2));
 }
 
@@ -262,13 +287,17 @@ function writeInvalidJsonBody(res: ServerResponse): void {
   writeJson(res, { ok: false, error: "invalid JSON body" }, 400);
 }
 
+function writeJsonNotFound(res: ServerResponse): void {
+  writeJson(res, { ok: false, error: "not found" }, 404);
+}
+
 function writeInvalidContentLength(res: ServerResponse): void {
   const body = JSON.stringify({ ok: false, error: "invalid Content-Length" }, null, 2);
-  res.writeHead(400, {
+  res.writeHead(400, withSecurityHeaders({
     "Content-Type": "application/json; charset=utf-8",
     "Content-Length": Buffer.byteLength(body),
     "Connection": "close",
-  });
+  }));
   res.end(body);
 }
 
@@ -276,11 +305,22 @@ function invalidContentLengthResponse(): string {
   const body = JSON.stringify({ ok: false, error: "invalid Content-Length" }, null, 2);
   return [
     "HTTP/1.1 400 Bad Request",
+    ...Object.entries(COMMON_SECURITY_HEADERS).map(([name, value]) => `${name}: ${value}`),
     "Content-Type: application/json; charset=utf-8",
     `Content-Length: ${Buffer.byteLength(body)}`,
     "Connection: close",
     "",
     body,
+  ].join("\r\n");
+}
+
+function rawBadRequestResponse(): string {
+  return [
+    "HTTP/1.1 400 Bad Request",
+    ...Object.entries(COMMON_SECURITY_HEADERS).map(([name, value]) => `${name}: ${value}`),
+    "Connection: close",
+    "",
+    "",
   ].join("\r\n");
 }
 
@@ -760,17 +800,17 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
       if (path.startsWith("/api/")) {
         writeJsonError(res, 405, "method not allowed");
       } else {
-        res.writeHead(405, {
+        res.writeHead(405, withSecurityHeaders({
           "Content-Type": "text/plain; charset=utf-8",
           "Allow": "GET",
-        });
+        }));
         res.end("method not allowed");
       }
       return;
     }
 
     if (path === "/healthz") {
-      res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
+      res.writeHead(200, withSecurityHeaders({ "Content-Type": "text/plain; charset=utf-8" }));
       res.end("ok");
       return;
     }
@@ -787,7 +827,7 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
           writeHtml(res, 200, renderHomepage(status));
         }
       } catch (err) {
-        res.writeHead(500, { "Content-Type": "text/plain; charset=utf-8" });
+        res.writeHead(500, withSecurityHeaders({ "Content-Type": "text/plain; charset=utf-8" }));
         res.end(`dashboard failed: ${(err as Error).message}`);
       }
       return;
@@ -829,7 +869,7 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
     const segments = parseSafeSegments(path);
     if (!segments) {
       if (path.startsWith("/api/")) {
-        writeJsonError(res, 400, "malformed dashboard path");
+        writeJsonError(res, 400, path.startsWith("/api/wiki/") ? "malformed wiki path" : "malformed dashboard path");
       } else {
         writeHtml(res, 400, renderBadRequest("Malformed dashboard path."));
       }
@@ -1024,8 +1064,7 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
           writeJson(res, result);
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
-          res.writeHead(500, { "Content-Type": "text/plain; charset=utf-8" });
-          res.end(JSON.stringify({ error: message }));
+          writeJsonError(res, 500, message);
         }
         return;
       }
@@ -1048,12 +1087,12 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
       if (segments.length === 4 && segments[0] === "api" && segments[1] === "wiki") {
         const relPath = `${segments[2]}/${segments[3]}.md`;
         if (!assertVaultChild(opts.vaultRoot, "wiki", relPath)) {
-          writeHtml(res, 400, renderBadRequest("Malformed wiki path."));
+          writeJsonError(res, 400, "malformed wiki path");
           return;
         }
         const page = await loadPageDetail(opts.vaultRoot, relPath);
         if (!page) {
-          writeHtml(res, 404, renderNotFound(path));
+          writeJsonError(res, 404, "page not found");
           return;
         }
         writeJson(res, page);
@@ -1112,9 +1151,14 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
       if (path.startsWith("/api/")) {
         writeJsonError(res, 500, (err as Error).message);
       } else {
-        res.writeHead(500, { "Content-Type": "text/plain; charset=utf-8" });
+        res.writeHead(500, withSecurityHeaders({ "Content-Type": "text/plain; charset=utf-8" }));
         res.end(`dashboard failed: ${(err as Error).message}`);
       }
+      return;
+    }
+
+    if (path.startsWith("/api/")) {
+      writeJsonNotFound(res);
       return;
     }
 
@@ -1125,7 +1169,7 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
     socket.end(
       isContentLengthClientError(err)
         ? invalidContentLengthResponse()
-        : "HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n",
+        : rawBadRequestResponse(),
     );
   });
 

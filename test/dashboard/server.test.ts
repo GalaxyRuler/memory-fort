@@ -18,7 +18,7 @@ function httpRequest(options: {
   path: string;
   headers?: Record<string, string>;
   body?: string;
-}): Promise<{ status: number; body: string }> {
+}): Promise<{ status: number; headers: Record<string, string>; body: string }> {
   return new Promise((resolve, reject) => {
     const req = request(
       {
@@ -32,7 +32,14 @@ function httpRequest(options: {
         const chunks: Buffer[] = [];
         res.on("data", (chunk) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
         res.on("end", () => {
-          resolve({ status: res.statusCode ?? 0, body: Buffer.concat(chunks).toString("utf-8") });
+          const headers = Object.fromEntries(
+            Object.entries(res.headers).flatMap(([name, value]) => {
+              if (Array.isArray(value)) return [[name, value.join(", ")]];
+              if (typeof value === "string") return [[name, value]];
+              return [];
+            }),
+          );
+          resolve({ status: res.statusCode ?? 0, headers, body: Buffer.concat(chunks).toString("utf-8") });
         });
       },
     );
@@ -46,7 +53,7 @@ function rawHttpRequest(options: {
   host: string;
   port: number;
   request: string;
-}): Promise<{ status: number; body: string }> {
+}): Promise<{ status: number; headers: Record<string, string>; body: string }> {
   return new Promise((resolve, reject) => {
     const socket = connect(options.port, options.host);
     const chunks: Buffer[] = [];
@@ -61,13 +68,54 @@ function rawHttpRequest(options: {
     socket.on("end", () => {
       const raw = Buffer.concat(chunks).toString("utf-8");
       const [head = "", ...bodyParts] = raw.split("\r\n\r\n");
+      const [_statusLine = "", ...headerLines] = head.split("\r\n");
       const status = Number(head.match(/^HTTP\/\d\.\d\s+(\d+)/)?.[1] ?? 0);
-      resolve({ status, body: bodyParts.join("\r\n\r\n") });
+      const headers = Object.fromEntries(
+        headerLines.flatMap((line) => {
+          const separator = line.indexOf(":");
+          if (separator < 0) return [];
+          return [[line.slice(0, separator).toLowerCase(), line.slice(separator + 1).trim()]];
+        }),
+      );
+      const body = bodyParts.join("\r\n\r\n");
+      resolve({
+        status,
+        headers,
+        body: headers["transfer-encoding"] === "chunked" ? decodeChunkedBody(body) : body,
+      });
     });
   });
 }
 
+function decodeChunkedBody(body: string): string {
+  let offset = 0;
+  let decoded = "";
+  while (offset < body.length) {
+    const sizeEnd = body.indexOf("\r\n", offset);
+    if (sizeEnd < 0) return body;
+    const size = Number.parseInt(body.slice(offset, sizeEnd).split(";")[0] ?? "", 16);
+    if (!Number.isFinite(size)) return body;
+    if (size === 0) return decoded;
+    const chunkStart = sizeEnd + 2;
+    decoded += body.slice(chunkStart, chunkStart + size);
+    offset = chunkStart + size + 2;
+  }
+  return body;
+}
+
 const REQUEST_BODY_LIMIT_BYTES = 1024 * 1024;
+const COMMON_SECURITY_HEADERS = {
+  "x-content-type-options": "nosniff",
+  "x-frame-options": "DENY",
+  "referrer-policy": "no-referrer",
+};
+const DASHBOARD_CSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'";
+
+function expectCommonSecurityHeaders(headers: Headers): void {
+  for (const [name, value] of Object.entries(COMMON_SECURITY_HEADERS)) {
+    expect(headers.get(name)).toBe(value);
+  }
+}
 
 function fixture(): DashboardStatus {
   return {
@@ -364,6 +412,59 @@ describe("dashboard server", () => {
     }
   });
 
+  it("JSON responses include common security headers without CSP", async () => {
+    const server = await createServer({
+      vaultRoot: "/unused",
+      port: 0,
+      loader: async () => fixture(),
+    });
+
+    try {
+      const response = await fetch(`http://${server.host}:${server.port}/api/status`);
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toContain("application/json");
+      expectCommonSecurityHeaders(response.headers);
+      expect(response.headers.get("content-security-policy")).toBeNull();
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("HTML responses include common security headers and CSP", async () => {
+    const server = await createServer({
+      vaultRoot: "/unused",
+      port: 0,
+      loader: async () => fixture(),
+    });
+
+    try {
+      const response = await fetch(`http://${server.host}:${server.port}/`);
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toContain("text/html");
+      expectCommonSecurityHeaders(response.headers);
+      expect(response.headers.get("content-security-policy")).toBe(DASHBOARD_CSP);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("direct text responses include common security headers without CSP", async () => {
+    const server = await createServer({ vaultRoot: "/unused", port: 0 });
+
+    try {
+      const response = await fetch(`http://${server.host}:${server.port}/healthz`);
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toContain("text/plain");
+      expectCommonSecurityHeaders(response.headers);
+      expect(response.headers.get("content-security-policy")).toBeNull();
+    } finally {
+      await server.close();
+    }
+  });
+
   it("GET /api/auto-heal/status returns bounded embedding worker state", async () => {
     const server = await createServer({
       vaultRoot: tmp,
@@ -589,6 +690,36 @@ describe("dashboard server", () => {
       const response = await fetch(`http://${server.host}:${server.port}/wiki/projects/ghost`);
       const body = await response.text();
       expect(response.status).toBe(404);
+      expect(body).toContain("Not found");
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("GET /api/<unknown> returns structured JSON 404", async () => {
+    const server = await createServer({ vaultRoot: tmp, port: 0 });
+
+    try {
+      const response = await fetch(`http://${server.host}:${server.port}/api/no-such-route`);
+      const body = await response.json();
+
+      expect(response.status).toBe(404);
+      expect(response.headers.get("content-type")).toBe("application/json; charset=utf-8");
+      expect(body).toEqual({ ok: false, error: "not found" });
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("GET /<unknown> preserves HTML 404 for browser routes", async () => {
+    const server = await createServer({ vaultRoot: tmp, port: 0 });
+
+    try {
+      const response = await fetch(`http://${server.host}:${server.port}/no-such-browser-route`);
+      const body = await response.text();
+
+      expect(response.status).toBe(404);
+      expect(response.headers.get("content-type")).toBe("text/html; charset=utf-8");
       expect(body).toContain("Not found");
     } finally {
       await server.close();
@@ -854,6 +985,49 @@ describe("dashboard server", () => {
       expect(text).toContain("projects/foo.md");
       expect(text).not.toContain(".audit");
       expect(text).not.toContain("Audit Log");
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("GET /api/wiki/:category/:slug returns JSON for malformed API wiki paths", async () => {
+    const server = await createServer({ vaultRoot: tmp, port: 0 });
+
+    try {
+      const response = await rawHttpRequest({
+        host: server.host,
+        port: server.port,
+        request: [
+          "GET /api/wiki/projects/%ZZ HTTP/1.1",
+          `Host: ${server.host}:${server.port}`,
+          "Connection: close",
+          "",
+          "",
+        ].join("\r\n"),
+      });
+      const body = JSON.parse(response.body);
+      expect(response.status).toBe(400);
+      expect(response.headers["content-type"]).toContain("application/json");
+      expect(response.headers["x-content-type-options"]).toBe("nosniff");
+      expect(response.headers["x-frame-options"]).toBe("DENY");
+      expect(response.headers["referrer-policy"]).toBe("no-referrer");
+      expect(body).toEqual({ error: "malformed wiki path" });
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("GET /api/wiki/:category/:slug returns JSON for missing API wiki pages", async () => {
+    await mkdir(join(tmp, "wiki", "projects"), { recursive: true });
+    const server = await createServer({ vaultRoot: tmp, port: 0 });
+
+    try {
+      const response = await fetch(`http://${server.host}:${server.port}/api/wiki/projects/missing`);
+      const body = await response.json();
+      expect(response.status).toBe(404);
+      expect(response.headers.get("content-type")).toContain("application/json");
+      expectCommonSecurityHeaders(response.headers);
+      expect(body).toEqual({ error: "page not found" });
     } finally {
       await server.close();
     }
@@ -1919,6 +2093,25 @@ describe("dashboard server", () => {
     }
   });
 
+  it("generic malformed raw requests return security headers", async () => {
+    const server = await createServer({ vaultRoot: tmp, port: 0 });
+
+    try {
+      const response = await rawHttpRequest({
+        host: server.host,
+        port: server.port,
+        request: "BOGUS\r\n\r\n",
+      });
+
+      expect(response.status).toBe(400);
+      expect(response.headers["x-content-type-options"]).toBe("nosniff");
+      expect(response.headers["x-frame-options"]).toBe("DENY");
+      expect(response.headers["referrer-policy"]).toBe("no-referrer");
+    } finally {
+      await server.close();
+    }
+  });
+
   it("PATCH /api/config rejects forwarded-header spoof when not behind a configured proxy", async () => {
     await writeFile(join(tmp, "config.yaml"), ["embedder:", "  provider: voyage", ""].join("\n"));
     const server = await createServer({ vaultRoot: tmp, port: 0 });
@@ -2204,6 +2397,8 @@ describe("dashboard server", () => {
       expect(response.status).toBe(200);
       expect(response.headers.get("content-type")).toContain("text/html");
       expect(response.headers.get("cache-control")).toBe("no-cache");
+      expectCommonSecurityHeaders(response.headers);
+      expect(response.headers.get("content-security-policy")).toBe(DASHBOARD_CSP);
       expect(body).toContain('<div id="root"');
     } finally {
       await server.close();
@@ -2221,6 +2416,8 @@ describe("dashboard server", () => {
         expect(response.status).toBe(200);
         expect(response.headers.get("content-type")).toContain("text/html");
         expect(response.headers.get("cache-control")).toBe("no-cache");
+        expectCommonSecurityHeaders(response.headers);
+        expect(response.headers.get("content-security-policy")).toBe(DASHBOARD_CSP);
         expect(body).toContain('<div id="root"');
       }
     } finally {
