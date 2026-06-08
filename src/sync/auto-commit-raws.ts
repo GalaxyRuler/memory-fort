@@ -80,8 +80,13 @@ function isRawPath(path: string): boolean {
 
 function isSystemManagedPath(path: string): boolean {
   return path === "log.md"
-    || path.startsWith("wiki/.audit/")
-    || path === "embeddings/auto-heal.jsonl";
+    || path === "config.yaml"
+    || path === "index.md"
+    || path === "schema.md"
+    || path === "preferences.md"
+    || path.startsWith("wiki/")
+    || path.startsWith("embeddings/")
+    || path.startsWith("prompts/");
 }
 
 function parseStatusPath(line: string): string {

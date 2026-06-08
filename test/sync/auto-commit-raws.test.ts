@@ -179,27 +179,29 @@ describe("autoCommitRawsIfDirty", () => {
     }
   });
 
-  it("skips when wiki/ is dirty", async () => {
-    const { runner, calls } = makeRunner(() => ({
-      stdout: " M wiki/projects/foo.md\n M raw/2026-05-21/foo.md\n",
-    }));
-
-    await expect(autoCommitRawsIfDirty({ memoryRoot: "/mem", runner })).resolves.toEqual({
-      kind: "skipped-non-raw-dirty",
-      dirtyNonRawFiles: ["wiki/projects/foo.md"],
+  it("commits when wiki/ is dirty (system-managed)", async () => {
+    const { runner, calls } = makeRunner((call) => {
+      if (call.args[0] === "status") return { stdout: " M wiki/projects/foo.md\n M raw/2026-05-21/foo.md\n" };
+      if (call.args[0] === "commit") return { stdout: "[main abc1234] chore: auto-capture 2 vault system file(s)\n" };
+      return {};
     });
 
-    expect(calls.map((call) => call.args.join(" "))).toEqual(["status --porcelain -uall"]);
+    await expect(autoCommitRawsIfDirty({ memoryRoot: "/mem", runner })).resolves.toMatchObject({
+      kind: "committed",
+      filesCount: 2,
+    });
+
+    expect(calls.map((call) => call.args[0])).toEqual(["status", "add", "commit"]);
   });
 
-  it("skips when crystals/ or top-level is dirty", async () => {
+  it("skips when unknown top-level files are dirty", async () => {
     const { runner, calls } = makeRunner(() => ({
-      stdout: " M crystals/2026-05-22.md\n M index.md\n M raw/foo.md\n",
+      stdout: " M crystals/2026-05-22.md\n M secrets.yaml\n M raw/foo.md\n",
     }));
 
     await expect(autoCommitRawsIfDirty({ memoryRoot: "/mem", runner })).resolves.toEqual({
       kind: "skipped-non-raw-dirty",
-      dirtyNonRawFiles: ["crystals/2026-05-22.md", "index.md"],
+      dirtyNonRawFiles: ["crystals/2026-05-22.md", "secrets.yaml"],
     });
 
     expect(calls.map((call) => call.args.join(" "))).toEqual(["status --porcelain -uall"]);

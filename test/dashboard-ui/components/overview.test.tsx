@@ -1,4 +1,6 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { describe, expect, test, vi } from "vitest";
 import { NeedsAttention } from "../../../src/dashboard-ui/components/NeedsAttention.js";
 import { RecentActivity } from "../../../src/dashboard-ui/components/RecentActivity.js";
@@ -14,6 +16,11 @@ vi.mock("@tanstack/react-router", async (importOriginal) => {
     useNavigate: () => vi.fn(),
   };
 });
+
+function renderWithQueryClient(ui: ReactNode) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>);
+}
 
 describe("overview components", () => {
   test("Sparkline renders polyline with correct point count", () => {
@@ -81,7 +88,7 @@ describe("overview components", () => {
       generatedAt: "2026-05-24T12:00:00Z",
     };
 
-    render(<NeedsAttention status={status} />);
+    renderWithQueryClient(<NeedsAttention status={status} />);
 
     expect(screen.getByText("All clear")).toBeInTheDocument();
   });

@@ -1,7 +1,14 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { NeedsAttention } from "../../../src/dashboard-ui/components/NeedsAttention.js";
 import type { DashboardStatus } from "../../../src/dashboard-ui/hooks/useStatus.js";
+
+function renderWithQueryClient(ui: ReactNode) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>);
+}
 
 const routerMock = vi.hoisted(() => ({
   navigate: vi.fn(),
@@ -42,7 +49,7 @@ describe("NeedsAttention actions", () => {
   });
 
   test("Resolve navigates to conflicts", () => {
-    render(
+    renderWithQueryClient(
       <NeedsAttention
         status={makeStatus({
           syncState: {
@@ -64,7 +71,7 @@ describe("NeedsAttention actions", () => {
   });
 
   test("View navigates to audit errors", () => {
-    render(
+    renderWithQueryClient(
       <NeedsAttention
         status={makeStatus({
           errorsLog: { sizeBytes: 100, lastLine: "boom", isClean: false },
