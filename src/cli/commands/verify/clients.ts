@@ -19,6 +19,7 @@ import { readOpenCovenReadiness } from "../install/opencoven.js";
 import { vscodeExtensionDir, vscodeMcpConfigPath } from "../install/vscode.js";
 import { fail, pass, skip, warn, type CheckDescriptor, type VerifyCheckContext, type VerifyCheckResult } from "./types.js";
 import { isClientEnabled, loadMemoryConfig } from "../../../storage/config.js";
+import { chatgptBridgeRunningCheck, chatgptBridgeMcpCheck } from "./chatgpt.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const execFileAsync = promisify(execFile);
@@ -232,6 +233,8 @@ export const CLIENT_CHECKS: CheckDescriptor[] = [
   claudeDesktopConfigCheck,
   snifferClaudeDesktopWatcherCheck,
   snifferClaudeDesktopCaptureCheck,
+  chatgptBridgeRunningCheck,
+  chatgptBridgeMcpCheck,
 ];
 
 export async function checkClients(

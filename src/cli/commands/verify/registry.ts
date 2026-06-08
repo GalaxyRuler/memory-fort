@@ -18,6 +18,7 @@ import {
   snifferVscodeExtensionCheck,
   vscodeConfigCheck,
 } from "./clients.js";
+import { chatgptBridgeRunningCheck, chatgptBridgeMcpCheck } from "./chatgpt.js";
 import { compileRecentCheck } from "./compile.js";
 import { compileExecuteHealthCheck } from "./compile-execute-health.js";
 import { configValidCheck } from "./config.js";
@@ -73,4 +74,6 @@ export const ALL_CHECKS: CheckDescriptor[] = [
   claudeDesktopConfigCheck,
   snifferClaudeDesktopWatcherCheck,
   snifferClaudeDesktopCaptureCheck,
+  chatgptBridgeRunningCheck,
+  chatgptBridgeMcpCheck,
 ];
