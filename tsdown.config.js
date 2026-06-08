@@ -174,4 +174,11 @@ export default defineConfig([
     dts: false,
     deps: { onlyBundle: ["zod"] },
   },
+  {
+    ...common,
+    entry: { "mcp/http-bridge": "src/mcp/http-bridge.ts" },
+    clean: false,
+    dts: false,
+    deps: { onlyBundle: ["zod"] },
+  },
 ]);
