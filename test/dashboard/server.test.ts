@@ -400,6 +400,7 @@ describe("dashboard server", () => {
       const response = await fetch(`http://${server.host}:${server.port}/api/status`);
       expect(response.status).toBe(200);
       expect(response.headers.get("content-type")).toContain("application/json");
+      expect(response.headers.get("content-security-policy")).toBe("default-src 'none'");
       await expect(response.json()).resolves.toEqual({
         ...status,
         capabilities: {
@@ -412,7 +413,7 @@ describe("dashboard server", () => {
     }
   });
 
-  it("JSON responses include common security headers without CSP", async () => {
+  it("JSON responses include common security headers and a lockdown CSP", async () => {
     const server = await createServer({
       vaultRoot: "/unused",
       port: 0,
@@ -425,7 +426,7 @@ describe("dashboard server", () => {
       expect(response.status).toBe(200);
       expect(response.headers.get("content-type")).toContain("application/json");
       expectCommonSecurityHeaders(response.headers);
-      expect(response.headers.get("content-security-policy")).toBeNull();
+      expect(response.headers.get("content-security-policy")).toBe("default-src 'none'");
     } finally {
       await server.close();
     }

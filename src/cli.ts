@@ -13,7 +13,7 @@ import { registerDashboardCommand } from "./cli/commands/dashboard.js";
 import { registerEntityCommand } from "./cli/commands/entity.js";
 import { registerEvalCommand } from "./cli/commands/eval.js";
 import { runEvalRetrieval } from "./cli/commands/eval-retrieval.js";
-import { runGrep, type GrepScope } from "./cli/commands/grep.js";
+import { DEFAULT_GREP_LIMIT, runGrep, type GrepScope } from "./cli/commands/grep.js";
 import { runInitOnboarding } from "./cli/commands/init-onboarding.js";
 import { formatAutoHealResult, runAutoHealCommand, type AutoHealAction } from "./cli/commands/auto-heal.js";
 import { runBackfill } from "./cli/commands/backfill.js";
@@ -338,7 +338,8 @@ program
   .description("Search memory (ripgrep over ~/.memory/raw/ and/or ~/.memory/wiki/)")
   .option("--scope <scope>", "raw | wiki | both (default: both)", "both")
   .option("-C, --context <n>", "lines of context (default: 2)", "2")
-  .action((pattern: string, opts: { scope: string; context: string }) => {
+  .option("--limit <n>", "maximum result lines to print (default: 500)", parseInteger, DEFAULT_GREP_LIMIT)
+  .action(async (pattern: string, opts: { scope: string; context: string; limit: number }) => {
     const scope = opts.scope as GrepScope;
     if (!["raw", "wiki", "both"].includes(scope)) {
       console.error(`Invalid --scope: ${scope}. Use raw, wiki, or both.`);
@@ -349,7 +350,11 @@ program
       console.error(`Invalid --context: ${opts.context}. Use a non-negative integer.`);
       process.exit(2);
     }
-    const result = runGrep({ pattern, scope, contextLines: ctx });
+    if (!Number.isInteger(opts.limit) || opts.limit < 1) {
+      console.error(`Invalid --limit: ${opts.limit}. Use a positive integer.`);
+      process.exit(2);
+    }
+    const result = await runGrep({ pattern, scope, contextLines: ctx, limit: opts.limit });
     process.exit(result.exitCode);
   });
 

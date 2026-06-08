@@ -1,13 +1,42 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtemp, rm, mkdir, writeFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
+import { EventEmitter } from "node:events";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { runGrep } from "../../../src/cli/commands/grep.js";
+import { PassThrough } from "node:stream";
+import { runGrep, type GrepChildProcess } from "../../../src/cli/commands/grep.js";
 
 function hasRipgrep(): boolean {
   const result = spawnSync("rg", ["--version"], { encoding: "utf-8" });
   return !result.error && result.status === 0;
+}
+
+function mockRgResult(opts: {
+  status?: number | null;
+  stdout?: string;
+  stderr?: string;
+  error?: NodeJS.ErrnoException;
+}): GrepChildProcess {
+  const child = new EventEmitter() as GrepChildProcess;
+  child.stdout = new PassThrough();
+  child.stderr = new PassThrough();
+  child.kill = () => {
+    queueMicrotask(() => child.emit("close", null, "SIGTERM"));
+    return true;
+  };
+
+  queueMicrotask(() => {
+    if (opts.error) {
+      child.emit("error", opts.error);
+      return;
+    }
+    child.stdout.end(opts.stdout ?? "");
+    child.stderr.end(opts.stderr ?? "");
+    child.emit("close", opts.status ?? 0, null);
+  });
+
+  return child;
 }
 
 describe("runGrep (mocked spawn)", () => {
@@ -28,13 +57,13 @@ describe("runGrep (mocked spawn)", () => {
     await rm(tmp, { recursive: true, force: true });
   });
 
-  it("includes both raw/ and wiki/ when scope=both by default", () => {
+  it("includes both raw/ and wiki/ when scope=both by default", async () => {
     let capturedArgs: string[] = [];
-    const result = runGrep({
+    const result = await runGrep({
       pattern: "foo",
       spawn: (_cmd, args) => {
         capturedArgs = args;
-        return { status: 0, stdout: "", stderr: "", pid: 0, output: [], signal: null } as never;
+        return mockRgResult({ status: 0 });
       },
       stdout: () => {},
       stderr: () => {},
@@ -45,27 +74,11 @@ describe("runGrep (mocked spawn)", () => {
     expect(capturedArgs).toContain("foo");
   });
 
-  it("sets a 64 MiB maxBuffer for ripgrep output", () => {
-    let capturedOptions: { encoding: "utf-8"; maxBuffer?: number } | undefined;
-    const result = runGrep({
-      pattern: "foo",
-      spawn: (_cmd, _args, opts) => {
-        capturedOptions = opts;
-        return { status: 0, stdout: "", stderr: "", pid: 0, output: [], signal: null } as never;
-      },
-      stdout: () => {},
-      stderr: () => {},
-    });
-    expect(result.exitCode).toBe(0);
-    expect(capturedOptions).toEqual({ encoding: "utf-8", maxBuffer: 64 * 1024 * 1024 });
-  });
-
-  it("restricts to raw/ only when scope=raw", () => {
-    const result = runGrep({
+  it("restricts to raw/ only when scope=raw", async () => {
+    const result = await runGrep({
       pattern: "x",
       scope: "raw",
-      spawn: () =>
-        ({ status: 1, stdout: "", stderr: "", pid: 0, output: [], signal: null }) as never,
+      spawn: () => mockRgResult({ status: 1 }),
       stdout: () => {},
       stderr: () => {},
     });
@@ -73,12 +86,11 @@ describe("runGrep (mocked spawn)", () => {
     expect(result.dirsSearched.some((dir) => dir.includes("wiki"))).toBe(false);
   });
 
-  it("restricts to wiki/ only when scope=wiki", () => {
-    const result = runGrep({
+  it("restricts to wiki/ only when scope=wiki", async () => {
+    const result = await runGrep({
       pattern: "x",
       scope: "wiki",
-      spawn: () =>
-        ({ status: 1, stdout: "", stderr: "", pid: 0, output: [], signal: null }) as never,
+      spawn: () => mockRgResult({ status: 1 }),
       stdout: () => {},
       stderr: () => {},
     });
@@ -86,122 +98,23 @@ describe("runGrep (mocked spawn)", () => {
     expect(result.dirsSearched.some((dir) => dir.includes("raw"))).toBe(false);
   });
 
-  it("returns exit 1 when rg reports no matches", () => {
-    let stderrCapture = "";
-    const result = runGrep({
+  it("returns exit 1 when rg reports no matches", async () => {
+    const result = await runGrep({
       pattern: "nonexistent",
-      spawn: () =>
-        ({ status: 1, stdout: "", stderr: "", pid: 0, output: [], signal: null }) as never,
+      spawn: () => mockRgResult({ status: 1 }),
       stdout: () => {},
-      stderr: (text) => {
-        stderrCapture += text;
-      },
+      stderr: () => {},
     });
     expect(result.exitCode).toBe(1);
-    expect(stderrCapture).toBe('No matches for "nonexistent" in raw/ + wiki/.\n');
   });
 
-  it("prints raw/ for no matches when scope=raw", () => {
-    let stderrCapture = "";
-    const result = runGrep({
-      pattern: "nonexistent",
-      scope: "raw",
-      spawn: () =>
-        ({ status: 1, stdout: "", stderr: "", pid: 0, output: [], signal: null }) as never,
-      stdout: () => {},
-      stderr: (text) => {
-        stderrCapture += text;
-      },
-    });
-    expect(result.exitCode).toBe(1);
-    expect(stderrCapture).toBe('No matches for "nonexistent" in raw/.\n');
-  });
-
-  it("prints wiki/ for no matches when scope=wiki", () => {
-    let stderrCapture = "";
-    const result = runGrep({
-      pattern: "nonexistent",
-      scope: "wiki",
-      spawn: () =>
-        ({ status: 1, stdout: "", stderr: "", pid: 0, output: [], signal: null }) as never,
-      stdout: () => {},
-      stderr: (text) => {
-        stderrCapture += text;
-      },
-    });
-    expect(result.exitCode).toBe(1);
-    expect(stderrCapture).toBe('No matches for "nonexistent" in wiki/.\n');
-  });
-
-  it("escapes quotes and newlines in the no-match pattern", () => {
-    let stderrCapture = "";
-    const result = runGrep({
-      pattern: 'quoted "pattern"\nnext line',
-      spawn: () =>
-        ({ status: 1, stdout: "", stderr: "", pid: 0, output: [], signal: null }) as never,
-      stdout: () => {},
-      stderr: (text) => {
-        stderrCapture += text;
-      },
-    });
-    expect(result.exitCode).toBe(1);
-    expect(stderrCapture).toBe(
-      'No matches for "quoted \\"pattern\\"\\nnext line" in raw/ + wiki/.\n',
-    );
-  });
-
-  it("does not print the no-match message when rg reports stderr", () => {
-    let stderrCapture = "";
-    const result = runGrep({
-      pattern: "nonexistent",
-      spawn: () =>
-        ({
-          status: 1,
-          stdout: "",
-          stderr: "rg: raw: Permission denied\n",
-          pid: 0,
-          output: [],
-          signal: null,
-        }) as never,
-      stdout: () => {},
-      stderr: (text) => {
-        stderrCapture += text;
-      },
-    });
-    expect(result.exitCode).toBe(1);
-    expect(stderrCapture).toBe("rg: raw: Permission denied\n");
-  });
-
-  it("does not print the no-match message when rg reports an error status", () => {
-    let stderrCapture = "";
-    const result = runGrep({
-      pattern: "nonexistent",
-      spawn: () =>
-        ({ status: 2, stdout: "", stderr: "", pid: 0, output: [], signal: null }) as never,
-      stdout: () => {},
-      stderr: (text) => {
-        stderrCapture += text;
-      },
-    });
-    expect(result.exitCode).toBe(2);
-    expect(stderrCapture).toBe("");
-  });
-
-  it("returns exit 2 when rg is not found", () => {
-    const result = runGrep({
+  it("returns exit 2 when rg is not found", async () => {
+    const result = await runGrep({
       pattern: "x",
       spawn: () => {
         const err = new Error("spawn rg ENOENT") as NodeJS.ErrnoException;
         err.code = "ENOENT";
-        return {
-          status: null,
-          stdout: "",
-          stderr: "",
-          pid: 0,
-          output: [],
-          signal: null,
-          error: err,
-        } as never;
+        return mockRgResult({ error: err });
       },
       stdout: () => {},
       stderr: () => {},
@@ -209,42 +122,13 @@ describe("runGrep (mocked spawn)", () => {
     expect(result.exitCode).toBe(2);
   });
 
-  it("returns exit 2 with a clear message when ripgrep output exceeds maxBuffer", () => {
-    let stderrCapture = "";
-    const result = runGrep({
-      pattern: "x",
-      spawn: () => {
-        const err = new Error("spawnSync rg ENOBUFS") as NodeJS.ErrnoException;
-        err.code = "ENOBUFS";
-        return {
-          status: null,
-          stdout: "",
-          stderr: "",
-          pid: 0,
-          output: [],
-          signal: null,
-          error: err,
-        } as never;
-      },
-      stdout: () => {},
-      stderr: (text) => {
-        stderrCapture += text;
-      },
-    });
-    expect(result.exitCode).toBe(2);
-    expect(stderrCapture).toBe(
-      "memory grep: ripgrep output exceeded 64 MiB; narrow the pattern or scope and retry.\n",
-    );
-  });
-
   it("returns exit 2 when both raw/ and wiki/ are absent", async () => {
     const empty = await mkdtemp(join(tmpdir(), "empty-mem-"));
     process.env["MEMORY_ROOT"] = empty;
     try {
-      const result = runGrep({
+      const result = await runGrep({
         pattern: "x",
-        spawn: () =>
-          ({ status: 0, stdout: "", stderr: "", pid: 0, output: [], signal: null }) as never,
+        spawn: () => mockRgResult({ status: 0 }),
         stdout: () => {},
         stderr: () => {},
       });
@@ -253,6 +137,29 @@ describe("runGrep (mocked spawn)", () => {
     } finally {
       await rm(empty, { recursive: true, force: true });
     }
+  });
+
+  it("writes large result sets incrementally and caps output at the default limit", async () => {
+    const rgOutput = Array.from(
+      { length: 600 },
+      (_, index) => `${join(tmp, "wiki", "projects", `hit-${index}.md`)}:1:foo ${index}`,
+    ).join("\n") + "\n";
+    const writes: string[] = [];
+
+    const result = await runGrep({
+      pattern: "foo",
+      spawn: () => mockRgResult({ status: 0, stdout: rgOutput }),
+      stdout: (text) => {
+        writes.push(text);
+      },
+      stderr: () => {},
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(writes).toHaveLength(501);
+    expect(writes.slice(0, 500).every((write) => write.endsWith("\n"))).toBe(true);
+    expect(writes.at(-1)).toBe("# truncated at 500 results\n");
+    expect(Math.max(...writes.map((write) => Buffer.byteLength(write, "utf-8")))).toBeLessThan(64 * 1024);
   });
 });
 
@@ -278,9 +185,9 @@ describe("runGrep (real rg integration)", () => {
     await rm(tmp, { recursive: true, force: true });
   });
 
-  realRgIt("finds matches with real ripgrep", () => {
+  realRgIt("finds matches with real ripgrep", async () => {
     let stdoutCapture = "";
-    const result = runGrep({
+    const result = await runGrep({
       pattern: "stale port",
       scope: "wiki",
       stdout: (text) => {

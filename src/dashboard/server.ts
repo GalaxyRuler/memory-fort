@@ -271,7 +271,10 @@ function writeHtml(res: ServerResponse, status: number, body: string): void {
 }
 
 function writeJson(res: ServerResponse, body: unknown, status = 200): void {
-  res.writeHead(status, withSecurityHeaders({ "Content-Type": "application/json; charset=utf-8" }));
+  res.writeHead(status, withSecurityHeaders({
+    "Content-Type": "application/json; charset=utf-8",
+    "Content-Security-Policy": "default-src 'none'",
+  }));
   res.end(JSON.stringify(body, null, 2));
 }
 
