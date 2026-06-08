@@ -20,6 +20,9 @@ export function GraphPage() {
   const [zoomLevel, setZoomLevel] = useState<GalacticZoomLevel>(0);
   const [showGalaxyZoomHint, setShowGalaxyZoomHint] = useState(false);
   const [openMemoryPath, setOpenMemoryPath] = useState<string | null>(null);
+  // List view gives sighted keyboard-only users a way to reach and open nodes
+  // that the pointer-driven WebGL canvas cannot (A11Y: WCAG 2.1.1 Keyboard).
+  const [viewMode, setViewMode] = useState<"graph" | "list">("graph");
 
   const selectedNode = useMemo(() => {
     return graph.data?.nodes.find((node) => node.path === selectedNodeId) ?? null;
@@ -88,8 +91,28 @@ export function GraphPage() {
     return <GraphMobileFallback nodes={graph.data.nodes} edgeCount={graph.data.edges.length} />;
   }
 
+  const isListView = viewMode === "list";
+
   return (
     <div className="relative h-[calc(100vh-3rem)] w-full overflow-hidden bg-[#050508]" data-hovered-node={hoveredNodeId ?? undefined}>
+      <button
+        type="button"
+        aria-pressed={isListView}
+        className="absolute right-4 top-4 z-40 rounded-md border border-border-subtle bg-surface/85 px-3 py-1.5 text-xs font-medium text-text-primary shadow-lg backdrop-blur transition-colors hover:border-primary hover:bg-surface-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+        onClick={() => setViewMode((mode) => (mode === "graph" ? "list" : "graph"))}
+      >
+        {isListView ? "Graph view" : "List view"}
+      </button>
+      {isListView ? (
+        <div className="h-full w-full overflow-y-auto">
+          <GraphMobileFallback
+            nodes={graph.data.nodes}
+            edgeCount={graph.data.edges.length}
+            onOpenMemory={setOpenMemoryPath}
+          />
+        </div>
+      ) : (
+        <>
       <GalacticScene
         ref={canvasRef}
         nodes={graph.data.nodes}
@@ -128,6 +151,8 @@ export function GraphPage() {
         onDeselect={() => setSelectedNodeId(null)}
         onZoomLevelChange={handleZoomLevelChange}
       />
+        </>
+      )}
       {openMemoryPath !== null && (
         <MemoryModal
           graphNodes={graph.data.nodes}
@@ -145,10 +170,12 @@ function GraphMobileFallback({
   className = "min-h-[calc(100vh-3.5rem)] bg-[#050508] p-4",
   edgeCount,
   nodes,
+  onOpenMemory,
 }: {
   className?: string;
   edgeCount: number;
   nodes: GraphNode[];
+  onOpenMemory?: (path: string) => void;
 }) {
   const grouped = useMemo(() => {
     const groups = new Map<string, GraphNode[]>();
@@ -189,17 +216,34 @@ function GraphMobileFallback({
               <span className="flex-shrink-0 font-mono text-xs text-text-muted">{group.nodes.length}</span>
             </div>
             <ul className="space-y-2">
-              {group.nodes.map((node) => (
-                <li key={node.path} className="rounded-md border border-border-subtle bg-background/40 p-3">
-                  <h3 className="break-words text-sm font-medium text-text-primary">{node.title}</h3>
-                  <p className="mt-1 break-all font-mono text-xs text-text-muted">{node.path}</p>
-                  <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 font-mono text-[11px] text-text-muted">
-                    <span>in {node.inboundCount}</span>
-                    <span>out {node.outboundCount}</span>
-                    {node.confidence !== null ? <span>conf {node.confidence.toFixed(2)}</span> : null}
-                  </div>
-                </li>
-              ))}
+              {group.nodes.map((node) => {
+                const meta = (
+                  <>
+                    <h3 className="break-words text-sm font-medium text-text-primary">{node.title}</h3>
+                    <p className="mt-1 break-all font-mono text-xs text-text-muted">{node.path}</p>
+                    <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 font-mono text-[11px] text-text-muted">
+                      <span>in {node.inboundCount}</span>
+                      <span>out {node.outboundCount}</span>
+                      {node.confidence !== null ? <span>conf {node.confidence.toFixed(2)}</span> : null}
+                    </div>
+                  </>
+                );
+                return (
+                  <li key={node.path}>
+                    {onOpenMemory ? (
+                      <button
+                        type="button"
+                        className="w-full rounded-md border border-border-subtle bg-background/40 p-3 text-left transition-colors hover:border-primary hover:bg-surface-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                        onClick={() => onOpenMemory(node.path)}
+                      >
+                        {meta}
+                      </button>
+                    ) : (
+                      <div className="rounded-md border border-border-subtle bg-background/40 p-3">{meta}</div>
+                    )}
+                  </li>
+                );
+              })}
             </ul>
           </section>
         ))}

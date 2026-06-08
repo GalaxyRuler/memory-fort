@@ -70,7 +70,6 @@ const NON_GLOBAL_IPV6_RANGES = [
   ipv6Cidr("100::", 64),
   ipv6Cidr("100:0:0:1::", 64),
   ipv6Cidr("2001::", 23),
-  ipv6Cidr("2001::", 32),
   ipv6Cidr("2001:2::", 48),
   ipv6Cidr("2001:db8::", 32),
   ipv6Cidr("2002::", 16),

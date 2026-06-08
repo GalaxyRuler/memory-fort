@@ -201,6 +201,26 @@ describe("Galactic GraphPage", () => {
     expect(screen.queryByText("Zoom in to select individual memories")).not.toBeInTheDocument();
   });
 
+  test("list view exposes keyboard-reachable nodes that open the memory modal", () => {
+    render(<GraphPage />);
+
+    // Graph view by default — the canvas is present, no interactive node buttons.
+    expect(screen.getByTestId("galactic-canvas-shell")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Core Memory/ })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "List view" }));
+
+    // Canvas is gone; nodes are now focusable buttons a keyboard user can reach.
+    expect(screen.queryByTestId("galactic-canvas-shell")).not.toBeInTheDocument();
+    const nodeButton = screen.getByRole("button", { name: /Core Memory/ });
+    fireEvent.click(nodeButton);
+    expect(screen.getByTestId("memory-modal")).toHaveTextContent("wiki/projects/core.md");
+
+    // Toggle is reversible.
+    fireEvent.click(screen.getByRole("button", { name: "Graph view" }));
+    expect(screen.getByTestId("galactic-canvas-shell")).toBeInTheDocument();
+  });
+
   test("keyboard zoom shortcuts drive the canvas handle", () => {
     render(<GraphPage />);
 
