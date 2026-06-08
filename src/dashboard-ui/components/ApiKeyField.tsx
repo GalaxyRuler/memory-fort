@@ -1,5 +1,7 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useSecrets, useUpdateSecret } from "../hooks/useSecrets.js";
+import { Button } from "./Button.js";
+import { Input } from "./Input.js";
 
 export function ApiKeyField({
   provider,
@@ -20,18 +22,18 @@ export function ApiKeyField({
   const present = meta?.present === true;
   const showInput = editing || !present;
 
-  // Reset state after a successful save
-  useEffect(() => {
-    if (update.isSuccess) {
-      setEditing(false);
-      setValue("");
-      setReveal(false);
-    }
-  }, [update.isSuccess]);
-
   function submit() {
     if (value.trim().length === 0) return;
-    update.mutate({ provider, key: value.trim() });
+    update.mutate(
+      { provider, key: value.trim() },
+      {
+        onSuccess: () => {
+          setEditing(false);
+          setValue("");
+          setReveal(false);
+        },
+      },
+    );
   }
 
   return (
@@ -41,32 +43,41 @@ export function ApiKeyField({
       </label>
       {showInput ? (
         <div className="mt-1 flex items-center gap-2">
-          <input
+          <Input
             id={`key-${envVar}`}
             type={reveal ? "text" : "password"}
             value={value}
             onChange={(e) => setValue(e.target.value)}
             placeholder={`Paste ${label}`}
-            className="flex-1 rounded-md border border-border-subtle bg-background px-2 py-1 text-sm text-text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            className="flex-1"
           />
-          <button type="button" className="text-xs text-text-muted hover:text-text-primary" onClick={() => setReveal((r) => !r)}>
-            {reveal ? "Hide" : "Show"}
-          </button>
           <button
             type="button"
+            aria-label={reveal ? "Hide key" : "Show key"}
+            className="text-xs text-text-muted hover:text-text-primary"
+            onClick={() => setReveal((r) => !r)}
+          >
+            {reveal ? "Hide" : "Show"}
+          </button>
+          <Button
+            type="button"
+            variant="secondary"
             disabled={update.isPending || value.trim().length === 0}
-            className="rounded-md border border-border-subtle px-3 py-1 text-xs text-text-secondary hover:bg-surface-2 hover:text-text-primary disabled:opacity-50"
             onClick={submit}
           >
             {update.isPending ? "Validating…" : "Save key"}
-          </button>
+          </Button>
         </div>
       ) : (
         <div className="mt-1 flex items-center gap-2 text-sm">
           <span className="font-mono text-text-primary">{"•".repeat(8)}{meta?.last4}</span>
-          <button type="button" className="rounded-md border border-border-subtle px-2 py-0.5 text-xs text-text-secondary hover:bg-surface-2 hover:text-text-primary" onClick={() => setEditing(true)}>
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => setEditing(true)}
+          >
             Replace
-          </button>
+          </Button>
         </div>
       )}
       {update.error ? (
