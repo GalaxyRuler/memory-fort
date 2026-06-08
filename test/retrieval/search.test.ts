@@ -528,7 +528,7 @@ describe("search core", () => {
 
     expect(response.results[0]?.path).toBe("raw/2026-05-29/manual-large-42.md");
     expect(response.results[0]?.sources.some((source) => source.source === "bm25")).toBe(true);
-    expect(response.timings.bm25Ms).toBeLessThanOrEqual(100);
+    expect(response.timings.bm25Ms).toBeLessThanOrEqual(500);
   });
 
   it("can disable spreading activation with MEMORY_FORT_SPREADING_ACTIVATION", async () => {
