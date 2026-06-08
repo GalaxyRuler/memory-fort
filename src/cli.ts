@@ -18,6 +18,11 @@ import { runInitOnboarding } from "./cli/commands/init-onboarding.js";
 import { formatAutoHealResult, runAutoHealCommand, type AutoHealAction } from "./cli/commands/auto-heal.js";
 import { runBackfill } from "./cli/commands/backfill.js";
 import { runBackfillSource } from "./cli/commands/backfill-source.js";
+import {
+  runChatGptBridgeStart,
+  runChatGptBridgeStop,
+  runChatGptBridgeStatus,
+} from "./cli/commands/chatgpt-bridge.js";
 import { runCompactRaw } from "./cli/commands/compact-raw.js";
 import { formatCompressResult, runCompress } from "./cli/commands/compress.js";
 import { formatCurateResult, runCurate } from "./cli/commands/curate.js";
@@ -260,6 +265,58 @@ supervisor
     const result = await runSupervisorStatus();
     process.stdout.write(opts.json ? formatSupervisorJson(result) : formatSupervisorResult(result));
     process.exit(result.exitCode);
+  });
+
+const chatgptBridge = program
+  .command("chatgpt-bridge")
+  .description("Manage the ChatGPT HTTP/SSE MCP bridge process");
+
+chatgptBridge
+  .command("start")
+  .description("Start the bridge as a background process")
+  .action(async () => {
+    try {
+      const status = await runChatGptBridgeStart();
+      if (status.running) {
+        console.log(`✓ Bridge running at ${status.url} (PID ${status.pid})`);
+      } else {
+        console.log("Bridge started");
+      }
+    } catch (err) {
+      console.error(`chatgpt-bridge start failed: ${(err as Error).message}`);
+      process.exit(1);
+    }
+  });
+
+chatgptBridge
+  .command("stop")
+  .description("Stop the running bridge")
+  .action(async () => {
+    try {
+      await runChatGptBridgeStop();
+      console.log("Bridge stopped.");
+    } catch (err) {
+      console.error(`chatgpt-bridge stop failed: ${(err as Error).message}`);
+      process.exit(1);
+    }
+  });
+
+chatgptBridge
+  .command("status")
+  .description("Check if the bridge is running")
+  .action(async () => {
+    try {
+      const status = await runChatGptBridgeStatus();
+      if (status.running) {
+        console.log(`running  PID ${status.pid}  ${status.url}`);
+      } else {
+        console.log(`stopped  port ${status.port}  (not running)`);
+        process.exit(1);
+      }
+    } catch (err) {
+      console.error(`chatgpt-bridge status failed: ${(err as Error).message}`);
+      process.exit(1);
+    }
   });
 
 program
