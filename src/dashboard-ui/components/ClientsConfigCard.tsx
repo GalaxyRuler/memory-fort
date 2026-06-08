@@ -1,5 +1,6 @@
 import { useConfig } from "../hooks/useConfig.js";
 import { useUpdateConfig } from "../hooks/useUpdateConfig.js";
+import { Card } from "./Card.js";
 
 const TOGGLEABLE_CLIENTS: ReadonlyArray<{ id: string; label: string }> = [
   { id: "claude-code", label: "Claude Code" },
@@ -14,13 +15,15 @@ export function ClientsConfigCard() {
   const clients = (config.data?.clients ?? {}) as Record<string, boolean>;
 
   return (
-    <section className="rounded-lg border border-border-subtle bg-surface p-4">
-      <h2 className="text-base font-semibold text-text-primary">Clients</h2>
-      <p className="mt-1 text-sm text-text-secondary">
-        Turn off clients you don&apos;t use. Disabled clients stop appearing in
-        health checks; capture is unaffected.
-      </p>
-      <ul className="mt-3 space-y-2">
+    <Card hasBrackets className="border-border-emphasis">
+      <div className="mb-4">
+        <h2 className="text-base font-semibold">Clients</h2>
+        <p className="text-xs text-text-muted">
+          Turn off clients you don&apos;t use. Disabled clients stop appearing in
+          health checks; capture is unaffected.
+        </p>
+      </div>
+      <ul className="space-y-2">
         {TOGGLEABLE_CLIENTS.map(({ id, label }) => {
           const enabled = clients[id] !== false;
           return (
@@ -53,6 +56,6 @@ export function ClientsConfigCard() {
           );
         })}
       </ul>
-    </section>
+    </Card>
   );
 }
