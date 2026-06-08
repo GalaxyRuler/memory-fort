@@ -30,6 +30,9 @@ import {
 import { applyConfigPatch, ConfigPatchError } from "./config-patch.js";
 import { readAutoHealStatus, type AutoHealStatus } from "../retrieval/auto-heal.js";
 import { buildProvidersCatalog } from "./providers-catalog.js";
+import { readSecretsMeta as defaultReadSecretsMeta, writeSecret as defaultWriteSecret } from "../storage/secrets.js";
+import { secretsPath as defaultSecretsPath } from "../storage/paths.js";
+import { validateKey as defaultValidateKey, type SecretProvider } from "./secrets-validate.js";
 import { computeGraphHealth, type GraphHealthReport } from "./graph-health.js";
 import {
   listProposedCompile,
@@ -88,6 +91,10 @@ export interface ServerOptions {
   compileRunner?: (opts?: { execute?: boolean }) => Promise<DashboardCompileRunResult>;
   writeCapability?: VaultWriteCapability;
   autoHealStatusReader?: (vaultRoot: string) => Promise<AutoHealStatus>;
+  secretsPathImpl?: () => string;
+  readSecretsMetaImpl?: (p: string) => Promise<Record<string, { present: boolean; last4?: string }>>;
+  writeSecretImpl?: (key: string, value: string, p: string) => Promise<void>;
+  validateKeyImpl?: (provider: SecretProvider, key: string) => Promise<{ ok: boolean; message?: string }>;
 }
 
 export interface RunningServer {
@@ -649,6 +656,15 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
   const llmProvider = opts.llmProvider ?? await makeConfiguredLLMProvider(opts.vaultRoot, config, env);
   const staticAssets = await resolveStaticAssetsRoot(opts.dashboardDistRoot);
   const writeCapability = opts.writeCapability ?? await getVaultWriteCapability(opts.vaultRoot);
+  const secretsPathFn = opts.secretsPathImpl ?? defaultSecretsPath;
+  const readSecretsMetaFn = opts.readSecretsMetaImpl ?? defaultReadSecretsMeta;
+  const writeSecretFn = opts.writeSecretImpl ?? defaultWriteSecret;
+  const validateKeyFn = opts.validateKeyImpl ?? defaultValidateKey;
+  const PROVIDER_ENV: Record<string, string> = {
+    voyage: "VOYAGE_API_KEY",
+    openai: "OPENAI_API_KEY",
+    openrouter: "OPENROUTER_API_KEY",
+  };
   const healthCache = new Map<string, HealthCacheEntry>();
   const graphHealthCache = new Map<string, GraphHealthCacheEntry>();
   const graphFeedCache = new Map<string, GraphFeedCacheEntry>();
@@ -795,6 +811,49 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
         writeJsonError(res, 500, error instanceof Error ? error.message : String(error));
       } finally {
         compileRunActive = false;
+      }
+      return;
+    }
+
+    if (method === "PUT" && path === "/api/secrets") {
+      const policy = await loadDashboardOriginPolicy(opts.vaultRoot);
+      if (!sameOriginAllowed(req.headers.origin, url, req.headers, policy.trustedOrigins, policy.trustForwardedHeaders, req.socket.remoteAddress)) {
+        writeJson(res, { ok: false, error: "cross-origin secret updates are not allowed" }, 403);
+        return;
+      }
+      if (!writeCapability.writable) {
+        writeJson(res, { ok: false, error: writeCapability.reason }, 403);
+        return;
+      }
+      try {
+        const body = (await readJsonBody(req)) as { provider?: string; key?: string };
+        const provider = body.provider as SecretProvider | undefined;
+        const envVar = provider ? PROVIDER_ENV[provider] : undefined;
+        if (!provider || !envVar || typeof body.key !== "string" || body.key.trim().length === 0) {
+          writeJson(res, { ok: false, error: "provider and key are required" }, 400);
+          return;
+        }
+        const verdict = await validateKeyFn(provider, body.key);
+        if (!verdict.ok) {
+          writeJson(res, { ok: false, error: verdict.message ?? "key validation failed" }, 422);
+          return;
+        }
+        await writeSecretFn(envVar, body.key, secretsPathFn());
+        writeJson(res, { ok: true });
+      } catch (err) {
+        if (err instanceof RequestBodyTooLargeError) {
+          writeRequestBodyTooLarge(res);
+          return;
+        }
+        if (err instanceof InvalidContentLengthError) {
+          writeInvalidContentLength(res);
+          return;
+        }
+        if (err instanceof InvalidJsonBodyError) {
+          writeInvalidJsonBody(res);
+          return;
+        }
+        writeJson(res, { ok: false, error: (err as Error).message }, 500);
       }
       return;
     }
@@ -964,6 +1023,11 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
 
       if (segments.length === 2 && segments[0] === "api" && segments[1] === "providers") {
         writeJson(res, buildProvidersCatalog(env));
+        return;
+      }
+
+      if (segments.length === 2 && segments[0] === "api" && segments[1] === "secrets") {
+        writeJson(res, await readSecretsMetaFn(secretsPathFn()));
         return;
       }
 
