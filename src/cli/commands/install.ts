@@ -1,6 +1,7 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { installAntigravity } from "./install/antigravity.js";
+import { runInstallChatGpt, printInstallChatGptResult } from "./install/chatgpt.js";
 import { installClaudeCode, claudeCodeSettingsPath } from "./install/claude-code.js";
 import { runInstallClaudeDesktop } from "./install/claude-desktop.js";
 import { installCodex } from "./install/codex.js";
@@ -22,7 +23,8 @@ export type Platform =
   | "openclaw"
   | "opencoven"
   | "claude-desktop"
-  | "vscode";
+  | "vscode"
+  | "chatgpt";
 
 export interface RunInstallOptions {
   workspace?: string;
@@ -43,7 +45,7 @@ export async function runInstall(
   const planned = planInstallWrites(platform, opts);
   if (!planned) {
     console.error(
-      `Unknown platform: ${platform}. Valid: claude-code, codex, antigravity, hermes, pi, openclaw, opencoven, claude-desktop, vscode`,
+      `Unknown platform: ${platform}. Valid: claude-code, codex, antigravity, hermes, pi, openclaw, opencoven, claude-desktop, vscode, chatgpt`,
     );
     process.exit(2);
   }
@@ -195,6 +197,15 @@ export async function runInstall(
       await printVerify(opts);
       return;
     }
+    case "chatgpt": {
+      const chatgptResult = await runInstallChatGpt({
+        port: (opts as { port?: number }).port,
+        noAutostart: (opts as { noAutostart?: boolean }).noAutostart,
+        dryRun: opts.dryRun,
+      });
+      printInstallChatGptResult(chatgptResult);
+      return;
+    }
     default:
       process.exit(2);
   }
@@ -254,6 +265,8 @@ export function planInstallWrites(
         join(vscodeExtensionDir(opts.vscodeExtensionDir), "memory-fort.memory"),
         logPath(),
       ];
+    case "chatgpt":
+      return [];
     default:
       return null;
   }
