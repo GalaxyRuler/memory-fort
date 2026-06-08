@@ -42,24 +42,24 @@ Default when unset = **enabled** (`true`), so existing installs see no change.
 
 ### Config
 
-State lives in the vault `config.json` — it is not a secret.
+State lives in the vault `config.yaml` — it is not a secret.
 
-```jsonc
-{
-  "clients": {
-    "claude-code": { "enabled": true },
-    "codex":       { "enabled": false },
-    "antigravity": { "enabled": true },
-    "opencoven":   { "enabled": true }
-  }
-}
+Stored as a flat boolean map (fits the existing 2-level config-patch safelist;
+a nested `{enabled}` object would not):
+
+```yaml
+clients:
+  claude-code: true
+  codex: false
+  antigravity: true
+  opencoven: true
 ```
 
 ### Components
 
-- **`storage/config.ts`** — add `clients` section to the schema + validation
-  (each entry's `enabled` must be boolean if present). Helper
-  `isClientEnabled(config, id): boolean` returning `true` when absent.
+- **`storage/config.ts`** — add `clients?: Record<string, boolean>` to the
+  schema + validation (each value must be boolean). Helper
+  `isClientEnabled(config, id): boolean` returning `true` when the key is absent.
 - **`verify/types.ts`** — `CheckStatus` is currently `"pass" | "warn" | "fail"`
   with no neutral state. Add `"skip"` → `"pass" | "warn" | "fail" | "skip"`,
   plus a `skip(id, label, detail)` helper alongside `pass`/`warn`/`fail`. The
@@ -68,8 +68,8 @@ State lives in the vault `config.json` — it is not a secret.
 - **`verify/clients.ts`** — every per-client check consults `isClientEnabled`.
   When `false`, the check short-circuits to `skip(...)` so verify output stays
   silent for that client.
-- **Dashboard UI** — a `ClientToggle` control flips
-  `config.clients[id].enabled` through the existing `PATCH /api/config` route
+- **Dashboard UI** — a `ClientsConfigCard` control flips
+  `config.clients[id]` through the existing `PATCH /api/config` route
   (no new endpoint). The client card reads `enabled` and applies dimmed/dark
   styling + "Off" badge when false.
 
