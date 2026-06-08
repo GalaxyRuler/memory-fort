@@ -100,6 +100,24 @@ export function claudeDesktopConfigPath(): string {
   return join(claudeDesktopConfigDir(), "claude_desktop_config.json");
 }
 
+/**
+ * Absolute path to the provider-secrets file. Deliberately OUTSIDE the
+ * git-backed vault (~/.memory) so API keys can never be committed/pushed.
+ * Priority: $MEMORY_SECRETS_PATH > OS config dir > ~/.config fallback.
+ */
+export function secretsPath(): string {
+  const override = process.env["MEMORY_SECRETS_PATH"];
+  if (override && override.trim().length > 0) return override;
+  const appData = process.env["APPDATA"]; // Windows
+  if (appData) return join(appData, "memory-fort", "secrets.json");
+  if (process.platform === "darwin") {
+    return join(homedir(), "Library", "Application Support", "memory-fort", "secrets.json");
+  }
+  const xdg = process.env["XDG_CONFIG_HOME"];
+  if (xdg && xdg.trim().length > 0) return join(xdg, "memory-fort", "secrets.json");
+  return join(homedir(), ".config", "memory-fort", "secrets.json");
+}
+
 export function formatIsoDate(date: Date): string {
   // YYYY-MM-DD in UTC to avoid TZ drift across machines
   const y = date.getUTCFullYear();
