@@ -49,6 +49,17 @@ export async function runInstall(
     );
     process.exit(2);
   }
+  // chatgpt manages its own dry-run output and has no file writes to guard
+  if (platform === "chatgpt") {
+    const chatgptResult = await runInstallChatGpt({
+      port: (opts as { port?: number }).port,
+      noAutostart: (opts as { noAutostart?: boolean }).noAutostart,
+      dryRun: opts.dryRun,
+    });
+    printInstallChatGptResult(chatgptResult);
+    return;
+  }
+
   const guard = await guardWrites({
     command: `memory install ${platform}`,
     planned,
@@ -195,15 +206,6 @@ export async function runInstall(
         "  3. Claude Desktop is MCP-only — no hooks are installed for passive capture.",
       );
       await printVerify(opts);
-      return;
-    }
-    case "chatgpt": {
-      const chatgptResult = await runInstallChatGpt({
-        port: (opts as { port?: number }).port,
-        noAutostart: (opts as { noAutostart?: boolean }).noAutostart,
-        dryRun: opts.dryRun,
-      });
-      printInstallChatGptResult(chatgptResult);
       return;
     }
     default:

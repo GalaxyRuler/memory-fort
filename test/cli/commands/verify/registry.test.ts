@@ -38,6 +38,8 @@ const EXPECTED_ROLES = new Map<string, VerifyRole[]>([
   ["client.claude-desktop.config", ["operator"]],
   ["sniffer.claude-desktop.watcher", ["operator"]],
   ["sniffer.claude-desktop.capture", ["operator"]],
+  ["chatgpt.bridge.running", ["operator"]],
+  ["chatgpt.bridge.mcp", ["operator"]],
 ]);
 
 describe("verify check registry", () => {
