@@ -74,7 +74,12 @@ import {
   type VerifyScheduleShell,
 } from "./cli/commands/verify-schedule.js";
 import { formatWatchResult, runWatch } from "./cli/commands/watch.js";
-import { memoryRoot } from "./storage/paths.js";
+import { memoryRoot, secretsPath } from "./storage/paths.js";
+import { loadSecretsIntoEnv } from "./storage/secrets.js";
+
+// Layer provider keys from the out-of-vault secrets file UNDER real env vars
+// so dashboard-entered keys are available to every CLI command. Real env wins.
+loadSecretsIntoEnv(secretsPath());
 
 const program = new Command();
 

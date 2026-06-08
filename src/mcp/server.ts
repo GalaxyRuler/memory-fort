@@ -5,7 +5,8 @@ import * as z from "zod/v3";
 import { readFile, readdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join, relative } from "node:path";
-import { memoryRoot, wikiDir, type ToolName } from "../storage/paths.js";
+import { memoryRoot, secretsPath, wikiDir, type ToolName } from "../storage/paths.js";
+import { loadSecretsIntoEnv } from "../storage/secrets.js";
 import { loadMemoryConfig, type MemoryConfig } from "../storage/config.js";
 import {
   ensureRawSessionFile,
@@ -436,6 +437,9 @@ export function createServer(deps: SearchDeps = {}): McpServer {
 }
 
 if (process.argv[1]?.endsWith("mcp-server.mjs")) {
+  // Layer provider keys from the out-of-vault secrets file UNDER real env vars
+  // so dashboard-entered keys are available to search/embeddings. Real env wins.
+  loadSecretsIntoEnv(secretsPath());
   const server = createServer();
   const transport = new StdioServerTransport();
   embeddingProviderPreflight()
