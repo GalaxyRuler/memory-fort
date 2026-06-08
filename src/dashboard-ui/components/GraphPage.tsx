@@ -241,9 +241,17 @@ function GraphMobileFallback({
                     <h3 className="break-words text-sm font-medium text-text-primary">{node.title}</h3>
                     <p className="mt-1 break-all font-mono text-xs text-text-muted">{node.path}</p>
                     <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 font-mono text-[11px] text-text-muted">
-                      <span>in {node.inboundCount}</span>
-                      <span>out {node.outboundCount}</span>
-                      {node.confidence !== null ? <span>conf {node.confidence.toFixed(2)}</span> : null}
+                      <span title="Inbound links" aria-label={`${node.inboundCount} inbound links`}>
+                        in {node.inboundCount}
+                      </span>
+                      <span title="Outbound links" aria-label={`${node.outboundCount} outbound links`}>
+                        out {node.outboundCount}
+                      </span>
+                      {node.confidence !== null ? (
+                        <span title="Confidence score" aria-label={`Confidence ${node.confidence.toFixed(2)}`}>
+                          conf {node.confidence.toFixed(2)}
+                        </span>
+                      ) : null}
                     </div>
                   </>
                 );
