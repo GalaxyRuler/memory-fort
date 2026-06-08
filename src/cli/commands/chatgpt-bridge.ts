@@ -61,9 +61,17 @@ export async function runChatGptBridgeStart(): Promise<ChatGptBridgeStatus> {
     throw new Error("Failed to spawn bridge process — child.pid is undefined");
   }
 
+  // Note: no lock — concurrent starts are not expected for a personal tool
   const pidPath = chatgptBridgePidPath();
   await writeFile(pidPath, String(child.pid), "utf-8");
-  await waitForPort(port, 5000);
+
+  try {
+    await waitForPort(port, 5000);
+  } catch (err) {
+    // Bridge didn't come up — clean up stale PID file
+    await unlink(pidPath).catch(() => undefined);
+    throw err;
+  }
 
   return { running: true, pid: child.pid, port, url: `http://127.0.0.1:${port}/sse` };
 }

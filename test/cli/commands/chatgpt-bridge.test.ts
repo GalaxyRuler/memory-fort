@@ -1,8 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { runChatGptBridgeStatus } from "../../../src/cli/commands/chatgpt-bridge.js";
+import {
+  runChatGptBridgeStatus,
+  runChatGptBridgeStop,
+} from "../../../src/cli/commands/chatgpt-bridge.js";
 
 describe("runChatGptBridgeStatus", () => {
   let tmp: string;
@@ -76,5 +80,37 @@ describe("runChatGptBridgeStatus", () => {
 
     expect(status.port).toBe(4200);
     expect(status.url).toBe("http://127.0.0.1:4200/sse");
+  });
+});
+
+describe("runChatGptBridgeStop", () => {
+  let tmp: string;
+  let memDir: string;
+  let pidFilePath: string;
+  let origEnv: Record<string, string | undefined>;
+
+  beforeEach(async () => {
+    tmp = await mkdtemp(join(tmpdir(), "chatgpt-bridge-stop-"));
+    memDir = join(tmp, ".memory");
+    pidFilePath = join(memDir, ".chatgpt-bridge.pid");
+    origEnv = {
+      MEMORY_ROOT: process.env["MEMORY_ROOT"],
+    };
+    process.env["MEMORY_ROOT"] = memDir;
+    await mkdir(memDir, { recursive: true });
+  });
+
+  afterEach(async () => {
+    for (const [key, value] of Object.entries(origEnv)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    await rm(tmp, { recursive: true, force: true });
+  });
+
+  it("stop removes PID file even when process is not alive", async () => {
+    await writeFile(pidFilePath, "99999999", "utf-8");
+    await runChatGptBridgeStop();
+    expect(existsSync(pidFilePath)).toBe(false);
   });
 });
