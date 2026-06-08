@@ -3,6 +3,7 @@ import { type ConfigValue, useConfig } from "../hooks/useConfig.js";
 import { useStatus } from "../hooks/useStatus.js";
 import { useUpdateConfig } from "../hooks/useUpdateConfig.js";
 import { Card } from "./Card.js";
+import { ClientsConfigCard } from "./ClientsConfigCard.js";
 import { EmbedderConfigCard } from "./EmbedderConfigCard.js";
 import { LLMConfigCard } from "./LLMConfigCard.js";
 import { SettingsSection } from "./SettingsSection.js";
@@ -49,6 +50,7 @@ export function SettingsPage() {
           <EmbedderConfigCard disabledReason={disabledReason} />
           <LLMConfigCard disabledReason={disabledReason} />
         </div>
+        <ClientsConfigCard />
         <AutoPromoteConfigCard autoPromote={config.data.auto_promote} disabledReason={disabledReason} />
         <CompileConfigCard compile={config.data.compile} disabledReason={disabledReason} />
 

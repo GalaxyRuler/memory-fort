@@ -23,6 +23,7 @@ export interface ConfigPatchBody {
     scheduled?: boolean;
     cadence?: "daily" | "weekly" | "manual";
   };
+  clients?: Record<string, boolean>;
 }
 
 export function useUpdateConfig() {
