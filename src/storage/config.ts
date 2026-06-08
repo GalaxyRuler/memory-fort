@@ -88,6 +88,7 @@ export interface MemoryConfig {
     /** Honor X-Forwarded-* headers in the same-origin gate (reverse-proxy deployments). */
     behind_proxy?: boolean;
   };
+  clients?: Record<string, boolean>;
   [key: string]: unknown;
 }
 
@@ -224,6 +225,15 @@ export function validateMemoryConfig(config: MemoryConfig): string[] {
       warnings.push(`retention.${key} must be an integer between 1 and 3650`);
     }
   }
+  const clients = asRecord(config.clients);
+  if (config.clients !== undefined && !clients) {
+    warnings.push("clients must be an object mapping client id to a boolean");
+  }
+  for (const [id, value] of Object.entries(clients ?? {})) {
+    if (typeof value !== "boolean") {
+      warnings.push(`clients.${id} must be a boolean`);
+    }
+  }
   return warnings;
 }
 
@@ -257,4 +267,9 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return typeof value === "object" && value !== null && !Array.isArray(value)
     ? value as Record<string, unknown>
     : null;
+}
+
+/** A client is enabled unless config.clients[id] is explicitly false. */
+export function isClientEnabled(config: MemoryConfig, id: string): boolean {
+  return config.clients?.[id] !== false;
 }

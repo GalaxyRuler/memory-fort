@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import yaml from "js-yaml";
-import { loadMemoryConfig, type MemoryConfig } from "../../src/storage/config.js";
+import { isClientEnabled, loadMemoryConfig, type MemoryConfig, validateMemoryConfig } from "../../src/storage/config.js";
 
 describe("memory config reader", () => {
   let tmp: string;
@@ -232,5 +232,22 @@ describe("memory config reader", () => {
     expect(config.compress?.chunk_threshold_bytes).toBe(48_000);
     expect(config.compress?.max_chunks).toBe(8);
     expect(config.compress?.max_call_tokens).toBe(100_000);
+  });
+});
+
+describe("client toggles", () => {
+  it("defaults to enabled when clients map or key is absent", () => {
+    expect(isClientEnabled({}, "codex")).toBe(true);
+    expect(isClientEnabled({ clients: {} }, "codex")).toBe(true);
+  });
+
+  it("honors an explicit false", () => {
+    expect(isClientEnabled({ clients: { codex: false } }, "codex")).toBe(false);
+    expect(isClientEnabled({ clients: { codex: false } }, "claude-code")).toBe(true);
+  });
+
+  it("warns when a client flag is not a boolean", () => {
+    const warnings = validateMemoryConfig({ clients: { codex: "nope" } } as never);
+    expect(warnings.some((w) => w.includes("clients.codex"))).toBe(true);
   });
 });
