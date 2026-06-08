@@ -481,7 +481,7 @@ function mergeAtSafelistedPaths(
   patch: Record<string, unknown>,
 ): MemoryConfig {
   const next: MemoryConfig = clonePlain(current);
-  for (const sectionKey of ["embedder", "llm", "auto_promote", "auto_heal", "compile", "capture", "dashboard"] as const) {
+  for (const sectionKey of ["embedder", "llm", "auto_promote", "auto_heal", "compile", "capture", "dashboard", "clients"] as const) {
     const sectionPatch = asPlainObject(patch[sectionKey]);
     if (!sectionPatch) continue;
     const target = asPlainObject(next[sectionKey]) ?? {};
@@ -547,7 +547,7 @@ function definePlainDataProperty(
 
 function listAppliedPaths(patch: Record<string, unknown>): string[] {
   const paths: string[] = [];
-  for (const sectionKey of ["embedder", "llm", "auto_promote", "auto_heal", "compile", "capture", "dashboard"] as const) {
+  for (const sectionKey of ["embedder", "llm", "auto_promote", "auto_heal", "compile", "capture", "dashboard", "clients"] as const) {
     const sectionPatch = asPlainObject(patch[sectionKey]);
     if (!sectionPatch) continue;
     for (const fieldKey of Object.keys(sectionPatch)) {

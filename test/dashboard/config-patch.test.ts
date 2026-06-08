@@ -869,3 +869,29 @@ describe("clients patch", () => {
     expect(v.ok).toBe(false);
   });
 });
+
+describe("clients patch integration", () => {
+  let tmp: string;
+
+  beforeEach(async () => {
+    tmp = await mkdtemp(join(tmpdir(), "config-patch-clients-"));
+    await mkdir(join(tmp, "wiki"), { recursive: true });
+    await writeFile(
+      join(tmp, "config.yaml"),
+      "clients:\n  codex: true\n",
+    );
+  });
+
+  afterEach(async () => {
+    await rm(tmp, { recursive: true, force: true });
+  });
+
+  it("applyConfigPatch merges clients.* boolean toggles and reports them in applied", async () => {
+    const result = await applyConfigPatch(tmp, { clients: { codex: false } });
+
+    expect(result.applied).toContain("clients.codex");
+
+    const config = await loadMemoryConfig(tmp);
+    expect((config as Record<string, unknown> & { clients?: Record<string, unknown> }).clients?.["codex"]).toBe(false);
+  });
+});
