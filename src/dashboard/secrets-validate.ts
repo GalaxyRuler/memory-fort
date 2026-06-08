@@ -61,10 +61,3 @@ export async function validateKey(
   }
 }
 
-/** Map a secrets env-var name to its provider. */
-export function providerForKey(key: string): SecretProvider | null {
-  if (key === "VOYAGE_API_KEY") return "voyage";
-  if (key === "OPENAI_API_KEY") return "openai";
-  if (key === "OPENROUTER_API_KEY") return "openrouter";
-  return null;
-}

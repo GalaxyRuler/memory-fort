@@ -833,12 +833,13 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
           writeJson(res, { ok: false, error: "provider and key are required" }, 400);
           return;
         }
-        const verdict = await validateKeyFn(provider, body.key);
+        const trimmedKey = body.key.trim();
+        const verdict = await validateKeyFn(provider, trimmedKey);
         if (!verdict.ok) {
           writeJson(res, { ok: false, error: verdict.message ?? "key validation failed" }, 422);
           return;
         }
-        await writeSecretFn(envVar, body.key, secretsPathFn());
+        await writeSecretFn(envVar, trimmedKey, secretsPathFn());
         writeJson(res, { ok: true });
       } catch (err) {
         if (err instanceof RequestBodyTooLargeError) {
@@ -1027,6 +1028,11 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
       }
 
       if (segments.length === 2 && segments[0] === "api" && segments[1] === "secrets") {
+        const policy = await loadDashboardOriginPolicy(opts.vaultRoot);
+        if (!sameOriginAllowed(req.headers.origin, url, req.headers, policy.trustedOrigins, policy.trustForwardedHeaders, req.socket.remoteAddress)) {
+          writeJson(res, { ok: false, error: "cross-origin access not allowed" }, 403);
+          return;
+        }
         writeJson(res, await readSecretsMetaFn(secretsPathFn()));
         return;
       }
