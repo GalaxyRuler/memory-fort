@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useConfig, type ConfigObject } from "../hooks/useConfig.js";
 import { type ProviderCatalogEntry, useProvidersCatalog } from "../hooks/useProvidersCatalog.js";
 import { useUpdateConfig } from "../hooks/useUpdateConfig.js";
+import { ApiKeyField } from "./ApiKeyField.js";
 import { Button } from "./Button.js";
 import { Card } from "./Card.js";
 import { ConfigStatusPill } from "./ConfigStatusPill.js";
@@ -110,6 +111,13 @@ export function EmbedderConfigCard({ disabledReason = null }: { disabledReason?:
 
           <KeyStatus provider={selectedProvider} loading={providers.isLoading} />
 
+          {draft.provider === "voyage" ? (
+            <ApiKeyField provider="voyage" envVar="VOYAGE_API_KEY" label="Voyage API key" />
+          ) : null}
+          {draft.provider === "openai" ? (
+            <ApiKeyField provider="openai" envVar="OPENAI_API_KEY" label="OpenAI API key" />
+          ) : null}
+
           {draft.provider !== active.provider && (
             <p className="rounded-md border border-status-amber/30 bg-status-amber/10 p-2 text-xs text-status-amber" role="alert">
               Switching from <strong>{active.provider}</strong> to <strong>{draft.provider}</strong> requires re-indexing existing vectors after saving. Run{" "}
@@ -162,6 +170,12 @@ export function EmbedderConfigCard({ disabledReason = null }: { disabledReason?:
             providers={activeProviderEntry?.models ?? []}
           />
           <KeyStatus provider={activeProviderEntry} loading={providers.isLoading} />
+          {active.provider === "voyage" ? (
+            <ApiKeyField provider="voyage" envVar="VOYAGE_API_KEY" label="Voyage API key" />
+          ) : null}
+          {active.provider === "openai" ? (
+            <ApiKeyField provider="openai" envVar="OPENAI_API_KEY" label="OpenAI API key" />
+          ) : null}
           {message && <p className="rounded-md border border-status-green/30 bg-status-green/10 p-2 text-xs text-status-green">{message}</p>}
         </div>
       )}

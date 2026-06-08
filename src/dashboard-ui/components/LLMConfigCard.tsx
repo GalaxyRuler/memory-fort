@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useConfig, type ConfigObject } from "../hooks/useConfig.js";
 import { type ProviderCatalogEntry, useProvidersCatalog } from "../hooks/useProvidersCatalog.js";
 import { useUpdateConfig } from "../hooks/useUpdateConfig.js";
+import { ApiKeyField } from "./ApiKeyField.js";
 import { Button } from "./Button.js";
 import { Card } from "./Card.js";
 import { ConfigStatusPill } from "./ConfigStatusPill.js";
@@ -140,6 +141,10 @@ export function LLMConfigCard({ disabledReason = null }: { disabledReason?: stri
 
           <KeyStatus provider={selectedProvider} loading={providers.isLoading} />
 
+          {draft.provider === "openrouter" ? (
+            <ApiKeyField provider="openrouter" envVar="OPENROUTER_API_KEY" label="OpenRouter API key" />
+          ) : null}
+
           <div className="flex flex-wrap justify-end gap-2 pt-2">
             <Button type="button" variant="ghost" onClick={() => setEditing(false)}>
               <X size={15} strokeWidth={1.5} />
@@ -196,6 +201,9 @@ export function LLMConfigCard({ disabledReason = null }: { disabledReason?: stri
             </label>
           </div>
           <KeyStatus provider={activeProviderEntry} loading={providers.isLoading} />
+          {active.provider === "openrouter" ? (
+            <ApiKeyField provider="openrouter" envVar="OPENROUTER_API_KEY" label="OpenRouter API key" />
+          ) : null}
           {message && <p className="rounded-md border border-status-green/30 bg-status-green/10 p-2 text-xs text-status-green">{message}</p>}
         </div>
       )}
