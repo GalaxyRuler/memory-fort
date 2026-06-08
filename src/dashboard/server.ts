@@ -43,6 +43,9 @@ import {
   promoteProposedDraft,
   rejectProposedDraft,
 } from "./proposed.js";
+import { autoCommitRawsIfDirty } from "../sync/auto-commit-raws.js";
+import { makeRealCommandRunner } from "../sync/git-remote.js";
+import { runSync } from "../cli/commands/sync.js";
 import {
   createRawCaptureEventCache,
   loadActivityEvents,
@@ -95,6 +98,12 @@ export interface ServerOptions {
   readSecretsMetaImpl?: (p: string) => Promise<Record<string, { present: boolean; last4?: string }>>;
   writeSecretImpl?: (key: string, value: string, p: string) => Promise<void>;
   validateKeyImpl?: (provider: SecretProvider, key: string) => Promise<{ ok: boolean; message?: string }>;
+  syncRunner?: () => Promise<SyncRunnerResult>;
+}
+
+export interface SyncRunnerResult {
+  autoCommit: import("../sync/auto-commit-raws.js").AutoCommitResult;
+  sync: import("../cli/commands/sync.js").SyncResult;
 }
 
 export interface RunningServer {
@@ -685,6 +694,7 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
     autoHealScheduler.close();
   };
   let compileRunActive = false;
+  let syncRunActive = false;
   process.once("SIGTERM", closeSchedulers);
 
   const server = createHttpServer(async (req, res) => {
@@ -811,6 +821,50 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
         writeJsonError(res, 500, error instanceof Error ? error.message : String(error));
       } finally {
         compileRunActive = false;
+      }
+      return;
+    }
+
+    if (method === "POST" && path === "/api/sync") {
+      const policy = await loadDashboardOriginPolicy(opts.vaultRoot);
+      if (!sameOriginAllowed(req.headers.origin, url, req.headers, policy.trustedOrigins, policy.trustForwardedHeaders, req.socket.remoteAddress)) {
+        writeJsonError(res, 403, "cross-origin sync requests are not allowed");
+        return;
+      }
+      if (!writeCapability.writable) {
+        writeJsonError(res, 403, writeCapability.reason ?? "vault is read-only");
+        return;
+      }
+      if (syncRunActive) {
+        writeJsonError(res, 409, "sync already running");
+        return;
+      }
+      syncRunActive = true;
+      try {
+        const runner = opts.syncRunner ?? (async () => {
+          const cmdRunner = makeRealCommandRunner();
+          const autoCommit = await autoCommitRawsIfDirty({ memoryRoot: opts.vaultRoot, runner: cmdRunner });
+          const sync = await runSync({ memoryRoot: opts.vaultRoot, runner: cmdRunner });
+          return { autoCommit, sync };
+        });
+        const { autoCommit, sync } = await runner();
+        writeJson(res, {
+          ok: true,
+          autoCommit: {
+            kind: autoCommit.kind,
+            ...("filesCount" in autoCommit ? { filesCount: autoCommit.filesCount } : {}),
+            ...("commitSha" in autoCommit ? { commitSha: autoCommit.commitSha } : {}),
+          },
+          sync: {
+            initialState: sync.initialState,
+            finalState: sync.finalState,
+            actionsPerformed: sync.actionsPerformed,
+          },
+        });
+      } catch (error) {
+        writeJsonError(res, 500, error instanceof Error ? error.message : String(error));
+      } finally {
+        syncRunActive = false;
       }
       return;
     }

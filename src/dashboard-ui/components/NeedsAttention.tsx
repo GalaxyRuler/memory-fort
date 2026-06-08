@@ -1,7 +1,8 @@
 import { useNavigate } from "@tanstack/react-router";
-import { AlertCircle, AlertTriangle } from "lucide-react";
+import { AlertCircle, AlertTriangle, RefreshCw } from "lucide-react";
 import type { ComponentType } from "react";
 import type { DashboardStatus } from "../hooks/useStatus.js";
+import { useSyncNow } from "../hooks/useSyncNow.js";
 import { Button } from "./Button.js";
 import { Card } from "./Card.js";
 
@@ -15,6 +16,7 @@ interface AttentionItem {
 
 export function NeedsAttention({ status }: { status: DashboardStatus | undefined }) {
   const navigate = useNavigate();
+  const syncNow = useSyncNow();
 
   if (!status) {
     return (
@@ -84,6 +86,33 @@ export function NeedsAttention({ status }: { status: DashboardStatus | undefined
           );
         })}
       </ul>
+      <div className="mt-3 border-t border-border-subtle pt-3">
+        <Button
+          variant="ghost"
+          className="w-full text-xs"
+          onClick={() => syncNow.mutate()}
+          disabled={syncNow.isPending}
+        >
+          <RefreshCw size={12} className={syncNow.isPending ? "animate-spin" : ""} />
+          {syncNow.isPending ? "Syncing..." : "Sync Now"}
+        </Button>
+        {syncNow.isSuccess && syncNow.data.ok && (
+          <p className="mt-1 text-xs text-status-green">
+            {syncNow.data.autoCommit?.kind === "committed"
+              ? `Committed ${syncNow.data.autoCommit.filesCount} files. `
+              : ""}
+            {syncNow.data.sync?.actionsPerformed.length
+              ? syncNow.data.sync.actionsPerformed.join(", ")
+              : "Already in sync."}
+          </p>
+        )}
+        {syncNow.isSuccess && !syncNow.data.ok && (
+          <p className="mt-1 text-xs text-status-red">{syncNow.data.error}</p>
+        )}
+        {syncNow.isError && (
+          <p className="mt-1 text-xs text-status-red">Sync failed</p>
+        )}
+      </div>
     </Card>
   );
 }
