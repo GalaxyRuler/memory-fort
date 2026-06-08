@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useId, useMemo } from "react";
 import { type TimelineResponse } from "../hooks/useTimeline.js";
 import { timestampToX } from "../lib/time-helpers.js";
 
@@ -19,6 +19,7 @@ const LANE_COLORS: Record<string, string> = {
 };
 
 export function TimelineChart({ data, width = 800 }: { data: TimelineResponse; width?: number }) {
+  const descId = useId();
   const chartWidth = width - LABEL_WIDTH - CHART_PADDING_X * 2;
   const chartHeight = data.lanes.length * (LANE_HEIGHT + LANE_GAP);
 
@@ -36,13 +37,19 @@ export function TimelineChart({ data, width = 800 }: { data: TimelineResponse; w
 
   const totalHeight = VELOCITY_HEIGHT + 16 + chartHeight + 24;
 
+  const laneNames = data.lanes.map((l) => l.lane).join(", ");
+
   return (
     <svg
       viewBox={`0 0 ${width} ${totalHeight}`}
       className="w-full h-auto"
       role="img"
       aria-label="Event velocity chart showing activity over time"
+      aria-describedby={descId}
     >
+      <desc id={descId}>
+        {`Timeline chart with ${data.lanes.length} lanes: ${laneNames}. Each lane shows events as labelled dots on a time axis from ${data.from} to ${data.to}.`}
+      </desc>
       <g>
         <text
           x={LABEL_WIDTH + CHART_PADDING_X}

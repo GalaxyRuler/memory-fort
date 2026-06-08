@@ -51,7 +51,7 @@ export default {
           tools: "#fbbf24",
           crystals: "#22d3ee",
           people: "#f472b6",
-          "raw-session": "#5c6478",
+          "raw-session": "#64748b",
         },
         cognitive: {
           core: "#f0f6fc",

@@ -59,7 +59,7 @@ export function SettingsSection({ title, data }: SettingsSectionProps) {
         {Object.entries(data).map(([key, value]) => {
           const retentionLabel = title === "retention" ? getRetentionLabel(key, value) : null;
           if (retentionLabel) return <RetentionField key={key} rawKey={key} label={retentionLabel} />;
-          return <SettingsField key={key} label={key} value={value} />;
+          return <SettingsField key={key} label={key.replace(/_/g, " ")} value={value} />;
         })}
       </dl>
     </Card>

@@ -110,6 +110,13 @@ export function EmbedderConfigCard({ disabledReason = null }: { disabledReason?:
 
           <KeyStatus provider={selectedProvider} loading={providers.isLoading} />
 
+          {draft.provider !== active.provider && (
+            <p className="rounded-md border border-status-amber/30 bg-status-amber/10 p-2 text-xs text-status-amber" role="alert">
+              Switching from <strong>{active.provider}</strong> to <strong>{draft.provider}</strong> requires re-indexing existing vectors after saving. Run{" "}
+              <code className="font-mono">memory provider reindex-embeddings --apply</code>.
+            </p>
+          )}
+
           <div className="flex flex-wrap justify-end gap-2 pt-2">
             <Button type="button" variant="ghost" onClick={() => setEditing(false)}>
               <X size={15} strokeWidth={1.5} />

@@ -89,7 +89,7 @@ describe("GraphPage mobile fallback", () => {
   test("renders grouped node lists instead of the 3D canvas on small viewports", () => {
     render(<GraphPage />);
 
-    expect(screen.getByText("Open on desktop for the 3D view")).toBeInTheDocument();
+    expect(screen.getByText("Memory connections")).toBeInTheDocument();
     expect(screen.getByText("projects")).toBeInTheDocument();
     expect(screen.getByText("Memory System")).toBeInTheDocument();
     expect(screen.getByText("decisions")).toBeInTheDocument();

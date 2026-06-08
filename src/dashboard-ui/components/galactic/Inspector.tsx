@@ -111,16 +111,6 @@ export function Inspector({ edges, node, nodes, onClose, onOpenMemory, onSelectN
       <RelationList direction="out" nodes={outbound} onSelectNode={onSelectNode} title="References →" />
       <RelationList direction="in" nodes={inbound} onSelectNode={onSelectNode} title="← Referenced by" />
 
-      <div className="rounded border border-border-subtle bg-background/40 px-3 py-2 font-mono text-[10px] leading-relaxed text-text-muted">
-        <span className="text-text-secondary">mass</span> {mass.toFixed(2)}
-        <span className="mx-1.5">·</span>
-        <span className="text-text-secondary">pull→core</span> {Math.round(mass * 0.5 * 100)}%
-        <span className="mx-1.5">·</span>
-        <span className="text-text-secondary">galaxy</span> {COGNITIVE_META[node.cognitiveType].label}
-        <span className="mx-1.5">·</span>
-        <span className="text-text-secondary">system</span> {DOMAIN_META[domain].label}
-      </div>
-
       <button
         type="button"
         className="w-full rounded border border-amber-500/40 bg-amber-500/10 px-3 py-2 font-mono text-[11px] font-semibold uppercase tracking-[0.1em] text-amber-400 transition-colors hover:border-amber-500/60 hover:bg-amber-500/20"
@@ -128,6 +118,21 @@ export function Inspector({ edges, node, nodes, onClose, onOpenMemory, onSelectN
       >
         ▸ Open Memory
       </button>
+
+      <details className="group">
+        <summary className="cursor-pointer select-none font-mono text-[9px] uppercase tracking-[0.2em] text-text-muted hover:text-text-secondary">
+          Physics sim
+        </summary>
+        <div className="mt-1 rounded border border-border-subtle bg-background/40 px-3 py-2 font-mono text-[10px] leading-relaxed text-text-muted">
+          <span className="text-text-secondary">mass</span> {mass.toFixed(2)}
+          <span className="mx-1.5">·</span>
+          <span className="text-text-secondary">pull→core</span> {Math.round(mass * 0.5 * 100)}%
+          <span className="mx-1.5">·</span>
+          <span className="text-text-secondary">galaxy</span> {COGNITIVE_META[node.cognitiveType].label}
+          <span className="mx-1.5">·</span>
+          <span className="text-text-secondary">system</span> {DOMAIN_META[domain].label}
+        </div>
+      </details>
     </div>
   );
 }

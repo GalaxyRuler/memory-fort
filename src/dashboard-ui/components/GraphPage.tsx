@@ -83,7 +83,18 @@ export function GraphPage() {
   }, [handleZoomLevelChange, openMemoryPath]);
 
   if (graph.isLoading) return <div className="p-6 text-sm text-text-muted">Loading graph...</div>;
-  if (graph.error || !graph.data) return <div className="p-6 text-sm text-status-red">Failed to load graph.</div>;
+  if (graph.error || !graph.data) return (
+    <div className="flex flex-col items-center gap-3 p-6 text-sm">
+      <p className="text-status-red">Failed to load graph.</p>
+      <button
+        type="button"
+        className="rounded-md border border-border-subtle px-3 py-1.5 text-xs text-text-secondary transition-colors hover:bg-surface-2 hover:text-text-primary"
+        onClick={() => { void graph.refetch(); }}
+      >
+        Retry
+      </button>
+    </div>
+  );
 
   const hasTouchOnlyInput =
     typeof navigator !== "undefined" && navigator.maxTouchPoints > 0 && !hasFinePointer;
@@ -126,6 +137,7 @@ export function GraphPage() {
       />
       <GraphMobileFallback
         className="sr-only"
+        ariaOnly
         nodes={graph.data.nodes}
         edgeCount={graph.data.edges.length}
       />
@@ -171,11 +183,13 @@ function GraphMobileFallback({
   edgeCount,
   nodes,
   onOpenMemory,
+  ariaOnly = false,
 }: {
   className?: string;
   edgeCount: number;
   nodes: GraphNode[];
   onOpenMemory?: (path: string) => void;
+  ariaOnly?: boolean;
 }) {
   const grouped = useMemo(() => {
     const groups = new Map<string, GraphNode[]>();
@@ -201,11 +215,16 @@ function GraphMobileFallback({
     <section aria-label="Memory knowledge graph text alternative" className={className}>
       <div className="mx-auto max-w-2xl space-y-4">
         <div className="glass-blur rounded-lg p-4">
-          <p className="text-xs font-semibold uppercase tracking-wider text-primary">Graph fallback</p>
-          <h1 className="mt-2 text-xl font-semibold text-text-primary">Open on desktop for the 3D view</h1>
+          <p className="text-xs font-semibold uppercase tracking-wider text-primary">
+            {ariaOnly ? "Graph fallback" : "Memory graph"}
+          </p>
+          <h1 className="mt-2 text-xl font-semibold text-text-primary">
+            {ariaOnly ? "Open on desktop for the 3D view" : "Memory connections"}
+          </h1>
           <p className="mt-2 text-sm text-text-secondary">
-            Mobile and touch-only devices show a grouped node index instead of the WebGL graph. {nodes.length} nodes
-            and {edgeCount} edges are available.
+            {ariaOnly
+              ? `Mobile and touch-only devices show a grouped node index instead of the WebGL graph. ${nodes.length} nodes and ${edgeCount} edges are available.`
+              : `${nodes.length} memories across ${edgeCount} connections. Select any memory to open it.`}
           </p>
         </div>
 

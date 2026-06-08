@@ -14,6 +14,12 @@ import { ENTITY_COLORS } from "../lib/graph-colors.js";
 import { Activity, ShieldAlert, Cpu, Compass, Search } from "lucide-react";
 import { cn } from "../lib/cn.js";
 
+const SOURCE_BADGE_CLASS: Record<string, string> = {
+  git: "bg-entity-references",
+  sync: "bg-entity-projects",
+  compile: "bg-entity-lessons",
+};
+
 export const Route = createFileRoute("/")({
   component: OverviewScreen,
 });
@@ -191,7 +197,11 @@ function OverviewScreen() {
                 }
               />
             ) : null}
-            <div className="flex-1 overflow-y-auto max-h-[340px] pr-2 space-y-3 scrollbar-thin scrollbar-thumb-surface-4">
+            <div
+              tabIndex={0}
+              aria-label="Recent activity feed"
+              className="flex-1 overflow-y-auto max-h-[340px] pr-2 space-y-3 scrollbar-thin scrollbar-thumb-surface-4"
+            >
               {activity.data?.events.slice(0, 10).map((event, index) => (
                 <div
                   key={`${event.timestamp}-${index}`}
@@ -199,17 +209,7 @@ function OverviewScreen() {
                 >
                   <div className="flex items-center gap-3 min-w-0">
                     <span
-                      className="px-2 py-0.5 rounded text-[10px] uppercase font-mono font-bold text-background bg-text-muted"
-                      style={{
-                        backgroundColor:
-                          event.source === "git"
-                            ? "#60a5fa"
-                            : event.source === "sync"
-                              ? "#4ade80"
-                              : event.source === "compile"
-                                ? "#a78bfa"
-                                : "#fbbf24",
-                      }}
+                      className={`px-2 py-0.5 rounded text-[10px] uppercase font-mono font-bold text-background ${SOURCE_BADGE_CLASS[event.source] ?? "bg-amber-400"}`}
                     >
                       {event.source}
                     </span>
