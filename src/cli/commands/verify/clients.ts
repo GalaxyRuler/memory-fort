@@ -17,7 +17,8 @@ import {
 } from "../install/claude-code.js";
 import { readOpenCovenReadiness } from "../install/opencoven.js";
 import { vscodeExtensionDir, vscodeMcpConfigPath } from "../install/vscode.js";
-import { fail, pass, warn, type CheckDescriptor, type VerifyCheckContext, type VerifyCheckResult } from "./types.js";
+import { fail, pass, skip, warn, type CheckDescriptor, type VerifyCheckContext, type VerifyCheckResult } from "./types.js";
+import { isClientEnabled, loadMemoryConfig } from "../../../storage/config.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const execFileAsync = promisify(execFile);
@@ -25,87 +26,139 @@ const execFileAsync = promisify(execFile);
 /** Enabled, historically active clients are treated as an outage after this many silent days. */
 export const CAPTURE_STALE_FAIL_DAYS = 3;
 
+/** Returns a skip result when the client is toggled off in config.yaml; else null. */
+async function skipIfClientDisabled(
+  ctx: { vaultRoot: string },
+  clientId: string,
+  checkId: string,
+  label: string,
+): Promise<VerifyCheckResult | null> {
+  const config = await loadMemoryConfig(ctx.vaultRoot);
+  if (isClientEnabled(config, clientId)) return null;
+  return skip(checkId, label, `${clientId} is turned off in config.yaml`);
+}
+
 export const claudeCodeEnabledCheck: CheckDescriptor = {
   id: "client.claude-code.enabled",
   label: "Claude Code plugin enabled",
   roles: ["operator"],
-  run: () => checkClaudeCodeEnabled(),
+  run: async (ctx) => {
+    const off = await skipIfClientDisabled(ctx, "claude-code", "client.claude-code.enabled", "Claude Code plugin enabled");
+    if (off) return off;
+    return checkClaudeCodeEnabled();
+  },
 };
 
 export const claudeCodeHookPathsCheck: CheckDescriptor = {
   id: "client.claude-code.hooks",
   label: "Claude Code hook command paths resolve",
   roles: ["operator"],
-  run: () => checkClaudeCodeHookPaths(),
+  run: async (ctx) => {
+    const off = await skipIfClientDisabled(ctx, "claude-code", "client.claude-code.hooks", "Claude Code hook command paths resolve");
+    if (off) return off;
+    return checkClaudeCodeHookPaths();
+  },
 };
 
 export const claudeCodeCaptureCheck: CheckDescriptor = {
   id: "client.claude-code.capture",
   label: "Claude Code capture is fresh",
   roles: ["operator"],
-  run: (ctx) => checkRecentCapture(ctx, ["claude-code-", "claude-"], "client.claude-code.capture", "claude-code", {
-    staleFailWhen: () => isClaudeCodePluginEnabled(),
-    staleFailureSuggestedFix: "restart Claude Code and run one tool; then rerun `memory verify`",
-  }),
+  run: async (ctx) => {
+    const off = await skipIfClientDisabled(ctx, "claude-code", "client.claude-code.capture", "Claude Code capture is fresh");
+    if (off) return off;
+    return checkRecentCapture(ctx, ["claude-code-", "claude-"], "client.claude-code.capture", "claude-code", {
+      staleFailWhen: () => isClaudeCodePluginEnabled(),
+      staleFailureSuggestedFix: "restart Claude Code and run one tool; then rerun `memory verify`",
+    });
+  },
 };
 
 export const snifferClaudeCodeBackfillCheck: CheckDescriptor = {
   id: "sniffer.claude-code.backfill",
   label: "Claude Code backfill store available",
   roles: ["operator"],
-  run: () => checkClaudeCodeBackfillStore(),
+  run: async (ctx) => {
+    const off = await skipIfClientDisabled(ctx, "claude-code", "sniffer.claude-code.backfill", "Claude Code backfill store available");
+    if (off) return off;
+    return checkClaudeCodeBackfillStore();
+  },
 };
 
 export const codexConfigCheck: CheckDescriptor = {
   id: "client.codex.config",
   label: "Codex MCP block present",
   roles: ["operator"],
-  run: () => checkCodexConfig(),
+  run: async (ctx) => {
+    const off = await skipIfClientDisabled(ctx, "codex", "client.codex.config", "Codex MCP block present");
+    if (off) return off;
+    return checkCodexConfig();
+  },
 };
 
 export const codexCaptureCheck: CheckDescriptor = {
   id: "client.codex.capture",
   label: "Codex capture is fresh",
   roles: ["operator"],
-  run: (ctx) => checkRecentCapture(ctx, ["codex-"], "client.codex.capture", "codex", {
-    staleFailWhen: () => isCodexConfigured(),
-    staleFailureSuggestedFix: "restart Codex and run one tool; then rerun `memory verify`",
-  }),
+  run: async (ctx) => {
+    const off = await skipIfClientDisabled(ctx, "codex", "client.codex.capture", "Codex capture is fresh");
+    if (off) return off;
+    return checkRecentCapture(ctx, ["codex-"], "client.codex.capture", "codex", {
+      staleFailWhen: () => isCodexConfigured(),
+      staleFailureSuggestedFix: "restart Codex and run one tool; then rerun `memory verify`",
+    });
+  },
 };
 
 export const antigravityConfigCheck: CheckDescriptor = {
   id: "client.antigravity.config",
   label: "Antigravity MCP entry present",
   roles: ["operator"],
-  run: () => checkJsonServer(
-    antigravityConfigPath(),
-    "mcpServers",
-    "client.antigravity.config",
-    "antigravity MCP entry present (informational)",
-    "run `memory connect antigravity`",
-    true,
-  ),
+  run: async (ctx) => {
+    const off = await skipIfClientDisabled(ctx, "antigravity", "client.antigravity.config", "Antigravity MCP entry present");
+    if (off) return off;
+    return checkJsonServer(
+      antigravityConfigPath(),
+      "mcpServers",
+      "client.antigravity.config",
+      "antigravity MCP entry present (informational)",
+      "run `memory connect antigravity`",
+      true,
+    );
+  },
 };
 
 export const snifferAntigravityPluginCheck: CheckDescriptor = {
   id: "sniffer.antigravity.plugin",
   label: "Antigravity live-capture plugin installed",
   roles: ["operator"],
-  run: () => checkAntigravityPlugin(),
+  run: async (ctx) => {
+    const off = await skipIfClientDisabled(ctx, "antigravity", "sniffer.antigravity.plugin", "Antigravity live-capture plugin installed");
+    if (off) return off;
+    return checkAntigravityPlugin();
+  },
 };
 
 export const antigravityCaptureCheck: CheckDescriptor = {
   id: "client.antigravity.capture",
   label: "Antigravity captures present",
   roles: ["operator"],
-  run: (ctx) => checkAnyCapture(ctx, ["antigravity-"], "client.antigravity.capture"),
+  run: async (ctx) => {
+    const off = await skipIfClientDisabled(ctx, "antigravity", "client.antigravity.capture", "Antigravity captures present");
+    if (off) return off;
+    return checkAnyCapture(ctx, ["antigravity-"], "client.antigravity.capture");
+  },
 };
 
 export const openCovenReadinessCheck: CheckDescriptor = {
   id: "client.opencoven.readiness",
   label: "OpenCoven readiness",
   roles: ["operator"],
-  run: () => checkOpenCovenReadiness(),
+  run: async (ctx) => {
+    const off = await skipIfClientDisabled(ctx, "opencoven", "client.opencoven.readiness", "OpenCoven readiness");
+    if (off) return off;
+    return checkOpenCovenReadiness();
+  },
 };
 
 export const vscodeConfigCheck: CheckDescriptor = {
