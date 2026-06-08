@@ -1,7 +1,10 @@
+import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { readFile, readdir, rm, rmdir, unlink } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { promisify } from "node:util";
+import yaml from "js-yaml";
 import { atomicWrite } from "../../storage/atomic-write.js";
 import {
   claudeDesktopConfigPath,
@@ -18,6 +21,11 @@ import {
 } from "./install/claude-code.js";
 import { stripPriorBlock } from "./install/codex.js";
 import { vscodeExtensionDir, vscodeMcpConfigPath } from "./install/vscode.js";
+import { runChatGptBridgeStop } from "./chatgpt-bridge.js";
+
+const execFileAsync = promisify(execFile);
+const AUTOSTART_KEY = "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run";
+const AUTOSTART_NAME = "MemoryFortChatGptBridge";
 
 export type UninstallPlatform =
   | "claude-code"
@@ -28,7 +36,8 @@ export type UninstallPlatform =
   | "openclaw"
   | "opencoven"
   | "claude-desktop"
-  | "vscode";
+  | "vscode"
+  | "chatgpt";
 
 export interface RunUninstallOptions {
   dryRun?: boolean;
@@ -83,12 +92,14 @@ export async function runUninstall(
       return uninstallClaudeDesktop(opts);
     case "vscode":
       return uninstallVsCode(opts);
+    case "chatgpt":
+      return uninstallChatGpt(opts);
     default:
       return {
         platform,
         dryRun: opts.dryRun === true,
         actions: [
-          `Unknown platform: ${platform}. Valid: claude-code, codex, antigravity, hermes, pi, openclaw, opencoven, claude-desktop, vscode`,
+          `Unknown platform: ${platform}. Valid: claude-code, codex, antigravity, hermes, pi, openclaw, opencoven, claude-desktop, vscode, chatgpt`,
         ],
         removed: false,
         exitCode: 2,
@@ -241,6 +252,71 @@ async function uninstallVsCode(opts: RunUninstallOptions): Promise<UninstallResu
     ...configResult,
     removed: configResult.removed || extensionRemoved,
   };
+}
+
+async function uninstallChatGpt(opts: RunUninstallOptions): Promise<UninstallResult> {
+  const actions: string[] = [];
+  let removed = false;
+
+  if (opts.dryRun) {
+    actions.push("would stop ChatGPT bridge process (if running)");
+    if (process.platform === "win32") {
+      actions.push(`would remove autostart registry entry ${AUTOSTART_KEY}\\${AUTOSTART_NAME}`);
+    }
+    actions.push("would remove chatgpt section from config.yaml");
+    return result("chatgpt", opts, actions, false);
+  }
+
+  // Stop the bridge process
+  await runChatGptBridgeStop();
+  actions.push("stopped ChatGPT bridge process");
+  removed = true;
+
+  // Remove Windows autostart registry entry
+  if (process.platform === "win32") {
+    try {
+      await execFileAsync("reg.exe", [
+        "delete", AUTOSTART_KEY, "/v", AUTOSTART_NAME, "/f",
+      ]);
+      actions.push(`removed autostart registry entry ${AUTOSTART_NAME}`);
+    } catch {
+      // Entry may not exist — not an error
+    }
+  }
+
+  // Remove chatgpt section from config.yaml
+  const root = memoryRoot();
+  const configPath = join(root, "config.yaml");
+  if (existsSync(configPath)) {
+    try {
+      const raw = await readFile(configPath, "utf-8");
+      const parsed = yaml.load(raw, { schema: yaml.JSON_SCHEMA });
+      if (
+        typeof parsed === "object" &&
+        parsed !== null &&
+        !Array.isArray(parsed) &&
+        "chatgpt" in parsed
+      ) {
+        const updated = { ...(parsed as Record<string, unknown>) };
+        delete updated["chatgpt"];
+        await atomicWrite(
+          configPath,
+          yaml.dump(updated, { schema: yaml.JSON_SCHEMA, lineWidth: 100, noRefs: true, sortKeys: false }),
+        );
+        actions.push("removed chatgpt section from config.yaml");
+      }
+    } catch {
+      // Best-effort; don't fail uninstall
+    }
+  }
+
+  if (!removed && actions.length === 1 && actions[0] === "stopped ChatGPT bridge process") {
+    // Bridge was not actually running; runChatGptBridgeStop() is a no-op when not running
+    actions[0] = "ChatGPT bridge was not running";
+    removed = false;
+  }
+
+  return result("chatgpt", opts, actions, removed);
 }
 
 async function uninstallClaudeCode(opts: RunUninstallOptions): Promise<UninstallResult> {
