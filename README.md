@@ -2,8 +2,8 @@
 
 **Cross-tool persistent memory for AI agents — local, private, and free.**
 
-Memory Fort gives every AI coding session a shared long-term memory: observations flow in automatically from Claude Code, Codex, Antigravity, Hermes, and Pi.
-MCP integrations, including OpenClaw in v1, can log and recall memory on demand; a curated wiki of markdown pages grows over time; and retrieval (BM25 + semantic + graph) surfaces the right context at session start. No database. No external service. No API key to get started.
+Memory Fort gives every AI coding session a shared long-term memory: observations flow in automatically from Claude Code, Codex, Antigravity, Hermes, Pi, ChatGPT, and OpenCode.
+MCP integrations, including OpenClaw in v1, can log and recall memory on demand; search results include detailed provenance receipts explaining ranking decisions; a curated wiki of markdown pages grows over time; and retrieval (BM25 + semantic + graph) surfaces the right context at session start. No database. No external service. No API key to get started.
 
 Your memory is a folder of plain text files — a git repo, an Obsidian vault, and a typed knowledge graph all at once.
 
@@ -17,7 +17,7 @@ Memory Fort does not require a cloud account, a running database, or a paid API 
 - **No vendor lock-in.** Open schema, plain text format, vault is just a git repo.
 - **No account required to start.** Lexical search (BM25 + graph) works on day one with zero API keys.
 - **Obsidian-native.** Open `~/.memory/` in Obsidian and get a knowledge graph, backlinks, and full-text search for free.
-- **Cross-tool hooks.** Claude Code, Codex, Antigravity, Hermes, and Pi write to the same vault automatically.
+- **Cross-tool hooks.** Claude Code, Codex, Antigravity, Hermes, Pi, ChatGPT, and OpenCode write to the same vault automatically.
 - **MCP-only clients.** OpenClaw uses the same vault through MCP without passive capture in v1.
 
 ---
@@ -65,9 +65,11 @@ flowchart TD
         AG["Antigravity"]
         HE["Hermes"]
         PI["Pi"]
-        OC["OpenClaw"]
+        OC["OpenClaw / CovenCave"]
         CD["Claude Desktop"]
         VS["VS Code"]
+        GPT["ChatGPT"]
+        OCODE["OpenCode"]
     end
 
     subgraph Capture ["📥 Capture"]
@@ -92,8 +94,8 @@ flowchart TD
         GREP["③ memory grep<br/>(ripgrep over raw + wiki)"]
     end
 
-    CC & CX & HE & PI -->|hooks fire| H
-    AG & CD & VS & OC -->|MCP calls| MCP_IN
+    CC & CX & HE & PI & OCODE -->|hooks fire| H
+    AG & CD & VS & OC & GPT & OCODE -->|MCP calls| MCP_IN
     H --> RAW
     MCP_IN --> RAW
     RAW --> COMPILE
@@ -112,7 +114,7 @@ flowchart TD
     classDef curation fill:#b45309,stroke:#f59e0b,stroke-width:2px,color:#fff;
     classDef retrieval fill:#9d174d,stroke:#db2777,stroke-width:2px,color:#fff;
 
-    class CC,CX,AG,HE,PI,OC,CD,VS tool;
+    class CC,CX,AG,HE,PI,OC,CD,VS,GPT,OCODE tool;
     class H,MCP_IN capture;
     class RAW,WIKI,IDX,EMB vault;
     class COMPILE curation;
@@ -186,20 +188,26 @@ memory-fort install codex           # Codex desktop + CLI (hooks + MCP)
 memory-fort install antigravity     # Google Antigravity / Gemini (MCP + live-capture plugin)
 memory-fort install hermes          # Hermes agent (YAML hooks + MCP in ~/.hermes/config.yaml)
 memory-fort install pi              # Pi coding agent (YAML hooks in ~/.pi/config.yaml)
+memory-fort install chatgpt         # ChatGPT (HTTP/SSE bridge for ChatGPT Connectors)
 memory-fort install openclaw        # OpenClaw (MCP server in ~/.openclaw/openclaw.json)
-memory-fort install opencoven       # OpenCoven / Coven (read-only daemon readiness check)
+memory-fort install opencoven       # OpenCoven / CovenCave (read-only daemon readiness check)
 memory-fort install opencode        # OpenCode (MCP config + selected event plugin)
 memory-fort install claude-desktop  # Claude Desktop (MCP only)
 memory-fort install vscode          # VS Code (MCP only)
 ```
 
-All installs are **non-destructive and idempotent** — sentinel-block writes, re-running is safe. The OpenCoven target is read-only: it checks the `coven` CLI and the local `coven.daemon.v1` health contract, but does not launch sessions or write Memory Fort config.
+All installs are **non-destructive and idempotent** — sentinel-block writes, re-running is safe. The OpenCoven / CovenCave target is read-only: it checks the `coven` CLI and the local `coven.daemon.v1` health contract, but does not launch sessions or write Memory Fort config. It is part of the OpenCoven family.
+
 OpenClaw support is MCP-only in v1: the installer preserves/updates its MCP config, but it does not install passive capture hooks or automatic observation capture.
-OpenCode support has an implemented CLI surface, MCP config, and selected event plugin; live/operator smoke remains pending.
+
+OpenCode support features MCP config wiring and selected event plugin installation for hook capture, with CLI diagnostics integration.
+
+ChatGPT connects through an HTTP/SSE bridge server (default `localhost:3100`) that translates MCP stdio into HTTP Server-Sent Events, which ChatGPT's "Connectors" feature can consume. You can manage the bridge via the CLI (`memory-fort chatgpt-bridge start|stop|status`) or configure the port in `~/.memory/config.yaml` under `chatgpt.bridge_port`. Autostart on Windows is supported via the HKCU Run registry key (best-effort).
 
 ```bash
 # Undo any integration cleanly
 memory-fort uninstall claude-code
+memory-fort uninstall chatgpt
 memory-fort disconnect --all
 ```
 
@@ -216,6 +224,8 @@ memory-fort disconnect --all
 
 Switch any time: edit `~/.memory/config.yaml` or re-run `memory-fort init`.
 
+Search results include provenance receipts showing BM25, embedding, and graph signals — visible in the dashboard and MCP API.
+
 ---
 
 ## Evidence posture
@@ -228,6 +238,7 @@ Current local evidence is intentionally narrower than a benchmark claim:
 |---|---|---|
 | Default storage | Markdown + YAML files under `~/.memory/` | Implemented local package behavior |
 | Default search | Lexical search works without an API key | Implemented local package behavior |
+| Search provenance | Search results include detailed provenance receipts showing ranking decisions | Implemented in MCP response (`provenance` field) and dashboard UI |
 | Optional retrieval | Semantic and graph-assisted retrieval are available when configured | Local smoke evidence is recorded in `docs/release-evidence/2026-06-06-v1.1-credibility.md` |
 | Package surface | Package uses the `files` whitelist in `package.json` | Local `npm pack --dry-run --json` evidence is recorded in the release evidence note |
 
@@ -260,7 +271,12 @@ memory-fort dashboard
 # → http://127.0.0.1:4410/memory/
 ```
 
-Built-in React dashboard: browse the wiki, search (BM25 + semantic + graph), review proposed pages, inspect graph health metrics.
+Built-in React dashboard:
+- Browse the wiki, search (BM25 + semantic + graph), review proposed pages, inspect graph health metrics.
+- Audit ranking decisions using **search provenance receipts** (expandable detail showing BM25, embedding, and graph weights).
+- Manage integrations using **client toggles** to enable or disable individual clients (configured via `clients.*` map in `config.yaml`, with verify checks automatically skipping disabled clients).
+- Securely manage API credentials via **API key management** (masked secrets fields stored outside the vault with test-then-save validation flow).
+- Check and manage the **ChatGPT bridge status** (verify checks: `chatgpt.bridge.running` and `chatgpt.bridge.mcp`).
 
 ---
 
