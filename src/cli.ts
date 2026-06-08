@@ -81,7 +81,12 @@ const program = new Command();
 program
   .name("memory")
   .description("Cross-tool memory system CLI")
-  .version("0.1.0");
+  .version("0.1.0")
+  .addHelpText("after", `
+Environment:
+  MEMORY_ROOT    Path to the memory vault (default: ~/.memory)
+  MEMORY_ROLE    Role hint for health checks (operator|server)
+`);
 
 registerEvalCommand(program);
 registerDashboardCommand(program);

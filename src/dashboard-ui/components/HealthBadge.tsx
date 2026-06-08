@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AlertTriangle, CheckCircle2, Clipboard, HelpCircle, XCircle } from "lucide-react";
 import { GlassPanel } from "./GlassPanel.js";
 import { cn } from "../lib/cn.js";
@@ -30,10 +30,46 @@ const STATUS_META: Record<CheckStatus, {
   },
 };
 
+const INITIAL_HEALTH_TIMEOUT_MS = 10_000;
+
+const UNKNOWN_HEALTH_CHECK: CheckResult = {
+  id: "verify.report.missing",
+  label: "Verify report is missing",
+  status: "warn",
+  detail: "No memory verify report is available yet.",
+  suggestedFix: "memory verify",
+  durationMs: 0,
+};
+
 export function HealthBadge() {
   const health = useHealth();
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(() =>
+    typeof window !== "undefined" && window.location.hash === "#memory-health",
+  );
+  const [loadingTimedOut, setLoadingTimedOut] = useState(false);
   const report = health.data;
+  const isWaitingForInitialReport = health.isLoading && !report;
+  const showUnknownHealth = isWaitingForInitialReport && loadingTimedOut;
+
+  useEffect(() => {
+    const expandFromHash = () => {
+      if (window.location.hash === "#memory-health") setExpanded(true);
+    };
+
+    expandFromHash();
+    window.addEventListener("hashchange", expandFromHash);
+    return () => window.removeEventListener("hashchange", expandFromHash);
+  }, []);
+
+  useEffect(() => {
+    if (!isWaitingForInitialReport) {
+      setLoadingTimedOut(false);
+      return;
+    }
+
+    const timeout = window.setTimeout(() => setLoadingTimedOut(true), INITIAL_HEALTH_TIMEOUT_MS);
+    return () => window.clearTimeout(timeout);
+  }, [isWaitingForInitialReport]);
 
   const counts = useMemo(() => {
     const checks = report?.checks ?? [];
@@ -48,18 +84,26 @@ export function HealthBadge() {
   const status = health.isError ? "fail" : report?.overallStatus ?? "warn";
   const meta = STATUS_META[status];
   const Icon = meta.icon;
-  const summary = health.isLoading
-    ? "Checking memory health"
-    : health.isError
-      ? "Health check unavailable"
-      : status === "pass"
-        ? "All systems connected"
-        : status === "fail"
-          ? "Health needs attention"
-          : "Health has warnings";
+  const summary = showUnknownHealth
+    ? "Health status unknown — run memory verify to check"
+    : health.isLoading
+      ? "Checking memory health"
+      : health.isError
+        ? "Health check unavailable"
+        : status === "pass"
+          ? "All systems connected"
+          : status === "fail"
+            ? "Health needs attention"
+            : "Health has warnings";
+  const detail = showUnknownHealth
+    ? "run memory verify"
+    : counts.total > 0
+      ? plural(counts.total, "check")
+      : "waiting for verify report";
+  const visibleChecks = showUnknownHealth ? [UNKNOWN_HEALTH_CHECK] : report?.checks ?? [];
 
   return (
-    <GlassPanel hasBrackets={true} className="p-0">
+    <GlassPanel id="memory-health" hasBrackets={true} className="p-0">
       <button
         type="button"
         aria-expanded={expanded}
@@ -74,7 +118,7 @@ export function HealthBadge() {
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <span className="font-mono text-sm font-semibold text-text-primary">{summary}</span>
-              {status === "warn" && counts.fail === 0 ? (
+              {status === "warn" && counts.warn > 0 && counts.fail === 0 ? (
                 <span className="rounded border border-status-amber/40 px-2 py-0.5 font-mono text-[11px] text-status-amber">
                   {plural(counts.warn, "warning")}
                 </span>
@@ -91,7 +135,7 @@ export function HealthBadge() {
               ) : null}
             </div>
             <p className="mt-0.5 font-mono text-xs text-text-muted">
-              {counts.total > 0 ? plural(counts.total, "check") : "waiting for verify report"}
+              {detail}
             </p>
           </div>
         </div>
@@ -106,7 +150,7 @@ export function HealthBadge() {
             <p className="text-sm text-status-red">{health.error?.message ?? "Unable to load health report."}</p>
           ) : (
             <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-              {(report?.checks ?? []).map((check) => (
+              {visibleChecks.map((check) => (
                 <HealthCheckRow key={check.id} check={check} />
               ))}
             </div>

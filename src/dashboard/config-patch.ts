@@ -3,6 +3,7 @@ import { join } from "node:path";
 import yaml from "js-yaml";
 import { atomicWrite as defaultAtomicWrite } from "../storage/atomic-write.js";
 import { loadMemoryConfig, type MemoryConfig } from "../storage/config.js";
+import { classifyConfiguredOutboundUrl, classifyOpenAIBaseUrl, classifyOutboundUrl } from "../storage/url-safety.js";
 
 export interface ConfigPatchValidationError {
   path: string;
@@ -21,6 +22,28 @@ export interface ConfigPatchResult {
 export interface ApplyConfigPatchOptions {
   atomicWrite?: (absolutePath: string, content: string) => Promise<void>;
   now?: () => Date;
+  /** @deprecated Use allowInternalHosts.embedder. */
+  allowInternalEmbedderHosts?: boolean;
+  allowInternalHosts?: InternalHostAllowances;
+}
+
+export interface ValidateConfigPatchOptions {
+  /** @deprecated Use allowInternalHosts.embedder. */
+  allowInternalEmbedderHosts?: boolean;
+  /** Permit internal/loopback/metadata outbound hosts per config section. */
+  allowInternalHosts?: InternalHostAllowances;
+  /** Existing provider context used for partial section patches. */
+  sectionProviders?: SectionProviders;
+}
+
+export interface InternalHostAllowances {
+  embedder?: boolean;
+  llm?: boolean;
+}
+
+export interface SectionProviders {
+  embedder?: string;
+  llm?: string;
 }
 
 export class ConfigPatchError extends Error {
@@ -37,11 +60,13 @@ const SAFELISTED_PATHS = new Set([
   "embedder.provider",
   "embedder.model",
   "embedder.options",
+  "embedder.allow_internal_hosts",
   "llm.provider",
   "llm.model",
   "llm.max_tokens",
   "llm.temperature",
   "llm.options",
+  "llm.allow_internal_hosts",
   "auto_promote.enabled",
   "auto_promote.cadence",
   "auto_promote.confidence_threshold",
@@ -57,7 +82,12 @@ const SAFELISTED_PATHS = new Set([
   "capture.max_input_bytes",
   "capture.max_output_bytes",
   "dashboard.trusted_origins",
+  "dashboard.behind_proxy",
 ]);
+
+// Keys inside embedder.options / llm.options whose value is an outbound URL.
+const URL_LIKE_OPTION_KEY = /^(base[_-]?url|url|host|endpoint)$/i;
+const PROTOTYPE_POLLUTION_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 
 const VALID_TOP_LEVEL_KEYS = new Set(["embedder", "llm", "auto_promote", "auto_heal", "compile", "capture", "dashboard"]);
 const VALID_EMBEDDER_PROVIDERS = new Set(["lexical", "voyage", "openai", "ollama"]);
@@ -66,12 +96,19 @@ const VALID_AUTO_PROMOTE_CADENCES = new Set(["weekly", "daily", "manual"]);
 const VALID_AUTO_PROMOTE_THRESHOLDS = new Set(["high", "none"]);
 const VALID_COMPILE_CADENCES = new Set(["daily", "weekly", "manual"]);
 
-export function validateConfigPatch(body: unknown): ConfigPatchValidation {
+export function validateConfigPatch(
+  body: unknown,
+  opts: ValidateConfigPatchOptions = {},
+): ConfigPatchValidation {
   const errors: ConfigPatchValidationError[] = [];
   const root = asPlainObject(body);
   if (!root) {
     return { ok: false, errors: [{ path: "", message: "body must be an object" }] };
   }
+
+  // A patch that itself turns on allow_internal_hosts opts in for that section
+  // in the same write. The opt-in is deliberately not shared across sections.
+  const allowInternal = resolveInternalHostAllowances(root, opts);
 
   for (const [sectionKey, sectionValue] of Object.entries(root)) {
     if (!VALID_TOP_LEVEL_KEYS.has(sectionKey)) {
@@ -91,7 +128,13 @@ export function validateConfigPatch(body: unknown): ConfigPatchValidation {
         errors.push({ path, message: "field not in safelist" });
         continue;
       }
-      validateValue(path, value, errors);
+      validateValue(
+        path,
+        value,
+        readSectionProvider(section) ?? readSectionProviderContext(sectionKey, opts.sectionProviders),
+        allowInternal,
+        errors,
+      );
     }
   }
 
@@ -103,16 +146,27 @@ export async function applyConfigPatch(
   patch: Record<string, unknown>,
   opts: ApplyConfigPatchOptions = {},
 ): Promise<ConfigPatchResult> {
-  const validation = validateConfigPatch(patch);
+  const configPath = join(vaultRoot, "config.yaml");
+  const current = await loadMemoryConfig(vaultRoot);
+  const allowInternalHosts = opts.allowInternalHosts ?? allowInternalHostsFromConfig(current);
+
+  const validation = validateConfigPatch(patch, {
+    allowInternalEmbedderHosts: opts.allowInternalEmbedderHosts,
+    allowInternalHosts,
+    sectionProviders: sectionProvidersFromConfig(current),
+  });
   if (!validation.ok) {
     throw new ConfigPatchError("invalid config patch", validation.errors);
   }
 
-  const configPath = join(vaultRoot, "config.yaml");
-  const currentRaw = await readConfigRaw(configPath);
-  const current = await loadMemoryConfig(vaultRoot);
-  const applied = listAppliedPaths(patch);
   const next = mergeAtSafelistedPaths(current, patch);
+  const finalValidation = validateMergedOutboundState(next);
+  if (!finalValidation.ok) {
+    throw new ConfigPatchError("invalid config patch", finalValidation.errors);
+  }
+
+  const currentRaw = await readConfigRaw(configPath);
+  const applied = listAppliedPaths(patch);
   const atomicWrite = opts.atomicWrite ?? defaultAtomicWrite;
 
   await writeBackup(vaultRoot, currentRaw, opts);
@@ -130,6 +184,8 @@ export async function applyConfigPatch(
 function validateValue(
   path: string,
   value: unknown,
+  sectionProvider: string | undefined,
+  allowInternal: InternalHostAllowances,
   errors: ConfigPatchValidationError[],
 ): void {
   if (path === "embedder.provider" && !VALID_EMBEDDER_PROVIDERS.has(String(value))) {
@@ -154,7 +210,23 @@ function validateValue(
     errors.push({ path, message: "options must be a plain object" });
   }
   if (path === "embedder.options" || path === "llm.options") {
+    rejectPrototypePollutionKeys(path, value, errors);
     rejectSecretLikeKeys(path, value, errors);
+    rejectUnsafeOutboundUrls(
+      path,
+      value,
+      allowInternalForPath(path, allowInternal),
+      errors,
+      sectionProvider,
+    );
+  }
+  if (
+    (path === "embedder.allow_internal_hosts" ||
+      path === "llm.allow_internal_hosts" ||
+      path === "dashboard.behind_proxy") &&
+    typeof value !== "boolean"
+  ) {
+    errors.push({ path, message: `${path.split(".").pop()} must be a boolean` });
   }
   if (path === "auto_promote.enabled" && typeof value !== "boolean") {
     errors.push({ path, message: "enabled must be a boolean" });
@@ -211,6 +283,148 @@ function validateValue(
   }
 }
 
+/**
+ * Block SSRF: any URL-like field (baseURL/host/url/endpoint) inside
+ * embedder/llm options must be an http(s) URL, and must not target an
+ * internal/loopback/metadata host unless internal hosts are explicitly
+ * allowed (e.g. for a local Ollama via embedder.allow_internal_hosts).
+ */
+function rejectUnsafeOutboundUrls(
+  path: string,
+  value: unknown,
+  allowInternal: boolean,
+  errors: ConfigPatchValidationError[],
+  sectionProvider?: string,
+): void {
+  const record = asPlainObject(value);
+  if (!record) return;
+  for (const [key, child] of Object.entries(record)) {
+    const childPath = `${path}.${key}`;
+    if (typeof child === "string" && URL_LIKE_OPTION_KEY.test(key)) {
+      if (isOpenAIEmbedderBaseUrl(path, key, sectionProvider)) {
+        const verdict = classifyOpenAIBaseUrl(child);
+        if (verdict === "invalid-scheme") {
+          errors.push({ path: childPath, message: "must be an http(s) URL" });
+        } else if (verdict === "not-official") {
+          errors.push({
+            path: childPath,
+            message: "must use the official OpenAI HTTPS endpoint",
+          });
+        }
+        continue;
+      }
+
+      const verdict = allowInternal
+        ? classifyOutboundUrl(child)
+        : classifyConfiguredOutboundUrl(child);
+      if (verdict === "invalid-scheme") {
+        errors.push({ path: childPath, message: "must be an http(s) URL" });
+      } else if (verdict === "internal" && !allowInternal) {
+        errors.push({
+          path: childPath,
+          message:
+            "internal, loopback, or metadata hosts are blocked (SSRF); set allow_internal_hosts: true to permit local providers such as Ollama",
+        });
+      } else if (verdict === "dns-hostname") {
+        errors.push({
+          path: childPath,
+          message:
+            "DNS hostnames are blocked for configured outbound URLs unless allow_internal_hosts is true; use an explicit public IP literal or an official provider endpoint",
+        });
+      }
+    } else if (asPlainObject(child)) {
+      rejectUnsafeOutboundUrls(childPath, child, allowInternal, errors, sectionProvider);
+    }
+  }
+}
+
+function isOpenAIEmbedderBaseUrl(
+  path: string,
+  key: string,
+  sectionProvider: string | undefined,
+): boolean {
+  return path === "embedder.options" &&
+    /^base[_-]?url$/i.test(key) &&
+    sectionProvider === "openai";
+}
+
+function resolveInternalHostAllowances(
+  root: Record<string, unknown>,
+  opts: ValidateConfigPatchOptions,
+): InternalHostAllowances {
+  return {
+    embedder: opts.allowInternalHosts?.embedder === true ||
+      opts.allowInternalEmbedderHosts === true ||
+      sectionPatchEnablesInternalHosts(root, "embedder"),
+    llm: opts.allowInternalHosts?.llm === true ||
+      sectionPatchEnablesInternalHosts(root, "llm"),
+  };
+}
+
+function sectionPatchEnablesInternalHosts(
+  root: Record<string, unknown>,
+  sectionKey: "embedder" | "llm",
+): boolean {
+  const section = asPlainObject(root[sectionKey]);
+  return section?.["allow_internal_hosts"] === true;
+}
+
+function allowInternalForPath(path: string, allowInternal: InternalHostAllowances): boolean {
+  if (path.startsWith("embedder.")) return allowInternal.embedder === true;
+  if (path.startsWith("llm.")) return allowInternal.llm === true;
+  return false;
+}
+
+/** Read section-scoped boolean flags (e.g. embedder.allow_internal_hosts). */
+export function allowInternalHostsFromConfig(config: MemoryConfig): InternalHostAllowances {
+  return {
+    embedder: asPlainObject(config.embedder)?.["allow_internal_hosts"] === true,
+    llm: asPlainObject(config.llm)?.["allow_internal_hosts"] === true,
+  };
+}
+
+function validateMergedOutboundState(config: MemoryConfig): ConfigPatchValidation {
+  const errors: ConfigPatchValidationError[] = [];
+  for (const sectionKey of ["embedder", "llm"] as const) {
+    const section = asPlainObject(config[sectionKey]);
+    if (!section) continue;
+    const options = section["options"];
+    if (options === undefined) continue;
+    if (!asPlainObject(options)) {
+      errors.push({ path: `${sectionKey}.options`, message: "options must be a plain object" });
+      continue;
+    }
+    rejectUnsafeOutboundUrls(
+      `${sectionKey}.options`,
+      options,
+      section["allow_internal_hosts"] === true,
+      errors,
+      readSectionProvider(section),
+    );
+  }
+  return { ok: errors.length === 0, errors };
+}
+
+function readSectionProvider(section: Record<string, unknown>): string | undefined {
+  return typeof section["provider"] === "string" ? section["provider"] : undefined;
+}
+
+function readSectionProviderContext(
+  sectionKey: string,
+  providers: SectionProviders | undefined,
+): string | undefined {
+  if (sectionKey === "embedder") return providers?.embedder;
+  if (sectionKey === "llm") return providers?.llm;
+  return undefined;
+}
+
+function sectionProvidersFromConfig(config: MemoryConfig): SectionProviders {
+  return {
+    embedder: readSectionProvider(asPlainObject(config.embedder) ?? {}),
+    llm: readSectionProvider(asPlainObject(config.llm) ?? {}),
+  };
+}
+
 function rejectSecretLikeKeys(
   path: string,
   value: unknown,
@@ -228,6 +442,28 @@ function rejectSecretLikeKeys(
   }
 }
 
+function rejectPrototypePollutionKeys(
+  path: string,
+  value: unknown,
+  errors: ConfigPatchValidationError[],
+): void {
+  if (Array.isArray(value)) {
+    value.forEach((child, index) => rejectPrototypePollutionKeys(`${path}[${index}]`, child, errors));
+    return;
+  }
+
+  const record = asPlainObject(value);
+  if (!record) return;
+  for (const [key, child] of Object.entries(record)) {
+    const childPath = `${path}.${key}`;
+    if (PROTOTYPE_POLLUTION_KEYS.has(key)) {
+      errors.push({ path: childPath, message: "option key is not allowed" });
+      continue;
+    }
+    rejectPrototypePollutionKeys(childPath, child, errors);
+  }
+}
+
 function isSecretLikeKey(key: string): boolean {
   return /(^|[_-])(api[_-]?key|token|secret|password)($|[_-])/i.test(key) ||
     /^(api[_-]?key|token|secret|password)$/i.test(key);
@@ -242,9 +478,64 @@ function mergeAtSafelistedPaths(
     const sectionPatch = asPlainObject(patch[sectionKey]);
     if (!sectionPatch) continue;
     const target = asPlainObject(next[sectionKey]) ?? {};
-    next[sectionKey] = { ...target, ...clonePlain(sectionPatch) } as never;
+    const mergedSection = { ...target, ...clonePlain(sectionPatch) };
+    if (sectionKey === "embedder" || sectionKey === "llm") {
+      const targetOptions = asPlainObject(target["options"]);
+      const patchOptions = asPlainObject(sectionPatch["options"]);
+      if (patchOptions) {
+        mergedSection["options"] = targetOptions
+          ? mergePlainProviderOptions(targetOptions, patchOptions)
+          : clonePlainProviderOptionObject(patchOptions);
+      }
+    }
+    next[sectionKey] = mergedSection as never;
   }
   return next;
+}
+
+function mergePlainProviderOptions(
+  target: Record<string, unknown>,
+  patch: Record<string, unknown>,
+): Record<string, unknown> {
+  const merged = clonePlainProviderOptionObject(target);
+  for (const [key, patchValue] of Object.entries(patch)) {
+    const targetValue = asPlainObject(merged[key]);
+    const patchObject = asPlainObject(patchValue);
+    definePlainDataProperty(merged, key, targetValue && patchObject
+      ? mergePlainProviderOptions(targetValue, patchObject)
+      : clonePlainProviderOptionValue(patchValue));
+  }
+  return merged;
+}
+
+function clonePlainProviderOptionValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map((child) => clonePlainProviderOptionValue(child));
+  }
+  const record = asPlainObject(value);
+  if (!record) return value;
+  return clonePlainProviderOptionObject(record);
+}
+
+function clonePlainProviderOptionObject(value: Record<string, unknown>): Record<string, unknown> {
+  const clone = Object.create(null) as Record<string, unknown>;
+  for (const [key, child] of Object.entries(value)) {
+    definePlainDataProperty(clone, key, clonePlainProviderOptionValue(child));
+  }
+  return clone;
+}
+
+function definePlainDataProperty(
+  target: Record<string, unknown>,
+  key: string,
+  value: unknown,
+): void {
+  Object.defineProperty(target, key, {
+    value,
+    enumerable: true,
+    configurable: true,
+    writable: true,
+  });
 }
 
 function listAppliedPaths(patch: Record<string, unknown>): string[] {

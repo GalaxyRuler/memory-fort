@@ -96,6 +96,25 @@ describe("init onboarding", () => {
     expect(existsSync(join(vault, "schema.md"))).toBe(true);
   });
 
+  it("hints that lexical is recommended when the wizard asks for retrieval mode", async () => {
+    const vault = join(tmp, "vault");
+    const answers = [vault, "Public User", "none", ""];
+    const questions: string[] = [];
+
+    await runInitOnboarding({
+      sourceRepoDir: process.cwd(),
+      stdout: captureStdout([], true),
+      stdin: { isTTY: true },
+      prompt: async (question) => {
+        questions.push(question);
+        return answers.shift() ?? "";
+      },
+    });
+
+    expect(questions).toHaveLength(4);
+    expect(questions[3]).toContain("lexical (keyless, recommended if unsure)");
+  });
+
   it("--yes uses defaults with detected tools and no prompt", async () => {
     const vault = join(tmp, "vault");
     await mkdir(join(tmp, ".codex"), { recursive: true });

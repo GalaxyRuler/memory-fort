@@ -2,9 +2,21 @@ import { type WikiIndex } from "../hooks/useWikiIndex.js";
 import { cn } from "../lib/cn.js";
 import { Card } from "./Card.js";
 
-const CATEGORY_ORDER = ["projects", "decisions", "lessons", "references", "tools", "people", "crystals"];
+export const CONFIGURED_WIKI_CATEGORIES = [
+  "decisions",
+  "projects",
+  "issues",
+  "lessons",
+  "references",
+  "tools",
+  "people",
+  "threads",
+  "procedures",
+  "crystals",
+];
 
 const CATEGORY_COLORS: Record<string, string> = {
+  issues: "bg-entity-decisions",
   projects: "bg-entity-projects",
   decisions: "bg-entity-decisions",
   lessons: "bg-entity-lessons",
@@ -21,8 +33,8 @@ export interface CategorySidebarProps {
 }
 
 export function CategorySidebar({ index, selectedCategory, onSelect }: CategorySidebarProps) {
-  const categories = CATEGORY_ORDER.filter((category) => index?.byCategory[category]);
-  const totalCount = index?.total ?? 0;
+  const categories = getVisibleWikiCategories(index?.byCategory);
+  const totalCount = getVisibleWikiCategoryTotal(index?.byCategory);
 
   return (
     <Card className="space-y-1 md:sticky md:top-4">
@@ -61,5 +73,20 @@ export function CategorySidebar({ index, selectedCategory, onSelect }: CategoryS
         </button>
       ))}
     </Card>
+  );
+}
+
+export function getVisibleWikiCategories(byCategory: WikiIndex["byCategory"] | undefined): string[] {
+  const configuredCategories = [...CONFIGURED_WIKI_CATEGORIES];
+  const extraCategories = Object.keys(byCategory ?? {})
+    .filter((category) => !CONFIGURED_WIKI_CATEGORIES.includes(category))
+    .sort();
+  return [...configuredCategories, ...extraCategories];
+}
+
+export function getVisibleWikiCategoryTotal(byCategory: WikiIndex["byCategory"] | undefined): number {
+  return getVisibleWikiCategories(byCategory).reduce(
+    (total, category) => total + (byCategory?.[category]?.length ?? 0),
+    0,
   );
 }

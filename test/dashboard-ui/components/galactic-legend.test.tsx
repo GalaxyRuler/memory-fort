@@ -8,10 +8,13 @@ describe("Galactic legend", () => {
     render(<Legend nodes={[]} />);
 
     expect(screen.getByText("Cognitive Galaxies")).toBeInTheDocument();
+    expect(screen.getByText("memory groups arranged by how they are used")).toBeInTheDocument();
     expect(screen.getByText("Core")).toBeInTheDocument();
     expect(screen.getByText("Semantic")).toBeInTheDocument();
     expect(screen.getByText("Episodic")).toBeInTheDocument();
+    expect(screen.getByText("memories tied to specific events or sessions")).toBeInTheDocument();
     expect(screen.getByText("Procedural")).toBeInTheDocument();
+    expect(screen.getByText("repeatable know-how for workflows and habits")).toBeInTheDocument();
     expect(screen.getByText("Domain Colors")).toBeInTheDocument();
     expect(screen.getByText("Projects")).toBeInTheDocument();
     expect(screen.getByText("Decisions")).toBeInTheDocument();
@@ -19,6 +22,7 @@ describe("Galactic legend", () => {
     expect(screen.getByText("References")).toBeInTheDocument();
     expect(screen.getByText("Tools")).toBeInTheDocument();
     expect(screen.getByText("Crystals")).toBeInTheDocument();
+    expect(screen.getByText("curated digests distilled from completed work")).toBeInTheDocument();
     // No "Edge Types" section: the 3D renderer draws every edge as a uniform
     // domain-coloured line, so advertising per-relation-type styles/colours
     // would misrepresent what's on screen.

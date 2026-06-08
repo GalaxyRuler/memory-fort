@@ -140,7 +140,7 @@ function OverviewScreen() {
           footer={
             <div className="flex items-center gap-3">
               <span className="flex items-center gap-1">
-                <span className="h-1.5 w-1.5 rounded-full bg-[#10b981] animate-pulse" />
+                <span className="h-1.5 w-1.5 rounded-full bg-[#10b981] motion-safe:animate-pulse" />
                 Vector
               </span>
               <span className="flex items-center gap-1">

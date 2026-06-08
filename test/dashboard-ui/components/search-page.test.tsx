@@ -74,6 +74,12 @@ describe("SearchPage", () => {
     expect(screen.getByText("Type a query to begin searching memory.")).toBeInTheDocument();
   });
 
+  test("gives the search input an accessible name", () => {
+    render(<SearchPage />);
+
+    expect(screen.getByRole("textbox", { name: "Search memory" })).toBeInTheDocument();
+  });
+
   test("renders results after typing a debounced query", async () => {
     vi.useFakeTimers();
     searchHook.useSearch.mockImplementation(({ query }) => ({

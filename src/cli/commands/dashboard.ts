@@ -21,6 +21,7 @@ export interface DashboardOptions {
   createServer?: (opts: ServerOptions) => Promise<RunningServer>;
   openBrowser?: (url: string) => Promise<void>;
   stdout?: (line: string) => void;
+  stderr?: (line: string) => void;
 }
 
 export interface DashboardUiBuildOptions {
@@ -47,6 +48,7 @@ export async function runDashboard(opts: DashboardOptions = {}): Promise<Dashboa
   const vaultRoot = opts.vaultRoot ?? defaultMemoryRoot();
   const indexHtml = join(distRoot, "index.html");
   const writeLine = opts.stdout ?? ((line) => console.log(line));
+  const writeErr = opts.stderr ?? ((line) => process.stderr.write(`${line}\n`));
   const moduleUrl = opts.dashboardModuleUrl ?? import.meta.url;
   // Only enforce the real dist when using the real server. An injected
   // createServer (tests) brings its own server and manages its own assets, so
@@ -80,6 +82,9 @@ export async function runDashboard(opts: DashboardOptions = {}): Promise<Dashboa
     dashboardDistRoot: distRoot,
     host,
     port: requestedPort,
+    onPortFallback: (actualPort) => {
+      writeErr(`Port ${requestedPort} busy, using ${actualPort} instead.`);
+    },
   });
   const url = `http://${server.host}:${server.port}/memory/`;
   writeLine(`Memory dashboard: ${url}`);
@@ -140,18 +145,23 @@ async function startDashboardServer(opts: {
   dashboardDistRoot: string;
   host: string;
   port: number;
+  onPortFallback?: (actualPort: number) => void;
 }): Promise<RunningServer> {
   const maxAttempts = opts.port === 0 ? 1 : PORT_FALLBACK_ATTEMPTS;
   let lastError: unknown = null;
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     const port = opts.port === 0 ? 0 : opts.port + attempt;
     try {
-      return await opts.createServerImpl({
+      const server = await opts.createServerImpl({
         vaultRoot: opts.vaultRoot,
         dashboardDistRoot: opts.dashboardDistRoot,
         host: opts.host,
         port,
       });
+      if (attempt > 0) {
+        opts.onPortFallback?.(server.port);
+      }
+      return server;
     } catch (err) {
       lastError = err;
       if (!isAddrInUse(err) || opts.port === 0) throw err;

@@ -1,4 +1,11 @@
 import type { MemoryConfig } from "../../storage/config.js";
+import {
+  classifyConfiguredOutboundUrl,
+  classifyOpenAIBaseUrl,
+  classifyOutboundUrl,
+  getOutboundHttpUrlRejectionReason,
+  normalizeOutboundHttpUrl,
+} from "../../storage/url-safety.js";
 import { createOllamaEmbedder } from "./ollama.js";
 import { createOpenAIEmbedder } from "./openai.js";
 import { createVoyageEmbedder } from "./voyage.js";
@@ -77,17 +84,27 @@ export function createEmbedderFromConfig(
     case "openai": {
       const apiKey = env["OPENAI_API_KEY"]?.trim();
       if (!apiKey) throw new EmbedderConfigError("OPENAI_API_KEY not set");
+      const baseURL = readString(config.options?.["baseURL"]);
+      if (baseURL) assertOfficialOpenAIBaseUrl(baseURL, "embedder baseURL");
       return createOpenAIEmbedder({
         apiKey,
         model: config.model,
-        baseURL: readString(config.options?.["baseURL"]),
+        baseURL,
       });
     }
-    case "ollama":
+    case "ollama": {
+      const configuredHost = readString(config.options?.["host"]);
+      const envHost = readString(env["OLLAMA_HOST"]);
+      const host = configuredHost
+        ? assertConfiguredOutboundUrl(configuredHost, "OLLAMA host", config.allowInternalHosts === true)
+        : envHost
+          ? assertHttpUrl(envHost, "OLLAMA host")
+          : undefined;
       return createOllamaEmbedder({
-        host: readString(config.options?.["host"]) ?? env["OLLAMA_HOST"],
+        host,
         model: config.model,
       });
+    }
   }
 }
 
@@ -104,11 +121,14 @@ export function getActiveEmbedderConfig(config: MemoryConfig): EmbedderConfig {
     );
   }
 
-  return {
+  const result: EmbedderConfig = {
     provider,
     model: readString(raw["model"]) ?? PROVIDERS[provider].defaultModel,
-    options: asRecord(raw["options"]) ?? undefined,
   };
+  const options = asRecord(raw["options"]);
+  if (options) result.options = options;
+  if (raw["allow_internal_hosts"] === true) result.allowInternalHosts = true;
+  return result;
 }
 
 export function listEmbedderProviders(
@@ -175,6 +195,66 @@ function createLexicalEmbedder(): Embedder {
       return { vectors: [], model: "lexical", dim: 0 };
     },
   };
+}
+
+/**
+ * Defense-in-depth (SSRF): even though the dashboard config-patch validator
+ * already screens outbound URLs, reject a non-http(s) scheme at construction
+ * so a hand-edited config.yaml cannot make the embedder fetch a file:// or
+ * other-scheme target. OpenAI baseURL carries OPENAI_API_KEY credentials, so
+ * it is restricted to the official HTTPS endpoint. Explicit Ollama hosts keep
+ * the separate configured-host SSRF policy, and env/default Ollama hosts are
+ * operator-controlled to keep local Ollama usable.
+ */
+function assertHttpUrl(value: string, label: string): string {
+  rejectInvalidOutboundHttpUrl(value, label);
+  return normalizeOutboundHttpUrl(value) ?? value;
+}
+
+function assertConfiguredOutboundUrl(
+  value: string,
+  label: string,
+  allowInternalHosts: boolean,
+): string {
+  rejectInvalidOutboundHttpUrl(value, label);
+  const verdict = allowInternalHosts
+    ? classifyOutboundUrl(value)
+    : classifyConfiguredOutboundUrl(value);
+  if (verdict === "invalid-scheme") {
+    throw new EmbedderConfigError(`${label} must be an http(s) URL`);
+  }
+  if (verdict === "internal" && !allowInternalHosts) {
+    throw new EmbedderConfigError(`${label} must not target an internal host unless embedder.allow_internal_hosts is true`);
+  }
+  if (verdict === "dns-hostname") {
+    throw new EmbedderConfigError(
+      `${label} DNS hostnames are blocked unless embedder.allow_internal_hosts is true; use an explicit public IP literal or an official provider endpoint`,
+    );
+  }
+  return normalizeOutboundHttpUrl(value) ?? value;
+}
+
+function rejectInvalidOutboundHttpUrl(value: string, label: string): void {
+  const reason = getOutboundHttpUrlRejectionReason(value);
+  if (reason === "invalid-scheme") {
+    throw new EmbedderConfigError(`${label} must be an http(s) URL`);
+  }
+  if (reason === "userinfo") {
+    throw new EmbedderConfigError(`${label} must not include URL credentials`);
+  }
+  if (reason === "query-or-fragment") {
+    throw new EmbedderConfigError(`${label} must not include query strings or fragments`);
+  }
+}
+
+function assertOfficialOpenAIBaseUrl(value: string, label: string): void {
+  const verdict = classifyOpenAIBaseUrl(value);
+  if (verdict === "invalid-scheme") {
+    throw new EmbedderConfigError(`${label} must be an http(s) URL`);
+  }
+  if (verdict === "not-official") {
+    throw new EmbedderConfigError(`${label} must use the official OpenAI HTTPS endpoint`);
+  }
 }
 
 function readString(value: unknown): string | undefined {

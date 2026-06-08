@@ -1,10 +1,17 @@
 import { Link, useLocation } from "@tanstack/react-router";
+import { ChevronDown } from "lucide-react";
+import { useEffect, useId, useState } from "react";
 import { Skeleton } from "../components/Skeleton.js";
 import { StatusPill, type StatusKind } from "../components/StatusPill.js";
 import { useStatus, type DashboardStatus } from "../hooks/useStatus.js";
 import { useSyncState, type CheckoutSyncState } from "../hooks/useSyncState.js";
 import { cn } from "../lib/cn.js";
-import { NAV_ITEMS } from "../lib/nav-items.js";
+import {
+  ADVANCED_NAV_ITEMS,
+  OPERATIONS_NAV_ITEMS,
+  PRIMARY_NAV_ITEMS,
+  type NavItem,
+} from "../lib/nav-items.js";
 import { relativeTime } from "../lib/time-helpers.js";
 
 export function Sidebar({
@@ -34,35 +41,23 @@ export function Sidebar({
         <p className="text-xs text-text-muted">v0.4.0-dev</p>
       </div>
       <nav className="flex flex-col gap-0.5" aria-label="Primary navigation">
-        {NAV_ITEMS.map((item) => {
-          const Icon = item.icon;
-          const isActive =
-            location.pathname === item.to ||
-            (item.to !== "/" && location.pathname.startsWith(item.to));
-
-          return (
-            <Link
-              key={item.to}
-              to={item.to}
-              onClick={onNavigate}
-              className={cn(
-                "relative flex min-h-11 items-center gap-2.5 rounded-md px-3 py-2 text-sm transition-colors md:min-h-0 md:py-1.5",
-                isActive
-                  ? "bg-surface-2 text-text-primary"
-                  : "text-text-secondary hover:bg-surface-2 hover:text-text-primary",
-              )}
-            >
-              {isActive && (
-                <span
-                  className="gradient-accent absolute bottom-1 left-0 top-1 w-[2px] rounded-r"
-                  aria-hidden
-                />
-              )}
-              <Icon size={16} strokeWidth={1.5} />
-              {item.label}
-            </Link>
-          );
-        })}
+        {PRIMARY_NAV_ITEMS.map((item) => (
+          <SidebarNavLink key={item.to} item={item} pathname={location.pathname} onNavigate={onNavigate} />
+        ))}
+        <SidebarNavGroup
+          className="mt-2 border-t border-border-subtle pt-2"
+          items={OPERATIONS_NAV_ITEMS}
+          label="Operations"
+          onNavigate={onNavigate}
+          pathname={location.pathname}
+        />
+        <SidebarNavGroup
+          className="mt-1"
+          items={ADVANCED_NAV_ITEMS}
+          label="Advanced"
+          onNavigate={onNavigate}
+          pathname={location.pathname}
+        />
       </nav>
       <div className="mt-auto px-2">
         {sidebarStatus === "loading" ? (
@@ -79,6 +74,108 @@ export function Sidebar({
       </div>
     </aside>
   );
+}
+
+function SidebarNavGroup({
+  className,
+  items,
+  label,
+  onNavigate,
+  pathname,
+}: {
+  className?: string;
+  items: NavItem[];
+  label: string;
+  onNavigate?: () => void;
+  pathname: string;
+}) {
+  const groupId = useId();
+  const isGroupActive = items.some((item) => isActiveRoute(pathname, item.to));
+  const [isOpen, setIsOpen] = useState(isGroupActive);
+
+  useEffect(() => {
+    if (isGroupActive) setIsOpen(true);
+  }, [isGroupActive]);
+
+  return (
+    <div className={className}>
+      <button
+        type="button"
+        aria-controls={groupId}
+        aria-expanded={isOpen}
+        className={cn(
+          "flex min-h-11 w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm transition-colors md:min-h-0 md:py-1.5",
+          isGroupActive
+            ? "bg-surface-2 text-text-primary"
+            : "text-text-secondary hover:bg-surface-2 hover:text-text-primary",
+        )}
+        onClick={() => setIsOpen((open) => !open)}
+      >
+        <ChevronDown
+          size={16}
+          strokeWidth={1.5}
+          className={cn("transition-transform", isOpen ? "rotate-0" : "-rotate-90")}
+          aria-hidden
+        />
+        {label}
+      </button>
+      {isOpen ? (
+        <div id={groupId} className="mt-1 flex flex-col gap-0.5">
+          {items.map((item) => (
+            <SidebarNavLink
+              key={item.to}
+              item={item}
+              pathname={pathname}
+              onNavigate={onNavigate}
+              className="pl-8"
+            />
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function SidebarNavLink({
+  className,
+  item,
+  onNavigate,
+  pathname,
+}: {
+  className?: string;
+  item: NavItem;
+  onNavigate?: () => void;
+  pathname: string;
+}) {
+  const Icon = item.icon;
+  const isActive = isActiveRoute(pathname, item.to);
+
+  return (
+    <Link
+      to={item.to}
+      onClick={onNavigate}
+      className={cn(
+        "relative flex min-h-11 items-center gap-2.5 rounded-md px-3 py-2 text-sm transition-colors md:min-h-0 md:py-1.5",
+        isActive
+          ? "bg-surface-2 text-text-primary"
+          : "text-text-secondary hover:bg-surface-2 hover:text-text-primary",
+        className,
+      )}
+    >
+      {isActive && (
+        <span
+          className="gradient-accent absolute bottom-1 left-0 top-1 w-[2px] rounded-r"
+          aria-hidden
+        />
+      )}
+      <Icon size={16} strokeWidth={1.5} />
+      {item.label}
+    </Link>
+  );
+}
+
+function isActiveRoute(pathname: string, to: string): boolean {
+  return pathname === to || (to !== "/" && pathname.startsWith(to));
 }
 
 type StatusQuery = ReturnType<typeof useStatus>;

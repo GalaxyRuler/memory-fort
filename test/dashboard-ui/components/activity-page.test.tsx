@@ -77,6 +77,26 @@ describe("activity page components", () => {
     expect(onChange).toHaveBeenCalledWith({ level: "error" });
   });
 
+  test("ActivityFeedPage names the recent activity list and keeps it keyboard focusable", () => {
+    routerState.search = {};
+    activityHook.useActivity.mockReturnValue({
+      data: {
+        events: [event({ summary: "keyboard accessible activity event" })],
+      },
+      isLoading: false,
+    });
+
+    render(<ActivityFeedPage />);
+
+    const recentActivity = screen.getByRole("list", { name: "Recent activity" });
+
+    expect(recentActivity).toHaveAttribute("tabindex", "0");
+
+    recentActivity.focus();
+
+    expect(recentActivity).toHaveFocus();
+  });
+
   test("ActivityFeedPage starts at the URL page size and loads more", () => {
     routerState.search = { per: "2" };
     activityHook.useActivity.mockReturnValue({

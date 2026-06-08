@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdir, mkdtemp, rm, utimes, writeFile } from "node:fs/promises";
+import { request } from "node:http";
+import { connect } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { DashboardStatus } from "../../src/dashboard/loaders.js";
@@ -8,6 +10,112 @@ import type { VerifyResult, VerifyRole } from "../../src/cli/commands/verify.js"
 import { writeCompileStateFile } from "../../src/compile/state.js";
 import type { VoyageClient } from "../../src/retrieval/voyage-client.js";
 import { READ_ONLY_MIRROR_REASON } from "../../src/sync/vault-capability.js";
+
+function httpRequest(options: {
+  host: string;
+  port: number;
+  method: string;
+  path: string;
+  headers?: Record<string, string>;
+  body?: string;
+}): Promise<{ status: number; headers: Record<string, string>; body: string }> {
+  return new Promise((resolve, reject) => {
+    const req = request(
+      {
+        hostname: options.host,
+        port: options.port,
+        method: options.method,
+        path: options.path,
+        headers: options.headers,
+      },
+      (res) => {
+        const chunks: Buffer[] = [];
+        res.on("data", (chunk) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
+        res.on("end", () => {
+          const headers = Object.fromEntries(
+            Object.entries(res.headers).flatMap(([name, value]) => {
+              if (Array.isArray(value)) return [[name, value.join(", ")]];
+              if (typeof value === "string") return [[name, value]];
+              return [];
+            }),
+          );
+          resolve({ status: res.statusCode ?? 0, headers, body: Buffer.concat(chunks).toString("utf-8") });
+        });
+      },
+    );
+    req.on("error", reject);
+    if (options.body) req.write(options.body);
+    req.end();
+  });
+}
+
+function rawHttpRequest(options: {
+  host: string;
+  port: number;
+  request: string;
+}): Promise<{ status: number; headers: Record<string, string>; body: string }> {
+  return new Promise((resolve, reject) => {
+    const socket = connect(options.port, options.host);
+    const chunks: Buffer[] = [];
+
+    socket.on("connect", () => {
+      socket.write(options.request);
+    });
+    socket.on("data", (chunk) => {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    });
+    socket.on("error", reject);
+    socket.on("end", () => {
+      const raw = Buffer.concat(chunks).toString("utf-8");
+      const [head = "", ...bodyParts] = raw.split("\r\n\r\n");
+      const [_statusLine = "", ...headerLines] = head.split("\r\n");
+      const status = Number(head.match(/^HTTP\/\d\.\d\s+(\d+)/)?.[1] ?? 0);
+      const headers = Object.fromEntries(
+        headerLines.flatMap((line) => {
+          const separator = line.indexOf(":");
+          if (separator < 0) return [];
+          return [[line.slice(0, separator).toLowerCase(), line.slice(separator + 1).trim()]];
+        }),
+      );
+      const body = bodyParts.join("\r\n\r\n");
+      resolve({
+        status,
+        headers,
+        body: headers["transfer-encoding"] === "chunked" ? decodeChunkedBody(body) : body,
+      });
+    });
+  });
+}
+
+function decodeChunkedBody(body: string): string {
+  let offset = 0;
+  let decoded = "";
+  while (offset < body.length) {
+    const sizeEnd = body.indexOf("\r\n", offset);
+    if (sizeEnd < 0) return body;
+    const size = Number.parseInt(body.slice(offset, sizeEnd).split(";")[0] ?? "", 16);
+    if (!Number.isFinite(size)) return body;
+    if (size === 0) return decoded;
+    const chunkStart = sizeEnd + 2;
+    decoded += body.slice(chunkStart, chunkStart + size);
+    offset = chunkStart + size + 2;
+  }
+  return body;
+}
+
+const REQUEST_BODY_LIMIT_BYTES = 1024 * 1024;
+const COMMON_SECURITY_HEADERS = {
+  "x-content-type-options": "nosniff",
+  "x-frame-options": "DENY",
+  "referrer-policy": "no-referrer",
+};
+const DASHBOARD_CSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'";
+
+function expectCommonSecurityHeaders(headers: Headers): void {
+  for (const [name, value] of Object.entries(COMMON_SECURITY_HEADERS)) {
+    expect(headers.get(name)).toBe(value);
+  }
+}
 
 function fixture(): DashboardStatus {
   return {
@@ -163,22 +271,10 @@ describe("dashboard server", () => {
     await rm(tmp, { recursive: true, force: true });
   });
 
-  it("same-origin guard honors direct, forwarded, missing, and trusted origins", () => {
+  it("same-origin guard honors direct, missing, and trusted origins", () => {
     const directUrl = new URL("http://127.0.0.1:4410/api/compile/run");
-    expect(sameOriginAllowed("http://127.0.0.1:4410", directUrl, { host: "127.0.0.1:4410" })).toBe(true);
+    expect(sameOriginAllowed("http://127.0.0.1:4410", directUrl, { host: "127.0.0.1:4410" }, [], false, "127.0.0.1")).toBe(true);
     expect(sameOriginAllowed(undefined, directUrl, { host: "127.0.0.1:4410" })).toBe(true);
-
-    expect(sameOriginAllowed("https://examplehost.exampletail.ts.net", directUrl, {
-      host: "127.0.0.1:4410",
-      "x-forwarded-proto": "https",
-      "x-forwarded-host": "examplehost.exampletail.ts.net",
-    })).toBe(true);
-
-    expect(sameOriginAllowed("https://evil.example.com", directUrl, {
-      host: "127.0.0.1:4410",
-      "x-forwarded-proto": "https",
-      "x-forwarded-host": "examplehost.exampletail.ts.net",
-    })).toBe(false);
 
     expect(sameOriginAllowed("https://dashboard.example.test", directUrl, {
       host: "127.0.0.1:4410",
@@ -186,6 +282,71 @@ describe("dashboard server", () => {
     expect(sameOriginAllowed("https://other.example.test", directUrl, {
       host: "127.0.0.1:4410",
     }, ["https://dashboard.example.test"])).toBe(false);
+
+    const attackerControlledUrl = new URL("http://evil.example:4410/api/compile/run");
+    expect(
+      sameOriginAllowed(
+        "http://evil.example:4410",
+        attackerControlledUrl,
+        { host: "evil.example:4410" },
+        [],
+        false,
+        "203.0.113.10",
+      ),
+    ).toBe(false);
+  });
+
+  it("same-origin guard rejects present invalid or ambiguous Origin values", () => {
+    const directUrl = new URL("http://127.0.0.1:4410/api/compile/run");
+    const headers = { host: "127.0.0.1:4410" };
+
+    for (const origin of [
+      "null",
+      "not a url",
+      "http://127.0.0.1:4410, https://evil.example",
+      ["http://127.0.0.1:4410", "https://evil.example"],
+    ]) {
+      expect(sameOriginAllowed(origin, directUrl, headers, [], false, "127.0.0.1")).toBe(false);
+    }
+  });
+
+  it("same-origin guard ignores forwarded headers unless behind a trusted configured proxy", () => {
+    const directUrl = new URL("http://127.0.0.1:4410/api/compile/run");
+    const spoofed = {
+      host: "127.0.0.1:4410",
+      "x-forwarded-proto": "https",
+      "x-forwarded-host": "examplehost.exampletail.ts.net",
+    };
+
+    // Default (no proxy): an attacker who sets BOTH Origin and X-Forwarded-Host
+    // to the same value must NOT pass the same-origin gate.
+    expect(sameOriginAllowed("https://examplehost.exampletail.ts.net", directUrl, spoofed)).toBe(false);
+
+    // With trustForwardedHeaders=true (dashboard.behind_proxy), the legitimate
+    // reverse-proxy origin is reconstructed and honored…
+    expect(sameOriginAllowed("https://examplehost.exampletail.ts.net", directUrl, spoofed, [], true, "::1")).toBe(true);
+    // …but a genuine cross-origin attacker is still rejected.
+    expect(sameOriginAllowed("https://evil.example.com", directUrl, spoofed, [], true, "::1")).toBe(false);
+  });
+
+  it("same-origin guard rejects spoofed forwarded headers from untrusted peers", () => {
+    const directUrl = new URL("http://127.0.0.1:4410/api/compile/run");
+    const spoofed = {
+      host: "127.0.0.1:4410",
+      "x-forwarded-proto": "https",
+      "x-forwarded-host": "examplehost.exampletail.ts.net",
+    };
+
+    expect(
+      sameOriginAllowed(
+        "https://examplehost.exampletail.ts.net",
+        directUrl,
+        spoofed,
+        [],
+        true,
+        "203.0.113.10",
+      ),
+    ).toBe(false);
   });
 
   it("GET /healthz returns 200 text/plain ok", async () => {
@@ -246,6 +407,59 @@ describe("dashboard server", () => {
           reason: READ_ONLY_MIRROR_REASON,
         },
       });
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("JSON responses include common security headers without CSP", async () => {
+    const server = await createServer({
+      vaultRoot: "/unused",
+      port: 0,
+      loader: async () => fixture(),
+    });
+
+    try {
+      const response = await fetch(`http://${server.host}:${server.port}/api/status`);
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toContain("application/json");
+      expectCommonSecurityHeaders(response.headers);
+      expect(response.headers.get("content-security-policy")).toBeNull();
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("HTML responses include common security headers and CSP", async () => {
+    const server = await createServer({
+      vaultRoot: "/unused",
+      port: 0,
+      loader: async () => fixture(),
+    });
+
+    try {
+      const response = await fetch(`http://${server.host}:${server.port}/`);
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toContain("text/html");
+      expectCommonSecurityHeaders(response.headers);
+      expect(response.headers.get("content-security-policy")).toBe(DASHBOARD_CSP);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("direct text responses include common security headers without CSP", async () => {
+    const server = await createServer({ vaultRoot: "/unused", port: 0 });
+
+    try {
+      const response = await fetch(`http://${server.host}:${server.port}/healthz`);
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toContain("text/plain");
+      expectCommonSecurityHeaders(response.headers);
+      expect(response.headers.get("content-security-policy")).toBeNull();
     } finally {
       await server.close();
     }
@@ -476,6 +690,36 @@ describe("dashboard server", () => {
       const response = await fetch(`http://${server.host}:${server.port}/wiki/projects/ghost`);
       const body = await response.text();
       expect(response.status).toBe(404);
+      expect(body).toContain("Not found");
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("GET /api/<unknown> returns structured JSON 404", async () => {
+    const server = await createServer({ vaultRoot: tmp, port: 0 });
+
+    try {
+      const response = await fetch(`http://${server.host}:${server.port}/api/no-such-route`);
+      const body = await response.json();
+
+      expect(response.status).toBe(404);
+      expect(response.headers.get("content-type")).toBe("application/json; charset=utf-8");
+      expect(body).toEqual({ ok: false, error: "not found" });
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("GET /<unknown> preserves HTML 404 for browser routes", async () => {
+    const server = await createServer({ vaultRoot: tmp, port: 0 });
+
+    try {
+      const response = await fetch(`http://${server.host}:${server.port}/no-such-browser-route`);
+      const body = await response.text();
+
+      expect(response.status).toBe(404);
+      expect(response.headers.get("content-type")).toBe("text/html; charset=utf-8");
       expect(body).toContain("Not found");
     } finally {
       await server.close();
@@ -741,6 +985,49 @@ describe("dashboard server", () => {
       expect(text).toContain("projects/foo.md");
       expect(text).not.toContain(".audit");
       expect(text).not.toContain("Audit Log");
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("GET /api/wiki/:category/:slug returns JSON for malformed API wiki paths", async () => {
+    const server = await createServer({ vaultRoot: tmp, port: 0 });
+
+    try {
+      const response = await rawHttpRequest({
+        host: server.host,
+        port: server.port,
+        request: [
+          "GET /api/wiki/projects/%ZZ HTTP/1.1",
+          `Host: ${server.host}:${server.port}`,
+          "Connection: close",
+          "",
+          "",
+        ].join("\r\n"),
+      });
+      const body = JSON.parse(response.body);
+      expect(response.status).toBe(400);
+      expect(response.headers["content-type"]).toContain("application/json");
+      expect(response.headers["x-content-type-options"]).toBe("nosniff");
+      expect(response.headers["x-frame-options"]).toBe("DENY");
+      expect(response.headers["referrer-policy"]).toBe("no-referrer");
+      expect(body).toEqual({ error: "malformed wiki path" });
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("GET /api/wiki/:category/:slug returns JSON for missing API wiki pages", async () => {
+    await mkdir(join(tmp, "wiki", "projects"), { recursive: true });
+    const server = await createServer({ vaultRoot: tmp, port: 0 });
+
+    try {
+      const response = await fetch(`http://${server.host}:${server.port}/api/wiki/projects/missing`);
+      const body = await response.json();
+      expect(response.status).toBe(404);
+      expect(response.headers.get("content-type")).toContain("application/json");
+      expectCommonSecurityHeaders(response.headers);
+      expect(body).toEqual({ error: "page not found" });
     } finally {
       await server.close();
     }
@@ -1249,6 +1536,63 @@ describe("dashboard server", () => {
     }
   });
 
+  it("POST /api/compile/run rejects bodies that exceed the streaming size limit", async () => {
+    const compileRunner = vi.fn(async () => ({
+      rawFilesIncluded: [],
+      rawFilesSkipped: [],
+      outputPath: "var/compile/scheduled-compile-prompt.md",
+      rawRemaining: 0,
+    }));
+    const server = await createServer({ vaultRoot: tmp, port: 0, compileRunner });
+
+    try {
+      const body = `{"padding":"${"a".repeat(REQUEST_BODY_LIMIT_BYTES)}"}`;
+      const response = await httpRequest({
+        host: server.host,
+        port: server.port,
+        method: "POST",
+        path: "/api/compile/run",
+        headers: { "Content-Type": "application/json" },
+        body,
+      });
+
+      expect(response.status).toBe(413);
+      expect(JSON.parse(response.body)).toEqual({ ok: false, error: "request body too large" });
+      expect(compileRunner).not.toHaveBeenCalled();
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("POST /api/compile/run rejects malformed JSON bodies with a sanitized 400", async () => {
+    const compileRunner = vi.fn(async () => ({
+      rawFilesIncluded: [],
+      rawFilesSkipped: [],
+      outputPath: "var/compile/scheduled-compile-prompt.md",
+      rawRemaining: 0,
+    }));
+    const server = await createServer({ vaultRoot: tmp, port: 0, compileRunner });
+
+    try {
+      const response = await httpRequest({
+        host: server.host,
+        port: server.port,
+        method: "POST",
+        path: "/api/compile/run",
+        headers: { "Content-Type": "application/json" },
+        body: "{",
+      });
+
+      expect(response.status).toBe(400);
+      expect(JSON.parse(response.body)).toEqual({ ok: false, error: "invalid JSON body" });
+      expect(response.body).not.toContain("Unexpected");
+      expect(response.body).not.toContain("SyntaxError");
+      expect(compileRunner).not.toHaveBeenCalled();
+    } finally {
+      await server.close();
+    }
+  });
+
   it("POST /api/compile/run refuses execute mode on a read-only mirror", async () => {
     await rm(join(tmp, ".git"), { recursive: true, force: true });
     const compileRunner = vi.fn(async () => ({
@@ -1275,6 +1619,7 @@ describe("dashboard server", () => {
   });
 
   it("POST /api/compile/run accepts proxy-reconstructed same-origin and rejects genuine cross-origin", async () => {
+    await writeFile(join(tmp, "config.yaml"), ["dashboard:", "  behind_proxy: true", ""].join("\n"));
     const compileRunner = vi.fn(async () => ({
       rawFilesIncluded: ["raw/a.md"],
       rawFilesSkipped: [],
@@ -1305,6 +1650,68 @@ describe("dashboard server", () => {
       });
       expect(blocked.status).toBe(403);
       expect(compileRunner).toHaveBeenCalledOnce();
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("POST /api/compile/run rejects direct same-origin spoofing through Host and preserves loopback writes", async () => {
+    const compileRunner = vi.fn(async () => ({
+      rawFilesIncluded: [],
+      rawFilesSkipped: [],
+      outputPath: "var/compile/scheduled-compile-prompt.md",
+      rawRemaining: 0,
+    }));
+    const server = await createServer({ vaultRoot: tmp, port: 0, compileRunner });
+
+    try {
+      const spoofed = await httpRequest({
+        host: server.host,
+        port: server.port,
+        method: "POST",
+        path: "/api/compile/run",
+        headers: {
+          Host: `127.evil:${server.port}`,
+          Origin: `http://127.evil:${server.port}`,
+        },
+      });
+      expect(spoofed.status).toBe(403);
+
+      const loopback = await httpRequest({
+        host: server.host,
+        port: server.port,
+        method: "POST",
+        path: "/api/compile/run",
+        headers: {
+          Host: `${server.host}:${server.port}`,
+          Origin: `http://${server.host}:${server.port}`,
+        },
+      });
+      expect(loopback.status).toBe(200);
+      expect(compileRunner).toHaveBeenCalledOnce();
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("POST /api/compile/run rejects present invalid Origin values", async () => {
+    const compileRunner = vi.fn(async () => ({
+      rawFilesIncluded: [],
+      rawFilesSkipped: [],
+      outputPath: "var/compile/scheduled-compile-prompt.md",
+      rawRemaining: 0,
+    }));
+    const server = await createServer({ vaultRoot: tmp, port: 0, compileRunner });
+
+    try {
+      const origin = `http://${server.host}:${server.port}`;
+      const response = await fetch(`${origin}/api/compile/run`, {
+        method: "POST",
+        headers: { Origin: "null" },
+      });
+
+      expect(response.status).toBe(403);
+      expect(compileRunner).not.toHaveBeenCalled();
     } finally {
       await server.close();
     }
@@ -1540,7 +1947,10 @@ describe("dashboard server", () => {
   });
 
   it("PATCH /api/config accepts proxy-reconstructed same-origin and rejects genuine cross-origin", async () => {
-    await writeFile(join(tmp, "config.yaml"), ["embedder:", "  provider: voyage", ""].join("\n"));
+    await writeFile(
+      join(tmp, "config.yaml"),
+      ["embedder:", "  provider: voyage", "dashboard:", "  behind_proxy: true", ""].join("\n"),
+    );
     const server = await createServer({ vaultRoot: tmp, port: 0 });
 
     try {
@@ -1568,6 +1978,231 @@ describe("dashboard server", () => {
         body: JSON.stringify({ embedder: { provider: "voyage" } }),
       });
       expect(blocked.status).toBe(403);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("PATCH /api/config validates option-only OpenAI baseURL patches with current provider context", async () => {
+    await writeFile(
+      join(tmp, "config.yaml"),
+      [
+        "embedder:",
+        "  provider: openai",
+        "  model: text-embedding-3-small",
+        "",
+      ].join("\n"),
+    );
+    const server = await createServer({ vaultRoot: tmp, port: 0 });
+
+    try {
+      const origin = `http://${server.host}:${server.port}`;
+      const official = await fetch(`${origin}/api/config`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          embedder: { options: { baseURL: "https://api.openai.com/v1" } },
+        }),
+      });
+      expect(official.status).toBe(200);
+      await expect(official.json()).resolves.toMatchObject({
+        ok: true,
+        applied: ["embedder.options"],
+      });
+
+      for (const baseURL of [
+        "https://8.8.8.8/v1",
+        "https://openai.example.test/v1",
+      ]) {
+        const blocked = await fetch(`${origin}/api/config`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ embedder: { options: { baseURL } } }),
+        });
+        expect(blocked.status, baseURL).toBe(400);
+        await expect(blocked.json()).resolves.toMatchObject({
+          ok: false,
+          errors: [
+            {
+              path: "embedder.options.baseURL",
+              message: "must use the official OpenAI HTTPS endpoint",
+            },
+          ],
+        });
+      }
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("PATCH /api/config rejects oversized Content-Length before reading the body", async () => {
+    await writeFile(join(tmp, "config.yaml"), ["embedder:", "  provider: voyage", ""].join("\n"));
+    const server = await createServer({ vaultRoot: tmp, port: 0 });
+
+    try {
+      const response = await httpRequest({
+        host: server.host,
+        port: server.port,
+        method: "PATCH",
+        path: "/api/config",
+        headers: {
+          "Content-Type": "application/json",
+          "Content-Length": String(REQUEST_BODY_LIMIT_BYTES + 1),
+        },
+      });
+
+      expect(response.status).toBe(413);
+      expect(JSON.parse(response.body)).toEqual({ ok: false, error: "request body too large" });
+    } finally {
+      await server.close();
+    }
+  });
+
+  it.each([
+    ["exponent", "Content-Length: 1e9\r\n"],
+    ["hex", "Content-Length: 0x200000\r\n"],
+    ["infinity", "Content-Length: Infinity\r\n"],
+    ["negative", "Content-Length: -1\r\n"],
+    ["empty", "Content-Length: \r\n"],
+    ["prefix", "Content-Length: 1048577x\r\n"],
+    ["unsafe", "Content-Length: 9007199254740992\r\n"],
+    ["duplicate", "Content-Length: 2\r\nContent-Length: 2\r\n"],
+  ])("PATCH /api/config rejects malformed %s Content-Length with sanitized JSON", async (_name, contentLength) => {
+    await writeFile(join(tmp, "config.yaml"), ["embedder:", "  provider: voyage", ""].join("\n"));
+    const server = await createServer({ vaultRoot: tmp, port: 0 });
+
+    try {
+      const response = await rawHttpRequest({
+        host: server.host,
+        port: server.port,
+        request: [
+          "PATCH /api/config HTTP/1.1",
+          `Host: ${server.host}:${server.port}`,
+          "Content-Type: application/json",
+          contentLength.trimEnd(),
+          "Connection: close",
+          "",
+          "{}",
+        ].join("\r\n"),
+      });
+
+      expect(response.status).toBe(400);
+      expect(JSON.parse(response.body)).toEqual({ ok: false, error: "invalid Content-Length" });
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("generic malformed raw requests return security headers", async () => {
+    const server = await createServer({ vaultRoot: tmp, port: 0 });
+
+    try {
+      const response = await rawHttpRequest({
+        host: server.host,
+        port: server.port,
+        request: "BOGUS\r\n\r\n",
+      });
+
+      expect(response.status).toBe(400);
+      expect(response.headers["x-content-type-options"]).toBe("nosniff");
+      expect(response.headers["x-frame-options"]).toBe("DENY");
+      expect(response.headers["referrer-policy"]).toBe("no-referrer");
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("PATCH /api/config rejects forwarded-header spoof when not behind a configured proxy", async () => {
+    await writeFile(join(tmp, "config.yaml"), ["embedder:", "  provider: voyage", ""].join("\n"));
+    const server = await createServer({ vaultRoot: tmp, port: 0 });
+
+    try {
+      const origin = `http://${server.host}:${server.port}`;
+      // Attacker sets BOTH Origin and X-Forwarded-Host to the same value to
+      // make the reconstructed origin match. Without dashboard.behind_proxy
+      // the forwarded headers must be ignored → 403.
+      const spoofed = await fetch(`${origin}/api/config`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Origin: "http://evil.example",
+          "X-Forwarded-Proto": "http",
+          "X-Forwarded-Host": "evil.example",
+        },
+        body: JSON.stringify({ embedder: { provider: "openai" } }),
+      });
+      expect(spoofed.status).toBe(403);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("PATCH /api/config rejects present malformed Origin values", async () => {
+    const server = await createServer({ vaultRoot: tmp, port: 0 });
+
+    try {
+      const origin = `http://${server.host}:${server.port}`;
+      const response = await fetch(`${origin}/api/config`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Origin: "not a url",
+        },
+        body: JSON.stringify({ embedder: { provider: "openai" } }),
+      });
+
+      expect(response.status).toBe(403);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("PATCH /api/config rejects ambiguous forwarded host and proto under trusted proxy mode", async () => {
+    await writeFile(join(tmp, "config.yaml"), ["dashboard:", "  behind_proxy: true", "embedder:", "  provider: voyage", ""].join("\n"));
+    const server = await createServer({ vaultRoot: tmp, port: 0 });
+
+    try {
+      const localAuthority = `${server.host}:${server.port}`;
+      const cases = [
+        {
+          name: "forwarded host attacker first",
+          origin: "https://evil.example",
+          forwardedProto: "https",
+          forwardedHost: `evil.example, ${localAuthority}`,
+        },
+        {
+          name: "forwarded host attacker last",
+          origin: `https://${localAuthority}`,
+          forwardedProto: "https",
+          forwardedHost: `${localAuthority}, evil.example`,
+        },
+        {
+          name: "forwarded proto attacker first",
+          origin: "https://evil.example",
+          forwardedProto: "https, http",
+          forwardedHost: "evil.example",
+        },
+        {
+          name: "forwarded proto attacker last",
+          origin: "http://evil.example",
+          forwardedProto: "http, https",
+          forwardedHost: "evil.example",
+        },
+      ];
+
+      for (const entry of cases) {
+        const response = await fetch(`http://${localAuthority}/api/config`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            Origin: entry.origin,
+            "X-Forwarded-Proto": entry.forwardedProto,
+            "X-Forwarded-Host": entry.forwardedHost,
+          },
+          body: JSON.stringify({ embedder: { provider: "openai" } }),
+        });
+        expect(response.status, entry.name).toBe(403);
+      }
     } finally {
       await server.close();
     }
@@ -1618,6 +2253,7 @@ describe("dashboard server", () => {
 
   it("POST /api/proposed/promote and reject are same-origin gated", async () => {
     await writeProposedDrafts(tmp);
+    await writeFile(join(tmp, "config.yaml"), ["dashboard:", "  behind_proxy: true", ""].join("\n"));
     const server = await createServer({ vaultRoot: tmp, port: 0 });
 
     try {
@@ -1659,6 +2295,29 @@ describe("dashboard server", () => {
         ok: true,
         rejectedPath: "wiki/procedures-proposed/review-procedure.md",
       });
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("POST /api/proposed/promote and reject reject present comma-joined Origin values", async () => {
+    await writeProposedDrafts(tmp);
+    const server = await createServer({ vaultRoot: tmp, port: 0 });
+
+    try {
+      const origin = `http://${server.host}:${server.port}`;
+      for (const path of ["/api/proposed/promote", "/api/proposed/reject"]) {
+        const response = await fetch(`${origin}${path}`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Origin: `${origin}, https://evil.example`,
+          },
+          body: JSON.stringify({ kind: "thread", slug: "memory-thread" }),
+        });
+
+        expect(response.status, path).toBe(403);
+      }
     } finally {
       await server.close();
     }
@@ -1738,6 +2397,8 @@ describe("dashboard server", () => {
       expect(response.status).toBe(200);
       expect(response.headers.get("content-type")).toContain("text/html");
       expect(response.headers.get("cache-control")).toBe("no-cache");
+      expectCommonSecurityHeaders(response.headers);
+      expect(response.headers.get("content-security-policy")).toBe(DASHBOARD_CSP);
       expect(body).toContain('<div id="root"');
     } finally {
       await server.close();
@@ -1755,6 +2416,8 @@ describe("dashboard server", () => {
         expect(response.status).toBe(200);
         expect(response.headers.get("content-type")).toContain("text/html");
         expect(response.headers.get("cache-control")).toBe("no-cache");
+        expectCommonSecurityHeaders(response.headers);
+        expect(response.headers.get("content-security-policy")).toBe(DASHBOARD_CSP);
         expect(body).toContain('<div id="root"');
       }
     } finally {

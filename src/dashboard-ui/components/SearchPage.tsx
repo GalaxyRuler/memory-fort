@@ -68,6 +68,7 @@ export function SearchPage() {
       <header className="mb-6">
         <h1 className="mb-2 break-words text-2xl font-semibold tracking-tight">Search</h1>
         <Input
+          aria-label="Search memory"
           autoFocus
           className="w-full font-mono"
           onChange={(event) => setInputValue(event.currentTarget.value)}

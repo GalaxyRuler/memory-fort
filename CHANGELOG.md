@@ -1,1 +1,17 @@
-IyBDaGFuZ2Vsb2cKCiMjIFswLjEuMV0gLSAyMDI2LTA2LTA2CgojIyMgRml4ZWQKLSBSZW1vdmUgaW50ZXJuYWwgYnVpbGQgY2h1bmsgKGBkaXN0L3ByaXZhdGUtb3BzLSoubWpzYCkgZnJvbSBwdWJsaXNoZWQgdGFyYmFsbAotIERlbGV0ZSBWSFMvaW5mcmEgY29tbWFuZCBzb3VyY2UgZmlsZXMgZnJvbSBidWlsZCBpbnB1dHMKCiMjIFswLjEuMF0gLSAyMDI2LTA2LTA2IC0tIERFUFJFQ0FURUQKSW5pdGlhbCBwdWJsaWMgcmVsZWFzZS4gQ29udGFpbmVkIGFuIGludGVybmFsIGJ1aWxkIGFydGlmYWN0OyB1c2UgMC4xLjEuCgojIyBGZWF0dXJlcyAoYm90aCkKLSBCTTI1ICsgZ3JhcGggbGV4aWNhbCBzZWFyY2ggKG5vIEFQSSBrZXkgcmVxdWlyZWQpCi0gU3VwcG9ydHMgQ2xhdWRlIENvZGUsIENvZGV4LCBBbnRpZ3Jhdml0eSwgSGVybWVzLCBQaSwgT3BlbkNsYXcsIENsYXVkZSBEZXNrdG9wLCBWUyBDb2RlCi0gSW50ZXJhY3RpdmUgYG1lbW9yeS1mb3J0IGluaXRgIHdpemFyZAotIFRyaS1PUyBDSSAodWJ1bnR1IC8gbWFjb3MgLyB3aW5kb3dzKQotIFBvbHlGb3JtIE5vbmNvbW1lcmNpYWwgbGljZW5zZQo=
+# Changelog
+
+## [0.1.1] - 2026-06-06
+
+### Fixed
+- Remove internal build chunk (`dist/private-ops-*.mjs`) from published tarball
+- Delete VHS/infra command source files from build inputs
+
+## [0.1.0] - 2026-06-06 -- DEPRECATED
+Initial public release. Contained an internal build artifact; use 0.1.1.
+
+## Features (both)
+- BM25 + graph lexical search (no API key required)
+- Supports Claude Code, Codex, Antigravity, Hermes, Pi, OpenClaw, Claude Desktop, VS Code
+- Interactive `memory-fort init` wizard
+- Tri-OS CI (ubuntu / macos / windows)
+- GPL-3.0-only license

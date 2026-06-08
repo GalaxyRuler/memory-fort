@@ -93,7 +93,7 @@ describe("dashboard wiki/raw routing", () => {
 
     renderAt("/wiki");
 
-    expect(await screen.findByText("12 curated pages")).toBeInTheDocument();
+    expect(await screen.findByText("1 curated pages")).toBeInTheDocument();
     expect(mockApiGet).toHaveBeenCalledWith("/wiki");
   });
 

@@ -54,6 +54,16 @@ describe("stub commands", () => {
     }
   });
 
+  it("documents top-level environment variables in help", () => {
+    const r = runCli(["--help"], { MEMORY_FORT_SHOW_STUBS: "" });
+    expect(r.code).toBe(0);
+    expect(r.stdout).toContain("Environment");
+    expect(r.stdout).toContain("MEMORY_ROOT");
+    expect(r.stdout).toContain("Path to the memory vault (default: ~/.memory)");
+    expect(r.stdout).toContain("MEMORY_ROLE");
+    expect(r.stdout).toContain("Role hint for health checks (operator|server)");
+  });
+
   for (const [name, phase] of stubs) {
     it(`'${name}' exits 2 with Phase ${phase} message when explicitly enabled`, () => {
       const r = runStub(name);

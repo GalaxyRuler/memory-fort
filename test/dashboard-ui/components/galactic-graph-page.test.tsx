@@ -55,13 +55,29 @@ vi.mock("../../../src/dashboard-ui/components/GalacticScene.js", async () => {
       }));
 
       return (
-        <button
-          type="button"
-          data-testid="galactic-canvas-shell"
-          onClick={() => props.onSelectNode?.("wiki/projects/core.md")}
-        >
-          galactic canvas
-        </button>
+        <div>
+          <button
+            type="button"
+            data-testid="galactic-canvas-shell"
+            onClick={() => props.onSelectNode?.("wiki/projects/core.md")}
+          >
+            galactic canvas
+          </button>
+          <button
+            type="button"
+            data-testid="galaxy-core"
+            onClick={() => props.onGalaxyClusterClick?.("core")}
+          >
+            galaxy core
+          </button>
+          <button
+            type="button"
+            data-testid="scene-zoom-memory"
+            onClick={() => props.onZoomLevelChange?.(1)}
+          >
+            scene zoom memory
+          </button>
+        </div>
       );
     }),
   };
@@ -146,11 +162,63 @@ describe("Galactic GraphPage", () => {
     render(<GraphPage />);
 
     fireEvent.click(screen.getByTestId("galactic-canvas-shell"));
-    expect(screen.getByText("Core Memory")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 2, name: "Core Memory" })).toBeInTheDocument();
     expect(canvasCalls.focusNode).toHaveBeenCalledWith("wiki/projects/core.md");
 
     fireEvent.click(screen.getByRole("button", { name: /Open Memory/ }));
     expect(screen.getByTestId("memory-modal")).toHaveTextContent("wiki/projects/core.md");
+  });
+
+  test("keeps the grouped graph text alternative available on desktop", () => {
+    render(<GraphPage />);
+
+    const textAlternative = screen.getByRole("region", {
+      name: "Memory knowledge graph text alternative",
+    });
+    expect(textAlternative).toHaveClass("sr-only");
+    expect(textAlternative).toHaveTextContent("Open on desktop for the 3D view");
+    expect(textAlternative).toHaveTextContent("Core Memory");
+    expect(textAlternative).toHaveTextContent("Reference Memory");
+    expect(screen.getByTestId("galactic-canvas-shell")).toBeInTheDocument();
+  });
+
+  test("shows a galaxy zoom hint when a galaxy cluster is clicked", () => {
+    render(<GraphPage />);
+
+    expect(screen.queryByText("Zoom in to select individual memories")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("galaxy-core"));
+
+    expect(screen.getByRole("status")).toHaveTextContent("Zoom in to select individual memories");
+  });
+
+  test("does not show the galaxy zoom hint after the scene reports memory zoom", () => {
+    render(<GraphPage />);
+
+    fireEvent.click(screen.getByTestId("scene-zoom-memory"));
+    fireEvent.click(screen.getByTestId("galaxy-core"));
+
+    expect(screen.queryByText("Zoom in to select individual memories")).not.toBeInTheDocument();
+  });
+
+  test("list view exposes keyboard-reachable nodes that open the memory modal", () => {
+    render(<GraphPage />);
+
+    // Graph view by default — the canvas is present, no interactive node buttons.
+    expect(screen.getByTestId("galactic-canvas-shell")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Core Memory/ })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "List view" }));
+
+    // Canvas is gone; nodes are now focusable buttons a keyboard user can reach.
+    expect(screen.queryByTestId("galactic-canvas-shell")).not.toBeInTheDocument();
+    const nodeButton = screen.getByRole("button", { name: /Core Memory/ });
+    fireEvent.click(nodeButton);
+    expect(screen.getByTestId("memory-modal")).toHaveTextContent("wiki/projects/core.md");
+
+    // Toggle is reversible.
+    fireEvent.click(screen.getByRole("button", { name: "Graph view" }));
+    expect(screen.getByTestId("galactic-canvas-shell")).toBeInTheDocument();
   });
 
   test("keyboard zoom shortcuts drive the canvas handle", () => {

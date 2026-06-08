@@ -52,8 +52,65 @@ describe("runDoctor", () => {
     expect(result.checks.find((check) => check.name.includes("config.yaml"))!.ok).toBe(true);
   });
 
-  it("reports claude-code install check fail when manifest absent", async () => {
+  it("does not fail when embeddings directory is absent", async () => {
     await runInit({ sourceRepoDir: process.cwd() });
+    const memRoot = process.env["MEMORY_ROOT"]!;
+    await rm(join(memRoot, "embeddings"), { recursive: true, force: true });
+
+    const result = await runDoctor();
+
+    const embeddingsCheck = result.checks.find((check) =>
+      check.name.includes("embeddings"),
+    );
+    expect(embeddingsCheck!.ok).toBe(true);
+    expect(embeddingsCheck!.hint).toContain("skipping vector");
+    expect(result.failed).toBe(0);
+  });
+
+  it("accepts supported wiki-local crystals and archive directories", async () => {
+    await runInit({ sourceRepoDir: process.cwd() });
+    const memRoot = process.env["MEMORY_ROOT"]!;
+    await rm(join(memRoot, "crystals"), { recursive: true, force: true });
+    await rm(join(memRoot, ".archive"), { recursive: true, force: true });
+    await mkdir(join(memRoot, "wiki", "crystals"), { recursive: true });
+    await mkdir(join(memRoot, "wiki", ".archive"), { recursive: true });
+
+    const result = await runDoctor();
+
+    expect(result.checks.find((check) => check.name.includes("crystals"))!.ok).toBe(true);
+    expect(result.checks.find((check) => check.name.includes("archive"))!.ok).toBe(true);
+  });
+
+  it("accepts wiki archive directory when it is the only archive layout", async () => {
+    await runInit({ sourceRepoDir: process.cwd() });
+    const memRoot = process.env["MEMORY_ROOT"]!;
+    await rm(join(memRoot, ".archive"), { recursive: true, force: true });
+    await rm(join(memRoot, "wiki", ".archive"), { recursive: true, force: true });
+    await mkdir(join(memRoot, "wiki", "archive"), { recursive: true });
+
+    const result = await runDoctor();
+
+    expect(result.checks.find((check) => check.name.includes("archive"))!.ok).toBe(true);
+  });
+
+  it("does not fail claude-code plugin checks when Claude Code is absent", async () => {
+    await runInit({ sourceRepoDir: process.cwd() });
+
+    const result = await runDoctor();
+
+    const claudeChecks = result.checks.filter((check) =>
+      check.name.includes("claude-code"),
+    );
+    expect(claudeChecks.length).toBeGreaterThan(0);
+    expect(claudeChecks.every((check) => check.ok)).toBe(true);
+    expect(claudeChecks.every((check) => check.hint?.includes("not installed"))).toBe(
+      true,
+    );
+  });
+
+  it("reports claude-code install check fail when manifest absent and Claude Code is installed", async () => {
+    await runInit({ sourceRepoDir: process.cwd() });
+    await mkdir(process.env["MEMORY_CLAUDE_DIR"]!, { recursive: true });
     const result = await runDoctor();
     const pluginCheck = result.checks.find((check) =>
       check.name.includes("plugin manifest"),

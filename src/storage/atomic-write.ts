@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { open, rename, mkdir, appendFile } from "node:fs/promises";
+import { open, rename, mkdir, appendFile, type FileHandle } from "node:fs/promises";
 import { dirname } from "node:path";
 
 const WINDOWS_RENAME_RETRY_CODES = new Set(["EPERM", "EACCES", "EBUSY", "ENOENT"]);
@@ -39,6 +39,27 @@ export async function atomicWrite(
   }
   atomicWriteRetryStats.writes += 1;
   await renameWithWindowsRetry(tmp, absolutePath);
+  await syncParentDir(absolutePath);
+}
+
+/**
+ * Best-effort durability: fsync the parent directory after the rename so the
+ * new directory entry survives a crash on POSIX filesystems. Directory fsync
+ * is unsupported on Windows (a directory handle cannot be opened for sync), so
+ * skip it there. Never throws — durability hardening must not break the write
+ * (some filesystems also disallow directory fsync).
+ */
+async function syncParentDir(absolutePath: string): Promise<void> {
+  if (process.platform === "win32") return;
+  let handle: FileHandle | undefined;
+  try {
+    handle = await open(dirname(absolutePath), "r");
+    await handle.sync();
+  } catch {
+    // Directory fsync is best-effort; ignore unsupported / permission errors.
+  } finally {
+    await handle?.close();
+  }
 }
 
 /**

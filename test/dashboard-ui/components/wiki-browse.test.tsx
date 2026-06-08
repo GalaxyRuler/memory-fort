@@ -72,6 +72,19 @@ const INDEX: WikiIndex = {
   total: 2,
 };
 
+const CONFIGURED_CATEGORY_ORDER = [
+  "decisions",
+  "projects",
+  "issues",
+  "lessons",
+  "references",
+  "tools",
+  "people",
+  "threads",
+  "procedures",
+  "crystals",
+];
+
 describe("wiki browse components", () => {
   test("CategorySidebar renders categories with counts", () => {
     render(<CategorySidebar index={INDEX} onSelect={() => {}} selectedCategory={null} />);
@@ -79,6 +92,40 @@ describe("wiki browse components", () => {
     expect(screen.getByRole("button", { name: /All/ })).toHaveTextContent("2");
     expect(screen.getByRole("button", { name: /projects/i })).toHaveTextContent("1");
     expect(screen.getByRole("button", { name: /decisions/i })).toHaveTextContent("1");
+  });
+
+  test("CategorySidebar renders zero-count configured categories before extra data categories", () => {
+    const index: WikiIndex = {
+      byCategory: {
+        projects: INDEX.byCategory.projects,
+        snippets: [
+          {
+            category: "snippets",
+            slug: "query-helper",
+            relPath: "wiki/snippets/query-helper.md",
+            title: "Query helper",
+            summary: "Extra category page",
+            updated: "2026-05-25",
+          },
+        ],
+      },
+      total: 2,
+    };
+
+    render(<CategorySidebar index={index} onSelect={() => {}} selectedCategory={null} />);
+
+    for (const category of CONFIGURED_CATEGORY_ORDER) {
+      expect(screen.getByRole("button", { name: new RegExp(category, "i") })).toHaveTextContent(
+        category === "projects" ? "1" : "0",
+      );
+    }
+    expect(screen.getByRole("button", { name: /snippets/i })).toHaveTextContent("1");
+
+    const categoryLabels = screen
+      .getAllByRole("button")
+      .slice(1)
+      .map((button) => button.textContent?.replace(/\d+$/, ""));
+    expect(categoryLabels).toEqual([...CONFIGURED_CATEGORY_ORDER, "snippets"]);
   });
 
   test("CategorySidebar fires onSelect with null for All", () => {
@@ -120,5 +167,24 @@ describe("wiki browse components", () => {
     expect(screen.queryByRole("heading", { name: "Lessons", level: 2 })).not.toBeInTheDocument();
     expect(screen.getByText("memory-system")).toBeInTheDocument();
     expect(screen.getByText("Voyage")).toBeInTheDocument();
+  });
+
+  test("WikiBrowsePage header count matches visible category counts instead of stale total", () => {
+    wikiHook.useWikiIndex.mockReturnValue({
+      data: {
+        byCategory: {
+          projects: INDEX.byCategory.projects,
+          decisions: INDEX.byCategory.decisions,
+          lessons: [],
+        },
+        total: 99,
+      },
+      isLoading: false,
+    });
+
+    render(<WikiBrowsePage />);
+
+    expect(screen.getByText("2 curated pages")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /All/ })).toHaveTextContent("2");
   });
 });

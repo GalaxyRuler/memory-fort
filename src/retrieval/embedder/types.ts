@@ -39,6 +39,7 @@ export interface EmbedderConfig {
   provider: EmbedderProvider;
   model?: string;
   options?: Record<string, unknown>;
+  allowInternalHosts?: boolean;
 }
 
 export function isEmbedder(value: EmbedClient): value is Embedder {

@@ -5,7 +5,12 @@ import { AppShell } from "../../../src/dashboard-ui/layouts/AppShell.js";
 import { MobileBottomNav } from "../../../src/dashboard-ui/layouts/MobileBottomNav.js";
 import { Sidebar } from "../../../src/dashboard-ui/layouts/Sidebar.js";
 import { TopBar } from "../../../src/dashboard-ui/layouts/TopBar.js";
-import { MOBILE_NAV_ITEMS, NAV_ITEMS } from "../../../src/dashboard-ui/lib/nav-items.js";
+import {
+  ADVANCED_NAV_ITEMS,
+  MOBILE_NAV_ITEMS,
+  OPERATIONS_NAV_ITEMS,
+  PRIMARY_NAV_ITEMS,
+} from "../../../src/dashboard-ui/lib/nav-items.js";
 
 const routerMockState = vi.hoisted(() => ({ currentPath: "/" }));
 
@@ -76,15 +81,38 @@ describe("dashboard app shell", () => {
     expect(screen.getByRole("navigation", { name: /mobile navigation/i })).toBeInTheDocument();
   });
 
-  test("Sidebar lists all nav items", () => {
+  test("AppShell provides a skip link targeting the main content", () => {
+    render(<AppShell />);
+
+    const skipLink = screen.getByRole("link", { name: "Skip to main content" });
+    const main = screen.getByRole("main");
+    const firstFocusable = document.body.querySelector<HTMLElement>(
+      'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    );
+
+    expect(skipLink).toHaveAttribute("href", "#main-content");
+    expect(skipLink).toHaveClass("sr-only");
+    expect(main).toHaveAttribute("id", "main-content");
+    expect(firstFocusable).toBe(skipLink);
+  });
+
+  test("Sidebar lists primary nav items and collapses operations and advanced by default", () => {
     render(<Sidebar />);
 
     const sidebar = screen.getByRole("complementary");
     const nav = within(sidebar).getByRole("navigation", { name: "Primary navigation" });
-    expect(within(nav).getAllByRole("link")).toHaveLength(NAV_ITEMS.length);
-    for (const item of NAV_ITEMS) {
+    expect(within(nav).getAllByRole("link")).toHaveLength(PRIMARY_NAV_ITEMS.length);
+    for (const item of PRIMARY_NAV_ITEMS) {
       expect(within(nav).getByRole("link", { name: item.label })).toBeInTheDocument();
     }
+    for (const item of OPERATIONS_NAV_ITEMS) {
+      expect(within(nav).queryByRole("link", { name: item.label })).not.toBeInTheDocument();
+    }
+    for (const item of ADVANCED_NAV_ITEMS) {
+      expect(within(nav).queryByRole("link", { name: item.label })).not.toBeInTheDocument();
+    }
+    expect(within(nav).getByRole("button", { name: "Operations" })).toHaveAttribute("aria-expanded", "false");
+    expect(within(nav).getByRole("button", { name: "Advanced" })).toHaveAttribute("aria-expanded", "false");
   });
 
   test("Sidebar highlights the active route", () => {

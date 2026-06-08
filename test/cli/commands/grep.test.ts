@@ -45,6 +45,21 @@ describe("runGrep (mocked spawn)", () => {
     expect(capturedArgs).toContain("foo");
   });
 
+  it("sets a 64 MiB maxBuffer for ripgrep output", () => {
+    let capturedOptions: { encoding: "utf-8"; maxBuffer?: number } | undefined;
+    const result = runGrep({
+      pattern: "foo",
+      spawn: (_cmd, _args, opts) => {
+        capturedOptions = opts;
+        return { status: 0, stdout: "", stderr: "", pid: 0, output: [], signal: null } as never;
+      },
+      stdout: () => {},
+      stderr: () => {},
+    });
+    expect(result.exitCode).toBe(0);
+    expect(capturedOptions).toEqual({ encoding: "utf-8", maxBuffer: 64 * 1024 * 1024 });
+  });
+
   it("restricts to raw/ only when scope=raw", () => {
     const result = runGrep({
       pattern: "x",
@@ -72,14 +87,104 @@ describe("runGrep (mocked spawn)", () => {
   });
 
   it("returns exit 1 when rg reports no matches", () => {
+    let stderrCapture = "";
     const result = runGrep({
       pattern: "nonexistent",
       spawn: () =>
         ({ status: 1, stdout: "", stderr: "", pid: 0, output: [], signal: null }) as never,
       stdout: () => {},
-      stderr: () => {},
+      stderr: (text) => {
+        stderrCapture += text;
+      },
     });
     expect(result.exitCode).toBe(1);
+    expect(stderrCapture).toBe('No matches for "nonexistent" in raw/ + wiki/.\n');
+  });
+
+  it("prints raw/ for no matches when scope=raw", () => {
+    let stderrCapture = "";
+    const result = runGrep({
+      pattern: "nonexistent",
+      scope: "raw",
+      spawn: () =>
+        ({ status: 1, stdout: "", stderr: "", pid: 0, output: [], signal: null }) as never,
+      stdout: () => {},
+      stderr: (text) => {
+        stderrCapture += text;
+      },
+    });
+    expect(result.exitCode).toBe(1);
+    expect(stderrCapture).toBe('No matches for "nonexistent" in raw/.\n');
+  });
+
+  it("prints wiki/ for no matches when scope=wiki", () => {
+    let stderrCapture = "";
+    const result = runGrep({
+      pattern: "nonexistent",
+      scope: "wiki",
+      spawn: () =>
+        ({ status: 1, stdout: "", stderr: "", pid: 0, output: [], signal: null }) as never,
+      stdout: () => {},
+      stderr: (text) => {
+        stderrCapture += text;
+      },
+    });
+    expect(result.exitCode).toBe(1);
+    expect(stderrCapture).toBe('No matches for "nonexistent" in wiki/.\n');
+  });
+
+  it("escapes quotes and newlines in the no-match pattern", () => {
+    let stderrCapture = "";
+    const result = runGrep({
+      pattern: 'quoted "pattern"\nnext line',
+      spawn: () =>
+        ({ status: 1, stdout: "", stderr: "", pid: 0, output: [], signal: null }) as never,
+      stdout: () => {},
+      stderr: (text) => {
+        stderrCapture += text;
+      },
+    });
+    expect(result.exitCode).toBe(1);
+    expect(stderrCapture).toBe(
+      'No matches for "quoted \\"pattern\\"\\nnext line" in raw/ + wiki/.\n',
+    );
+  });
+
+  it("does not print the no-match message when rg reports stderr", () => {
+    let stderrCapture = "";
+    const result = runGrep({
+      pattern: "nonexistent",
+      spawn: () =>
+        ({
+          status: 1,
+          stdout: "",
+          stderr: "rg: raw: Permission denied\n",
+          pid: 0,
+          output: [],
+          signal: null,
+        }) as never,
+      stdout: () => {},
+      stderr: (text) => {
+        stderrCapture += text;
+      },
+    });
+    expect(result.exitCode).toBe(1);
+    expect(stderrCapture).toBe("rg: raw: Permission denied\n");
+  });
+
+  it("does not print the no-match message when rg reports an error status", () => {
+    let stderrCapture = "";
+    const result = runGrep({
+      pattern: "nonexistent",
+      spawn: () =>
+        ({ status: 2, stdout: "", stderr: "", pid: 0, output: [], signal: null }) as never,
+      stdout: () => {},
+      stderr: (text) => {
+        stderrCapture += text;
+      },
+    });
+    expect(result.exitCode).toBe(2);
+    expect(stderrCapture).toBe("");
   });
 
   it("returns exit 2 when rg is not found", () => {
@@ -102,6 +207,34 @@ describe("runGrep (mocked spawn)", () => {
       stderr: () => {},
     });
     expect(result.exitCode).toBe(2);
+  });
+
+  it("returns exit 2 with a clear message when ripgrep output exceeds maxBuffer", () => {
+    let stderrCapture = "";
+    const result = runGrep({
+      pattern: "x",
+      spawn: () => {
+        const err = new Error("spawnSync rg ENOBUFS") as NodeJS.ErrnoException;
+        err.code = "ENOBUFS";
+        return {
+          status: null,
+          stdout: "",
+          stderr: "",
+          pid: 0,
+          output: [],
+          signal: null,
+          error: err,
+        } as never;
+      },
+      stdout: () => {},
+      stderr: (text) => {
+        stderrCapture += text;
+      },
+    });
+    expect(result.exitCode).toBe(2);
+    expect(stderrCapture).toBe(
+      "memory grep: ripgrep output exceeded 64 MiB; narrow the pattern or scope and retry.\n",
+    );
   });
 
   it("returns exit 2 when both raw/ and wiki/ are absent", async () => {

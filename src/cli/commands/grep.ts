@@ -3,6 +3,9 @@ import { existsSync } from "node:fs";
 import { rawDir, wikiDir } from "../../storage/paths.js";
 
 export type GrepScope = "raw" | "wiki" | "both";
+export type GrepSpawnOptions = { encoding: "utf-8"; maxBuffer: number };
+
+const RG_MAX_BUFFER = 64 * 1024 * 1024;
 
 export interface GrepOptions {
   pattern: string;
@@ -12,7 +15,7 @@ export interface GrepOptions {
   spawn?: (
     cmd: string,
     args: string[],
-    opts: { encoding: "utf-8" },
+    opts: GrepSpawnOptions,
   ) => SpawnSyncReturns<string>;
   /** For tests — override stdout/stderr writers. */
   stdout?: (text: string) => void;
@@ -38,12 +41,19 @@ export function runGrep(opts: GrepOptions): GrepResult {
   const writeErr = opts.stderr ?? ((text) => process.stderr.write(text));
 
   const dirs: string[] = [];
+  const dirLabels: string[] = [];
   if (scope === "raw" || scope === "both") {
     const rawRoot = rawDir().replace(/[\\/][0-9-]+$/, "");
-    if (existsSync(rawRoot)) dirs.push(rawRoot);
+    if (existsSync(rawRoot)) {
+      dirs.push(rawRoot);
+      dirLabels.push("raw/");
+    }
   }
   if (scope === "wiki" || scope === "both") {
-    if (existsSync(wikiDir())) dirs.push(wikiDir());
+    if (existsSync(wikiDir())) {
+      dirs.push(wikiDir());
+      dirLabels.push("wiki/");
+    }
   }
 
   if (dirs.length === 0) {
@@ -64,11 +74,15 @@ export function runGrep(opts: GrepOptions): GrepResult {
     ...dirs,
   ];
 
-  const result = spawnFn("rg", rgArgs, { encoding: "utf-8" });
+  const result = spawnFn("rg", rgArgs, { encoding: "utf-8", maxBuffer: RG_MAX_BUFFER });
 
   if (result.error) {
     const code = (result.error as NodeJS.ErrnoException).code;
-    if (code === "ENOENT") {
+    if (code === "ENOBUFS") {
+      writeErr(
+        "memory grep: ripgrep output exceeded 64 MiB; narrow the pattern or scope and retry.\n",
+      );
+    } else if (code === "ENOENT") {
       writeErr("memory grep: ripgrep ('rg') not found on PATH. Install ripgrep and retry.\n");
     } else {
       writeErr(`memory grep: ${result.error.message}\n`);
@@ -81,5 +95,8 @@ export function runGrep(opts: GrepOptions): GrepResult {
 
   const rawExit = result.status ?? 2;
   const exitCode: 0 | 1 | 2 = rawExit === 0 ? 0 : rawExit === 1 ? 1 : 2;
+  if (exitCode === 1 && !result.stdout && !result.stderr) {
+    writeErr(`No matches for ${JSON.stringify(opts.pattern)} in ${dirLabels.join(" + ")}.\n`);
+  }
   return { exitCode, argsUsed: rgArgs, dirsSearched: dirs };
 }
