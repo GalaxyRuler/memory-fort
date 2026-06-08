@@ -239,7 +239,7 @@ export function validateMemoryConfig(config: MemoryConfig): string[] {
   }
   if (config.chatgpt !== undefined) {
     const port = config.chatgpt.bridge_port;
-    if (port !== undefined && (!Number.isInteger(port) || port < 1024 || port > 65535)) {
+    if (port !== undefined && !isIntegerInRange(port, 1024, 65535)) {
       warnings.push("chatgpt.bridge_port must be an integer between 1024 and 65535");
     }
   }
