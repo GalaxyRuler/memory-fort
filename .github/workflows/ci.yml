@@ -29,11 +29,11 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
-      - name: Typecheck UI
-        run: npm run typecheck:ui
-
       - name: Build
         run: npm run build
+
+      - name: Typecheck UI
+        run: npm run typecheck:ui
 
       - name: Scan for leaks
         run: npm run scan:leaks
