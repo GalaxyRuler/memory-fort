@@ -16,11 +16,36 @@ vi.mock("../../../../src/storage/paths.js", () => ({
   chatgptBridgePidPath: () => "/tmp/test-chatgpt-bridge.pid",
 }));
 
+vi.mock("../../../../src/storage/atomic-write.js", () => ({
+  atomicWrite: vi.fn(async () => undefined),
+}));
+
 describe("runInstallChatGpt", () => {
   it("returns bridge URL and instructions on dryRun", async () => {
     const result = await runInstallChatGpt({ dryRun: true });
     expect(result.bridgeUrl).toBe("http://127.0.0.1:3100/sse");
     expect(result.port).toBe(3100);
     expect(result.instructions).toContain("http://127.0.0.1:3100/sse");
+  });
+
+  it("throws on invalid port", async () => {
+    await expect(runInstallChatGpt({ dryRun: true, port: 80 })).rejects.toThrow(
+      "Invalid bridge port 80: must be integer between 1024 and 65535",
+    );
+  });
+
+  it("writes chatgpt.bridge_port to config on non-dryRun", async () => {
+    const { atomicWrite } = await import("../../../../src/storage/atomic-write.js");
+    const mockWrite = vi.mocked(atomicWrite);
+    mockWrite.mockClear();
+
+    const result = await runInstallChatGpt({ dryRun: false, noAutostart: true });
+
+    expect(result.port).toBe(3100);
+    expect(mockWrite).toHaveBeenCalledOnce();
+
+    const [writtenPath, writtenContent] = mockWrite.mock.calls[0] as [string, string];
+    expect(writtenPath).toContain("config.yaml");
+    expect(writtenContent).toContain("bridge_port: 3100");
   });
 });

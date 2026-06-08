@@ -33,6 +33,11 @@ export async function runInstallChatGpt(
   const root = memoryRoot();
   const config = await loadMemoryConfig(root);
   const port = opts.port ?? getChatGptBridgePort(config);
+
+  if (!Number.isInteger(port) || port < 1024 || port > 65535) {
+    throw new Error(`Invalid bridge port ${port}: must be integer between 1024 and 65535`);
+  }
+
   const bridgeUrl = `http://127.0.0.1:${port}/sse`;
 
   if (!opts.dryRun) {
