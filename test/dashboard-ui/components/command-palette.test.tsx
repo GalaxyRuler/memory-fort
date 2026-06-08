@@ -17,7 +17,7 @@ vi.mock("@tanstack/react-router", async (importOriginal) => {
   };
 });
 
-function makeSearchResponse() {
+function makeSearchResponse(source = "rerank") {
   return {
     query: "voyage",
     results: [
@@ -26,8 +26,14 @@ function makeSearchResponse() {
         title: "Foo Project",
         snippet: "Foo project snippet",
         score: 0.91,
-        source: "rerank",
-        sources: [{ source: "rerank", rank: 1 }],
+        source,
+        sources: [{ source, rank: 1 }],
+        provenance: {
+          path: "wiki/projects/foo.md",
+          kind: "wiki",
+          dominantSource: source,
+          signals: [{ source, rank: 1 }],
+        },
         kind: "wiki",
       },
     ],
@@ -43,6 +49,27 @@ function makeSearchResponse() {
     degraded: false,
     hyde: { used: false, reason: "not-triggered" },
     corpusErrorCount: 0,
+  };
+}
+
+function makeCrystalSearchResponse() {
+  const response = makeSearchResponse();
+  return {
+    ...response,
+    results: [
+      {
+        ...response.results[0],
+        path: "wiki/crystals/retrieval.md",
+        title: "Usage Patterns",
+        snippet: "Usage patterns snippet",
+        provenance: {
+          ...response.results[0].provenance,
+          path: "wiki/crystals/retrieval.md",
+          kind: "crystal",
+        },
+        kind: "crystal",
+      },
+    ],
   };
 }
 
@@ -105,7 +132,7 @@ describe("CommandPalette", () => {
   test("typing fires a debounced search", async () => {
     vi.useFakeTimers();
     const fetchMock = vi.fn(
-      async () => new Response(JSON.stringify(makeSearchResponse()), { status: 200 }),
+      async (_input: RequestInfo | URL) => new Response(JSON.stringify(makeSearchResponse()), { status: 200 }),
     );
     vi.stubGlobal("fetch", fetchMock);
     renderPalette();
@@ -136,7 +163,7 @@ describe("CommandPalette", () => {
 
   test("labels palette search responses as fast", async () => {
     const fetchMock = vi.fn(
-      async () => new Response(JSON.stringify(makeSearchResponse()), { status: 200 }),
+      async (_input: RequestInfo | URL) => new Response(JSON.stringify(makeSearchResponse()), { status: 200 }),
     );
     vi.stubGlobal("fetch", fetchMock);
     renderPalette();
@@ -149,9 +176,24 @@ describe("CommandPalette", () => {
     expect(await screen.findByText(/37ms .* fast/)).toBeInTheDocument();
   });
 
+  test("summarizes graph-spread search sources", async () => {
+    const fetchMock = vi.fn(
+      async (_input: RequestInfo | URL) => new Response(JSON.stringify(makeSearchResponse("graph-spread")), { status: 200 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    renderPalette();
+    openWithShortcut();
+
+    fireEvent.change(screen.getByRole("combobox", { name: "Search memory" }), {
+      target: { value: "voyage" },
+    });
+
+    expect(await screen.findByText(/1 results .* graph spread/)).toBeInTheDocument();
+  });
+
   test("selecting a result navigates and closes the palette", async () => {
     const fetchMock = vi.fn(
-      async () => new Response(JSON.stringify(makeSearchResponse()), { status: 200 }),
+      async (_input: RequestInfo | URL) => new Response(JSON.stringify(makeSearchResponse()), { status: 200 }),
     );
     vi.stubGlobal("fetch", fetchMock);
     renderPalette();
@@ -173,6 +215,27 @@ describe("CommandPalette", () => {
     });
     await waitFor(() => {
       expect(screen.queryByRole("combobox", { name: "Search memory" })).not.toBeInTheDocument();
+    });
+  });
+
+  test("selecting a crystal result navigates to the crystal wiki detail page", async () => {
+    const fetchMock = vi.fn(
+      async (_input: RequestInfo | URL) => new Response(JSON.stringify(makeCrystalSearchResponse()), { status: 200 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    renderPalette();
+    openWithShortcut();
+
+    fireEvent.change(screen.getByRole("combobox", { name: "Search memory" }), {
+      target: { value: "crystal" },
+    });
+
+    expect(await screen.findByText("Usage Patterns")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("Usage Patterns"));
+
+    expect(routerMock.navigate).toHaveBeenCalledWith({
+      to: "/wiki/$category/$slug",
+      params: { category: "crystals", slug: "retrieval" },
     });
   });
 });

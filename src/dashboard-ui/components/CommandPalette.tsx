@@ -6,6 +6,8 @@ import { useCommandPaletteContext } from "../hooks/useCommandPalette.js";
 import { useDebouncedValue } from "../hooks/useDebouncedValue.js";
 import { useSearch, type SearchResult, type SearchScope } from "../hooks/useSearch.js";
 import { cn } from "../lib/cn.js";
+import { formatSearchSourceLabel, KNOWN_SEARCH_SOURCES } from "../lib/search-sources.js";
+import { resultLinkProps } from "./SearchResultCard.js";
 
 const SCOPES: { value: SearchScope; label: string }[] = [
   { value: "all", label: "All" },
@@ -13,15 +15,6 @@ const SCOPES: { value: SearchScope; label: string }[] = [
   { value: "raw", label: "Raw" },
   { value: "crystals", label: "Crystals" },
 ];
-
-const SOURCE_LABELS = {
-  bm25: "BM25",
-  vector: "embed",
-  exact: "exact",
-  graph: "graph",
-  metadata: "meta",
-  rerank: "rerank",
-} as const;
 
 export function CommandPalette() {
   const { open, setOpen, close } = useCommandPaletteContext();
@@ -31,6 +24,7 @@ export function CommandPalette() {
   const search = useSearch({ query: debouncedQuery, scope, k: 12, noRerank: true });
   const navigate = useNavigate();
   const results = search.data?.results ?? [];
+  const resultSourceSummary = search.data ? sourceSummary(results) : "";
 
   useEffect(() => {
     if (open) setQuery("");
@@ -120,7 +114,7 @@ export function CommandPalette() {
         <div className="flex items-center justify-between border-t border-border-subtle px-3 py-2 font-mono text-[10px] text-text-muted">
           <span>
             {results.length} results
-            {sourceSummary(search.data.results) ? ` · ${sourceSummary(search.data.results)}` : ""}
+            {resultSourceSummary ? ` · ${resultSourceSummary}` : ""}
           </span>
           <span>
             {search.data.timings.totalMs}ms{search.data.degraded ? " · degraded" : ""} · fast
@@ -132,11 +126,11 @@ export function CommandPalette() {
 }
 
 function sourceSummary(results: SearchResult[]): string {
-  return Object.keys(SOURCE_LABELS)
+  return KNOWN_SEARCH_SOURCES
     .filter((source) =>
       results.some((result) => result.sources.some((item) => item.source === source)),
     )
-    .map((source) => SOURCE_LABELS[source as keyof typeof SOURCE_LABELS])
+    .map((source) => formatSearchSourceLabel(source))
     .join(" · ");
 }
 
@@ -152,28 +146,6 @@ function kindToColor(kind: SearchResult["kind"]): string {
 }
 
 function navigateToResult(result: SearchResult, navigate: ReturnType<typeof useNavigate>) {
-  if (result.kind === "wiki" && result.path.startsWith("wiki/")) {
-    const parts = result.path.replace(/^wiki\//, "").replace(/\.md$/, "").split("/");
-    if (parts.length >= 2) {
-      void navigate({
-        to: "/wiki/$category/$slug",
-        params: { category: parts[0], slug: parts.slice(1).join("/") },
-      });
-      return;
-    }
-  }
-
-  if (result.kind === "raw" && result.path.startsWith("raw/")) {
-    const parts = result.path.replace(/^raw\//, "").replace(/\.md$/, "").split("/");
-    if (parts.length >= 2) {
-      void navigate({
-        to: "/raw/$date/$filename",
-        params: { date: parts[0], filename: parts.slice(1).join("/") },
-      });
-    }
-  }
-
-  if (result.kind === "crystal") {
-    void navigate({ to: "/crystals" });
-  }
+  const linkProps = resultLinkProps(result);
+  if (linkProps) void navigate(linkProps);
 }

@@ -16,6 +16,7 @@ function WikiProbe() {
   const wiki = useWikiIndex();
   if (wiki.isLoading) return <p>loading</p>;
   if (wiki.isError) return <p>error</p>;
+  if (!wiki.data) return <p>empty</p>;
   return <p>project title: {wiki.data.byCategory.projects[0]?.title}</p>;
 }
 
@@ -31,7 +32,7 @@ describe("wiki data hooks", () => {
 
   test("useWikiIndex fetches /api/wiki", async () => {
     const fetchMock = vi.fn(
-      async () =>
+      async (_input: RequestInfo | URL) =>
         new Response(
           JSON.stringify({
             byCategory: {
@@ -63,7 +64,7 @@ describe("wiki data hooks", () => {
 
   test("usePageDetail fetches encoded /api/page path", async () => {
     const fetchMock = vi.fn(
-      async () =>
+      async (_input: RequestInfo | URL) =>
         new Response(
           JSON.stringify({
             relPath: "wiki/projects/foo.md",

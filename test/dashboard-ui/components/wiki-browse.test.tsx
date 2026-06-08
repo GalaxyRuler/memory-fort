@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
-import type { ReactNode } from "react";
-import { describe, expect, test, vi } from "vitest";
+import type { AnchorHTMLAttributes, ReactNode } from "react";
+import { beforeEach, describe, expect, test, vi } from "vitest";
 import { CategorySidebar } from "../../../src/dashboard-ui/components/CategorySidebar.js";
 import { WikiBrowsePage } from "../../../src/dashboard-ui/components/WikiBrowsePage.js";
 import { WikiCard } from "../../../src/dashboard-ui/components/WikiCard.js";
@@ -21,15 +21,16 @@ vi.mock("@tanstack/react-router", () => ({
     className,
     params,
     to,
+    ...props
   }: {
     children: ReactNode;
     className?: string;
     params?: Record<string, string>;
     to: string;
-  }) => {
+  } & AnchorHTMLAttributes<HTMLAnchorElement>) => {
     const href = params ? to.replace("$category", params.category).replace("$slug", params.slug) : to;
     return (
-      <a className={className} href={href}>
+      <a className={className} href={href} {...props}>
         {children}
       </a>
     );
@@ -86,6 +87,12 @@ const CONFIGURED_CATEGORY_ORDER = [
 ];
 
 describe("wiki browse components", () => {
+  beforeEach(() => {
+    routerState.search = {};
+    routerState.navigate.mockReset();
+    wikiHook.useWikiIndex.mockReset();
+  });
+
   test("CategorySidebar renders categories with counts", () => {
     render(<CategorySidebar index={INDEX} onSelect={() => {}} selectedCategory={null} />);
 
@@ -186,5 +193,83 @@ describe("wiki browse components", () => {
 
     expect(screen.getByText("2 curated pages")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /All/ })).toHaveTextContent("2");
+  });
+
+  test("WikiBrowsePage exposes wiki cards as list items with nested links", () => {
+    routerState.search = { category: "projects" };
+    wikiHook.useWikiIndex.mockReturnValue({
+      data: INDEX,
+      isLoading: false,
+    });
+
+    render(<WikiBrowsePage />);
+
+    const list = screen.getByRole("list", { name: "Wiki pages" });
+    const item = within(list).getByRole("listitem");
+
+    expect(within(item).getByRole("link", { name: /memory-system/i })).toHaveAttribute(
+      "href",
+      "/wiki/projects/memory-system",
+    );
+    expect(within(item).getByRole("link", { name: /memory-system/i })).toHaveAttribute("tabindex", "0");
+  });
+
+  test("WikiBrowsePage all-pages navigation follows the visual category order", () => {
+    wikiHook.useWikiIndex.mockReturnValue({
+      data: INDEX,
+      isLoading: false,
+    });
+
+    render(<WikiBrowsePage />);
+
+    const region = screen.getByRole("region", { name: "Wiki pages keyboard navigation" });
+    const decisionLink = screen.getByRole("link", { name: /voyage/i });
+    const projectLink = screen.getByRole("link", { name: /memory-system/i });
+    const pageItems = within(region).getAllByRole("listitem");
+
+    expect(decisionLink).toHaveAttribute("tabindex", "0");
+    expect(projectLink).toHaveAttribute("tabindex", "-1");
+    expect(pageItems).toHaveLength(2);
+    expect(within(pageItems[0]!).getByRole("link", { name: /voyage/i })).toBeInTheDocument();
+    expect(within(pageItems[1]!).getByRole("link", { name: /memory-system/i })).toBeInTheDocument();
+
+    region.focus();
+    fireEvent.keyDown(region, { key: "j" });
+
+    expect(projectLink).toHaveFocus();
+    expect(projectLink).toHaveAttribute("data-focused", "true");
+  });
+
+  test("WikiBrowsePage j/k navigation focuses native wiki links", () => {
+    routerState.search = { category: "projects" };
+    wikiHook.useWikiIndex.mockReturnValue({
+      data: {
+        byCategory: {
+          projects: [
+            INDEX.byCategory.projects[0]!,
+            {
+              category: "projects",
+              slug: "memory-system-next",
+              relPath: "wiki/projects/memory-system-next.md",
+              title: "memory-system-next",
+              summary: "Next project page",
+              updated: "2026-05-25",
+            },
+          ],
+        },
+        total: 2,
+      },
+      isLoading: false,
+    });
+
+    render(<WikiBrowsePage />);
+
+    const list = screen.getByRole("list", { name: "Wiki pages" });
+    list.focus();
+    fireEvent.keyDown(list, { key: "j" });
+
+    const nextLink = screen.getByRole("link", { name: /memory-system-next/i });
+    expect(nextLink).toHaveFocus();
+    expect(nextLink).toHaveAttribute("data-focused", "true");
   });
 });

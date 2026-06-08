@@ -7,6 +7,7 @@ import {
   memoryRoot,
 } from "../../storage/paths.js";
 import { isClaudeCodePluginEnabled } from "./install/claude-code.js";
+import { readOpenCodeReadiness } from "./install/opencode.js";
 import { readOpenCovenReadiness } from "./install/opencoven.js";
 import { vscodeMcpConfigPath } from "./install/vscode.js";
 
@@ -20,6 +21,7 @@ export type ClientName =
   | "pi"
   | "openclaw"
   | "opencoven"
+  | "opencode"
   | "vscode";
 
 export type ClientInstallState = "installed" | "stale" | "missing";
@@ -41,6 +43,7 @@ export const CLIENTS: ClientName[] = [
   "pi",
   "openclaw",
   "opencoven",
+  "opencode",
   "vscode",
 ];
 
@@ -56,6 +59,7 @@ export async function getClientStatuses(): Promise<ClientStatus[]> {
     await readPiStatus(),
     await readOpenClawStatus(),
     await readOpenCovenStatus(),
+    await readOpenCodeStatus(),
     await readVsCodeStatus(),
   ];
 }
@@ -216,6 +220,27 @@ async function readOpenCovenStatus(): Promise<ClientStatus> {
   };
 }
 
+async function readOpenCodeStatus(): Promise<ClientStatus> {
+  const readiness = await readOpenCodeReadiness();
+  const configOk = readiness.config.ok;
+  const pluginOk = readiness.plugin.ok;
+  const anyOpenCodeFile = readiness.config.exists || readiness.plugin.exists;
+  return {
+    client: "opencode",
+    state: configOk && pluginOk
+      ? "installed"
+      : anyOpenCodeFile
+        ? "stale"
+        : "missing",
+    detail: configOk && pluginOk
+      ? "installed"
+      : anyOpenCodeFile
+        ? "installed but memory MCP or plugin file is missing or stale"
+        : "not installed",
+    configPath: readiness.configPath,
+  };
+}
+
 async function readVsCodeStatus(): Promise<ClientStatus> {
   const configPath = vscodeMcpConfigPath();
   const ok = await jsonHasServer(configPath, "servers");
@@ -233,7 +258,7 @@ async function readVsCodeStatus(): Promise<ClientStatus> {
 
 async function jsonHasServer(
   configPath: string,
-  serverMapKey: "mcpServers" | "servers",
+  serverMapKey: "mcpServers" | "servers" | "mcp",
 ): Promise<boolean> {
   if (!existsSync(configPath)) return false;
   try {

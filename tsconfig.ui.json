@@ -6,7 +6,8 @@
     "moduleResolution": "Bundler",
     "noEmit": true,
     "rootDir": ".",
-    "types": ["vite/client", "vitest/globals"]
+    "types": ["vite/client", "vitest/globals", "@testing-library/jest-dom"]
   },
-  "include": ["src/dashboard-ui/**/*", "test/dashboard-ui/**/*", "vite.config.ts", "tailwind.config.ts"]
+  "include": ["src/dashboard-ui/**/*", "test/dashboard-ui/**/*", "vite.config.ts", "tailwind.config.ts"],
+  "exclude": ["node_modules", "dist"]
 }

@@ -25,6 +25,56 @@ function KeyboardList({ onActivate = vi.fn() }: { onActivate?: (item: string) =>
   );
 }
 
+function KeyboardListWithDisclosure({ onActivate = vi.fn() }: { onActivate?: (item: string) => void }) {
+  const items = ["alpha", "beta"];
+  const nav = useListKeyNav({
+    items,
+    getKey: (item) => item,
+    onActivate,
+  });
+
+  return (
+    <ul aria-label="Keyboard list" {...nav.listProps}>
+      {items.map((item, index) => (
+        <li key={item} {...nav.getItemProps(index)}>
+          {item}
+          {index === 0 ? (
+            <details data-testid="match-details">
+              <summary
+                onKeyDown={(event) => {
+                  if (event.key !== "Enter" && event.key !== " ") return;
+                  event.currentTarget.parentElement?.toggleAttribute("open");
+                }}
+              >
+                Why this matched
+              </summary>
+            </details>
+          ) : null}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function KeyboardListWithLinks({ onActivate = vi.fn() }: { onActivate?: (item: string) => void }) {
+  const items = ["alpha", "beta", "gamma"];
+  const nav = useListKeyNav({
+    items,
+    getKey: (item) => item,
+    onActivate,
+  });
+
+  return (
+    <ul aria-label="Keyboard list" {...nav.listProps}>
+      {items.map((item, index) => (
+        <li key={item} {...nav.getItemProps(index)}>
+          <a href={`#${item}`}>{item}</a>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 describe("useListKeyNav", () => {
   test("J advances focus and K retreats", () => {
     render(<KeyboardList />);
@@ -80,5 +130,49 @@ describe("useListKeyNav", () => {
     expect(beta).not.toHaveAttribute("aria-selected");
     expect(alpha).toHaveAttribute("tabindex", "0");
     expect(beta).toHaveAttribute("tabindex", "-1");
+  });
+
+  test("keeps native list semantics without listbox-only attributes", () => {
+    render(<KeyboardList />);
+
+    const list = screen.getByRole("list", { name: "Keyboard list" });
+    const items = screen.getAllByRole("listitem");
+
+    expect(list).toBeInTheDocument();
+    expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+    expect(screen.queryByRole("option")).not.toBeInTheDocument();
+    expect(items[0]).toHaveAttribute("data-focused", "true");
+    expect(items[0]).not.toHaveAttribute("aria-selected");
+    expect(items[1]).not.toHaveAttribute("aria-selected");
+  });
+
+  test("Enter and Space on an interactive summary toggle it without activating the option", () => {
+    const onActivate = vi.fn();
+    render(<KeyboardListWithDisclosure onActivate={onActivate} />);
+    const summary = screen.getByText("Why this matched");
+    const details = screen.getByTestId("match-details");
+
+    summary.focus();
+    fireEvent.keyDown(summary, { key: "Enter" });
+
+    expect(details).toHaveAttribute("open");
+    expect(onActivate).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(summary, { key: " " });
+
+    expect(details).not.toHaveAttribute("open");
+    expect(onActivate).not.toHaveBeenCalled();
+  });
+
+  test("J and K move focus when a managed item's title link has focus", () => {
+    render(<KeyboardListWithLinks />);
+    const alphaLink = screen.getByRole("link", { name: "alpha" });
+    const betaItem = screen.getByText("beta").closest("li");
+
+    alphaLink.focus();
+    fireEvent.keyDown(alphaLink, { key: "j" });
+
+    expect(betaItem).toHaveFocus();
+    expect(betaItem).toHaveAttribute("data-focused", "true");
   });
 });

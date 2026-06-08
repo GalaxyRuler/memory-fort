@@ -1,0 +1,301 @@
+import { constants, existsSync } from "node:fs";
+import { access, mkdir, readFile, stat } from "node:fs/promises";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
+import { atomicAppend, atomicWrite } from "../../../storage/atomic-write.js";
+import { logPath, memoryRoot } from "../../../storage/paths.js";
+
+export interface InstallOpenCodeOptions {
+  opencodeDir?: string;
+  now?: Date;
+}
+
+export interface InstallOpenCodeResult {
+  configPath: string;
+  pluginPath: string;
+  configCreated: boolean;
+  memoryEntryAction: "created" | "updated" | "unchanged";
+  preservedServerCount: number;
+  log: string[];
+}
+
+export interface OpenCodeValidationResult {
+  path: string;
+  exists: boolean;
+  ok: boolean;
+  reason: "missing" | "malformed" | "stale" | null;
+}
+
+export interface OpenCodeReadiness {
+  configPath: string;
+  pluginPath: string;
+  config: OpenCodeValidationResult;
+  plugin: OpenCodeValidationResult;
+}
+
+export function opencodeConfigDir(override?: string): string {
+  if (override && override.trim().length > 0) return override;
+  const envOverride = process.env["MEMORY_OPENCODE_DIR"];
+  if (envOverride && envOverride.trim().length > 0) return envOverride;
+  const officialConfigDir = process.env["OPENCODE_CONFIG_DIR"];
+  if (officialConfigDir && officialConfigDir.trim().length > 0) return officialConfigDir;
+  return join(homedir(), ".config", "opencode");
+}
+
+export function opencodeConfigPath(opencodeDir = opencodeConfigDir()): string {
+  return join(opencodeDir, "opencode.json");
+}
+
+export function opencodePluginPath(opencodeDir = opencodeConfigDir()): string {
+  return join(opencodeDir, "plugins", "memory-fort.js");
+}
+
+export async function readOpenCodeReadiness(
+  opencodeDir = opencodeConfigDir(),
+): Promise<OpenCodeReadiness> {
+  const configPath = opencodeConfigPath(opencodeDir);
+  const pluginPath = opencodePluginPath(opencodeDir);
+  const [config, plugin] = await Promise.all([
+    validateOpenCodeConfig(configPath),
+    validateOpenCodePlugin(pluginPath),
+  ]);
+  return { configPath, pluginPath, config, plugin };
+}
+
+export async function validateOpenCodeConfig(
+  configPath = opencodeConfigPath(),
+): Promise<OpenCodeValidationResult> {
+  if (!existsSync(configPath)) {
+    return { path: configPath, exists: false, ok: false, reason: "missing" };
+  }
+
+  try {
+    const parsed = parseJsonObject(await readFile(configPath, "utf-8"));
+    const mcp = asRecord(parsed["mcp"]);
+    const memory = asRecord(mcp?.["memory"]);
+    const ok = await isValidOpenCodeMemoryEntry(memory);
+    return {
+      path: configPath,
+      exists: true,
+      ok,
+      reason: ok ? null : "stale",
+    };
+  } catch {
+    return { path: configPath, exists: true, ok: false, reason: "malformed" };
+  }
+}
+
+export async function validateOpenCodePlugin(
+  pluginPath = opencodePluginPath(),
+): Promise<OpenCodeValidationResult> {
+  if (!existsSync(pluginPath)) {
+    return { path: pluginPath, exists: false, ok: false, reason: "missing" };
+  }
+
+  try {
+    const pluginStat = await stat(pluginPath);
+    if (!pluginStat.isFile()) {
+      return { path: pluginPath, exists: true, ok: false, reason: "malformed" };
+    }
+
+    const raw = await readFile(pluginPath, "utf-8");
+    const ok = normalizeOpenCodePluginContent(raw) ===
+      normalizeOpenCodePluginContent(renderOpenCodePlugin()) &&
+      await isReadableRegularFile(expectedOpenCodeEventHookPath());
+    return {
+      path: pluginPath,
+      exists: true,
+      ok,
+      reason: ok ? null : "stale",
+    };
+  } catch {
+    return { path: pluginPath, exists: true, ok: false, reason: "malformed" };
+  }
+}
+
+export async function runInstallOpenCode(
+  opts: InstallOpenCodeOptions = {},
+): Promise<InstallOpenCodeResult> {
+  const configDir = opencodeConfigDir(opts.opencodeDir);
+  const configPath = opencodeConfigPath(configDir);
+  const pluginPath = opencodePluginPath(configDir);
+  const log: string[] = [];
+  let existingConfig: Record<string, unknown> = {};
+  let configCreated = false;
+
+  if (existsSync(configPath)) {
+    const raw = await readFile(configPath, "utf-8");
+    try {
+      existingConfig = parseJsonObject(raw);
+    } catch (err) {
+      throw new Error(
+        `memory install opencode: failed to parse existing config at ${configPath}: ${(err as Error).message}`,
+      );
+    }
+  } else {
+    configCreated = true;
+    await mkdir(dirname(configPath), { recursive: true });
+  }
+
+  const existingMcp = existingConfig["mcp"];
+  const mcp: Record<string, unknown> = isRecord(existingMcp)
+    ? { ...existingMcp }
+    : {};
+
+  const memoryEntry = {
+    type: "local",
+    command: ["node", `${memoryRoot().replace(/\\/g, "/")}/hooks/mcp-server.mjs`],
+    enabled: true,
+  };
+
+  const existingMemory = mcp["memory"];
+  let memoryEntryAction: "created" | "updated" | "unchanged";
+  if (existingMemory === undefined) {
+    memoryEntryAction = "created";
+  } else if (JSON.stringify(existingMemory) === JSON.stringify(memoryEntry)) {
+    memoryEntryAction = "unchanged";
+  } else {
+    memoryEntryAction = "updated";
+  }
+
+  mcp["memory"] = memoryEntry;
+  const preservedServerCount = Object.keys(mcp).length - 1;
+  const finalConfig = { ...existingConfig, mcp };
+
+  await atomicWrite(configPath, `${JSON.stringify(finalConfig, null, 2)}\n`);
+  await atomicWrite(pluginPath, renderOpenCodePlugin());
+
+  log.push(
+    configCreated
+      ? `created ${configPath} with memory MCP entry`
+      : `${memoryEntryAction} memory MCP entry in ${configPath}`,
+  );
+  log.push(`installed OpenCode Memory Fort plugin at ${pluginPath}`);
+
+  const now = opts.now ?? new Date();
+  await atomicAppend(
+    logPath(),
+    `## [${now.toISOString()}] install | opencode: MCP entry in ${configPath}; plugin in ${pluginPath}\n`,
+  );
+
+  return {
+    configPath,
+    pluginPath,
+    configCreated,
+    memoryEntryAction,
+    preservedServerCount,
+    log,
+  };
+}
+
+function parseJsonObject(raw: string): Record<string, unknown> {
+  const parsed = raw.trim().length === 0 ? {} : JSON.parse(raw);
+  if (!isRecord(parsed)) {
+    throw new Error("expected top-level JSON object");
+  }
+  return parsed;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return isRecord(value) ? value : null;
+}
+
+async function isValidOpenCodeMemoryEntry(memory: Record<string, unknown> | null): Promise<boolean> {
+  const keys = Object.keys(memory ?? {}).sort();
+  if (keys.length !== 3 || keys[0] !== "command" || keys[1] !== "enabled" || keys[2] !== "type") {
+    return false;
+  }
+
+  return memory?.["type"] === "local" &&
+    memory["enabled"] === true &&
+    await isValidOpenCodeCommand(memory["command"]);
+}
+
+async function isValidOpenCodeCommand(value: unknown): Promise<boolean> {
+  if (!Array.isArray(value) || !value.every((entry) => typeof entry === "string")) {
+    return false;
+  }
+  if (value.length !== 2) return false;
+
+  return value[0] === "node" &&
+    isExpectedOpenCodeMcpServerPath(value[1]) &&
+    await isReadableRegularFile(expectedOpenCodeMcpServerPath());
+}
+
+async function isReadableRegularFile(path: string): Promise<boolean> {
+  try {
+    const pathStat = await stat(path);
+    if (!pathStat.isFile()) return false;
+    await access(path, constants.R_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function isExpectedOpenCodeMcpServerPath(value: string): boolean {
+  return normalizeOpenCodePath(value) === normalizeOpenCodePath(expectedOpenCodeMcpServerPath());
+}
+
+function expectedOpenCodeMcpServerPath(): string {
+  return join(memoryRoot(), "hooks", "mcp-server.mjs");
+}
+
+function expectedOpenCodeEventHookPath(): string {
+  return join(memoryRoot(), "hooks", "opencode-event.mjs");
+}
+
+function normalizeOpenCodePath(value: string): string {
+  const normalized = value.replace(/\\/g, "/");
+  return process.platform === "win32" ? normalized.toLowerCase() : normalized;
+}
+
+function normalizeOpenCodePluginContent(value: string): string {
+  return value.replace(/\r\n?/g, "\n");
+}
+
+function renderOpenCodePlugin(): string {
+  const eventHook = `${memoryRoot().replace(/\\/g, "/")}/hooks/opencode-event.mjs`;
+  return [
+    "// Generated by memory-fort. Re-run `memory-fort install opencode` to update.",
+    "export const MemoryFortOpenCode = async ({ $, directory, worktree }) => {",
+    `  const script = ${JSON.stringify(eventHook)};`,
+    "  async function record(event) {",
+    "    await $`node ${script}`.stdin(JSON.stringify(event));",
+    "  }",
+    "  function objectOrEmpty(value) {",
+    '    return value && typeof value === "object" && !Array.isArray(value) ? value : {};',
+    "  }",
+    "  function withContext(event) {",
+    '    if (event && typeof event === "object" && !Array.isArray(event)) {',
+    "      return { ...event, directory, worktree };",
+    "    }",
+    '    return { type: "unknown", event, directory, worktree };',
+    "  }",
+    "  return {",
+    "    event: async ({ event }) => {",
+    '      if (event?.type === "session.created" || event?.type === "session.idle") {',
+    "        await record(withContext(event));",
+    "      }",
+    "    },",
+    '    "tool.execute.after": async (input, output) => {',
+    "      await record({",
+    '        type: "tool.execute.after",',
+    "        ...objectOrEmpty(input),",
+    "        input,",
+    "        output,",
+    "        directory,",
+    "        worktree,",
+    "      });",
+    "    },",
+    "  };",
+    "};",
+    "",
+    "export default MemoryFortOpenCode;",
+    "",
+  ].join("\n");
+}

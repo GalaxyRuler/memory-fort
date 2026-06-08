@@ -16,6 +16,7 @@ function node(overrides: Partial<GraphNode> = {}): GraphNode {
     status: "active",
     source: "manual",
     tags: ["memory", "graph"],
+    description: "Memory graph node.",
     inboundCount: 2,
     outboundCount: 1,
     ...overrides,
@@ -30,8 +31,8 @@ describe("Galactic inspector", () => {
       node({ path: "wiki/references/wiki.md", title: "Wiki", type: "references", cognitiveType: "semantic" }),
     ];
     const edges: GraphEdge[] = [
-      { fromPath: "wiki/projects/memory-system.md", toPath: "wiki/tools/voyage.md", kind: "relation", relationType: "uses" },
-      { fromPath: "wiki/references/wiki.md", toPath: "wiki/projects/memory-system.md", kind: "wikilink", relationType: null },
+      { fromPath: "wiki/projects/memory-system.md", toPath: "wiki/tools/voyage.md", kind: "relation", relationType: "uses", type: "uses" },
+      { fromPath: "wiki/references/wiki.md", toPath: "wiki/projects/memory-system.md", kind: "wikilink", relationType: null, type: "wikilink" },
     ];
     const onOpenMemory = vi.fn();
 

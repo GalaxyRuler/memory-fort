@@ -69,8 +69,17 @@ describe("wiki page detail components", () => {
 
     render(<PageRelations inbound={[]} relations={relations} />);
 
+    expect(screen.getByRole("region", { name: "Page relations" })).toBeInTheDocument();
     expect(screen.getByText("uses")).toBeInTheDocument();
     expect(screen.getByText("depends_on")).toBeInTheDocument();
+  });
+
+  test("PageRelations exposes the empty state in a named region", () => {
+    render(<PageRelations inbound={[]} relations={[]} />);
+
+    const region = screen.getByRole("region", { name: "Page relations" });
+    expect(region).toBeInTheDocument();
+    expect(screen.getByText("No relations yet")).toBeInTheDocument();
   });
 
   test("PageRelations marks unresolved targets", () => {

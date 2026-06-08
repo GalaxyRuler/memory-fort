@@ -8,6 +8,12 @@ import { installCodex } from "./install/codex.js";
 import { runInstallHermes } from "./install/hermes.js";
 import { runInstallOpenClaw } from "./install/openclaw.js";
 import { runInstallOpenCoven } from "./install/opencoven.js";
+import {
+  opencodeConfigDir,
+  opencodeConfigPath,
+  opencodePluginPath,
+  runInstallOpenCode,
+} from "./install/opencode.js";
 import { runInstallPi } from "./install/pi.js";
 import { installVsCode, vscodeExtensionDir, vscodeMcpConfigPath } from "./install/vscode.js";
 import { formatVerifyResult, runVerify, type VerifyResult } from "./verify.js";
@@ -22,6 +28,7 @@ export type Platform =
   | "pi"
   | "openclaw"
   | "opencoven"
+  | "opencode"
   | "claude-desktop"
   | "vscode"
   | "chatgpt";
@@ -45,7 +52,7 @@ export async function runInstall(
   const planned = planInstallWrites(platform, opts);
   if (!planned) {
     console.error(
-      `Unknown platform: ${platform}. Valid: claude-code, codex, antigravity, hermes, pi, openclaw, opencoven, claude-desktop, vscode, chatgpt`,
+      `Unknown platform: ${platform}. Valid: claude-code, codex, antigravity, hermes, pi, openclaw, opencoven, opencode, claude-desktop, vscode, chatgpt`,
     );
     process.exit(2);
   }
@@ -175,6 +182,20 @@ export async function runInstall(
       await printVerify(opts);
       return;
     }
+    case "opencode": {
+      const result = await runInstallOpenCode();
+      console.log(`Installed memory MCP + plugin for OpenCode at ${result.configPath}`);
+      for (const line of result.log) console.log(`  ${line}`);
+      console.log(`  memory MCP entry ${result.memoryEntryAction}`);
+      console.log(`  preserved ${result.preservedServerCount} other MCP server(s)`);
+      console.log("");
+      console.log("Next steps:");
+      console.log("  1. Restart OpenCode to load the memory MCP server and plugin.");
+      console.log("  2. Confirm the memory MCP entry is present in opencode.json.");
+      console.log("  3. Confirm the plugin is present at plugins/memory-fort.js.");
+      await printVerify(opts);
+      return;
+    }
     case "vscode": {
       const result = await installVsCode({ workspace: opts.workspace });
       if (result.status === "skipped") {
@@ -259,6 +280,10 @@ export function planInstallWrites(
     }
     case "opencoven":
       return [];
+    case "opencode": {
+      const dir = opencodeConfigDir();
+      return [opencodeConfigPath(dir), opencodePluginPath(dir), logPath()];
+    }
     case "claude-desktop":
       return [claudeDesktopConfigPath()];
     case "vscode":

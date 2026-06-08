@@ -30,7 +30,7 @@ describe("useGraph", () => {
   });
 
   test("fetches /api/graph with scope param", async () => {
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify(graphResponse()), { status: 200 }));
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL) => new Response(JSON.stringify(graphResponse()), { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
 
     renderWithQueryClient(<GraphProbe scope="wiki" />);
@@ -43,7 +43,7 @@ describe("useGraph", () => {
   });
 
   test("defaults scope to wiki", async () => {
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify(graphResponse()), { status: 200 }));
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL) => new Response(JSON.stringify(graphResponse()), { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
 
     renderWithQueryClient(<GraphProbe />);

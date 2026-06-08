@@ -71,7 +71,7 @@ export function RawBrowsePage() {
             replace: true,
           })}
         />
-        <div {...listNav.listProps}>
+        <div aria-label="Raw sessions keyboard navigation" role="region" {...listNav.listProps}>
           {raw.isLoading && (
             <div className="space-y-3" aria-label="Loading raw observations">
               {Array.from({ length: 5 }).map((_, index) => (
@@ -107,14 +107,16 @@ export function RawBrowsePage() {
               <h2 className="mb-2 break-words font-mono text-xs uppercase tracking-wider text-text-muted">
                 {entry.date} - {entry.files.length} session{entry.files.length === 1 ? "" : "s"}
               </h2>
-              {entry.files.map((file) => (
-                <SessionRow
-                  key={file.filename}
-                  file={file}
-                  date={entry.date}
-                  keyboardProps={listNav.getItemProps(rowIndexByKey.get(`${entry.date}/${file.filename}`) ?? 0)}
-                />
-              ))}
+              <ul aria-label={`Raw sessions on ${entry.date}`} className="m-0 list-none p-0">
+                {entry.files.map((file) => (
+                  <SessionRow
+                    key={file.filename}
+                    file={file}
+                    date={entry.date}
+                    keyboardProps={listNav.getItemProps(rowIndexByKey.get(`${entry.date}/${file.filename}`) ?? 0)}
+                  />
+                ))}
+              </ul>
             </section>
           ))}
           {rows.length > visibleRows.length ? (

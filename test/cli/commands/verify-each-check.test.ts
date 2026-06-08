@@ -12,6 +12,7 @@ import { checkGitRemote } from "../../../src/cli/commands/verify/git.js";
 import { checkEpisodicRelations } from "../../../src/cli/commands/verify/episodic-relations.js";
 import { checkSearch } from "../../../src/cli/commands/verify/search.js";
 import { checkVaultReadWrite } from "../../../src/cli/commands/verify/vault.js";
+import { runInstallOpenCode } from "../../../src/cli/commands/install/opencode.js";
 
 describe("verify checks", () => {
   let tmp: string;
@@ -26,6 +27,7 @@ describe("verify checks", () => {
       MEMORY_CLAUDE_PROJECTS_DIR: process.env["MEMORY_CLAUDE_PROJECTS_DIR"],
       MEMORY_CODEX_DIR: process.env["MEMORY_CODEX_DIR"],
       MEMORY_ANTIGRAVITY_DIR: process.env["MEMORY_ANTIGRAVITY_DIR"],
+      MEMORY_OPENCODE_DIR: process.env["MEMORY_OPENCODE_DIR"],
       MEMORY_OPENCOVEN_COMMAND: process.env["MEMORY_OPENCOVEN_COMMAND"],
       MEMORY_VSCODE_USER_DIR: process.env["MEMORY_VSCODE_USER_DIR"],
       MEMORY_VSCODE_EXTENSION_DIR: process.env["MEMORY_VSCODE_EXTENSION_DIR"],
@@ -36,9 +38,13 @@ describe("verify checks", () => {
     process.env["MEMORY_CLAUDE_PROJECTS_DIR"] = join(tmp, ".claude", "projects");
     process.env["MEMORY_CODEX_DIR"] = join(tmp, ".codex");
     process.env["MEMORY_ANTIGRAVITY_DIR"] = join(tmp, ".gemini", "antigravity");
+    process.env["MEMORY_OPENCODE_DIR"] = join(tmp, ".config", "opencode");
     process.env["MEMORY_OPENCOVEN_COMMAND"] = join(tmp, "missing-coven");
     process.env["MEMORY_VSCODE_USER_DIR"] = join(tmp, "Code", "User");
     process.env["MEMORY_CLAUDE_DESKTOP_DIR"] = join(tmp, "Claude");
+    await mkdir(join(tmp, "hooks"), { recursive: true });
+    await writeFile(join(tmp, "hooks", "mcp-server.mjs"), "// mcp stub\n");
+    await writeFile(join(tmp, "hooks", "opencode-event.mjs"), "// event stub\n");
   });
 
   afterEach(async () => {
@@ -282,6 +288,208 @@ describe("verify checks", () => {
     expect(readiness?.suggestedFix).toContain("npx @opencoven/cli doctor");
   });
 
+  it("client checks pass when the OpenCode MCP config is wired", async () => {
+    await writeOpenCodeConfig();
+
+    const results = await checkClients({ vaultRoot: tmp, now });
+
+    const config = results.find((result) => result.id === "client.opencode.config");
+    expect(config?.status).toBe("pass");
+    expect(config?.label).toBe("OpenCode MCP entry present");
+  });
+
+  it("client checks fail when the OpenCode MCP config points at a missing hook target", async () => {
+    await writeOpenCodeConfig();
+    await rm(join(tmp, "hooks", "mcp-server.mjs"), { force: true });
+
+    const results = await checkClients({ vaultRoot: tmp, now });
+
+    const config = results.find((result) => result.id === "client.opencode.config");
+    expect(config?.status).toBe("fail");
+    expect(config?.detail).toContain("memory MCP entry missing or stale");
+  });
+
+  it("client checks fail when the OpenCode MCP entry is disabled", async () => {
+    await writeOpenCodeConfig({ enabled: false });
+
+    const results = await checkClients({ vaultRoot: tmp, now });
+
+    const config = results.find((result) => result.id === "client.opencode.config");
+    expect(config?.status).toBe("fail");
+    expect(config?.detail).toContain("memory MCP entry missing or stale");
+  });
+
+  it("client checks fail when the OpenCode MCP command does not target the Memory Fort server", async () => {
+    await writeOpenCodeConfig({ command: ["node", join(tmp, "hooks", "other-server.mjs")] });
+
+    const results = await checkClients({ vaultRoot: tmp, now });
+
+    const config = results.find((result) => result.id === "client.opencode.config");
+    expect(config?.status).toBe("fail");
+    expect(config?.detail).toContain("memory MCP entry missing or stale");
+  });
+
+  it("client checks fail when the OpenCode MCP entry has extra keys", async () => {
+    await writeOpenCodeConfig({
+      extraMemoryKeys: {
+        cwd: tmp,
+        env: { MEMORY_ROOT: tmp },
+      },
+    });
+
+    const results = await checkClients({ vaultRoot: tmp, now });
+
+    const config = results.find((result) => result.id === "client.opencode.config");
+    expect(config?.status).toBe("fail");
+    expect(config?.detail).toContain("memory MCP entry missing or stale");
+  });
+
+  it("client checks fail when the OpenCode MCP command uses an absolute node executable", async () => {
+    await writeOpenCodeConfig({ command: ["C:/tmp/node.exe", join(tmp, "hooks", "mcp-server.mjs")] });
+
+    const results = await checkClients({ vaultRoot: tmp, now });
+
+    const config = results.find((result) => result.id === "client.opencode.config");
+    expect(config?.status).toBe("fail");
+    expect(config?.detail).toContain("memory MCP entry missing or stale");
+  });
+
+  it("client checks fail when the OpenCode MCP command is reversed", async () => {
+    await writeOpenCodeConfig({ command: [join(tmp, "hooks", "mcp-server.mjs"), "node"] });
+
+    const results = await checkClients({ vaultRoot: tmp, now });
+
+    const config = results.find((result) => result.id === "client.opencode.config");
+    expect(config?.status).toBe("fail");
+    expect(config?.detail).toContain("memory MCP entry missing or stale");
+  });
+
+  it("client checks fail when the OpenCode MCP command has an earlier wrong script", async () => {
+    await writeOpenCodeConfig({
+      command: [
+        "node",
+        join(tmp, "hooks", "wrong-server.mjs"),
+        join(tmp, "hooks", "mcp-server.mjs"),
+      ],
+    });
+
+    const results = await checkClients({ vaultRoot: tmp, now });
+
+    const config = results.find((result) => result.id === "client.opencode.config");
+    expect(config?.status).toBe("fail");
+    expect(config?.detail).toContain("memory MCP entry missing or stale");
+  });
+
+  it("client checks fail when the OpenCode MCP command has extra args after the server path", async () => {
+    await writeOpenCodeConfig({
+      command: ["node", join(tmp, "hooks", "mcp-server.mjs"), "--stale-extra"],
+    });
+
+    const results = await checkClients({ vaultRoot: tmp, now });
+
+    const config = results.find((result) => result.id === "client.opencode.config");
+    expect(config?.status).toBe("fail");
+    expect(config?.detail).toContain("memory MCP entry missing or stale");
+  });
+
+  it("client checks fail when the OpenCode MCP command targets another root", async () => {
+    await writeOpenCodeConfig({
+      command: ["node", join(tmp, "other-root", "hooks", "mcp-server.mjs")],
+    });
+
+    const results = await checkClients({ vaultRoot: tmp, now });
+
+    const config = results.find((result) => result.id === "client.opencode.config");
+    expect(config?.status).toBe("fail");
+    expect(config?.detail).toContain("memory MCP entry missing or stale");
+  });
+
+  it("client checks fail when the OpenCode MCP command includes non-string entries", async () => {
+    await writeOpenCodeConfig({ command: ["node", join(tmp, "hooks", "mcp-server.mjs"), 42] });
+
+    const results = await checkClients({ vaultRoot: tmp, now });
+
+    const config = results.find((result) => result.id === "client.opencode.config");
+    expect(config?.status).toBe("fail");
+    expect(config?.detail).toContain("memory MCP entry missing or stale");
+  });
+
+  it("client checks fail when the OpenCode MCP command uses a loose string", async () => {
+    await writeOpenCodeConfig({ command: `node ${join(tmp, "hooks", "mcp-server.mjs")}` });
+
+    const results = await checkClients({ vaultRoot: tmp, now });
+
+    const config = results.find((result) => result.id === "client.opencode.config");
+    expect(config?.status).toBe("fail");
+    expect(config?.detail).toContain("memory MCP entry missing or stale");
+  });
+
+  it("client checks pass when the OpenCode plugin is installed", async () => {
+    await runInstallOpenCode({ opencodeDir: process.env["MEMORY_OPENCODE_DIR"]! });
+
+    const results = await checkClients({ vaultRoot: tmp, now });
+
+    const plugin = results.find((result) => result.id === "client.opencode.plugin");
+    expect(plugin?.status).toBe("pass");
+    expect(plugin?.label).toBe("OpenCode Memory Fort plugin installed");
+  });
+
+  it("client checks fail when the OpenCode plugin points at a missing event hook target", async () => {
+    await runInstallOpenCode({ opencodeDir: process.env["MEMORY_OPENCODE_DIR"]! });
+    await rm(join(tmp, "hooks", "opencode-event.mjs"), { force: true });
+
+    const results = await checkClients({ vaultRoot: tmp, now });
+
+    const plugin = results.find((result) => result.id === "client.opencode.plugin");
+    expect(plugin?.status).toBe("fail");
+    expect(plugin?.detail).toContain("plugin file missing generated OpenCode hook markers");
+  });
+
+  it("client checks fail when the OpenCode plugin has loose markers but no hooks", async () => {
+    await writeOpenCodePlugin();
+
+    const results = await checkClients({ vaultRoot: tmp, now });
+
+    const plugin = results.find((result) => result.id === "client.opencode.plugin");
+    expect(plugin?.status).toBe("fail");
+    expect(plugin?.detail).toContain("plugin file missing generated OpenCode hook markers");
+  });
+
+  it("client checks fail when the OpenCode plugin path is a directory", async () => {
+    const opencodeDir = process.env["MEMORY_OPENCODE_DIR"]!;
+    await mkdir(join(opencodeDir, "plugins", "memory-fort.js"), { recursive: true });
+
+    const results = await checkClients({ vaultRoot: tmp, now });
+
+    const plugin = results.find((result) => result.id === "client.opencode.plugin");
+    expect(plugin?.status).toBe("fail");
+    expect(plugin?.detail).toContain("plugin file missing generated OpenCode hook markers");
+  });
+
+  it("client checks fail when all OpenCode plugin markers are only comments", async () => {
+    await writeOpenCodePlugin(commentOnlyOpenCodePlugin());
+
+    const results = await checkClients({ vaultRoot: tmp, now });
+
+    const plugin = results.find((result) => result.id === "client.opencode.plugin");
+    expect(plugin?.status).toBe("fail");
+    expect(plugin?.detail).toContain("plugin file missing generated OpenCode hook markers");
+  });
+
+  it("client checks pass when OpenCode has a recent capture", async () => {
+    await writeCapture(
+      "raw/2026-05-26/opencode-live.md",
+      "opencode live",
+      "2026-05-26T03:00:00.000Z",
+    );
+
+    const results = await checkClients({ vaultRoot: tmp, now });
+
+    const capture = results.find((result) => result.id === "client.opencode.capture");
+    expect(capture?.status).toBe("pass");
+    expect(capture?.detail).toBe("1 captures today");
+  });
+
   it("client checks report sniffer, plugin, watcher, and extension health", async () => {
     await mkdir(join(process.env["MEMORY_CLAUDE_DIR"]!, "projects"), { recursive: true });
     await mkdir(join(process.env["MEMORY_ANTIGRAVITY_DIR"]!, "plugins", "memory", "hooks"), { recursive: true });
@@ -500,5 +708,54 @@ describe("verify checks", () => {
     await writeFile(fullPath, content);
     const mtime = new Date(mtimeIso);
     await utimes(fullPath, mtime, mtime);
+  }
+
+  async function writeOpenCodeConfig(
+    overrides: Partial<{
+      command: unknown;
+      enabled: boolean;
+      extraMemoryKeys: Record<string, unknown>;
+    }> = {},
+  ): Promise<void> {
+    const opencodeDir = process.env["MEMORY_OPENCODE_DIR"]!;
+    await mkdir(opencodeDir, { recursive: true });
+    await writeFile(
+      join(opencodeDir, "opencode.json"),
+      JSON.stringify({
+        mcp: {
+          memory: {
+            type: "local",
+            command: overrides.command ?? ["node", join(tmp, "hooks", "mcp-server.mjs")],
+            enabled: overrides.enabled ?? true,
+            ...overrides.extraMemoryKeys,
+          },
+        },
+      }),
+    );
+  }
+
+  async function writeOpenCodePlugin(
+    content = "export const MemoryFortOpenCode = async () => import('file:///tmp/opencode-event.mjs');\n",
+  ): Promise<void> {
+    const opencodeDir = process.env["MEMORY_OPENCODE_DIR"]!;
+    await mkdir(join(opencodeDir, "plugins"), { recursive: true });
+    await writeFile(
+      join(opencodeDir, "plugins", "memory-fort.js"),
+      content,
+    );
+  }
+
+  function commentOnlyOpenCodePlugin(): string {
+    const eventHook = `${tmp.replace(/\\/g, "/")}/hooks/opencode-event.mjs`;
+    return [
+      "// Generated by memory-fort.",
+      "// export const MemoryFortOpenCode",
+      `// ${eventHook}`,
+      "// event: async ({ event })",
+      '// "tool.execute.after": async (input, output) =>',
+      "// .stdin(JSON.stringify(event))",
+      "export default {};",
+      "",
+    ].join("\n");
   }
 });

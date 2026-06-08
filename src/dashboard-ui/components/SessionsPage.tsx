@@ -79,7 +79,11 @@ export function SessionsPage() {
               description="Choose another tool filter to review captured sessions."
             />
           )}
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3" {...listNav.listProps}>
+          <ul
+            aria-label="Sessions"
+            className="m-0 grid list-none grid-cols-1 gap-3 p-0 sm:grid-cols-2 lg:grid-cols-3"
+            {...listNav.listProps}
+          >
             {visibleTiles.map((tile, index) => (
               <SessionTile
                 key={`${tile.date}/${tile.file.filename}`}
@@ -88,7 +92,7 @@ export function SessionsPage() {
                 keyboardProps={listNav.getItemProps(index)}
               />
             ))}
-          </div>
+          </ul>
           {tiles.length > visibleTiles.length ? (
             <div className="mt-4 text-center">
               <p className="mb-2 text-xs text-text-muted">Showing {visibleTiles.length} of {tiles.length}</p>

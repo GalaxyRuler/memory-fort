@@ -57,15 +57,31 @@ vi.mock("../../../src/dashboard-ui/hooks/useSearch.js", () => ({
 }));
 
 function makeResult(overrides: Partial<SearchResult>): SearchResult {
-  return {
+  const result = {
     path: "wiki/projects/foo.md",
     title: "Foo Project",
     snippet: "Foo project snippet",
     score: 0.91,
     source: "rerank",
     sources: [{ source: "rerank", rank: 1 }],
+    provenance: {
+      path: "wiki/projects/foo.md",
+      kind: "wiki" as const,
+      dominantSource: "rerank",
+      signals: [{ source: "rerank", rank: 1 }],
+    },
     kind: "wiki",
     ...overrides,
+  };
+  return {
+    ...result,
+    kind: result.kind as SearchResult["kind"],
+    provenance: overrides.provenance ?? {
+      path: result.path,
+      kind: result.kind as SearchResult["kind"],
+      dominantSource: result.source,
+      signals: result.sources,
+    },
   };
 }
 
@@ -112,7 +128,7 @@ describe("CommandPalette navigation", () => {
       }),
       {
         to: "/raw/$date/$filename",
-        params: { date: "2026-05-24", filename: "codex-session" },
+        params: { date: "2026-05-24", filename: "codex-session.md" },
       },
     ],
     [

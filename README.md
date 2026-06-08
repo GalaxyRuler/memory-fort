@@ -2,7 +2,8 @@
 
 **Cross-tool persistent memory for AI agents — local, private, and free.**
 
-Memory Fort gives every AI coding session a shared long-term memory: observations flow in automatically from Claude Code, Codex, Antigravity, Hermes, Pi, and OpenClaw; a curated wiki of markdown pages grows over time; and retrieval (BM25 + semantic + graph) surfaces the right context at session start. No database. No external service. No API key to get started.
+Memory Fort gives every AI coding session a shared long-term memory: observations flow in automatically from Claude Code, Codex, Antigravity, Hermes, and Pi.
+MCP integrations, including OpenClaw in v1, can log and recall memory on demand; a curated wiki of markdown pages grows over time; and retrieval (BM25 + semantic + graph) surfaces the right context at session start. No database. No external service. No API key to get started.
 
 Your memory is a folder of plain text files — a git repo, an Obsidian vault, and a typed knowledge graph all at once.
 
@@ -10,13 +11,14 @@ Your memory is a folder of plain text files — a git repo, an Obsidian vault, a
 
 ## Why Memory Fort?
 
-Most agent memory tools require a cloud account, a running database, or a paid API to work at all. Memory Fort does not.
+Memory Fort does not require a cloud account, a running database, or a paid API key to get started; its local vault and lexical search run from plain markdown files.
 
 - **Your data, your machine.** Everything lives under `~/.memory/` as markdown files you can read, edit, grep, and version-control.
 - **No vendor lock-in.** Open schema, plain text format, vault is just a git repo.
 - **No account required to start.** Lexical search (BM25 + graph) works on day one with zero API keys.
 - **Obsidian-native.** Open `~/.memory/` in Obsidian and get a knowledge graph, backlinks, and full-text search for free.
-- **Cross-tool hooks.** Claude Code, Codex, Antigravity, Hermes, Pi, and OpenClaw all write to the same vault automatically — one memory across all your AI tools.
+- **Cross-tool hooks.** Claude Code, Codex, Antigravity, Hermes, and Pi write to the same vault automatically.
+- **MCP-only clients.** OpenClaw uses the same vault through MCP without passive capture in v1.
 
 ---
 
@@ -62,12 +64,13 @@ flowchart TD
         CX["Codex"]
         AG["Antigravity"]
         HE["Hermes"]
-        PI["Pi / OpenClaw"]
+        PI["Pi"]
+        OC["OpenClaw"]
         CD["Claude Desktop"]
         VS["VS Code"]
     end
 
-    subgraph Capture ["📥 Capture (automatic)"]
+    subgraph Capture ["📥 Capture"]
         H["⚡ Hook Scripts<br/>(PreToolUse · PostToolUse · UserPromptSubmit · Stop)"]
         MCP_IN["🔌 MCP Server<br/>(log_observation)"]
     end
@@ -90,7 +93,7 @@ flowchart TD
     end
 
     CC & CX & HE & PI -->|hooks fire| H
-    AG & CD & VS & PI -->|MCP calls| MCP_IN
+    AG & CD & VS & OC -->|MCP calls| MCP_IN
     H --> RAW
     MCP_IN --> RAW
     RAW --> COMPILE
@@ -109,7 +112,7 @@ flowchart TD
     classDef curation fill:#b45309,stroke:#f59e0b,stroke-width:2px,color:#fff;
     classDef retrieval fill:#9d174d,stroke:#db2777,stroke-width:2px,color:#fff;
 
-    class CC,CX,AG,HE,PI,CD,VS tool;
+    class CC,CX,AG,HE,PI,OC,CD,VS tool;
     class H,MCP_IN capture;
     class RAW,WIKI,IDX,EMB vault;
     class COMPILE curation;
@@ -185,11 +188,14 @@ memory-fort install hermes          # Hermes agent (YAML hooks + MCP in ~/.herme
 memory-fort install pi              # Pi coding agent (YAML hooks in ~/.pi/config.yaml)
 memory-fort install openclaw        # OpenClaw (MCP server in ~/.openclaw/openclaw.json)
 memory-fort install opencoven       # OpenCoven / Coven (read-only daemon readiness check)
+memory-fort install opencode        # OpenCode (MCP config + selected event plugin)
 memory-fort install claude-desktop  # Claude Desktop (MCP only)
 memory-fort install vscode          # VS Code (MCP only)
 ```
 
 All installs are **non-destructive and idempotent** — sentinel-block writes, re-running is safe. The OpenCoven target is read-only: it checks the `coven` CLI and the local `coven.daemon.v1` health contract, but does not launch sessions or write Memory Fort config.
+OpenClaw support is MCP-only in v1: the installer preserves/updates its MCP config, but it does not install passive capture hooks or automatic observation capture.
+OpenCode support has an implemented CLI surface, MCP config, and selected event plugin; live/operator smoke remains pending.
 
 ```bash
 # Undo any integration cleanly
@@ -204,7 +210,7 @@ memory-fort disconnect --all
 | Mode | Needs | When to use |
 |---|---|---|
 | **Lexical (default)** | Nothing | Day 1, offline, private projects |
-| **Voyage embeddings** | `VOYAGE_API_KEY` | Best semantic recall |
+| **Voyage embeddings** | `VOYAGE_API_KEY` | Hosted semantic retrieval |
 | **OpenAI embeddings** | `OPENAI_API_KEY` | Alternative to Voyage |
 | **Ollama (local)** | Ollama running locally | Full local, no cloud at all |
 
@@ -212,38 +218,20 @@ Switch any time: edit `~/.memory/config.yaml` or re-run `memory-fort init`.
 
 ---
 
-## Memory Fort vs. other agent memory tools
+## Evidence posture
 
-All claims below are sourced from 2026 benchmarks and vendor documentation.
+Memory Fort avoids reproduced-score and third-party benchmark claims unless they have been reproduced locally. Vendor-reported benchmark numbers must stay labeled as vendor-reported, and public claims should point to release evidence or implemented local behavior.
 
-| | **Memory Fort** | **mem0** | **Zep / Graphiti** | **Letta** | **Cognee** | **LangMem** | **OMEGA** |
-|---|---|---|---|---|---|---|---|
-| **Storage** | Markdown files | Cloud DB / OSS | Cloud only¹ | PostgreSQL | SQLite + LanceDB | You choose | SQLite |
-| **Requires API key** | ❌ No (lexical default) | ✅ Yes | ✅ Yes | ✅ Yes (LLM) | ✅ Yes (LLM) | ✅ Yes (LLM) | ❌ No |
-| **Self-hosted** | ✅ Always | ✅ OSS option | ❌ Dropped¹ | ✅ Free | ✅ Local | ✅ OSS | ✅ |
-| **Offline / air-gapped** | ✅ | ❌ | ❌ | ❌ | ✅ (local LLM) | ❌ | ✅ |
-| **Human-readable** | ✅ Markdown + YAML | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| **Obsidian-compatible** | ✅ Native | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| **Git-backed** | ✅ Built-in | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| **Multi-tool hooks** | ✅ 6 tools | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| **Knowledge graph** | ✅ Typed edges (free) | ✅ Pro only ($249/mo) | ✅ Graphiti | ✅ All tiers | ✅ All tiers | ❌ | ❌ |
-| **LongMemEval** | — | 49.0%² | 63.8%² | — | — | 59.8s p95 latency³ | 95.4%⁴ |
-| **Free tier** | Unlimited (local) | 10K memories, 1K calls/mo | ❌ | ✅ self-hosted | ✅ self-hosted | ✅ OSS | Unlimited |
-| **TypeScript SDK** | ✅ Native CLI + MCP | ✅ | ✅ | partial | ❌ Python only | partial | ❌ |
+Current local evidence is intentionally narrower than a benchmark claim:
 
-¹ Zep dropped its self-hosted Community Edition in 2025; Zep Cloud is now the only supported path.  
-² [Agent Memory at Scale 2026 — AgentMarketCap](https://agentmarketcap.ai/blog/2026/04/10/agent-memory-vendor-landscape-2026-letta-zep-mem0-langmem)  
-³ [Best AI Agent Memory Frameworks 2026 — Atlan](https://atlan.com/know/best-ai-agent-memory-frameworks-2026/)  
-⁴ [OMEGA comparison page](https://omegamax.co/compare)
+| Area | Current public claim | Evidence status |
+|---|---|---|
+| Default storage | Markdown + YAML files under `~/.memory/` | Implemented local package behavior |
+| Default search | Lexical search works without an API key | Implemented local package behavior |
+| Optional retrieval | Semantic and graph-assisted retrieval are available when configured | Local smoke evidence is recorded in `docs/release-evidence/2026-06-06-v1.1-credibility.md` |
+| Package surface | Package uses the `files` whitelist in `package.json` | Local `npm pack --dry-run --json` evidence is recorded in the release evidence note |
 
-### When to choose something else
-
-- **mem0** — managed cloud, polished dashboard, widest language support, largest community.
-- **Zep / Graphiti** — best temporal fact tracking; reason about *when* facts changed.
-- **Letta** — full stateful agent runtime, not just memory.
-- **Cognee** — rich multimodal pipeline (images, audio, documents); Python-only.
-- **LangMem** — natural fit on LangChain/LangGraph; note the high p95 latency for interactive use.
-- **OMEGA** — fully local + AES-256 encryption at rest; no multi-tool hook support.
+Memory Fort does not currently publish a reproduced LongMemEval score or a reproduced third-party benchmark row. Use vendor benchmark numbers only as vendor-reported claims, not as Memory Fort certification.
 
 ---
 
@@ -278,7 +266,6 @@ Built-in React dashboard: browse the wiki, search (BM25 + semantic + graph), rev
 
 ## Roadmap
 
-- **OpenCode** integration (`memory-fort install opencode`) — plugin drop into `~/.config/opencode/plugins/`
 - **Optional SQLite-FTS index** — rebuildable cache for sub-10ms lexical search at large vault sizes
 - **Community integrations** — pull requests welcome; hook pattern documented in `docs/architecture.md`
 

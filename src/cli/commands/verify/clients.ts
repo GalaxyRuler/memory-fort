@@ -15,6 +15,7 @@ import {
 import {
   isClaudeCodePluginEnabled,
 } from "../install/claude-code.js";
+import { validateOpenCodeConfig, validateOpenCodePlugin } from "../install/opencode.js";
 import { readOpenCovenReadiness } from "../install/opencoven.js";
 import { vscodeExtensionDir, vscodeMcpConfigPath } from "../install/vscode.js";
 import { fail, pass, skip, warn, type CheckDescriptor, type VerifyCheckContext, type VerifyCheckResult } from "./types.js";
@@ -162,6 +163,27 @@ export const openCovenReadinessCheck: CheckDescriptor = {
   },
 };
 
+export const openCodeConfigCheck: CheckDescriptor = {
+  id: "client.opencode.config",
+  label: "OpenCode MCP entry present",
+  roles: ["operator"],
+  run: () => checkOpenCodeConfig(),
+};
+
+export const openCodePluginCheck: CheckDescriptor = {
+  id: "client.opencode.plugin",
+  label: "OpenCode Memory Fort plugin installed",
+  roles: ["operator"],
+  run: () => checkOpenCodePlugin(),
+};
+
+export const openCodeCaptureCheck: CheckDescriptor = {
+  id: "client.opencode.capture",
+  label: "OpenCode capture is fresh",
+  roles: ["operator"],
+  run: (ctx) => checkRecentCapture(ctx, ["opencode-"], "client.opencode.capture", "opencode"),
+};
+
 export const vscodeConfigCheck: CheckDescriptor = {
   id: "client.vscode.config",
   label: "VS Code MCP entry present",
@@ -227,6 +249,9 @@ export const CLIENT_CHECKS: CheckDescriptor[] = [
   snifferAntigravityPluginCheck,
   antigravityCaptureCheck,
   openCovenReadinessCheck,
+  openCodeConfigCheck,
+  openCodePluginCheck,
+  openCodeCaptureCheck,
   vscodeConfigCheck,
   snifferVscodeExtensionCheck,
   snifferVscodeCaptureCheck,
@@ -623,6 +648,57 @@ async function checkOpenCovenReadiness(): Promise<VerifyCheckResult> {
     status.detail,
     "run `npx @opencoven/cli doctor`, then `coven daemon start`",
   );
+}
+
+async function checkOpenCodeConfig(): Promise<VerifyCheckResult> {
+  const validation = await validateOpenCodeConfig();
+  if (validation.reason === "missing") {
+    return fail(
+      "client.opencode.config",
+      "OpenCode MCP entry present",
+      "run `memory connect opencode`",
+      `missing at ${validation.path}`,
+    );
+  }
+
+  if (validation.reason === "malformed") {
+    return fail(
+      "client.opencode.config",
+      "OpenCode MCP entry present",
+      "repair opencode.json, then run `memory connect opencode`",
+      `malformed JSON at ${validation.path}`,
+    );
+  }
+
+  return validation.ok
+    ? pass("client.opencode.config", "OpenCode MCP entry present")
+    : fail(
+        "client.opencode.config",
+        "OpenCode MCP entry present",
+        "run `memory connect opencode`",
+        `memory MCP entry missing or stale at ${validation.path}`,
+      );
+}
+
+async function checkOpenCodePlugin(): Promise<VerifyCheckResult> {
+  const validation = await validateOpenCodePlugin();
+  if (validation.reason === "missing") {
+    return fail(
+      "client.opencode.plugin",
+      "OpenCode Memory Fort plugin installed",
+      "run `memory connect opencode`",
+      `missing at ${validation.path}`,
+    );
+  }
+
+  return validation.ok
+    ? pass("client.opencode.plugin", "OpenCode Memory Fort plugin installed")
+    : fail(
+        "client.opencode.plugin",
+        "OpenCode Memory Fort plugin installed",
+        "run `memory connect opencode`",
+        `plugin file missing generated OpenCode hook markers at ${validation.path}`,
+      );
 }
 
 async function checkClaudeCodeBackfillStore(): Promise<VerifyCheckResult> {

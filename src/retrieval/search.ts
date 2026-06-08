@@ -95,6 +95,12 @@ export interface SearchResult {
   score: number;
   source: string;
   sources: Array<{ source: string; rank: number }>;
+  provenance: {
+    path: string;
+    kind: "wiki" | "raw" | "crystal";
+    dominantSource: string;
+    signals: Array<{ source: string; rank: number }>;
+  };
   kind: "wiki" | "raw" | "crystal";
 }
 
@@ -524,15 +530,24 @@ export async function runSearch(opts: SearchOptions): Promise<SearchResponse> {
   const results = final
     .filter((item) => item.score >= minScore)
     .slice(0, resultLimit)
-    .map(({ candidate, score, source }): SearchResult => ({
-      path: candidate.document.relPath,
-      title: candidate.document.title,
-      snippet: candidate.document.snippetSource,
-      score,
-      source,
-      sources: candidate.rrf.sources,
-      kind: candidate.document.kind,
-    }));
+    .map(({ candidate, score, source }): SearchResult => {
+      const sources = candidate.rrf.sources.map((signal) => ({ ...signal }));
+      return {
+        path: candidate.document.relPath,
+        title: candidate.document.title,
+        snippet: candidate.document.snippetSource,
+        score,
+        source,
+        sources,
+        provenance: {
+          path: candidate.document.relPath,
+          kind: candidate.document.kind,
+          dominantSource: source,
+          signals: sources.map((signal) => ({ ...signal })),
+        },
+        kind: candidate.document.kind,
+      };
+    });
 
   timings.totalMs = Date.now() - started;
   return {

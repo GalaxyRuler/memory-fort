@@ -29,7 +29,7 @@ describe("scan-leaks release gate", () => {
     expect(result.stdout).toContain(`src/public.ts:1: ${token}`);
   });
 
-  it("reports CodexProjects path literals in escaped and slash forms", async () => {
+  it("reports private project path literals in escaped and slash forms", async () => {
     const escapedPath = ["C:", "\\", "\\", "Codex", "Projects"].join("");
     const slashPath = ["C:", "/", "Codex", "Projects"].join("");
     await writeText("src/paths.ts", [
@@ -43,6 +43,51 @@ describe("scan-leaks release gate", () => {
     expect(result.exitCode).toBe(1);
     expect(result.stdout).toContain(`src/paths.ts:1: ${escapedPath}`);
     expect(result.stdout).toContain(`src/paths.ts:2: ${slashPath}`);
+  });
+
+  it("reports escaped user-profile paths in source files", async () => {
+    const escapedUserPath = ["C:", "\\", "\\", "Users", "\\", "\\", "Admin"].join("");
+    const repeatedEscapedUserPath = ["C:", "\\", "\\", "\\", "\\", "Users", "\\", "\\", "\\", "\\", "Admin"].join("");
+    await writeText("src/paths.ts", [
+      `export const escapedUserPath = "${escapedUserPath}";`,
+      `export const repeatedEscapedUserPath = "${repeatedEscapedUserPath}";`,
+      "",
+    ].join("\n"));
+
+    const result = await runScan(["--root", tmp]);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toContain(`src/paths.ts:1: ${escapedUserPath}`);
+    expect(result.stdout).toContain(`src/paths.ts:2: ${repeatedEscapedUserPath}`);
+  });
+
+  it("reports escaped user-profile paths and private project-root slugs in public examples", async () => {
+    const escapedUserPath = ["C:", "\\", "\\", "Users", "\\", "\\", "Admin"].join("");
+    const escapedProjectPath = `${escapedUserPath}${["\\", "\\", "Claude", "Code", "Projects"].join("")}`;
+    const jsonEscapedProjectPath = [
+      "C:",
+      "\\",
+      "\\",
+      "Users",
+      "\\",
+      "\\",
+      "Admin",
+      "\\",
+      "\\",
+      "Codex",
+      "Projects",
+    ].join("");
+    const jsonRenderedUserPath = JSON.stringify(jsonEscapedProjectPath).match(/^"(.+?Admin)/)?.[1] ?? "";
+    await writeText("README.md", `example: "${escapedProjectPath}"\n`);
+    await writeText("src/example.json", `${JSON.stringify({ cwd: jsonEscapedProjectPath }, null, 2)}\n`);
+
+    const result = await runScan(["--root", tmp]);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toContain(`README.md:1: ${escapedUserPath}`);
+    expect(result.stdout).toContain(["Claude", "Code", "Projects"].join(""));
+    expect(result.stdout).toContain(`src/example.json:2: ${jsonRenderedUserPath}`);
+    expect(result.stdout).toContain(["Codex", "Projects"].join(""));
   });
 
   it("allows owner name tokens in package.json", async () => {
@@ -103,6 +148,36 @@ describe("scan-leaks release gate", () => {
     const result = await runScan(["--root", tmp]);
 
     expect(result.exitCode).toBe(0);
+  });
+
+  it("flags denylist tokens in public release docs", async () => {
+    const token = ["C:", "\\", "Users", "\\", "Admin"].join("");
+    await writeText("docs/compatibility-matrix.md", `Path: ${token}\n`);
+    await writeText("docs/release-evidence/2026-06-07-v1.1-credibility.md", `Evidence path: ${token}\n`);
+    await writeText("docs/release-evidence/private.txt", `Private evidence path: ${token}\n`);
+
+    const result = await runScan(["--root", tmp]);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toContain(`docs/compatibility-matrix.md:1: ${token}`);
+    expect(result.stdout).toContain(`docs/release-evidence/2026-06-07-v1.1-credibility.md:1: ${token}`);
+    expect(result.stdout).not.toContain("docs/release-evidence/private.txt");
+  });
+
+  it("reports dist-only infra token hits as json", async () => {
+    const token = ["tail", "6916d8"].join("");
+    await writeText("dist/cli.mjs", `const route = "${token}";\n`);
+
+    const result = await runScan(["--root", tmp, "--json"]);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toBe("");
+    expect(JSON.parse(result.stdout)).toEqual([{
+      path: "dist/cli.mjs",
+      line: 1,
+      token,
+      scope: "dist",
+    }]);
   });
 
   async function writeText(relPath: string, content: string): Promise<void> {

@@ -19,24 +19,47 @@ export function WikiCard({
   keyboardProps,
 }: {
   entry: WikiIndexEntry;
-  keyboardProps?: HTMLAttributes<HTMLAnchorElement>;
+  keyboardProps?: HTMLAttributes<HTMLLIElement>;
 }) {
-  return (
-    <Link
-      className={cn(
-        "block rounded-lg border border-t-4 border-border-subtle bg-surface p-4 transition-colors hover:bg-surface-2 data-[focused=true]:bg-surface-2 data-[focused=true]:ring-1 data-[focused=true]:ring-primary/60",
-        CATEGORY_COLORS[entry.category] ?? "border-t-text-muted",
-      )}
-      params={{ category: entry.category, slug: entry.slug }}
-      to="/wiki/$category/$slug"
-      {...keyboardProps}
-    >
+  const cardClassName = cn(
+    "rounded-lg border border-t-4 border-border-subtle bg-surface transition-colors hover:bg-surface-2 focus-within:bg-surface-2 focus-within:ring-1 focus-within:ring-primary/60",
+    CATEGORY_COLORS[entry.category] ?? "border-t-text-muted",
+  );
+  const content = (
+    <>
       <h3 className="mb-1 break-words text-base font-semibold text-text-primary md:truncate">{entry.title}</h3>
       <p className="mb-3 line-clamp-2 text-sm text-text-secondary">{entry.summary || "(no summary)"}</p>
       <div className="flex flex-wrap items-center justify-between gap-2 font-mono text-xs text-text-muted">
         <span className="break-words">{entry.updated}</span>
         <span className="capitalize">{entry.category}</span>
       </div>
+    </>
+  );
+
+  if (keyboardProps) {
+    const { className, ...itemProps } = keyboardProps;
+    const linkProps = itemProps as HTMLAttributes<HTMLAnchorElement>;
+    return (
+      <li className={cn(cardClassName, className)}>
+        <Link
+          className="block h-full rounded-lg p-4 focus:outline-none"
+          params={{ category: entry.category, slug: entry.slug }}
+          to="/wiki/$category/$slug"
+          {...linkProps}
+        >
+          {content}
+        </Link>
+      </li>
+    );
+  }
+
+  return (
+    <Link
+      className={cn("block p-4", cardClassName)}
+      params={{ category: entry.category, slug: entry.slug }}
+      to="/wiki/$category/$slug"
+    >
+      {content}
     </Link>
   );
 }

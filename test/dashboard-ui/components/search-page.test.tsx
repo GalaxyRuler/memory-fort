@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { SearchPage } from "../../../src/dashboard-ui/components/SearchPage.js";
 import type { SearchResult } from "../../../src/dashboard-ui/hooks/useSearch.js";
@@ -19,16 +19,27 @@ vi.mock("@tanstack/react-router", async (importOriginal) => {
     Link: ({
       children,
       className,
+      params,
       to,
     }: {
       children: React.ReactNode;
       className?: string;
+      params?: Record<string, string>;
       to: string;
-    }) => (
-      <a className={className} href={to}>
-        {children}
-      </a>
-    ),
+    }) => {
+      const href = params
+        ? to
+            .replace("$category", params.category ?? "")
+            .replace("$slug", params.slug ?? "")
+            .replace("$date", params.date ?? "")
+            .replace("$filename", params.filename ?? "")
+        : to;
+      return (
+        <a className={className} href={href}>
+          {children}
+        </a>
+      );
+    },
     useNavigate: () => routerState.navigate,
     useSearch: () => routerState.search,
   };
@@ -53,7 +64,35 @@ function makeResult(): SearchResult {
       { source: "bm25", rank: 1 },
       { source: "rerank", rank: 1 },
     ],
+    provenance: {
+      path: "wiki/projects/foo.md",
+      kind: "wiki",
+      dominantSource: "rerank",
+      signals: [
+        { source: "bm25", rank: 1 },
+        { source: "rerank", rank: 1 },
+      ],
+    },
     kind: "wiki",
+  };
+}
+
+function makeCrystalResult(): SearchResult {
+  return {
+    ...makeResult(),
+    path: "wiki/crystals/retrieval.md",
+    title: "Usage Patterns",
+    snippet: "A durable crystal result.",
+    provenance: {
+      path: "wiki/crystals/retrieval.md",
+      kind: "crystal",
+      dominantSource: "rerank",
+      signals: [
+        { source: "bm25", rank: 1 },
+        { source: "rerank", rank: 1 },
+      ],
+    },
+    kind: "crystal",
   };
 }
 
@@ -107,6 +146,29 @@ describe("SearchPage", () => {
     vi.useRealTimers();
   });
 
+  test("renders search results as a list instead of a listbox", () => {
+    routerState.search = { q: "voyage" };
+    searchHook.useSearch.mockReturnValue({
+      data: {
+        results: [makeResult()],
+        timings: { totalMs: 42 },
+        degraded: false,
+        warnings: [],
+      },
+      isLoading: false,
+    });
+
+    render(<SearchPage />);
+
+    const list = screen.getByRole("list", { name: "Search results" });
+    const item = screen.getByRole("listitem");
+
+    expect(list).toBeInTheDocument();
+    expect(within(item).getByText("Foo Project")).toBeInTheDocument();
+    expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+    expect(screen.queryByRole("option")).not.toBeInTheDocument();
+  });
+
   test("filter change updates scope in the URL state", () => {
     routerState.search = { q: "voyage", scope: "wiki" };
     render(<SearchPage />);
@@ -119,5 +181,81 @@ describe("SearchPage", () => {
       q: "voyage",
       scope: "all",
     });
+  });
+
+  test("renders crystal results as links to the crystal wiki detail page", () => {
+    routerState.search = { q: "crystal" };
+    searchHook.useSearch.mockReturnValue({
+      data: {
+        results: [makeCrystalResult()],
+        timings: { totalMs: 42 },
+        degraded: false,
+        warnings: [],
+      },
+      isLoading: false,
+    });
+
+    render(<SearchPage />);
+
+    expect(screen.getByRole("link", { name: "Usage Patterns" })).toHaveAttribute("href", "/wiki/crystals/retrieval");
+  });
+
+  test("activating a focused crystal result navigates to the crystal wiki detail page", () => {
+    routerState.search = { q: "crystal" };
+    searchHook.useSearch.mockReturnValue({
+      data: {
+        results: [makeCrystalResult()],
+        timings: { totalMs: 42 },
+        degraded: false,
+        warnings: [],
+      },
+      isLoading: false,
+    });
+
+    render(<SearchPage />);
+
+    const list = screen.getByRole("list", { name: "Search results" });
+    list.focus();
+    fireEvent.keyDown(list, { key: "Enter" });
+
+    expect(routerState.navigate).toHaveBeenCalledWith({
+      to: "/wiki/$category/$slug",
+      params: { category: "crystals", slug: "retrieval" },
+    });
+  });
+
+  test("j navigation from a focused result title link moves to the next managed result", () => {
+    routerState.search = { q: "voyage" };
+    searchHook.useSearch.mockReturnValue({
+      data: {
+        results: [
+          makeResult(),
+          {
+            ...makeResult(),
+            path: "wiki/projects/bar.md",
+            title: "Bar Project",
+            provenance: {
+              ...makeResult().provenance,
+              path: "wiki/projects/bar.md",
+            },
+          },
+        ],
+        timings: { totalMs: 42 },
+        degraded: false,
+        warnings: [],
+      },
+      isLoading: false,
+    });
+
+    render(<SearchPage />);
+
+    const firstTitleLink = screen.getByRole("link", { name: "Foo Project" });
+    const nextResult = screen.getByText("Bar Project").closest("[role='listitem']");
+
+    firstTitleLink.focus();
+    fireEvent.keyDown(firstTitleLink, { key: "j" });
+
+    expect(nextResult).toHaveFocus();
+    expect(nextResult).toHaveAttribute("data-focused", "true");
   });
 });

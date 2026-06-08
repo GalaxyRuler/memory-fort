@@ -1,6 +1,5 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import type { CognitiveType, GraphEdge, GraphNode } from "../hooks/useGraph.js";
-import type { RelationType } from "../../retrieval/relations.js";
 import {
   buildGalacticLayout,
   COGNITIVE_META,
@@ -78,6 +77,22 @@ const LEVEL_SCALE: Record<GalacticZoomLevel, number> = {
   1: 0.55,
   2: 1.4,
 };
+
+const RELATION_TYPES = [
+  "mentions",
+  "contradicts",
+  "supersedes",
+  "derived_from",
+  "uses",
+  "depends_on",
+  "caused_by",
+  "fixed_by",
+  "learned_from",
+  "mentioned_in",
+  "tested-with",
+  "linked",
+] as const;
+type RelationType = (typeof RELATION_TYPES)[number];
 
 export const GalacticCanvas = forwardRef<GalacticCanvasHandle, GalacticCanvasProps>(function GalacticCanvas(
   { edges, nodes, onHoverNode, onSelectNode, onZoomLevelChange, selectedNodeId = null, zoomLevel },
@@ -444,7 +459,7 @@ function drawEdge(ctx: CanvasRenderingContext2D, edge: GalacticLayout["edges"][n
       size,
     );
   } else {
-    const lens = edgeLensing(edge.source, edge.target, edge.source.galaxy, edge.weight);
+    const lens = edgeLensing(edge.source, edge.target, { x: edge.source.galaxy.cx, y: edge.source.galaxy.cy }, edge.weight);
     control = worldToScreen({ x: lens.controlX, y: lens.controlY }, camera, size);
   }
   const style = computeEdgeRenderStyle({
@@ -505,6 +520,7 @@ const EDGE_TYPE_TREATMENTS: Partial<Record<RelationType, { rgb: string; dash: nu
   caused_by: { rgb: "196, 181, 253", dash: [], arrowhead: false },
   fixed_by: { rgb: "196, 181, 253", dash: [], arrowhead: false },
 };
+const RELATION_TYPE_SET = new Set<RelationType>(RELATION_TYPES);
 
 export function computeEdgeRenderStyle({
   highlighted,
@@ -572,8 +588,9 @@ export function computeEdgeRenderStyle({
   };
 }
 
-function normalizeEdgeType(type?: string | null): string {
-  return (type ?? "mentions").trim().toLowerCase();
+function normalizeEdgeType(type?: string | null): RelationType {
+  const normalized = (type ?? "mentions").trim().toLowerCase();
+  return RELATION_TYPE_SET.has(normalized as RelationType) ? normalized as RelationType : "mentions";
 }
 
 function rgba(rgb: string, opacity: number): string {

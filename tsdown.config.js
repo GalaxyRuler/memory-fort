@@ -154,6 +154,11 @@ export default defineConfig([
   },
   {
     ...common,
+    entry: { "hooks/opencode-event": "src/hooks/opencode-event.ts" },
+    clean: false,
+  },
+  {
+    ...common,
     entry: { "hooks/pre-compact": "src/hooks/pre-compact.ts" },
     clean: false,
   },

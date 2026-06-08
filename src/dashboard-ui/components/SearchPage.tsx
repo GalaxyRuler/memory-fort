@@ -39,11 +39,7 @@ export function SearchPage() {
     onActivate: (result) => {
       const linkProps = resultLinkProps(result);
       if (!linkProps) return;
-      if (linkProps.to === "/wiki/$category/$slug") {
-        navigate({ to: linkProps.to, params: linkProps.params });
-      } else {
-        navigate({ to: linkProps.to, params: linkProps.params });
-      }
+      navigate(linkProps);
     },
   });
 
@@ -98,7 +94,7 @@ export function SearchPage() {
           }
           scope={scope}
         />
-        <div className="space-y-3" {...listNav.listProps}>
+        <div className="space-y-3">
           {!debouncedQuery ? (
             <EmptyState
               icon={Search}
@@ -120,9 +116,17 @@ export function SearchPage() {
               description="Try a different query or broaden the scope filter."
             />
           ) : null}
-          {results.map((result, index) => (
-            <SearchResultCard key={result.path} result={result} keyboardProps={listNav.getItemProps(index)} />
-          ))}
+          {results.length > 0 ? (
+            <div aria-label="Search results" className="space-y-3" role="list" {...listNav.listProps}>
+              {results.map((result, index) => (
+                <SearchResultCard
+                  key={result.path}
+                  result={result}
+                  keyboardProps={{ role: "listitem", ...listNav.getItemProps(index) }}
+                />
+              ))}
+            </div>
+          ) : null}
         </div>
       </div>
     </div>

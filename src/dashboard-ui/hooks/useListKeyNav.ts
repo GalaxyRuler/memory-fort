@@ -61,20 +61,25 @@ export function useListKeyNav<T>({
   const onKeyDown = useCallback(
     (event: KeyboardEvent<HTMLElement>) => {
       if (isEditableElement(document.activeElement)) return;
+      const interactiveTarget = isInteractiveEventTarget(event);
+      const managedTarget = isManagedListKeyNavTarget(event);
 
       if (event.key === "j" || event.key === "J") {
+        if (interactiveTarget && !managedTarget) return;
         event.preventDefault();
         moveFocus((focusedIndex < 0 ? 0 : focusedIndex) + 1);
         return;
       }
 
       if (event.key === "k" || event.key === "K") {
+        if (interactiveTarget && !managedTarget) return;
         event.preventDefault();
         moveFocus((focusedIndex < 0 ? 0 : focusedIndex) - 1);
         return;
       }
 
       if (event.key === "Enter" && focusedIndex >= 0) {
+        if (interactiveTarget) return;
         const item = items[focusedIndex];
         if (!item) return;
         event.preventDefault();
@@ -107,6 +112,7 @@ export function useListKeyNav<T>({
         },
         tabIndex: isFocused ? 0 : -1,
         "data-focused": isFocused ? "true" : "false",
+        "data-list-key-nav-item": "true",
         onFocus: () => setFocusedIndex(index),
         onClick: () => setFocusedIndex(index),
       };
@@ -115,6 +121,35 @@ export function useListKeyNav<T>({
   );
 
   return { focusedIndex, listProps, getItemProps };
+}
+
+const INTERACTIVE_DESCENDANT_SELECTOR = [
+  "a[href]",
+  "button",
+  "summary",
+  "[role='button']",
+  "[role='link']",
+  "[role='checkbox']",
+  "[role='menuitem']",
+  "[role='radio']",
+  "[role='switch']",
+  "[role='tab']",
+].join(",");
+
+function isInteractiveEventTarget(event: KeyboardEvent<HTMLElement>): boolean {
+  const target = event.target;
+  if (!(target instanceof Element)) return false;
+  if (isEditableElement(target)) return true;
+  if (target === event.currentTarget) return false;
+
+  const interactiveElement = target.closest(INTERACTIVE_DESCENDANT_SELECTOR);
+  return interactiveElement !== null && event.currentTarget.contains(interactiveElement);
+}
+
+function isManagedListKeyNavTarget(event: KeyboardEvent<HTMLElement>): boolean {
+  if (!(event.target instanceof HTMLElement)) return false;
+  const managedElement = event.target.closest("[data-list-key-nav-item='true']");
+  return managedElement instanceof HTMLElement && event.currentTarget.contains(managedElement);
 }
 
 function isEditableElement(element: Element | null): boolean {

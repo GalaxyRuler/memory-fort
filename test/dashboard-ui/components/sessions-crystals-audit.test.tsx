@@ -1,5 +1,5 @@
-import { fireEvent, render, screen } from "@testing-library/react";
-import type { ReactNode } from "react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
+import type { AnchorHTMLAttributes, ReactNode } from "react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { AuditPage } from "../../../src/dashboard-ui/components/AuditPage.js";
 import { AuditRow } from "../../../src/dashboard-ui/components/AuditRow.js";
@@ -35,12 +35,13 @@ vi.mock("@tanstack/react-router", async (importOriginal) => {
       className,
       params,
       to,
+      ...props
     }: {
       children: ReactNode;
       className?: string;
       params?: Record<string, string>;
       to: string;
-    }) => {
+    } & AnchorHTMLAttributes<HTMLAnchorElement>) => {
       const href = params
         ? to
             .replace("$date", params.date ?? "")
@@ -49,7 +50,7 @@ vi.mock("@tanstack/react-router", async (importOriginal) => {
             .replace("$slug", params.slug ?? "")
         : to;
       return (
-        <a className={className} href={href}>
+        <a className={className} href={href} {...props}>
           {children}
         </a>
       );
@@ -183,6 +184,68 @@ describe("sessions, crystals, and audit secondary screens", () => {
     expect(screen.queryByText("claude-code")).not.toBeInTheDocument();
   });
 
+  test("SessionsPage exposes keyboard cards as list items with nested links", () => {
+    rawHook.useRawIndex.mockReturnValue({
+      data: [
+        {
+          date: "2026-05-24",
+          files: [
+            {
+              filename: "codex-alpha.md",
+              mtime: "2026-05-24T11:00:00.000Z",
+              sizeBytes: 2048,
+            },
+          ],
+        },
+      ],
+      isLoading: false,
+    });
+
+    render(<SessionsPage />);
+
+    const list = screen.getByRole("list", { name: "Sessions" });
+    const item = within(list).getByRole("listitem");
+
+    expect(within(item).getByRole("link", { name: /codex/i })).toHaveAttribute(
+      "href",
+      "/raw/2026-05-24/codex-alpha.md",
+    );
+    expect(within(item).getByRole("link", { name: /codex/i })).toHaveAttribute("tabindex", "0");
+  });
+
+  test("SessionsPage j/k navigation focuses native session links", () => {
+    rawHook.useRawIndex.mockReturnValue({
+      data: [
+        {
+          date: "2026-05-24",
+          files: [
+            {
+              filename: "codex-alpha.md",
+              mtime: "2026-05-24T12:00:00.000Z",
+              sizeBytes: 2048,
+            },
+            {
+              filename: "codex-beta.md",
+              mtime: "2026-05-24T11:00:00.000Z",
+              sizeBytes: 2048,
+            },
+          ],
+        },
+      ],
+      isLoading: false,
+    });
+
+    render(<SessionsPage />);
+
+    const list = screen.getByRole("list", { name: "Sessions" });
+    list.focus();
+    fireEvent.keyDown(list, { key: "j" });
+
+    const betaLink = screen.getByRole("link", { name: /codex beta/i });
+    expect(betaLink).toHaveFocus();
+    expect(betaLink).toHaveAttribute("data-focused", "true");
+  });
+
   test("SessionsPage starts at the URL page size and loads more", () => {
     routerState.search = { per: "2" };
     rawHook.useRawIndex.mockReturnValue({
@@ -279,6 +342,77 @@ describe("sessions, crystals, and audit secondary screens", () => {
     expect(screen.getByText("Crystal Three")).toBeInTheDocument();
     expect(screen.getByText("Crystal Four")).toBeInTheDocument();
     expect(screen.queryByText("No crystals yet")).not.toBeInTheDocument();
+  });
+
+  test("CrystalsPage exposes crystal cards as list items with nested links", () => {
+    wikiHook.useWikiIndex.mockReturnValue({
+      data: {
+        byCategory: {
+          crystals: [
+            {
+              category: "crystals",
+              slug: "one",
+              relPath: "crystals/one.md",
+              title: "Crystal One",
+              summary: "First distilled thread.",
+              updated: "2026-05-24",
+            },
+          ],
+        },
+        total: 1,
+      },
+      isLoading: false,
+    });
+
+    render(<CrystalsPage />);
+
+    const list = screen.getByRole("list", { name: "Crystals" });
+    const item = within(list).getByRole("listitem");
+
+    expect(within(item).getByRole("link", { name: /Crystal One/i })).toHaveAttribute(
+      "href",
+      "/wiki/crystals/one",
+    );
+    expect(within(item).getByRole("link", { name: /Crystal One/i })).toHaveAttribute("tabindex", "0");
+  });
+
+  test("CrystalsPage j/k navigation focuses native crystal links", () => {
+    wikiHook.useWikiIndex.mockReturnValue({
+      data: {
+        byCategory: {
+          crystals: [
+            {
+              category: "crystals",
+              slug: "one",
+              relPath: "crystals/one.md",
+              title: "Crystal One",
+              summary: "First distilled thread.",
+              updated: "2026-05-24",
+            },
+            {
+              category: "crystals",
+              slug: "two",
+              relPath: "crystals/two.md",
+              title: "Crystal Two",
+              summary: "Second distilled thread.",
+              updated: "2026-05-25",
+            },
+          ],
+        },
+        total: 2,
+      },
+      isLoading: false,
+    });
+
+    render(<CrystalsPage />);
+
+    const list = screen.getByRole("list", { name: "Crystals" });
+    list.focus();
+    fireEvent.keyDown(list, { key: "j" });
+
+    const secondLink = screen.getByRole("link", { name: /Crystal Two/i });
+    expect(secondLink).toHaveFocus();
+    expect(secondLink).toHaveAttribute("data-focused", "true");
   });
 
   test("AuditRow uses the correct level color class", () => {

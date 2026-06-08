@@ -45,21 +45,17 @@ export function SessionTile({
 }: {
   file: RawIndexFile;
   date: string;
-  keyboardProps?: HTMLAttributes<HTMLAnchorElement>;
+  keyboardProps?: HTMLAttributes<HTMLLIElement>;
 }) {
   const source = parseSourceFromFilename(file.filename);
   const sessionId = parseSessionIdFromFilename(file.filename);
   const captureTime = decodeUuidV7Time(sessionId);
   const Icon = SOURCE_ICON[source];
   const truncatedId = sessionId.length > 18 ? `${sessionId.slice(0, 8)}...${sessionId.slice(-6)}` : sessionId;
-
-  return (
-    <Link
-      to="/raw/$date/$filename"
-      params={{ date, filename: file.filename }}
-      className="block rounded-lg border border-border-subtle bg-surface p-4 transition-all hover:border-border-emphasis hover:bg-surface-2 data-[focused=true]:border-primary/60 data-[focused=true]:bg-surface-2 data-[focused=true]:ring-1 data-[focused=true]:ring-primary/60"
-      {...keyboardProps}
-    >
+  const cardClassName =
+    "rounded-lg border border-border-subtle bg-surface transition-all hover:border-border-emphasis hover:bg-surface-2 focus-within:border-primary/60 focus-within:bg-surface-2 focus-within:ring-1 focus-within:ring-primary/60";
+  const content = (
+    <>
       <div className="mb-3 flex items-start justify-between">
         <div className={cn("flex h-9 w-9 items-center justify-center rounded-md", SOURCE_ICON_BG[source])}>
           <Icon size={18} strokeWidth={1.5} className={SOURCE_ICON_TEXT[source]} />
@@ -74,6 +70,33 @@ export function SessionTile({
           <span>{captureTime.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
         ) : null}
       </div>
+    </>
+  );
+
+  if (keyboardProps) {
+    const { className, ...itemProps } = keyboardProps;
+    const linkProps = itemProps as HTMLAttributes<HTMLAnchorElement>;
+    return (
+      <li className={cn(cardClassName, className)}>
+        <Link
+          to="/raw/$date/$filename"
+          params={{ date, filename: file.filename }}
+          className="block h-full rounded-lg p-4 focus:outline-none"
+          {...linkProps}
+        >
+          {content}
+        </Link>
+      </li>
+    );
+  }
+
+  return (
+    <Link
+      to="/raw/$date/$filename"
+      params={{ date, filename: file.filename }}
+      className={cn("block p-4", cardClassName)}
+    >
+      {content}
     </Link>
   );
 }

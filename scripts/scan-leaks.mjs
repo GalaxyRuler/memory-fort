@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { constants } from "node:fs";
 import { access, readdir, readFile, stat } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
-import { QUARANTINE_GLOBS } from "./release/quarantine.mjs";
+import { isReleaseQuarantined } from "./release/quarantine.mjs";
 
 const ALLOWLIST_PATHS = new Set([
   "AUTHORSHIP.md",
@@ -13,31 +13,33 @@ const ALLOWLIST_PATHS = new Set([
 ]);
 
 const DENYLIST = [
-  literal(["aoa", "@", "live", ".", "ca"].join("")),
-  literal(["a", ".o", ".alku", "laib"].join("")),
-  literal(["srv", "1317946"].join("")),
-  literal(["tail", "6916d8"].join("")),
-  literal(["C:", "\\", "Users", "\\", "Admin"].join("")),
-  literal(["Users", "/", "Admin"].join("")),
-  literal(["C:", "\\", "Codex", "Projects"].join("")),
-  literal(["C:", "\\", "\\", "Codex", "Projects"].join("")),
-  literal(["C:", "/", "Codex", "Projects"].join("")),
-  literal(["One", "Drive"].join("")),
-  literal(["white", "dragon"].join("")),
-  literal(["vault", "warden"].join("")),
-  word(["iaq", "ar"].join("")),
-  word(["lis", "an"].join("")),
-  word(["veri", "trace"].join("")),
-  word(["apyt", "hon"].join("")),
-  literal(["my", "site", "again"].join("")),
-  word(["Riy", "adh"].join("")),
-  literal(["native", " ", "qt"].join("")),
-  literal(["arabic", " ", "python"].join("")),
-  literal(["personal", " ", "website"].join("")),
-  word(["Abdul", "lah"].join("")),
-].map((source) => new RegExp(source, "i"));
-
-const quarantineMatchers = QUARANTINE_GLOBS.map(globToRegExp);
+  deny(literal(["aoa", "@", "live", ".", "ca"].join(""))),
+  deny(literal(["a", ".o", ".alku", "laib"].join(""))),
+  deny(literal(["srv", "1317946"].join(""))),
+  deny(literal(["tail", "6916d8"].join(""))),
+  deny(literal(["C:", "\\", "Users", "\\", "Admin"].join(""))),
+  deny(literal(["Users", "/", "Admin"].join(""))),
+  deny(pathSegments(["C:", ["Codex", "Projects"].join("")])),
+  deny(pathSegments(["C:", "Users", "Admin"]), { skipTests: true }),
+  exampleDeny(pathSegments(["Users", "Admin"])),
+  exampleDeny(literal(["Codex", "Projects"].join(""))),
+  exampleDeny(literal(["Claude", "Code", "Projects"].join(""))),
+  exampleDeny(literal(["command", "-", "center"].join(""))),
+  deny(literal(["One", "Drive"].join(""))),
+  deny(literal(["white", "dragon"].join(""))),
+  exampleDeny(literal(["WHITE", "DRAGON"].join(""))),
+  deny(literal(["vault", "warden"].join(""))),
+  deny(word(["iaq", "ar"].join(""))),
+  deny(word(["lis", "an"].join(""))),
+  deny(word(["veri", "trace"].join(""))),
+  deny(word(["apyt", "hon"].join(""))),
+  deny(literal(["my", "site", "again"].join(""))),
+  deny(word(["Riy", "adh"].join(""))),
+  deny(literal(["native", " ", "qt"].join(""))),
+  deny(literal(["arabic", " ", "python"].join(""))),
+  deny(literal(["personal", " ", "website"].join(""))),
+  deny(word(["Abdul", "lah"].join(""))),
+];
 
 const args = parseArgs(process.argv.slice(2));
 const root = resolve(args.root ?? process.cwd());
@@ -57,24 +59,16 @@ for (const relPath of files) {
 
   const lines = content.split(/\r?\n/);
   for (const [index, line] of lines.entries()) {
-    for (const pattern of DENYLIST) {
-      const match = pattern.exec(line);
+    for (const rule of DENYLIST) {
+      if (rule.exampleOnly && !isMarkdownOrJson(relPath)) continue;
+      if (rule.skipTests && isTestPath(relPath)) continue;
+      const match = rule.regex.exec(line);
       if (match) {
         hits.push({ path: relPath, line: index + 1, token: match[0] });
       }
     }
   }
 }
-
-if (args.json) {
-  process.stdout.write(hits.length > 0 ? `${JSON.stringify(hits, null, 2)}\n` : "");
-} else {
-  for (const hit of hits) {
-    process.stdout.write(`${hit.path}:${hit.line}: ${hit.token}\n`);
-  }
-}
-
-process.exitCode = hits.length > 0 ? 1 : 0;
 
 // Second pass: scan dist/ for the two infra tokens that leaked in 0.1.0.
 // dist/** is quarantined from the main scan (too large/minified), but these
@@ -95,13 +89,22 @@ if (await pathExists(distDir)) {
       for (const token of INFRA_TOKENS) {
         if (line.includes(token)) {
           const rel = toPosixPath(relative(root, fullPath));
-          process.stderr.write(`dist/ contains private infra token\n${rel}:${index + 1}: ${token}\n`);
-          process.exit(1);
+          hits.push({ path: rel, line: index + 1, token, scope: "dist" });
         }
       }
     }
   }
 }
+
+if (args.json) {
+  process.stdout.write(hits.length > 0 ? `${JSON.stringify(hits, null, 2)}\n` : "");
+} else {
+  for (const hit of hits) {
+    process.stdout.write(`${hit.path}:${hit.line}: ${hit.token}\n`);
+  }
+}
+
+process.exitCode = hits.length > 0 ? 1 : 0;
 
 async function walkDistFiles(dir) {
   const results = [];
@@ -201,26 +204,7 @@ async function pathExists(path) {
 }
 
 function isQuarantined(relPath) {
-  const normalized = toPosixPath(relPath);
-  return quarantineMatchers.some((matcher) => matcher.test(normalized));
-}
-
-function globToRegExp(glob) {
-  let source = "^";
-  for (let index = 0; index < glob.length; index += 1) {
-    const char = glob[index];
-    const next = glob[index + 1];
-    if (char === "*" && next === "*") {
-      source += ".*";
-      index += 1;
-    } else if (char === "*") {
-      source += "[^/]*";
-    } else {
-      source += escapeRegExp(char);
-    }
-  }
-  source += "$";
-  return new RegExp(source, "i");
+  return isReleaseQuarantined(relPath);
 }
 
 function literal(value) {
@@ -229,6 +213,30 @@ function literal(value) {
 
 function word(value) {
   return `\\b${escapeRegExp(value)}\\b`;
+}
+
+function deny(source, options = {}) {
+  return {
+    regex: new RegExp(source, "i"),
+    exampleOnly: Boolean(options.exampleOnly),
+    skipTests: Boolean(options.skipTests),
+  };
+}
+
+function exampleDeny(source) {
+  return deny(source, { exampleOnly: true });
+}
+
+function isMarkdownOrJson(relPath) {
+  return /\.(?:md|mdx|json|jsonc)$/i.test(relPath);
+}
+
+function isTestPath(relPath) {
+  return relPath.startsWith("test/");
+}
+
+function pathSegments(segments) {
+  return segments.map(escapeRegExp).join("[\\\\/]+");
 }
 
 function escapeRegExp(value) {

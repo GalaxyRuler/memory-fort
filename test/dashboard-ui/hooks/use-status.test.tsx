@@ -16,6 +16,7 @@ function StatusProbe() {
   const status = useStatus();
   if (status.isLoading) return <p>loading</p>;
   if (status.isError) return <p>error</p>;
+  if (!status.data) return <p>empty</p>;
   return <p>wiki pages: {status.data.counts.wikiPages}</p>;
 }
 

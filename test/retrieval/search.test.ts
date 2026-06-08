@@ -60,9 +60,39 @@ describe("search core", () => {
       score: expect.any(Number),
       source: expect.any(String),
       sources: expect.any(Array),
+      provenance: {
+        path: first.path,
+        kind: first.kind,
+        dominantSource: first.source,
+        signals: expect.arrayContaining([
+          expect.objectContaining({
+            source: expect.any(String),
+            rank: expect.any(Number),
+          }),
+        ]),
+      },
       kind: expect.stringMatching(/^(wiki|raw|crystal)$/),
     });
     expect(first.sources.length).toBeGreaterThan(0);
+    expect(first.provenance.signals).toEqual(first.sources);
+    expect(first.provenance.signals).not.toBe(first.sources);
+    expect(first.provenance.signals[0]).not.toBe(first.sources[0]);
+    const originalSignalRank = first.provenance.signals[0]!.rank;
+    first.sources[0]!.rank = originalSignalRank + 100;
+    expect(first.provenance.signals[0]!.rank).toBe(originalSignalRank);
+    for (const result of response.results) {
+      expect(result.provenance).toEqual({
+        path: result.path,
+        kind: result.kind,
+        dominantSource: result.source,
+        signals: expect.arrayContaining([
+          expect.objectContaining({
+            source: expect.any(String),
+            rank: expect.any(Number),
+          }),
+        ]),
+      });
+    }
     for (const key of [
       "corpusMs",
       "refreshMs",

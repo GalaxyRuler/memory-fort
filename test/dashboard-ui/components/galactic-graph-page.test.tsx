@@ -132,7 +132,7 @@ function graphResponse(): GraphResponse {
       graphNode("wiki/projects/core.md", { title: "Core Memory" }),
       graphNode("wiki/references/ref.md", { title: "Reference Memory", type: "references", cognitiveType: "semantic" }),
     ],
-    edges: [{ fromPath: "wiki/projects/core.md", toPath: "wiki/references/ref.md", kind: "wikilink", relationType: null }],
+    edges: [{ fromPath: "wiki/projects/core.md", toPath: "wiki/references/ref.md", kind: "wikilink", relationType: null, type: "wikilink" }],
     unresolvedTargets: [],
   };
 }

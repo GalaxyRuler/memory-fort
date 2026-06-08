@@ -280,28 +280,49 @@ export interface SearchDeps extends LogObservationDeps {
 }
 
 interface ApiSearchResult {
-  path: string;
-  title?: string;
-  snippet?: string;
-  score?: number;
-  source?: string;
-  sources?: Array<{ source: string; rank: number }>;
-  kind?: "wiki" | "raw" | "crystal";
+  path?: unknown;
+  title?: unknown;
+  snippet?: unknown;
+  score?: unknown;
+  source?: unknown;
+  sources?: unknown;
+  provenance?: {
+    path?: unknown;
+    kind?: unknown;
+    dominantSource?: unknown;
+  };
+  kind?: unknown;
 }
 
 interface ApiSearchResponse {
-  query: string;
-  results: ApiSearchResult[];
-  warnings?: string[];
-  timings?: { totalMs?: number; rerankMs?: number };
-  degraded?: boolean;
+  query?: unknown;
+  results?: unknown;
+  warnings?: unknown;
+  timings?: unknown;
+  degraded?: unknown;
   hyde?: {
-    reason?: string;
-    promptEmitted?: string;
+    reason?: unknown;
+    promptEmitted?: unknown;
   };
 }
 
 const DEFAULT_SEARCH_BASE_URL = "http://127.0.0.1:4410/memory";
+const DEFAULT_SEARCH_RESULT_LIMIT = 10;
+const MAX_SEARCH_RESULT_LIMIT = 50;
+const MAX_SEARCH_SIGNALS = 10;
+// MCP normalizers must cap source work as well as response size; backend data is untrusted.
+const SEARCH_RESULT_SCAN_MULTIPLIER = 4;
+const MIN_SEARCH_RESULT_SCAN_LIMIT = 50;
+const MAX_SEARCH_SIGNALS_INSPECTED = 40;
+const MAX_SEARCH_WARNING_COUNT = 10;
+const MAX_SEARCH_WARNINGS_INSPECTED = 40;
+const MAX_SEARCH_QUERY_LENGTH = 200;
+const MAX_SEARCH_PATH_LENGTH = 300;
+const MAX_SEARCH_TITLE_LENGTH = 300;
+const MAX_SEARCH_SNIPPET_LENGTH = 1_000;
+const MAX_SEARCH_SOURCE_LENGTH = 120;
+const MAX_SEARCH_WARNING_LENGTH = 300;
+const MAX_SEARCH_HYDE_PROMPT_LENGTH = 1_000;
 
 export interface EmbeddingProviderPreflightOptions {
   configLoader?: () => Promise<MemoryConfig>;
@@ -350,16 +371,23 @@ export async function searchMemory(
     );
   }
 
-  let body: ApiSearchResponse;
+  let body: unknown;
   try {
-    body = (await response.json()) as ApiSearchResponse;
+    body = await response.json();
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return toolError(`Failed to parse search backend JSON: ${message}`);
   }
+  if (!isSearchResponseBody(body)) {
+    return toolError("Search backend returned invalid results: expected results array.");
+  }
+  if (!Array.isArray(body.results)) {
+    return toolError("Search backend returned invalid results: expected results array.");
+  }
+  const results = normalizeSearchResults(body.results, clampSearchResultLimit(input.k));
   await Promise.all(
-    (body.results ?? [])
-      .filter((item) => item.kind === "wiki" || item.path.startsWith("wiki/"))
+    results
+      .filter((item) => inferSearchKind(item) === "wiki")
       .map((item) => bumpLastAccessed(item.path, deps.now?.() ?? new Date()).catch(() => undefined)),
   );
 
@@ -367,7 +395,7 @@ export async function searchMemory(
     content: [
       {
         type: "text",
-        text: formatSearchToolResponse(body),
+        text: formatSearchToolResponse(body, results),
       },
     ],
   };
@@ -479,36 +507,128 @@ function buildSearchUrl(baseUrl: string, input: SearchInput): string {
   return url.toString();
 }
 
-function formatSearchToolResponse(body: ApiSearchResponse): string {
-  const results = (body.results ?? []).filter((item) => !isWikiDotDirectoryPath(item.path));
+type SearchKind = "wiki" | "raw" | "crystal";
+type SearchSignal = { source: string; rank: number };
+type ApiSearchResultWithPath = ApiSearchResult & { path: string };
+
+function inferSearchKind(item: ApiSearchResultWithPath): SearchKind {
+  const normalizedPath = item.path.replace(/\\/g, "/");
+  if (normalizedPath.startsWith("wiki/")) return "wiki";
+  if (normalizedPath.startsWith("raw/")) return "raw";
+  if (normalizedPath.startsWith("crystals/") || normalizedPath.startsWith("crystal/")) {
+    return "crystal";
+  }
+  if (isSearchKind(item.kind)) return item.kind;
+  return "wiki";
+}
+
+function isSearchKind(value: unknown): value is SearchKind {
+  return value === "wiki" || value === "raw" || value === "crystal";
+}
+
+function isSearchResultWithStringPath(value: unknown): value is ApiSearchResultWithPath {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    typeof (value as { path?: unknown }).path === "string"
+  );
+}
+
+function isSearchResponseBody(value: unknown): value is ApiSearchResponse {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function clampSearchResultLimit(value: unknown): number {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0) {
+    return DEFAULT_SEARCH_RESULT_LIMIT;
+  }
+  return Math.min(value, MAX_SEARCH_RESULT_LIMIT);
+}
+
+function normalizeSearchResults(value: unknown, limit: number): ApiSearchResultWithPath[] {
+  if (!Array.isArray(value)) return [];
+  const results: ApiSearchResultWithPath[] = [];
+  const maxInspected = Math.min(value.length, searchResultScanLimit(limit));
+  for (let index = 0; index < maxInspected && results.length < limit; index += 1) {
+    const item = value[index];
+    if (!isSearchResultWithStringPath(item)) continue;
+    const path = truncate(item.path, MAX_SEARCH_PATH_LENGTH);
+    if (isWikiDotDirectoryPath(path)) continue;
+    results.push({ ...item, path });
+  }
+  return results;
+}
+
+function normalizeSearchSignals(value: unknown): SearchSignal[] {
+  if (!Array.isArray(value)) return [];
+  const signals: SearchSignal[] = [];
+  const maxInspected = Math.min(value.length, MAX_SEARCH_SIGNALS_INSPECTED);
+  for (let index = 0; index < maxInspected && signals.length < MAX_SEARCH_SIGNALS; index += 1) {
+    const signal = value[index];
+    if (
+      typeof signal !== "object" ||
+      signal === null ||
+      typeof (signal as { source?: unknown }).source !== "string" ||
+      typeof (signal as { rank?: unknown }).rank !== "number" ||
+      !Number.isSafeInteger((signal as { rank: number }).rank) ||
+      (signal as { rank: number }).rank <= 0
+    ) {
+      continue;
+    }
+    signals.push({
+      source: truncate((signal as { source: string }).source, MAX_SEARCH_SOURCE_LENGTH),
+      rank: (signal as { rank: number }).rank,
+    });
+  }
+  return signals;
+}
+
+function formatSearchToolResponse(body: ApiSearchResponse, results: ApiSearchResultWithPath[]): string {
   const result = {
-    query: body.query,
+    query: sanitizeString(body.query, MAX_SEARCH_QUERY_LENGTH, ""),
     result_count: results.length,
     degraded: body.degraded === true,
-    warnings: body.warnings ?? [],
-    results: results.map((item, index) => ({
-      rank: index + 1,
-      path: item.path,
-      title: item.title ?? item.path,
-      snippet: item.snippet ?? "",
-      score: item.score ?? 0,
-      source: item.source ?? "unknown",
-      sources: item.sources ?? [],
-      kind: item.kind ?? "wiki",
-    })),
-    ...(body.hyde?.reason === "triggered-pending-expansion" &&
-    body.hyde.promptEmitted
+    warnings: normalizeStringArray(
+      body.warnings,
+      MAX_SEARCH_WARNING_COUNT,
+      MAX_SEARCH_WARNING_LENGTH,
+      MAX_SEARCH_WARNINGS_INSPECTED,
+    ),
+    results: results.map((item, index) => {
+      const kind = inferSearchKind(item);
+      const sources = normalizeSearchSignals(item.sources);
+      const source = sanitizeString(item.source, MAX_SEARCH_SOURCE_LENGTH, "unknown");
+      return {
+        rank: index + 1,
+        path: item.path,
+        title: sanitizeString(item.title, MAX_SEARCH_TITLE_LENGTH, item.path),
+        snippet: sanitizeString(item.snippet, MAX_SEARCH_SNIPPET_LENGTH, ""),
+        score: finiteNumberOrZero(item.score),
+        source,
+        sources,
+        provenance: {
+          path: item.path,
+          kind,
+          dominantSource: source,
+          signals: sources.map((signal) => ({ ...signal })),
+        },
+        kind,
+      };
+    }),
+    ...(isRecord(body.hyde) &&
+    body.hyde.reason === "triggered-pending-expansion" &&
+    typeof body.hyde.promptEmitted === "string"
       ? {
           hyde_prompt_pending: {
-            prompt: body.hyde.promptEmitted,
+            prompt: truncate(body.hyde.promptEmitted, MAX_SEARCH_HYDE_PROMPT_LENGTH),
             instruction:
               "To get better semantic matches, expand this prompt with the LLM, then call memory.search again with hyde_expansion set to your expansion.",
           },
         }
       : {}),
     timings: {
-      total_ms: body.timings?.totalMs ?? 0,
-      rerank_ms: body.timings?.rerankMs ?? 0,
+      total_ms: isRecord(body.timings) ? finiteNumberOrZero(body.timings.totalMs) : 0,
+      rerank_ms: isRecord(body.timings) ? finiteNumberOrZero(body.timings.rerankMs) : 0,
     },
   };
 
@@ -524,6 +644,38 @@ function formatSearchToolResponse(body: ApiSearchResponse): string {
     return `${text}\n\nHyDE prompt pending: expand the prompt, then call memory.search again with hyde_expansion.`;
   }
   return text;
+}
+
+function searchResultScanLimit(limit: number): number {
+  return Math.max(limit * SEARCH_RESULT_SCAN_MULTIPLIER, MIN_SEARCH_RESULT_SCAN_LIMIT);
+}
+
+function normalizeStringArray(
+  value: unknown,
+  maxItems: number,
+  maxLength: number,
+  maxInspected: number,
+): string[] {
+  if (!Array.isArray(value)) return [];
+  const strings: string[] = [];
+  const inspected = Math.min(value.length, maxInspected);
+  for (let index = 0; index < inspected && strings.length < maxItems; index += 1) {
+    const item = value[index];
+    if (typeof item === "string") strings.push(truncate(item, maxLength));
+  }
+  return strings;
+}
+
+function sanitizeString(value: unknown, maxLength: number, fallback: string): string {
+  return typeof value === "string" ? truncate(value, maxLength) : fallback;
+}
+
+function finiteNumberOrZero(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }
 
 function toolError(message: string): {

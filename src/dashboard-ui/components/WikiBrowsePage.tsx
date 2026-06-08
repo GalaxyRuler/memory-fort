@@ -34,8 +34,10 @@ export function WikiBrowsePage() {
     ? wiki.data?.byCategory[selectedCategory] ?? []
     : Object.values(wiki.data?.byCategory ?? {}).flat();
   const groups = selectedCategory ? [] : groupedEntries(wiki.data?.byCategory ?? {});
+  const navEntries = selectedCategory ? entries : groups.flatMap((group) => group.entries);
+  const navIndexByRelPath = new Map(navEntries.map((entry, index) => [entry.relPath, index]));
   const listNav = useListKeyNav({
-    items: entries,
+    items: navEntries,
     getKey: (entry) => entry.relPath,
     onActivate: (entry) =>
       navigate({
@@ -78,27 +80,34 @@ export function WikiBrowsePage() {
             />
           ) : null}
           {selectedCategory ? (
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3" {...listNav.listProps}>
+            <ul
+              aria-label="Wiki pages"
+              className="m-0 grid list-none grid-cols-1 gap-3 p-0 sm:grid-cols-2 lg:grid-cols-3"
+              {...listNav.listProps}
+            >
               {entries.map((entry, index) => (
                 <WikiCard entry={entry} key={entry.relPath} keyboardProps={listNav.getItemProps(index)} />
               ))}
-            </div>
+            </ul>
           ) : (
-            <div className="space-y-8" {...listNav.listProps}>
+            <div aria-label="Wiki pages keyboard navigation" className="space-y-8" role="region" {...listNav.listProps}>
               {groups.map((group) => (
                 <section key={group.category}>
-                  <h2 className="mb-3 break-words text-lg font-semibold tracking-tight">
+                  <h2 className="mb-3 break-words text-lg font-semibold tracking-tight" id={`wiki-group-${group.category}`}>
                     {CATEGORY_LABELS[group.category] ?? titleCase(group.category)}
                   </h2>
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  <ul
+                    aria-labelledby={`wiki-group-${group.category}`}
+                    className="m-0 grid list-none grid-cols-1 gap-3 p-0 sm:grid-cols-2 lg:grid-cols-3"
+                  >
                     {group.entries.map((entry) => (
                       <WikiCard
                         entry={entry}
                         key={entry.relPath}
-                        keyboardProps={listNav.getItemProps(entries.findIndex((item) => item.relPath === entry.relPath))}
+                        keyboardProps={listNav.getItemProps(navIndexByRelPath.get(entry.relPath) ?? 0)}
                       />
                     ))}
-                  </div>
+                  </ul>
                 </section>
               ))}
             </div>
