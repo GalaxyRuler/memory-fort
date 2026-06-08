@@ -1,4 +1,5 @@
 import http from "node:http";
+import { fileURLToPath } from "node:url";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import { secretsPath } from "../storage/paths.js";
 import { loadSecretsIntoEnv } from "../storage/secrets.js";
@@ -14,39 +15,46 @@ export async function startHttpBridge(port: number = DEFAULT_PORT): Promise<() =
   const activeTransports = new Map<string, SSEServerTransport>();
 
   const httpServer = http.createServer(async (req, res) => {
-    const url = new URL(req.url ?? "/", `http://127.0.0.1:${port}`);
+    try {
+      const url = new URL(req.url ?? "/", `http://127.0.0.1:${port}`);
 
-    if (req.method === "GET" && url.pathname === "/health") {
-      res.writeHead(200, { "Content-Type": "text/plain" });
-      res.end("ok");
-      return;
-    }
-
-    if (req.method === "GET" && url.pathname === "/sse") {
-      const transport = new SSEServerTransport("/message", res);
-      const mcpServer = createServer();
-      await mcpServer.connect(transport);
-      activeTransports.set(transport.sessionId, transport);
-      res.on("close", () => {
-        activeTransports.delete(transport.sessionId);
-      });
-      return;
-    }
-
-    if (req.method === "POST" && url.pathname === "/message") {
-      const sessionId = url.searchParams.get("sessionId") ?? "";
-      const transport = activeTransports.get(sessionId);
-      if (transport) {
-        await transport.handlePostMessage(req, res);
-      } else {
-        res.writeHead(404, { "Content-Type": "text/plain" });
-        res.end("No active session for sessionId: " + sessionId);
+      if (req.method === "GET" && url.pathname === "/health") {
+        res.writeHead(200, { "Content-Type": "text/plain" });
+        res.end("ok");
+        return;
       }
-      return;
-    }
 
-    res.writeHead(404, { "Content-Type": "text/plain" });
-    res.end("Not found");
+      if (req.method === "GET" && url.pathname === "/sse") {
+        const transport = new SSEServerTransport("/message", res);
+        const mcpServer = createServer();
+        await mcpServer.connect(transport);
+        activeTransports.set(transport.sessionId, transport);
+        res.on("close", () => {
+          activeTransports.delete(transport.sessionId);
+        });
+        return;
+      }
+
+      if (req.method === "POST" && url.pathname === "/message") {
+        const sessionId = url.searchParams.get("sessionId") ?? "";
+        const transport = activeTransports.get(sessionId);
+        if (transport) {
+          await transport.handlePostMessage(req, res);
+        } else {
+          res.writeHead(404, { "Content-Type": "text/plain" });
+          res.end("No active session for sessionId: " + sessionId);
+        }
+        return;
+      }
+
+      res.writeHead(404, { "Content-Type": "text/plain" });
+      res.end("Not found");
+    } catch (err) {
+      if (!res.headersSent) {
+        res.writeHead(500, { "Content-Type": "text/plain" });
+        res.end("Internal server error");
+      }
+    }
   });
 
   await new Promise<void>((resolve, reject) => {
@@ -54,16 +62,25 @@ export async function startHttpBridge(port: number = DEFAULT_PORT): Promise<() =
     httpServer.listen(port, "127.0.0.1", resolve);
   });
 
-  return () =>
-    new Promise<void>((resolve, reject) => {
+  return async () => {
+    // Close all active SSE transports
+    for (const transport of activeTransports.values()) {
+      try {
+        await transport.close();
+      } catch {
+        // Ignore errors during cleanup
+      }
+    }
+    activeTransports.clear();
+
+    return new Promise<void>((resolve, reject) => {
       httpServer.close((err) => (err ? reject(err) : resolve()));
     });
+  };
 }
 
 // Entry point when run directly as a process
-const isMain =
-  process.argv[1]?.endsWith("http-bridge.mjs") ||
-  process.argv[1]?.endsWith("http-bridge.js");
+const isMain = process.argv[1] === fileURLToPath(import.meta.url);
 
 if (isMain) {
   loadSecretsIntoEnv(secretsPath());

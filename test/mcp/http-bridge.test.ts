@@ -19,6 +19,17 @@ describe("startHttpBridge", () => {
     const res = await fetch(`http://127.0.0.1:${testPort}/health`);
     expect(res.status).toBe(200);
   });
+
+  it("returns 404 on POST /message with unknown sessionId", async () => {
+    const testPort = await getFreePort();
+    cleanup = await startHttpBridge(testPort);
+    const res = await fetch(`http://127.0.0.1:${testPort}/message?sessionId=nonexistent`, {
+      method: "POST",
+      body: "{}",
+      headers: { "Content-Type": "application/json" },
+    });
+    expect(res.status).toBe(404);
+  });
 });
 
 async function getFreePort(): Promise<number> {
