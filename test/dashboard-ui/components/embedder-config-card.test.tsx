@@ -11,6 +11,10 @@ const hooks = vi.hoisted(() => ({
 vi.mock("../../../src/dashboard-ui/hooks/useConfig.js", () => ({ useConfig: hooks.useConfig }));
 vi.mock("../../../src/dashboard-ui/hooks/useProvidersCatalog.js", () => ({ useProvidersCatalog: hooks.useProvidersCatalog }));
 vi.mock("../../../src/dashboard-ui/hooks/useUpdateConfig.js", () => ({ useUpdateConfig: hooks.useUpdateConfig }));
+vi.mock("../../../src/dashboard-ui/hooks/useSecrets.js", () => ({
+  useSecrets: () => ({ data: {}, isLoading: false, error: null }),
+  useUpdateSecret: () => ({ mutate: vi.fn(), isPending: false, error: null }),
+}));
 
 describe("EmbedderConfigCard", () => {
   beforeEach(() => {

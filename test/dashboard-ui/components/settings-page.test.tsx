@@ -41,6 +41,11 @@ vi.mock("../../../src/dashboard-ui/hooks/useStatus.js", () => ({
   useStatus: statusHook.useStatus,
 }));
 
+vi.mock("../../../src/dashboard-ui/hooks/useSecrets.js", () => ({
+  useSecrets: () => ({ data: {}, isLoading: false, error: null }),
+  useUpdateSecret: () => ({ mutate: vi.fn(), isPending: false, error: null }),
+}));
+
 function renderWithQueryClient(ui: ReactNode) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
