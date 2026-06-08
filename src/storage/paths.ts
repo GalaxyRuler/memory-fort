@@ -118,6 +118,11 @@ export function secretsPath(): string {
   return join(homedir(), ".config", "memory-fort", "secrets.json");
 }
 
+/** Path to the PID file for the running ChatGPT bridge process. */
+export function chatgptBridgePidPath(): string {
+  return join(memoryRoot(), ".chatgpt-bridge.pid");
+}
+
 export function formatIsoDate(date: Date): string {
   // YYYY-MM-DD in UTC to avoid TZ drift across machines
   const y = date.getUTCFullYear();

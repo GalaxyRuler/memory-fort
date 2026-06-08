@@ -89,6 +89,9 @@ export interface MemoryConfig {
     behind_proxy?: boolean;
   };
   clients?: Record<string, boolean>;
+  chatgpt?: {
+    bridge_port?: number;
+  };
   [key: string]: unknown;
 }
 
@@ -234,6 +237,12 @@ export function validateMemoryConfig(config: MemoryConfig): string[] {
       warnings.push(`clients.${id} must be a boolean`);
     }
   }
+  if (config.chatgpt !== undefined) {
+    const port = config.chatgpt.bridge_port;
+    if (port !== undefined && (!Number.isInteger(port) || port < 1024 || port > 65535)) {
+      warnings.push("chatgpt.bridge_port must be an integer between 1024 and 65535");
+    }
+  }
   return warnings;
 }
 
@@ -267,6 +276,13 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return typeof value === "object" && value !== null && !Array.isArray(value)
     ? value as Record<string, unknown>
     : null;
+}
+
+/** Returns the configured bridge port, defaulting to 3100. */
+export function getChatGptBridgePort(config: MemoryConfig): number {
+  const port = config.chatgpt?.bridge_port;
+  if (port === undefined) return 3100;
+  return port;
 }
 
 /** A client is enabled unless config.clients[id] is explicitly false. */
