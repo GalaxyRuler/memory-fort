@@ -853,3 +853,19 @@ describe("dashboard config patch", () => {
     expect(backups.at(-1)).toContain("2026-05-28T00-00-05");
   });
 });
+
+describe("clients patch", () => {
+  it("accepts a boolean client toggle", () => {
+    const v = validateConfigPatch({ clients: { codex: false } });
+    expect(v.ok).toBe(true);
+  });
+  it("rejects a non-boolean client toggle", () => {
+    const v = validateConfigPatch({ clients: { codex: "off" } });
+    expect(v.ok).toBe(false);
+    expect(v.errors.some((e) => e.path === "clients.codex")).toBe(true);
+  });
+  it("rejects an unknown client id", () => {
+    const v = validateConfigPatch({ clients: { mystery: true } });
+    expect(v.ok).toBe(false);
+  });
+});
