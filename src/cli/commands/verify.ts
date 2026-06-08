@@ -147,5 +147,6 @@ function withDuration(check: VerifyCheckResult, started: number): VerifyCheckRes
 function overallStatus(checks: CheckResult[]): CheckStatus {
   if (checks.some((check) => check.status === "fail")) return "fail";
   if (checks.some((check) => check.status === "warn")) return "warn";
+  // skip is neutral: a result with only pass + skip checks still returns "pass"
   return "pass";
 }
