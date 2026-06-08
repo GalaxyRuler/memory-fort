@@ -7,6 +7,7 @@ const TOGGLEABLE_CLIENTS: ReadonlyArray<{ id: string; label: string }> = [
   { id: "codex", label: "Codex" },
   { id: "antigravity", label: "Antigravity" },
   { id: "opencoven", label: "OpenCoven" },
+  { id: "chatgpt", label: "ChatGPT" },
 ];
 
 export function ClientsConfigCard() {
