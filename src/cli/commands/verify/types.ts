@@ -1,4 +1,4 @@
-export type CheckStatus = "pass" | "warn" | "fail";
+export type CheckStatus = "pass" | "warn" | "fail" | "skip";
 export type VerifyRole = "operator" | "server";
 
 export interface CheckResult {
@@ -61,4 +61,8 @@ export function warn(
   suggestedFix?: string,
 ): VerifyCheckResult {
   return { id, label, status: "warn", detail, suggestedFix, durationMs: 0 };
+}
+
+export function skip(id: string, label: string, detail?: string): VerifyCheckResult {
+  return { id, label, status: "skip", detail, durationMs: 0 };
 }
