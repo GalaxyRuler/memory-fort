@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, CheckCircle2, Clipboard, HelpCircle, XCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Clipboard, HelpCircle, MinusCircle, XCircle } from "lucide-react";
 import { GlassPanel } from "./GlassPanel.js";
 import { cn } from "../lib/cn.js";
 import { useHealth, type CheckResult, type CheckStatus } from "../hooks/useHealth.js";
@@ -27,6 +27,12 @@ const STATUS_META: Record<CheckStatus, {
     icon: XCircle,
     pill: "border-status-red/40 bg-status-red/10 text-status-red",
     dot: "bg-status-red",
+  },
+  skip: {
+    label: "skipped",
+    icon: MinusCircle,
+    pill: "border-border-subtle/40 bg-surface-2/50 text-text-muted",
+    dot: "bg-text-muted",
   },
 };
 
