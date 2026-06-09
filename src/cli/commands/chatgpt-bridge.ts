@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
-import { readFile, writeFile, unlink } from "node:fs/promises";
+import { readFile, writeFile, unlink, mkdir } from "node:fs/promises";
 import { spawn } from "node:child_process";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chatgptBridgePidPath, memoryRoot } from "../../storage/paths.js";
 import { loadMemoryConfig, getChatGptBridgePort } from "../../storage/config.js";
@@ -47,8 +47,9 @@ export async function runChatGptBridgeStart(): Promise<ChatGptBridgeStatus> {
     return current;
   }
 
+  // cli.mjs is bundled at dist/cli.mjs; http-bridge lives at dist/mcp/http-bridge.mjs
   const __dirname = fileURLToPath(new URL(".", import.meta.url));
-  const bridgePath = join(__dirname, "..", "..", "mcp", "http-bridge.mjs");
+  const bridgePath = join(__dirname, "mcp", "http-bridge.mjs");
 
   const child = spawn(process.execPath, [bridgePath], {
     detached: true,
@@ -63,10 +64,11 @@ export async function runChatGptBridgeStart(): Promise<ChatGptBridgeStatus> {
 
   // Note: no lock — concurrent starts are not expected for a personal tool
   const pidPath = chatgptBridgePidPath();
+  await mkdir(dirname(pidPath), { recursive: true });
   await writeFile(pidPath, String(child.pid), "utf-8");
 
   try {
-    await waitForPort(port, 5000);
+    await waitForPort(port, 15000);
   } catch (err) {
     // Bridge didn't come up — clean up stale PID file
     await unlink(pidPath).catch(() => undefined);

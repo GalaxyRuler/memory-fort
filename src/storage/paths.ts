@@ -123,9 +123,17 @@ export function secretsPath(): string {
   return join(homedir(), ".config", "memory-fort", "secrets.json");
 }
 
-/** Path to the PID file for the running ChatGPT bridge process. */
+/**
+ * Path to the PID file for the running ChatGPT bridge process.
+ * Deliberately OUTSIDE the git-backed vault so it never blocks auto-commit.
+ * Uses LOCALAPPDATA on Windows, XDG_RUNTIME_DIR or /tmp elsewhere.
+ */
 export function chatgptBridgePidPath(): string {
-  return join(memoryRoot(), ".chatgpt-bridge.pid");
+  const localAppData = process.env["LOCALAPPDATA"]; // Windows
+  if (localAppData) return join(localAppData, "memory-fort", "chatgpt-bridge.pid");
+  const xdgRuntime = process.env["XDG_RUNTIME_DIR"];
+  if (xdgRuntime && xdgRuntime.trim().length > 0) return join(xdgRuntime, "memory-fort", "chatgpt-bridge.pid");
+  return join(homedir(), ".local", "state", "memory-fort", "chatgpt-bridge.pid");
 }
 
 export function formatIsoDate(date: Date): string {

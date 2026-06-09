@@ -87,6 +87,10 @@ const SAFELISTED_PATHS = new Set([
   "clients.codex",
   "clients.antigravity",
   "clients.opencoven",
+  "clients.opencode",
+  "clients.chatgpt",
+  "clients.vscode",
+  "clients.claude-desktop",
 ]);
 
 // Keys inside embedder.options / llm.options whose value is an outbound URL.

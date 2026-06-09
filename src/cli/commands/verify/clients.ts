@@ -167,21 +167,33 @@ export const openCodeConfigCheck: CheckDescriptor = {
   id: "client.opencode.config",
   label: "OpenCode MCP entry present",
   roles: ["operator"],
-  run: () => checkOpenCodeConfig(),
+  run: async (ctx) => {
+    const off = await skipIfClientDisabled(ctx, "opencode", "client.opencode.config", "OpenCode MCP entry present");
+    if (off) return off;
+    return checkOpenCodeConfig();
+  },
 };
 
 export const openCodePluginCheck: CheckDescriptor = {
   id: "client.opencode.plugin",
   label: "OpenCode Memory Fort plugin installed",
   roles: ["operator"],
-  run: () => checkOpenCodePlugin(),
+  run: async (ctx) => {
+    const off = await skipIfClientDisabled(ctx, "opencode", "client.opencode.plugin", "OpenCode Memory Fort plugin installed");
+    if (off) return off;
+    return checkOpenCodePlugin();
+  },
 };
 
 export const openCodeCaptureCheck: CheckDescriptor = {
   id: "client.opencode.capture",
   label: "OpenCode capture is fresh",
   roles: ["operator"],
-  run: (ctx) => checkRecentCapture(ctx, ["opencode-"], "client.opencode.capture", "opencode"),
+  run: async (ctx) => {
+    const off = await skipIfClientDisabled(ctx, "opencode", "client.opencode.capture", "OpenCode capture is fresh");
+    if (off) return off;
+    return checkRecentCapture(ctx, ["opencode-"], "client.opencode.capture", "opencode");
+  },
 };
 
 export const vscodeConfigCheck: CheckDescriptor = {

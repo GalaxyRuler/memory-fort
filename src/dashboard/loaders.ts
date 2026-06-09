@@ -1346,14 +1346,21 @@ async function loadErrorActivityEvents(vaultRoot: string): Promise<ActivityEvent
   const lines = (await readFile(errorsPath, "utf-8"))
     .split(/\r?\n/)
     .filter((line) => line.trim().length > 0);
-  const latest = lines.at(-1);
-  if (!latest) return [];
-  return [{
-    timestamp: info.mtime.toISOString(),
-    source: "errors",
-    level: "error",
-    summary: latest.length > 180 ? `${latest.slice(0, 177)}...` : latest,
-  }];
+  if (lines.length === 0) return [];
+  // Each line starts with an ISO timestamp; parse it so errors sort correctly
+  // in the activity stream even when they're days old.
+  const ISO_PREFIX = /^(\d{4}-\d{2}-\d{2}T[\d:.]+Z)\s+/;
+  return lines.map((line) => {
+    const m = ISO_PREFIX.exec(line);
+    const timestamp = m ? m[1] : info.mtime.toISOString();
+    const summary = m ? line.slice(m[0].length) : line;
+    return {
+      timestamp,
+      source: "errors" as const,
+      level: "error" as const,
+      summary: summary.length > 180 ? `${summary.slice(0, 177)}...` : summary,
+    };
+  });
 }
 
 async function findCheckoutLogPath(vaultRoot: string): Promise<string | null> {
