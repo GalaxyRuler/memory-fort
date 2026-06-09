@@ -22,6 +22,13 @@ import {
   hashEmbeddingBody,
   toEmbeddingText,
 } from "./embedding-text.js";
+import {
+  buildContextualizedText,
+  buildContextBlock,
+  computeBacklinkMap,
+  hashContextBlock,
+} from "./contextualized-text.js";
+import type { MemoryConfig } from "../storage/config.js";
 
 export { type EmbedClient } from "./embedder/types.js";
 
@@ -29,6 +36,7 @@ export interface RefreshOptions {
   memoryRoot: string;
   documents: SearchDocument[];
   embedClient: EmbedClient;
+  config?: MemoryConfig;
   embeddingsLoader?: EmbeddingsLoader;
   batchSize?: number;
   timeoutMs?: number;
@@ -70,6 +78,8 @@ interface PendingDoc {
   hash: string;
   text: string;
   tokenEstimate: number;
+  contextV?: number;
+  contextHash?: string;
 }
 
 const DEFAULT_BATCH_SIZE = 64;
@@ -160,6 +170,9 @@ export async function refreshEmbeddings(opts: RefreshOptions): Promise<RefreshRe
   const now = opts.now ?? (() => new Date());
   const embeddingsLoader = opts.embeddingsLoader ?? loadEmbeddings;
   const documentsByKind = groupDocumentsByKind(opts.documents);
+  const config = opts.config;
+  const useContextualized = config?.retrieval?.embeddings?.contextualized === true;
+  const backlinkMap = useContextualized ? computeBacklinkMap(opts.documents) : new Map<string, string[]>();
   const meta = await loadEmbeddingsMeta(opts.memoryRoot);
   let expectedModel = expectedModelFromClient(opts.embedClient) ?? meta?.model ?? DEFAULT_MODEL;
   let metaCreatedAt = meta?.createdAt ?? now().toISOString();
@@ -191,14 +204,22 @@ export async function refreshEmbeddings(opts: RefreshOptions): Promise<RefreshRe
     const pendingCandidates: PendingDoc[] = [];
 
     for (const document of documents) {
-      const text = toEmbeddingText(document.body);
-      const hash = hashEmbeddingBody(document.body);
+      const backlinks = backlinkMap.get(document.relPath) ?? [];
+      const text = useContextualized
+        ? toEmbeddingText(buildContextualizedText(document, backlinks))
+        : toEmbeddingText(document.body);
+      const hash = hashEmbeddingBody(
+        useContextualized ? buildContextualizedText(document, backlinks) : document.body,
+      );
+      const contextBlock = useContextualized ? buildContextBlock(document, backlinks) : undefined;
+      const ctxHash = contextBlock ? hashContextBlock(contextBlock) : undefined;
       const existing = existingByPath.get(document.relPath);
       if (
         existing &&
         existing.hash === hash &&
         existing.model === expectedModel &&
-        existing.dim === expectedDim
+        existing.dim === expectedDim &&
+        (!useContextualized || existing.contextHash === ctxHash)
       ) {
         result.unchanged += 1;
       } else {
@@ -207,6 +228,8 @@ export async function refreshEmbeddings(opts: RefreshOptions): Promise<RefreshRe
           hash,
           text,
           tokenEstimate: estimateEmbeddingTokens(text),
+          contextV: useContextualized ? 2 : undefined,
+          contextHash: ctxHash,
         });
       }
     }
@@ -321,6 +344,8 @@ function buildBatchRecords(
     model: response.model,
     dim: response.dim,
     ts: embeddedAt,
+    ...(item.contextV !== undefined ? { contextV: item.contextV } : {}),
+    ...(item.contextHash !== undefined ? { contextHash: item.contextHash } : {}),
   }));
 }
 

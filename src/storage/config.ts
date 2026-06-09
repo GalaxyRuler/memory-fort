@@ -94,6 +94,12 @@ export interface MemoryConfig {
   chatgpt?: {
     bridge_port?: number;
   };
+  retrieval?: {
+    embeddings?: {
+      contextualized?: boolean;
+      context_version?: number;
+    };
+  };
   [key: string]: unknown;
 }
 
