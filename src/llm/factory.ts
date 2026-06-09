@@ -6,12 +6,13 @@ import {
   normalizeOutboundHttpUrl,
 } from "../storage/url-safety.js";
 import { createOllamaLLM } from "./ollama.js";
+import { createOpenAICompatLLM } from "./openai-compat.js";
 import { createOpenRouterLLM } from "./openrouter.js";
 import { LLMConfigError, LLMDisabledError, type LLMProvider } from "./types.js";
 
 export { LLMConfigError, LLMDisabledError } from "./types.js";
 
-export type LLMProviderName = "openrouter" | "ollama";
+export type LLMProviderName = "openrouter" | "ollama" | "openai-compat";
 
 export interface LLMConfig {
   provider: LLMProviderName;
@@ -24,7 +25,7 @@ export interface LLMConfig {
 
 export interface LLMProviderInfo {
   provider: LLMProviderName;
-  requiredEnv: "OPENROUTER_API_KEY" | "OLLAMA_HOST";
+  requiredEnv: "OPENROUTER_API_KEY" | "OLLAMA_HOST" | "none";
   defaultModel: string;
   active: boolean;
   model: string;
@@ -41,6 +42,10 @@ const PROVIDERS: Record<LLMProviderName, {
   },
   ollama: {
     requiredEnv: "OLLAMA_HOST",
+    defaultModel: "llama3.2",
+  },
+  "openai-compat": {
+    requiredEnv: "none",
     defaultModel: "llama3.2",
   },
 };
@@ -101,6 +106,19 @@ export function createLLMFromConfig(
         temperature: config.temperature,
       });
     }
+    case "openai-compat": {
+      const baseURL = readString(config.options?.["baseURL"]);
+      if (!baseURL) throw new LLMConfigError("openai-compat llm requires options.baseURL");
+      const validatedURL = assertConfiguredOutboundUrl(baseURL, "openai-compat baseURL", config.allowInternalHosts === true);
+      const apiKey = readString(config.options?.["apiKey"]);
+      return createOpenAICompatLLM({
+        baseURL: validatedURL,
+        model: config.model,
+        apiKey,
+        maxTokens: config.max_tokens,
+        temperature: config.temperature,
+      });
+    }
     default:
       throw new LLMConfigError(
         `unknown llm provider: ${String((config as { provider?: unknown }).provider)}`,
@@ -112,7 +130,7 @@ export function listLLMProviders(
   activeConfig: LLMConfig | null,
   env: NodeJS.ProcessEnv = process.env,
 ): LLMProviderInfo[] {
-  return (["openrouter", "ollama"] as const).map((provider) => {
+  return (["openrouter", "ollama", "openai-compat"] as const).map((provider) => {
     const metadata = PROVIDERS[provider];
     const model = activeConfig?.provider === provider
       ? activeConfig.model ?? metadata.defaultModel
@@ -129,12 +147,12 @@ export function listLLMProviders(
 }
 
 function hasProviderCredential(provider: LLMProviderName, env: NodeJS.ProcessEnv): boolean {
-  if (provider === "ollama") return true;
+  if (provider === "ollama" || provider === "openai-compat") return true;
   return Boolean(env[PROVIDERS[provider].requiredEnv]?.trim());
 }
 
 function readProvider(value: unknown): LLMProviderName | null {
-  return value === "openrouter" || value === "ollama" ? value : null;
+  return value === "openrouter" || value === "ollama" || value === "openai-compat" ? value : null;
 }
 
 function assertHttpUrl(value: string, label: string): string {

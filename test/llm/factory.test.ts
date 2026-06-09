@@ -228,6 +228,7 @@ describe("LLM factory", () => {
     )).toEqual([
       expect.objectContaining({ provider: "openrouter", requiredEnv: "OPENROUTER_API_KEY", active: false }),
       expect.objectContaining({ provider: "ollama", requiredEnv: "OLLAMA_HOST", active: true, keyAvailable: true }),
+      expect.objectContaining({ provider: "openai-compat", requiredEnv: "none", active: false, keyAvailable: true }),
     ]);
   });
 });

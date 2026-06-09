@@ -297,6 +297,7 @@ describe("embedder factory", () => {
       expect.objectContaining({ provider: "voyage", requiredEnv: "VOYAGE_API_KEY", active: false }),
       expect.objectContaining({ provider: "openai", requiredEnv: "OPENAI_API_KEY", active: true, keyAvailable: true }),
       expect.objectContaining({ provider: "ollama", requiredEnv: "OLLAMA_HOST", active: false }),
+      expect.objectContaining({ provider: "openai-compat", requiredEnv: "none", active: false, keyAvailable: true }),
     ]);
   });
 });

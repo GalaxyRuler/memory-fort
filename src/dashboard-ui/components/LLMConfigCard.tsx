@@ -9,13 +9,15 @@ import { Card } from "./Card.js";
 import { ConfigStatusPill } from "./ConfigStatusPill.js";
 import { Input } from "./Input.js";
 
-type LLMProvider = "openrouter" | "ollama";
+type LLMProvider = "openrouter" | "ollama" | "openai-compat";
 
 interface LLMDraft {
   provider: LLMProvider;
   model: string;
   max_tokens: number;
   temperature: number;
+  baseURL?: string;
+  apiKey?: string;
 }
 
 export function LLMConfigCard({ disabledReason = null }: { disabledReason?: string | null }) {
@@ -40,23 +42,37 @@ export function LLMConfigCard({ disabledReason = null }: { disabledReason?: stri
   function changeProvider(provider: string) {
     if (!isLLMProvider(provider)) return;
     const entry = providerEntries.find((item) => item.provider === provider);
-    setDraft((current) => ({
-      ...current,
+    const next: LLMDraft = {
+      ...draft,
       provider,
-      model: defaultModel(entry) ?? (provider === "ollama" ? "llama3.2" : ""),
-    }));
+      model: defaultModel(entry) ?? (provider === "ollama" || provider === "openai-compat" ? "llama3.2" : ""),
+    };
+    if (provider === "openai-compat") {
+      next.baseURL = "";
+      next.apiKey = "";
+    } else {
+      delete next.baseURL;
+      delete next.apiKey;
+    }
+    setDraft(next);
   }
 
   function save() {
+    const patch: Record<string, unknown> = {
+      provider: draft.provider,
+      model: draft.model,
+      max_tokens: draft.max_tokens,
+      temperature: draft.temperature,
+    };
+    if (draft.provider === "openai-compat") {
+      const options: Record<string, unknown> = {};
+      if (draft.baseURL?.trim()) options["baseURL"] = draft.baseURL.trim();
+      if (draft.apiKey?.trim()) options["apiKey"] = draft.apiKey.trim();
+      patch["options"] = options;
+      patch["allow_internal_hosts"] = true;
+    }
     mutation.mutate(
-      {
-        llm: {
-          provider: draft.provider,
-          model: draft.model,
-          max_tokens: draft.max_tokens,
-          temperature: draft.temperature,
-        },
-      },
+      { llm: patch },
       {
         onSuccess: () => {
           setEditing(false);
@@ -145,6 +161,31 @@ export function LLMConfigCard({ disabledReason = null }: { disabledReason?: stri
             <ApiKeyField provider="openrouter" envVar="OPENROUTER_API_KEY" label="OpenRouter API key" />
           ) : null}
 
+          {draft.provider === "openai-compat" && (
+            <>
+              <label className="block text-sm">
+                <span className="mb-1 block text-xs uppercase tracking-wide text-text-muted">Base URL</span>
+                <Input
+                  aria-label="OpenAI-compat base URL"
+                  value={draft.baseURL ?? ""}
+                  placeholder="http://localhost:11434/v1"
+                  onChange={(event) => setDraft((current) => ({ ...current, baseURL: event.target.value }))}
+                  className="w-full"
+                />
+              </label>
+              <label className="block text-sm">
+                <span className="mb-1 block text-xs uppercase tracking-wide text-text-muted">API Key (optional)</span>
+                <Input
+                  aria-label="OpenAI-compat API key"
+                  value={draft.apiKey ?? ""}
+                  placeholder="Leave blank if not required"
+                  onChange={(event) => setDraft((current) => ({ ...current, apiKey: event.target.value }))}
+                  className="w-full"
+                />
+              </label>
+            </>
+          )}
+
           <div className="flex flex-wrap justify-end gap-2 pt-2">
             <Button type="button" variant="ghost" onClick={() => setEditing(false)}>
               <X size={15} strokeWidth={1.5} />
@@ -222,7 +263,7 @@ function ReadonlyModelControl(props: {
   value: string;
   providers: Array<{ id: string }>;
 }) {
-  if (props.provider === "ollama") {
+  if (props.provider === "ollama" || props.provider === "openai-compat") {
     return (
       <label className="block text-sm">
         <span className="mb-1 block text-xs uppercase tracking-wide text-text-muted">Model</span>
@@ -256,7 +297,7 @@ function ModelControl(props: {
   providers: Array<{ id: string }>;
   onChange: (model: string) => void;
 }) {
-  if (props.provider === "ollama") {
+  if (props.provider === "ollama" || props.provider === "openai-compat") {
     return (
       <label className="block text-sm">
         <span className="mb-1 block text-xs uppercase tracking-wide text-text-muted">Model</span>
@@ -316,7 +357,7 @@ function readLLMProvider(value: unknown): LLMProvider | null {
 }
 
 function isLLMProvider(value: unknown): value is LLMProvider {
-  return value === "openrouter" || value === "ollama";
+  return value === "openrouter" || value === "ollama" || value === "openai-compat";
 }
 
 function readString(value: unknown): string | undefined {

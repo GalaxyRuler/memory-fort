@@ -8,6 +8,7 @@ import {
 } from "../../storage/url-safety.js";
 import { createOllamaEmbedder } from "./ollama.js";
 import { createOpenAIEmbedder } from "./openai.js";
+import { createOpenAICompatEmbedder } from "./openai-compat.js";
 import { createVoyageEmbedder } from "./voyage.js";
 import type { Embedder, EmbedderConfig, EmbedderProvider } from "./types.js";
 
@@ -67,6 +68,11 @@ const PROVIDERS: Record<EmbedderProvider, {
       "all-minilm": 384,
     },
   },
+  "openai-compat": {
+    requiredEnv: "none",
+    defaultModel: "nomic-embed-text",
+    dimByModel: {},
+  },
 };
 
 export function createEmbedderFromConfig(
@@ -105,6 +111,16 @@ export function createEmbedderFromConfig(
         model: config.model,
       });
     }
+    case "openai-compat": {
+      const baseURL = readString(config.options?.["baseURL"]);
+      if (!baseURL) throw new EmbedderConfigError("openai-compat embedder requires options.baseURL");
+      const dimRaw = config.options?.["dim"];
+      const dim = typeof dimRaw === "number" && Number.isInteger(dimRaw) && dimRaw > 0 ? dimRaw : null;
+      if (dim === null) throw new EmbedderConfigError("openai-compat embedder requires options.dim (integer > 0)");
+      const validatedURL = assertConfiguredOutboundUrl(baseURL, "openai-compat baseURL", config.allowInternalHosts === true);
+      const apiKey = readString(config.options?.["apiKey"]);
+      return createOpenAICompatEmbedder({ baseURL: validatedURL, model: config.model, dim, apiKey });
+    }
   }
 }
 
@@ -135,18 +151,21 @@ export function listEmbedderProviders(
   activeConfig: EmbedderConfig,
   env: NodeJS.ProcessEnv = process.env,
 ): EmbedderProviderInfo[] {
-  return (["lexical", "voyage", "openai", "ollama"] as const).map((provider) => {
+  return (["lexical", "voyage", "openai", "ollama", "openai-compat"] as const).map((provider) => {
     const metadata = PROVIDERS[provider];
     const model = activeConfig.provider === provider
       ? activeConfig.model ?? metadata.defaultModel
       : metadata.defaultModel;
+    const dim = provider === "openai-compat"
+      ? (typeof activeConfig.options?.["dim"] === "number" ? activeConfig.options["dim"] as number : 0)
+      : (metadata.dimByModel[model] ?? Object.values(metadata.dimByModel)[0] ?? 0);
     return {
       provider,
       requiredEnv: metadata.requiredEnv,
       defaultModel: metadata.defaultModel,
       active: activeConfig.provider === provider,
       model,
-      dim: metadata.dimByModel[model] ?? Object.values(metadata.dimByModel)[0]!,
+      dim,
       keyAvailable: hasProviderCredential(provider, env),
     };
   });
@@ -167,6 +186,7 @@ export function estimateEmbeddingCostUsd(
     voyage: 0.12,
     openai: 0.02,
     ollama: 0,
+    "openai-compat": 0,
   };
   return (tokenEstimate / 1_000_000) * perMillionTokens[provider];
 }
@@ -175,13 +195,12 @@ function hasProviderCredential(
   provider: EmbedderProvider,
   env: NodeJS.ProcessEnv,
 ): boolean {
-  if (provider === "lexical") return true;
-  if (provider === "ollama") return true;
+  if (provider === "lexical" || provider === "ollama" || provider === "openai-compat") return true;
   return Boolean(env[PROVIDERS[provider].requiredEnv]?.trim());
 }
 
 function readProvider(value: unknown): EmbedderProvider | null {
-  return value === "lexical" || value === "voyage" || value === "openai" || value === "ollama"
+  return value === "lexical" || value === "voyage" || value === "openai" || value === "ollama" || value === "openai-compat"
     ? value
     : null;
 }

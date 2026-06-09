@@ -9,11 +9,14 @@ import { Card } from "./Card.js";
 import { ConfigStatusPill } from "./ConfigStatusPill.js";
 import { Input } from "./Input.js";
 
-type EmbedderProvider = "lexical" | "voyage" | "openai" | "ollama";
+type EmbedderProvider = "lexical" | "voyage" | "openai" | "ollama" | "openai-compat";
 
 interface EmbedderDraft {
   provider: EmbedderProvider;
   model: string;
+  baseURL?: string;
+  dim?: string;
+  apiKey?: string;
 }
 
 export function EmbedderConfigCard({ disabledReason = null }: { disabledReason?: string | null }) {
@@ -41,16 +44,32 @@ export function EmbedderConfigCard({ disabledReason = null }: { disabledReason?:
   function changeProvider(provider: string) {
     if (!isEmbedderProvider(provider)) return;
     const entry = providerEntries.find((item) => item.provider === provider);
-    setDraft({
+    const next: EmbedderDraft = {
       provider,
-      model: defaultModel(entry) ?? (provider === "lexical" ? "lexical" : provider === "ollama" ? "nomic-embed-text" : ""),
-    });
+      model: defaultModel(entry) ?? (provider === "lexical" ? "lexical" : provider === "ollama" || provider === "openai-compat" ? "nomic-embed-text" : ""),
+    };
+    if (provider === "openai-compat") {
+      next.baseURL = "";
+      next.dim = "768";
+      next.apiKey = "";
+    }
+    setDraft(next);
   }
 
   function save() {
     const providerChanged = draft.provider !== active.provider;
+    const patch: Record<string, unknown> = { provider: draft.provider, model: draft.model };
+    if (draft.provider === "openai-compat") {
+      const options: Record<string, unknown> = {};
+      if (draft.baseURL?.trim()) options["baseURL"] = draft.baseURL.trim();
+      const dimNum = Number(draft.dim);
+      if (Number.isInteger(dimNum) && dimNum > 0) options["dim"] = dimNum;
+      if (draft.apiKey?.trim()) options["apiKey"] = draft.apiKey.trim();
+      patch["options"] = options;
+      patch["allow_internal_hosts"] = true;
+    }
     mutation.mutate(
-      { embedder: { provider: draft.provider, model: draft.model } },
+      { embedder: patch },
       {
         onSuccess: () => {
           setEditing(false);
@@ -117,6 +136,42 @@ export function EmbedderConfigCard({ disabledReason = null }: { disabledReason?:
           {draft.provider === "openai" ? (
             <ApiKeyField provider="openai" envVar="OPENAI_API_KEY" label="OpenAI API key" />
           ) : null}
+
+          {draft.provider === "openai-compat" && (
+            <>
+              <label className="block text-sm">
+                <span className="mb-1 block text-xs uppercase tracking-wide text-text-muted">Base URL</span>
+                <Input
+                  aria-label="OpenAI-compat base URL"
+                  value={draft.baseURL ?? ""}
+                  placeholder="http://localhost:11434/v1"
+                  onChange={(event) => setDraft((current) => ({ ...current, baseURL: event.target.value }))}
+                  className="w-full"
+                />
+              </label>
+              <label className="block text-sm">
+                <span className="mb-1 block text-xs uppercase tracking-wide text-text-muted">Dimension</span>
+                <Input
+                  aria-label="Embedding dimension"
+                  type="number"
+                  value={draft.dim ?? ""}
+                  placeholder="768"
+                  onChange={(event) => setDraft((current) => ({ ...current, dim: event.target.value }))}
+                  className="w-full"
+                />
+              </label>
+              <label className="block text-sm">
+                <span className="mb-1 block text-xs uppercase tracking-wide text-text-muted">API Key (optional)</span>
+                <Input
+                  aria-label="OpenAI-compat API key"
+                  value={draft.apiKey ?? ""}
+                  placeholder="Leave blank if not required"
+                  onChange={(event) => setDraft((current) => ({ ...current, apiKey: event.target.value }))}
+                  className="w-full"
+                />
+              </label>
+            </>
+          )}
 
           {draft.provider !== active.provider && (
             <p className="rounded-md border border-status-amber/30 bg-status-amber/10 p-2 text-xs text-status-amber" role="alert">
@@ -195,7 +250,7 @@ function ReadonlyModelControl(props: {
   displayValue: string;
   providers: Array<{ id: string; dim?: number }>;
 }) {
-  if (props.provider === "lexical" || props.provider === "ollama") {
+  if (props.provider === "lexical" || props.provider === "ollama" || props.provider === "openai-compat") {
     return (
       <label className="block text-sm">
         <span className="mb-1 block text-xs uppercase tracking-wide text-text-muted">Model</span>
@@ -233,7 +288,7 @@ function ModelControl(props: {
   providers: Array<{ id: string; dim?: number }>;
   onChange: (model: string) => void;
 }) {
-  if (props.provider === "lexical" || props.provider === "ollama") {
+  if (props.provider === "lexical" || props.provider === "ollama" || props.provider === "openai-compat") {
     return (
       <label className="block text-sm">
         <span className="mb-1 block text-xs uppercase tracking-wide text-text-muted">Model</span>
@@ -293,7 +348,7 @@ function readEmbedderProvider(value: unknown): EmbedderProvider | null {
 }
 
 function isEmbedderProvider(value: unknown): value is EmbedderProvider {
-  return value === "lexical" || value === "voyage" || value === "openai" || value === "ollama";
+  return value === "lexical" || value === "voyage" || value === "openai" || value === "ollama" || value === "openai-compat";
 }
 
 function readString(value: unknown): string | undefined {
