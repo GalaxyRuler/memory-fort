@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { SearchDocument } from "../../src/retrieval/corpus.js";
-import { buildContextBlock } from "../../src/retrieval/contextualized-text.js";
+import {
+  buildContextBlock,
+  buildContextualizedText,
+  computeBacklinkMap,
+} from "../../src/retrieval/contextualized-text.js";
 
 function stubDoc(overrides: Partial<SearchDocument> = {}): SearchDocument {
   return {
@@ -131,5 +135,52 @@ describe("buildContextBlock", () => {
     const doc = stubDoc({ relations });
     const result = buildContextBlock(doc, []);
     expect(result.length).toBeLessThanOrEqual(500);
+  });
+});
+
+describe("buildContextualizedText", () => {
+  it("prepends context block before body", () => {
+    const doc = stubDoc({ body: "This is the page body." });
+    const result = buildContextualizedText(doc, []);
+    expect(result).toMatch(/^# wiki\/projects\/test\.md\n/);
+    expect(result).toContain("This is the page body.");
+    const bodyStart = result.indexOf("This is the page body.");
+    const headerEnd = result.indexOf("\n\n");
+    expect(bodyStart).toBeGreaterThan(headerEnd);
+  });
+});
+
+describe("computeBacklinkMap", () => {
+  it("builds backlink map from document relations", () => {
+    const docs = [
+      stubDoc({
+        relPath: "wiki/projects/alpha.md",
+        relations: { uses: [{ target: "voyage" }], mentions: [{ target: "beta" }] },
+        body: "Alpha uses voyage and mentions beta.",
+      }),
+      stubDoc({
+        relPath: "wiki/projects/beta.md",
+        relations: { depends_on: [{ target: "voyage" }] },
+        body: "Beta depends on voyage.",
+      }),
+    ];
+    const map = computeBacklinkMap(docs);
+    expect(map.get("voyage")).toContain("wiki/projects/alpha.md");
+    expect(map.get("voyage")).toContain("wiki/projects/beta.md");
+    expect(map.get("beta")).toContain("wiki/projects/alpha.md");
+  });
+
+  it("deduplicates backlinks from same document", () => {
+    const docs = [
+      stubDoc({
+        relPath: "wiki/projects/alpha.md",
+        relations: { uses: [{ target: "voyage" }], depends_on: [{ target: "voyage" }] },
+        body: "Uses and depends on voyage.",
+      }),
+    ];
+    const map = computeBacklinkMap(docs);
+    const voyageBacklinks = map.get("voyage") ?? [];
+    const alphaCount = voyageBacklinks.filter((b) => b === "wiki/projects/alpha.md").length;
+    expect(alphaCount).toBe(1);
   });
 });

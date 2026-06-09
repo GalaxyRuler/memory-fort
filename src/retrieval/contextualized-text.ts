@@ -50,3 +50,33 @@ export function buildContextBlock(
   }
   return block;
 }
+
+export function buildContextualizedText(
+  doc: SearchDocument,
+  backlinks: string[],
+): string {
+  const contextBlock = buildContextBlock(doc, backlinks);
+  return `${contextBlock}\n\n${doc.body}`;
+}
+
+export function computeBacklinkMap(
+  documents: SearchDocument[],
+): Map<string, string[]> {
+  const map = new Map<string, string[]>();
+
+  function addBacklink(target: string, source: string): void {
+    if (!map.has(target)) map.set(target, []);
+    const list = map.get(target)!;
+    if (!list.includes(source)) list.push(source);
+  }
+
+  for (const doc of documents) {
+    for (const edges of Object.values(doc.relations)) {
+      for (const edge of edges) {
+        addBacklink(edge.target, doc.relPath);
+      }
+    }
+  }
+
+  return map;
+}
