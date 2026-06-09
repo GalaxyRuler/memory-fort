@@ -30,6 +30,27 @@ export interface GenerateIndexCardInput {
   model?: string;
 }
 
+export function isCardStale(card: IndexCard, rawContent: string): boolean {
+  const currentHash = createHash("sha256").update(rawContent).digest("hex");
+  return card.raw_sha256 !== currentHash;
+}
+
+export function loadIndexCard(json: string): IndexCard | null {
+  try {
+    const parsed = JSON.parse(json);
+    if (
+      typeof parsed !== "object" ||
+      parsed === null ||
+      parsed.schema_version !== 1
+    ) {
+      return null;
+    }
+    return parsed as IndexCard;
+  } catch {
+    return null;
+  }
+}
+
 export async function generateIndexCard(
   input: GenerateIndexCardInput,
 ): Promise<IndexCard> {
