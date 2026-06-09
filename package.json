@@ -51,6 +51,7 @@
     "url": "https://github.com/GalaxyRuler/memory-fort/issues"
   },
   "dependencies": {
+    "@fontsource/ibm-plex-mono": "^5.2.7",
     "@modelcontextprotocol/sdk": "^1.29",
     "@react-three/drei": "^10.7.7",
     "@react-three/fiber": "^9.6.1",

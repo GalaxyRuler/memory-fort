@@ -1,6 +1,14 @@
-# Memory Fort
+<p align="center">
+  <img src="assets/memory_fort_logo.svg" alt="Memory Fort" width="480" />
+</p>
 
-**Cross-tool persistent memory for AI agents — local, private, and free.**
+<p align="center">
+  <strong>Cross-tool persistent memory for AI agents — local, private, and free.</strong>
+</p>
+
+<p align="center">
+  <em>Your agents remember. Your data stays home.</em>
+</p>
 
 Memory Fort gives every AI coding session a shared long-term memory: observations flow in automatically from Claude Code, Codex, Antigravity, Hermes, Pi, ChatGPT, and OpenCode.
 MCP integrations, including OpenClaw in v1, can log and recall memory on demand; search results include detailed provenance receipts explaining ranking decisions; a curated wiki of markdown pages grows over time; and retrieval (BM25 + semantic + graph) surfaces the right context at session start. No database. No external service. No API key to get started.
@@ -307,4 +315,8 @@ This gates every `git push origin` through `scan:leaks` so personal tokens can n
 
 ---
 
-*Built by [GalaxyRuler](https://github.com/GalaxyRuler)*
+<p align="center">
+  <img src="assets/memory_fort_icon_mono.svg" alt="" width="32" />
+  <br />
+  <em>Built by <a href="https://github.com/GalaxyRuler">GalaxyRuler</a></em>
+</p>
