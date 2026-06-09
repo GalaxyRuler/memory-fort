@@ -1,22 +1,34 @@
 import {
   AlertTriangle,
   Archive,
+  Check,
   Clock,
-  Filter,
+  ExternalLink,
   GitBranch,
   Link,
+  Loader2,
   MoreHorizontal,
   Network,
   RefreshCw,
   RotateCw,
+  Trash2,
+  X,
   type LucideIcon,
 } from "lucide-react";
+import { useState } from "react";
+import {
+  useMaintenanceArchive,
+  useMaintenanceDelete,
+  useMaintenanceRecurate,
+} from "../hooks/useMaintenanceActions.js";
 import { type MaintenancePageSummary, useMaintenanceScan } from "../hooks/useMaintenanceScan.js";
 import { Button } from "./Button.js";
 import { GlassPanel } from "./GlassPanel.js";
 
+type SectionKey = "orphans" | "lowConfidence" | "stale" | "supersededDependents" | "pruneCandidates";
+
 interface MaintenanceSection {
-  key: "orphans" | "lowConfidence" | "stale" | "supersededDependents" | "pruneCandidates";
+  key: SectionKey;
   title: string;
   metricLabel: string;
   metricHint: string;
@@ -29,6 +41,8 @@ interface MaintenanceSection {
   helper: string;
   icon: LucideIcon;
   actionIcon: LucideIcon;
+  /** "delete" | "archive" | "recurate" | "navigate" */
+  actionKind: "delete" | "archive" | "recurate" | "navigate";
 }
 
 function confidenceLabel(value: number | null): string {
@@ -47,6 +61,14 @@ function averageConfidence(pages: MaintenancePageSummary[]): string {
 function confidencePercent(value: number | null): number {
   if (value === null) return 0;
   return Math.max(0, Math.min(100, Math.round(value * 100)));
+}
+
+/** Extract category + slug from a wiki path like "preferences/dark-mode.md" */
+function wikiLink(path: string): string {
+  const noExt = path.replace(/\.md$/, "");
+  const slash = noExt.indexOf("/");
+  if (slash === -1) return `/wiki/uncategorized/${noExt}`;
+  return `/wiki/${noExt.slice(0, slash)}/${noExt.slice(slash + 1)}`;
 }
 
 function MetricCard({ section }: { section: MaintenanceSection }) {
@@ -70,14 +92,29 @@ function MetricCard({ section }: { section: MaintenanceSection }) {
   );
 }
 
-function MaintenanceRow({ page, section }: { page: MaintenancePageSummary; section: MaintenanceSection }) {
+function MaintenanceRow({
+  page,
+  section,
+  onRowAction,
+  actionPending,
+}: {
+  page: MaintenancePageSummary;
+  section: MaintenanceSection;
+  onRowAction: (path: string) => void;
+  actionPending: boolean;
+}) {
   const ActionIcon = section.actionIcon;
   const confidence = confidencePercent(page.confidence);
 
   return (
     <li className="grid grid-cols-1 gap-3 border-t border-border-subtle/70 px-4 py-3 md:grid-cols-[minmax(0,1fr)_9rem_9rem_8rem] md:items-center">
       <div className="min-w-0">
-        <div className="break-words text-sm font-medium text-text-primary md:truncate">{page.title}</div>
+        <a
+          href={wikiLink(page.path)}
+          className="break-words text-sm font-medium text-text-primary underline-offset-2 hover:underline md:truncate md:block"
+        >
+          {page.title}
+        </a>
         <p className="break-all font-mono text-xs text-text-muted">{page.path}</p>
       </div>
       <span className="break-words font-mono text-xs text-text-secondary">{page.updated ?? "unknown"}</span>
@@ -87,15 +124,86 @@ function MaintenanceRow({ page, section }: { page: MaintenancePageSummary; secti
         </div>
         <span className="font-mono text-xs text-text-secondary">{confidenceLabel(page.confidence)}</span>
       </div>
-      <Button type="button" disabled className="justify-center disabled:cursor-not-allowed disabled:opacity-45">
-        <ActionIcon size={14} strokeWidth={1.5} />
-        {section.rowAction}
-      </Button>
+      {section.actionKind === "navigate" ? (
+        <a
+          href={wikiLink(page.path)}
+          className="inline-flex items-center justify-center gap-1.5 rounded-md border border-border-subtle px-2.5 py-1.5 text-xs font-medium text-text-secondary transition-colors hover:bg-surface-2"
+        >
+          <ExternalLink size={14} strokeWidth={1.5} />
+          {section.rowAction}
+        </a>
+      ) : (
+        <Button
+          type="button"
+          onClick={() => onRowAction(page.path)}
+          disabled={actionPending}
+          className="justify-center"
+        >
+          {actionPending ? <Loader2 size={14} strokeWidth={1.5} className="animate-spin" /> : <ActionIcon size={14} strokeWidth={1.5} />}
+          {section.rowAction}
+        </Button>
+      )}
     </li>
   );
 }
 
-function MaintenanceSectionPanel({ section }: { section: MaintenanceSection }) {
+function ConfirmDialog({
+  title,
+  description,
+  count,
+  onConfirm,
+  onCancel,
+  pending,
+}: {
+  title: string;
+  description: string;
+  count: number;
+  onConfirm: () => void;
+  onCancel: () => void;
+  pending: boolean;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onCancel}>
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="confirm-title"
+        className="w-full max-w-md rounded-lg border border-border-emphasis bg-surface p-5 shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h2 id="confirm-title" className="text-lg font-semibold text-text-primary">{title}</h2>
+        <p className="mt-3 text-sm text-text-secondary">{description}</p>
+        <p className="mt-2 rounded bg-surface-2 px-3 py-2 font-mono text-xs text-text-muted">
+          {count} {count === 1 ? "page" : "pages"} affected
+        </p>
+        <div className="mt-4 flex justify-end gap-2">
+          <Button type="button" variant="ghost" onClick={onCancel} disabled={pending}>
+            <X size={15} strokeWidth={1.5} />
+            Cancel
+          </Button>
+          <Button type="button" variant="primary" onClick={onConfirm} disabled={pending}>
+            {pending ? <Loader2 size={15} strokeWidth={1.5} className="animate-spin" /> : <Check size={15} strokeWidth={1.5} />}
+            Confirm
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MaintenanceSectionPanel({
+  section,
+  onBulkAction,
+  onRowAction,
+  bulkPending,
+  pendingPaths,
+}: {
+  section: MaintenanceSection;
+  onBulkAction: () => void;
+  onRowAction: (path: string) => void;
+  bulkPending: boolean;
+  pendingPaths: Set<string>;
+}) {
   const Icon = section.icon;
   const ActionIcon = section.actionIcon;
 
@@ -119,10 +227,18 @@ function MaintenanceSectionPanel({ section }: { section: MaintenanceSection }) {
             </div>
           </div>
           <div className="flex flex-col gap-1 sm:items-end">
-            <Button type="button" disabled className="disabled:cursor-not-allowed disabled:opacity-45">
-              <ActionIcon size={14} strokeWidth={1.5} />
-              {section.bulkLabel}
-            </Button>
+            {section.actionKind === "navigate" ? (
+              <span className="text-xs text-text-muted italic">Open each page to review</span>
+            ) : (
+              <Button
+                type="button"
+                onClick={onBulkAction}
+                disabled={section.pages.length === 0 || bulkPending}
+              >
+                {bulkPending ? <Loader2 size={14} strokeWidth={1.5} className="animate-spin" /> : <ActionIcon size={14} strokeWidth={1.5} />}
+                {section.bulkLabel}
+              </Button>
+            )}
             <p className="break-all text-xs text-text-muted">{section.helper}</p>
           </div>
         </header>
@@ -139,7 +255,13 @@ function MaintenanceSectionPanel({ section }: { section: MaintenanceSection }) {
             </div>
             <ul>
               {section.pages.map((page) => (
-                <MaintenanceRow key={page.path} page={page} section={section} />
+                <MaintenanceRow
+                  key={page.path}
+                  page={page}
+                  section={section}
+                  onRowAction={onRowAction}
+                  actionPending={pendingPaths.has(page.path)}
+                />
               ))}
             </ul>
           </div>
@@ -151,6 +273,19 @@ function MaintenanceSectionPanel({ section }: { section: MaintenanceSection }) {
 
 export function MaintenancePage() {
   const scan = useMaintenanceScan();
+  const archiveMutation = useMaintenanceArchive();
+  const deleteMutation = useMaintenanceDelete();
+  const recurateMutation = useMaintenanceRecurate();
+
+  const [confirm, setConfirm] = useState<{
+    title: string;
+    description: string;
+    paths: string[];
+    action: "delete" | "archive" | "recurate";
+  } | null>(null);
+
+  const [pendingPaths, setPendingPaths] = useState<Set<string>>(new Set());
+
   const data = scan.data ?? {
     orphans: [],
     lowConfidence: [],
@@ -158,6 +293,49 @@ export function MaintenancePage() {
     supersededDependents: [],
     pruneCandidates: [],
   };
+
+  function getMutationForAction(action: "delete" | "archive" | "recurate") {
+    if (action === "delete") return deleteMutation;
+    if (action === "archive") return archiveMutation;
+    return recurateMutation;
+  }
+
+  function executeMutation(paths: string[], action: "delete" | "archive" | "recurate") {
+    setPendingPaths((prev) => new Set([...prev, ...paths]));
+    getMutationForAction(action).mutate(paths, {
+      onSettled: () => {
+        setPendingPaths((prev) => {
+          const next = new Set(prev);
+          for (const p of paths) next.delete(p);
+          return next;
+        });
+        setConfirm(null);
+      },
+    });
+  }
+
+  function handleRowAction(sectionKey: SectionKey, path: string) {
+    const action = sectionActionKind(sectionKey);
+    if (action === "navigate") return;
+    setConfirm({
+      title: actionLabel(action),
+      description: `${actionVerb(action)} "${path}"?`,
+      paths: [path],
+      action,
+    });
+  }
+
+  function handleBulkAction(section: MaintenanceSection) {
+    if (section.actionKind === "navigate") return;
+    const paths = section.pages.map((p) => p.path);
+    setConfirm({
+      title: section.bulkLabel,
+      description: `This will ${actionVerb(section.actionKind).toLowerCase()} all ${paths.length} pages in "${section.title}".`,
+      paths,
+      action: section.actionKind,
+    });
+  }
+
   const sections: MaintenanceSection[] = [
     {
       key: "orphans",
@@ -169,10 +347,11 @@ export function MaintenancePage() {
       colorClass: "text-entity-projects",
       dotClass: "bg-entity-projects",
       bulkLabel: "Delete all orphans",
-      rowAction: "Link",
+      rowAction: "Delete",
       helper: "CLI: memory lint and memory page",
       icon: Network,
-      actionIcon: Link,
+      actionIcon: Trash2,
+      actionKind: "delete",
     },
     {
       key: "lowConfidence",
@@ -188,6 +367,7 @@ export function MaintenancePage() {
       helper: "CLI: memory curate",
       icon: AlertTriangle,
       actionIcon: RefreshCw,
+      actionKind: "recurate",
     },
     {
       key: "stale",
@@ -203,6 +383,7 @@ export function MaintenancePage() {
       helper: "CLI: memory lint --stale-days 180",
       icon: Clock,
       actionIcon: Archive,
+      actionKind: "archive",
     },
     {
       key: "supersededDependents",
@@ -217,27 +398,43 @@ export function MaintenancePage() {
       rowAction: "Review",
       helper: "CLI: memory lint",
       icon: GitBranch,
-      actionIcon: GitBranch,
+      actionIcon: ExternalLink,
+      actionKind: "navigate",
     },
     {
       key: "pruneCandidates",
       title: "Ready To Prune",
       metricLabel: "Prune ready",
-      metricHint: "CLI only",
+      metricHint: "stale + orphan + low",
       description: "Pages that are stale, orphaned, and below confidence 0.5.",
       pages: data.pruneCandidates,
       colorClass: "text-status-green",
       dotClass: "bg-status-green",
-      bulkLabel: "Plan prune",
+      bulkLabel: "Archive all",
       rowAction: "Archive",
       helper: "CLI: memory prune --plan",
       icon: Archive,
       actionIcon: Archive,
+      actionKind: "archive",
     },
   ];
 
+  const anyPending = archiveMutation.isPending || deleteMutation.isPending || recurateMutation.isPending;
+  const lastError = archiveMutation.error ?? deleteMutation.error ?? recurateMutation.error;
+
   return (
     <div className="mx-auto max-w-7xl p-4 md:p-6">
+      {confirm && (
+        <ConfirmDialog
+          title={confirm.title}
+          description={confirm.description}
+          count={confirm.paths.length}
+          pending={anyPending}
+          onCancel={() => setConfirm(null)}
+          onConfirm={() => executeMutation(confirm.paths, confirm.action)}
+        />
+      )}
+
       <header className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <div className="mb-2 flex items-center gap-2 text-sm text-text-muted">
@@ -254,13 +451,15 @@ export function MaintenancePage() {
         </div>
         <div className="flex flex-col gap-1 sm:items-end">
           <div className="flex gap-2">
-            <Button type="button" disabled className="disabled:cursor-not-allowed disabled:opacity-45">
-              <Filter size={15} strokeWidth={1.5} />
-              Filter
-            </Button>
-            <Button type="button" disabled className="disabled:cursor-not-allowed disabled:opacity-45">
-              <RotateCw size={15} strokeWidth={1.5} />
-              Run Scan
+            <Button
+              type="button"
+              onClick={() => scan.refetch()}
+              disabled={scan.isFetching}
+            >
+              {scan.isFetching
+                ? <Loader2 size={15} strokeWidth={1.5} className="animate-spin" />
+                : <RotateCw size={15} strokeWidth={1.5} />}
+              {scan.isFetching ? "Scanning..." : "Run Scan"}
             </Button>
           </div>
           <p className="text-xs text-text-muted">CLI: memory lint --stale-days 180</p>
@@ -269,6 +468,12 @@ export function MaintenancePage() {
 
       {scan.isLoading && <GlassPanel className="text-sm text-text-muted">Loading maintenance scan...</GlassPanel>}
       {scan.isError && <GlassPanel className="text-sm text-status-red">Failed to load maintenance scan.</GlassPanel>}
+
+      {lastError && (
+        <GlassPanel className="mb-4 border border-status-red/30 bg-status-red/10 text-sm text-status-red">
+          {lastError instanceof Error ? lastError.message : "Action failed."}
+        </GlassPanel>
+      )}
 
       {!scan.isLoading && !scan.isError && (
         <div className="space-y-4">
@@ -279,19 +484,43 @@ export function MaintenancePage() {
           </div>
           {sections.map((section) => (
             <div key={section.key} className="relative">
-              <MaintenanceSectionPanel section={section} />
-              <button
-                type="button"
-                disabled
-                className="absolute right-3 top-3 rounded p-1 text-text-muted opacity-60 disabled:cursor-not-allowed"
-                aria-label={`${section.title} actions`}
-              >
-                <MoreHorizontal size={16} strokeWidth={1.5} />
-              </button>
+              <MaintenanceSectionPanel
+                section={section}
+                onBulkAction={() => handleBulkAction(section)}
+                onRowAction={(path) => handleRowAction(section.key, path)}
+                bulkPending={anyPending}
+                pendingPaths={pendingPaths}
+              />
             </div>
           ))}
         </div>
       )}
     </div>
   );
+}
+
+function sectionActionKind(key: SectionKey): "delete" | "archive" | "recurate" | "navigate" {
+  switch (key) {
+    case "orphans": return "delete";
+    case "lowConfidence": return "recurate";
+    case "stale": return "archive";
+    case "supersededDependents": return "navigate";
+    case "pruneCandidates": return "archive";
+  }
+}
+
+function actionLabel(action: "delete" | "archive" | "recurate"): string {
+  switch (action) {
+    case "delete": return "Delete Page";
+    case "archive": return "Archive Page";
+    case "recurate": return "Re-curate Page";
+  }
+}
+
+function actionVerb(action: "delete" | "archive" | "recurate"): string {
+  switch (action) {
+    case "delete": return "Delete";
+    case "archive": return "Archive";
+    case "recurate": return "Mark for re-curation";
+  }
 }
