@@ -85,6 +85,49 @@ LLM, it stages the operation for review instead of appending. You do not need
 perfect knowledge of every existing file, but use `rewrite_page` when the
 current wiki context already shows the target.
 
+### Lifecycle Mutation Operations (staged for review)
+
+When you detect that new observations **contradict** or **supersede** existing wiki content, you may emit these operations. All lifecycle mutations are **staged for review** — they write proposals to `wiki/compile-proposed/`, not directly to wiki pages.
+
+#### dispute_page
+
+Use when two claims are **mutually incompatible** — both cannot be true simultaneously.
+
+```json
+{
+  "kind": "dispute_page",
+  "path": "wiki/people/user-location.md",
+  "conflicting_page": "wiki/people/user-location-new.md",
+  "reason": "Mutually incompatible claims about user location"
+}
+```
+
+Requirements:
+- The existing page and new observation must be about the **same entity**
+- The claims must be **mutually exclusive** (not just different aspects)
+- You must provide a clear `reason` explaining why both cannot be true
+
+#### supersede_page
+
+Use when old information was **once true but is now obsolete**.
+
+```json
+{
+  "kind": "supersede_page",
+  "old_page": "wiki/tools/python-version.md",
+  "new_page": "wiki/tools/python-version.md",
+  "reason": "Python version upgraded from 3.10 to 3.12",
+  "valid_to": "2026-06-01"
+}
+```
+
+Requirements:
+- The old claim must have been valid at some point
+- The new observation must establish a clear temporal succession
+- Include `valid_to` if a specific date is identifiable
+
+**Important:** Do NOT use dispute or supersede for information that merely expands or adds detail to an existing page. Use `rewrite_page` for those cases. Lifecycle mutations are for genuine conflicts only.
+
 ---
 
 ## Inputs
