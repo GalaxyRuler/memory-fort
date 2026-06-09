@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { constants } from "node:fs";
-import { access, readdir, readFile, stat } from "node:fs/promises";
+import { access, mkdir, readdir, readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { promisify } from "node:util";
 import {
@@ -22,6 +22,7 @@ import { buildGraph } from "../retrieval/graph.js";
 import { isWikiDotDirectoryPath } from "../retrieval/wiki-paths.js";
 import { getConfidenceScore } from "../storage/confidence.js";
 import { loadMemoryConfig } from "../storage/config.js";
+import { parseFrontmatter, serializeFrontmatter } from "../storage/frontmatter.js";
 import type { ConfidenceVector, Frontmatter, LifecycleStage } from "../storage/frontmatter.js";
 import type { VaultWriteCapability } from "../sync/vault-capability.js";
 
@@ -1472,4 +1473,95 @@ export function redactConfig(value: unknown): unknown {
 
 function isSecretConfigKey(key: string): boolean {
   return !NON_SECRET_CONFIG_KEYS.has(key.toLowerCase()) && SECRET_CONFIG_KEY_RE.test(key);
+}
+
+// ---------------------------------------------------------------------------
+// Maintenance actions
+// ---------------------------------------------------------------------------
+
+export function validateMaintenancePaths(
+  body: unknown,
+): { ok: true; paths: string[] } | { ok: false; message: string } {
+  if (typeof body !== "object" || body === null || !Array.isArray((body as Record<string, unknown>).paths)) {
+    return { ok: false, message: "body must contain a paths array" };
+  }
+  const paths = (body as Record<string, unknown>).paths as unknown[];
+  if (paths.length === 0) return { ok: false, message: "paths array must not be empty" };
+  if (paths.length > 100) return { ok: false, message: "max 100 paths per request" };
+  const validated: string[] = [];
+  for (const p of paths) {
+    if (typeof p !== "string") return { ok: false, message: "each path must be a string" };
+    if (!p.endsWith(".md")) return { ok: false, message: `path must end with .md: ${p}` };
+    if (p.includes("..") || p.startsWith("/") || p.startsWith("\\")) {
+      return { ok: false, message: `path traversal not allowed: ${p}` };
+    }
+    validated.push(p);
+  }
+  return { ok: true, paths: validated };
+}
+
+export async function deleteMaintenancePages(
+  vaultRoot: string,
+  paths: string[],
+): Promise<{ affected: number; paths: string[] }> {
+  const successPaths: string[] = [];
+  for (const p of paths) {
+    const fullPath = join(vaultRoot, "wiki", p);
+    try {
+      await unlink(fullPath);
+      successPaths.push(p);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+        successPaths.push(p);
+      }
+      // other errors: skip silently
+    }
+  }
+  return { affected: successPaths.length, paths: successPaths };
+}
+
+export async function archiveMaintenancePages(
+  vaultRoot: string,
+  paths: string[],
+): Promise<{ affected: number; paths: string[] }> {
+  const movedPaths: string[] = [];
+  for (const p of paths) {
+    const source = join(vaultRoot, "wiki", p);
+    const target = join(vaultRoot, "wiki", "_archive", p);
+    try {
+      await mkdir(dirname(target), { recursive: true });
+      await rename(source, target);
+      movedPaths.push(p);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+        // source missing — skip
+      }
+      // other errors: skip silently
+    }
+  }
+  return { affected: movedPaths.length, paths: movedPaths };
+}
+
+export async function recurateMaintenancePages(
+  vaultRoot: string,
+  paths: string[],
+): Promise<{ affected: number; paths: string[] }> {
+  const updatedPaths: string[] = [];
+  for (const p of paths) {
+    const fullPath = join(vaultRoot, "wiki", p);
+    try {
+      const content = await readFile(fullPath, "utf-8");
+      const { frontmatter, body } = parseFrontmatter(content);
+      frontmatter.confidence = 0.0;
+      const updated = serializeFrontmatter(frontmatter, body);
+      await writeFile(fullPath, updated, "utf-8");
+      updatedPaths.push(p);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+        // file missing — skip
+      }
+      // other errors: skip silently
+    }
+  }
+  return { affected: updatedPaths.length, paths: updatedPaths };
 }

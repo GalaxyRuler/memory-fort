@@ -55,7 +55,11 @@ import {
   loadDashboardStatus,
   loadGraphFeed,
   loadLogTail,
+  archiveMaintenancePages,
+  deleteMaintenancePages,
   loadMaintenanceScan,
+  recurateMaintenancePages,
+  validateMaintenancePaths,
   loadPageDetail,
   loadRedactedConfig,
   loadRawIndex,
@@ -909,6 +913,90 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
           return;
         }
         writeJson(res, { ok: false, error: (err as Error).message }, 500);
+      }
+      return;
+    }
+
+    if (method === "POST" && path === "/api/maintenance/delete") {
+      const policy = await loadDashboardOriginPolicy(opts.vaultRoot);
+      if (!sameOriginAllowed(req.headers.origin, url, req.headers, policy.trustedOrigins, policy.trustForwardedHeaders, req.socket.remoteAddress)) {
+        writeJson(res, { ok: false, error: "cross-origin maintenance actions are not allowed" }, 403);
+        return;
+      }
+      if (!writeCapability.writable) {
+        writeJsonError(res, 403, writeCapability.reason ?? "vault is read-only");
+        return;
+      }
+      try {
+        const body = await readJsonBody(req);
+        const validation = validateMaintenancePaths(body);
+        if (!validation.ok) {
+          writeJsonError(res, 400, validation.message);
+          return;
+        }
+        const result = await deleteMaintenancePages(opts.vaultRoot, validation.paths);
+        writeJson(res, { ok: true, affected: result.affected, paths: result.paths });
+      } catch (err) {
+        if (err instanceof RequestBodyTooLargeError) { writeRequestBodyTooLarge(res); return; }
+        if (err instanceof InvalidContentLengthError) { writeInvalidContentLength(res); return; }
+        if (err instanceof InvalidJsonBodyError) { writeInvalidJsonBody(res); return; }
+        writeJsonError(res, 500, (err as Error).message);
+      }
+      return;
+    }
+
+    if (method === "POST" && path === "/api/maintenance/archive") {
+      const policy = await loadDashboardOriginPolicy(opts.vaultRoot);
+      if (!sameOriginAllowed(req.headers.origin, url, req.headers, policy.trustedOrigins, policy.trustForwardedHeaders, req.socket.remoteAddress)) {
+        writeJson(res, { ok: false, error: "cross-origin maintenance actions are not allowed" }, 403);
+        return;
+      }
+      if (!writeCapability.writable) {
+        writeJsonError(res, 403, writeCapability.reason ?? "vault is read-only");
+        return;
+      }
+      try {
+        const body = await readJsonBody(req);
+        const validation = validateMaintenancePaths(body);
+        if (!validation.ok) {
+          writeJsonError(res, 400, validation.message);
+          return;
+        }
+        const result = await archiveMaintenancePages(opts.vaultRoot, validation.paths);
+        writeJson(res, { ok: true, affected: result.affected, paths: result.paths });
+      } catch (err) {
+        if (err instanceof RequestBodyTooLargeError) { writeRequestBodyTooLarge(res); return; }
+        if (err instanceof InvalidContentLengthError) { writeInvalidContentLength(res); return; }
+        if (err instanceof InvalidJsonBodyError) { writeInvalidJsonBody(res); return; }
+        writeJsonError(res, 500, (err as Error).message);
+      }
+      return;
+    }
+
+    if (method === "POST" && path === "/api/maintenance/recurate") {
+      const policy = await loadDashboardOriginPolicy(opts.vaultRoot);
+      if (!sameOriginAllowed(req.headers.origin, url, req.headers, policy.trustedOrigins, policy.trustForwardedHeaders, req.socket.remoteAddress)) {
+        writeJson(res, { ok: false, error: "cross-origin maintenance actions are not allowed" }, 403);
+        return;
+      }
+      if (!writeCapability.writable) {
+        writeJsonError(res, 403, writeCapability.reason ?? "vault is read-only");
+        return;
+      }
+      try {
+        const body = await readJsonBody(req);
+        const validation = validateMaintenancePaths(body);
+        if (!validation.ok) {
+          writeJsonError(res, 400, validation.message);
+          return;
+        }
+        const result = await recurateMaintenancePages(opts.vaultRoot, validation.paths);
+        writeJson(res, { ok: true, affected: result.affected, paths: result.paths });
+      } catch (err) {
+        if (err instanceof RequestBodyTooLargeError) { writeRequestBodyTooLarge(res); return; }
+        if (err instanceof InvalidContentLengthError) { writeInvalidContentLength(res); return; }
+        if (err instanceof InvalidJsonBodyError) { writeInvalidJsonBody(res); return; }
+        writeJsonError(res, 500, (err as Error).message);
       }
       return;
     }

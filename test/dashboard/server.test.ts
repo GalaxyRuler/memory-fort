@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mkdir, mkdtemp, rm, utimes, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { request } from "node:http";
 import { connect } from "node:net";
 import { tmpdir } from "node:os";
@@ -1862,6 +1862,253 @@ describe("dashboard server", () => {
         updated: "2025-01-01",
         confidence: 0.9,
       });
+    } finally {
+      await server.close();
+    }
+  });
+
+  // ---- POST /api/maintenance/delete ----
+
+  it("POST /api/maintenance/delete removes wiki pages", async () => {
+    await mkdir(join(tmp, "wiki", "tools"), { recursive: true });
+    await writeFile(join(tmp, "wiki", "tools", "git.md"), page({ type: "tools", title: "Git", created: "2026-01-01", updated: "2026-01-01", confidence: 0.9 }, "Git page.\n"));
+    await writeFile(join(tmp, "wiki", "tools", "npm.md"), page({ type: "tools", title: "NPM", created: "2026-01-01", updated: "2026-01-01", confidence: 0.9 }, "NPM page.\n"));
+    const server = await createServer({ vaultRoot: tmp, port: 0 });
+    try {
+      const response = await fetch(`http://${server.host}:${server.port}/api/maintenance/delete`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ paths: ["tools/git.md", "tools/npm.md"] }),
+      });
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body).toEqual({ ok: true, affected: 2, paths: ["tools/git.md", "tools/npm.md"] });
+      await expect(access(join(tmp, "wiki", "tools", "git.md"))).rejects.toThrow();
+      await expect(access(join(tmp, "wiki", "tools", "npm.md"))).rejects.toThrow();
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("POST /api/maintenance/delete returns 400 for empty paths", async () => {
+    const server = await createServer({ vaultRoot: tmp, port: 0 });
+    try {
+      const response = await fetch(`http://${server.host}:${server.port}/api/maintenance/delete`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ paths: [] }),
+      });
+      expect(response.status).toBe(400);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("POST /api/maintenance/delete returns 400 for path traversal", async () => {
+    const server = await createServer({ vaultRoot: tmp, port: 0 });
+    try {
+      const response = await fetch(`http://${server.host}:${server.port}/api/maintenance/delete`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ paths: ["../secrets.md"] }),
+      });
+      expect(response.status).toBe(400);
+      const body = await response.json();
+      expect(body.error).toContain("path traversal");
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("POST /api/maintenance/delete returns 403 for read-only vault", async () => {
+    await rm(join(tmp, ".git"), { recursive: true, force: true });
+    const server = await createServer({ vaultRoot: tmp, port: 0 });
+    try {
+      const response = await fetch(`http://${server.host}:${server.port}/api/maintenance/delete`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ paths: ["tools/git.md"] }),
+      });
+      expect(response.status).toBe(403);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("POST /api/maintenance/delete handles missing files gracefully", async () => {
+    const server = await createServer({ vaultRoot: tmp, port: 0 });
+    try {
+      const response = await fetch(`http://${server.host}:${server.port}/api/maintenance/delete`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ paths: ["tools/nonexistent.md"] }),
+      });
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body).toEqual({ ok: true, affected: 1, paths: ["tools/nonexistent.md"] });
+    } finally {
+      await server.close();
+    }
+  });
+
+  // ---- POST /api/maintenance/archive ----
+
+  it("POST /api/maintenance/archive moves pages to _archive", async () => {
+    await mkdir(join(tmp, "wiki", "tools"), { recursive: true });
+    await writeFile(join(tmp, "wiki", "tools", "git.md"), page({ type: "tools", title: "Git", created: "2026-01-01", updated: "2026-01-01", confidence: 0.9 }, "Git page.\n"));
+    const server = await createServer({ vaultRoot: tmp, port: 0 });
+    try {
+      const response = await fetch(`http://${server.host}:${server.port}/api/maintenance/archive`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ paths: ["tools/git.md"] }),
+      });
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body).toEqual({ ok: true, affected: 1, paths: ["tools/git.md"] });
+      await expect(access(join(tmp, "wiki", "tools", "git.md"))).rejects.toThrow();
+      const archived = await readFile(join(tmp, "wiki", "_archive", "tools", "git.md"), "utf-8");
+      expect(archived).toContain("title: Git");
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("POST /api/maintenance/archive returns 400 for empty paths", async () => {
+    const server = await createServer({ vaultRoot: tmp, port: 0 });
+    try {
+      const response = await fetch(`http://${server.host}:${server.port}/api/maintenance/archive`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ paths: [] }),
+      });
+      expect(response.status).toBe(400);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("POST /api/maintenance/archive returns 400 for path traversal", async () => {
+    const server = await createServer({ vaultRoot: tmp, port: 0 });
+    try {
+      const response = await fetch(`http://${server.host}:${server.port}/api/maintenance/archive`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ paths: ["../secrets.md"] }),
+      });
+      expect(response.status).toBe(400);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("POST /api/maintenance/archive returns 403 for read-only vault", async () => {
+    await rm(join(tmp, ".git"), { recursive: true, force: true });
+    const server = await createServer({ vaultRoot: tmp, port: 0 });
+    try {
+      const response = await fetch(`http://${server.host}:${server.port}/api/maintenance/archive`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ paths: ["tools/git.md"] }),
+      });
+      expect(response.status).toBe(403);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("POST /api/maintenance/archive skips missing files", async () => {
+    const server = await createServer({ vaultRoot: tmp, port: 0 });
+    try {
+      const response = await fetch(`http://${server.host}:${server.port}/api/maintenance/archive`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ paths: ["tools/nonexistent.md"] }),
+      });
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body).toEqual({ ok: true, affected: 0, paths: [] });
+    } finally {
+      await server.close();
+    }
+  });
+
+  // ---- POST /api/maintenance/recurate ----
+
+  it("POST /api/maintenance/recurate sets confidence to 0.0", async () => {
+    await mkdir(join(tmp, "wiki", "tools"), { recursive: true });
+    await writeFile(join(tmp, "wiki", "tools", "git.md"), page({ type: "tools", title: "Git", created: "2026-01-01", updated: "2026-01-01", confidence: 0.9 }, "Git page.\n"));
+    const server = await createServer({ vaultRoot: tmp, port: 0 });
+    try {
+      const response = await fetch(`http://${server.host}:${server.port}/api/maintenance/recurate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ paths: ["tools/git.md"] }),
+      });
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body).toEqual({ ok: true, affected: 1, paths: ["tools/git.md"] });
+      const content = await readFile(join(tmp, "wiki", "tools", "git.md"), "utf-8");
+      expect(content).toMatch(/confidence: 0/);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("POST /api/maintenance/recurate returns 400 for empty paths", async () => {
+    const server = await createServer({ vaultRoot: tmp, port: 0 });
+    try {
+      const response = await fetch(`http://${server.host}:${server.port}/api/maintenance/recurate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ paths: [] }),
+      });
+      expect(response.status).toBe(400);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("POST /api/maintenance/recurate returns 400 for path traversal", async () => {
+    const server = await createServer({ vaultRoot: tmp, port: 0 });
+    try {
+      const response = await fetch(`http://${server.host}:${server.port}/api/maintenance/recurate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ paths: ["../secrets.md"] }),
+      });
+      expect(response.status).toBe(400);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("POST /api/maintenance/recurate returns 403 for read-only vault", async () => {
+    await rm(join(tmp, ".git"), { recursive: true, force: true });
+    const server = await createServer({ vaultRoot: tmp, port: 0 });
+    try {
+      const response = await fetch(`http://${server.host}:${server.port}/api/maintenance/recurate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ paths: ["tools/git.md"] }),
+      });
+      expect(response.status).toBe(403);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("POST /api/maintenance/recurate skips missing files", async () => {
+    const server = await createServer({ vaultRoot: tmp, port: 0 });
+    try {
+      const response = await fetch(`http://${server.host}:${server.port}/api/maintenance/recurate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ paths: ["tools/nonexistent.md"] }),
+      });
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body).toEqual({ ok: true, affected: 0, paths: [] });
     } finally {
       await server.close();
     }
