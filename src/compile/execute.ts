@@ -722,9 +722,78 @@ export async function applyOperation(
     case "append_log":
       await appendText(fullPath, `${operation.line.trim()}\n`);
       return { ok: true, outcome: "log-appended" };
-    case "dispute_page":
-    case "supersede_page":
-      return { ok: false, reason: `operation kind "${operation.kind}" is not yet implemented` };
+    case "dispute_page": {
+      const proposedDir = join(vaultRoot, "wiki", "compile-proposed");
+      await mkdir(proposedDir, { recursive: true });
+      const slug = kebabCase(basename(operation.path, ".md")) || "dispute";
+      const proposedPath = join(
+        proposedDir,
+        `dispute-${slug}-${now.getTime()}.md`,
+      );
+      const isoCreated = now.toISOString().slice(0, 10);
+      await atomicWrite(
+        proposedPath,
+        serializeFrontmatter(
+          {
+            type: "references",
+            title: `dispute proposal: ${operation.path}`,
+            target: operation.path,
+            conflicting_page: operation.conflicting_page,
+            reason: operation.reason,
+            created: isoCreated,
+            updated: isoCreated,
+            status: "active" as const,
+            lifecycle: "proposed" as const,
+            source: "compile-execute",
+            cognitive_type: "semantic" as const,
+            proposal_type: "dispute-proposal",
+            proposal_status: "pending-review",
+          },
+          `This dispute proposes setting lifecycle: disputed on ${operation.path}.\n\nReason: ${operation.reason}\n\nConflicting page: ${operation.conflicting_page}\n`,
+        ),
+      );
+      return { ok: true, outcome: "created" };
+    }
+    case "supersede_page": {
+      const proposedDir = join(vaultRoot, "wiki", "compile-proposed");
+      await mkdir(proposedDir, { recursive: true });
+      const slug = kebabCase(basename(operation.old_page, ".md")) || "supersede";
+      const proposedPath = join(
+        proposedDir,
+        `supersede-${slug}-${now.getTime()}.md`,
+      );
+      const isoCreated = now.toISOString().slice(0, 10);
+      const bodyLines = [
+        `This proposal supersedes ${operation.old_page}.`,
+        "",
+        `Reason: ${operation.reason}`,
+        ...(operation.valid_to ? [`Valid to: ${operation.valid_to}`] : []),
+        "",
+      ];
+      await atomicWrite(
+        proposedPath,
+        serializeFrontmatter(
+          {
+            type: "references",
+            title: `supersede proposal: ${operation.old_page}`,
+            old_page: operation.old_page,
+            new_page: operation.new_page,
+            reason: operation.reason,
+            ...(operation.valid_to ? { valid_to: operation.valid_to } : {}),
+            created: isoCreated,
+            updated: isoCreated,
+            status: "active" as const,
+            lifecycle: "proposed" as const,
+            source: "compile-execute",
+            cognitive_type: "semantic" as const,
+            proposal_type: "supersede-proposal",
+            proposal_status: "pending-review",
+          },
+          `${bodyLines.join("\n")}\n`,
+        ),
+      );
+      return { ok: true, outcome: "created" };
+    }
   }
 }
 
