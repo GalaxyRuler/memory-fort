@@ -1,0 +1,12 @@
+{"query":"what tools does the memory-system project use","type":"dependency","expected_paths":["wiki/projects/memory-system.md"]}
+{"query":"what is derived from the retrieval pipeline work","type":"dependency","expected_paths":["wiki/projects/memory-system.md","wiki/concepts/retrieval-pipeline.md"]}
+{"query":"pages related to embedding refresh","type":"fact","expected_paths":["wiki/concepts/retrieval-pipeline.md"]}
+{"query":"what contradicts or disputes existing claims","type":"causal","expected_paths":["wiki/concepts/retrieval-pipeline.md"]}
+{"query":"tools that depend on voyage embeddings","type":"dependency","expected_paths":["wiki/tools/voyage.md"]}
+{"query":"pages superseded by newer knowledge","type":"temporal","expected_paths":["wiki/projects/memory-system.md"]}
+{"query":"what was learned from the dashboard audit","type":"provenance","expected_paths":["wiki/projects/memory-system.md"]}
+{"query":"how does BM25 relate to the search pipeline","type":"dependency","expected_paths":["wiki/concepts/retrieval-pipeline.md"]}
+{"query":"episodic observations about codex sessions","type":"fact","expected_paths":["wiki/projects/memory-system.md"]}
+{"query":"which concepts are linked to graph traversal","type":"dependency","expected_paths":["wiki/concepts/retrieval-pipeline.md"]}
+{"query":"pages that mention auto-commit or sync","type":"fact","expected_paths":["wiki/projects/memory-system.md"]}
+{"query":"provenance of the compile prompt template","type":"provenance","expected_paths":["wiki/projects/memory-system.md"]}
