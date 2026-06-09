@@ -67,6 +67,8 @@ export interface MemoryConfig {
   capture?: {
     max_input_bytes?: number;
     max_output_bytes?: number;
+    tools?: Record<string, string>;
+    exclude_patterns?: string[];
   };
   compress?: {
     max_input_bytes?: number;
