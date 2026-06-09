@@ -294,6 +294,50 @@ function validateEmbeddingsMeta(value: unknown): EmbeddingsMeta {
   return meta as unknown as EmbeddingsMeta;
 }
 
+export interface FindSimilarOptions {
+  threshold: number;
+  topK: number;
+}
+
+export interface SimilarResult {
+  path: string;
+  similarity: number;
+  record: EmbeddingRecord;
+}
+
+export function findSimilar(
+  queryVector: number[],
+  records: EmbeddingRecord[],
+  opts: FindSimilarOptions,
+): SimilarResult[] {
+  const results: SimilarResult[] = [];
+
+  for (const record of records) {
+    if (record.archived) continue;
+    if (record.vector.length !== queryVector.length) continue;
+    const sim = cosineSimilarity(queryVector, record.vector);
+    if (sim >= opts.threshold) {
+      results.push({ path: record.path, similarity: sim, record });
+    }
+  }
+
+  results.sort((a, b) => b.similarity - a.similarity);
+  return results.slice(0, opts.topK);
+}
+
+function cosineSimilarity(a: number[], b: number[]): number {
+  let dot = 0;
+  let normA = 0;
+  let normB = 0;
+  for (let i = 0; i < a.length; i++) {
+    dot += a[i] * b[i];
+    normA += a[i] * a[i];
+    normB += b[i] * b[i];
+  }
+  const denom = Math.sqrt(normA) * Math.sqrt(normB);
+  return denom === 0 ? 0 : dot / denom;
+}
+
 function isMissingFile(error: unknown): boolean {
   return (
     typeof error === "object" &&
