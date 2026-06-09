@@ -4,6 +4,7 @@ import {
   buildContextBlock,
   buildContextualizedText,
   computeBacklinkMap,
+  hashContextBlock,
 } from "../../src/retrieval/contextualized-text.js";
 
 function stubDoc(overrides: Partial<SearchDocument> = {}): SearchDocument {
@@ -182,5 +183,23 @@ describe("computeBacklinkMap", () => {
     const voyageBacklinks = map.get("voyage") ?? [];
     const alphaCount = voyageBacklinks.filter((b) => b === "wiki/projects/alpha.md").length;
     expect(alphaCount).toBe(1);
+  });
+});
+
+describe("hashContextBlock", () => {
+  it("returns a hex sha256 hash", () => {
+    const hash = hashContextBlock("# wiki/foo.md\n# Type: projects");
+    expect(hash).toMatch(/^[a-f0-9]{64}$/);
+  });
+
+  it("is deterministic", () => {
+    const input = "# wiki/foo.md\n# Type: projects | Cognitive: core";
+    expect(hashContextBlock(input)).toBe(hashContextBlock(input));
+  });
+
+  it("changes when context changes", () => {
+    const a = hashContextBlock("# wiki/foo.md\n# Type: projects");
+    const b = hashContextBlock("# wiki/foo.md\n# Type: tools");
+    expect(a).not.toBe(b);
   });
 });

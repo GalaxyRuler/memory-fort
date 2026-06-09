@@ -16,6 +16,8 @@ export interface EmbeddingRecord {
   dim: number;
   ts: string;
   archived?: boolean;
+  contextV?: number;      // 2 = contextualized, undefined = legacy
+  contextHash?: string;   // SHA256 of context block only
 }
 
 export interface EmbeddingsMeta {

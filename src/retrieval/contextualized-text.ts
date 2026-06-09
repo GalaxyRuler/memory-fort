@@ -1,4 +1,5 @@
 import type { SearchDocument } from "./corpus.js";
+import { hashText } from "./embedding-text.js";
 
 const MAX_CONTEXT_CHARS = 500;
 const MAX_BACKLINKS = 10;
@@ -49,6 +50,10 @@ export function buildContextBlock(
     return block.slice(0, MAX_CONTEXT_CHARS);
   }
   return block;
+}
+
+export function hashContextBlock(contextBlock: string): string {
+  return hashText(contextBlock);
 }
 
 export function buildContextualizedText(
