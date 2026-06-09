@@ -242,6 +242,8 @@ Switch any time: edit `~/.memory/config.yaml` or re-run `memory-fort init`.
 
 Search results include provenance receipts showing BM25, embedding, and graph signals — visible in the dashboard and MCP API.
 
+When Voyage embeddings are enabled, Memory Fort uses **contextualized text embedding**: each wiki page is embedded with a graph-topology header (path, type, relations, tags, backlinks) prepended, improving recall for graph-aware queries. Enable via `retrieval.embeddings.contextualized: true` in config.yaml.
+
 ---
 
 ## Evidence posture
@@ -293,6 +295,7 @@ Built-in React dashboard:
 - Manage integrations using **client toggles** to enable or disable individual clients (configured via `clients.*` map in `config.yaml`, with verify checks automatically skipping disabled clients).
 - Securely manage API credentials via **API key management** (masked secrets fields stored outside the vault with test-then-save validation flow).
 - Check and manage the **ChatGPT bridge status** (verify checks: `chatgpt.bridge.running` and `chatgpt.bridge.mcp`).
+- Review **lifecycle proposals** (`wiki/compile-proposed/`) — dispute and supersede candidates staged for human review before any wiki edit.
 
 ---
 

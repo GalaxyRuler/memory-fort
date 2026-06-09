@@ -4,6 +4,22 @@ All notable changes to Memory Fort are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.1] - 2026-06-09
+
+### Added
+- **Capture-mode ingestion gate** — per-tool recording granularity via `capture.tools.<name>: full|summary|metadata|skip` in config.yaml; `exclude_patterns` glob list skips capture by file path; `full` mode unchanged as default
+- **Summary and metadata block formatters** — `formatSummaryBlock` (512-byte output cap, secrets redacted) and `formatMetadataBlock` (input-only, no output) for reduced-fidelity capture modes
+- **MCP `memory: false` opt-out** — callers can pass `memory: false` on `log_observation` to suppress capture without removing the hook
+- **Stats capture mode reporting** — `memory stats` shows active capture config when non-default modes are set
+- **contextualizedText embedding** — graph topology prepended as `#`-header context block before embedding body: path, type, relations, tags, backlinks (500-char cap, 10-backlink cap, deterministic sort); dual hash: `contentHash` (body only) + `contextHash` (context block); `contextV: 2` on embedding records; refresh pipeline updated to maintain dual hashes incrementally
+- **Session index cards** — one-shot LLM extraction producing `schema_version`, `raw_sha256`, `topics`, `quotes`, `summary` JSON per raw session; SHA256 staleness check skips reprocessing unchanged sessions; `redactSecrets` applied to both LLM prompt and extracted quotes; compile batch selection scores sessions via index card topics
+- **Similarity-assisted context selection** — `findSimilar()` brute-force cosine search against wiki embeddings; `selectSimilarContext()` and `buildSimilarityAwareContext()` wrappers; configurable threshold (`compile.similarity_context.threshold`, default 0.8); wired into compile pipeline
+- **Lifecycle mutation dispatch** — `dispute_page` (mutually incompatible claim) and `supersede_page` (formerly true, now obsolete) as new `CompileOperation` kinds; proposals staged to `wiki/compile-proposed/` for human review, never auto-applied; `classifyDispatch()` authority check (similarity ≥ threshold AND newer session) downgrades to `rewrite_page` without authority; compile prompt updated with full operation spec and examples
+- **Eval fixtures** — `qa/graph-aware-gold.jsonl` (12 graph-aware queries) and `qa/dispatch-gold.jsonl` (10 dispatch scenarios) for retrieval and dispatch regression testing
+
+### Changed
+- Embedding refresh now computes `contextHash` alongside `contentHash`; records missing `contextHash` are re-embedded on next refresh
+
 ## [0.5.0] - 2026-06-09
 
 ### Added
