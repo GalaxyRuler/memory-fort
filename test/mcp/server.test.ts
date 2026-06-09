@@ -84,6 +84,44 @@ describe("logObservation", () => {
     const content = await readFile(join(tmp, "raw", "2026-05-28", "manual-session-2.md"), "utf-8");
     expect(content).toContain("best effort commit");
   });
+
+  it("skips capture when memory is false", async () => {
+    const ensureRawSessionFile = vi.fn();
+    const appendBlock = vi.fn();
+    const commitVaultChange = vi.fn();
+
+    const result = await logObservation(
+      { text: "skip this", memory: false },
+      { ensureRawSessionFile, appendBlock, commitVaultChange },
+    );
+
+    expect(result.content[0]!.text).toContain("skipped");
+    expect(ensureRawSessionFile).not.toHaveBeenCalled();
+    expect(appendBlock).not.toHaveBeenCalled();
+    expect(commitVaultChange).not.toHaveBeenCalled();
+  });
+
+  it("captures normally when memory is omitted", async () => {
+    const now = new Date(Date.UTC(2026, 4, 28, 12, 34, 56));
+    const ensureRawSessionFileFn = vi.fn(async () => join(tmp, "raw", "2026-05-28", "manual-session-3.md"));
+    const appendBlockFn = vi.fn(async () => undefined);
+    const commitVaultChange = vi.fn(async () => ({ kind: "committed" as const, commitSha: "abc" }));
+
+    const result = await logObservation(
+      { text: "capture this", source: "manual" },
+      {
+        now: () => now,
+        sessionId: () => "session-3",
+        ensureRawSessionFile: ensureRawSessionFileFn,
+        appendBlock: appendBlockFn,
+        commitVaultChange,
+      },
+    );
+
+    expect(result.content[0]!.text).toContain("Logged observation");
+    expect(ensureRawSessionFileFn).toHaveBeenCalled();
+    expect(appendBlockFn).toHaveBeenCalled();
+  });
 });
 
 describe("readPage", () => {

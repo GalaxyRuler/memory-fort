@@ -28,6 +28,7 @@ const LogObservationInput = z.object({
   tags: z.array(z.string()).optional(),
   confidence: z.number().min(0).max(1).optional(),
   source: z.string().optional(),
+  memory: z.boolean().optional().describe("Set to false to skip recording this observation (no file writes, no commit)."),
 });
 
 export type LogObservationInput = z.infer<typeof LogObservationInput>;
@@ -44,6 +45,12 @@ export async function logObservation(
   input: LogObservationInput,
   deps: LogObservationDeps = {},
 ): Promise<{ content: Array<{ type: "text"; text: string }> }> {
+  if (input.memory === false) {
+    return {
+      content: [{ type: "text", text: "Observation skipped (memory: false)" }],
+    };
+  }
+
   const ensureFn = deps.ensureRawSessionFile ?? ensureRawSessionFile;
   const appendFn = deps.appendBlock ?? appendBlock;
   const commitFn = deps.commitVaultChange ?? defaultCommitVaultChange;
