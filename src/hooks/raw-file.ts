@@ -98,6 +98,37 @@ export function formatToolUseBlock(input: {
   );
 }
 
+const SUMMARY_MAX_OUTPUT_BYTES = 512;
+
+function truncateSuffix(text: string, maxBytes: number): string {
+  if (Buffer.byteLength(text, "utf-8") <= maxBytes) return text;
+  const buf = Buffer.from(text, "utf-8");
+  return buf.subarray(0, maxBytes).toString("utf-8") + "\n... [truncated]";
+}
+
+export function formatSummaryBlock(input: {
+  toolName: string;
+  toolInput: unknown;
+  toolOutput: unknown;
+  now: Date;
+  maxInputBytes?: number;
+}): string {
+  const ts = formatTimestamp(input.now);
+  const maxInput = input.maxInputBytes ?? 8192;
+  const inJson = safeJsonStringify(input.toolInput);
+  const outString =
+    typeof input.toolOutput === "string"
+      ? input.toolOutput
+      : safeJsonStringify(input.toolOutput);
+  const truncatedInput = truncateMiddle(redactSecrets(inJson), maxInput);
+  const truncatedOutput = truncateSuffix(redactSecrets(outString), SUMMARY_MAX_OUTPUT_BYTES);
+  return (
+    `\n## [${ts}] ToolUse: ${input.toolName} (summary)\n\n` +
+    `**Input:**\n\n\`\`\`json\n${truncatedInput}\n\`\`\`\n\n` +
+    `**Output (truncated):**\n\n\`\`\`\n${truncatedOutput}\n\`\`\`\n`
+  );
+}
+
 export function formatMarker(label: string, now: Date): string {
   const ts = formatTimestamp(now);
   return `\n---\n## [${ts}] ${label}\n\n`;
