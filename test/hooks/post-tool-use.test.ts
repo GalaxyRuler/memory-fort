@@ -171,6 +171,127 @@ describe("postToolUseBody", () => {
     expect(calls[3]).toContain("linker unavailable");
   });
 
+  it("uses metadata mode when tool is configured as metadata", async () => {
+    const calls: any[] = [];
+    await postToolUseBody(
+      {
+        session_id: "abc",
+        cwd: "C:\\test",
+        tool_name: "Read",
+        tool_input: { path: "foo.md" },
+        tool_output: "file contents that should not appear",
+      },
+      {
+        detectTool: () => "claude-code",
+        ensureRawSessionFile: async (i) => {
+          calls.push({ kind: "ensure", ...i });
+          return "/fake/path";
+        },
+        appendBlock: async (i) => {
+          calls.push({ kind: "append", ...i });
+        },
+        configLoader: async () => ({
+          capture: { tools: { Read: "metadata" } },
+        }),
+        now: () => new Date(Date.UTC(2026, 5, 9, 14, 30, 0)),
+      },
+    );
+    expect(calls.filter(c => c.kind === "append")).toHaveLength(1);
+    expect(calls.find(c => c.kind === "append").block).toContain("(metadata)");
+    expect(calls.find(c => c.kind === "append").block).toContain('"path": "foo.md"');
+    expect(calls.find(c => c.kind === "append").block).not.toContain("file contents that should not appear");
+  });
+
+  it("skips appendBlock entirely when tool is configured as skip", async () => {
+    const calls: any[] = [];
+    await postToolUseBody(
+      {
+        session_id: "abc",
+        cwd: "C:\\test",
+        tool_name: "Glob",
+        tool_input: { pattern: "*.ts" },
+        tool_output: "lots of files",
+      },
+      {
+        detectTool: () => "claude-code",
+        ensureRawSessionFile: async (i) => {
+          calls.push({ kind: "ensure", ...i });
+          return "/fake/path";
+        },
+        appendBlock: async (i) => {
+          calls.push({ kind: "append", ...i });
+        },
+        configLoader: async () => ({
+          capture: { tools: { Glob: "skip" } },
+        }),
+        now: () => new Date(Date.UTC(2026, 5, 9, 14, 30, 0)),
+      },
+    );
+    expect(calls.filter(c => c.kind === "ensure").length).toBe(1);
+    expect(calls.filter(c => c.kind === "append").length).toBe(0);
+  });
+
+  it("uses summary mode when tool is configured as summary", async () => {
+    const calls: any[] = [];
+    await postToolUseBody(
+      {
+        session_id: "abc",
+        cwd: "C:\\test",
+        tool_name: "Bash",
+        tool_input: { command: "npm test" },
+        tool_output: "x".repeat(5000),
+      },
+      {
+        detectTool: () => "claude-code",
+        ensureRawSessionFile: async (i) => {
+          calls.push({ kind: "ensure", ...i });
+          return "/fake/path";
+        },
+        appendBlock: async (i) => {
+          calls.push({ kind: "append", ...i });
+        },
+        configLoader: async () => ({
+          capture: { tools: { Bash: "summary" } },
+        }),
+        now: () => new Date(Date.UTC(2026, 5, 9, 14, 30, 0)),
+      },
+    );
+    expect(calls.filter(c => c.kind === "append")).toHaveLength(1);
+    expect(calls.find(c => c.kind === "append").block).toContain("(summary)");
+    expect(Buffer.byteLength(calls.find(c => c.kind === "append").block, "utf-8")).toBeLessThan(2000);
+  });
+
+  it("defaults to full mode when tool is not in capture.tools", async () => {
+    const calls: any[] = [];
+    await postToolUseBody(
+      {
+        session_id: "abc",
+        cwd: "C:\\test",
+        tool_name: "Write",
+        tool_input: { path: "out.md" },
+        tool_output: "written",
+      },
+      {
+        detectTool: () => "claude-code",
+        ensureRawSessionFile: async (i) => {
+          calls.push({ kind: "ensure", ...i });
+          return "/fake/path";
+        },
+        appendBlock: async (i) => {
+          calls.push({ kind: "append", ...i });
+        },
+        configLoader: async () => ({
+          capture: { tools: { Read: "metadata" } },
+        }),
+        now: () => new Date(Date.UTC(2026, 5, 9, 14, 30, 0)),
+      },
+    );
+    expect(calls.filter(c => c.kind === "append")).toHaveLength(1);
+    expect(calls.find(c => c.kind === "append").block).not.toContain("(metadata)");
+    expect(calls.find(c => c.kind === "append").block).not.toContain("(summary)");
+    expect(calls.find(c => c.kind === "append").block).toContain("ToolUse: Write");
+  });
+
   it("runs capture-time auto-heal after the raw append when enabled", async () => {
     const calls: string[] = [];
     await postToolUseBody(

@@ -5,7 +5,10 @@ import {
   ensureRawSessionFile,
   appendBlock,
   formatToolUseBlock,
+  formatSummaryBlock,
+  formatMetadataBlock,
 } from "./raw-file.js";
+import { readCaptureMode } from "./capture-mode.js";
 import {
   readCwd,
   readSessionId,
@@ -57,20 +60,42 @@ export async function postToolUseBody(
   const cwd = readCwd(payload);
   const now = nowFn();
 
+  const toolInput = readToolInput(payload);
+  const toolOutput = readToolOutput(payload) ?? "";
+  const toolInputJson = typeof toolInput === "string" ? toolInput : JSON.stringify(toolInput ?? "");
+  const mode = readCaptureMode(config, toolName, toolInputJson);
+
   const rawPath = await ensureFn({ tool, sessionId, cwd, now });
-  await appendFn({
-    tool,
-    sessionId,
-    block: formatToolUseBlock({
-      toolName,
-      toolInput: readToolInput(payload),
-      toolOutput: readToolOutput(payload) ?? "",
-      now,
-      maxInputBytes: captureCaps.maxInputBytes,
-      maxOutputBytes: captureCaps.maxOutputBytes,
-    }),
-    now,
-  });
+
+  if (mode !== "skip") {
+    let block: string;
+    if (mode === "metadata") {
+      block = formatMetadataBlock({
+        toolName,
+        toolInput,
+        now,
+        maxInputBytes: captureCaps.maxInputBytes,
+      });
+    } else if (mode === "summary") {
+      block = formatSummaryBlock({
+        toolName,
+        toolInput,
+        toolOutput,
+        now,
+        maxInputBytes: captureCaps.maxInputBytes,
+      });
+    } else {
+      block = formatToolUseBlock({
+        toolName,
+        toolInput,
+        toolOutput,
+        now,
+        maxInputBytes: captureCaps.maxInputBytes,
+        maxOutputBytes: captureCaps.maxOutputBytes,
+      });
+    }
+    await appendFn({ tool, sessionId, block, now });
+  }
   if (autoHealFn && readAutoHealEnabled(config)) {
     try {
       await autoHealFn({
