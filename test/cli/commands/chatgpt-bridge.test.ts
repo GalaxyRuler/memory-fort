@@ -39,7 +39,7 @@ describe("runChatGptBridgeStatus", () => {
     expect(status.running).toBe(false);
     expect(status.pid).toBeNull();
     expect(status.port).toBe(3100);
-    expect(status.url).toBe("http://127.0.0.1:3100/sse");
+    expect(status.url).toBe("http://localhost:3100/sse");
   });
 
   it("reports not running and cleans up PID file when it contains a dead PID", async () => {
@@ -76,7 +76,7 @@ describe("runChatGptBridgeStatus", () => {
     const status = await runChatGptBridgeStatus();
 
     expect(status.port).toBe(4200);
-    expect(status.url).toBe("http://127.0.0.1:4200/sse");
+    expect(status.url).toBe("http://localhost:4200/sse");
   });
 });
 

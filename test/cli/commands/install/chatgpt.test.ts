@@ -7,8 +7,8 @@ vi.mock("../../../../src/storage/config.js", () => ({
 }));
 
 vi.mock("../../../../src/cli/commands/chatgpt-bridge.js", () => ({
-  runChatGptBridgeStatus: async () => ({ running: false, pid: null, port: 3100, url: "http://127.0.0.1:3100/sse" }),
-  runChatGptBridgeStart: async () => ({ running: true, pid: 12345, port: 3100, url: "http://127.0.0.1:3100/sse" }),
+  runChatGptBridgeStatus: async () => ({ running: false, pid: null, port: 3100, url: "http://localhost:3100/sse" }),
+  runChatGptBridgeStart: async () => ({ running: true, pid: 12345, port: 3100, url: "http://localhost:3100/sse" }),
 }));
 
 vi.mock("../../../../src/mcp/tls.js", () => ({
