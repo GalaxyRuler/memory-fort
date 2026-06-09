@@ -404,12 +404,12 @@ function drawGalaxyLabel(ctx: CanvasRenderingContext2D, galaxy: GalacticLayout["
   if (camera.scale > 0.45) return;
   const point = worldToScreen({ x: galaxy.cx, y: galaxy.cy }, camera, size);
   ctx.save();
-  ctx.font = `700 ${Math.max(10, 14 * camera.scale)}px 'JetBrains Mono', monospace`;
+  ctx.font = `700 ${Math.max(10, 14 * camera.scale)}px 'IBM Plex Mono', monospace`;
   ctx.fillStyle = hexA(galaxy.color, 0.85);
   ctx.textAlign = "center";
   ctx.textBaseline = "top";
   ctx.fillText(COGNITIVE_META[galaxy.id].label.toUpperCase(), point.x, point.y + 36 * camera.scale + 12);
-  ctx.font = `400 ${Math.max(8, 10 * camera.scale)}px 'JetBrains Mono', monospace`;
+  ctx.font = `400 ${Math.max(8, 10 * camera.scale)}px 'IBM Plex Mono', monospace`;
   ctx.fillStyle = "rgba(155, 164, 184, 0.7)";
   ctx.fillText(`${galaxy.members.length} memories`, point.x, point.y + 36 * camera.scale + 28);
   ctx.restore();
@@ -429,7 +429,7 @@ function drawSystemBackdrop(ctx: CanvasRenderingContext2D, system: NonNullable<G
 function drawSystemLabel(ctx: CanvasRenderingContext2D, system: NonNullable<GalacticLayout["galaxies"][keyof GalacticLayout["galaxies"]]["systems"][keyof GalacticLayout["galaxies"][keyof GalacticLayout["galaxies"]]["systems"]]>, camera: Camera, size: { width: number; height: number }): void {
   const point = worldToScreen({ x: system.cx, y: system.cy }, camera, size);
   ctx.save();
-  ctx.font = `600 ${Math.max(9, 11 * camera.scale)}px 'JetBrains Mono', monospace`;
+  ctx.font = `600 ${Math.max(9, 11 * camera.scale)}px 'IBM Plex Mono', monospace`;
   ctx.fillStyle = hexA(system.color, 0.78);
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";

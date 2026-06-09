@@ -1,5 +1,11 @@
 <p align="center">
-  <img src="assets/memory_fort_logo.svg" alt="Memory Fort" width="480" />
+  <img src="assets/memory_fort_icon.png" alt="" width="80" />
+  <br />
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/memory_fort_wordmark.png" />
+    <source media="(prefers-color-scheme: light)" srcset="assets/memory_fort_wordmark_light.png" />
+    <img src="assets/memory_fort_wordmark.png" alt="Memory Fort" width="200" />
+  </picture>
 </p>
 
 <p align="center">

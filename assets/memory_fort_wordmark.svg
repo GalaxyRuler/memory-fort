@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 48" width="360" height="48">
+  <defs>
+    
+  </defs>
+  <text font-family="&#39;IBM Plex Mono&#39;, monospace" font-size="32" letter-spacing="0.02em" fill="#f8fafc" dominant-baseline="central" y="24">
+    <tspan font-weight="300">memory</tspan>
+    <tspan dx="6" font-weight="600">fort</tspan>
+  </text>
+</svg>

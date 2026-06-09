@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img">
+  <!-- Left half: cyan -->
+  <path d="M128 174 L190 146 L190 210 L248 180 L248 124 L256 120 L256 452 L194 420 L194 382 L128 346 Z" stroke="#38bdf8" stroke-width="28" stroke-linejoin="miter" stroke-miterlimit="2" fill="none"/>
+  <!-- Right half: violet -->
+  <path d="M256 120 L264 124 L264 180 L322 210 L322 146 L384 174 L384 346 L318 382 L318 420 L256 452 Z" stroke="#7c3aed" stroke-width="28" stroke-linejoin="miter" stroke-miterlimit="2" fill="none"/>
+  <!-- Bottom overlap: teal -->
+  <path d="M128 346 L194 382 L194 420 L256 452 L318 420 L318 382 L384 346" stroke="#14b8a6" stroke-width="28" stroke-linejoin="miter" stroke-miterlimit="2" fill="none"/>
+  <!-- Node connections -->
+  <path d="M180 282 L180 330 L238 362" stroke="#38bdf8" stroke-width="16" fill="none"/>
+  <path d="M256 282 L256 376" stroke="#14b8a6" stroke-width="16" fill="none"/>
+  <path d="M332 282 L332 330 L274 362" stroke="#7c3aed" stroke-width="16" fill="none"/>
+  <!-- Nodes -->
+  <circle cx="180" cy="262" r="21" fill="#0f172a" stroke="#38bdf8" stroke-width="16"/>
+  <circle cx="256" cy="262" r="21" fill="#0f172a" stroke="#14b8a6" stroke-width="16"/>
+  <circle cx="332" cy="262" r="21" fill="#0f172a" stroke="#7c3aed" stroke-width="16"/>
+  <circle cx="256" cy="398" r="21" fill="#0f172a" stroke="#14b8a6" stroke-width="16"/>
+</svg>

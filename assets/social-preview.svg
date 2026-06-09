@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" role="img">
+<defs>
+  <radialGradient id="glow1" cx="30%" cy="40%" r="50%">
+    <stop offset="0%" stop-color="#38bdf8" stop-opacity="0.08"/>
+    <stop offset="100%" stop-color="#38bdf8" stop-opacity="0"/>
+  </radialGradient>
+  <radialGradient id="glow2" cx="70%" cy="60%" r="50%">
+    <stop offset="0%" stop-color="#7c3aed" stop-opacity="0.06"/>
+    <stop offset="100%" stop-color="#7c3aed" stop-opacity="0"/>
+  </radialGradient>
+</defs>
+<rect width="1280" height="640" fill="#0f172a"/>
+<rect width="1280" height="640" fill="url(#glow1)"/>
+<rect width="1280" height="640" fill="url(#glow2)"/>
+<!-- Subtle connection lines in background -->
+<g stroke="#38bdf8" stroke-opacity="0.06" stroke-width="1" fill="none">
+  <line x1="100" y1="80" x2="300" y2="180"/>
+  <line x1="300" y1="180" x2="200" y2="340"/>
+  <line x1="980" y1="100" x2="1100" y2="250"/>
+  <line x1="1100" y1="250" x2="1050" y2="400"/>
+  <line x1="150" y1="500" x2="350" y2="560"/>
+  <line x1="950" y1="480" x2="1150" y2="540"/>
+</g>
+<g fill="#38bdf8" fill-opacity="0.05">
+  <circle cx="100" cy="80" r="4"/>
+  <circle cx="300" cy="180" r="3"/>
+  <circle cx="200" cy="340" r="3"/>
+  <circle cx="980" cy="100" r="4"/>
+  <circle cx="1100" cy="250" r="3"/>
+  <circle cx="1050" cy="400" r="3"/>
+  <circle cx="150" cy="500" r="3"/>
+  <circle cx="350" cy="560" r="3"/>
+  <circle cx="950" cy="480" r="3"/>
+  <circle cx="1150" cy="540" r="3"/>
+</g>
+<!-- Icon centered -->
+<g transform="translate(540 100) scale(0.6)">
+  <defs>
+    <path id="sp-outer" d="M128 174 L190 146 L190 210 L248 180 L248 124 L256 120 L264 124 L264 180 L322 210 L322 146 L384 174 L384 346 L318 382 L318 420 L256 452 L194 420 L194 382 L128 346 Z"/>
+    <clipPath id="sp-clip-left" clipPathUnits="userSpaceOnUse"><rect x="0" y="0" width="257" height="512"/></clipPath>
+    <clipPath id="sp-clip-right" clipPathUnits="userSpaceOnUse"><rect x="255" y="0" width="257" height="512"/></clipPath>
+    <clipPath id="sp-clip-bottom" clipPathUnits="userSpaceOnUse"><path d="M0 360 H512 V512 H0 Z"/></clipPath>
+  </defs>
+  <use href="#sp-outer" stroke="#38bdf8" stroke-linecap="butt" stroke-linejoin="miter" stroke-miterlimit="2" fill="none" stroke-width="28" clip-path="url(#sp-clip-left)"/>
+  <use href="#sp-outer" stroke="#7c3aed" stroke-linecap="butt" stroke-linejoin="miter" stroke-miterlimit="2" fill="none" stroke-width="28" clip-path="url(#sp-clip-right)"/>
+  <use href="#sp-outer" stroke="#14b8a6" stroke-linecap="butt" stroke-linejoin="miter" stroke-miterlimit="2" fill="none" stroke-width="28" clip-path="url(#sp-clip-bottom)"/>
+  <path d="M180 282 L180 330 L238 362" stroke="#38bdf8" stroke-linecap="butt" stroke-linejoin="miter" fill="none" stroke-width="16"/>
+  <path d="M256 282 L256 376" stroke="#14b8a6" stroke-linecap="butt" stroke-linejoin="miter" fill="none" stroke-width="16"/>
+  <path d="M332 282 L332 330 L274 362" stroke="#7c3aed" stroke-linecap="butt" stroke-linejoin="miter" fill="none" stroke-width="16"/>
+  <circle cx="180" cy="262" r="21" fill="#0f172a" stroke="#38bdf8" stroke-width="16"/>
+  <circle cx="256" cy="262" r="21" fill="#0f172a" stroke="#14b8a6" stroke-width="16"/>
+  <circle cx="332" cy="262" r="21" fill="#0f172a" stroke="#7c3aed" stroke-width="16"/>
+  <circle cx="256" cy="398" r="21" fill="#0f172a" stroke="#14b8a6" stroke-width="16"/>
+</g>
+<!-- Title -->
+<text x="640" y="420" text-anchor="middle" font-family="'IBM Plex Mono', monospace" font-weight="700" font-size="48" fill="#f8fafc">Memory Fort</text>
+<!-- Tagline -->
+<text x="640" y="470" text-anchor="middle" font-family="'IBM Plex Mono', monospace" font-weight="300" font-size="20" fill="#f8fafc" opacity="0.7">Cross-tool persistent memory for AI agents</text>
+<!-- Subtitle -->
+<text x="640" y="510" text-anchor="middle" font-family="'IBM Plex Mono', monospace" font-weight="400" font-size="16" fill="#14b8a6" opacity="0.8">local · private · free</text>
+<!-- Bottom URL -->
+<text x="640" y="600" text-anchor="middle" font-family="'IBM Plex Mono', monospace" font-weight="400" font-size="14" fill="#f8fafc" opacity="0.35">github.com/GalaxyRuler/memory-system</text>
+</svg>

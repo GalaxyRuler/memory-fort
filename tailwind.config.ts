@@ -62,7 +62,7 @@ export default {
       },
       fontFamily: {
         sans: ['"Inter"', "ui-sans-serif", "system-ui", "sans-serif"],
-        mono: ['"JetBrains Mono"', "ui-monospace", "SF Mono", "monospace"],
+        mono: ['"IBM Plex Mono"', "ui-monospace", "SF Mono", "monospace"],
       },
       borderRadius: {
         DEFAULT: "6px",

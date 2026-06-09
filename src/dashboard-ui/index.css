@@ -6,13 +6,7 @@
   font-display: swap;
 }
 
-@font-face {
-  font-family: "JetBrains Mono";
-  src: url("/fonts/JetBrainsMono-VariableFont.woff2") format("woff2-variations");
-  font-weight: 100 800;
-  font-style: normal;
-  font-display: swap;
-}
+/* IBM Plex Mono loaded via @fontsource in main.tsx */
 
 @tailwind base;
 @tailwind components;
