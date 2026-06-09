@@ -42,6 +42,19 @@ export type CompileOperation =
       kind: "append_log";
       path?: string;
       line: string;
+    }
+  | {
+      kind: "dispute_page";
+      path: string;
+      conflicting_page: string;
+      reason: string;
+    }
+  | {
+      kind: "supersede_page";
+      old_page: string;
+      new_page: string;
+      reason: string;
+      valid_to?: string;
     };
 
 export type ParseCompileOperationsResult =
@@ -518,6 +531,8 @@ function withPageOperationTarget(operation: CompileOperation, path: string, type
       return { ...operation, path, frontmatter: { ...operation.frontmatter, type } };
     case "update_index":
     case "append_log":
+    case "dispute_page":
+    case "supersede_page":
       return operation;
   }
 }
@@ -707,6 +722,9 @@ export async function applyOperation(
     case "append_log":
       await appendText(fullPath, `${operation.line.trim()}\n`);
       return { ok: true, outcome: "log-appended" };
+    case "dispute_page":
+    case "supersede_page":
+      return { ok: false, reason: `operation kind "${operation.kind}" is not yet implemented` };
   }
 }
 
@@ -1362,6 +1380,10 @@ export function compileOperationPath(operation: CompileOperation): string {
       return operation.path ?? "index.md";
     case "append_log":
       return operation.path ?? "log.md";
+    case "dispute_page":
+      return operation.path;
+    case "supersede_page":
+      return operation.new_page;
   }
 }
 
