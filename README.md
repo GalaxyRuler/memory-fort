@@ -196,6 +196,8 @@ memory-fort install claude-desktop  # Claude Desktop (MCP only)
 memory-fort install vscode          # VS Code (MCP only)
 ```
 
+See [`docs/cli.md`](docs/cli.md) for full CLI reference (all subcommands, flags, examples).
+
 All installs are **non-destructive and idempotent** — sentinel-block writes, re-running is safe. The OpenCoven / CovenCave target is read-only: it checks the `coven` CLI and the local `coven.daemon.v1` health contract, but does not launch sessions or write Memory Fort config. It is part of the OpenCoven family.
 
 OpenClaw support is MCP-only in v1: the installer preserves/updates its MCP config, but it does not install passive capture hooks or automatic observation capture.
