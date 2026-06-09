@@ -32,9 +32,9 @@ vi.mock("../../../../src/storage/atomic-write.js", () => ({
 describe("runInstallChatGpt", () => {
   it("returns bridge URL and instructions on dryRun", async () => {
     const result = await runInstallChatGpt({ dryRun: true });
-    expect(result.bridgeUrl).toBe("https://127.0.0.1:3100/sse");
+    expect(result.bridgeUrl).toBe("https://localhost:3100/sse");
     expect(result.port).toBe(3100);
-    expect(result.instructions).toContain("https://127.0.0.1:3100/sse");
+    expect(result.instructions).toContain("https://localhost:3100/sse");
   });
 
   it("throws on invalid port", async () => {

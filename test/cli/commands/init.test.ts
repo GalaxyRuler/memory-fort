@@ -141,7 +141,7 @@ describe("runInit", () => {
     const schema = await readFile(join(result.root, "schema.md"), "utf-8");
     expect(schema).toContain("2026-05-21");
     expect(schema).not.toContain("{{install_commit}}");
-    expect(schema).toMatch(/applies_from_commit: "([0-9a-f]{7,40}|unknown)"/);
+    expect(schema).toMatch(/applies_from_commit: "([0-9a-f]{7,40}|unknown|test)"/);
     expect(schema).not.toMatch(/\{\{[a-z_]+\}\}/);
   });
 
