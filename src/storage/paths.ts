@@ -124,6 +124,21 @@ export function secretsPath(): string {
 }
 
 /**
+ * Directory containing the self-signed TLS cert+key for the ChatGPT bridge.
+ * Stored outside the vault so private keys never enter git.
+ */
+export function chatgptBridgeCertDir(): string {
+  const appData = process.env["APPDATA"]; // Windows
+  if (appData) return join(appData, "memory-fort", "chatgpt-bridge-cert");
+  if (process.platform === "darwin") {
+    return join(homedir(), "Library", "Application Support", "memory-fort", "chatgpt-bridge-cert");
+  }
+  const xdg = process.env["XDG_CONFIG_HOME"];
+  if (xdg && xdg.trim().length > 0) return join(xdg, "memory-fort", "chatgpt-bridge-cert");
+  return join(homedir(), ".config", "memory-fort", "chatgpt-bridge-cert");
+}
+
+/**
  * Path to the PID file for the running ChatGPT bridge process.
  * Deliberately OUTSIDE the git-backed vault so it never blocks auto-commit.
  * Uses LOCALAPPDATA on Windows, XDG_RUNTIME_DIR or /tmp elsewhere.

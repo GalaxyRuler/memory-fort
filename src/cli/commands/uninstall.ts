@@ -23,6 +23,7 @@ import {
 import { stripPriorBlock } from "./install/codex.js";
 import { vscodeExtensionDir, vscodeMcpConfigPath } from "./install/vscode.js";
 import { runChatGptBridgeStop } from "./chatgpt-bridge.js";
+import { removeBridgeTlsCert, untrustBridgeCert } from "../../mcp/tls.js";
 
 const execFileAsync = promisify(execFile);
 const AUTOSTART_KEY = "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run";
@@ -301,6 +302,8 @@ async function uninstallChatGpt(opts: RunUninstallOptions): Promise<UninstallRes
     if (process.platform === "win32") {
       actions.push(`would remove autostart registry entry ${AUTOSTART_KEY}\\${AUTOSTART_NAME}`);
     }
+    actions.push("would remove TLS cert from system trust store");
+    actions.push("would remove TLS cert files");
     actions.push("would remove chatgpt section from config.yaml");
     return result("chatgpt", opts, actions, false);
   }
@@ -309,6 +312,11 @@ async function uninstallChatGpt(opts: RunUninstallOptions): Promise<UninstallRes
   await runChatGptBridgeStop();
   actions.push("stopped ChatGPT bridge process");
   removed = true;
+
+  await untrustBridgeCert();
+  actions.push("removed TLS cert from system trust store");
+  await removeBridgeTlsCert();
+  actions.push("removed TLS cert files");
 
   // Remove Windows autostart registry entry
   if (process.platform === "win32") {

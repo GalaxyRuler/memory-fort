@@ -1,10 +1,13 @@
 import { existsSync } from "node:fs";
 import { readFile, writeFile, unlink, mkdir } from "node:fs/promises";
 import { spawn } from "node:child_process";
+import http from "node:http";
+import https from "node:https";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chatgptBridgePidPath, memoryRoot } from "../../storage/paths.js";
 import { loadMemoryConfig, getChatGptBridgePort } from "../../storage/config.js";
+import { loadBridgeTlsCert } from "../../mcp/tls.js";
 
 export interface ChatGptBridgeStatus {
   running: boolean;
@@ -17,25 +20,28 @@ export async function runChatGptBridgeStatus(): Promise<ChatGptBridgeStatus> {
   const config = await loadMemoryConfig(memoryRoot());
   const port = getChatGptBridgePort(config);
   const pidPath = chatgptBridgePidPath();
+  const tls = await loadBridgeTlsCert();
+  const scheme = tls ? "https" : "http";
+  const url = `${scheme}://localhost:${port}/sse`;
 
   if (!existsSync(pidPath)) {
-    return { running: false, pid: null, port, url: `http://127.0.0.1:${port}/sse` };
+    return { running: false, pid: null, port, url };
   }
 
   const pidStr = (await readFile(pidPath, "utf-8")).trim();
   const pid = parseInt(pidStr, 10);
 
   if (!Number.isInteger(pid) || pid <= 0) {
-    return { running: false, pid: null, port, url: `http://127.0.0.1:${port}/sse` };
+    return { running: false, pid: null, port, url };
   }
 
   const alive = isProcessAlive(pid);
   if (!alive) {
     await unlink(pidPath).catch(() => undefined);
-    return { running: false, pid: null, port, url: `http://127.0.0.1:${port}/sse` };
+    return { running: false, pid: null, port, url };
   }
 
-  return { running: true, pid, port, url: `http://127.0.0.1:${port}/sse` };
+  return { running: true, pid, port, url };
 }
 
 export async function runChatGptBridgeStart(): Promise<ChatGptBridgeStatus> {
@@ -75,7 +81,9 @@ export async function runChatGptBridgeStart(): Promise<ChatGptBridgeStatus> {
     throw err;
   }
 
-  return { running: true, pid: child.pid, port, url: `http://127.0.0.1:${port}/sse` };
+  const tls = await loadBridgeTlsCert();
+  const scheme = tls ? "https" : "http";
+  return { running: true, pid: child.pid, port, url: `${scheme}://localhost:${port}/sse` };
 }
 
 export async function runChatGptBridgeStop(): Promise<void> {
@@ -110,16 +118,45 @@ function isProcessAlive(pid: number): boolean {
 
 async function waitForPort(port: number, timeoutMs: number): Promise<void> {
   const deadline = Date.now() + timeoutMs;
+  const tls = await loadBridgeTlsCert();
   while (Date.now() < deadline) {
-    try {
-      const res = await fetch(`http://127.0.0.1:${port}/health`, {
-        signal: AbortSignal.timeout(500),
-      });
-      if (res.status === 200) return;
-    } catch {
-      // Not up yet
-    }
+    if (tls && await checkHttpsHealth(port, tls.cert)) return;
+    if (await checkHttpHealth(port)) return;
     await new Promise((r) => setTimeout(r, 200));
   }
   throw new Error(`Bridge did not start within ${timeoutMs}ms on port ${port}`);
+}
+
+async function checkHttpsHealth(port: number, ca: string): Promise<boolean> {
+  return new Promise<boolean>((resolve) => {
+    const req = https.get(
+      { hostname: "127.0.0.1", port, path: "/health", ca, timeout: 500 },
+      (res) => {
+        resolve(res.statusCode === 200);
+        res.resume();
+      },
+    );
+    req.on("error", () => resolve(false));
+    req.on("timeout", () => {
+      req.destroy();
+      resolve(false);
+    });
+  });
+}
+
+async function checkHttpHealth(port: number): Promise<boolean> {
+  return new Promise<boolean>((resolve) => {
+    const req = http.get(
+      { hostname: "127.0.0.1", port, path: "/health", timeout: 500 },
+      (res) => {
+        resolve(res.statusCode === 200);
+        res.resume();
+      },
+    );
+    req.on("error", () => resolve(false));
+    req.on("timeout", () => {
+      req.destroy();
+      resolve(false);
+    });
+  });
 }

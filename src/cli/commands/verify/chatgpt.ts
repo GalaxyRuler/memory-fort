@@ -1,7 +1,9 @@
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
+import https from "node:https";
 import { chatgptBridgePidPath } from "../../../storage/paths.js";
 import { loadMemoryConfig, getChatGptBridgePort } from "../../../storage/config.js";
+import { loadBridgeTlsCert } from "../../../mcp/tls.js";
 import { fail, pass, skip, warn, type CheckDescriptor } from "./types.js";
 
 const CLIENT_ID = "chatgpt";
@@ -70,18 +72,22 @@ export const chatgptBridgeMcpCheck: CheckDescriptor = {
       return skip("chatgpt.bridge.mcp", "ChatGPT bridge MCP endpoint reachable", `${CLIENT_ID} bridge not enabled in config.yaml (set clients.chatgpt: true to enable)`);
     }
 
+    const tls = await loadBridgeTlsCert();
+    const scheme = tls ? "https" : "http";
     const port = getChatGptBridgePort(config);
-    const url = `http://127.0.0.1:${port}/health`;
+    const url = `${scheme}://127.0.0.1:${port}/health`;
 
     try {
-      const res = await fetch(url, { signal: AbortSignal.timeout(2000) });
-      if (res.status === 200) {
-        return pass("chatgpt.bridge.mcp", "ChatGPT bridge MCP endpoint reachable", `http://127.0.0.1:${port}/sse`);
+      const status = tls
+        ? await getHttpsHealthStatus(port, tls.cert)
+        : await getHttpHealthStatus(url);
+      if (status === 200) {
+        return pass("chatgpt.bridge.mcp", "ChatGPT bridge MCP endpoint reachable", `${scheme}://localhost:${port}/sse`);
       }
       return warn(
         "chatgpt.bridge.mcp",
         "ChatGPT bridge MCP endpoint reachable",
-        `Health check returned HTTP ${res.status}`,
+        `Health check returned HTTP ${status}`,
         "memory chatgpt-bridge stop && memory chatgpt-bridge start",
       );
     } catch (err) {
@@ -89,8 +95,30 @@ export const chatgptBridgeMcpCheck: CheckDescriptor = {
         "chatgpt.bridge.mcp",
         "ChatGPT bridge MCP endpoint reachable",
         "memory chatgpt-bridge start",
-        `Cannot reach http://127.0.0.1:${port} — ${(err as Error).message}`,
+        `Cannot reach ${scheme}://localhost:${port} - ${(err as Error).message}`,
       );
     }
   },
 };
+
+async function getHttpHealthStatus(url: string): Promise<number> {
+  const res = await fetch(url, { signal: AbortSignal.timeout(2000) });
+  return res.status;
+}
+
+async function getHttpsHealthStatus(port: number, ca: string): Promise<number> {
+  return new Promise<number>((resolve, reject) => {
+    const req = https.get(
+      { hostname: "127.0.0.1", port, path: "/health", ca, timeout: 2000 },
+      (res) => {
+        resolve(res.statusCode ?? 0);
+        res.resume();
+      },
+    );
+    req.on("error", reject);
+    req.on("timeout", () => {
+      req.destroy();
+      reject(new Error("timeout"));
+    });
+  });
+}

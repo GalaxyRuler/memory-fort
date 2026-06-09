@@ -6,6 +6,7 @@ import yaml from "js-yaml";
 import { atomicWrite } from "../../../storage/atomic-write.js";
 import { memoryRoot } from "../../../storage/paths.js";
 import { loadMemoryConfig, getChatGptBridgePort } from "../../../storage/config.js";
+import { generateBridgeTlsCert, loadBridgeTlsCert, trustBridgeCert } from "../../../mcp/tls.js";
 import { runChatGptBridgeStart, runChatGptBridgeStatus } from "../chatgpt-bridge.js";
 
 const execFileAsync = promisify(execFile);
@@ -38,7 +39,7 @@ export async function runInstallChatGpt(
     throw new Error(`Invalid bridge port ${port}: must be integer between 1024 and 65535`);
   }
 
-  const bridgeUrl = `http://127.0.0.1:${port}/sse`;
+  const bridgeUrl = `https://localhost:${port}/sse`;
 
   if (!opts.dryRun) {
     // Write port to config.yaml directly (chatgpt section is not in applyConfigPatch safelist)
@@ -48,6 +49,17 @@ export async function runInstallChatGpt(
       configPath,
       yaml.dump(updated, { schema: yaml.JSON_SCHEMA, lineWidth: 100, noRefs: true, sortKeys: false }),
     );
+  }
+
+  if (!opts.dryRun) {
+    const existingCert = await loadBridgeTlsCert();
+    if (!existingCert) {
+      await generateBridgeTlsCert();
+    }
+    const trustResult = await trustBridgeCert();
+    if (!trustResult.trusted) {
+      console.warn(`TLS trust: ${trustResult.message}`);
+    }
   }
 
   let autostartRegistered = false;

@@ -1,4 +1,6 @@
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { createServer as createHttpServer } from "node:http";
+import type { AddressInfo } from "node:net";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -66,8 +68,23 @@ describe("chatgptBridgeRunningCheck", () => {
 });
 
 describe("chatgptBridgeMcpCheck", () => {
-  afterEach(() => {
+  let origAppData: string | undefined;
+  let tempCertDir: string;
+
+  beforeEach(async () => {
+    origAppData = process.env["APPDATA"];
+    tempCertDir = await mkdtemp(join(tmpdir(), "mf-chatgpt-cert-state-"));
+    process.env["APPDATA"] = tempCertDir;
+  });
+
+  afterEach(async () => {
     vi.unstubAllGlobals();
+    if (origAppData === undefined) {
+      delete process.env["APPDATA"];
+    } else {
+      process.env["APPDATA"] = origAppData;
+    }
+    await rm(tempCertDir, { recursive: true, force: true });
   });
 
   it("returns skip when chatgpt client is disabled", async () => {
@@ -85,7 +102,8 @@ describe("chatgptBridgeMcpCheck", () => {
   });
 
   it("fails when chatgpt is enabled and bridge is not reachable", async () => {
-    const vaultRoot = await makeVault("clients:\n  chatgpt: true\n");
+    const port = await getFreePort();
+    const vaultRoot = await makeVault(`clients:\n  chatgpt: true\nchatgpt:\n  bridge_port: ${port}\n`);
     const result = await chatgptBridgeMcpCheck.run({ vaultRoot, now: () => new Date() } as never);
     const flat = Array.isArray(result) ? result : [result];
     // bridge is not running in tests so we expect fail (cannot reach)
@@ -101,3 +119,13 @@ describe("chatgptBridgeMcpCheck", () => {
     expect(flat[0]?.status).toBe("pass");
   });
 });
+
+async function getFreePort(): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const srv = createHttpServer();
+    srv.listen(0, "127.0.0.1", () => {
+      const port = (srv.address() as AddressInfo).port;
+      srv.close((err) => (err ? reject(err) : resolve(port)));
+    });
+  });
+}
