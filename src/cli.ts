@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+declare const __MEMORY_BUILD_VERSION__: string | undefined;
 import { Command } from "commander";
 import { printDebugLogBanner } from "./cli/debug-banner.js";
 import { formatCompileExecuteSummary, runCompile, runCompileDrain } from "./cli/commands/compile.js";
@@ -91,7 +92,7 @@ const program = new Command();
 program
   .name("memory")
   .description("Cross-tool memory system CLI")
-  .version("0.1.0")
+  .version(typeof __MEMORY_BUILD_VERSION__ !== "undefined" ? __MEMORY_BUILD_VERSION__ : "0.0.0-dev")
   .addHelpText("after", `
 Environment:
   MEMORY_ROOT    Path to the memory vault (default: ~/.memory)

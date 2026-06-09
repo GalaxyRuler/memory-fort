@@ -1,4 +1,5 @@
 import { execSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { defineConfig } from "tsdown";
 
 let commit = "unknown";
@@ -12,6 +13,8 @@ try {
   // Build still works outside a git checkout; schema.md will record "unknown".
 }
 
+const pkg = JSON.parse(readFileSync(new URL("package.json", import.meta.url), "utf-8"));
+
 const common = {
   format: "esm",
   platform: "node",
@@ -21,6 +24,7 @@ const common = {
   checks: { pluginTimings: false },
   define: {
     __MEMORY_BUILD_COMMIT__: JSON.stringify(commit),
+    __MEMORY_BUILD_VERSION__: JSON.stringify(pkg.version),
   },
 };
 

@@ -14,6 +14,8 @@ import {
 } from "../lib/nav-items.js";
 import { relativeTime } from "../lib/time-helpers.js";
 
+declare const __APP_VERSION__: string;
+
 export function Sidebar({
   className,
   label = "Primary sidebar",
@@ -38,7 +40,7 @@ export function Sidebar({
     >
       <div className="px-3 py-4">
         <div className="text-lg font-semibold tracking-tight">Memory Fort</div>
-        <p className="text-xs text-text-muted">v0.4.0-dev</p>
+        <p className="text-xs text-text-muted">v{__APP_VERSION__}</p>
       </div>
       <nav className="flex flex-col gap-0.5" aria-label="Primary navigation">
         {PRIMARY_NAV_ITEMS.map((item) => (
