@@ -80,4 +80,48 @@ describe("runStats", () => {
     expect(out).toContain("wiki/");
     expect(out).toContain("Git:");
   });
+
+  it("includes capture mode distribution when present", () => {
+    const result = {
+      root: "/fake/root",
+      raw: { files: 0, bytes: 0, lastModified: null },
+      wiki: { files: 0, bytes: 0 },
+      crystals: { files: 0, bytes: 0 },
+      embeddings: { records: 0, bytes: 0 },
+      installs: { claudeCode: false, codex: false, antigravity: false },
+      errorsLogBytes: 0,
+      git: { initialized: false, commits: 0, branch: null },
+      capture: {
+        full: 10,
+        summary: 5,
+        metadata: 3,
+        skip: 2,
+        byteSavings: 4096,
+      },
+    };
+    const out = formatStatsResult(result);
+    expect(out).toContain("Capture modes:");
+    expect(out).toContain("10");
+    expect(out).toContain("5");
+    expect(out).toContain("3");
+    expect(out).toContain("2");
+    expect(out).toContain("byte savings");
+    expect(out).toContain("4.0 KB");
+  });
+
+  it("omits capture section when capture field is absent", () => {
+    const result = {
+      root: "/fake/root",
+      raw: { files: 0, bytes: 0, lastModified: null },
+      wiki: { files: 0, bytes: 0 },
+      crystals: { files: 0, bytes: 0 },
+      embeddings: { records: 0, bytes: 0 },
+      installs: { claudeCode: false, codex: false, antigravity: false },
+      errorsLogBytes: 0,
+      git: { initialized: false, commits: 0, branch: null },
+    };
+    const out = formatStatsResult(result);
+    expect(out).not.toContain("Capture modes:");
+    expect(out).not.toContain("byte savings");
+  });
 });

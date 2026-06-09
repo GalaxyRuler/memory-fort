@@ -17,6 +17,13 @@ export interface StatsResult {
   };
   errorsLogBytes: number;
   git: { initialized: boolean; commits: number; branch: string | null };
+  capture?: {
+    full: number;
+    summary: number;
+    metadata: number;
+    skip: number;
+    byteSavings: number;
+  };
 }
 
 async function countDir(
@@ -182,5 +189,12 @@ export function formatStatsResult(result: StatsResult): string {
         : "not initialized"
     }`,
     ``,
+    ...(result.capture
+      ? [
+          `Capture modes: ${fmt(result.capture.full)} full  ${fmt(result.capture.summary)} summary  ${fmt(result.capture.metadata)} metadata  ${fmt(result.capture.skip)} skip`,
+          `  byte savings: ${fmtBytes(result.capture.byteSavings)}`,
+          ``,
+        ]
+      : []),
   ].join("\n");
 }
