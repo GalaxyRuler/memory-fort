@@ -46,6 +46,13 @@ describe("chatgptBridgeRunningCheck", () => {
     expect(flat[0]?.status).toBe("skip");
   });
 
+  it("returns skip when chatgpt client is not mentioned (opt-in)", async () => {
+    const vaultRoot = await makeVault("clients:\n  opencoven: false\n");
+    const result = await chatgptBridgeRunningCheck.run({ vaultRoot, now: () => new Date() } as never);
+    const flat = Array.isArray(result) ? result : [result];
+    expect(flat[0]?.status).toBe("skip");
+  });
+
   it("passes when chatgpt is enabled and PID file has live process", async () => {
     const vaultRoot = await makeVault("clients:\n  chatgpt: true\n");
     // Write current process PID to the PID file path (LOCALAPPDATA/memory-fort/) — guaranteed alive
@@ -65,6 +72,13 @@ describe("chatgptBridgeMcpCheck", () => {
 
   it("returns skip when chatgpt client is disabled", async () => {
     const vaultRoot = await makeVault("clients:\n  chatgpt: false\n");
+    const result = await chatgptBridgeMcpCheck.run({ vaultRoot, now: () => new Date() } as never);
+    const flat = Array.isArray(result) ? result : [result];
+    expect(flat[0]?.status).toBe("skip");
+  });
+
+  it("returns skip when chatgpt client is not mentioned (opt-in)", async () => {
+    const vaultRoot = await makeVault("clients:\n  opencoven: false\n");
     const result = await chatgptBridgeMcpCheck.run({ vaultRoot, now: () => new Date() } as never);
     const flat = Array.isArray(result) ? result : [result];
     expect(flat[0]?.status).toBe("skip");

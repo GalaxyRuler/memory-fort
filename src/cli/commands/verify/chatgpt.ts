@@ -1,10 +1,19 @@
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { chatgptBridgePidPath } from "../../../storage/paths.js";
-import { loadMemoryConfig, getChatGptBridgePort, isClientEnabled } from "../../../storage/config.js";
+import { loadMemoryConfig, getChatGptBridgePort } from "../../../storage/config.js";
 import { fail, pass, skip, warn, type CheckDescriptor } from "./types.js";
 
 const CLIENT_ID = "chatgpt";
+
+/**
+ * ChatGPT bridge is opt-in: skip unless `clients.chatgpt: true` in config.yaml.
+ * Most clients default-on, but the bridge requires explicit setup so we don't
+ * spam failures for users who haven't installed it.
+ */
+function isChatGptBridgeEnabled(config: { clients?: Record<string, boolean> }): boolean {
+  return config.clients?.[CLIENT_ID] === true;
+}
 
 export const chatgptBridgeRunningCheck: CheckDescriptor = {
   id: "chatgpt.bridge.running",
@@ -12,8 +21,8 @@ export const chatgptBridgeRunningCheck: CheckDescriptor = {
   roles: ["operator"],
   run: async (ctx) => {
     const config = await loadMemoryConfig(ctx.vaultRoot);
-    if (!isClientEnabled(config, CLIENT_ID)) {
-      return skip("chatgpt.bridge.running", "ChatGPT bridge process running", `${CLIENT_ID} is turned off in config.yaml`);
+    if (!isChatGptBridgeEnabled(config)) {
+      return skip("chatgpt.bridge.running", "ChatGPT bridge process running", `${CLIENT_ID} bridge not enabled in config.yaml (set clients.chatgpt: true to enable)`);
     }
 
     const pidPath = chatgptBridgePidPath();
@@ -57,8 +66,8 @@ export const chatgptBridgeMcpCheck: CheckDescriptor = {
   roles: ["operator"],
   run: async (ctx) => {
     const config = await loadMemoryConfig(ctx.vaultRoot);
-    if (!isClientEnabled(config, CLIENT_ID)) {
-      return skip("chatgpt.bridge.mcp", "ChatGPT bridge MCP endpoint reachable", `${CLIENT_ID} is turned off in config.yaml`);
+    if (!isChatGptBridgeEnabled(config)) {
+      return skip("chatgpt.bridge.mcp", "ChatGPT bridge MCP endpoint reachable", `${CLIENT_ID} bridge not enabled in config.yaml (set clients.chatgpt: true to enable)`);
     }
 
     const port = getChatGptBridgePort(config);

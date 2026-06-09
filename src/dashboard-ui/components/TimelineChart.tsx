@@ -9,13 +9,18 @@ const CHART_PADDING_X = 16;
 const LABEL_WIDTH = 100;
 
 const LANE_COLORS: Record<string, string> = {
-  "claude-code": "#5b8bff",
-  codex: "#8b5fff",
-  antigravity: "#34d399",
-  manual: "#52525b",
-  compile: "#fbbf24",
-  lint: "#f472b6",
-  sync: "#22d3ee",
+  "claude-code": "#8b5fff",
+  codex: "#5b8bff",
+  antigravity: "#cebdff",
+  "claude-desktop": "#c084fc",
+  chatgpt: "#10a37f",
+  opencode: "#f97316",
+  opencoven: "#e879f9",
+  vscode: "#007acc",
+  manual: "#94a3b8",
+  compile: "#22c55e",
+  lint: "#f59e0b",
+  sync: "#38bdf8",
 };
 
 export function TimelineChart({ data, width = 800 }: { data: TimelineResponse; width?: number }) {
