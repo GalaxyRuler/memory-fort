@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { formatSummaryBlock } from "../../src/hooks/raw-file.js";
+import { formatSummaryBlock, formatMetadataBlock } from "../../src/hooks/raw-file.js";
 
 describe("formatSummaryBlock", () => {
   const fixedNow = new Date(Date.UTC(2026, 5, 9, 14, 30, 0));
@@ -44,6 +44,39 @@ describe("formatSummaryBlock", () => {
       now: fixedNow,
     });
     expect(result).not.toContain("sk-abc123456789");
+    expect(result).toContain("[REDACTED]");
+  });
+});
+
+describe("formatMetadataBlock", () => {
+  const fixedNow = new Date(Date.UTC(2026, 5, 9, 14, 30, 0));
+
+  it("produces a heading with (metadata) marker", () => {
+    const result = formatMetadataBlock({
+      toolName: "Read",
+      toolInput: { path: "foo.md" },
+      now: fixedNow,
+    });
+    expect(result).toContain("## [14:30:00] ToolUse: Read (metadata)");
+  });
+
+  it("includes input but no output section", () => {
+    const result = formatMetadataBlock({
+      toolName: "Glob",
+      toolInput: { pattern: "**/*.ts" },
+      now: fixedNow,
+    });
+    expect(result).toContain('"pattern": "**/*.ts"');
+    expect(result).not.toContain("Output");
+  });
+
+  it("redacts secrets in input", () => {
+    const result = formatMetadataBlock({
+      toolName: "Read",
+      toolInput: { path: "file.md", token: "sk-secretkey12345678" },
+      now: fixedNow,
+    });
+    expect(result).not.toContain("sk-secretkey12345678");
     expect(result).toContain("[REDACTED]");
   });
 });

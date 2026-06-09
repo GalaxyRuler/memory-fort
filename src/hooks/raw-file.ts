@@ -129,6 +129,22 @@ export function formatSummaryBlock(input: {
   );
 }
 
+export function formatMetadataBlock(input: {
+  toolName: string;
+  toolInput: unknown;
+  now: Date;
+  maxInputBytes?: number;
+}): string {
+  const ts = formatTimestamp(input.now);
+  const maxInput = input.maxInputBytes ?? 8192;
+  const inJson = safeJsonStringify(input.toolInput);
+  const truncatedInput = truncateMiddle(redactSecrets(inJson), maxInput);
+  return (
+    `\n## [${ts}] ToolUse: ${input.toolName} (metadata)\n\n` +
+    `**Input:**\n\n\`\`\`json\n${truncatedInput}\n\`\`\`\n`
+  );
+}
+
 export function formatMarker(label: string, now: Date): string {
   const ts = formatTimestamp(now);
   return `\n---\n## [${ts}] ${label}\n\n`;
