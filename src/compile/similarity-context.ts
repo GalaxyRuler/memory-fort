@@ -15,3 +15,19 @@ export async function selectSimilarContext(
     topK: input.topK,
   });
 }
+
+export interface BuildSimilarityAwareContextInput {
+  rawContentVector: number[];
+  wikiRecords: EmbeddingRecord[];
+  threshold: number;
+  topK: number;
+}
+
+export async function buildSimilarityAwareContext(
+  input: BuildSimilarityAwareContextInput,
+): Promise<SimilarResult[]> {
+  return findSimilar(input.rawContentVector, input.wikiRecords, {
+    threshold: input.threshold,
+    topK: input.topK,
+  });
+}

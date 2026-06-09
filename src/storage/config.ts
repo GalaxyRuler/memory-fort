@@ -63,6 +63,10 @@ export interface MemoryConfig {
     scheduled?: boolean;
     cadence?: "daily" | "weekly" | "manual";
     execute?: boolean;
+    similarity_context?: {
+      enabled?: boolean;
+      threshold?: number;
+    };
   };
   capture?: {
     max_input_bytes?: number;
