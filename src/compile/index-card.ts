@@ -78,6 +78,19 @@ export async function generateIndexCard(
   };
 }
 
+export function scoreSessionByIndexCard(
+  sessionTopics: string[],
+  wikiIdentifiers: string[],
+): number {
+  const wikiSet = new Set(wikiIdentifiers.map((w) => w.toLowerCase()));
+  const unique = new Set(sessionTopics.map((t) => t.toLowerCase()));
+  let score = 0;
+  for (const topic of unique) {
+    if (wikiSet.has(topic)) score += 1;
+  }
+  return score;
+}
+
 function buildExtractionPrompt(content: string): string {
   return [
     "Extract an index card from this raw session. Return JSON only.",
