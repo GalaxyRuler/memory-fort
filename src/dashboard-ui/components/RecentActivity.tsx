@@ -7,6 +7,15 @@ const SOURCE_COLOR: Record<ActivityEvent["source"], string> = {
   sync: "bg-status-green",
   lint: "bg-entity-lessons",
   errors: "bg-status-red",
+  "claude-code": "bg-[#8b5fff]",
+  codex: "bg-[#5b8bff]",
+  antigravity: "bg-[#cebdff]",
+  "claude-desktop": "bg-[#c084fc]",
+  chatgpt: "bg-[#10a37f]",
+  opencode: "bg-[#f97316]",
+  opencoven: "bg-[#e879f9]",
+  vscode: "bg-[#007acc]",
+  manual: "bg-[#94a3b8]",
 };
 
 function relativeTime(iso: string): string {

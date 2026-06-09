@@ -1105,12 +1105,16 @@ describe("dashboard server", () => {
       const body = await response.json();
       expect(response.status).toBe(200);
       expect(response.headers.get("content-type")).toContain("application/json");
-      expect(body.lanes).toHaveLength(8);
+      expect(body.lanes).toHaveLength(12);
       expect(body.lanes.map((lane: { lane: string }) => lane.lane)).toEqual([
         "claude-code",
         "codex",
         "antigravity",
         "claude-desktop",
+        "chatgpt",
+        "opencode",
+        "opencoven",
+        "vscode",
         "manual",
         "compile",
         "lint",

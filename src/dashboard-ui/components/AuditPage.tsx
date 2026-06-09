@@ -24,10 +24,23 @@ const SOURCES: Array<{ value: ActivityEvent["source"] | "all"; label: string }> 
   { value: "sync", label: "Sync" },
   { value: "lint", label: "Lint" },
   { value: "errors", label: "Errors" },
+  { value: "claude-code", label: "Claude Code" },
+  { value: "codex", label: "Codex" },
+  { value: "antigravity", label: "Antigravity" },
+  { value: "claude-desktop", label: "Claude Desktop" },
+  { value: "chatgpt", label: "ChatGPT" },
+  { value: "opencode", label: "OpenCode" },
+  { value: "opencoven", label: "OpenCoven" },
+  { value: "vscode", label: "VS Code" },
+  { value: "manual", label: "Manual" },
 ];
 
 const VALID_LEVELS = new Set<ActivityEvent["level"]>(["info", "warn", "error"]);
-const VALID_SOURCES = new Set<ActivityEvent["source"]>(["git", "compile", "sync", "lint", "errors"]);
+const VALID_SOURCES = new Set<ActivityEvent["source"]>([
+  "git", "compile", "sync", "lint", "errors",
+  "claude-code", "codex", "antigravity", "claude-desktop",
+  "chatgpt", "opencode", "opencoven", "vscode", "manual",
+]);
 
 function readLevel(value: unknown): ActivityEvent["level"] | "all" {
   return typeof value === "string" && VALID_LEVELS.has(value as ActivityEvent["level"])

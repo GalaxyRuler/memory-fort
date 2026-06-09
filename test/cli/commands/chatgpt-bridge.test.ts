@@ -7,6 +7,7 @@ import {
   runChatGptBridgeStatus,
   runChatGptBridgeStop,
 } from "../../../src/cli/commands/chatgpt-bridge.js";
+import { chatgptBridgePidPath } from "../../../src/storage/paths.js";
 
 describe("runChatGptBridgeStatus", () => {
   let tmp: string;
@@ -18,8 +19,11 @@ describe("runChatGptBridgeStatus", () => {
     memDir = join(tmp, ".memory");
     origEnv = {
       MEMORY_ROOT: process.env["MEMORY_ROOT"],
+      LOCALAPPDATA: process.env["LOCALAPPDATA"],
     };
     process.env["MEMORY_ROOT"] = memDir;
+    // Point LOCALAPPDATA to temp so chatgptBridgePidPath() resolves inside test dir
+    process.env["LOCALAPPDATA"] = join(tmp, "appdata");
   });
 
   afterEach(async () => {
@@ -39,26 +43,20 @@ describe("runChatGptBridgeStatus", () => {
   });
 
   it("reports not running and cleans up PID file when it contains a dead PID", async () => {
-    const { mkdir } = await import("node:fs/promises");
-    await mkdir(memDir, { recursive: true });
-    // PID 1 is always alive on Linux but on any platform we can use a known-dead PID.
-    // Write a PID that is guaranteed to be dead (very high number unlikely to exist).
+    const pidPath = chatgptBridgePidPath();
+    await mkdir(join(pidPath, ".."), { recursive: true });
     const deadPid = 9999999;
-    const pidPath = join(memDir, ".chatgpt-bridge.pid");
     await writeFile(pidPath, String(deadPid), "utf-8");
 
     const status = await runChatGptBridgeStatus();
 
-    // Either the process isn't alive (most cases) or it is — either way status is a valid object.
-    // The important property: we don't throw.
     expect(typeof status.running).toBe("boolean");
     expect(status.port).toBe(3100);
   });
 
   it("reports not running when PID file contains invalid content", async () => {
-    const { mkdir } = await import("node:fs/promises");
-    await mkdir(memDir, { recursive: true });
-    const pidPath = join(memDir, ".chatgpt-bridge.pid");
+    const pidPath = chatgptBridgePidPath();
+    await mkdir(join(pidPath, ".."), { recursive: true });
     await writeFile(pidPath, "not-a-number", "utf-8");
 
     const status = await runChatGptBridgeStatus();
@@ -68,7 +66,6 @@ describe("runChatGptBridgeStatus", () => {
   });
 
   it("uses port from config when configured", async () => {
-    const { mkdir } = await import("node:fs/promises");
     await mkdir(memDir, { recursive: true });
     await writeFile(
       join(memDir, "config.yaml"),
@@ -86,17 +83,17 @@ describe("runChatGptBridgeStatus", () => {
 describe("runChatGptBridgeStop", () => {
   let tmp: string;
   let memDir: string;
-  let pidFilePath: string;
   let origEnv: Record<string, string | undefined>;
 
   beforeEach(async () => {
     tmp = await mkdtemp(join(tmpdir(), "chatgpt-bridge-stop-"));
     memDir = join(tmp, ".memory");
-    pidFilePath = join(memDir, ".chatgpt-bridge.pid");
     origEnv = {
       MEMORY_ROOT: process.env["MEMORY_ROOT"],
+      LOCALAPPDATA: process.env["LOCALAPPDATA"],
     };
     process.env["MEMORY_ROOT"] = memDir;
+    process.env["LOCALAPPDATA"] = join(tmp, "appdata");
     await mkdir(memDir, { recursive: true });
   });
 
@@ -109,8 +106,10 @@ describe("runChatGptBridgeStop", () => {
   });
 
   it("stop removes PID file even when process is not alive", async () => {
-    await writeFile(pidFilePath, "99999999", "utf-8");
+    const pidPath = chatgptBridgePidPath();
+    await mkdir(join(pidPath, ".."), { recursive: true });
+    await writeFile(pidPath, "99999999", "utf-8");
     await runChatGptBridgeStop();
-    expect(existsSync(pidFilePath)).toBe(false);
+    expect(existsSync(pidPath)).toBe(false);
   });
 });

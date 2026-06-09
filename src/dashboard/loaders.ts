@@ -71,6 +71,10 @@ const TIMELINE_LANES = [
   "codex",
   "antigravity",
   "claude-desktop",
+  "chatgpt",
+  "opencode",
+  "opencoven",
+  "vscode",
   "manual",
   "compile",
   "lint",
@@ -81,6 +85,10 @@ const TIMELINE_COLORS: Record<(typeof TIMELINE_LANES)[number], string> = {
   codex: "#5b8bff",
   antigravity: "#cebdff",
   "claude-desktop": "#c084fc",
+  chatgpt: "#10a37f",
+  opencode: "#f97316",
+  opencoven: "#e879f9",
+  vscode: "#007acc",
   manual: "#94a3b8",
   compile: "#22c55e",
   lint: "#f59e0b",
@@ -137,7 +145,7 @@ export interface RawSession {
   sizeBytes: number;
 }
 
-export type RawSessionSource = "claude-code" | "codex" | "antigravity" | "claude-desktop" | "manual" | "unknown";
+export type RawSessionSource = "claude-code" | "codex" | "antigravity" | "claude-desktop" | "chatgpt" | "opencode" | "opencoven" | "vscode" | "manual" | "unknown";
 
 export interface RawSessionDetail {
   date: string;
@@ -167,6 +175,10 @@ export type ActivitySource =
   | "codex"
   | "antigravity"
   | "claude-desktop"
+  | "chatgpt"
+  | "opencode"
+  | "opencoven"
+  | "vscode"
   | "manual";
 export type ActivityLevel = "info" | "warn" | "error";
 
@@ -1386,6 +1398,10 @@ export function timelineLaneForEvent(event: ActivityEvent): (typeof TIMELINE_LAN
     event.source === "codex" ||
     event.source === "antigravity" ||
     event.source === "claude-desktop" ||
+    event.source === "chatgpt" ||
+    event.source === "opencode" ||
+    event.source === "opencoven" ||
+    event.source === "vscode" ||
     event.source === "compile" ||
     event.source === "lint" ||
     event.source === "sync"
@@ -1409,6 +1425,14 @@ function rawCaptureSourceLabel(source: RawCaptureSource): string {
       return "Antigravity";
     case "claude-desktop":
       return "Claude Desktop";
+    case "chatgpt":
+      return "ChatGPT";
+    case "opencode":
+      return "OpenCode";
+    case "opencoven":
+      return "OpenCoven";
+    case "vscode":
+      return "VS Code";
     case "manual":
       return "Manual";
     case "unknown":

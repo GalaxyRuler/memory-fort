@@ -6,6 +6,10 @@ export type RawCaptureSource =
   | "codex"
   | "antigravity"
   | "claude-desktop"
+  | "chatgpt"
+  | "opencode"
+  | "opencoven"
+  | "vscode"
   | "manual"
   | "unknown";
 
@@ -46,6 +50,10 @@ const RAW_CAPTURE_SESSION_PREFIXES = [
   "claude-code-",
   "claude-desktop-",
   "antigravity-",
+  "chatgpt-",
+  "opencode-",
+  "opencoven-",
+  "vscode-",
   "manual-mcp-",
   "manual-",
   "codex-",
@@ -164,6 +172,10 @@ export function parseRawCaptureSourceFromFilename(filename: string): RawCaptureS
   if (filename.startsWith("codex-")) return "codex";
   if (filename.startsWith("antigravity-")) return "antigravity";
   if (filename.startsWith("claude-desktop-")) return "claude-desktop";
+  if (filename.startsWith("chatgpt-")) return "chatgpt";
+  if (filename.startsWith("opencode-")) return "opencode";
+  if (filename.startsWith("opencoven-")) return "opencoven";
+  if (filename.startsWith("vscode-")) return "vscode";
   if (filename.startsWith("manual-mcp-") || filename.startsWith("manual-")) return "manual";
   return "unknown";
 }

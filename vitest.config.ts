@@ -3,6 +3,11 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   plugins: [react()],
+  define: {
+    __APP_VERSION__: JSON.stringify("0.0.0-test"),
+    __MEMORY_BUILD_VERSION__: JSON.stringify("0.0.0-test"),
+    __MEMORY_BUILD_COMMIT__: JSON.stringify("test"),
+  },
   test: {
     include: ["test/**/*.test.ts", "test/**/*.test.tsx"],
     environment: "node",

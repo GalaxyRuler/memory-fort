@@ -1,4 +1,4 @@
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -6,6 +6,7 @@ import {
   chatgptBridgeRunningCheck,
   chatgptBridgeMcpCheck,
 } from "../../../../src/cli/commands/verify/chatgpt.js";
+import { chatgptBridgePidPath } from "../../../../src/storage/paths.js";
 
 async function makeVault(configYaml: string): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "mf-chatgpt-"));
@@ -14,22 +15,20 @@ async function makeVault(configYaml: string): Promise<string> {
 }
 
 describe("chatgptBridgeRunningCheck", () => {
-  let memoryRoot: string;
-  let pidFilePath: string;
-  let origMemoryRoot: string | undefined;
+  let origLocalAppData: string | undefined;
 
   beforeEach(async () => {
-    memoryRoot = await mkdtemp(join(tmpdir(), "mf-chatgpt-memory-"));
-    pidFilePath = join(memoryRoot, ".chatgpt-bridge.pid");
-    origMemoryRoot = process.env["MEMORY_ROOT"];
-    process.env["MEMORY_ROOT"] = memoryRoot;
+    origLocalAppData = process.env["LOCALAPPDATA"];
+    // Point LOCALAPPDATA to a temp dir so chatgptBridgePidPath() returns a test path
+    const tempState = await mkdtemp(join(tmpdir(), "mf-chatgpt-state-"));
+    process.env["LOCALAPPDATA"] = tempState;
   });
 
   afterEach(() => {
-    if (origMemoryRoot === undefined) {
-      delete process.env["MEMORY_ROOT"];
+    if (origLocalAppData === undefined) {
+      delete process.env["LOCALAPPDATA"];
     } else {
-      process.env["MEMORY_ROOT"] = origMemoryRoot;
+      process.env["LOCALAPPDATA"] = origLocalAppData;
     }
   });
 
@@ -49,8 +48,10 @@ describe("chatgptBridgeRunningCheck", () => {
 
   it("passes when chatgpt is enabled and PID file has live process", async () => {
     const vaultRoot = await makeVault("clients:\n  chatgpt: true\n");
-    // Write current process PID to the PID file — guaranteed alive
-    await writeFile(pidFilePath, String(process.pid), "utf-8");
+    // Write current process PID to the PID file path (LOCALAPPDATA/memory-fort/) — guaranteed alive
+    const pidPath = chatgptBridgePidPath();
+    await mkdir(join(pidPath, ".."), { recursive: true });
+    await writeFile(pidPath, String(process.pid), "utf-8");
     const result = await chatgptBridgeRunningCheck.run({ vaultRoot, now: () => new Date() } as never);
     const flat = Array.isArray(result) ? result : [result];
     expect(flat[0]?.status).toBe("pass");

@@ -1,24 +1,42 @@
 import { type HTMLAttributes } from "react";
-import { AlertCircle, AlertTriangle, FileCog, GitCommit, RefreshCw } from "lucide-react";
+import { AlertCircle, AlertTriangle, Bot, Braces, Code, FileCog, GitCommit, MessageSquare, MonitorSmartphone, Puzzle, RefreshCw } from "lucide-react";
 import { type ActivityEvent } from "../hooks/useActivity.js";
 import { cn } from "../lib/cn.js";
 import { relativeTime } from "../lib/time-helpers.js";
 
-const SOURCE_ICON = {
+const SOURCE_ICON: Record<ActivityEvent["source"], typeof GitCommit> = {
   git: GitCommit,
   compile: FileCog,
   sync: RefreshCw,
   lint: AlertTriangle,
   errors: AlertCircle,
-} as const;
+  "claude-code": Bot,
+  codex: Braces,
+  antigravity: MonitorSmartphone,
+  "claude-desktop": Bot,
+  chatgpt: MessageSquare,
+  opencode: Code,
+  opencoven: Puzzle,
+  vscode: Code,
+  manual: FileCog,
+};
 
-const SOURCE_COLOR = {
+const SOURCE_COLOR: Record<ActivityEvent["source"], string> = {
   git: "text-status-blue",
   compile: "text-entity-decisions",
   sync: "text-status-green",
   lint: "text-entity-lessons",
   errors: "text-status-red",
-} as const;
+  "claude-code": "text-[#8b5fff]",
+  codex: "text-[#5b8bff]",
+  antigravity: "text-[#cebdff]",
+  "claude-desktop": "text-[#c084fc]",
+  chatgpt: "text-[#10a37f]",
+  opencode: "text-[#f97316]",
+  opencoven: "text-[#e879f9]",
+  vscode: "text-[#007acc]",
+  manual: "text-[#94a3b8]",
+};
 
 const LEVEL_BORDER = {
   info: "border-border-subtle",
@@ -33,7 +51,7 @@ export function ActivityEventRow({
   event: ActivityEvent;
   keyboardProps?: HTMLAttributes<HTMLLIElement>;
 }) {
-  const Icon = SOURCE_ICON[event.source] ?? GitCommit;
+  const Icon = SOURCE_ICON[event.source];
   return (
     <li
       className={cn(
