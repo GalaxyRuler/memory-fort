@@ -1311,6 +1311,12 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
           writeJsonError(res, 400, `invalid as_of date: ${rawAsOf}`);
           return;
         }
+        const agentId = url.searchParams.get("agent_id") ?? undefined;
+        const userId = url.searchParams.get("user_id") ?? undefined;
+        const identityMode =
+          url.searchParams.get("identity_mode") === "strict"
+            ? ("strict" as const)
+            : ("inclusive" as const);
         try {
           const result = await runSearch({
             query,
@@ -1322,6 +1328,9 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
             intent,
             hydeExpansion,
             asOf: rawAsOf,
+            agentId,
+            userId,
+            identityMode,
             vaultRoot: opts.vaultRoot,
             embedClient,
             voyageClient: voyageClient ?? unavailableVoyageClient,
