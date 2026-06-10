@@ -47,6 +47,7 @@ export interface CompileOptions {
   sourceRepoDir?: string;
   configLoader?: () => Promise<MemoryConfig>;
   llmFactory?: (config: LLMConfig | null, env: NodeJS.ProcessEnv) => LLMProvider;
+  skipFactConsolidation?: boolean;
 }
 
 export interface CompileDrainOptions extends CompileOptions {
@@ -393,7 +394,7 @@ export async function runCompileDrain(
   let totalRawFilesIncluded = 0;
   let totalWatermarksAdvanced = 0;
   for (let pass = 1; pass <= maxPasses; pass += 1) {
-    const result = await runCompile({ ...opts, execute: true, plan: false });
+    const result = await runCompile({ ...opts, execute: true, plan: false, skipFactConsolidation: true });
     passes.push(result);
     totalRawFilesIncluded += result.rawFilesIncluded.length;
     totalWatermarksAdvanced += result.watermarksAdvanced.length;
@@ -489,7 +490,7 @@ async function executeCompilePrompt(opts: CompileOptions & {
   const config = await (opts.configLoader ?? (() => loadMemoryConfig(opts.root)))();
   const llmConfig = getActiveLLMConfig(config);
   const llm = (opts.llmFactory ?? createLLMFromConfig)(llmConfig, env);
-  const compressedFacts = await loadCompressedFacts(opts.root);
+  const compressedFacts = opts.skipFactConsolidation ? [] : await loadCompressedFacts(opts.root);
   if (!opts.plan && compressedFacts.length > 0) {
     const result = await runFactConsolidation({
       vaultRoot: opts.root,
