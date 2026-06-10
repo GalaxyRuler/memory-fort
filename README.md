@@ -242,6 +242,8 @@ Switch any time: edit `~/.memory/config.yaml` or re-run `memory-fort init`.
 
 Search results include provenance receipts showing BM25, embedding, and graph signals — visible in the dashboard and MCP API.
 
+Search also supports **temporal filtering** (`as_of=YYYY-MM-DD` returns only pages valid at that date, using inclusive `valid_from`/`valid_until` bounds) and **identity-aware filtering** (`agent_id`/`user_id` scoped retrieval with inclusive or strict modes — a retrieval preference, not security isolation). Both are available on the HTTP API, MCP `search` tool, and SDKs.
+
 When Voyage embeddings are enabled, Memory Fort uses **contextualized text embedding**: each wiki page is embedded with a graph-topology header (path, type, relations, tags, backlinks) prepended, improving recall for graph-aware queries. Enable via `retrieval.embeddings.contextualized: true` in config.yaml.
 
 ---
@@ -261,6 +263,11 @@ Current local evidence is intentionally narrower than a benchmark claim:
 | Package surface | Package uses the `files` whitelist in `package.json` | Local `npm pack --dry-run --json` evidence is recorded in the release evidence note |
 
 Memory Fort does not currently publish a reproduced LongMemEval score or a reproduced third-party benchmark row. Use vendor benchmark numbers only as vendor-reported claims, not as Memory Fort certification.
+
+Two local evals run on every CI push against deterministic checked-in fixtures, with scores rendered in the GitHub job summary:
+
+- **Graph-aware retrieval eval** — `memory eval-retrieval --gold qa/graph-aware-gold.jsonl --corpus qa/fixtures/graph-aware-vault` (recall@k + MRR, with/without graph spread)
+- **Dispatch policy eval** — `memory eval dispatch` (classifyDispatch truth-table accuracy; fails CI summary on any drift)
 
 ---
 
@@ -296,6 +303,30 @@ Built-in React dashboard:
 - Securely manage API credentials via **API key management** (masked secrets fields stored outside the vault with test-then-save validation flow).
 - Check and manage the **ChatGPT bridge status** (verify checks: `chatgpt.bridge.running` and `chatgpt.bridge.mcp`).
 - Review **lifecycle proposals** (`wiki/compile-proposed/`) — dispute and supersede candidates staged for human review before any wiki edit.
+
+---
+
+## SDKs
+
+One-liner client packages wrapping the local HTTP API:
+
+```typescript
+// npm install memory-fort-sdk
+import { MemoryFortClient } from "memory-fort-sdk";
+const client = new MemoryFortClient();
+await client.add("Switched from ESLint to Biome");
+const hits = await client.search("voyage embeddings", { k: 5, asOf: "2026-03-01" });
+```
+
+```python
+# pip install memory-fort
+from memory_fort import MemoryFortClient
+async with MemoryFortClient() as client:
+    await client.add("Switched from ESLint to Biome")
+    hits = await client.search("voyage embeddings", k=5, as_of="2026-03-01")
+```
+
+Both live in [`packages/`](packages/) and require a running `memory-fort dashboard`.
 
 ---
 
