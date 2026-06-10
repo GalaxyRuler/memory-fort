@@ -275,6 +275,24 @@ const SearchInput = z.object({
     .describe(
       "Pre-computed HyDE expansion text — if you previously got a hyde_prompt_pending response, call back with the expanded text here",
     ),
+  as_of: z
+    .string()
+    .optional()
+    .describe("ISO date — only return pages valid at this point in time"),
+  agent_id: z
+    .string()
+    .optional()
+    .describe("Filter by agent identity (inclusive: untagged wiki pages always pass)"),
+  user_id: z
+    .string()
+    .optional()
+    .describe("Filter by user identity (inclusive: untagged wiki pages always pass)"),
+  identity_mode: z
+    .enum(["inclusive", "strict"])
+    .optional()
+    .describe(
+      "inclusive (default): untagged docs pass identity filtering. strict: untagged docs excluded.",
+    ),
 });
 
 export type SearchInput = z.infer<typeof SearchInput>;
@@ -510,6 +528,18 @@ function buildSearchUrl(baseUrl: string, input: SearchInput): string {
   url.searchParams.set("noRerank", String(input.no_rerank ?? true));
   if (input.hyde_expansion !== undefined) {
     url.searchParams.set("hydeExpansion", input.hyde_expansion);
+  }
+  if (input.as_of !== undefined) {
+    url.searchParams.set("as_of", input.as_of);
+  }
+  if (input.agent_id !== undefined) {
+    url.searchParams.set("agent_id", input.agent_id);
+  }
+  if (input.user_id !== undefined) {
+    url.searchParams.set("user_id", input.user_id);
+  }
+  if (input.identity_mode !== undefined) {
+    url.searchParams.set("identity_mode", input.identity_mode);
   }
   return url.toString();
 }

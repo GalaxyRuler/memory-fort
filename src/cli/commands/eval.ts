@@ -4,6 +4,7 @@ import {
   type DownloadLongMemEvalOptions,
 } from "../../eval/longmemeval/download.js";
 import { runEvalLongMemEval } from "./eval-longmemeval.js";
+import { runEvalDispatch } from "./eval-dispatch.js";
 
 export interface EvalDownloadCliResult {
   stdout: string;
@@ -44,6 +45,23 @@ export function registerEvalCommand(program: Command): void {
     .action(async (opts) => {
       try {
         const result = await runEvalLongMemEval(opts);
+        process.stdout.write(result.stdout);
+        process.stderr.write(result.stderr);
+        process.exit(result.exitCode);
+      } catch (error) {
+        console.error((error as Error).message);
+        process.exit(1);
+      }
+    });
+
+  evalCommand
+    .command("dispatch")
+    .description("Run the dispatch policy eval against the classifyDispatch truth table")
+    .option("--gold <path>", "path to dispatch-gold.jsonl (default: ./qa/dispatch-gold.jsonl)")
+    .option("--json", "emit raw JSON")
+    .action(async (opts: { gold?: string; json?: boolean }) => {
+      try {
+        const result = await runEvalDispatch(opts);
         process.stdout.write(result.stdout);
         process.stderr.write(result.stderr);
         process.exit(result.exitCode);

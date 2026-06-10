@@ -5,6 +5,8 @@ import { fileURLToPath } from "node:url";
 import { runVerify, type VerifyResult, type VerifyRole } from "../cli/commands/verify.js";
 import { detectRole } from "../cli/commands/verify/role.js";
 import { createSearchRuntimeCache, runSearch } from "../retrieval/search.js";
+import { parseAsOf } from "../retrieval/temporal-filter.js";
+import { handlePostObservation, handleGetPages } from "./api-handlers.js";
 import { loadSearchCorpus, type SearchScope } from "../retrieval/corpus.js";
 import { isEntityWikiPath } from "../retrieval/wiki-paths.js";
 import { isIntentLabel, type IntentLabel } from "../retrieval/query-intent.js";
@@ -742,6 +744,42 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
       return;
     }
 
+    if (method === "POST" && path === "/api/observations") {
+      const policy = await loadDashboardOriginPolicy(opts.vaultRoot);
+      if (!sameOriginAllowed(req.headers.origin, url, req.headers, policy.trustedOrigins, policy.trustForwardedHeaders, req.socket.remoteAddress)) {
+        writeJson(res, { ok: false, error: "cross-origin observation writes are not allowed" }, 403);
+        return;
+      }
+      if (!writeCapability.writable) {
+        writeJsonError(res, 403, writeCapability.reason ?? "vault is read-only");
+        return;
+      }
+      try {
+        const body = await readJsonBody(req);
+        const result = await handlePostObservation({
+          body: (body ?? {}) as Record<string, unknown>,
+          vaultRoot: opts.vaultRoot,
+        });
+        if (result.status === 200) writeJson(res, result.body);
+        else writeJsonError(res, result.status, String(result.body["error"] ?? "bad request"));
+      } catch (err) {
+        if (err instanceof RequestBodyTooLargeError) {
+          writeRequestBodyTooLarge(res);
+          return;
+        }
+        if (err instanceof InvalidContentLengthError) {
+          writeInvalidContentLength(res);
+          return;
+        }
+        if (err instanceof InvalidJsonBodyError) {
+          writeInvalidJsonBody(res);
+          return;
+        }
+        writeJsonError(res, 500, (err as Error).message);
+      }
+      return;
+    }
+
     if ((method === "POST" && path === "/api/proposed/promote") || (method === "POST" && path === "/api/proposed/reject")) {
       const policy = await loadDashboardOriginPolicy(opts.vaultRoot);
       if (!sameOriginAllowed(req.headers.origin, url, req.headers, policy.trustedOrigins, policy.trustForwardedHeaders, req.socket.remoteAddress)) {
@@ -1250,6 +1288,13 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
         return;
       }
 
+      if (segments.length === 2 && segments[0] === "api" && segments[1] === "pages") {
+        const typeFilter = url.searchParams.get("type") ?? undefined;
+        const result = await handleGetPages({ vaultRoot: opts.vaultRoot, type: typeFilter });
+        writeJson(res, result.body);
+        return;
+      }
+
       if (segments.length === 2 && segments[0] === "api" && segments[1] === "search") {
         const query = url.searchParams.get("q")?.trim() ?? "";
         if (query.length === 0) {
@@ -1259,6 +1304,19 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
         const noRerank = parseSearchBoolean(url.searchParams.get("noRerank"));
         const hydeExpansion = url.searchParams.get("hydeExpansion") ?? undefined;
         const intent = parseSearchIntent(url.searchParams.get("intent"));
+        const rawAsOf = url.searchParams.get("as_of") ?? undefined;
+        try {
+          parseAsOf(rawAsOf); // validate — throws on invalid
+        } catch {
+          writeJsonError(res, 400, `invalid as_of date: ${rawAsOf}`);
+          return;
+        }
+        const agentId = url.searchParams.get("agent_id") ?? undefined;
+        const userId = url.searchParams.get("user_id") ?? undefined;
+        const identityMode =
+          url.searchParams.get("identity_mode") === "strict"
+            ? ("strict" as const)
+            : ("inclusive" as const);
         try {
           const result = await runSearch({
             query,
@@ -1269,6 +1327,10 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
             noHyde: parseSearchBoolean(url.searchParams.get("noHyde")),
             intent,
             hydeExpansion,
+            asOf: rawAsOf,
+            agentId,
+            userId,
+            identityMode,
             vaultRoot: opts.vaultRoot,
             embedClient,
             voyageClient: voyageClient ?? unavailableVoyageClient,
