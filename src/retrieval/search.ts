@@ -48,6 +48,7 @@ import type { VoyageClient } from "./voyage-client.js";
 import type { LLMProvider } from "../llm/types.js";
 import { loadMemoryConfig, type MemoryConfig } from "../storage/config.js";
 import { filterDocumentsByValidity } from "./temporal-filter.js";
+import { filterDocumentsByIdentity } from "./identity-filter.js";
 
 export interface SearchOptions {
   query: string;
@@ -59,6 +60,9 @@ export interface SearchOptions {
   intent?: IntentLabel;
   hydeExpansion?: string;
   asOf?: string;  // ISO date — only return pages valid at this point in time
+  agentId?: string;
+  userId?: string;
+  identityMode?: "inclusive" | "strict";
   signal?: AbortSignal;
   vaultRoot: string;
   embedClient: EmbedClient;
@@ -285,9 +289,9 @@ export async function runSearch(opts: SearchOptions): Promise<SearchResponse> {
     );
   }
 
-  const documents = filterDocumentsByValidity(
-    filterByScope(loaded.documents, scope),
-    opts.asOf,
+  const documents = filterDocumentsByIdentity(
+    filterDocumentsByValidity(filterByScope(loaded.documents, scope), opts.asOf),
+    { agentId: opts.agentId, userId: opts.userId, mode: opts.identityMode },
   );
   if (documents.length === 0 || resultLimit === 0) {
     timings.totalMs = Date.now() - started;
