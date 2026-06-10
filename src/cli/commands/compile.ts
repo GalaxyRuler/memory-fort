@@ -495,10 +495,18 @@ async function executeCompilePrompt(opts: CompileOptions & {
       vaultRoot: opts.root,
       llm,
     });
-    return {
-      ...result,
-      rawInputConsumed: false,
-    };
+    const consolidationDidWork =
+      result.applied.length > 0 || result.proposed.length > 0;
+    if (consolidationDidWork) {
+      return {
+        ...result,
+        rawInputConsumed: false,
+      };
+    }
+    // Nothing to consolidate — fall through to prompt-based raw execution.
+    // A permanently non-empty facts store must not starve the wiki: without
+    // this fallthrough, leftover facts shadow the raw path on every run and
+    // the compile watermark never advances.
   }
   const response = await chatWithAudit({
     llm,
