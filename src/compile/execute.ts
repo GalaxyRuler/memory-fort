@@ -767,7 +767,7 @@ export async function applyOperation(
         `This proposal supersedes ${operation.old_page}.`,
         "",
         `Reason: ${operation.reason}`,
-        ...(operation.valid_to ? [`Valid to: ${operation.valid_to}`] : []),
+        ...(operation.valid_to ? [`Valid until: ${operation.valid_to}`] : []),
         "",
       ];
       await atomicWrite(
@@ -779,7 +779,13 @@ export async function applyOperation(
             old_page: operation.old_page,
             new_page: operation.new_page,
             reason: operation.reason,
-            ...(operation.valid_to ? { valid_to: operation.valid_to } : {}),
+            observed_at: isoCreated,
+            // Intended patch for the old page — applied only on explicit
+            // human approval (staging invariant: old page stays canonical).
+            old_page_patch: {
+              valid_until: operation.valid_to ?? isoCreated,
+              status: "superseded",
+            },
             created: isoCreated,
             updated: isoCreated,
             status: "active" as const,
@@ -788,6 +794,7 @@ export async function applyOperation(
             cognitive_type: "semantic" as const,
             proposal_type: "supersede-proposal",
             proposal_status: "pending-review",
+            searchable: false,
           },
           `${bodyLines.join("\n")}\n`,
         ),
