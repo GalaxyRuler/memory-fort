@@ -178,11 +178,12 @@ export async function ensureRawSessionFile(input: {
   sessionId: string;
   cwd: string;
   now?: Date;
+  vaultRoot?: string;
   exists?: (path: string) => Promise<boolean>;
   write?: (path: string, content: string) => Promise<void>;
 }): Promise<string> {
   const now = input.now ?? new Date();
-  const path = rawSessionFile(input.tool, input.sessionId, now);
+  const path = rawSessionFile(input.tool, input.sessionId, now, input.vaultRoot);
   const existsFn = input.exists ?? defaultExists;
   const writeFn = input.write ?? atomicWrite;
   if (await existsFn(path)) return path;
@@ -215,10 +216,11 @@ export async function appendBlock(input: {
   sessionId: string;
   block: string;
   now?: Date;
+  vaultRoot?: string;
   append?: (path: string, content: string) => Promise<void>;
 }): Promise<void> {
   const now = input.now ?? new Date();
-  const path = rawSessionFile(input.tool, input.sessionId, now);
+  const path = rawSessionFile(input.tool, input.sessionId, now, input.vaultRoot);
   const appendFn = input.append ?? atomicAppend;
   await appendFn(path, input.block);
 }

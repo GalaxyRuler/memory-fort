@@ -45,19 +45,20 @@ export function configPath(): string {
   return join(memoryRoot(), "config.yaml");
 }
 
-export function rawDir(date: Date = new Date()): string {
-  return join(memoryRoot(), "raw", formatIsoDate(date));
+export function rawDir(date: Date = new Date(), root?: string): string {
+  return join(root ?? memoryRoot(), "raw", formatIsoDate(date));
 }
 
 export function rawSessionFile(
   tool: ToolName,
   sessionId: string,
   date: Date = new Date(),
+  root?: string,
 ): string {
   // Filename: <tool>-<safeSessionId>.md
   // sessionId is sanitized: anything outside [A-Za-z0-9._-] becomes '_'
   const safe = sessionId.replace(/[^A-Za-z0-9._-]/g, "_");
-  return join(rawDir(date), `${tool}-${safe}.md`);
+  return join(rawDir(date, root), `${tool}-${safe}.md`);
 }
 
 export function wikiDir(category?: PageType): string {
