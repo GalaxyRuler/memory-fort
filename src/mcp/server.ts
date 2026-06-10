@@ -275,6 +275,10 @@ const SearchInput = z.object({
     .describe(
       "Pre-computed HyDE expansion text — if you previously got a hyde_prompt_pending response, call back with the expanded text here",
     ),
+  as_of: z
+    .string()
+    .optional()
+    .describe("ISO date — only return pages valid at this point in time"),
 });
 
 export type SearchInput = z.infer<typeof SearchInput>;
@@ -510,6 +514,9 @@ function buildSearchUrl(baseUrl: string, input: SearchInput): string {
   url.searchParams.set("noRerank", String(input.no_rerank ?? true));
   if (input.hyde_expansion !== undefined) {
     url.searchParams.set("hydeExpansion", input.hyde_expansion);
+  }
+  if (input.as_of !== undefined) {
+    url.searchParams.set("as_of", input.as_of);
   }
   return url.toString();
 }

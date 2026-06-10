@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { runVerify, type VerifyResult, type VerifyRole } from "../cli/commands/verify.js";
 import { detectRole } from "../cli/commands/verify/role.js";
 import { createSearchRuntimeCache, runSearch } from "../retrieval/search.js";
+import { parseAsOf } from "../retrieval/temporal-filter.js";
 import { loadSearchCorpus, type SearchScope } from "../retrieval/corpus.js";
 import { isEntityWikiPath } from "../retrieval/wiki-paths.js";
 import { isIntentLabel, type IntentLabel } from "../retrieval/query-intent.js";
@@ -1259,6 +1260,13 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
         const noRerank = parseSearchBoolean(url.searchParams.get("noRerank"));
         const hydeExpansion = url.searchParams.get("hydeExpansion") ?? undefined;
         const intent = parseSearchIntent(url.searchParams.get("intent"));
+        const rawAsOf = url.searchParams.get("as_of") ?? undefined;
+        try {
+          parseAsOf(rawAsOf); // validate — throws on invalid
+        } catch {
+          writeJsonError(res, 400, `invalid as_of date: ${rawAsOf}`);
+          return;
+        }
         try {
           const result = await runSearch({
             query,
@@ -1269,6 +1277,7 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
             noHyde: parseSearchBoolean(url.searchParams.get("noHyde")),
             intent,
             hydeExpansion,
+            asOf: rawAsOf,
             vaultRoot: opts.vaultRoot,
             embedClient,
             voyageClient: voyageClient ?? unavailableVoyageClient,
