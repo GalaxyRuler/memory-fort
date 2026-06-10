@@ -34,6 +34,10 @@ const pages = await client.listPages({ type: "tools" });
 
 Requires a running Memory Fort dashboard (`memory-fort dashboard`), default base URL `http://127.0.0.1:4410/memory`.
 
+## Troubleshooting
+
+**`MemoryFortError: read-only mirror` (HTTP 403) on `add()`** — write endpoints require the vault directory to be a git repository. Vaults created by `memory-fort init` already are; for a hand-made vault, run `git init` inside it. Read operations (`search`, `listPages`) work either way.
+
 ## Identity filtering
 
 `identityMode: "inclusive"` (default) — untagged documents (curated wiki pages) always pass through; only tagged documents are filtered by identity match. `identityMode: "strict"` — only documents with matching identity tags are returned. Identity filtering is a retrieval preference, NOT security isolation.

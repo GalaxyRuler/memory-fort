@@ -26,6 +26,13 @@ Phase 2.0 Competitive Parity — temporal validity, published benchmarks, client
 - `rawSessionFile` / `ensureRawSessionFile` / `appendBlock` accept an optional vault root override (used by the observations API; default behavior unchanged)
 - Schema version bumped to 1.5 (temporal validity + identity tagging sections)
 
+### Fixed
+- Corpus now populates `rawFrontmatter` for every document kind — previously only raw observations carried it, making `as_of` and identity filtering silent no-ops on wiki pages (caught by live end-to-end verification)
+- `memory-fort-sdk` package entry points now match tsdown output (`index.mjs`/`.cjs`/`.d.mts`/`.d.cts`) — previous paths pointed at nonexistent files, breaking every consumer install
+
+### Documented
+- Dashboard write endpoints require the vault to be a git repository; non-git vaults are read-only mirrors (HTTP 403) — noted in README and both SDK READMEs
+
 ## [0.5.1] - 2026-06-09
 
 ### Added

@@ -296,6 +296,8 @@ memory-fort dashboard
 # → http://127.0.0.1:4410/memory/
 ```
 
+**Write capability requires a git vault.** Write endpoints (`POST /api/observations`, `/api/sync`, proposal actions, config patches) only work when the vault directory is a git repository — non-git vaults are treated as read-only mirrors and return HTTP 403 with `read-only mirror — run 'memory dashboard' on your machine to make changes`. `memory-fort init` sets up git automatically; if you created a vault by hand, run `git init` inside it.
+
 Built-in React dashboard:
 - Browse the wiki, search (BM25 + semantic + graph), review proposed pages, inspect graph health metrics.
 - Audit ranking decisions using **search provenance receipts** (expandable detail showing BM25, embedding, and graph weights).

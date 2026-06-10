@@ -29,6 +29,10 @@ async with MemoryFortClient() as client:
 
 Requires a running Memory Fort dashboard (`memory-fort dashboard`), default base URL `http://127.0.0.1:4410/memory`.
 
+## Troubleshooting
+
+**`MemoryFortError: read-only mirror` (HTTP 403) on `add()`** — write endpoints require the vault directory to be a git repository. Vaults created by `memory-fort init` already are; for a hand-made vault, run `git init` inside it. Read operations (`search`, `list_pages`) work either way.
+
 ## Identity filtering
 
 `identity_mode="inclusive"` (default) — untagged documents (curated wiki pages) always pass through; only tagged documents are filtered by identity match. `identity_mode="strict"` — only documents with matching identity tags are returned. Identity filtering is a retrieval preference, NOT security isolation.
