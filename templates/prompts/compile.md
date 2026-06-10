@@ -61,7 +61,7 @@ salient fact anchors such as relations, wikilinks, code identifiers, or entity
 names.
 
 For a durable knowledge page with an existing page (`projects`, `lessons`,
-`decisions`, `references`, `tools`, `people`, or `prospective`), you MUST use
+`decisions`, `references`, `tools`, `people`, `issues`, or `prospective`), you MUST use
 `rewrite_page`: read the injected current page body, preserve all substantive
 existing content, integrate genuinely new facts, remove redundancy, and emit the
 complete coherent body. Do not emit dated `append_page` sections for these
@@ -72,6 +72,23 @@ the observations, emit no page operation for that entity. Use `write_page` only
 when creating a new page that meets the cross-session threshold. Page targets
 must be `wiki/<category>/<lowercase-kebab-slug>.md`;
 for example, a project called `Acme` should target `wiki/projects/acme.md`.
+
+**Issue pages (`wiki/issues/<slug>.md`) — threshold exemption.** A bug,
+blocker, incident, failure, or constraint with concrete evidence justifies an
+issue page from a SINGLE session — the cross-session threshold exists to
+prevent premature entity pages, not to suppress incident records. Route by
+state: an unresolved or recurring failure (or one whose cause/fix state is
+worth tracking) → `issues`; a resolved incident whose only remaining value is
+its reusable takeaway → `lessons`. When an issue page's failure later proves
+resolved, record the fix on the issue page (relations: `fixed_by`) rather than
+deleting it.
+
+**Core memories (`cognitive_type: core`).** Reserve `core` for durable
+identity-level facts about the user: stable preferences, standing constraints,
+long-lived conventions (e.g. "always tests on temp vaults, never the real
+one"). Set `cognitive_type: core` in the page frontmatter when the evidence
+shows a stable preference repeated across sessions. Most pages are NOT core —
+when in doubt, use `semantic`.
 Prefer one page operation per normalized target path; combine related new
 content into the `body` or `section` for that page instead of emitting a
 separate write and append for the same page.
@@ -204,10 +221,15 @@ For each candidate, note:
 
 Per schema §6: **do not create a wiki page from a single raw session's content.** Wait for the same entity to appear across 3+ raw sessions OR for an explicit user instruction.
 
+**Exception — issue pages.** A concrete bug, blocker, incident, or failure with
+evidence (error text, root cause, or fix) justifies a `wiki/issues/` page from a
+single session. Incidents usually happen exactly once; the threshold would
+suppress them entirely.
+
 For each candidate:
 - If the entity already has a wiki page → proceed to Step 3 (update it).
 - If it doesn't AND it appears in ≥ 3 distinct raw files in this batch (or across this batch + recent prior sessions visible from `index.md`) → create it.
-- If it doesn't AND it's a single-session mention → skip; let it stay in `raw/` until a future compile sees the cross-session signal.
+- If it doesn't AND it's a single-session mention → skip (unless it's an evidenced issue, per the exception above); let it stay in `raw/` until a future compile sees the cross-session signal.
 
 ### Step 3 — Update existing pages
 

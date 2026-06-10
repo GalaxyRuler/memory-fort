@@ -698,7 +698,7 @@ records the alias map. It never deletes raw observations or wiki pages.
 - **Cite the session** for claims dependent on a specific work session: `[per session claude-code-abc123]`.
 - **Contradictions are recorded, not deleted.** If new information disagrees with an existing page, add a `contradicts: [old-page]` entry in the new page's frontmatter AND a `contradicts: [new-page]` in the old page's frontmatter. The lint pass surfaces these for resolution.
 - **Low-confidence pages get `confidence: <value>` < 0.5.** Lint surfaces them as DRAFT — they're real but tentative.
-- **Wait for cross-session signal before creating a wiki page from a single session's observations.** Single-session content lives in raw/ until the compile pass sees the same theme across multiple sessions OR until the user explicitly promotes it.
+- **Wait for cross-session signal before creating a wiki page from a single session's observations.** Single-session content lives in raw/ until the compile pass sees the same theme across multiple sessions OR until the user explicitly promotes it. **Exception: `issues` pages** — a concrete bug, blocker, incident, or failure with evidence (error text, root cause, or fix) justifies an issue page from a single session; incidents typically occur exactly once and the threshold would otherwise suppress the entire category.
 - **No marketing language, no AI clichés.** Plain factual statements. "Voyage 3.5 retrieval is ~8% better than text-embedding-3-large on the user's domain mix" — not "Voyage 3.5 is the best-in-class state-of-the-art solution."
 
 ---
