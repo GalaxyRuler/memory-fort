@@ -81,6 +81,8 @@ import {
 } from "./cli/commands/verify-schedule.js";
 import { formatWatchResult, runWatch } from "./cli/commands/watch.js";
 import { memoryRoot, secretsPath } from "./storage/paths.js";
+import { applyApprovedSupersedeProposal } from "./compile/approve-supersede.js";
+import { resolve as resolvePath } from "node:path";
 import { loadSecretsIntoEnv } from "./storage/secrets.js";
 
 // Layer provider keys from the out-of-vault secrets file UNDER real env vars
@@ -127,6 +129,27 @@ program
       process.exit(result.exitCode);
     } catch (err) {
       console.error(`memory eval-retrieval failed: ${(err as Error).message}`);
+      process.exit(1);
+    }
+  });
+
+const proposedCommand = program
+  .command("proposed")
+  .description("Review and act on staged compile proposals");
+
+proposedCommand
+  .command("approve <proposal-path>")
+  .description("Approve a supersede proposal and apply its temporal patch to the old page")
+  .option("--vault <path>", "vault root (default: ~/.memory)")
+  .action(async (proposalPath: string, opts: { vault?: string }) => {
+    const result = await applyApprovedSupersedeProposal({
+      vaultRoot: opts.vault ?? memoryRoot(),
+      proposalPath: resolvePath(proposalPath),
+    });
+    if (result.ok) {
+      process.stdout.write("Proposal approved and old page patched.\n");
+    } else {
+      process.stderr.write(`Failed: ${result.reason}\n`);
       process.exit(1);
     }
   });
