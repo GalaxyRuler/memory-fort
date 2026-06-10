@@ -313,7 +313,9 @@ Notes:
         process.stdout.write(formatProcedureProposeResult(result));
       } catch (err) {
         console.error(`memory procedure propose failed: ${(err as Error).message}`);
-        process.exit(1);
+        // exitCode (not process.exit) — a hard exit here races libuv async
+        // handle teardown on Windows (observed: assertion in src\win\async.c).
+        process.exitCode = 1;
       }
     });
 

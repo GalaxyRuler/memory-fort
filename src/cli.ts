@@ -609,6 +609,14 @@ program
       resetWatermark?: string | boolean;
     }) => {
       try {
+        if (opts.drain && opts.since) {
+          // --since bypasses watermarks, but drain measures progress by
+          // watermark advancement — combined, every pass re-sends the same
+          // batch and the loop never terminates on its own.
+          throw new Error(
+            "memory compile: --drain and --since are incompatible (--since bypasses the watermarks drain uses to make progress); drop --since or run single passes",
+          );
+        }
         if (opts.drain) {
           const result = await runCompileDrain({
             since: opts.since,
