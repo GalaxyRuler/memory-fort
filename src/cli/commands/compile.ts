@@ -453,9 +453,6 @@ function chooseSliceEnd(content: Buffer, startByte: number, maxBytes: number): n
   if (nextBoundary !== null && nextBoundary <= hardEnd) {
     return nextBoundary;
   }
-  if (isObservationBoundaryAt(content, startByte)) {
-    return startByte;
-  }
   return hardEnd;
 }
 
