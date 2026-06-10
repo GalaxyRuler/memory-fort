@@ -166,6 +166,16 @@ export function formatObservationBlock(input: {
   return `\n## [${ts}] Observation\n\n${metaLine}${redactSecrets(input.text)}\n`;
 }
 
+// Identity values come from env vars — validate before stamping into
+// frontmatter so a malformed value can't corrupt YAML or smuggle newlines.
+const IDENTITY_PATTERN = /^[A-Za-z0-9._@-]{1,128}$/;
+
+function cleanIdentity(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  if (!IDENTITY_PATTERN.test(value)) return undefined;
+  return value;
+}
+
 /**
  * Ensure the raw session file exists with proper frontmatter.
  * If the file exists, this is a no-op. If absent, atomically
@@ -187,6 +197,8 @@ export async function ensureRawSessionFile(input: {
   const existsFn = input.exists ?? defaultExists;
   const writeFn = input.write ?? atomicWrite;
   if (await existsFn(path)) return path;
+  const agentId = cleanIdentity(process.env["MEMORY_FORT_AGENT_ID"]);
+  const userId = cleanIdentity(process.env["MEMORY_FORT_USER_ID"]);
   const fm: Frontmatter = {
     type: "raw-session",
     title: `${input.tool} session ${input.sessionId}`,
@@ -196,6 +208,8 @@ export async function ensureRawSessionFile(input: {
     session: input.sessionId,
     // Custom field — tracking working directory the session ran in
     cwd: input.cwd,
+    ...(agentId ? { agent_id: agentId } : {}),
+    ...(userId ? { user_id: userId } : {}),
   };
   const header = serializeFrontmatter(fm, "").replace(
     `session: ${input.sessionId}\n`,

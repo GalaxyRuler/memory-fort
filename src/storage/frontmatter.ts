@@ -60,6 +60,8 @@ export interface Frontmatter {
   observed_at?: string;  // ISO date — when this fact was first observed (proposal/session date)
   valid_from?: string;   // ISO date — when this fact became true (only if evidence supports it)
   valid_until?: string;  // ISO date — when this fact ceased to be true (inclusive: valid ON this date)
+  agent_id?: string;     // MEMORY_FORT_AGENT_ID env var at capture time
+  user_id?: string;      // MEMORY_FORT_USER_ID env var at capture time
   [key: string]: unknown;
 }
 
