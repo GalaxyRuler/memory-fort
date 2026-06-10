@@ -57,6 +57,9 @@ export interface Frontmatter {
   session?: string;
   relations?: SerializedRelationMap;
   tags?: string[];
+  observed_at?: string;  // ISO date — when this fact was first observed (proposal/session date)
+  valid_from?: string;   // ISO date — when this fact became true (only if evidence supports it)
+  valid_until?: string;  // ISO date — when this fact ceased to be true (inclusive: valid ON this date)
   [key: string]: unknown;
 }
 
