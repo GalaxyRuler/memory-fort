@@ -6,7 +6,7 @@ import type { LLMProvider, LLMTokenUsage } from "../llm/types.js";
 import { filterWikiReferencesToExisting, stripProsePathLeaksFromText } from "../llm/proposal-grounding.js";
 import { redactSecrets } from "../privacy/redaction.js";
 import { readRelationTarget, type SerializedRelationEdge } from "../retrieval/relations.js";
-import { atomicWrite } from "../storage/atomic-write.js";
+import { atomicAppend, atomicWrite } from "../storage/atomic-write.js";
 import { parseFrontmatter, serializeFrontmatter, type Frontmatter } from "../storage/frontmatter.js";
 import { type PageType } from "../storage/paths.js";
 import { kebabCase, normalizeWikiPagePath } from "../storage/slug.js";
@@ -1369,8 +1369,7 @@ async function stageCompileProposal(
 }
 
 async function appendText(fullPath: string, text: string): Promise<void> {
-  const current = existsSync(fullPath) ? await readFile(fullPath, "utf-8") : "";
-  await atomicWrite(fullPath, `${current}${text}`);
+  await atomicAppend(fullPath, text);
 }
 
 function hasHighConfidence(operation: CompileOperation): boolean {
