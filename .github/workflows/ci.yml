@@ -50,5 +50,11 @@ jobs:
             --corpus qa/fixtures/graph-aware-vault \
           | node scripts/ci-eval-summary.mjs
 
+      - name: Eval — dispatch policy
+        continue-on-error: true
+        run: |
+          node dist/cli.mjs eval dispatch --json \
+          | node scripts/ci-eval-summary.mjs
+
       - name: Check package contents
         run: npm pack --dry-run 2>&1 | grep -E "^(npm notice (files|package size|unpacked size)|Tarball)"
