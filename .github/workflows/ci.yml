@@ -56,5 +56,26 @@ jobs:
           node dist/cli.mjs eval dispatch --json \
           | node scripts/ci-eval-summary.mjs
 
+      - name: SDK (TypeScript) — install + typecheck + test + build
+        run: |
+          cd packages/sdk
+          npm install
+          npx tsc --noEmit
+          npx vitest run --reporter=dot
+          npm run build
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: SDK (Python) — install + test + build
+        run: |
+          cd packages/sdk-python
+          pip install -e ".[test]" -q
+          python -m pytest tests/ -q
+          pip install build -q
+          python -m build
+
       - name: Check package contents
         run: npm pack --dry-run 2>&1 | grep -E "^(npm notice (files|package size|unpacked size)|Tarball)"
