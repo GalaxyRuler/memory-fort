@@ -73,6 +73,20 @@ describe("applyApprovedSupersedeProposal", () => {
     expect(oldPage.frontmatter.valid_until).toBe("2026-06-09");
     expect(oldPage.frontmatter.status).toBe("superseded");
     expect(oldPage.frontmatter.updated).toBe("2026-06-10");
+    expect(oldPage.frontmatter["superseded_by"]).toBe("wiki/tools/new-tool.md");
+  });
+
+  it("patched old page still passes frontmatter validation", async () => {
+    const { root, wikiDir, proposedDir } = await setupVault();
+    const proposalPath = join(proposedDir, "supersede-old-tool-12345.md");
+    await writeFile(proposalPath, makeProposal());
+
+    await applyApprovedSupersedeProposal({ vaultRoot: root, proposalPath });
+
+    const { validateFrontmatter } = await import("../../src/storage/frontmatter.js");
+    const oldPage = parseFrontmatter(await readFile(join(wikiDir, "old-tool.md"), "utf-8"));
+    const validation = validateFrontmatter(oldPage.frontmatter);
+    expect(validation.valid).toBe(true);
   });
 
   it("marks proposal as approved", async () => {

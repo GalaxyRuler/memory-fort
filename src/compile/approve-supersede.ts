@@ -97,20 +97,17 @@ export async function applyApprovedSupersedeProposal(
   const archiveName = `${basename(oldPageRel, ".md")}-${now.getTime()}.md`;
   await writeFile(join(archiveDir, archiveName), oldRaw);
 
-  // Step 2: Patch old page — add temporal bounds + superseded status
+  // Step 2: Patch old page — add temporal bounds + superseded status.
+  // superseded_by is a top-level provenance field, NOT a relations edge —
+  // the canonical edge-type set has no superseded_by; the forward edge
+  // (new page `supersedes` old) is the graph representation.
   const patchedFm = {
     ...oldParsed.frontmatter,
     ...(patch.valid_until ? { valid_until: patch.valid_until } : {}),
     ...(patch.status ? { status: patch.status as "superseded" } : {}),
+    ...(newPageRel ? { superseded_by: newPageRel } : {}),
     updated: isoDate,
   };
-  if (newPageRel) {
-    const existingRelations = (patchedFm.relations ?? {}) as Record<string, unknown>;
-    patchedFm.relations = {
-      ...existingRelations,
-      superseded_by: [newPageRel],
-    };
-  }
   await atomicWrite(
     oldFullPath,
     serializeFrontmatter(patchedFm, `${oldParsed.body.trimEnd()}\n`),

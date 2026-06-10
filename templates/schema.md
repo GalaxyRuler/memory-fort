@@ -1,5 +1,5 @@
 ---
-schema_version: 1.4
+schema_version: 1.5
 updated: "{{install_date}}"
 applies_from_commit: "{{install_commit}}"
 ---
@@ -477,6 +477,49 @@ Dashboard search runs queries through an intent classifier before retrieval. Sev
 Heuristic-first classification handles obvious queries with no LLM call. Remaining queries fall through to the configured LLM, when available, at about $0.0001 per call on `openai/gpt-4o-mini`. Each intent maps to per-stream weight multipliers applied before RRF fusion. The `open-ended` weights are uniform (1.0 across all streams), reproducing baseline behavior.
 
 Operators can override with `?intent=<bucket>` on the `/api/search` URL query, or inspect one query via `memory provider test-classifier "<query>"`. The classifier honors `MEMORY_LLM_DISABLED=true`; when disabled, every query takes the `open-ended` path.
+
+---
+
+## Temporal validity
+
+Pages can optionally declare temporal bounds:
+
+| Field | Type | Description |
+|---|---|---|
+| `observed_at` | ISO date | When this fact was first observed. Not used for search filtering. |
+| `valid_from` | ISO date | When this fact became true (only if evidence supports it). Defaults to unbounded if omitted. |
+| `valid_until` | ISO date | When this fact ceased to be true (inclusive — valid ON this date). Defaults to unbounded if omitted. |
+
+Validity intervals use **inclusive date semantics**: `[valid_from, valid_until]`.
+A page with `valid_until: 2026-06-09` IS valid for `asOf=2026-06-09`.
+
+`observed_at` and `valid_from` are distinct: a fact observed on June 9 may have been true since March. Use `observed_at` for the observation date; use `valid_from` only when the evidence supports a specific truth-start date. If only the observation date is known, set `observed_at` and omit `valid_from`.
+
+Search accepts an `as_of` parameter (API `?as_of=YYYY-MM-DD`, MCP `as_of`, SDK `asOf`/`as_of`) that excludes pages whose validity interval does not contain the date. Untemporalized pages always pass. Invalid `as_of` values return HTTP 400 — filtering is never silently disabled.
+
+When a page is superseded, the supersede proposal records the intended patch in `old_page_patch` (`valid_until` + `status: superseded`) but does NOT mutate the old page — the page stays canonical until a human approves the proposal via `memory proposed approve <proposal-path>`, which archives the prior version, stamps the patch plus a top-level `superseded_by` provenance field (the graph edge stays `supersedes` on the replacement page — `superseded_by` is not a canonical edge type), and marks the proposal approved.
+
+---
+
+## Identity tagging
+
+Raw sessions can be tagged with identity metadata at capture time:
+
+| Field | Type | Description |
+|---|---|---|
+| `agent_id` | string (1-128 chars, `[A-Za-z0-9._@-]`) | Agent tool identity. Set via `MEMORY_FORT_AGENT_ID` env var. |
+| `user_id` | string (1-128 chars, `[A-Za-z0-9._@-]`) | User identity. Set via `MEMORY_FORT_USER_ID` env var. |
+
+Values failing validation are silently dropped (never stamped malformed).
+
+**Identity filtering is NOT security isolation.** It is a retrieval preference for a personal vault.
+
+- **Inclusive mode** (default): untagged documents (curated wiki pages) always pass through. Only tagged documents are filtered by identity match.
+- **Strict mode**: only documents with matching identity tags are returned. Untagged documents are excluded.
+
+Exposed as `agent_id`, `user_id`, `identity_mode` on the search API, MCP `search` tool, and both SDKs.
+
+The `@` character is allowed in identity values for compatibility with external account IDs (e.g., `alice@corp`), but raw email addresses are discouraged in frontmatter values.
 
 ---
 
