@@ -36,7 +36,10 @@ if (-not $alreadyUp) {
   }
   $result = & $launcher -Port $Port -HostName $HostName
   $result | ForEach-Object { Write-Output $_ }
-  if ($LASTEXITCODE -ne 0) {
+  # $LASTEXITCODE is $null when the invoked script never ran a native command
+  # or exit — and `$null -ne 0` is true, so an unguarded check shows the
+  # failure dialog on success. Only treat a real non-zero integer as failure.
+  if ($LASTEXITCODE -is [int] -and $LASTEXITCODE -ne 0) {
     # The shortcut runs hidden — a silent exit looks like "nothing happened".
     # Surface the failure visibly, and still try the browser in case the
     # dashboard came up despite a failed smoke check.

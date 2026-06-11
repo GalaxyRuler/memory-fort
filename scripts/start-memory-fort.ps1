@@ -115,3 +115,8 @@ Write-JsonLine @{
   totalMs = $searchTimings.totalMs
   rerankMs = $searchTimings.rerankMs
 }
+
+# Explicit success exit — without this, $LASTEXITCODE in the caller is stale
+# (or $null on a fresh shell), and `$null -ne 0` is true in PowerShell, which
+# made the shortcut show a failure dialog on a perfectly healthy launch.
+exit 0
