@@ -17,17 +17,31 @@ try {
   $alreadyUp = $false
 }
 
+function Show-LaunchError {
+  param([string]$Message)
+  Add-Type -AssemblyName System.Windows.Forms
+  [void][System.Windows.Forms.MessageBox]::Show(
+    $Message,
+    "Memory Fort",
+    [System.Windows.Forms.MessageBoxButtons]::OK,
+    [System.Windows.Forms.MessageBoxIcon]::Error
+  )
+}
+
 if (-not $alreadyUp) {
   $launcher = Join-Path $PSScriptRoot "start-memory-fort.ps1"
   if (-not (Test-Path -LiteralPath $launcher)) {
-    Write-Error "launcher missing: $launcher"
+    Show-LaunchError "Launcher script missing:`n$launcher"
     exit 1
   }
   $result = & $launcher -Port $Port -HostName $HostName
   $result | ForEach-Object { Write-Output $_ }
   if ($LASTEXITCODE -ne 0) {
-    Write-Error "launcher exited non-zero"
-    exit $LASTEXITCODE
+    # The shortcut runs hidden — a silent exit looks like "nothing happened".
+    # Surface the failure visibly, and still try the browser in case the
+    # dashboard came up despite a failed smoke check.
+    $detail = ($result | Out-String).Trim()
+    Show-LaunchError "Memory Fort dashboard failed to start.`n`n$detail"
   }
 }
 
