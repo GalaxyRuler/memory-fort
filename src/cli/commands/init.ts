@@ -63,6 +63,8 @@ const SUBDIRS = [
 
 const GITIGNORE_CONTENT = `# Memory runtime artifacts not stored in git
 errors.log
+auto-sync.log
+logs/
 .archive/
 var/
 embeddings/*
