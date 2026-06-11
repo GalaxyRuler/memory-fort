@@ -92,8 +92,19 @@ Write-Host "config.yaml switched to local model '$Model' via $BaseUrl"
 Write-Host "starting backfill drain (max $MaxPasses passes, $TotalMaxBytes bytes/pass)..."
 
 try {
-  & node $cli compile --execute --drain --backfill --max-passes $MaxPasses --total-max-bytes $TotalMaxBytes --existing-pages-max-bytes $ExistingPagesMaxBytes --max-files-per-pass $MaxFilesPerPass
-  $exit = $LASTEXITCODE
+  # Outer retry: the drain retries transient failures internally with backoff
+  # (~15 min ladder); if it still exits non-zero (e.g. LM Link down for an
+  # hour), relaunch every 5 minutes for up to 2 hours before giving up.
+  $attempt = 0
+  do {
+    & node $cli compile --execute --drain --backfill --max-passes $MaxPasses --total-max-bytes $TotalMaxBytes --existing-pages-max-bytes $ExistingPagesMaxBytes --max-files-per-pass $MaxFilesPerPass
+    $exit = $LASTEXITCODE
+    if ($exit -eq 0) { break }
+    $attempt++
+    if ($attempt -ge 24) { break }
+    Write-Host "drain exited $exit; relaunch $attempt/24 in 300s"
+    Start-Sleep -Seconds 300
+  } while ($true)
 } finally {
   Copy-Item $backupPath $configPath -Force
   Remove-Item $backupPath -ErrorAction SilentlyContinue

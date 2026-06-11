@@ -56,7 +56,7 @@ export interface CompileOptions {
 export interface CompileDrainOptions extends CompileOptions {
   execute: boolean;
   maxPasses?: number;
-  onProgress?: (line: string, result: CompileResult, pass: number) => void;
+  onProgress?: (line: string, result: CompileResult | null, pass: number) => void;
 }
 
 export interface CompileResult {
@@ -413,15 +413,37 @@ export async function runCompileDrain(
   let totalRawFilesIncluded = 0;
   let totalWatermarksAdvanced = 0;
   let consecutiveStalls = 0;
+  let consecutiveErrors = 0;
+  const retryDelaysMs = [30_000, 60_000, 120_000, 240_000, 480_000];
   const quarantined = new Set<string>(opts.excludeRawPaths ?? []);
   for (let pass = 1; pass <= maxPasses; pass += 1) {
-    const result = await runCompile({
-      ...opts,
-      execute: true,
-      plan: false,
-      skipFactConsolidation: true,
-      excludeRawPaths: quarantined,
-    });
+    let result: CompileResult;
+    try {
+      result = await runCompile({
+        ...opts,
+        execute: true,
+        plan: false,
+        skipFactConsolidation: true,
+        excludeRawPaths: quarantined,
+      });
+      consecutiveErrors = 0;
+    } catch (error) {
+      // Transient failures (LM Link drops, provider hiccups) must not kill a
+      // multi-day drain. Back off and retry; give up only after the full
+      // backoff ladder fails consecutively.
+      const message = error instanceof Error ? error.message : String(error);
+      const delayMs = retryDelaysMs[Math.min(consecutiveErrors, retryDelaysMs.length - 1)]!;
+      consecutiveErrors += 1;
+      if (consecutiveErrors > retryDelaysMs.length) throw error;
+      opts.onProgress?.(
+        `pass ${pass} failed (${message}); retry ${consecutiveErrors}/${retryDelaysMs.length} in ${Math.round(delayMs / 1000)}s`,
+        null,
+        pass,
+      );
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+      pass -= 1;
+      continue;
+    }
     passes.push(result);
     totalRawFilesIncluded += result.rawFilesIncluded.length;
     totalWatermarksAdvanced += result.watermarksAdvanced.length;
