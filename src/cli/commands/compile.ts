@@ -48,6 +48,7 @@ export interface CompileOptions {
   configLoader?: () => Promise<MemoryConfig>;
   llmFactory?: (config: LLMConfig | null, env: NodeJS.ProcessEnv) => LLMProvider;
   skipFactConsolidation?: boolean;
+  backfill?: boolean;
 }
 
 export interface CompileDrainOptions extends CompileOptions {
@@ -149,9 +150,13 @@ export async function runCompile(
   const schema = await readRequiredFile(join(root, "schema.md"), "schema.md");
   const index = await readOptionalFile(join(root, "index.md"));
   const log = await readOptionalFile(join(root, "log.md"));
+  // --backfill: unwatermarked files become eligible regardless of the log-derived
+  // cutoff. Watermark gating stays on, so already-drained files are still skipped.
   const sinceDate = opts.since
     ? parseCutoff(opts.since)
-    : detectSinceFromLog(log) ?? new Date(0);
+    : opts.backfill
+      ? new Date(0)
+      : detectSinceFromLog(log) ?? new Date(0);
   const watermarkMode: CompileResult["watermarkMode"] = opts.since ? "bypassed" : "gated";
   let compileState = await readCompileStateForCompile(root);
   const watermarkReset = opts.resetWatermark !== undefined && opts.resetWatermark !== false

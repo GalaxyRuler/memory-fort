@@ -596,6 +596,7 @@ program
   .option("--drain", "with --execute, keep compiling until no eligible raw tails remain")
   .option("--max-passes <n>", "maximum drain passes (default: 50)", parseInteger)
   .option("--reset-watermark [glob]", "clear consumed raw-file watermarks before compiling")
+  .option("--backfill", "make unwatermarked raw files eligible regardless of the since cutoff (watermark dedup still applies)")
   .action(
     async (opts: {
       since?: string;
@@ -607,8 +608,14 @@ program
       drain?: boolean;
       maxPasses?: number;
       resetWatermark?: string | boolean;
+      backfill?: boolean;
     }) => {
       try {
+        if (opts.backfill && opts.since) {
+          throw new Error(
+            "memory compile: --backfill and --since are incompatible (--backfill sets the cutoff to epoch; --since overrides it)",
+          );
+        }
         if (opts.drain && opts.since) {
           // --since bypasses watermarks, but drain measures progress by
           // watermark advancement — combined, every pass re-sends the same
@@ -627,6 +634,7 @@ program
             plan: opts.plan,
             maxPasses: opts.maxPasses,
             resetWatermark: opts.resetWatermark,
+            backfill: opts.backfill,
             onProgress: (line) => console.error(line),
           });
           console.error(`Compile drain ${result.stopReason === "empty" ? "complete" : "stopped at max passes"}`);
@@ -645,6 +653,7 @@ program
           execute: opts.execute,
           plan: opts.plan,
           resetWatermark: opts.resetWatermark,
+          backfill: opts.backfill,
         });
         if (opts.execute && result.execution) {
           console.error(`Compile ${result.execution.mode} complete`);

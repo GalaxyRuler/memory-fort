@@ -149,7 +149,7 @@ export function validateMemoryConfig(config: MemoryConfig): string[] {
     warnings.push(`embedding.provider has invalid value ${JSON.stringify(embedding["provider"])}`);
   }
   const llm = asRecord(config.llm);
-  if (llm?.["provider"] !== undefined && !["openrouter", "ollama"].includes(String(llm["provider"]))) {
+  if (llm?.["provider"] !== undefined && !["openrouter", "ollama", "openai-compat"].includes(String(llm["provider"]))) {
     warnings.push(`llm.provider has invalid value ${JSON.stringify(llm["provider"])}`);
   }
   if (llm?.["max_tokens"] !== undefined && !isIntegerInRange(llm["max_tokens"], 1, 32_000)) {
