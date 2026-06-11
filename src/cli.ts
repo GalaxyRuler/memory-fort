@@ -590,6 +590,8 @@ program
   .option("--since <iso>", "ISO date/timestamp cutoff for raw files")
   .option("--per-file-max-bytes <n>", "max raw bytes per file", parseInteger)
   .option("--total-max-bytes <n>", "max total raw bytes", parseInteger)
+  .option("--existing-pages-max-bytes <n>", "max bytes of existing-page context in the prompt", parseInteger)
+  .option("--max-files-per-pass <n>", "max raw files included per pass (default: 40)", parseInteger)
   .option("-o, --output <path>", "also write the assembled prompt to a file")
   .option("--execute", "send the prompt to the configured LLM and apply grounded compile-ops")
   .option("--plan", "with --execute, preview compile-ops without writing")
@@ -602,6 +604,8 @@ program
       since?: string;
       perFileMaxBytes?: number;
       totalMaxBytes?: number;
+      existingPagesMaxBytes?: number;
+      maxFilesPerPass?: number;
       output?: string;
       execute?: boolean;
       plan?: boolean;
@@ -629,6 +633,8 @@ program
             since: opts.since,
             perFileMaxBytes: opts.perFileMaxBytes,
             totalMaxBytes: opts.totalMaxBytes,
+            existingPagesMaxBytes: opts.existingPagesMaxBytes,
+            maxFilesPerPass: opts.maxFilesPerPass,
             outputPath: opts.output,
             execute: opts.execute ?? false,
             plan: opts.plan,
@@ -654,6 +660,8 @@ program
           since: opts.since,
           perFileMaxBytes: opts.perFileMaxBytes,
           totalMaxBytes: opts.totalMaxBytes,
+          existingPagesMaxBytes: opts.existingPagesMaxBytes,
+          maxFilesPerPass: opts.maxFilesPerPass,
           outputPath: opts.output,
           execute: opts.execute,
           plan: opts.plan,

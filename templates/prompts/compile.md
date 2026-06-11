@@ -1,7 +1,7 @@
 # `memory compile` — distill raw observations into curated wiki pages
 <!-- memory:template compile:2026-05-31-deterministic-rewrite -->
 
-You are running the compile workflow inside the user's active agent session. The CLI emitted this prompt with several context blocks substituted in (`{{schema_content}}`, `{{index_content}}`, `{{existing_pages}}`, etc.). Your job is to read those, then use your file-editing tools to update the wiki in `~/.memory/wiki/`.
+You are running the compile workflow inside the user's active agent session. The CLI emitted this prompt with several context blocks substituted in (`schema_content`, `index_content`, `existing_pages`, etc.). Your job is to read those, then use your file-editing tools to update the wiki in `~/.memory/wiki/`.
 
 You do the entire compile pass in this session. Do not call out to another agent. Do not return a "here's what I would do" plan — actually do the work.
 

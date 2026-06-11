@@ -1,19 +1,25 @@
 param(
   [string]$RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path,
   [string]$MemoryRoot = (Join-Path $env:USERPROFILE ".memory"),
-  [string]$Model = "qwen/qwen3.5-9b",
+  [string]$Model = "google/gemma-4-e4b",
   [string]$BaseUrl = "http://127.0.0.1:1234/v1",
-  [int]$ContextLength = 65536,
-  [int]$TotalMaxBytes = 150000,
-  [int]$MaxPasses = 4000
+  [int]$ContextLength = 32768,
+  [int]$TotalMaxBytes = 20000,
+  [int]$ExistingPagesMaxBytes = 6000,
+  [int]$MaxFilesPerPass = 5,
+  [int]$MaxOutputTokens = 6000,
+  [int]$MaxPasses = 30000
 )
 
 # Runs the raw-history backfill drain against a local LM Studio model, then
 # restores the original config.yaml (cloud model) when the drain exits for
 # any reason. Designed for multi-hour/multi-day unattended runs.
 #
-# TotalMaxBytes is sized for the model context: 150KB raw ~= 38k tokens, plus
-# ~15k tokens of prompt overhead and 4k output, fits a 64k context window.
+# Defaults are sized for gemma-4-e4b on the 8GB WhiteKnight GPU (LM Link):
+# 24k context = 7.4GB; prompt = ~6k tokens template+schema, ~3k existing
+# pages (trimmed via ExistingPagesMaxBytes), ~10k raw, 4k output headroom.
+# For a 16GB card use: -Model qwen/qwen3.5-9b -ContextLength 65536
+# -TotalMaxBytes 150000 -ExistingPagesMaxBytes 40000 -MaxPasses 4000.
 
 $ErrorActionPreference = "Stop"
 
@@ -27,17 +33,28 @@ if (-not (Test-Path -LiteralPath $cli)) {
 
 # Preflight: ensure an instance of the model is loaded with enough context.
 # A JIT-loaded instance defaults to 4096 ctx, which rejects compile prompts.
-$loaded = (lms ps 2>$null | Out-String)
+# A 4096-ctx duplicate instance also steals requests, so unload undersized
+# instances of the same model before checking.
+$instances = @()
+try {
+  $instances = @(lms ps --json 2>$null | ConvertFrom-Json)
+} catch {
+  $instances = @()
+}
 $hasAdequateInstance = $false
-foreach ($line in ($loaded -split "`n")) {
-  if ($line -match [regex]::Escape($Model) -and $line -match "\b(\d{4,})\b") {
-    $ctx = [int]($line | Select-String -Pattern "\s(\d{4,7})\s" -AllMatches).Matches[0].Groups[1].Value
-    if ($ctx -ge $ContextLength) { $hasAdequateInstance = $true }
+foreach ($inst in $instances) {
+  if ($inst.modelKey -ne $Model -and $inst.path -ne $Model) { continue }
+  if ([int]$inst.contextLength -ge $ContextLength) {
+    $hasAdequateInstance = $true
+    Write-Host "found loaded instance '$($inst.identifier)' ctx=$($inst.contextLength) device=$($inst.deviceIdentifier)"
+  } else {
+    Write-Host "unloading undersized instance '$($inst.identifier)' (ctx=$($inst.contextLength) < $ContextLength)"
+    lms unload $inst.identifier
   }
 }
 if (-not $hasAdequateInstance) {
   Write-Host "loading $Model with context $ContextLength..."
-  lms load $Model --context-length $ContextLength --gpu max -y
+  lms load $Model --context-length $ContextLength --parallel 1 --gpu max --identifier $Model -y
   if ($LASTEXITCODE -ne 0) { throw "lms load failed" }
 }
 
@@ -54,7 +71,7 @@ $llmBlock = @"
 llm:
   provider: openai-compat
   model: $Model
-  max_tokens: 4096
+  max_tokens: $MaxOutputTokens
   temperature: 0.2
   allow_internal_hosts: true
   options:
@@ -67,7 +84,7 @@ Write-Host "config.yaml switched to local model '$Model' via $BaseUrl"
 Write-Host "starting backfill drain (max $MaxPasses passes, $TotalMaxBytes bytes/pass)..."
 
 try {
-  & node $cli compile --execute --drain --backfill --max-passes $MaxPasses --total-max-bytes $TotalMaxBytes
+  & node $cli compile --execute --drain --backfill --max-passes $MaxPasses --total-max-bytes $TotalMaxBytes --existing-pages-max-bytes $ExistingPagesMaxBytes --max-files-per-pass $MaxFilesPerPass
   $exit = $LASTEXITCODE
 } finally {
   Copy-Item $backupPath $configPath -Force

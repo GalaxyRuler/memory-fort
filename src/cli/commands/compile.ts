@@ -49,6 +49,7 @@ export interface CompileOptions {
   llmFactory?: (config: LLMConfig | null, env: NodeJS.ProcessEnv) => LLMProvider;
   skipFactConsolidation?: boolean;
   backfill?: boolean;
+  maxFilesPerPass?: number;
 }
 
 export interface CompileDrainOptions extends CompileOptions {
@@ -231,7 +232,9 @@ export async function runCompile(
   // Defer files beyond the per-pass cap. Aging keeps these at the front of the
   // next pass; they still count toward the remaining backlog so `--drain` knows
   // there is more to do.
-  const deferredRaws = eligibleRaws.splice(DEFAULT_MAX_FILES_PER_PASS);
+  const deferredRaws = eligibleRaws.splice(
+    readPositiveInteger(opts.maxFilesPerPass, DEFAULT_MAX_FILES_PER_PASS, "maxFilesPerPass"),
+  );
   for (const raw of deferredRaws) {
     rawFilesSkipped.push({
       path: raw.candidate.path,
