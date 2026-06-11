@@ -16,6 +16,7 @@ import {
   parseCompileOperationBlock,
 } from "../compile/execute.js";
 import { rebuildIndex } from "../compile/index.js";
+import { recordProposalResolved } from "../compile/proposal-ledger.js";
 import {
   scoreProposalConfidence,
   type ProposalConfidence,
@@ -216,6 +217,7 @@ async function promoteCompileProposal(vaultRoot: string, slug: string): Promise<
     throw new Error(`compile proposal apply failed for ${promotedPath}: ${applied.reason}`);
   }
   const indexPath = await maybeRebuildPromotedCompileIndex(vaultRoot, parsed.operation, promotedPath, targetExisted);
+  await recordProposalResolved(vaultRoot, parsed.operation, "approved", { path: promotedPath });
   await rm(fullPath);
   await commitVaultChange({
     memoryRoot: vaultRoot,
@@ -231,6 +233,10 @@ async function rejectCompileProposal(vaultRoot: string, slug: string): Promise<{
   const fullPath = join(vaultRoot, ...rejectedPath.split("/"));
   if (!existsSync(fullPath)) {
     throw new Error(`proposed compile not found: ${rejectedPath}`);
+  }
+  const parsed = parseCompileOperationBlock(await readFile(fullPath, "utf-8"));
+  if (parsed.ok) {
+    await recordProposalResolved(vaultRoot, parsed.operation, "rejected", { path: rejectedPath });
   }
   await rm(fullPath);
   await commitVaultChange({

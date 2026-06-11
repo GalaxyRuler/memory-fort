@@ -12,6 +12,7 @@ import { type PageType } from "../storage/paths.js";
 import { kebabCase, normalizeWikiPagePath } from "../storage/slug.js";
 import { extractEntityFacts } from "./fact-extract.js";
 import { filterNoiseForPage } from "./filter-noise.js";
+import { isProposalResolved } from "./proposal-ledger.js";
 import { synthesizeNarrative } from "./synthesize-narrative.js";
 import type { CompressedFact } from "../facts/store.js";
 
@@ -1374,6 +1375,11 @@ async function stageCompileProposal(
   const slug = kebabCase(basename(target, ".md")) || "compile-proposal";
   const relPath = `wiki/compile-proposed/${slug}.md`;
   const fullPath = join(vaultRoot, ...relPath.split("/"));
+  // A proposal the user already approved or rejected must not resurface in
+  // the inbox — long drains regenerate identical low-confidence operations.
+  if (await isProposalResolved(vaultRoot, operation)) {
+    return relPath;
+  }
   await atomicWrite(
     fullPath,
     serializeFrontmatter(
