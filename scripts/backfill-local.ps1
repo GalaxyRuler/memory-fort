@@ -23,6 +23,14 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+# Single-instance guard: the startup-folder resume shortcut runs this at every
+# logon; if a drain is already active, exit quietly instead of racing it.
+$script:mutex = New-Object System.Threading.Mutex($false, "Local\MemoryFortBackfill")
+if (-not $script:mutex.WaitOne(0)) {
+  Write-Host "another backfill instance is already running; exiting"
+  exit 0
+}
+
 $configPath = Join-Path $MemoryRoot "config.yaml"
 $backupPath = Join-Path $MemoryRoot "config.yaml.backfill-backup"
 $cli = Join-Path $RepoRoot "dist\cli.mjs"
