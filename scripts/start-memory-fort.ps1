@@ -3,7 +3,7 @@ param(
   [string]$HostName = "127.0.0.1",
   [string]$RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path,
   [string]$MemoryRoot = (Join-Path $env:USERPROFILE ".memory"),
-  [int]$TimeoutSeconds = 30
+  [int]$TimeoutSeconds = 60
 )
 
 $ErrorActionPreference = "Stop"
@@ -43,6 +43,14 @@ foreach ($listener in $listeners) {
   }
 }
 
+# Wait for the killed listener to actually release the port — starting the new
+# dashboard immediately races the OS socket teardown and fails the bind.
+$portFreeDeadline = (Get-Date).AddSeconds(10)
+while ((Get-Date) -lt $portFreeDeadline) {
+  if (-not (Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue)) { break }
+  Start-Sleep -Milliseconds 250
+}
+
 $logDir = Join-Path $MemoryRoot "logs"
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 
@@ -67,25 +75,35 @@ try {
   }
 }
 
+# Readiness: poll the cheap status endpoint. The search endpoint does a full
+# retrieval (corpus build + Voyage + rerank) and can exceed any short timeout
+# on a cold start with a large vault — wrong probe for "is the server up".
 $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
-$search = $null
+$status = $null
 do {
   Start-Sleep -Milliseconds 500
   try {
-    $search = Invoke-RestMethod -Uri "http://$HostName`:$Port/memory/api/search?q=memory&k=1&noHyde=true" -TimeoutSec 2
+    $status = Invoke-RestMethod -Uri "http://$HostName`:$Port/memory/api/status" -TimeoutSec 3
   } catch {
-    $search = $null
+    $status = $null
   }
-} while ($null -eq $search -and (Get-Date) -lt $deadline)
+} while ($null -eq $status -and (Get-Date) -lt $deadline)
 
-if ($null -eq $search) {
+if ($null -eq $status) {
   Write-JsonLine @{ ok = $false; phase = "smoke"; error = "dashboard did not answer before timeout"; pid = $process.Id; port = $Port }
   exit 1
 }
 
+# Quality probe: one search call, generous timeout, warn-only. Degraded or slow
+# search must not block opening — the dashboard is up and usable.
 $degraded = $false
-if ($null -ne $search.degraded) {
-  $degraded = [bool]$search.degraded
+$searchTimings = $null
+try {
+  $search = Invoke-RestMethod -Uri "http://$HostName`:$Port/memory/api/search?q=memory&k=1&noHyde=true" -TimeoutSec 60
+  if ($null -ne $search.degraded) { $degraded = [bool]$search.degraded }
+  $searchTimings = $search.timings
+} catch {
+  $degraded = $true
 }
 
 Write-JsonLine @{
@@ -94,9 +112,6 @@ Write-JsonLine @{
   pid = $process.Id
   port = $Port
   degraded = $degraded
-  totalMs = $search.timings.totalMs
-  rerankMs = $search.timings.rerankMs
+  totalMs = $searchTimings.totalMs
+  rerankMs = $searchTimings.rerankMs
 }
-
-# Degraded search (e.g. Voyage API hiccup or machine under load) is a warning,
-# not a launch failure — the dashboard is up and usable.
