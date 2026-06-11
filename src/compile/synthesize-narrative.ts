@@ -519,10 +519,26 @@ function parseSynthesisOutput(content: string): NarrativeSynthesisOutput {
 }
 
 function parseJsonObject(content: string): unknown {
-  const fenced = /```(?:json)?\s*([\s\S]*?)```/mu.exec(content)?.[1]?.trim();
-  const raw = fenced ?? content.slice(content.indexOf("{"), content.lastIndexOf("}") + 1);
-  if (!raw || raw.length === 0) throw new Error("narrative synthesis: LLM returned invalid JSON");
-  return JSON.parse(raw) as unknown;
+  // Reasoning models may emit <think> traces and multiple fences; try every
+  // plausible candidate before giving up instead of trusting the first fence.
+  const cleaned = content.replace(/<think>[\s\S]*?<\/think>/gu, "");
+  const candidates: string[] = [];
+  for (const match of cleaned.matchAll(/```(?:json)?\s*([\s\S]*?)```/gmu)) {
+    const inner = match[1]?.trim();
+    if (inner) candidates.push(inner);
+  }
+  const start = cleaned.indexOf("{");
+  const end = cleaned.lastIndexOf("}");
+  if (start !== -1 && end > start) candidates.push(cleaned.slice(start, end + 1));
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate) as unknown;
+      if (typeof parsed === "object" && parsed !== null) return parsed;
+    } catch {
+      // try the next candidate
+    }
+  }
+  throw new Error("narrative synthesis: LLM returned invalid JSON");
 }
 
 function stringArray(value: unknown): string[] {

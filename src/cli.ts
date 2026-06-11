@@ -637,7 +637,12 @@ program
             backfill: opts.backfill,
             onProgress: (line) => console.error(line),
           });
-          console.error(`Compile drain ${result.stopReason === "empty" ? "complete" : "stopped at max passes"}`);
+          const stopLabel = result.stopReason === "empty"
+            ? "complete"
+            : result.stopReason === "stalled"
+              ? "stalled: watermarks stopped advancing (check LLM output quality)"
+              : "stopped at max passes";
+          console.error(`Compile drain ${stopLabel}`);
           console.error(`  passes:              ${result.passes.length}`);
           console.error(`  raw files included:  ${result.totalRawFilesIncluded}`);
           console.error(`  watermarks advanced: ${result.totalWatermarksAdvanced}`);

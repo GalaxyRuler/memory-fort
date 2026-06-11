@@ -78,7 +78,7 @@ export interface CompileResult {
 
 export interface CompileDrainResult {
   passes: CompileResult[];
-  stopReason: "empty" | "max-passes";
+  stopReason: "empty" | "max-passes" | "stalled";
   totalRawFilesIncluded: number;
   totalWatermarksAdvanced: number;
   rawBytesRemaining: number;
@@ -398,6 +398,7 @@ export async function runCompileDrain(
   const passes: CompileResult[] = [];
   let totalRawFilesIncluded = 0;
   let totalWatermarksAdvanced = 0;
+  let consecutiveStalls = 0;
   for (let pass = 1; pass <= maxPasses; pass += 1) {
     const result = await runCompile({ ...opts, execute: true, plan: false, skipFactConsolidation: true });
     passes.push(result);
@@ -414,6 +415,24 @@ export async function runCompileDrain(
         rawBytesRemaining: result.rawBytesRemaining,
         rawFilesRemaining: result.rawFilesRemaining,
       };
+    }
+    // Files were included but no watermark moved — the same batch will be
+    // re-sent next pass. A few retries are fine (transient LLM flakiness),
+    // but a persistent stall must stop the loop, not burn the pass budget.
+    if (result.watermarksAdvanced.length === 0) {
+      consecutiveStalls += 1;
+      if (consecutiveStalls >= 3) {
+        return {
+          passes,
+          stopReason: "stalled",
+          totalRawFilesIncluded,
+          totalWatermarksAdvanced,
+          rawBytesRemaining: result.rawBytesRemaining,
+          rawFilesRemaining: result.rawFilesRemaining,
+        };
+      }
+    } else {
+      consecutiveStalls = 0;
     }
   }
 

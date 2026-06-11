@@ -92,13 +92,31 @@ export async function runFactConsolidation(opts: FactConsolidationOptions): Prom
       pagesUnchanged += 1;
       continue;
     }
-    const result = await synthesizeNarrative({
-      vaultRoot: opts.vaultRoot,
-      pageRelPath: candidate.page.relPath,
-      facts: filtered.accepted,
-      llm: opts.llm,
-      now: opts.now ?? new Date(),
-    });
+    let result;
+    try {
+      result = await synthesizeNarrative({
+        vaultRoot: opts.vaultRoot,
+        pageRelPath: candidate.page.relPath,
+        facts: filtered.accepted,
+        llm: opts.llm,
+        now: opts.now ?? new Date(),
+      });
+    } catch (error) {
+      // One bad LLM response (e.g. invalid JSON from a weaker model) must not
+      // abort the whole consolidation run — skip this candidate and continue.
+      llmCalls += 1;
+      rejected.push({
+        path: candidate.page.relPath,
+        reason: `narrative synthesis failed: ${error instanceof Error ? error.message : String(error)}`,
+      });
+      outcomes.push({
+        path: candidate.page.relPath,
+        outcome: "rejected",
+        reason: `narrative synthesis failed: ${error instanceof Error ? error.message : String(error)}`,
+        contentPreserved: true,
+      });
+      continue;
+    }
     llmCalls += result.outcome === "unchanged" ? 1 : 2;
     rewriteTokensUsed = addTokenUsage(rewriteTokensUsed, result.tokensUsed);
 

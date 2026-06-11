@@ -58,7 +58,7 @@ export type CompileOperation =
     };
 
 export type ParseCompileOperationsResult =
-  | { ok: true; operations: CompileOperation[] }
+  | { ok: true; operations: CompileOperation[]; unsupportedSkipped?: number }
   | { ok: false; reason: string };
 
 export interface ApplyCompileOperationsOptions {
@@ -138,7 +138,10 @@ export function isKnowledgePageType(type: PageType): boolean {
 }
 
 export function parseCompileOperationsBlock(text: string): ParseCompileOperationsResult {
-  const block = COMPILE_OPS_RE.exec(text)?.[1];
+  // Reasoning models (e.g. qwen3) may wrap output in <think> blocks; strip them
+  // so a fence inside the reasoning trace can't shadow the real compile-ops block.
+  const cleaned = text.replace(/<think>[\s\S]*?<\/think>/gu, "");
+  const block = COMPILE_OPS_RE.exec(cleaned)?.[1];
   if (!block) return { ok: false, reason: "missing fenced compile-ops block" };
 
   let parsed: unknown;
@@ -158,13 +161,23 @@ export function parseCompileOperationsBlock(text: string): ParseCompileOperation
       : null;
   if (!candidates) return { ok: false, reason: "compile-ops must be an array or { operations: [...] }" };
 
+  // Skip unsupported operations instead of rejecting the whole response — one
+  // malformed op from a weaker model must not discard the valid ops beside it
+  // (rejecting everything freezes the compile watermark and stalls drains).
   const operations: CompileOperation[] = [];
+  let unsupportedSkipped = 0;
   for (const candidate of candidates) {
     const operation = readOperation(candidate);
-    if (!operation) return { ok: false, reason: "compile-ops contains an unsupported operation" };
+    if (!operation) {
+      unsupportedSkipped += 1;
+      continue;
+    }
     operations.push(operation);
   }
-  return { ok: true, operations };
+  if (operations.length === 0 && unsupportedSkipped > 0) {
+    return { ok: false, reason: "compile-ops contains only unsupported operations" };
+  }
+  return { ok: true, operations, ...(unsupportedSkipped > 0 ? { unsupportedSkipped } : {}) };
 }
 
 export function parseCompileOperationBlock(text: string): { ok: true; operation: CompileOperation } | { ok: false; reason: string } {
