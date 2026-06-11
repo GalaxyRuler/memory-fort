@@ -83,12 +83,19 @@ its reusable takeaway → `lessons`. When an issue page's failure later proves
 resolved, record the fix on the issue page (relations: `fixed_by`) rather than
 deleting it.
 
-**Core memories (`cognitive_type: core`).** Reserve `core` for durable
-identity-level facts about the user: stable preferences, standing constraints,
-long-lived conventions (e.g. "always tests on temp vaults, never the real
-one"). Set `cognitive_type: core` in the page frontmatter when the evidence
-shows a stable preference repeated across sessions. Most pages are NOT core —
-when in doubt, use `semantic`.
+**Core memories (`cognitive_type: core`) — threshold exemption for explicit
+directives.** Reserve `core` for durable identity-level facts about the user:
+stable preferences, standing constraints, long-lived conventions (e.g. "always
+tests on temp vaults, never the real one"). Actively scan `## [..] Prompt`
+blocks for operator directives — phrases like "always X", "never Y", "from now
+on", "make sure you always", "I want you to always". An explicit directive
+stated ONCE with durable intent justifies a core memory immediately — append it
+to `wiki/preferences.md` (the canonical core page) or create a core-tagged page;
+the cross-session threshold applies to INFERRED preferences (behavior patterns
+never stated as a rule), not to explicit instructions. Inferred preferences
+still need 3+ sessions of evidence. Entity/knowledge pages are NOT core — when
+classifying a page that is about a project, tool, or event rather than the
+operator, use `semantic`.
 Prefer one page operation per normalized target path; combine related new
 content into the `body` or `section` for that page instead of emitting a
 separate write and append for the same page.
