@@ -50,6 +50,7 @@ export interface CompileOptions {
   skipFactConsolidation?: boolean;
   backfill?: boolean;
   maxFilesPerPass?: number;
+  excludeRawPaths?: ReadonlySet<string>;
 }
 
 export interface CompileDrainOptions extends CompileOptions {
@@ -61,6 +62,7 @@ export interface CompileDrainOptions extends CompileOptions {
 export interface CompileResult {
   prompt: string;
   rawFilesIncluded: string[];
+  rawRelPathsIncluded: string[];
   rawFilesSkipped: { path: string; reason: string }[];
   sinceCutoff: string;
   watermarkMode: "gated" | "bypassed";
@@ -84,6 +86,7 @@ export interface CompileDrainResult {
   totalWatermarksAdvanced: number;
   rawBytesRemaining: number;
   rawFilesRemaining: number;
+  quarantinedRawPaths?: string[];
 }
 
 interface RawCandidate {
@@ -178,6 +181,13 @@ export async function runCompile(
 
   const rawFiles = await listRawFiles(root, join(root, "raw"));
   for (const candidate of rawFiles) {
+    if (opts.excludeRawPaths?.has(candidate.relPath)) {
+      rawFilesSkipped.push({
+        path: candidate.path,
+        reason: "quarantined this run after a no-progress pass",
+      });
+      continue;
+    }
     let startByte = 0;
     const watermark = watermarkMode === "gated" ? consumed[candidate.relPath] : undefined;
     if (watermarkMode === "gated" && watermark) {
@@ -356,6 +366,7 @@ export async function runCompile(
   return {
     prompt,
     rawFilesIncluded,
+    rawRelPathsIncluded: includedWatermarks.map((item) => item.relPath),
     rawFilesSkipped,
     sinceCutoff: sinceDate.toISOString(),
     watermarkMode,
@@ -402,8 +413,15 @@ export async function runCompileDrain(
   let totalRawFilesIncluded = 0;
   let totalWatermarksAdvanced = 0;
   let consecutiveStalls = 0;
+  const quarantined = new Set<string>(opts.excludeRawPaths ?? []);
   for (let pass = 1; pass <= maxPasses; pass += 1) {
-    const result = await runCompile({ ...opts, execute: true, plan: false, skipFactConsolidation: true });
+    const result = await runCompile({
+      ...opts,
+      execute: true,
+      plan: false,
+      skipFactConsolidation: true,
+      excludeRawPaths: quarantined,
+    });
     passes.push(result);
     totalRawFilesIncluded += result.rawFilesIncluded.length;
     totalWatermarksAdvanced += result.watermarksAdvanced.length;
@@ -417,22 +435,23 @@ export async function runCompileDrain(
         totalWatermarksAdvanced,
         rawBytesRemaining: result.rawBytesRemaining,
         rawFilesRemaining: result.rawFilesRemaining,
+        quarantinedRawPaths: [...quarantined],
       };
     }
-    // Files were included but no watermark moved — the same batch will be
-    // re-sent next pass. A few retries are fine (transient LLM flakiness),
-    // but a persistent stall must stop the loop, not burn the pass budget.
+    // Files were included but no watermark moved — the same batch would be
+    // re-sent next pass. Retry once (transient LLM flakiness), then quarantine
+    // the batch for the rest of this run so the drain moves on to other files.
+    // Quarantined files keep their watermarks and are retried on the next run.
     if (result.watermarksAdvanced.length === 0) {
       consecutiveStalls += 1;
-      if (consecutiveStalls >= 3) {
-        return {
-          passes,
-          stopReason: "stalled",
-          totalRawFilesIncluded,
-          totalWatermarksAdvanced,
-          rawBytesRemaining: result.rawBytesRemaining,
-          rawFilesRemaining: result.rawFilesRemaining,
-        };
+      if (consecutiveStalls >= 2) {
+        for (const relPath of result.rawRelPathsIncluded) quarantined.add(relPath);
+        opts.onProgress?.(
+          `quarantined ${result.rawRelPathsIncluded.length} file(s) after repeated no-progress passes; continuing with the rest`,
+          result,
+          pass,
+        );
+        consecutiveStalls = 0;
       }
     } else {
       consecutiveStalls = 0;
@@ -447,6 +466,7 @@ export async function runCompileDrain(
     totalWatermarksAdvanced,
     rawBytesRemaining: last?.rawBytesRemaining ?? 0,
     rawFilesRemaining: last?.rawFilesRemaining ?? 0,
+    quarantinedRawPaths: [...quarantined],
   };
 }
 

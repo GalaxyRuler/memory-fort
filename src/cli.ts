@@ -654,6 +654,12 @@ program
           console.error(`  watermarks advanced: ${result.totalWatermarksAdvanced}`);
           console.error(`  raw files remaining: ${result.rawFilesRemaining}`);
           console.error(`  raw bytes remaining: ${result.rawBytesRemaining}`);
+          if (result.quarantinedRawPaths && result.quarantinedRawPaths.length > 0) {
+            console.error(`  quarantined (retried next run): ${result.quarantinedRawPaths.length}`);
+            for (const relPath of result.quarantinedRawPaths.slice(0, 10)) {
+              console.error(`    - ${relPath}`);
+            }
+          }
           return;
         }
         const result = await runCompile({
