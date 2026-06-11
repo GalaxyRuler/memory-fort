@@ -141,25 +141,46 @@ export function parseCompileOperationsBlock(text: string): ParseCompileOperation
   // Reasoning models (e.g. qwen3) may wrap output in <think> blocks; strip them
   // so a fence inside the reasoning trace can't shadow the real compile-ops block.
   const cleaned = text.replace(/<think>[\s\S]*?<\/think>/gu, "");
-  const block = COMPILE_OPS_RE.exec(cleaned)?.[1];
-  if (!block) return { ok: false, reason: "missing fenced compile-ops block" };
+  // Prefer the instructed ```compile-ops fence, but fall back to ```json /
+  // untagged fences — weaker models ignore the fence-tag instruction while
+  // still producing a valid operations payload. Per-op validation below is
+  // what actually gates correctness, not the fence label.
+  const blocks: string[] = [];
+  const tagged = COMPILE_OPS_RE.exec(cleaned)?.[1];
+  if (tagged) blocks.push(tagged);
+  for (const match of cleaned.matchAll(/```(?:json)?\s*\n([\s\S]*?)```/gmu)) {
+    const inner = match[1]?.trim();
+    if (inner && inner !== tagged?.trim()) blocks.push(inner);
+  }
+  if (blocks.length === 0) return { ok: false, reason: "missing fenced compile-ops block" };
 
   let parsed: unknown;
-  try {
-    parsed = JSON.parse(block);
-  } catch (error) {
+  let lastParseError: unknown;
+  for (const block of blocks) {
+    try {
+      const candidate = JSON.parse(block) as unknown;
+      const shaped = Array.isArray(candidate)
+        || (typeof candidate === "object" && candidate !== null && Array.isArray((candidate as { operations?: unknown }).operations));
+      if (shaped) {
+        parsed = candidate;
+        break;
+      }
+    } catch (error) {
+      lastParseError = error;
+    }
+  }
+  if (parsed === undefined) {
     return {
       ok: false,
-      reason: `compile-ops JSON parse error: ${error instanceof Error ? error.message : String(error)}`,
+      reason: lastParseError
+        ? `compile-ops JSON parse error: ${lastParseError instanceof Error ? lastParseError.message : String(lastParseError)}`
+        : "compile-ops must be an array or { operations: [...] }",
     };
   }
 
   const candidates = Array.isArray(parsed)
     ? parsed
-    : typeof parsed === "object" && parsed !== null && Array.isArray((parsed as { operations?: unknown }).operations)
-      ? (parsed as { operations: unknown[] }).operations
-      : null;
-  if (!candidates) return { ok: false, reason: "compile-ops must be an array or { operations: [...] }" };
+    : (parsed as { operations: unknown[] }).operations;
 
   // Skip unsupported operations instead of rejecting the whole response — one
   // malformed op from a weaker model must not discard the valid ops beside it
