@@ -178,9 +178,18 @@ describe("entity dedup", () => {
     });
     expect(commitVaultChange).toHaveBeenCalledWith({
       memoryRoot: tmp,
-      paths: ["wiki/.entity-aliases.json"],
+      paths: [
+        "wiki/projects/atlasstudio.md",
+        "wiki/archive/atlasstudio.md",
+        "wiki/.entity-aliases.json",
+      ],
       message: "merge entity: Atlas Studio",
     });
+    // The alias page is archived, not left live as a duplicate.
+    await expect(readFile(join(tmp, "wiki", "projects", "atlasstudio.md"), "utf-8")).rejects.toThrow();
+    const archived = await readFile(join(tmp, "wiki", "archive", "atlasstudio.md"), "utf-8");
+    expect(archived).toContain("status: archived");
+    expect(archived).toContain("superseded_by: wiki/projects/atlas-studio.md");
     expect(commitVaultChange).toHaveBeenCalledWith({
       memoryRoot: tmp,
       paths: ["wiki/entity-merges-proposed.json"],
