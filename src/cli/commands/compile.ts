@@ -8,6 +8,7 @@ import {
 } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
 import { applyCompileOperations, parseCompileOperationsBlock, type ApplyCompileOperationsResult } from "../../compile/execute.js";
+import { clearOpsJournal } from "../../compile/ops-journal.js";
 import { runFactConsolidation } from "../../compile/fact-consolidate.js";
 import { rebuildIndex, type RebuildIndexResult } from "../../compile/index.js";
 import { loadCompressedFacts } from "../../facts/store.js";
@@ -25,7 +26,9 @@ import {
 } from "../../storage/paths.js";
 import { parseFrontmatter } from "../../storage/frontmatter.js";
 import {
+  mutateCompileStateFile,
   readCompileStateFile,
+  readCompressedMap,
   readConsumedMap,
   summarizeCompilePending,
   writeCompileStateFile,
@@ -170,6 +173,7 @@ export async function runCompile(
     compileState = await readCompileStateForCompile(root);
   }
   const consumed = readConsumedMap(compileState);
+  const compressedMap = readCompressedMap(compileState);
 
   const rawFilesSkipped: CompileResult["rawFilesSkipped"] = [];
   const rawFilesIncluded: string[] = [];
@@ -185,6 +189,14 @@ export async function runCompile(
       rawFilesSkipped.push({
         path: candidate.path,
         reason: "quarantined this run after a no-progress pass",
+      });
+      continue;
+    }
+    const compressedWatermark = compressedMap[candidate.relPath];
+    if (compressedWatermark && compressedWatermark.bytes >= candidate.size) {
+      rawFilesSkipped.push({
+        path: candidate.path,
+        reason: "fully covered by compress — facts already extracted",
       });
       continue;
     }
@@ -354,6 +366,9 @@ export async function runCompile(
     execution,
     includedWatermarks,
   });
+  if (watermarksAdvanced.length > 0) {
+    await clearOpsJournal(root);
+  }
   const indexRebuild = execution?.mode === "execute" && !opts.plan
     && execution.applied.length + execution.proposed.length > 0
     ? await rebuildIndex(root)
@@ -622,6 +637,7 @@ async function executeCompilePrompt(opts: CompileOptions & {
     plan: opts.plan,
     rewriteLLM: opts.plan ? undefined : llm,
     extractFacts: false,
+    journal: !opts.plan,
   });
   return {
     mode: opts.plan ? "plan" : "execute",
@@ -748,15 +764,16 @@ async function maybeAdvanceWatermarks(opts: {
   if (opts.execution.applied.length + opts.execution.proposed.length === 0) return [];
   if (opts.includedWatermarks.length === 0) return [];
 
-  const state = await readCompileStateForCompile(opts.root);
-  const consumed = readConsumedMap(state);
-  for (const included of opts.includedWatermarks) {
-    consumed[included.relPath] = {
-      bytes: included.bytes,
-      lastObservationAt: included.lastObservationAt,
-    };
-  }
-  await writeCompileStateFile(opts.root, { ...state, consumed });
+  await mutateCompileStateFile(opts.root, (state) => {
+    const consumed = readConsumedMap(state);
+    for (const included of opts.includedWatermarks) {
+      consumed[included.relPath] = {
+        bytes: included.bytes,
+        lastObservationAt: included.lastObservationAt,
+      };
+    }
+    return { ...state, consumed };
+  });
   return opts.includedWatermarks.map((item) => item.relPath);
 }
 
@@ -777,7 +794,7 @@ async function resetConsumedWatermarks(
     }
   }
   const cleared = before - Object.keys(consumed).length;
-  await writeCompileStateFile(root, { ...state, consumed });
+  await mutateCompileStateFile(root, (fresh) => ({ ...fresh, consumed }));
   return { pattern, cleared };
 }
 

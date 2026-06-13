@@ -1,6 +1,7 @@
 import { copyFile, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { atomicWrite } from "../storage/atomic-write.js";
+import { withFileLock } from "../storage/file-lock.js";
 import {
   isUnitStubVector,
   isZeroVector,
@@ -122,14 +123,35 @@ export async function saveEmbeddings(
 ): Promise<void> {
   assertEmbeddingsWritable(records, opts.expectedDim);
   const path = embeddingsPath(memoryRoot, kind);
-  const content =
-    records.length === 0 ? "" : `${records.map((record) => JSON.stringify(record)).join("\n")}\n`;
-  await withEmbeddingWriteLock(path, async () => {
-    if (opts.backupPrevious === true) {
-      await backupExistingEmbeddings(path);
-    }
-    await atomicWrite(path, content);
-  });
+  await withEmbeddingWriteLock(path, () =>
+    withFileLock(path, async () => {
+      if (opts.backupPrevious === true) {
+        await backupExistingEmbeddings(path);
+      }
+      await writeEmbeddingsUnlocked(path, records);
+    }),
+  );
+}
+
+export async function updateEmbeddings(
+  memoryRoot: string,
+  kind: EmbeddingKind,
+  update: (records: EmbeddingRecord[]) => EmbeddingRecord[] | Promise<EmbeddingRecord[]>,
+  opts: SaveEmbeddingsOptions = {},
+): Promise<EmbeddingRecord[]> {
+  const path = embeddingsPath(memoryRoot, kind);
+  return withEmbeddingWriteLock(path, () =>
+    withFileLock(path, async () => {
+      const { records } = await loadEmbeddings(memoryRoot, kind);
+      const next = await update(records);
+      assertEmbeddingsWritable(next, opts.expectedDim);
+      if (opts.backupPrevious === true) {
+        await backupExistingEmbeddings(path);
+      }
+      await writeEmbeddingsUnlocked(path, next);
+      return next;
+    }),
+  );
 }
 
 export function assertEmbeddingsWritable(
@@ -152,10 +174,13 @@ export async function removeStale(
   kind: EmbeddingKind,
   knownPaths: Set<string>,
 ): Promise<{ removed: number }> {
-  const { records } = await loadEmbeddings(memoryRoot, kind);
-  const kept = records.filter((record) => knownPaths.has(record.path));
-  await saveEmbeddings(memoryRoot, kind, kept);
-  return { removed: records.length - kept.length };
+  let removed = 0;
+  await updateEmbeddings(memoryRoot, kind, (records) => {
+    const kept = records.filter((record) => knownPaths.has(record.path));
+    removed = records.length - kept.length;
+    return kept;
+  });
+  return { removed };
 }
 
 export async function markEmbeddingsArchived(
@@ -164,14 +189,14 @@ export async function markEmbeddingsArchived(
   paths: Set<string>,
   archived: boolean,
 ): Promise<{ updated: number }> {
-  const { records } = await loadEmbeddings(memoryRoot, kind);
   let updated = 0;
-  const next = records.map((record) => {
-    if (!paths.has(record.path)) return record;
-    updated += 1;
-    return archived ? { ...record, archived: true } : { ...record, archived: false };
-  });
-  await saveEmbeddings(memoryRoot, kind, next);
+  await updateEmbeddings(memoryRoot, kind, (records) =>
+    records.map((record) => {
+      if (!paths.has(record.path)) return record;
+      updated += 1;
+      return { ...record, archived };
+    }),
+  );
   return { updated };
 }
 
@@ -200,6 +225,12 @@ function embeddingsPath(memoryRoot: string, kind: EmbeddingKind): string {
 
 function metaPath(memoryRoot: string): string {
   return join(memoryRoot, "embeddings", "embeddings.meta.json");
+}
+
+async function writeEmbeddingsUnlocked(path: string, records: EmbeddingRecord[]): Promise<void> {
+  const content =
+    records.length === 0 ? "" : `${records.map((record) => JSON.stringify(record)).join("\n")}\n`;
+  await atomicWrite(path, content);
 }
 
 async function backupExistingEmbeddings(path: string): Promise<void> {

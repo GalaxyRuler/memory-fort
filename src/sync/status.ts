@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { atomicWrite } from "../storage/atomic-write.js";
+import { withFileLock } from "../storage/file-lock.js";
 import type { CommandRunner } from "./git-remote.js";
 
 export type SyncState =
@@ -58,6 +59,18 @@ export async function writeSyncStateFile(memoryRoot: string, state: SyncStateFil
   await atomicWrite(syncStatePath(memoryRoot), `${JSON.stringify(state, null, 2)}\n`);
 }
 
+export async function mutateSyncStateFile(
+  memoryRoot: string,
+  mutator: (state: SyncStateFile) => SyncStateFile | Promise<SyncStateFile>,
+): Promise<SyncStateFile> {
+  return withFileLock(syncStatePath(memoryRoot), async () => {
+    const state = await readSyncStateFile(memoryRoot);
+    const next = await mutator(state);
+    await writeSyncStateFile(memoryRoot, next);
+    return next;
+  });
+}
+
 export async function getSyncStatus(ctx: StatusContext): Promise<{
   state: SyncState;
   localAhead: number;
@@ -65,15 +78,24 @@ export async function getSyncStatus(ctx: StatusContext): Promise<{
   dirtyFiles: string[];
   syncStateFile: SyncStateFile;
 }> {
-  const syncStateFile = await readSyncStateFile(ctx.memoryRoot);
+  let syncStateFile = await readSyncStateFile(ctx.memoryRoot);
   if (syncStateFile.conflicts_pending > 0) {
-    return {
-      state: "conflicted",
-      localAhead: 0,
-      remoteAhead: 0,
-      dirtyFiles: [],
-      syncStateFile,
-    };
+    const unmerged = await ctx.runner.run("git", ["ls-files", "-u"], { cwd: ctx.memoryRoot });
+    const conflictGone = unmerged.exitCode === 0 && unmerged.stdout.trim().length === 0;
+    if (!conflictGone) {
+      return {
+        state: "conflicted",
+        localAhead: 0,
+        remoteAhead: 0,
+        dirtyFiles: [],
+        syncStateFile,
+      };
+    }
+    syncStateFile = await mutateSyncStateFile(ctx.memoryRoot, (state) => ({
+      ...state,
+      conflicts_pending: 0,
+      conflict_files: [],
+    }));
   }
 
   const dirtyResult = await ctx.runner.run("git", ["status", "--porcelain"], { cwd: ctx.memoryRoot });

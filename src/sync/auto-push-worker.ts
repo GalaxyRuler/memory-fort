@@ -4,8 +4,8 @@ import { runSync, type SyncResult } from "../cli/commands/sync.js";
 import { autoCommitRawsIfDirty, type AutoCommitResult } from "./auto-commit-raws.js";
 import { makeRealCommandRunner } from "./git-remote.js";
 import {
+  mutateSyncStateFile,
   readSyncStateFile,
-  writeSyncStateFile,
 } from "./status.js";
 import {
   deletePendingFile,
@@ -186,12 +186,11 @@ async function updateSyncState(
   now: Date,
   patch: Partial<Awaited<ReturnType<typeof readSyncStateFile>>>,
 ): Promise<void> {
-  const current = await readSyncStateFile(memoryRoot);
-  await writeSyncStateFile(memoryRoot, {
+  await mutateSyncStateFile(memoryRoot, (current) => ({
     ...current,
     ...patch,
     last_sync_attempt: now.toISOString(),
-  });
+  }));
 }
 
 async function markConflict(
@@ -201,13 +200,14 @@ async function markConflict(
   logSink?: (line: string) => Promise<void>,
 ): Promise<void> {
   const iso = nowFn().toISOString();
-  await writeSyncStateFile(memoryRoot, {
+  await mutateSyncStateFile(memoryRoot, (current) => ({
+    ...current,
     last_sync_attempt: iso,
     last_sync_success: null,
     pending_push_count: 0,
     conflicts_pending: conflictFiles.length,
     conflict_files: conflictFiles,
-  });
+  }));
   await atomicAppend(
     join(memoryRoot, "errors.log"),
     `[${iso}] auto-push conflict | ${conflictFiles.length} files | ${conflictFiles.join(", ")}\n`,

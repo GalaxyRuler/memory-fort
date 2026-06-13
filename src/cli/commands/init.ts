@@ -76,6 +76,7 @@ claude-code-plugin/
 const GITATTRIBUTES_CONTENT = `*.md text eol=lf
 *.yaml text eol=lf
 *.json text eol=lf
+raw/**/*.md merge=union
 `;
 
 const DEFAULT_CONFIG = `# memory-system runtime configuration

@@ -12,6 +12,7 @@ import { type PageType } from "../storage/paths.js";
 import { kebabCase, normalizeWikiPagePath } from "../storage/slug.js";
 import { extractEntityFacts } from "./fact-extract.js";
 import { filterNoiseForPage } from "./filter-noise.js";
+import { operationKey, readAppliedOperationKeys, recordAppliedOperation } from "./ops-journal.js";
 import { isProposalResolved } from "./proposal-ledger.js";
 import { synthesizeNarrative } from "./synthesize-narrative.js";
 import type { CompressedFact } from "../facts/store.js";
@@ -70,6 +71,7 @@ export interface ApplyCompileOperationsOptions {
   rewriteLLM?: LLMProvider;
   rewriteMaxBytes?: number;
   extractFacts?: boolean;
+  journal?: boolean;
 }
 
 export interface ApplyCompileOperationsResult {
@@ -98,6 +100,7 @@ export type CompileOperationOutcomeKind =
   | "staged-for-review"
   | "merged"
   | "skipped: no new content"
+  | "skipped: already applied"
   | "rejected";
 
 export type CompileOperationConversion = "write->append: target already existed";
@@ -242,9 +245,22 @@ export async function applyCompileOperations(
   const prepared = prepareCompileOperations(opts.vaultRoot, opts.operations, now);
   result.rejected.push(...prepared.rejected);
   result.outcomes.push(...prepared.outcomes);
+  const journaledKeys = opts.journal && !opts.plan
+    ? await readAppliedOperationKeys(opts.vaultRoot)
+    : new Set<string>();
 
   for (const preparedOperation of prepared.operations) {
     const relPath = compileOperationPath(preparedOperation.operation);
+    if (opts.journal && !opts.plan && journaledKeys.has(operationKey(preparedOperation.operation))) {
+      result.applied.push(relPath);
+      result.outcomes.push({
+        path: relPath,
+        outcome: "skipped: already applied",
+        reason: "recorded in ops journal from an interrupted compile",
+        contentPreserved: true,
+      });
+      continue;
+    }
     if (!isAllowedCompileRelPath(relPath)) {
       result.rejected.push({ path: relPath, reason: "path outside allowed vault targets" });
       result.outcomes.push({
@@ -299,6 +315,9 @@ export async function applyCompileOperations(
         ...(deterministicRewrite.reason ? { reason: deterministicRewrite.reason } : {}),
         contentPreserved: true,
       });
+      if (opts.journal && !opts.plan && deterministicRewrite.outcome === "rewritten") {
+        await recordAppliedOperation(opts.vaultRoot, preparedOperation.operation);
+      }
       continue;
     }
 
@@ -399,6 +418,9 @@ export async function applyCompileOperations(
         ...(appliedConversion ? { converted: appliedConversion } : {}),
         contentPreserved: true,
       });
+      if (opts.journal && !opts.plan && applied.outcome !== "skipped: no new content") {
+        await recordAppliedOperation(opts.vaultRoot, preparedOperation.operation);
+      }
     } else {
       result.rejected.push({ path: relPath, reason: applied.reason });
       result.outcomes.push({

@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { copyFile, mkdir, readFile, readdir, stat } from "node:fs/promises";
 import { dirname, extname, join, relative, resolve } from "node:path";
-import { readCompileStateFile, readConsumedMap, writeCompileStateFile } from "../../compile/state.js";
+import { mutateCompileStateFile, readCompileStateFile, readConsumedMap, writeCompileStateFile } from "../../compile/state.js";
 import { truncateMiddle } from "../../hooks/raw-file.js";
 import { atomicWrite } from "../../storage/atomic-write.js";
 import { formatIsoDate, memoryRoot } from "../../storage/paths.js";
@@ -240,7 +240,7 @@ async function clampConsumedWatermarks(root: string, rewrites: CompactRawRewrite
     }
   }
   if (changed.length > 0) {
-    await writeCompileStateFile(root, { ...state, consumed });
+    await mutateCompileStateFile(root, (fresh) => ({ ...fresh, consumed }));
   }
   return changed;
 }

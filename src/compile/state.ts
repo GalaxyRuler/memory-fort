@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { readFile, readdir, stat } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { atomicWrite } from "../storage/atomic-write.js";
+import { withFileLock } from "../storage/file-lock.js";
 
 export interface CompileConsumedWatermark {
   bytes: number;
@@ -87,6 +88,23 @@ async function readCompileStateJson(path: string): Promise<CompileStateFile> {
 
 export async function writeCompileStateFile(vaultRoot: string, state: CompileStateFile): Promise<void> {
   await atomicWrite(compileStatePath(vaultRoot), `${JSON.stringify(state, null, 2)}\n`);
+}
+
+export async function mutateCompileStateFile(
+  vaultRoot: string,
+  mutator: (state: CompileStateFile) => CompileStateFile | Promise<CompileStateFile>,
+): Promise<CompileStateFile> {
+  return withFileLock(compileStatePath(vaultRoot), async () => {
+    let state: CompileStateFile;
+    try {
+      state = await readCompileStateFile(vaultRoot);
+    } catch {
+      state = {};
+    }
+    const next = await mutator(state);
+    await writeCompileStateFile(vaultRoot, next);
+    return next;
+  });
 }
 
 export function readConsumedMap(state: CompileStateFile): Record<string, CompileConsumedWatermark> {
