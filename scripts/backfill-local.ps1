@@ -15,7 +15,7 @@ param(
 # restores the original config.yaml (cloud model) when the drain exits for
 # any reason. Designed for multi-hour/multi-day unattended runs.
 #
-# Defaults are sized for gemma-4-e4b on the 8GB WhiteKnight GPU (LM Link):
+# Defaults are sized for gemma-4-e4b on an 8GB GPU via LM Link:
 # 24k context = 7.4GB; prompt = ~6k tokens template+schema, ~3k existing
 # pages (trimmed via ExistingPagesMaxBytes), ~10k raw, 4k output headroom.
 # For a 16GB card use: -Model qwen/qwen3.5-9b -ContextLength 65536
