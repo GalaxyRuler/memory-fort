@@ -75,6 +75,7 @@ describe("runConnect", () => {
       "codex",
       "antigravity",
       "antigravity-ide",
+      "chatgpt",
       "hermes",
       "pi",
       "openclaw",

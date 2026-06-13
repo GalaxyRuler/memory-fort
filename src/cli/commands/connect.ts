@@ -1,3 +1,4 @@
+import { runInstallChatGpt } from "./install/chatgpt.js";
 import { installAntigravity } from "./install/antigravity.js";
 import { installClaudeCode } from "./install/claude-code.js";
 import { runInstallClaudeDesktop } from "./install/claude-desktop.js";
@@ -178,6 +179,14 @@ async function installClient(
               detail: `installed (${result.scope}: ${result.configPath})`,
             }
           : { client, ok: false, detail: result.reason ?? "not installed" };
+      }
+      case "chatgpt": {
+        const result = await runInstallChatGpt();
+        return {
+          client,
+          ok: true,
+          detail: `installed (bridge ${result.bridgeUrl}, autostart=${result.autostartRegistered})`,
+        };
       }
     }
   } catch (err) {

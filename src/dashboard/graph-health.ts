@@ -496,7 +496,9 @@ export function metricProjectSubgraphDensity(feed: GraphFeed): MetricResult {
     };
   }).sort((a, b) => a.density - b.density || a.project.path.localeCompare(b.project.path));
 
-  const minDensity = densities[0]?.density ?? 0;
+  // Projects with ≤1 reachable wiki node have no subgraph to measure — exclude from minimum.
+  const measurable = densities.filter((d) => d.nodes > 1);
+  const minDensity = measurable[0]?.density ?? 0;
 
   return {
     id: "graph.project-subgraph-density",
@@ -505,8 +507,8 @@ export function metricProjectSubgraphDensity(feed: GraphFeed): MetricResult {
     unit: "ratio",
     threshold: { warn: 0.1, fail: 0.03, rule: "warn min < 0.10, fail min < 0.03" },
     status: statusBelow(minDensity, 0.1, 0.03),
-    detail: `minimum 2-hop project density across ${projects.length} projects using reasoning edges`,
-    topOffenders: densities.slice(0, 3).map((entry) => ({
+    detail: `minimum 2-hop project density across ${measurable.length}/${projects.length} projects with ≥2 wiki nodes`,
+    topOffenders: measurable.slice(0, 3).map((entry) => ({
       path: entry.project.path,
       value: round(entry.density, 3),
       note: `${entry.intra} intra edges across ${entry.nodes} nodes`,

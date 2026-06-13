@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { open, rename, mkdir, appendFile, type FileHandle } from "node:fs/promises";
+import { open, rename, mkdir, appendFile, unlink, type FileHandle } from "node:fs/promises";
 import { dirname } from "node:path";
 
 const WINDOWS_RENAME_RETRY_CODES = new Set(["EPERM", "EACCES", "EBUSY", "ENOENT"]);
@@ -38,7 +38,12 @@ export async function atomicWrite(
     await handle.close();
   }
   atomicWriteRetryStats.writes += 1;
-  await renameWithWindowsRetry(tmp, absolutePath);
+  try {
+    await renameWithWindowsRetry(tmp, absolutePath);
+  } catch (err) {
+    await unlink(tmp).catch(() => {});
+    throw err;
+  }
   await syncParentDir(absolutePath);
 }
 
