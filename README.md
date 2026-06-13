@@ -285,7 +285,7 @@ Memory Fort organizes curated knowledge by entity type:
 | `threads` | `wiki/threads/` | Narrative arcs across a stretch of work |
 | `procedures` | `wiki/procedures/` | Reusable step-by-step workflows |
 
-Pages link via typed graph edges (`uses`, `depends_on`, `supersedes`, `contradicts`, `caused_by`, `fixed_by`, `derived_from`). Plain YAML frontmatter — no database required.
+Pages link via typed graph edges (`uses`, `depends_on`, `supersedes`, `contradicts`, `caused_by`, `fixed_by`, `learned_from`, `derived_from`, `mentions`, `mentioned_in`, `linked`). Plain YAML frontmatter — no database required.
 
 ---
 

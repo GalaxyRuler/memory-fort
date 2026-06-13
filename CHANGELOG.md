@@ -4,6 +4,54 @@ All notable changes to Memory Fort are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-06-14
+
+Reliability Hardening — cross-process locking, crash-resume journaling, local-model backfill, production bug fixes.
+
+### Added
+- **Cross-process file lock** (`src/storage/file-lock.ts`) — exclusive `O_CREAT|O_EXCL` lock with stale-lock breaking; locked read-modify-write for compile state, embeddings store, and sync state eliminates concurrent watermark/record loss
+- **LLM call timeout** — configurable decorator (default 5 min, `llm.timeout_ms` in config.yaml) wraps all LLM calls to prevent indefinite hangs
+- **Compile ops journal** — crash-resume idempotency; each vault-mutating operation is journaled after it lands, skipped on retry, cleared on watermark advance
+- **`compile --backfill`** — makes unwatermarked raw files eligible regardless of the log-derived `since` cutoff while keeping watermark dedup, so pre-watermark history (1,300+ files) can be drained
+- **Local-model backfill runner** (`scripts/backfill-local.ps1`) — runs backfill drain against a local LM Studio model; handles model loading, config swap, and always restores cloud config on exit
+- **Single-instance mutex guard** — logon auto-resume shortcut cannot race an already-running drain on state.json
+- **Drain quarantine** — after 2 consecutive zero-advance passes, quarantines the batch in-memory and continues with remaining files instead of killing the whole run
+- **Rolling-health progress watcher** (`scripts/watch-backfill.ps1`) — success rate over last 10 passes, files advanced/included, cumulative quarantine count
+- **4 new verify checks** — `storage.orphaned-tmp`, `retrieval.embeddings-integrity`, `sync.state-drift`, `compile.backlog-growth`
+- **Core memory extraction** — compile prompt now scans for explicit operator directives ("always X", "never Y") and extracts them as core memories immediately (single-session threshold exemption)
+- **Small-context compile knobs** — `--existing-pages-max-bytes` and `--max-files-per-pass` for fitting compile passes into small local-model contexts
+- **`openai-compat` provider** accepted in config.yaml validator (factory already supported it)
+- **`merge=union`** for raw observation files in `.gitattributes` — git merge concatenates instead of conflicting
+
+### Changed
+- Sync-state self-heal: `getSyncStatus` clears stale conflict flags when git shows no unmerged paths
+- Compile drain skips files already fully covered by the compress lane
+- Graph-health excludes single-node projects from subgraph density minimum calculation
+- Entity merge now archives alias pages to `wiki/archive/` (status: archived, `superseded_by` provenance) instead of leaving duplicates live; archive excluded from dedup candidates and health metrics
+- `relink-anchors --apply` records per-page skip reasons and continues instead of aborting the batch on the first problematic page
+- Launcher readiness probe uses `/api/status` (cheap) instead of `/api/search` (cold-start timeout); degraded search is a warning, not a failure
+- Resolved inbox proposals tracked in a ledger so drains cannot re-stage them
+
+### Fixed
+- **compile: watermark cursor** — `chooseSliceEnd` returning `startByte` on observation boundary allocated 0 bytes, freezing all drain progress
+- **compile: fact consolidation shadowing** — permanently non-empty facts/ store blocked the prompt-based raw compile path; raw watermark never advanced
+- **compile: duplicate context injection** — `{{schema_content}}` in prompt prose was substituted twice, silently doubling ~44KB of context in every prompt
+- **compile: append-mode for log.md** — `atomicWrite` (tmp + rename) fails with EPERM when Obsidian holds log.md; switched to `atomicAppend`
+- **compile: fence-tag matching** — local models emit `json` or untagged fences; parser now tries `compile-ops`, then falls back to any valid JSON fence
+- **compile: weaker-model tolerance** — skip unsupported ops instead of rejecting entire response; strip `<think>` blocks; catch per-candidate synthesis failures; stall detection after 3 zero-advance passes
+- **compile: procedure prompt budgeting** — 30-day scan produced 136k-token prompts; cap at 40 observations / 96KB per cluster
+- **compile: `--drain` with `--since`** — `--since` bypasses drain watermarks, causing infinite re-send; now rejected
+- **drain: transient failure recovery** — per-pass retry with 30s→8m backoff ladder; `backfill-local.ps1` relaunches every 5 min for up to 2 hours
+- **drain: fact consolidation interception** — consolidation intercepted every pass and exited on "included 0"; drain now sets `skipFactConsolidation=true`
+- **sync: git index.lock contention** — `commitVaultChange` retries with 250ms→2s backoff ladder
+- **launcher: false failure dialog** — `$null -ne 0` is true in PowerShell; explicit `exit 0` on success
+- **launcher: hidden window errors** — show MessageBox with launcher output on failure, always attempt browser open
+- **init: gitignore runtime logs** — untracked log files blocked auto-push worker
+- **atomic-write: orphaned .tmp cleanup** — unlink when rename exhausts retries
+- **connect: missing chatgpt case** — `memory connect chatgpt` now works
+- **install/chatgpt: Windows autostart** — include `process.execPath` in Run key command (`.mjs` not directly executable)
+- **test: APPDATA env isolation** — prevent TLS cert leak across vitest worker threads in bridge tests
+
 ## [0.6.0] - 2026-06-10
 
 Phase 2.0 Competitive Parity — temporal validity, published benchmarks, client SDKs, identity-aware retrieval.
