@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
+
 import yaml from "js-yaml";
 import { atomicWrite } from "../../../storage/atomic-write.js";
 import { memoryRoot } from "../../../storage/paths.js";
@@ -65,9 +65,7 @@ export async function runInstallChatGpt(
   let autostartRegistered = false;
   if (!opts.noAutostart && !opts.dryRun && process.platform === "win32") {
     try {
-      const __dirname = fileURLToPath(new URL(".", import.meta.url));
-      const memoryCliPath = join(__dirname, "..", "..", "..", "cli.mjs");
-      const autoStartCmd = `"${process.execPath}" "${memoryCliPath}" chatgpt-bridge start`;
+      const autoStartCmd = `"${process.execPath}" "${process.argv[1]}" chatgpt-bridge start`;
       await execFileAsync("reg.exe", [
         "add", AUTOSTART_KEY, "/v", AUTOSTART_NAME, "/t", "REG_SZ", "/d", autoStartCmd, "/f",
       ]);

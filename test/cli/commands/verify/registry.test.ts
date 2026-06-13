@@ -17,6 +17,7 @@ const EXPECTED_ROLES = new Map<string, VerifyRole[]>([
   ["storage.atomic-write-retries", ["operator", "server"]],
   ["compile.recent", ["operator", "server"]],
   ["compile.execute-health", ["operator", "server"]],
+  ["compile.backlog-growth", ["operator"]],
   ["prompt.drift", ["operator", "server"]],
   ["curation.content-loss", ["operator", "server"]],
   ["autopush.errors", ["operator"]],
@@ -43,6 +44,9 @@ const EXPECTED_ROLES = new Map<string, VerifyRole[]>([
   ["sniffer.claude-desktop.capture", ["operator"]],
   ["chatgpt.bridge.running", ["operator"]],
   ["chatgpt.bridge.mcp", ["operator"]],
+  ["storage.orphaned-tmp", ["operator"]],
+  ["retrieval.embeddings-integrity", ["operator"]],
+  ["sync.state-drift", ["operator"]],
 ]);
 
 describe("verify check registry", () => {

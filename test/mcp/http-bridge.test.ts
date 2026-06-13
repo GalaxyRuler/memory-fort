@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { createServer as createHttpServer } from "node:http";
 import https from "node:https";
 import type { AddressInfo } from "node:net";
@@ -10,12 +10,26 @@ import { generateBridgeTlsCert, removeBridgeTlsCert } from "../../src/mcp/tls.js
 
 describe("startHttpBridge", () => {
   let cleanup: (() => Promise<void>) | undefined;
+  let origAppData: string | undefined;
+  let tempDir: string;
+
+  beforeEach(async () => {
+    origAppData = process.env["APPDATA"];
+    tempDir = await mkdtemp(join(tmpdir(), "mf-bridge-"));
+    process.env["APPDATA"] = tempDir;
+  });
 
   afterEach(async () => {
     if (cleanup) {
       await cleanup();
       cleanup = undefined;
     }
+    if (origAppData === undefined) {
+      delete process.env["APPDATA"];
+    } else {
+      process.env["APPDATA"] = origAppData;
+    }
+    await rm(tempDir, { recursive: true, force: true });
   });
 
   it("listens on the given port and returns 200 on GET /health", async () => {
@@ -72,36 +86,19 @@ describe("startHttpBridge", () => {
   });
 
   it("serves HTTPS when TLS cert exists", async () => {
-    const origAppData = process.env["APPDATA"];
-    const tempDir = await mkdtemp(join(tmpdir(), "mf-bridge-tls-"));
-    process.env["APPDATA"] = tempDir;
-    try {
-      const tlsCert = await generateBridgeTlsCert();
-      const testPort = await getFreePort();
-      cleanup = await startHttpBridge(testPort);
+    const tlsCert = await generateBridgeTlsCert();
+    const testPort = await getFreePort();
+    cleanup = await startHttpBridge(testPort);
 
-      const status = await new Promise<number>((resolve, reject) => {
-        const req = https.get(
-          { hostname: "127.0.0.1", port: testPort, path: "/health", ca: tlsCert.cert },
-          (res) => resolve(res.statusCode ?? 0),
-        );
-        req.on("error", reject);
-      });
+    const status = await new Promise<number>((resolve, reject) => {
+      const req = https.get(
+        { hostname: "127.0.0.1", port: testPort, path: "/health", ca: tlsCert.cert },
+        (res) => resolve(res.statusCode ?? 0),
+      );
+      req.on("error", reject);
+    });
 
-      expect(status).toBe(200);
-    } finally {
-      if (cleanup) {
-        await cleanup();
-        cleanup = undefined;
-      }
-      await removeBridgeTlsCert();
-      if (origAppData === undefined) {
-        delete process.env["APPDATA"];
-      } else {
-        process.env["APPDATA"] = origAppData;
-      }
-      await rm(tempDir, { recursive: true, force: true });
-    }
+    expect(status).toBe(200);
   });
 });
 

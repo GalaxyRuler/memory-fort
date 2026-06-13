@@ -17,6 +17,7 @@ export type ClientName =
   | "codex"
   | "antigravity"
   | "antigravity-ide"
+  | "chatgpt"
   | "hermes"
   | "pi"
   | "openclaw"
@@ -39,6 +40,7 @@ export const CLIENTS: ClientName[] = [
   "codex",
   "antigravity",
   "antigravity-ide",
+  "chatgpt",
   "hermes",
   "pi",
   "openclaw",

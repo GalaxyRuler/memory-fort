@@ -20,10 +20,13 @@ describe("runChatGptBridgeStatus", () => {
     origEnv = {
       MEMORY_ROOT: process.env["MEMORY_ROOT"],
       LOCALAPPDATA: process.env["LOCALAPPDATA"],
+      APPDATA: process.env["APPDATA"],
     };
     process.env["MEMORY_ROOT"] = memDir;
     // Point LOCALAPPDATA to temp so chatgptBridgePidPath() resolves inside test dir
     process.env["LOCALAPPDATA"] = join(tmp, "appdata");
+    // Point APPDATA to temp so loadBridgeTlsCert() doesn't find real certs
+    process.env["APPDATA"] = join(tmp, "appdata");
   });
 
   afterEach(async () => {
