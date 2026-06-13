@@ -1,0 +1,34 @@
+{
+  "name": "memory-fort-sdk",
+  "version": "0.1.0",
+  "description": "TypeScript client for Memory Fort — search, log, and retrieve from your personal memory vault",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.mts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.mts",
+        "default": "./dist/index.mjs"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    }
+  },
+  "files": ["dist/", "README.md"],
+  "scripts": {
+    "build": "tsdown src/index.ts --format esm,cjs --dts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "engines": { "node": ">=18" },
+  "license": "GPL-3.0-only",
+  "devDependencies": {
+    "tsdown": "^0.22",
+    "typescript": "^5",
+    "vitest": "^2"
+  }
+}

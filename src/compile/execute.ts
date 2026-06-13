@@ -6,12 +6,14 @@ import type { LLMProvider, LLMTokenUsage } from "../llm/types.js";
 import { filterWikiReferencesToExisting, stripProsePathLeaksFromText } from "../llm/proposal-grounding.js";
 import { redactSecrets } from "../privacy/redaction.js";
 import { readRelationTarget, type SerializedRelationEdge } from "../retrieval/relations.js";
-import { atomicWrite } from "../storage/atomic-write.js";
+import { atomicAppend, atomicWrite } from "../storage/atomic-write.js";
 import { parseFrontmatter, serializeFrontmatter, type Frontmatter } from "../storage/frontmatter.js";
 import { type PageType } from "../storage/paths.js";
 import { kebabCase, normalizeWikiPagePath } from "../storage/slug.js";
 import { extractEntityFacts } from "./fact-extract.js";
 import { filterNoiseForPage } from "./filter-noise.js";
+import { operationKey, readAppliedOperationKeys, recordAppliedOperation } from "./ops-journal.js";
+import { isProposalResolved } from "./proposal-ledger.js";
 import { synthesizeNarrative } from "./synthesize-narrative.js";
 import type { CompressedFact } from "../facts/store.js";
 
@@ -58,7 +60,7 @@ export type CompileOperation =
     };
 
 export type ParseCompileOperationsResult =
-  | { ok: true; operations: CompileOperation[] }
+  | { ok: true; operations: CompileOperation[]; unsupportedSkipped?: number }
   | { ok: false; reason: string };
 
 export interface ApplyCompileOperationsOptions {
@@ -69,6 +71,7 @@ export interface ApplyCompileOperationsOptions {
   rewriteLLM?: LLMProvider;
   rewriteMaxBytes?: number;
   extractFacts?: boolean;
+  journal?: boolean;
 }
 
 export interface ApplyCompileOperationsResult {
@@ -97,6 +100,7 @@ export type CompileOperationOutcomeKind =
   | "staged-for-review"
   | "merged"
   | "skipped: no new content"
+  | "skipped: already applied"
   | "rejected";
 
 export type CompileOperationConversion = "write->append: target already existed";
@@ -138,33 +142,67 @@ export function isKnowledgePageType(type: PageType): boolean {
 }
 
 export function parseCompileOperationsBlock(text: string): ParseCompileOperationsResult {
-  const block = COMPILE_OPS_RE.exec(text)?.[1];
-  if (!block) return { ok: false, reason: "missing fenced compile-ops block" };
+  // Reasoning models (e.g. qwen3) may wrap output in <think> blocks; strip them
+  // so a fence inside the reasoning trace can't shadow the real compile-ops block.
+  const cleaned = text.replace(/<think>[\s\S]*?<\/think>/gu, "");
+  // Prefer the instructed ```compile-ops fence, but fall back to ```json /
+  // untagged fences — weaker models ignore the fence-tag instruction while
+  // still producing a valid operations payload. Per-op validation below is
+  // what actually gates correctness, not the fence label.
+  const blocks: string[] = [];
+  const tagged = COMPILE_OPS_RE.exec(cleaned)?.[1];
+  if (tagged) blocks.push(tagged);
+  for (const match of cleaned.matchAll(/```(?:json)?\s*\n([\s\S]*?)```/gmu)) {
+    const inner = match[1]?.trim();
+    if (inner && inner !== tagged?.trim()) blocks.push(inner);
+  }
+  if (blocks.length === 0) return { ok: false, reason: "missing fenced compile-ops block" };
 
   let parsed: unknown;
-  try {
-    parsed = JSON.parse(block);
-  } catch (error) {
+  let lastParseError: unknown;
+  for (const block of blocks) {
+    try {
+      const candidate = JSON.parse(block) as unknown;
+      const shaped = Array.isArray(candidate)
+        || (typeof candidate === "object" && candidate !== null && Array.isArray((candidate as { operations?: unknown }).operations));
+      if (shaped) {
+        parsed = candidate;
+        break;
+      }
+    } catch (error) {
+      lastParseError = error;
+    }
+  }
+  if (parsed === undefined) {
     return {
       ok: false,
-      reason: `compile-ops JSON parse error: ${error instanceof Error ? error.message : String(error)}`,
+      reason: lastParseError
+        ? `compile-ops JSON parse error: ${lastParseError instanceof Error ? lastParseError.message : String(lastParseError)}`
+        : "compile-ops must be an array or { operations: [...] }",
     };
   }
 
   const candidates = Array.isArray(parsed)
     ? parsed
-    : typeof parsed === "object" && parsed !== null && Array.isArray((parsed as { operations?: unknown }).operations)
-      ? (parsed as { operations: unknown[] }).operations
-      : null;
-  if (!candidates) return { ok: false, reason: "compile-ops must be an array or { operations: [...] }" };
+    : (parsed as { operations: unknown[] }).operations;
 
+  // Skip unsupported operations instead of rejecting the whole response — one
+  // malformed op from a weaker model must not discard the valid ops beside it
+  // (rejecting everything freezes the compile watermark and stalls drains).
   const operations: CompileOperation[] = [];
+  let unsupportedSkipped = 0;
   for (const candidate of candidates) {
     const operation = readOperation(candidate);
-    if (!operation) return { ok: false, reason: "compile-ops contains an unsupported operation" };
+    if (!operation) {
+      unsupportedSkipped += 1;
+      continue;
+    }
     operations.push(operation);
   }
-  return { ok: true, operations };
+  if (operations.length === 0 && unsupportedSkipped > 0) {
+    return { ok: false, reason: "compile-ops contains only unsupported operations" };
+  }
+  return { ok: true, operations, ...(unsupportedSkipped > 0 ? { unsupportedSkipped } : {}) };
 }
 
 export function parseCompileOperationBlock(text: string): { ok: true; operation: CompileOperation } | { ok: false; reason: string } {
@@ -207,9 +245,22 @@ export async function applyCompileOperations(
   const prepared = prepareCompileOperations(opts.vaultRoot, opts.operations, now);
   result.rejected.push(...prepared.rejected);
   result.outcomes.push(...prepared.outcomes);
+  const journaledKeys = opts.journal && !opts.plan
+    ? await readAppliedOperationKeys(opts.vaultRoot)
+    : new Set<string>();
 
   for (const preparedOperation of prepared.operations) {
     const relPath = compileOperationPath(preparedOperation.operation);
+    if (opts.journal && !opts.plan && journaledKeys.has(operationKey(preparedOperation.operation))) {
+      result.applied.push(relPath);
+      result.outcomes.push({
+        path: relPath,
+        outcome: "skipped: already applied",
+        reason: "recorded in ops journal from an interrupted compile",
+        contentPreserved: true,
+      });
+      continue;
+    }
     if (!isAllowedCompileRelPath(relPath)) {
       result.rejected.push({ path: relPath, reason: "path outside allowed vault targets" });
       result.outcomes.push({
@@ -264,6 +315,9 @@ export async function applyCompileOperations(
         ...(deterministicRewrite.reason ? { reason: deterministicRewrite.reason } : {}),
         contentPreserved: true,
       });
+      if (opts.journal && !opts.plan && deterministicRewrite.outcome === "rewritten") {
+        await recordAppliedOperation(opts.vaultRoot, preparedOperation.operation);
+      }
       continue;
     }
 
@@ -364,6 +418,9 @@ export async function applyCompileOperations(
         ...(appliedConversion ? { converted: appliedConversion } : {}),
         contentPreserved: true,
       });
+      if (opts.journal && !opts.plan && applied.outcome !== "skipped: no new content") {
+        await recordAppliedOperation(opts.vaultRoot, preparedOperation.operation);
+      }
     } else {
       result.rejected.push({ path: relPath, reason: applied.reason });
       result.outcomes.push({
@@ -767,7 +824,7 @@ export async function applyOperation(
         `This proposal supersedes ${operation.old_page}.`,
         "",
         `Reason: ${operation.reason}`,
-        ...(operation.valid_to ? [`Valid to: ${operation.valid_to}`] : []),
+        ...(operation.valid_to ? [`Valid until: ${operation.valid_to}`] : []),
         "",
       ];
       await atomicWrite(
@@ -779,7 +836,13 @@ export async function applyOperation(
             old_page: operation.old_page,
             new_page: operation.new_page,
             reason: operation.reason,
-            ...(operation.valid_to ? { valid_to: operation.valid_to } : {}),
+            observed_at: isoCreated,
+            // Intended patch for the old page — applied only on explicit
+            // human approval (staging invariant: old page stays canonical).
+            old_page_patch: {
+              valid_until: operation.valid_to ?? isoCreated,
+              status: "superseded",
+            },
             created: isoCreated,
             updated: isoCreated,
             status: "active" as const,
@@ -788,6 +851,7 @@ export async function applyOperation(
             cognitive_type: "semantic" as const,
             proposal_type: "supersede-proposal",
             proposal_status: "pending-review",
+            searchable: false,
           },
           `${bodyLines.join("\n")}\n`,
         ),
@@ -1333,6 +1397,11 @@ async function stageCompileProposal(
   const slug = kebabCase(basename(target, ".md")) || "compile-proposal";
   const relPath = `wiki/compile-proposed/${slug}.md`;
   const fullPath = join(vaultRoot, ...relPath.split("/"));
+  // A proposal the user already approved or rejected must not resurface in
+  // the inbox — long drains regenerate identical low-confidence operations.
+  if (await isProposalResolved(vaultRoot, operation)) {
+    return relPath;
+  }
   await atomicWrite(
     fullPath,
     serializeFrontmatter(
@@ -1362,8 +1431,7 @@ async function stageCompileProposal(
 }
 
 async function appendText(fullPath: string, text: string): Promise<void> {
-  const current = existsSync(fullPath) ? await readFile(fullPath, "utf-8") : "";
-  await atomicWrite(fullPath, `${current}${text}`);
+  await atomicAppend(fullPath, text);
 }
 
 function hasHighConfidence(operation: CompileOperation): boolean {

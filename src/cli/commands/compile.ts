@@ -8,6 +8,7 @@ import {
 } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
 import { applyCompileOperations, parseCompileOperationsBlock, type ApplyCompileOperationsResult } from "../../compile/execute.js";
+import { clearOpsJournal } from "../../compile/ops-journal.js";
 import { runFactConsolidation } from "../../compile/fact-consolidate.js";
 import { rebuildIndex, type RebuildIndexResult } from "../../compile/index.js";
 import { loadCompressedFacts } from "../../facts/store.js";
@@ -25,7 +26,9 @@ import {
 } from "../../storage/paths.js";
 import { parseFrontmatter } from "../../storage/frontmatter.js";
 import {
+  mutateCompileStateFile,
   readCompileStateFile,
+  readCompressedMap,
   readConsumedMap,
   summarizeCompilePending,
   writeCompileStateFile,
@@ -47,17 +50,22 @@ export interface CompileOptions {
   sourceRepoDir?: string;
   configLoader?: () => Promise<MemoryConfig>;
   llmFactory?: (config: LLMConfig | null, env: NodeJS.ProcessEnv) => LLMProvider;
+  skipFactConsolidation?: boolean;
+  backfill?: boolean;
+  maxFilesPerPass?: number;
+  excludeRawPaths?: ReadonlySet<string>;
 }
 
 export interface CompileDrainOptions extends CompileOptions {
   execute: boolean;
   maxPasses?: number;
-  onProgress?: (line: string, result: CompileResult, pass: number) => void;
+  onProgress?: (line: string, result: CompileResult | null, pass: number) => void;
 }
 
 export interface CompileResult {
   prompt: string;
   rawFilesIncluded: string[];
+  rawRelPathsIncluded: string[];
   rawFilesSkipped: { path: string; reason: string }[];
   sinceCutoff: string;
   watermarkMode: "gated" | "bypassed";
@@ -76,11 +84,12 @@ export interface CompileResult {
 
 export interface CompileDrainResult {
   passes: CompileResult[];
-  stopReason: "empty" | "max-passes";
+  stopReason: "empty" | "max-passes" | "stalled";
   totalRawFilesIncluded: number;
   totalWatermarksAdvanced: number;
   rawBytesRemaining: number;
   rawFilesRemaining: number;
+  quarantinedRawPaths?: string[];
 }
 
 interface RawCandidate {
@@ -148,9 +157,13 @@ export async function runCompile(
   const schema = await readRequiredFile(join(root, "schema.md"), "schema.md");
   const index = await readOptionalFile(join(root, "index.md"));
   const log = await readOptionalFile(join(root, "log.md"));
+  // --backfill: unwatermarked files become eligible regardless of the log-derived
+  // cutoff. Watermark gating stays on, so already-drained files are still skipped.
   const sinceDate = opts.since
     ? parseCutoff(opts.since)
-    : detectSinceFromLog(log) ?? new Date(0);
+    : opts.backfill
+      ? new Date(0)
+      : detectSinceFromLog(log) ?? new Date(0);
   const watermarkMode: CompileResult["watermarkMode"] = opts.since ? "bypassed" : "gated";
   let compileState = await readCompileStateForCompile(root);
   const watermarkReset = opts.resetWatermark !== undefined && opts.resetWatermark !== false
@@ -160,6 +173,7 @@ export async function runCompile(
     compileState = await readCompileStateForCompile(root);
   }
   const consumed = readConsumedMap(compileState);
+  const compressedMap = readCompressedMap(compileState);
 
   const rawFilesSkipped: CompileResult["rawFilesSkipped"] = [];
   const rawFilesIncluded: string[] = [];
@@ -171,6 +185,21 @@ export async function runCompile(
 
   const rawFiles = await listRawFiles(root, join(root, "raw"));
   for (const candidate of rawFiles) {
+    if (opts.excludeRawPaths?.has(candidate.relPath)) {
+      rawFilesSkipped.push({
+        path: candidate.path,
+        reason: "quarantined this run after a no-progress pass",
+      });
+      continue;
+    }
+    const compressedWatermark = compressedMap[candidate.relPath];
+    if (compressedWatermark && compressedWatermark.bytes >= candidate.size) {
+      rawFilesSkipped.push({
+        path: candidate.path,
+        reason: "fully covered by compress — facts already extracted",
+      });
+      continue;
+    }
     let startByte = 0;
     const watermark = watermarkMode === "gated" ? consumed[candidate.relPath] : undefined;
     if (watermarkMode === "gated" && watermark) {
@@ -225,7 +254,9 @@ export async function runCompile(
   // Defer files beyond the per-pass cap. Aging keeps these at the front of the
   // next pass; they still count toward the remaining backlog so `--drain` knows
   // there is more to do.
-  const deferredRaws = eligibleRaws.splice(DEFAULT_MAX_FILES_PER_PASS);
+  const deferredRaws = eligibleRaws.splice(
+    readPositiveInteger(opts.maxFilesPerPass, DEFAULT_MAX_FILES_PER_PASS, "maxFilesPerPass"),
+  );
   for (const raw of deferredRaws) {
     rawFilesSkipped.push({
       path: raw.candidate.path,
@@ -335,6 +366,9 @@ export async function runCompile(
     execution,
     includedWatermarks,
   });
+  if (watermarksAdvanced.length > 0) {
+    await clearOpsJournal(root);
+  }
   const indexRebuild = execution?.mode === "execute" && !opts.plan
     && execution.applied.length + execution.proposed.length > 0
     ? await rebuildIndex(root)
@@ -347,6 +381,7 @@ export async function runCompile(
   return {
     prompt,
     rawFilesIncluded,
+    rawRelPathsIncluded: includedWatermarks.map((item) => item.relPath),
     rawFilesSkipped,
     sinceCutoff: sinceDate.toISOString(),
     watermarkMode,
@@ -392,8 +427,38 @@ export async function runCompileDrain(
   const passes: CompileResult[] = [];
   let totalRawFilesIncluded = 0;
   let totalWatermarksAdvanced = 0;
+  let consecutiveStalls = 0;
+  let consecutiveErrors = 0;
+  const retryDelaysMs = [30_000, 60_000, 120_000, 240_000, 480_000];
+  const quarantined = new Set<string>(opts.excludeRawPaths ?? []);
   for (let pass = 1; pass <= maxPasses; pass += 1) {
-    const result = await runCompile({ ...opts, execute: true, plan: false });
+    let result: CompileResult;
+    try {
+      result = await runCompile({
+        ...opts,
+        execute: true,
+        plan: false,
+        skipFactConsolidation: true,
+        excludeRawPaths: quarantined,
+      });
+      consecutiveErrors = 0;
+    } catch (error) {
+      // Transient failures (LM Link drops, provider hiccups) must not kill a
+      // multi-day drain. Back off and retry; give up only after the full
+      // backoff ladder fails consecutively.
+      const message = error instanceof Error ? error.message : String(error);
+      const delayMs = retryDelaysMs[Math.min(consecutiveErrors, retryDelaysMs.length - 1)]!;
+      consecutiveErrors += 1;
+      if (consecutiveErrors > retryDelaysMs.length) throw error;
+      opts.onProgress?.(
+        `pass ${pass} failed (${message}); retry ${consecutiveErrors}/${retryDelaysMs.length} in ${Math.round(delayMs / 1000)}s`,
+        null,
+        pass,
+      );
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+      pass -= 1;
+      continue;
+    }
     passes.push(result);
     totalRawFilesIncluded += result.rawFilesIncluded.length;
     totalWatermarksAdvanced += result.watermarksAdvanced.length;
@@ -407,7 +472,26 @@ export async function runCompileDrain(
         totalWatermarksAdvanced,
         rawBytesRemaining: result.rawBytesRemaining,
         rawFilesRemaining: result.rawFilesRemaining,
+        quarantinedRawPaths: [...quarantined],
       };
+    }
+    // Files were included but no watermark moved — the same batch would be
+    // re-sent next pass. Retry once (transient LLM flakiness), then quarantine
+    // the batch for the rest of this run so the drain moves on to other files.
+    // Quarantined files keep their watermarks and are retried on the next run.
+    if (result.watermarksAdvanced.length === 0) {
+      consecutiveStalls += 1;
+      if (consecutiveStalls >= 2) {
+        for (const relPath of result.rawRelPathsIncluded) quarantined.add(relPath);
+        opts.onProgress?.(
+          `quarantined ${result.rawRelPathsIncluded.length} file(s) after repeated no-progress passes; continuing with the rest`,
+          result,
+          pass,
+        );
+        consecutiveStalls = 0;
+      }
+    } else {
+      consecutiveStalls = 0;
     }
   }
 
@@ -419,6 +503,7 @@ export async function runCompileDrain(
     totalWatermarksAdvanced,
     rawBytesRemaining: last?.rawBytesRemaining ?? 0,
     rawFilesRemaining: last?.rawFilesRemaining ?? 0,
+    quarantinedRawPaths: [...quarantined],
   };
 }
 
@@ -451,9 +536,6 @@ function chooseSliceEnd(content: Buffer, startByte: number, maxBytes: number): n
   const nextBoundary = findObservationBoundaryAfter(content, startByte);
   if (nextBoundary !== null && nextBoundary <= hardEnd) {
     return nextBoundary;
-  }
-  if (isObservationBoundaryAt(content, startByte)) {
-    return startByte;
   }
   return hardEnd;
 }
@@ -489,16 +571,24 @@ async function executeCompilePrompt(opts: CompileOptions & {
   const config = await (opts.configLoader ?? (() => loadMemoryConfig(opts.root)))();
   const llmConfig = getActiveLLMConfig(config);
   const llm = (opts.llmFactory ?? createLLMFromConfig)(llmConfig, env);
-  const compressedFacts = await loadCompressedFacts(opts.root);
+  const compressedFacts = opts.skipFactConsolidation ? [] : await loadCompressedFacts(opts.root);
   if (!opts.plan && compressedFacts.length > 0) {
     const result = await runFactConsolidation({
       vaultRoot: opts.root,
       llm,
     });
-    return {
-      ...result,
-      rawInputConsumed: false,
-    };
+    const consolidationDidWork =
+      result.applied.length > 0 || result.proposed.length > 0;
+    if (consolidationDidWork) {
+      return {
+        ...result,
+        rawInputConsumed: false,
+      };
+    }
+    // Nothing to consolidate — fall through to prompt-based raw execution.
+    // A permanently non-empty facts store must not starve the wiki: without
+    // this fallthrough, leftover facts shadow the raw path on every run and
+    // the compile watermark never advances.
   }
   const response = await chatWithAudit({
     llm,
@@ -547,6 +637,7 @@ async function executeCompilePrompt(opts: CompileOptions & {
     plan: opts.plan,
     rewriteLLM: opts.plan ? undefined : llm,
     extractFacts: false,
+    journal: !opts.plan,
   });
   return {
     mode: opts.plan ? "plan" : "execute",
@@ -673,15 +764,16 @@ async function maybeAdvanceWatermarks(opts: {
   if (opts.execution.applied.length + opts.execution.proposed.length === 0) return [];
   if (opts.includedWatermarks.length === 0) return [];
 
-  const state = await readCompileStateForCompile(opts.root);
-  const consumed = readConsumedMap(state);
-  for (const included of opts.includedWatermarks) {
-    consumed[included.relPath] = {
-      bytes: included.bytes,
-      lastObservationAt: included.lastObservationAt,
-    };
-  }
-  await writeCompileStateFile(opts.root, { ...state, consumed });
+  await mutateCompileStateFile(opts.root, (state) => {
+    const consumed = readConsumedMap(state);
+    for (const included of opts.includedWatermarks) {
+      consumed[included.relPath] = {
+        bytes: included.bytes,
+        lastObservationAt: included.lastObservationAt,
+      };
+    }
+    return { ...state, consumed };
+  });
   return opts.includedWatermarks.map((item) => item.relPath);
 }
 
@@ -702,7 +794,7 @@ async function resetConsumedWatermarks(
     }
   }
   const cleared = before - Object.keys(consumed).length;
-  await writeCompileStateFile(root, { ...state, consumed });
+  await mutateCompileStateFile(root, (fresh) => ({ ...fresh, consumed }));
   return { pattern, cleared };
 }
 

@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ProcedureCluster } from "../../src/consolidate/procedure-detect.js";
-import { parseProcedureProposal, proposeProcedure } from "../../src/llm/procedure-propose.js";
+import { parseProcedureProposal, proposeProcedure, userPrompt } from "../../src/llm/procedure-propose.js";
 import type { LLMProvider } from "../../src/llm/types.js";
 
 describe("proposeProcedure", () => {
@@ -267,6 +267,39 @@ function fakeLLM(chat: LLMProvider["chat"]): LLMProvider {
     chat,
   };
 }
+
+describe("userPrompt budget", () => {
+  // Regression: a 30-day scan put hundreds of observations in one cluster,
+  // producing a 136k-token prompt against gpt-4o-mini's 128k context.
+  it("caps an oversized cluster under the prompt budget and notes the omission", () => {
+    const base = cluster();
+    const observations = Array.from({ length: 500 }, (_, i) => ({
+      ...base.observations[0]!,
+      relPath: `raw/2026-05-${String((i % 28) + 1).padStart(2, "0")}/codex-${i}.md`,
+      created: `2026-05-${String((i % 28) + 1).padStart(2, "0")}`,
+      session: `s${i}`,
+      title: `Deploy run ${i}`,
+      body: "x".repeat(5_000),
+    }));
+    const prompt = userPrompt({ ...base, observations, distinctSessions: 500 });
+
+    expect(prompt.length).toBeLessThan(110_000);
+    expect(prompt).toContain("Cluster size: 500 observations");
+    expect(prompt).toContain("most recent");
+    expect(prompt).toContain("omitted for prompt budget");
+    // Observation count actually included is bounded
+    const included = prompt.match(/^\[\d+\]/gm) ?? [];
+    expect(included.length).toBeLessThanOrEqual(40);
+    expect(included.length).toBeGreaterThan(0);
+  });
+
+  it("includes all observations and no omission note for small clusters", () => {
+    const prompt = userPrompt(cluster());
+    expect(prompt).not.toContain("omitted for prompt budget");
+    expect(prompt).toContain("[1] 2026-05-26");
+    expect(prompt).toContain("[2] 2026-05-27");
+  });
+});
 
 function cluster(): ProcedureCluster {
   return {

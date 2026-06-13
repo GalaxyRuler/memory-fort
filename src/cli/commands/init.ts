@@ -63,6 +63,8 @@ const SUBDIRS = [
 
 const GITIGNORE_CONTENT = `# Memory runtime artifacts not stored in git
 errors.log
+auto-sync.log
+logs/
 .archive/
 var/
 embeddings/*
@@ -74,6 +76,7 @@ claude-code-plugin/
 const GITATTRIBUTES_CONTENT = `*.md text eol=lf
 *.yaml text eol=lf
 *.json text eol=lf
+raw/**/*.md merge=union
 `;
 
 const DEFAULT_CONFIG = `# memory-system runtime configuration

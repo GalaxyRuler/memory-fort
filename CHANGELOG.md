@@ -4,6 +4,35 @@ All notable changes to Memory Fort are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-06-10
+
+Phase 2.0 Competitive Parity — temporal validity, published benchmarks, client SDKs, identity-aware retrieval.
+
+### Added
+- **Temporal validity fields** — `observed_at` (when a fact was observed), `valid_from` (when it became true), `valid_until` (when it ceased to be true, inclusive) on page frontmatter; documented in schema v1.5
+- **Supersede temporal patches** — supersede proposals now carry `old_page_patch` (`valid_until` + `status: superseded`) as structured metadata; the old page is NOT mutated until human approval (staging invariant preserved); proposals marked `searchable: false`
+- **`memory proposed approve <path>`** — crash-safe, idempotent approval path: archives the old page version to `wiki/.archive/`, stamps the temporal patch plus a top-level `superseded_by` provenance field, marks the proposal approved; validates proposal location, path traversal, and replacement-page existence before any write
+- **`as_of` temporal search filtering** — search pipeline, dashboard API (`?as_of=`), and MCP `search` tool filter pages to those valid at a point in time; inclusive `[valid_from, valid_until]` semantics; untemporalized pages always pass; invalid dates return HTTP 400 (never silently ignored)
+- **Benchmark scores in CI** — graph-aware retrieval eval runs against a deterministic checked-in fixture vault (`qa/fixtures/graph-aware-vault/`) with results in GitHub job summaries; `scripts/ci-eval-summary.mjs` renders markdown tables for both eval report shapes
+- **`memory eval dispatch`** — dispatch policy eval testing the `classifyDispatch` truth table against `qa/dispatch-gold.jsonl` (10/10 on the bundled gold set); exits non-zero on any drift; wired into CI
+- **TypeScript SDK (`packages/sdk`, npm `memory-fort-sdk`)** — `MemoryFortClient` with `add()` / `log()` / `search()` / `listPages()`, typed errors, identity + temporal search options
+- **Python SDK (`packages/sdk-python`, PyPI `memory-fort`)** — async `MemoryFortClient` (httpx) with the same surface, PEP 561 typed
+- **`POST /api/observations`** — log an observation over HTTP into the configured vault (origin + write-capability gated); **`GET /api/pages`** — list wiki page metadata with optional `?type=` filter; both implemented as extracted, unit-testable handlers
+- **Identity tagging** — `MEMORY_FORT_AGENT_ID` / `MEMORY_FORT_USER_ID` env vars stamp validated `agent_id` / `user_id` (`[A-Za-z0-9._@-]{1,128}`) into raw session frontmatter at capture time; malformed values dropped, never stamped
+- **Identity-aware search filtering** — `agent_id` / `user_id` / `identity_mode` on search API, MCP, and SDKs; inclusive mode (default) always passes untagged curated pages; strict mode returns only tagged matches; documented as a retrieval preference, NOT security isolation
+- **SDK CI steps** — TypeScript SDK typecheck/test/build and Python SDK test/build on every push
+
+### Changed
+- `rawSessionFile` / `ensureRawSessionFile` / `appendBlock` accept an optional vault root override (used by the observations API; default behavior unchanged)
+- Schema version bumped to 1.5 (temporal validity + identity tagging sections)
+
+### Fixed
+- Corpus now populates `rawFrontmatter` for every document kind — previously only raw observations carried it, making `as_of` and identity filtering silent no-ops on wiki pages (caught by live end-to-end verification)
+- `memory-fort-sdk` package entry points now match tsdown output (`index.mjs`/`.cjs`/`.d.mts`/`.d.cts`) — previous paths pointed at nonexistent files, breaking every consumer install
+
+### Documented
+- Dashboard write endpoints require the vault to be a git repository; non-git vaults are read-only mirrors (HTTP 403) — noted in README and both SDK READMEs
+
 ## [0.5.1] - 2026-06-09
 
 ### Added

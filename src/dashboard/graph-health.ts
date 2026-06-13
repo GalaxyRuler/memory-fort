@@ -762,7 +762,11 @@ function liveThreadEntityTargets(input: GraphHealthInput): Set<string> {
 }
 
 function graphHealthWikiPages(input: GraphHealthInput): WikiHealthPage[] {
-  return input.wikiPages.filter((page) => isEntityWikiPath(page.relPath));
+  // wiki/archive/ holds merge artifacts and superseded pages — counting them
+  // against live pages keeps duplicate/health metrics permanently warm.
+  return input.wikiPages.filter((page) =>
+    isEntityWikiPath(page.relPath) && !page.relPath.startsWith("wiki/archive/")
+  );
 }
 
 function metric(result: Omit<MetricResult, "topOffenders"> & { topOffenders?: Offender[] }): MetricResult {

@@ -81,6 +81,8 @@ import {
 } from "./cli/commands/verify-schedule.js";
 import { formatWatchResult, runWatch } from "./cli/commands/watch.js";
 import { memoryRoot, secretsPath } from "./storage/paths.js";
+import { applyApprovedSupersedeProposal } from "./compile/approve-supersede.js";
+import { resolve as resolvePath } from "node:path";
 import { loadSecretsIntoEnv } from "./storage/secrets.js";
 
 // Layer provider keys from the out-of-vault secrets file UNDER real env vars
@@ -127,6 +129,27 @@ program
       process.exit(result.exitCode);
     } catch (err) {
       console.error(`memory eval-retrieval failed: ${(err as Error).message}`);
+      process.exit(1);
+    }
+  });
+
+const proposedCommand = program
+  .command("proposed")
+  .description("Review and act on staged compile proposals");
+
+proposedCommand
+  .command("approve <proposal-path>")
+  .description("Approve a supersede proposal and apply its temporal patch to the old page")
+  .option("--vault <path>", "vault root (default: ~/.memory)")
+  .action(async (proposalPath: string, opts: { vault?: string }) => {
+    const result = await applyApprovedSupersedeProposal({
+      vaultRoot: opts.vault ?? memoryRoot(),
+      proposalPath: resolvePath(proposalPath),
+    });
+    if (result.ok) {
+      process.stdout.write("Proposal approved and old page patched.\n");
+    } else {
+      process.stderr.write(`Failed: ${result.reason}\n`);
       process.exit(1);
     }
   });
@@ -567,53 +590,89 @@ program
   .option("--since <iso>", "ISO date/timestamp cutoff for raw files")
   .option("--per-file-max-bytes <n>", "max raw bytes per file", parseInteger)
   .option("--total-max-bytes <n>", "max total raw bytes", parseInteger)
+  .option("--existing-pages-max-bytes <n>", "max bytes of existing-page context in the prompt", parseInteger)
+  .option("--max-files-per-pass <n>", "max raw files included per pass (default: 40)", parseInteger)
   .option("-o, --output <path>", "also write the assembled prompt to a file")
   .option("--execute", "send the prompt to the configured LLM and apply grounded compile-ops")
   .option("--plan", "with --execute, preview compile-ops without writing")
   .option("--drain", "with --execute, keep compiling until no eligible raw tails remain")
   .option("--max-passes <n>", "maximum drain passes (default: 50)", parseInteger)
   .option("--reset-watermark [glob]", "clear consumed raw-file watermarks before compiling")
+  .option("--backfill", "make unwatermarked raw files eligible regardless of the since cutoff (watermark dedup still applies)")
   .action(
     async (opts: {
       since?: string;
       perFileMaxBytes?: number;
       totalMaxBytes?: number;
+      existingPagesMaxBytes?: number;
+      maxFilesPerPass?: number;
       output?: string;
       execute?: boolean;
       plan?: boolean;
       drain?: boolean;
       maxPasses?: number;
       resetWatermark?: string | boolean;
+      backfill?: boolean;
     }) => {
       try {
+        if (opts.backfill && opts.since) {
+          throw new Error(
+            "memory compile: --backfill and --since are incompatible (--backfill sets the cutoff to epoch; --since overrides it)",
+          );
+        }
+        if (opts.drain && opts.since) {
+          // --since bypasses watermarks, but drain measures progress by
+          // watermark advancement — combined, every pass re-sends the same
+          // batch and the loop never terminates on its own.
+          throw new Error(
+            "memory compile: --drain and --since are incompatible (--since bypasses the watermarks drain uses to make progress); drop --since or run single passes",
+          );
+        }
         if (opts.drain) {
           const result = await runCompileDrain({
             since: opts.since,
             perFileMaxBytes: opts.perFileMaxBytes,
             totalMaxBytes: opts.totalMaxBytes,
+            existingPagesMaxBytes: opts.existingPagesMaxBytes,
+            maxFilesPerPass: opts.maxFilesPerPass,
             outputPath: opts.output,
             execute: opts.execute ?? false,
             plan: opts.plan,
             maxPasses: opts.maxPasses,
             resetWatermark: opts.resetWatermark,
+            backfill: opts.backfill,
             onProgress: (line) => console.error(line),
           });
-          console.error(`Compile drain ${result.stopReason === "empty" ? "complete" : "stopped at max passes"}`);
+          const stopLabel = result.stopReason === "empty"
+            ? "complete"
+            : result.stopReason === "stalled"
+              ? "stalled: watermarks stopped advancing (check LLM output quality)"
+              : "stopped at max passes";
+          console.error(`Compile drain ${stopLabel}`);
           console.error(`  passes:              ${result.passes.length}`);
           console.error(`  raw files included:  ${result.totalRawFilesIncluded}`);
           console.error(`  watermarks advanced: ${result.totalWatermarksAdvanced}`);
           console.error(`  raw files remaining: ${result.rawFilesRemaining}`);
           console.error(`  raw bytes remaining: ${result.rawBytesRemaining}`);
+          if (result.quarantinedRawPaths && result.quarantinedRawPaths.length > 0) {
+            console.error(`  quarantined (retried next run): ${result.quarantinedRawPaths.length}`);
+            for (const relPath of result.quarantinedRawPaths.slice(0, 10)) {
+              console.error(`    - ${relPath}`);
+            }
+          }
           return;
         }
         const result = await runCompile({
           since: opts.since,
           perFileMaxBytes: opts.perFileMaxBytes,
           totalMaxBytes: opts.totalMaxBytes,
+          existingPagesMaxBytes: opts.existingPagesMaxBytes,
+          maxFilesPerPass: opts.maxFilesPerPass,
           outputPath: opts.output,
           execute: opts.execute,
           plan: opts.plan,
           resetWatermark: opts.resetWatermark,
+          backfill: opts.backfill,
         });
         if (opts.execute && result.execution) {
           console.error(`Compile ${result.execution.mode} complete`);

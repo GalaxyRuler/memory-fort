@@ -38,12 +38,12 @@ export async function commitVaultChange(
     const stageablePaths = await filterStageablePaths(root, paths, status.stdout, runner);
     if (stageablePaths.length === 0) return { kind: "no-changes" };
 
-    const add = await runner.run("git", ["add", "-A", "--", ...stageablePaths], { cwd: root });
+    const add = await runGitWithLockRetry(runner, ["add", "-A", "--", ...stageablePaths], root);
     if (add.exitCode !== 0) {
       return await commitFailure(root, opts.message, `git add failed: ${commandOutput(add)}`, opts.now);
     }
 
-    const commit = await runner.run("git", ["commit", "-m", opts.message], { cwd: root });
+    const commit = await runGitWithLockRetry(runner, ["commit", "-m", opts.message], root);
     if (commit.exitCode !== 0) {
       return await commitFailure(root, opts.message, `git commit failed: ${commandOutput(commit)}`, opts.now);
     }
@@ -62,6 +62,32 @@ export async function commitVaultChange(
   } catch (error) {
     return await commitFailure(root, opts.message, errorMessage(error), opts.now);
   }
+}
+
+const GIT_LOCK_RETRY_DELAYS_MS = [250, 500, 1000, 2000];
+
+/**
+ * Several writers share the vault repo (inbox promotes, the auto-push worker,
+ * compile commits). Concurrent git operations collide on .git/index.lock —
+ * retry with backoff instead of failing the whole vault mutation.
+ */
+async function runGitWithLockRetry(
+  runner: CommandRunner,
+  args: string[],
+  cwd: string,
+): Promise<{ exitCode: number; stdout: string; stderr: string }> {
+  let result = await runner.run("git", args, { cwd });
+  for (const delayMs of GIT_LOCK_RETRY_DELAYS_MS) {
+    if (result.exitCode === 0 || !isLockContention(result)) return result;
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+    result = await runner.run("git", args, { cwd });
+  }
+  return result;
+}
+
+function isLockContention(result: { stdout: string; stderr: string }): boolean {
+  const output = `${result.stderr}\n${result.stdout}`;
+  return output.includes("index.lock") || output.includes("Another git process");
 }
 
 function uniqueNormalizedPaths(memoryRoot: string, paths: string[]): string[] {

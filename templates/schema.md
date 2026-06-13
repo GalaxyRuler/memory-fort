@@ -1,5 +1,5 @@
 ---
-schema_version: 1.4
+schema_version: 1.5
 updated: "{{install_date}}"
 applies_from_commit: "{{install_commit}}"
 ---
@@ -480,6 +480,49 @@ Operators can override with `?intent=<bucket>` on the `/api/search` URL query, o
 
 ---
 
+## Temporal validity
+
+Pages can optionally declare temporal bounds:
+
+| Field | Type | Description |
+|---|---|---|
+| `observed_at` | ISO date | When this fact was first observed. Not used for search filtering. |
+| `valid_from` | ISO date | When this fact became true (only if evidence supports it). Defaults to unbounded if omitted. |
+| `valid_until` | ISO date | When this fact ceased to be true (inclusive — valid ON this date). Defaults to unbounded if omitted. |
+
+Validity intervals use **inclusive date semantics**: `[valid_from, valid_until]`.
+A page with `valid_until: 2026-06-09` IS valid for `asOf=2026-06-09`.
+
+`observed_at` and `valid_from` are distinct: a fact observed on June 9 may have been true since March. Use `observed_at` for the observation date; use `valid_from` only when the evidence supports a specific truth-start date. If only the observation date is known, set `observed_at` and omit `valid_from`.
+
+Search accepts an `as_of` parameter (API `?as_of=YYYY-MM-DD`, MCP `as_of`, SDK `asOf`/`as_of`) that excludes pages whose validity interval does not contain the date. Untemporalized pages always pass. Invalid `as_of` values return HTTP 400 — filtering is never silently disabled.
+
+When a page is superseded, the supersede proposal records the intended patch in `old_page_patch` (`valid_until` + `status: superseded`) but does NOT mutate the old page — the page stays canonical until a human approves the proposal via `memory proposed approve <proposal-path>`, which archives the prior version, stamps the patch plus a top-level `superseded_by` provenance field (the graph edge stays `supersedes` on the replacement page — `superseded_by` is not a canonical edge type), and marks the proposal approved.
+
+---
+
+## Identity tagging
+
+Raw sessions can be tagged with identity metadata at capture time:
+
+| Field | Type | Description |
+|---|---|---|
+| `agent_id` | string (1-128 chars, `[A-Za-z0-9._@-]`) | Agent tool identity. Set via `MEMORY_FORT_AGENT_ID` env var. |
+| `user_id` | string (1-128 chars, `[A-Za-z0-9._@-]`) | User identity. Set via `MEMORY_FORT_USER_ID` env var. |
+
+Values failing validation are silently dropped (never stamped malformed).
+
+**Identity filtering is NOT security isolation.** It is a retrieval preference for a personal vault.
+
+- **Inclusive mode** (default): untagged documents (curated wiki pages) always pass through. Only tagged documents are filtered by identity match.
+- **Strict mode**: only documents with matching identity tags are returned. Untagged documents are excluded.
+
+Exposed as `agent_id`, `user_id`, `identity_mode` on the search API, MCP `search` tool, and both SDKs.
+
+The `@` character is allowed in identity values for compatibility with external account IDs (e.g., `alice@corp`), but raw email addresses are discouraged in frontmatter values.
+
+---
+
 ## 4. Naming rules
 
 - All filenames are **lowercase kebab-case**: `my-app.md`, not `MyApp.md` or `my_app.md`.
@@ -655,7 +698,7 @@ records the alias map. It never deletes raw observations or wiki pages.
 - **Cite the session** for claims dependent on a specific work session: `[per session claude-code-abc123]`.
 - **Contradictions are recorded, not deleted.** If new information disagrees with an existing page, add a `contradicts: [old-page]` entry in the new page's frontmatter AND a `contradicts: [new-page]` in the old page's frontmatter. The lint pass surfaces these for resolution.
 - **Low-confidence pages get `confidence: <value>` < 0.5.** Lint surfaces them as DRAFT — they're real but tentative.
-- **Wait for cross-session signal before creating a wiki page from a single session's observations.** Single-session content lives in raw/ until the compile pass sees the same theme across multiple sessions OR until the user explicitly promotes it.
+- **Wait for cross-session signal before creating a wiki page from a single session's observations.** Single-session content lives in raw/ until the compile pass sees the same theme across multiple sessions OR until the user explicitly promotes it. **Exception: `issues` pages** — a concrete bug, blocker, incident, or failure with evidence (error text, root cause, or fix) justifies an issue page from a single session; incidents typically occur exactly once and the threshold would otherwise suppress the entire category.
 - **No marketing language, no AI clichés.** Plain factual statements. "Voyage 3.5 retrieval is ~8% better than text-embedding-3-large on the user's domain mix" — not "Voyage 3.5 is the best-in-class state-of-the-art solution."
 
 ---

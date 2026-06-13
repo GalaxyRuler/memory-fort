@@ -247,13 +247,41 @@ function filterFailureCaseProse(
   return { filtered, stripped };
 }
 
-function userPrompt(cluster: ProcedureCluster): string {
+// Prompt budget: per-observation bodies are capped below, but a 30-day scan
+// can put hundreds of observations in one cluster — unbudgeted, that overflows
+// the model context (observed: 136k tokens against gpt-4o-mini's 128k limit).
+const MAX_PROMPT_OBSERVATIONS = 40;
+const MAX_OBSERVATION_BODY_CHARS = 1200;
+const MAX_OBSERVATIONS_SECTION_CHARS = 96_000;
+
+export function userPrompt(cluster: ProcedureCluster): string {
+  // Prefer the most recent observations, rendered in chronological order.
+  const recentFirst = [...cluster.observations].sort((a, b) =>
+    (b.created ?? "").localeCompare(a.created ?? ""),
+  );
+  const selected: typeof recentFirst = [];
+  let usedChars = 0;
+  for (const obs of recentFirst) {
+    if (selected.length >= MAX_PROMPT_OBSERVATIONS) break;
+    const body = obs.body.slice(0, MAX_OBSERVATION_BODY_CHARS);
+    const entryChars = body.length + obs.title.length + 64;
+    if (usedChars + entryChars > MAX_OBSERVATIONS_SECTION_CHARS) break;
+    usedChars += entryChars;
+    selected.push(obs);
+  }
+  selected.reverse();
+
+  const omitted = cluster.observations.length - selected.length;
+  const omittedNote = omitted > 0
+    ? ` (showing the ${selected.length} most recent; ${omitted} older omitted for prompt budget)`
+    : "";
+
   return `Command signature: ${cluster.signature.join(", ")}
-Cluster size: ${cluster.observations.length} observations across ${cluster.distinctSessions} distinct sessions
+Cluster size: ${cluster.observations.length} observations across ${cluster.distinctSessions} distinct sessions${omittedNote}
 
 Observations:
-${cluster.observations.map((obs, index) =>
-  `[${index + 1}] ${obs.created} (${obs.source}) - ${obs.title}\n${obs.body.slice(0, 1200)}`,
+${selected.map((obs, index) =>
+  `[${index + 1}] ${obs.created} (${obs.source}) - ${obs.title}\n${obs.body.slice(0, MAX_OBSERVATION_BODY_CHARS)}`,
 ).join("\n\n")}`;
 }
 

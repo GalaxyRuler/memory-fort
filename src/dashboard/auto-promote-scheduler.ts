@@ -2,10 +2,9 @@ import { appendFile } from "node:fs/promises";
 import { join } from "node:path";
 import { runCompile, type CompileResult } from "../cli/commands/compile.js";
 import {
-  readCompileStateFile,
+  mutateCompileStateFile,
   scheduledCompilePromptPath,
   scheduledCompilePromptRelPath,
-  writeCompileStateFile,
   type CompilePendingSummary,
 } from "../compile/state.js";
 import { runProcedurePropose } from "../cli/commands/procedure.js";
@@ -121,17 +120,15 @@ export async function runScheduledCompileOnce(
   const startedAt = new Date();
   const outputPath = scheduledCompilePromptPath(vaultRoot);
   const outputRelPath = scheduledCompilePromptRelPath();
-  const initialState = await readCompileStateForScheduler(vaultRoot);
-  await writeCompileStateFile(vaultRoot, {
-    ...initialState,
+  await mutateCompileStateFile(vaultRoot, (fresh) => ({
+    ...fresh,
     status: "running",
     lastRun: null,
-  });
+  }));
   const result = await runCompile({ vaultRoot, outputPath, execute: opts.execute });
   const finishedAt = new Date();
-  const completedState = await readCompileStateForScheduler(vaultRoot);
-  await writeCompileStateFile(vaultRoot, {
-    ...completedState,
+  await mutateCompileStateFile(vaultRoot, (fresh) => ({
+    ...fresh,
     status: "completed",
     lastRun: {
       startedAt: startedAt.toISOString(),
@@ -143,7 +140,7 @@ export async function runScheduledCompileOnce(
       operationsApplied: result.execution?.applied.length ?? 0,
       operationsProposed: result.execution?.proposed.length ?? 0,
     },
-  });
+  }));
   await appendFile(
     join(vaultRoot, "log.md"),
     `## [${finishedAt.toISOString()}] compile | scheduled prompt: ${result.rawFilesIncluded.length} raw included, ${result.pendingSummary.filesFullyDrained} already-drained, ${result.pendingSummary.filesWithPendingTail} pending tails\n`,
@@ -157,14 +154,6 @@ export async function runScheduledCompileOnce(
     pendingSummary: result.pendingSummary,
     execution: result.execution,
   };
-}
-
-async function readCompileStateForScheduler(vaultRoot: string) {
-  try {
-    return await readCompileStateFile(vaultRoot);
-  } catch {
-    return {};
-  }
 }
 
 export async function runAutoPromoteOnce(vaultRoot: string): Promise<void> {

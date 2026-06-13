@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { readdir, readFile } from "node:fs/promises";
+import { readdir, readFile, rm } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { loadSearchCorpus } from "../retrieval/corpus.js";
 import { readRelations, writeRelations, type RelationMap } from "../retrieval/relations.js";
@@ -107,7 +107,11 @@ export function findDuplicateEntityPairs(entities: EntityRecord[]): DuplicatePai
 export async function collectEntityMergeProposals(vaultRoot: string): Promise<EntityMergeProposal[]> {
   const corpus = await loadSearchCorpus({ vaultRoot, scope: "all" });
   const wikiDocs = corpus.documents.filter((document) =>
-    document.kind === "wiki" && isEntityWikiPath(document.relPath)
+    document.kind === "wiki"
+    && isEntityWikiPath(document.relPath)
+    // Archived pages are merge artifacts and historical records — matching
+    // them against live pages re-proposes every completed merge forever.
+    && !document.relPath.startsWith("wiki/archive/")
   );
   const counts = new Map<string, number>();
   const records = wikiDocs.map((document): EntityRecord => {
@@ -235,6 +239,35 @@ export async function mergeEntityAliases(opts: {
       }, parsed.body),
     );
     changedFiles.push(relPath);
+  }
+
+  // Archive the alias pages themselves — leaving them live keeps duplicate
+  // content in search results and the duplicate-entities health metric warm.
+  // Archive (never delete): move under wiki/archive/ with provenance.
+  for (const alias of aliases) {
+    if (!alias.startsWith("wiki/") || !alias.endsWith(".md")) continue;
+    const aliasFullPath = join(opts.vaultRoot, ...alias.split("/"));
+    if (!existsSync(aliasFullPath)) continue;
+    const parsed = parseFrontmatter(await readFile(aliasFullPath, "utf-8"));
+    const baseName = alias.split("/").at(-1)!;
+    let archiveRelPath = `wiki/archive/${baseName}`;
+    if (existsSync(join(opts.vaultRoot, ...archiveRelPath.split("/")))) {
+      archiveRelPath = `wiki/archive/${baseName.replace(/\.md$/, "")}-${(opts.now ?? new Date()).getTime()}.md`;
+    }
+    await atomicWrite(
+      join(opts.vaultRoot, ...archiveRelPath.split("/")),
+      serializeFrontmatter(
+        {
+          ...parsed.frontmatter,
+          status: "archived",
+          superseded_by: canonical,
+          updated: (opts.now ?? new Date()).toISOString().slice(0, 10),
+        },
+        parsed.body,
+      ),
+    );
+    await rm(aliasFullPath);
+    changedFiles.push(alias, archiveRelPath);
   }
 
   const aliasMap = await readEntityAliasMap(opts.vaultRoot);

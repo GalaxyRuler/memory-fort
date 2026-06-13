@@ -39,6 +39,7 @@ export interface RelinkAnchorPageResult {
   restored: RelinkAnchorAction[];
   needsReview: RelinkAnchorNeedsReview[];
   archivePath?: string;
+  skipped?: string;
 }
 
 export interface RelinkAnchorsResult {
@@ -67,11 +68,6 @@ export async function runRelinkAnchors(opts: RelinkAnchorsOptions): Promise<Reli
     const current = await readFile(fullPath, "utf-8");
     const parsed = parseFrontmatter(current);
     const plan = planRelink(parsed.body, analysis);
-    if (opts.mode === "apply" && plan.needsReview.length > 3) {
-      throw new Error(
-        `memory relink-anchors: ${analysis.path} has ${plan.needsReview.length} unplaceable anchors; re-synthesize instead of relinking`,
-      );
-    }
 
     const result: RelinkAnchorPageResult = {
       path: analysis.path,
@@ -80,10 +76,24 @@ export async function runRelinkAnchors(opts: RelinkAnchorsOptions): Promise<Reli
       needsReview: plan.needsReview,
     };
 
+    // One unrestorable page must not abort the whole batch — record the
+    // reason, leave the page untouched, and continue with the rest.
+    if (opts.mode === "apply" && plan.needsReview.length > 3) {
+      result.skipped = `${plan.needsReview.length} unplaceable anchors; re-synthesize instead of relinking`;
+      pages.push(result);
+      continue;
+    }
+
     if (opts.mode === "apply" && plan.restored.length > 0) {
+      // Enforce the narrative invariant only for pages that satisfied it
+      // before relinking — legacy pages with headings/lists must not be
+      // blocked from anchor restoration they don't make any worse.
+      const originalValid = validateNarrativeBody(parsed.body).ok;
       const validation = validateNarrativeBody(plan.body);
-      if (!validation.ok) {
-        throw new Error(`memory relink-anchors: ${analysis.path} would violate narrative invariant: ${validation.reason}`);
+      if (originalValid && !validation.ok) {
+        result.skipped = `would violate narrative invariant: ${validation.reason}`;
+        pages.push(result);
+        continue;
       }
       const history = await archivePageVersion(root, analysis.path, current, now, parsed.frontmatter);
       await mkdir(dirname(fullPath), { recursive: true });
@@ -244,6 +254,10 @@ function formatRelinkAnchorsReport(mode: RelinkAnchorsMode, pages: RelinkAnchorP
   lines.push(`Pages: ${pages.length}`);
   for (const page of pages) {
     lines.push(`- ${page.path}`);
+    if (page.skipped) {
+      lines.push(`  skipped: ${page.skipped}`);
+      continue;
+    }
     lines.push(`  restored: ${page.restored.length}`);
     for (const item of page.restored) {
       lines.push(`    - ${item.kind}:${item.anchor} (${item.action})`);

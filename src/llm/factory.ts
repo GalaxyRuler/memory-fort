@@ -9,6 +9,7 @@ import { createOllamaLLM } from "./ollama.js";
 import { createOpenAICompatLLM } from "./openai-compat.js";
 import { createOpenRouterLLM } from "./openrouter.js";
 import { LLMConfigError, LLMDisabledError, type LLMProvider } from "./types.js";
+import { withLLMTimeout } from "./with-timeout.js";
 
 export { LLMConfigError, LLMDisabledError } from "./types.js";
 
@@ -19,6 +20,7 @@ export interface LLMConfig {
   model?: string;
   max_tokens?: number;
   temperature?: number;
+  timeout_ms?: number;
   options?: Record<string, unknown>;
   allowInternalHosts?: boolean;
 }
@@ -63,6 +65,8 @@ export function getActiveLLMConfig(config: MemoryConfig): LLMConfig | null {
     max_tokens: readNumber(raw["max_tokens"]),
     temperature: readNumber(raw["temperature"]),
   };
+  const timeoutMs = readNumber(raw["timeout_ms"]);
+  if (timeoutMs !== undefined) result.timeout_ms = timeoutMs;
   const options = asRecord(raw["options"]);
   if (options) result.options = options;
   if (raw["allow_internal_hosts"] === true) result.allowInternalHosts = true;
@@ -80,6 +84,13 @@ export function createLLMFromConfig(
     throw new LLMConfigError("no `llm:` section in ~/.memory/config.yaml");
   }
 
+  return withLLMTimeout(createBaseProvider(config, env), config.timeout_ms);
+}
+
+function createBaseProvider(
+  config: LLMConfig,
+  env: NodeJS.ProcessEnv,
+): LLMProvider {
   switch (config.provider) {
     case "openrouter": {
       const apiKey = env["OPENROUTER_API_KEY"]?.trim();

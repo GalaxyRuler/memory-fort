@@ -453,6 +453,38 @@ describe("runCompile", () => {
     expect(state.consumed ?? {}).not.toHaveProperty("raw/2026-05-21/manual-a.md");
   });
 
+  it("falls through to prompt-based raw execution when fact consolidation has no candidates", async () => {
+    // Regression: leftover facts with no matching wiki page used to shadow
+    // the raw compile path on EVERY execute run — applied 0, watermark
+    // frozen, wiki starved.
+    await writeFile(join(root, "raw", "2026-05-21", "manual-a.md"), "raw observation that must reach the prompt path\n");
+    await writeFile(join(root, "raw", "2026-05-21", "manual-b.md"), "second raw observation\n");
+    await writeFact("facts/2026-05-31/orphan.json", {
+      title: "Orphan Concept",
+      facts: ["Orphan fact with no matching page."],
+      narrative: "Orphan narrative.",
+      concepts: ["Concept With No Page"],
+      files: [],
+      importance: 8,
+      sessionId: "orphan",
+      sourceRawPath: "raw/2026-05-31/orphan.md",
+      observedAt: "2026-05-31T12:00:00.000Z",
+      compressedAt: "2026-05-31T12:00:00.000Z",
+    });
+
+    const result = await runCompile({
+      vaultRoot: root,
+      execute: true,
+      configLoader: async () => ({ llm: { provider: "ollama", model: "llama3.2" } }),
+      llmFactory: () => fakeExecuteLLM(),
+      env: {},
+    });
+
+    expect(result.execution?.applied).toEqual(["wiki/lessons/compile-execute.md"]);
+    const state = await readCompileState();
+    expect(state.consumed["raw/2026-05-21/manual-a.md"]?.bytes).toBeGreaterThan(0);
+  });
+
   it("does not advance the watermark in artifact mode", async () => {
     const rawPath = join(root, "raw", "2026-05-21", "manual-a.md");
     await writeFile(rawPath, "abcdef");

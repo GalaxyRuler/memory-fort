@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { readFile, readdir, stat } from "node:fs/promises";
 import { basename, join, relative } from "node:path";
-import { readCompressedMap, readCompileStateFile, writeCompileStateFile } from "../../compile/state.js";
+import { mutateCompileStateFile, readCompressedMap, readCompileStateFile, writeCompileStateFile } from "../../compile/state.js";
 import { createLLMFromConfig, getActiveLLMConfig, type LLMConfig } from "../../llm/factory.js";
 import { estimateLLMCostUsd } from "../../llm/pricing.js";
 import type { LLMProvider, LLMTokenUsage } from "../../llm/types.js";
@@ -146,7 +146,7 @@ export async function runCompress(opts: CompressOptions = {}): Promise<CompressR
   }
 
   if (mode === "apply") {
-    await writeCompileStateFile(root, { ...state, compressed });
+    await mutateCompileStateFile(root, (fresh) => ({ ...fresh, compressed }));
   }
 
   return {

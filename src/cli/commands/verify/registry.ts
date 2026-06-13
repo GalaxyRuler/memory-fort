@@ -1,5 +1,9 @@
 import { autoPushErrorsCheck } from "./autopush.js";
+import { embeddingsIntegrityCheck } from "./embeddings-integrity.js";
+import { orphanedTmpCheck } from "./orphaned-tmp.js";
+import { syncStateDriftCheck } from "./sync-state-drift.js";
 import { atomicWriteRetriesCheck } from "./atomic-write-retries.js";
+import { backlogGrowthCheck } from "./backlog-growth.js";
 import {
   antigravityCaptureCheck,
   antigravityConfigCheck,
@@ -56,6 +60,7 @@ export const ALL_CHECKS: CheckDescriptor[] = [
   atomicWriteRetriesCheck,
   compileRecentCheck,
   compileExecuteHealthCheck,
+  backlogGrowthCheck,
   promptDriftCheck,
   curationContentLossCheck,
   autoPushErrorsCheck,
@@ -82,4 +87,7 @@ export const ALL_CHECKS: CheckDescriptor[] = [
   snifferClaudeDesktopCaptureCheck,
   chatgptBridgeRunningCheck,
   chatgptBridgeMcpCheck,
+  orphanedTmpCheck,
+  embeddingsIntegrityCheck,
+  syncStateDriftCheck,
 ];

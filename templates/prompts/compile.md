@@ -1,7 +1,7 @@
 # `memory compile` — distill raw observations into curated wiki pages
 <!-- memory:template compile:2026-05-31-deterministic-rewrite -->
 
-You are running the compile workflow inside the user's active agent session. The CLI emitted this prompt with several context blocks substituted in (`{{schema_content}}`, `{{index_content}}`, `{{existing_pages}}`, etc.). Your job is to read those, then use your file-editing tools to update the wiki in `~/.memory/wiki/`.
+You are running the compile workflow inside the user's active agent session. The CLI emitted this prompt with several context blocks substituted in (`schema_content`, `index_content`, `existing_pages`, etc.). Your job is to read those, then use your file-editing tools to update the wiki in `~/.memory/wiki/`.
 
 You do the entire compile pass in this session. Do not call out to another agent. Do not return a "here's what I would do" plan — actually do the work.
 
@@ -61,7 +61,7 @@ salient fact anchors such as relations, wikilinks, code identifiers, or entity
 names.
 
 For a durable knowledge page with an existing page (`projects`, `lessons`,
-`decisions`, `references`, `tools`, `people`, or `prospective`), you MUST use
+`decisions`, `references`, `tools`, `people`, `issues`, or `prospective`), you MUST use
 `rewrite_page`: read the injected current page body, preserve all substantive
 existing content, integrate genuinely new facts, remove redundancy, and emit the
 complete coherent body. Do not emit dated `append_page` sections for these
@@ -72,6 +72,30 @@ the observations, emit no page operation for that entity. Use `write_page` only
 when creating a new page that meets the cross-session threshold. Page targets
 must be `wiki/<category>/<lowercase-kebab-slug>.md`;
 for example, a project called `Acme` should target `wiki/projects/acme.md`.
+
+**Issue pages (`wiki/issues/<slug>.md`) — threshold exemption.** A bug,
+blocker, incident, failure, or constraint with concrete evidence justifies an
+issue page from a SINGLE session — the cross-session threshold exists to
+prevent premature entity pages, not to suppress incident records. Route by
+state: an unresolved or recurring failure (or one whose cause/fix state is
+worth tracking) → `issues`; a resolved incident whose only remaining value is
+its reusable takeaway → `lessons`. When an issue page's failure later proves
+resolved, record the fix on the issue page (relations: `fixed_by`) rather than
+deleting it.
+
+**Core memories (`cognitive_type: core`) — threshold exemption for explicit
+directives.** Reserve `core` for durable identity-level facts about the user:
+stable preferences, standing constraints, long-lived conventions (e.g. "always
+tests on temp vaults, never the real one"). Actively scan `## [..] Prompt`
+blocks for operator directives — phrases like "always X", "never Y", "from now
+on", "make sure you always", "I want you to always". An explicit directive
+stated ONCE with durable intent justifies a core memory immediately — append it
+to `wiki/preferences.md` (the canonical core page) or create a core-tagged page;
+the cross-session threshold applies to INFERRED preferences (behavior patterns
+never stated as a rule), not to explicit instructions. Inferred preferences
+still need 3+ sessions of evidence. Entity/knowledge pages are NOT core — when
+classifying a page that is about a project, tool, or event rather than the
+operator, use `semantic`.
 Prefer one page operation per normalized target path; combine related new
 content into the `body` or `section` for that page instead of emitting a
 separate write and append for the same page.
@@ -204,10 +228,15 @@ For each candidate, note:
 
 Per schema §6: **do not create a wiki page from a single raw session's content.** Wait for the same entity to appear across 3+ raw sessions OR for an explicit user instruction.
 
+**Exception — issue pages.** A concrete bug, blocker, incident, or failure with
+evidence (error text, root cause, or fix) justifies a `wiki/issues/` page from a
+single session. Incidents usually happen exactly once; the threshold would
+suppress them entirely.
+
 For each candidate:
 - If the entity already has a wiki page → proceed to Step 3 (update it).
 - If it doesn't AND it appears in ≥ 3 distinct raw files in this batch (or across this batch + recent prior sessions visible from `index.md`) → create it.
-- If it doesn't AND it's a single-session mention → skip; let it stay in `raw/` until a future compile sees the cross-session signal.
+- If it doesn't AND it's a single-session mention → skip (unless it's an evidenced issue, per the exception above); let it stay in `raw/` until a future compile sees the cross-session signal.
 
 ### Step 3 — Update existing pages
 

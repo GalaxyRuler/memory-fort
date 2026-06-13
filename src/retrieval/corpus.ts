@@ -290,7 +290,9 @@ async function loadDocument(file: MarkdownFile): Promise<SearchDocument> {
     agentSessionId: canonical?.session ?? null,
     toolCallsSummary: canonical?.toolCallsSummary ?? [],
     topicTags: canonical?.topicTags ?? [],
-    rawFrontmatter: canonical?.rawFrontmatter ?? null,
+    // Always carry the parsed frontmatter — temporal (valid_from/valid_until)
+    // and identity (agent_id/user_id) filters read it for every doc kind.
+    rawFrontmatter: canonical?.rawFrontmatter ?? (frontmatter as Record<string, unknown>),
     importedFrom: readImportedFrom(frontmatter.imported_from),
     body: canonical?.body ?? parsed.body,
     snippetSource: firstNonEmptyLine(parsed.body),
