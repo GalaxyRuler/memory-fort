@@ -3,6 +3,20 @@ import { join } from "node:path";
 import yaml from "js-yaml";
 import { memoryRoot as defaultMemoryRoot } from "./paths.js";
 
+export interface ResolvedCompileConfig {
+  scheduled: boolean;
+  cadence: "daily" | "weekly" | "manual";
+  execute: boolean;
+  raw_filter: boolean;
+  raw_filter_min_signal_bytes: number;
+  drain: boolean;
+  max_passes_per_run: number;
+  similarity_context: {
+    enabled: boolean;
+    threshold: number;
+  };
+}
+
 export interface MemoryConfig {
   llm?: {
     provider?: string;
@@ -63,6 +77,10 @@ export interface MemoryConfig {
     scheduled?: boolean;
     cadence?: "daily" | "weekly" | "manual";
     execute?: boolean;
+    raw_filter?: boolean;
+    raw_filter_min_signal_bytes?: number;
+    drain?: boolean;
+    max_passes_per_run?: number;
     similarity_context?: {
       enabled?: boolean;
       threshold?: number;
@@ -132,10 +150,31 @@ export async function loadMemoryConfig(
 
 export function parseMemoryConfigYaml(text: string, path = "config.yaml"): MemoryConfig {
   const parsed = yaml.load(text, { schema: yaml.JSON_SCHEMA });
+  if (parsed === null || parsed === undefined) return {};
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
     throw new Error(`${path} must contain a YAML object`);
   }
   return parsed as MemoryConfig;
+}
+
+export function resolveCompileConfig(raw: MemoryConfig["compile"]): ResolvedCompileConfig {
+  const config = raw ?? {};
+  return {
+    scheduled: config.scheduled === true,
+    cadence: config.cadence === "weekly" || config.cadence === "manual" ? config.cadence : "daily",
+    execute: config.execute === true,
+    raw_filter: config.raw_filter === true,
+    raw_filter_min_signal_bytes: readInteger(config.raw_filter_min_signal_bytes, 40),
+    drain: config.drain === true,
+    max_passes_per_run: readInteger(config.max_passes_per_run, 25),
+    similarity_context: {
+      enabled: config.similarity_context?.enabled === true,
+      threshold: typeof config.similarity_context?.threshold === "number"
+        && Number.isFinite(config.similarity_context.threshold)
+        ? config.similarity_context.threshold
+        : 0.7,
+    },
+  };
 }
 
 export function validateMemoryConfig(config: MemoryConfig): string[] {
@@ -165,6 +204,21 @@ export function validateMemoryConfig(config: MemoryConfig): string[] {
   const compile = asRecord(config.compile);
   if (compile?.["cadence"] !== undefined && !["weekly", "daily", "manual"].includes(String(compile["cadence"]))) {
     warnings.push("compile.cadence must be weekly, daily, or manual");
+  }
+  if (compile?.["raw_filter"] !== undefined && typeof compile["raw_filter"] !== "boolean") {
+    warnings.push("compile.raw_filter must be a boolean");
+  }
+  if (
+    compile?.["raw_filter_min_signal_bytes"] !== undefined &&
+    !isIntegerInRange(compile["raw_filter_min_signal_bytes"], 0, 1_000_000)
+  ) {
+    warnings.push("compile.raw_filter_min_signal_bytes must be an integer between 0 and 1000000");
+  }
+  if (compile?.["drain"] !== undefined && typeof compile["drain"] !== "boolean") {
+    warnings.push("compile.drain must be a boolean");
+  }
+  if (compile?.["max_passes_per_run"] !== undefined && !isIntegerInRange(compile["max_passes_per_run"], 1, 1_000)) {
+    warnings.push("compile.max_passes_per_run must be an integer between 1 and 1000");
   }
   const graph = asRecord(config.graph);
   const edgeWeights = asRecord(graph?.["edge_weights"]);
@@ -282,6 +336,10 @@ function isIntegerInRange(value: unknown, min: number, max: number): boolean {
 
 function isNumberInRange(value: unknown, min: number, max: number): boolean {
   return typeof value === "number" && Number.isFinite(value) && value >= min && value <= max;
+}
+
+function readInteger(value: unknown, fallback: number): number {
+  return typeof value === "number" && Number.isInteger(value) ? value : fallback;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
