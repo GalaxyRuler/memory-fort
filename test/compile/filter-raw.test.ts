@@ -83,6 +83,68 @@ describe("filter-raw: positive-match stripping and conservative noise-only class
 });
 
 describe("filter-raw: tool-heavy reduction", () => {
+  it("prunes plain-text ToolUse output sections while preserving command input and signal lines", () => {
+    const bulkLine = "vite transform chunk with repetitive progress and module timing";
+    const plainOutput = [
+      ...Array.from({ length: 35 }, (_, index) => `${bulkLine} ${String(index).padStart(2, "0")}`),
+      "error: x",
+      ...Array.from({ length: 20 }, (_, index) => `${bulkLine} after-signal ${String(index).padStart(2, "0")}`),
+      "3 passed",
+      ...Array.from({ length: 15 }, (_, index) => `${bulkLine} tail ${String(index).padStart(2, "0")}`),
+    ].join("\n");
+    const input = JSON.stringify({ command: "npm test -- test/compile/filter-raw.test.ts --reporter=dot" }, null, 2);
+    const result = filterRawText(rawTurn("ToolUse: Bash", [
+      "**Input:**",
+      input,
+      "",
+      "**Output:**",
+      plainOutput,
+    ].join("\n")));
+    const reduction = (result.bytesIn - result.bytesOut) / result.bytesIn;
+
+    expect(reduction).toBeGreaterThanOrEqual(0.70);
+    expect(result.filtered).toContain("npm test -- test/compile/filter-raw.test.ts --reporter=dot");
+    expect(result.filtered).toContain("**Output:**");
+    expect(result.filtered).toContain("error: x");
+    expect(result.filtered).toContain("3 passed");
+    expect(result.filtered).not.toContain("repetitive progress and module timing 00");
+    expect(result.strippedByClass["tool-output"]).toBeGreaterThan(0);
+    expect(result.noiseOnly).toBe(false);
+  });
+
+  it("keeps whole-file reduction above 70% for multi-turn plain-text tool outputs", () => {
+    const plainToolTurn = (turnIndex: number) => rawTurn("ToolUse: Bash", [
+      "**Input:**",
+      JSON.stringify({ command: `npm test -- shard-${turnIndex}` }, null, 2),
+      "",
+      "**Output:**",
+      ...Array.from({ length: 120 }, (_, index) => (
+        `plain process row ${turnIndex}-${index} module transform timing ${"x".repeat(56)}`
+      )),
+      turnIndex === 3 ? "error: shard failed once" : "3 passed",
+      ...Array.from({ length: 80 }, (_, index) => (
+        `plain process tail ${turnIndex}-${index} cache progress ${"y".repeat(60)}`
+      )),
+    ].join("\n"));
+    const text = [
+      rawTurn("Prompt", "Please run the compile tests before reporting."),
+      ...Array.from({ length: 6 }, (_, index) => plainToolTurn(index)),
+      rawTurn("Response", "Done."),
+    ].join("\n");
+    const result = filterRawText(text);
+    const reduction = (result.bytesIn - result.bytesOut) / result.bytesIn;
+
+    expect(result.bytesIn).toBeGreaterThanOrEqual(50_000);
+    expect(reduction).toBeGreaterThanOrEqual(0.70);
+    expect(result.filtered).toContain("Please run the compile tests before reporting.");
+    expect(result.filtered).toContain("npm test -- shard-0");
+    expect(result.filtered).toContain("3 passed");
+    expect(result.filtered).toContain("error: shard failed once");
+    expect(result.filtered).not.toContain("plain process row 0-0");
+    expect(result.strippedByClass["tool-output"]).toBeGreaterThan(0);
+    expect(result.noiseOnly).toBe(false);
+  });
+
   it("strips at least 55% from a tool-heavy fixture while preserving signal", () => {
     const noisyTurns = Array.from({ length: 40 }, (_, index) => rawTurn("ToolUse: Bash", [
       "\u001b[32m✓ built in 812ms\u001b[39m",

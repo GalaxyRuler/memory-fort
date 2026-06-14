@@ -24,6 +24,8 @@ const SUGGESTION_PROMPT_RE = /# Overview[\s\S]*?Generate 0 to 3 hyperpersonalize
 const DATA_BLOB_RE = /\bdata:[\w.+/-]+\/[\w.+-]+;base64,[A-Za-z0-9+/=]{200,}/gu;
 const BASE64_BLOB_RE = /\b[A-Za-z0-9+/]{240,}={0,2}\b/gu;
 const FAT_JSON_FIELDS = new Set(["content", "originalFile", "structuredPatch"]);
+const OUTPUT_MARKER = "**Output:**";
+const OUTPUT_LINE_PRUNE_MIN_BYTES = 400;
 const KEEP_LIST_RES = [
   /error[:\s]/iu,
   /\bfailed\b/iu,
@@ -38,6 +40,18 @@ const KEEP_LIST_RES = [
   /MEMORY\.md/u,
   /\bRead\b.*\.(md|ts|tsx|js|jsx|json|yaml|yml|toml|txt)\b/iu,
   /```/u,
+];
+const LINE_SIGNAL_RES = [
+  /error[:\s]/iu,
+  /\bfailed\b/iu,
+  /^\s*\[[\w/.-]+ [0-9a-f]{7,}\]/u,
+  /\b\d+\s+(passed|failed|skipped)\b/iu,
+  /\bfiles? changed\b/iu,
+  /^@@ /u,
+  /^diff --git /u,
+  /^\s+at /u,
+  /Traceback/u,
+  /error TS\d+/u,
 ];
 
 export function splitTurns(text: string): RawTurn[] {
@@ -84,7 +98,7 @@ export function filterRawText(text: string): RawFilterResult {
 function filterTurns(text: string, turns: RawTurn[], strippedByClass: Record<string, number>): string {
   let out = text.slice(0, text.indexOf(turns[0]!.header));
   for (const turn of turns) {
-    const stripped = shouldStripTurn(turn) ? stripNoise(turn.body, strippedByClass).text : turn.body;
+    const stripped = shouldStripTurn(turn) ? stripToolTurnBody(turn.body, strippedByClass) : turn.body;
     out += `${turn.header}\n${stripped}`;
   }
   return out;
@@ -109,6 +123,57 @@ function stripNoise(text: string, strippedByClass: Record<string, number>): { te
   next = stripFatJsonFields(next, strippedByClass);
   next = replaceWithCount(next, CWD_RESET_RE, "", "cwd-reset", strippedByClass);
   return { text: next };
+}
+
+function stripToolTurnBody(text: string, strippedByClass: Record<string, number>): string {
+  const markerIndex = text.indexOf(OUTPUT_MARKER);
+  if (markerIndex === -1) return stripNoise(text, strippedByClass).text;
+
+  const beforeOutput = stripNoise(text.slice(0, markerIndex), strippedByClass).text;
+  const output = stripNoise(text.slice(markerIndex), strippedByClass).text;
+  if (Buffer.byteLength(output, "utf-8") <= OUTPUT_LINE_PRUNE_MIN_BYTES) {
+    return `${beforeOutput}${output}`;
+  }
+  return `${beforeOutput}${pruneToolOutputLines(output, strippedByClass)}`;
+}
+
+function pruneToolOutputLines(text: string, strippedByClass: Record<string, number>): string {
+  const lines = text.match(/[^\n]*(?:\n|$)/gu)?.filter((line) => line.length > 0) ?? [];
+  let out = "";
+  let dropped = "";
+  let keptOutputHeader = false;
+
+  for (const line of lines) {
+    const lineText = line.replace(/\r?\n$/u, "");
+    if (!keptOutputHeader) {
+      out += line;
+      if (lineText.includes(OUTPUT_MARKER)) keptOutputHeader = true;
+      continue;
+    }
+    if (isLineSignal(lineText)) {
+      out += flushDroppedToolOutput(dropped, strippedByClass);
+      dropped = "";
+      out += line;
+    } else {
+      dropped += line;
+    }
+  }
+  out += flushDroppedToolOutput(dropped, strippedByClass);
+  return out;
+}
+
+function flushDroppedToolOutput(dropped: string, strippedByClass: Record<string, number>): string {
+  if (dropped.length === 0) return "";
+  const droppedBytes = Buffer.byteLength(dropped, "utf-8");
+  const placeholder = dropped.endsWith("\n")
+    ? `[elided ${droppedBytes} bytes]\n`
+    : `[elided ${droppedBytes} bytes]`;
+  addStripped(strippedByClass, "tool-output", byteDelta(dropped, placeholder));
+  return placeholder;
+}
+
+function isLineSignal(line: string): boolean {
+  return LINE_SIGNAL_RES.some((re) => re.test(line));
 }
 
 function replaceWithCount(
@@ -226,10 +291,13 @@ function visitJsonLeaves(value: unknown, visitor: (value: unknown) => void): voi
 }
 
 function signalBytesForTurn(turn: RawTurn): number {
-  if (SIGNAL_TURN_RE.test(turn.kind) || hasKeepListSignal(turn.body) || !KNOWN_TURN_RE.test(turn.kind)) {
+  if (SIGNAL_TURN_RE.test(turn.kind) || !KNOWN_TURN_RE.test(turn.kind)) {
     return Buffer.byteLength(turn.body, "utf-8");
   }
-  const stripped = stripNoise(turn.body, {}).text;
+  const stripped = shouldStripTurn(turn) ? stripToolTurnBody(turn.body, {}) : stripNoise(turn.body, {}).text;
+  if (hasKeepListSignal(turn.body) && !shouldStripTurn(turn)) {
+    return Buffer.byteLength(turn.body, "utf-8");
+  }
   return isPlaceholderOnlyJson(stripped.trim()) ? 0 : Buffer.byteLength(stripped, "utf-8");
 }
 
