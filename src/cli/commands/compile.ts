@@ -357,7 +357,7 @@ export async function runCompile(
   }
 
   const execution = opts.execute
-    ? await executeCompilePrompt({ ...opts, root, prompt })
+    ? await executeCompilePrompt({ ...opts, root, prompt, hasRawContent: rawContentBlocks.length > 0 })
     : undefined;
   const watermarksAdvanced = await maybeAdvanceWatermarks({
     root,
@@ -566,6 +566,7 @@ function formatDrainProgress(pass: number, result: CompileResult): string {
 async function executeCompilePrompt(opts: CompileOptions & {
   root: string;
   prompt: string;
+  hasRawContent: boolean;
 }): Promise<CompileResult["execution"]> {
   const env = opts.env ?? process.env;
   const config = await (opts.configLoader ?? (() => loadMemoryConfig(opts.root)))();
@@ -589,6 +590,24 @@ async function executeCompilePrompt(opts: CompileOptions & {
     // A permanently non-empty facts store must not starve the wiki: without
     // this fallthrough, leftover facts shadow the raw path on every run and
     // the compile watermark never advances.
+  }
+  if (!opts.hasRawContent) {
+    return {
+      mode: opts.plan ? "plan" : "execute",
+      rawInputConsumed: false,
+      applied: [],
+      proposed: [],
+      planned: [],
+      rejected: [],
+      outcomes: [],
+      referencesStripped: 0,
+      prosePathLeaks: 0,
+      pagesRewritten: 0,
+      pagesUpdated: 0,
+      pagesUnchanged: 0,
+      factsExtracted: 0,
+      sessionsScanned: 0,
+    };
   }
   const response = await chatWithAudit({
     llm,
