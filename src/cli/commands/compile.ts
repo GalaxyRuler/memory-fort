@@ -9,6 +9,7 @@ import {
 import { dirname, join, relative } from "node:path";
 import { applyCompileOperations, parseCompileOperationsBlock, type ApplyCompileOperationsResult } from "../../compile/execute.js";
 import { clearOpsJournal } from "../../compile/ops-journal.js";
+import { filterRawText } from "../../compile/filter-raw.js";
 import { runFactConsolidation } from "../../compile/fact-consolidate.js";
 import { rebuildIndex, type RebuildIndexResult } from "../../compile/index.js";
 import { loadCompressedFacts } from "../../facts/store.js";
@@ -20,7 +21,7 @@ import {
 } from "../../llm/factory.js";
 import { type LLMProvider } from "../../llm/types.js";
 import { readRuntimePrompt } from "../../prompts/runtime.js";
-import { loadMemoryConfig, type MemoryConfig } from "../../storage/config.js";
+import { loadMemoryConfig, resolveCompileConfig, type MemoryConfig } from "../../storage/config.js";
 import {
   memoryRoot,
 } from "../../storage/paths.js";
@@ -54,6 +55,8 @@ export interface CompileOptions {
   backfill?: boolean;
   maxFilesPerPass?: number;
   excludeRawPaths?: ReadonlySet<string>;
+  rawFilter?: boolean;
+  rawFilterMinSignalBytes?: number;
 }
 
 export interface CompileDrainOptions extends CompileOptions {
@@ -80,6 +83,16 @@ export interface CompileResult {
     rawInputConsumed?: boolean;
   } & ApplyCompileOperationsResult;
   indexRebuild?: RebuildIndexResult;
+  filterStats?: CompileFilterStats;
+}
+
+export interface CompileFilterStats {
+  bytesIn: number;
+  bytesOut: number;
+  signalBytes: number;
+  rawBytesConsumed: number;
+  filesFiltered: number;
+  strippedByClass: Record<string, number>;
 }
 
 export interface CompileDrainResult {
@@ -146,6 +159,10 @@ export async function runCompile(
     "existingPagesMaxBytes",
   );
   const root = opts.vaultRoot ?? memoryRoot();
+  const memoryConfig = await (opts.configLoader ?? (() => loadMemoryConfig(root)))();
+  const compileConfig = resolveCompileConfig(memoryConfig.compile);
+  const rawFilterEnabled = opts.rawFilter ?? compileConfig.raw_filter;
+  void (opts.rawFilterMinSignalBytes ?? compileConfig.raw_filter_min_signal_bytes);
   const promptTemplate = await readRuntimePrompt({
     vaultRoot: root,
     name: "compile.md",
@@ -180,6 +197,14 @@ export async function runCompile(
   const includedWatermarks: IncludedRawWatermark[] = [];
   const rawContentBlocks: string[] = [];
   const eligibleRaws: EligibleRaw[] = [];
+  const filterStats: CompileFilterStats = {
+    bytesIn: 0,
+    bytesOut: 0,
+    signalBytes: 0,
+    rawBytesConsumed: 0,
+    filesFiltered: 0,
+    strippedByClass: {},
+  };
   let totalUsed = 0;
   let truncatedAtTotalCap = false;
 
@@ -310,6 +335,16 @@ export async function runCompile(
         text += `\n\n[truncated at totalMaxBytes ${totalMaxBytes}]`;
       }
     }
+    if (rawFilterEnabled) {
+      const filtered = filterRawText(text);
+      filterStats.bytesIn += filtered.bytesIn;
+      filterStats.bytesOut += filtered.bytesOut;
+      filterStats.signalBytes += filtered.signalBytes;
+      filterStats.rawBytesConsumed += includedBytes;
+      filterStats.filesFiltered += 1;
+      mergeStrippedByClass(filterStats.strippedByClass, filtered.strippedByClass);
+      text = filtered.filtered;
+    }
 
     rawFilesIncluded.push(raw.candidate.path);
     includedWatermarks.push({
@@ -393,6 +428,7 @@ export async function runCompile(
     rawFilesRemaining,
     execution,
     ...(indexRebuild ? { indexRebuild } : {}),
+    ...(rawFilterEnabled ? { filterStats } : {}),
   };
 }
 
@@ -526,6 +562,12 @@ function countActiveRawsAfter(raws: EligibleRaw[], index: number): number {
     if (raws[i]!.cursor < raws[i]!.content.byteLength) count += 1;
   }
   return count;
+}
+
+function mergeStrippedByClass(target: Record<string, number>, source: Record<string, number>): void {
+  for (const [key, value] of Object.entries(source)) {
+    target[key] = (target[key] ?? 0) + value;
+  }
 }
 
 function chooseSliceEnd(content: Buffer, startByte: number, maxBytes: number): number {
