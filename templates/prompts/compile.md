@@ -1,5 +1,5 @@
 # `memory compile` — distill raw observations into curated wiki pages
-<!-- memory:template compile:2026-05-31-deterministic-rewrite -->
+<!-- memory:template compile:2026-06-14-core-preferences -->
 
 You are running the compile workflow inside the user's active agent session. The CLI emitted this prompt with several context blocks substituted in (`schema_content`, `index_content`, `existing_pages`, etc.). Your job is to read those, then use your file-editing tools to update the wiki in `~/.memory/wiki/`.
 
@@ -86,16 +86,23 @@ deleting it.
 **Core memories (`cognitive_type: core`) — threshold exemption for explicit
 directives.** Reserve `core` for durable identity-level facts about the user:
 stable preferences, standing constraints, long-lived conventions (e.g. "always
-tests on temp vaults, never the real one"). Actively scan `## [..] Prompt`
+test on temp vaults, never the real one"). Actively scan `## [..] Prompt`
 blocks for operator directives — phrases like "always X", "never Y", "from now
 on", "make sure you always", "I want you to always". An explicit directive
-stated ONCE with durable intent justifies a core memory immediately — append it
-to `wiki/preferences.md` (the canonical core page) or create a core-tagged page;
-the cross-session threshold applies to INFERRED preferences (behavior patterns
-never stated as a rule), not to explicit instructions. Inferred preferences
-still need 3+ sessions of evidence. Entity/knowledge pages are NOT core — when
-classifying a page that is about a project, tool, or event rather than the
-operator, use `semantic`.
+stated ONCE with durable intent justifies a core memory immediately — create a
+page at `wiki/preferences/<kebab-slug>.md` using `write_page`; the cross-session
+threshold applies to INFERRED preferences (behavior patterns never stated as a
+rule), not to explicit instructions. Inferred preferences still need 3+ sessions
+of evidence. Entity/knowledge pages are NOT core — when classifying a page that
+is about a project, tool, or event rather than the operator, use `semantic`.
+
+Core memory frontmatter must include: `type: "preferences"`, `cognitive_type:
+"core"`, `source: "compile-execute"`, a `confidence` (0.9+ for multi-session or
+strongly-stated directives, 0.7 for a single explicit statement), and `tags`
+drawn from [preference, constraint, convention, identity, workflow,
+communication]. If a directive updates an existing `wiki/preferences/` page
+(visible in the existing-pages context), use `rewrite_page` to integrate it.
+Merge related directives into one page rather than creating near-duplicates.
 Prefer one page operation per normalized target path; combine related new
 content into the `body` or `section` for that page instead of emitting a
 separate write and append for the same page.
