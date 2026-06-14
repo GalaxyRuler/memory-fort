@@ -519,7 +519,7 @@ export async function runCompileDrain(
     totalWatermarksAdvanced += result.watermarksAdvanced.length;
     const progressLine = formatDrainProgress(pass, result);
     opts.onProgress?.(progressLine, result, pass);
-    if (result.rawFilesIncluded.length === 0) {
+    if (result.rawFilesIncluded.length === 0 && result.noiseOnlySkipped === 0) {
       return {
         passes,
         stopReason: "empty",
@@ -534,7 +534,8 @@ export async function runCompileDrain(
     // re-sent next pass. Retry once (transient LLM flakiness), then quarantine
     // the batch for the rest of this run so the drain moves on to other files.
     // Quarantined files keep their watermarks and are retried on the next run.
-    if (result.watermarksAdvanced.length === 0) {
+    const madeProgress = result.watermarksAdvanced.length > 0 || result.noiseOnlySkipped > 0;
+    if (!madeProgress) {
       consecutiveStalls += 1;
       if (consecutiveStalls >= 2) {
         for (const relPath of result.rawRelPathsIncluded) quarantined.add(relPath);
