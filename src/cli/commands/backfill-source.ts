@@ -125,6 +125,7 @@ function inferSource(relPath: string): string | null {
   if (/^wiki\/\.audit\/.*\.md$/.test(relPath)) return "unknown-audit";
   if (/^wiki\/crystals\/.*\.md$/.test(relPath)) return "crystal-extraction";
   if (/^wiki\/references\/fork-smoke-marker-.*\.md$/.test(relPath)) return "codex-fork-smoke";
+  if (/^wiki\/preferences\/.*\.md$/.test(relPath)) return "compile-execute";
   return null;
 }
 

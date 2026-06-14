@@ -93,6 +93,24 @@ describe("runBackfillSource", () => {
     expect(await sourceOf("wiki/crystals/validation-is-key.md")).toBe("crystal-extraction");
   });
 
+  it("infers compile-execute source for wiki/preferences/ core memory pages", async () => {
+    await writeWiki("wiki/preferences/never-mock-database.md", {
+      title: "Never Mock Database",
+      omitSource: true,
+      type: "preferences",
+    });
+
+    const result = await runBackfillSource({
+      vaultRoot: tmp,
+      mode: "apply",
+      now: new Date("2026-06-14T10:00:00.000Z"),
+    });
+
+    expect(result.report).toContain("wiki/preferences/never-mock-database.md -> compile-execute");
+    expect(await sourceOf("wiki/preferences/never-mock-database.md")).toBe("compile-execute");
+    expect(result.report).toContain("unmatched: 0");
+  });
+
   it("reports unmatched missing-source pages without changing them", async () => {
     await writeWiki("wiki/projects/mystery.md", { title: "Mystery", source: "unknown" });
 
