@@ -98,6 +98,7 @@ describe("executor: wiki/preferences/ pages", () => {
     expect(parsed.frontmatter.cognitive_type).toBe("core");
     expect(parsed.frontmatter.lifecycle).toBe("consolidated");
     expect(parsed.frontmatter.source).toBe("compile-execute");
+    expect(parsed.frontmatter.confidence).toBe(0.8);
   });
 
   it("treats preferences as a knowledge page type", () => {
@@ -127,6 +128,6 @@ describe("executor: wiki/preferences/ pages", () => {
     // High numeric confidence alone must NOT make a non-preferences page apply
     // directly; it should be staged/proposed (relations gate unmet), not applied.
     expect(result.applied).not.toContain("wiki/lessons/thin-single-source.md");
-    expect(result.proposed.length).toBeGreaterThan(0);
+    expect(result.proposed.length).toBe(1);
   });
 });
