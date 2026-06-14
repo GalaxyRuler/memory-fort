@@ -69,6 +69,44 @@ describe("runCompile", () => {
     expect(result.prompt).not.toMatch(/\{\{[a-z_]+\}\}/);
   });
 
+  it("injects the condensed index into the compile prompt by default", async () => {
+    await writeFile(
+      join(root, "index.md"),
+      [
+        "## Projects",
+        "",
+        "- [Alpha](wiki/projects/alpha.md) - 12345678901234567890123456789012345678901234567890tail",
+        "- [Beta](wiki/projects/beta.md) - Short description",
+        "",
+      ].join("\n"),
+    );
+
+    const result = await runCompile({ vaultRoot: root });
+
+    expect(result.prompt).toContain(
+      "INDEX=## Projects\n\n- [Alpha](wiki/projects/alpha.md) - 12345678901234567890123456789012345678901234567890...",
+    );
+    expect(result.prompt).toContain("- [Beta](wiki/projects/beta.md) - Short description");
+    expect(result.prompt).not.toContain("tail");
+  });
+
+  it("injects raw index.md byte-identically when condensed_index is disabled", async () => {
+    const rawIndex = [
+      "## Projects",
+      "",
+      "- [Alpha](wiki/projects/alpha.md) - 12345678901234567890123456789012345678901234567890tail",
+      "",
+    ].join("\n");
+    await writeFile(join(root, "index.md"), rawIndex);
+
+    const result = await runCompile({
+      vaultRoot: root,
+      configLoader: async () => ({ compile: { condensed_index: false } }),
+    });
+
+    expect(result.prompt).toContain(`INDEX=${rawIndex}`);
+  });
+
   it("uses the bundled compile prompt when the vault prompt is not customized", async () => {
     const sourceRepoDir = join(tmp, "source");
     await mkdir(join(sourceRepoDir, "templates", "prompts"), { recursive: true });

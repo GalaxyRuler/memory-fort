@@ -10,6 +10,7 @@ import {
 import { dirname, join, relative } from "node:path";
 import { applyCompileOperations, parseCompileOperationsBlock, type ApplyCompileOperationsResult } from "../../compile/execute.js";
 import { clearOpsJournal } from "../../compile/ops-journal.js";
+import { condenseIndex } from "../../compile/condense-index.js";
 import { filterRawText } from "../../compile/filter-raw.js";
 import { runFactConsolidation } from "../../compile/fact-consolidate.js";
 import { rebuildIndex, type RebuildIndexResult } from "../../compile/index.js";
@@ -206,6 +207,12 @@ export async function runCompile(
   });
   const schema = await readRequiredFile(join(root, "schema.md"), "schema.md");
   const index = await readOptionalFile(join(root, "index.md"));
+  const indexContent = compileConfig.condensed_index
+    ? condenseIndex(index, {
+      descChars: compileConfig.index_desc_chars,
+      maxBytes: compileConfig.index_max_bytes,
+    }).text
+    : index;
   const log = await readOptionalFile(join(root, "log.md"));
   // --backfill: unwatermarked files become eligible regardless of the log-derived
   // cutoff. Watermark gating stays on, so already-drained files are still skipped.
@@ -452,7 +459,7 @@ export async function runCompile(
 
   const prompt = renderPrompt(promptTemplate, {
     schema_content: schema,
-    index_content: index,
+    index_content: indexContent,
     existing_pages: await buildExistingPagesContext(
       root,
       rawContentBlocks.join("\n\n"),

@@ -11,6 +11,9 @@ export interface ResolvedCompileConfig {
   raw_filter_min_signal_bytes: number;
   drain: boolean;
   max_passes_per_run: number;
+  condensed_index: boolean;
+  index_desc_chars: number;
+  index_max_bytes: number;
   similarity_context: {
     enabled: boolean;
     threshold: number;
@@ -81,6 +84,9 @@ export interface MemoryConfig {
     raw_filter_min_signal_bytes?: number;
     drain?: boolean;
     max_passes_per_run?: number;
+    condensed_index?: boolean;
+    index_desc_chars?: number;
+    index_max_bytes?: number;
     similarity_context?: {
       enabled?: boolean;
       threshold?: number;
@@ -167,6 +173,9 @@ export function resolveCompileConfig(raw: MemoryConfig["compile"]): ResolvedComp
     raw_filter_min_signal_bytes: readInteger(config.raw_filter_min_signal_bytes, 40),
     drain: config.drain === true,
     max_passes_per_run: readInteger(config.max_passes_per_run, 25),
+    condensed_index: config.condensed_index !== false,
+    index_desc_chars: readIntegerInRange(config.index_desc_chars, 0, 1_000, 50),
+    index_max_bytes: readIntegerInRange(config.index_max_bytes, 1_000, 1_000_000, 32_000),
     similarity_context: {
       enabled: config.similarity_context?.enabled === true,
       threshold: typeof config.similarity_context?.threshold === "number"
@@ -219,6 +228,15 @@ export function validateMemoryConfig(config: MemoryConfig): string[] {
   }
   if (compile?.["max_passes_per_run"] !== undefined && !isIntegerInRange(compile["max_passes_per_run"], 1, 1_000)) {
     warnings.push("compile.max_passes_per_run must be an integer between 1 and 1000");
+  }
+  if (compile?.["condensed_index"] !== undefined && typeof compile["condensed_index"] !== "boolean") {
+    warnings.push("compile.condensed_index must be a boolean");
+  }
+  if (compile?.["index_desc_chars"] !== undefined && !isIntegerInRange(compile["index_desc_chars"], 0, 1_000)) {
+    warnings.push("compile.index_desc_chars must be an integer between 0 and 1000");
+  }
+  if (compile?.["index_max_bytes"] !== undefined && !isIntegerInRange(compile["index_max_bytes"], 1_000, 1_000_000)) {
+    warnings.push("compile.index_max_bytes must be an integer between 1000 and 1000000");
   }
   const graph = asRecord(config.graph);
   const edgeWeights = asRecord(graph?.["edge_weights"]);
@@ -340,6 +358,10 @@ function isNumberInRange(value: unknown, min: number, max: number): boolean {
 
 function readInteger(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isInteger(value) ? value : fallback;
+}
+
+function readIntegerInRange(value: unknown, min: number, max: number, fallback: number): number {
+  return isIntegerInRange(value, min, max) ? value as number : fallback;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
