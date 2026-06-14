@@ -18,6 +18,7 @@ const EXPECTED_ROLES = new Map<string, VerifyRole[]>([
   ["compile.recent", ["operator", "server"]],
   ["compile.execute-health", ["operator", "server"]],
   ["compile.backlog-growth", ["operator"]],
+  ["compile.filter-health", ["operator"]],
   ["prompt.drift", ["operator", "server"]],
   ["curation.content-loss", ["operator", "server"]],
   ["autopush.errors", ["operator"]],
