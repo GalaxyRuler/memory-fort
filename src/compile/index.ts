@@ -20,6 +20,7 @@ interface IndexPage {
 }
 
 const PAGE_SECTIONS: Array<{ type: PageType; heading: string }> = [
+  { type: "preferences", heading: "Preferences" },
   { type: "projects", heading: "Projects" },
   { type: "people", heading: "People" },
   { type: "decisions", heading: "Decisions" },

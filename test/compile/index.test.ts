@@ -20,6 +20,7 @@ describe("rebuildIndex", () => {
     await writePage("wiki/projects/agentmemory.md", "projects", "agentmemory", "Agentmemory stores long-term memory.");
     await writePage("wiki/tools/codex.md", "tools", "Codex", "Codex is the coding agent.");
     await writePage("wiki/decisions/append-only.md", "decisions", "Append Only", "Compile stays append-only.");
+    await writePage("wiki/preferences/never-mock-db.md", "preferences", "Never Mock DB", "Do not mock the database in tests.");
     await writePage("wiki/compile-proposed/draft.md", "projects", "Draft", "Draft should stay out.");
     await writePage("wiki/archive/old.md", "projects", "Old", "Archived should stay out.");
     await writePage("wiki/.audit/llm.md", "tools", "Audit", "Audit should stay out.");
@@ -34,6 +35,7 @@ describe("rebuildIndex", () => {
     expect(first.content).toContain("## Projects\n\n- [Acme](wiki/projects/acme.md) - Acme tracks marketplace work.\n- [agentmemory](wiki/projects/agentmemory.md) - Agentmemory stores long-term memory.");
     expect(first.content).toContain("## Decisions\n\n- [Append Only](wiki/decisions/append-only.md) - Compile stays append-only.");
     expect(first.content).toContain("## Tools\n\n- [Codex](wiki/tools/codex.md) - Codex is the coding agent.");
+    expect(first.content).toContain("## Preferences\n\n- [Never Mock DB](wiki/preferences/never-mock-db.md) - Do not mock the database in tests.");
     expect(first.content).not.toContain("Draft");
     expect(first.content).not.toContain("Old");
     expect(first.content).not.toContain("Audit");
