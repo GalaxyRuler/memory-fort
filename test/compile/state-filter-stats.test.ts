@@ -58,7 +58,7 @@ describe("compile state filter stats", () => {
       strippedByClass: result.filterStats?.strippedByClass,
     }));
     expect(state.lastFilterStats?.bytesIn).toBeGreaterThan(state.lastFilterStats?.bytesOut ?? 0);
-    expect(state.lastFilterStats?.strippedByClass["json-fat-field"]).toBeGreaterThan(0);
+    expect(state.lastFilterStats?.strippedByClass["base64-blob"]).toBeGreaterThan(0);
     expect(state.lastFilterStats?.runId).toEqual(expect.any(String));
     expect(state.lastFilterStats?.at).toEqual(expect.any(String));
     expect(new Date(state.lastFilterStats?.at ?? Number.NaN).toString()).not.toBe("Invalid Date");

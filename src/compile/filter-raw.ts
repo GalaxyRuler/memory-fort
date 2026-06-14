@@ -14,7 +14,7 @@ export interface RawFilterResult {
 }
 
 const TURN_HEADER_RE = /^## \[\d{2}:\d{2}:\d{2}\] (.+)$/gm;
-const KNOWN_TURN_RE = /^(Prompt|Response|Thinking|ToolUse(?:: .+)?|ToolResult|ToolError|Log|Event|SessionEnd)$/u;
+const KNOWN_TURN_RE = /^(Prompt|Response|Thinking|ToolUse(?:: .+)?|ToolResult(?:: .+)?|ToolError(?:: .+)?|Log(?:: .+)?|Event(?:: .+)?|SessionEnd)$/u;
 const SIGNAL_TURN_RE = /^(Prompt|Response|Thinking)$/u;
 const ANSI_RE = /\x1B\[[0-?]*[ -/]*[@-~]/gu;
 const ASSET_TABLE_RE = /^.*\bdist\/assets\/\S+\s+\d+(?:\.\d+)?\s+kB\b.*\bgzip:\s*\d+(?:\.\d+)?\s+kB.*(?:\r?\n|$)/gimu;
@@ -23,7 +23,7 @@ const BUILD_SUMMARY_RE = /^\s*[✓✔]\s*built in \d+(?:\.\d+)?\s*(?:ms|s)\s*$(?
 const SUGGESTION_PROMPT_RE = /# Overview[\s\S]*?Generate 0 to 3 hyperpersonalized[\s\S]*/u;
 const DATA_BLOB_RE = /\bdata:[\w.+/-]+\/[\w.+-]+;base64,[A-Za-z0-9+/=]{200,}/gu;
 const BASE64_BLOB_RE = /\b[A-Za-z0-9+/]{240,}={0,2}\b/gu;
-const FAT_JSON_FIELDS = new Set(["content", "originalFile", "structuredPatch"]);
+const FAT_STRING_BYTES = 300;
 const OUTPUT_MARKER = "**Output:**";
 const OUTPUT_LINE_PRUNE_MIN_BYTES = 400;
 const KEEP_LIST_RES = [
@@ -98,14 +98,18 @@ export function filterRawText(text: string): RawFilterResult {
 function filterTurns(text: string, turns: RawTurn[], strippedByClass: Record<string, number>): string {
   let out = text.slice(0, text.indexOf(turns[0]!.header));
   for (const turn of turns) {
-    const stripped = shouldStripTurn(turn) ? stripToolTurnBody(turn.body, strippedByClass) : turn.body;
+    const stripped = shouldStripTurn(turn) ? stripToolTurnBody(turn, strippedByClass) : turn.body;
     out += `${turn.header}\n${stripped}`;
   }
   return out;
 }
 
 function shouldStripTurn(turn: RawTurn): boolean {
-  return /^(ToolUse(?:: .+)?|ToolResult|ToolError|Log|Event)$/u.test(turn.kind);
+  return /^(ToolUse(?:: .+)?|ToolResult(?:: .+)?|ToolError(?:: .+)?|Log(?:: .+)?|Event(?:: .+)?)$/u.test(turn.kind);
+}
+
+function shouldPruneWholeOutputTurn(turn: RawTurn): boolean {
+  return /^(ToolResult(?:: .+)?|ToolError(?:: .+)?|Log(?:: .+)?|Event(?:: .+)?)$/u.test(turn.kind);
 }
 
 function stripNoise(text: string, strippedByClass: Record<string, number>): { text: string } {
@@ -113,6 +117,7 @@ function stripNoise(text: string, strippedByClass: Record<string, number>): { te
   next = replaceWithCount(next, ANSI_RE, "", "ansi", strippedByClass);
   next = replaceWithCount(next, ASSET_TABLE_RE, "", "asset-table", strippedByClass);
   next = replaceWithCount(next, BUILD_SUMMARY_RE, "", "build-summary", strippedByClass);
+  next = stripFatJsonValues(next, strippedByClass);
   next = replaceWithCount(next, DATA_BLOB_RE, (match) => elisionFor(match), "data-blob", strippedByClass);
   next = replaceWithCount(next, BASE64_BLOB_RE, (match) => elisionFor(match), "base64-blob", strippedByClass);
   if (SUGGESTION_PROMPT_RE.test(next)) {
@@ -120,28 +125,38 @@ function stripNoise(text: string, strippedByClass: Record<string, number>): { te
     next = next.replace(SUGGESTION_PROMPT_RE, "");
     addStripped(strippedByClass, "suggestion-prompt", byteDelta(before, next));
   }
-  next = stripFatJsonFields(next, strippedByClass);
   next = replaceWithCount(next, CWD_RESET_RE, "", "cwd-reset", strippedByClass);
   return { text: next };
 }
 
-function stripToolTurnBody(text: string, strippedByClass: Record<string, number>): string {
+function stripToolTurnBody(turn: RawTurn, strippedByClass: Record<string, number>): string {
+  const { body: text } = turn;
   const markerIndex = text.indexOf(OUTPUT_MARKER);
-  if (markerIndex === -1) return stripNoise(text, strippedByClass).text;
+  if (markerIndex === -1) {
+    const stripped = stripNoise(text, strippedByClass).text;
+    if (
+      shouldPruneWholeOutputTurn(turn)
+      && Buffer.byteLength(stripped, "utf-8") > OUTPUT_LINE_PRUNE_MIN_BYTES
+    ) {
+      return pruneToolOutputLines(stripped, strippedByClass, false);
+    }
+    return stripped;
+  }
 
   const beforeOutput = stripNoise(text.slice(0, markerIndex), strippedByClass).text;
   const output = stripNoise(text.slice(markerIndex), strippedByClass).text;
   if (Buffer.byteLength(output, "utf-8") <= OUTPUT_LINE_PRUNE_MIN_BYTES) {
     return `${beforeOutput}${output}`;
   }
-  return `${beforeOutput}${pruneToolOutputLines(output, strippedByClass)}`;
+  return `${beforeOutput}${pruneToolOutputLines(output, strippedByClass, true)}`;
 }
 
-function pruneToolOutputLines(text: string, strippedByClass: Record<string, number>): string {
+function pruneToolOutputLines(text: string, strippedByClass: Record<string, number>, preserveOutputHeader: boolean): string {
   const lines = text.match(/[^\n]*(?:\n|$)/gu)?.filter((line) => line.length > 0) ?? [];
   let out = "";
   let dropped = "";
-  let keptOutputHeader = false;
+  let keptOutputHeader = !preserveOutputHeader;
+  let keepNextDiffHunkLine = false;
 
   for (const line of lines) {
     const lineText = line.replace(/\r?\n$/u, "");
@@ -154,8 +169,15 @@ function pruneToolOutputLines(text: string, strippedByClass: Record<string, numb
       out += flushDroppedToolOutput(dropped, strippedByClass);
       dropped = "";
       out += line;
+      keepNextDiffHunkLine = /^@@ /u.test(lineText);
+    } else if (keepNextDiffHunkLine && /^[+\- ]/u.test(lineText)) {
+      out += flushDroppedToolOutput(dropped, strippedByClass);
+      dropped = "";
+      out += line;
+      keepNextDiffHunkLine = false;
     } else {
       dropped += line;
+      keepNextDiffHunkLine = false;
     }
   }
   out += flushDroppedToolOutput(dropped, strippedByClass);
@@ -164,6 +186,7 @@ function pruneToolOutputLines(text: string, strippedByClass: Record<string, numb
 
 function flushDroppedToolOutput(dropped: string, strippedByClass: Record<string, number>): string {
   if (dropped.length === 0) return "";
+  if (dropped.trim().length === 0) return "";
   const droppedBytes = Buffer.byteLength(dropped, "utf-8");
   const placeholder = dropped.endsWith("\n")
     ? `[elided ${droppedBytes} bytes]\n`
@@ -190,16 +213,29 @@ function replaceWithCount(
   });
 }
 
-function stripFatJsonFields(text: string, strippedByClass: Record<string, number>): string {
-  const trimmed = text.trim();
-  if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) return stripJsonLines(text, strippedByClass);
+function stripFatJsonValues(text: string, strippedByClass: Record<string, number>): string {
+  const withFencedJson = stripJsonFences(text, strippedByClass);
+  const trimmed = withFencedJson.trim();
+  if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) return stripJsonLines(withFencedJson, strippedByClass);
   const parsedWhole = replaceJsonText(trimmed, strippedByClass);
   if (parsedWhole !== null) {
-    const leading = text.slice(0, text.indexOf(trimmed));
-    const trailing = text.slice(text.indexOf(trimmed) + trimmed.length);
+    const leading = withFencedJson.slice(0, withFencedJson.indexOf(trimmed));
+    const trailing = withFencedJson.slice(withFencedJson.indexOf(trimmed) + trimmed.length);
     return `${leading}${parsedWhole}${trailing}`;
   }
-  return stripJsonLines(text, strippedByClass);
+  return stripJsonLines(withFencedJson, strippedByClass);
+}
+
+function stripJsonFences(text: string, strippedByClass: Record<string, number>): string {
+  return text.replace(/(```(?:json)?[^\S\r\n]*\r?\n)([\s\S]*?)(\r?\n```)/giu, (match, open: string, body: string, close: string) => {
+    const trimmed = body.trim();
+    if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) return match;
+    const replaced = replaceJsonText(trimmed, strippedByClass);
+    if (replaced === null) return match;
+    const leading = body.slice(0, body.indexOf(trimmed));
+    const trailing = body.slice(body.indexOf(trimmed) + trimmed.length);
+    return `${open}${leading}${replaced}${trailing}${close}`;
+  });
 }
 
 function stripJsonLines(text: string, strippedByClass: Record<string, number>): string {
@@ -222,32 +258,104 @@ function replaceJsonText(text: string, strippedByClass: Record<string, number>):
     return null;
   }
   let didStrip = false;
-  const normalized = replaceFatJsonValue(parsed, (className, removedBytes) => {
+  const normalized = replaceFatJsonValue(parsed, [], (className, before, after) => {
     didStrip = true;
-    addStripped(strippedByClass, className, removedBytes);
+    addStripped(strippedByClass, className, byteDelta(before, after));
   });
   return didStrip ? JSON.stringify(normalized, null, 2) : null;
 }
 
-function replaceFatJsonValue(value: unknown, onStrip: (className: string, bytes: number) => void): unknown {
-  if (Array.isArray(value)) return value.map((item) => replaceFatJsonValue(item, onStrip));
+function replaceFatJsonValue(
+  value: unknown,
+  path: string[],
+  onStrip: (className: string, before: string, after: string) => void,
+): unknown {
+  if (Array.isArray(value)) return value.map((item) => replaceFatJsonValue(item, path, onStrip));
+  if (typeof value === "string") return replaceFatJsonStringValue(value, path, onStrip);
   if (!value || typeof value !== "object") return value;
   const record = value as Record<string, unknown>;
   const next: Record<string, unknown> = {};
   for (const [key, child] of Object.entries(record)) {
-    if (FAT_JSON_FIELDS.has(key) && typeof child === "string" && child.length > 0) {
+    if (key === "stderr" && typeof child === "string" && /^\n?Shell cwd was reset to /u.test(child)) {
       const bytes = Buffer.byteLength(child, "utf-8");
-      onStrip("json-fat-field", bytes);
-      next[key] = `[elided ${bytes} bytes]`;
-    } else if (key === "stderr" && typeof child === "string" && /^\n?Shell cwd was reset to /u.test(child)) {
-      const bytes = Buffer.byteLength(child, "utf-8");
-      onStrip("cwd-reset", bytes);
-      next[key] = `[elided ${bytes} bytes]`;
+      const replacement = `[elided ${bytes} bytes]`;
+      onStrip("cwd-reset", child, replacement);
+      next[key] = replacement;
     } else {
-      next[key] = replaceFatJsonValue(child, onStrip);
+      next[key] = replaceFatJsonValue(child, [...path, key], onStrip);
     }
   }
   return next;
+}
+
+function replaceFatJsonStringValue(
+  value: string,
+  path: string[],
+  onStrip: (className: string, before: string, after: string) => void,
+): string {
+  const bytes = Buffer.byteLength(value, "utf-8");
+  if (bytes <= FAT_STRING_BYTES) return value;
+
+  const mediaClass = mediaDataClass(value, path);
+  if (mediaClass !== null) {
+    const replacement = `[elided ${bytes} bytes]`;
+    onStrip(mediaClass, value, replacement);
+    return replacement;
+  }
+  if (!hasLineSignal(value)) {
+    const replacement = `[elided ${bytes} bytes]`;
+    onStrip("json-fat-value", value, replacement);
+    return replacement;
+  }
+  return pruneJsonSignalValue(value, onStrip);
+}
+
+function mediaDataClass(value: string, path: string[]): "image-data" | "base64-blob" | null {
+  const key = path.at(-1);
+  if (key === "data" || key === "image" || key === "media_type") return "image-data";
+  const compact = value.replace(/\s+/gu, "");
+  if (/^[A-Za-z0-9+/]{240,}={0,2}$/u.test(compact) && !/[ \t]/u.test(value)) return "base64-blob";
+  return null;
+}
+
+function pruneJsonSignalValue(
+  value: string,
+  onStrip: (className: string, before: string, after: string) => void,
+): string {
+  const lines = value.match(/[^\n]*(?:\n|$)/gu)?.filter((line) => line.length > 0) ?? [];
+  let out = "";
+  let dropped = "";
+
+  for (const line of lines) {
+    const lineText = line.replace(/\r?\n$/u, "");
+    if (isLineSignal(lineText)) {
+      out += flushDroppedJsonValue(dropped, onStrip);
+      dropped = "";
+      out += line;
+    } else {
+      dropped += line;
+    }
+  }
+  out += flushDroppedJsonValue(dropped, onStrip);
+  return out;
+}
+
+function flushDroppedJsonValue(
+  dropped: string,
+  onStrip: (className: string, before: string, after: string) => void,
+): string {
+  if (dropped.length === 0) return "";
+  const droppedBytes = Buffer.byteLength(dropped, "utf-8");
+  const placeholder = dropped.endsWith("\n")
+    ? `[elided ${droppedBytes} bytes]\n`
+    : `[elided ${droppedBytes} bytes]`;
+  onStrip("json-fat-value", dropped, placeholder);
+  return placeholder;
+}
+
+function hasLineSignal(value: string): boolean {
+  const lines = value.match(/[^\n]*(?:\n|$)/gu)?.filter((line) => line.length > 0) ?? [];
+  return lines.some((line) => isLineSignal(line.replace(/\r?\n$/u, "")));
 }
 
 function isKnownNoiseTurn(turn: RawTurn, strippedByClass: Record<string, number>): boolean {
@@ -294,7 +402,7 @@ function signalBytesForTurn(turn: RawTurn): number {
   if (SIGNAL_TURN_RE.test(turn.kind) || !KNOWN_TURN_RE.test(turn.kind)) {
     return Buffer.byteLength(turn.body, "utf-8");
   }
-  const stripped = shouldStripTurn(turn) ? stripToolTurnBody(turn.body, {}) : stripNoise(turn.body, {}).text;
+  const stripped = shouldStripTurn(turn) ? stripToolTurnBody(turn, {}) : stripNoise(turn.body, {}).text;
   if (hasKeepListSignal(turn.body) && !shouldStripTurn(turn)) {
     return Buffer.byteLength(turn.body, "utf-8");
   }

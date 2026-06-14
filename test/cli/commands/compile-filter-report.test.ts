@@ -69,7 +69,7 @@ describe("runCompile filter report", () => {
     ]));
     expect(result.filterReport?.aggregate.bytesIn).toBeGreaterThan(result.filterReport?.aggregate.bytesOut ?? 0);
     expect(result.filterReport?.aggregate.noiseOnlyFiles).toBe(1);
-    expect(result.filterReport?.aggregate.strippedByClass["json-fat-field"]).toBeGreaterThan(0);
+    expect(result.filterReport?.aggregate.strippedByClass["base64-blob"]).toBeGreaterThan(0);
   });
 
   it("does not migrate legacy compile state while producing a filter report", async () => {

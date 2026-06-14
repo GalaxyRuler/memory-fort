@@ -48,7 +48,7 @@ describe("filter-raw: positive-match stripping and conservative noise-only class
 
     expect(result.filtered).not.toContain(dump);
     expect(result.filtered).toContain("[elided ");
-    expect(result.strippedByClass["json-fat-field"]).toBeGreaterThan(0);
+    expect(result.strippedByClass["base64-blob"]).toBeGreaterThan(0);
     expect(result.noiseOnly).toBe(true);
   });
 
@@ -83,6 +83,110 @@ describe("filter-raw: positive-match stripping and conservative noise-only class
 });
 
 describe("filter-raw: tool-heavy reduction", () => {
+  it("prunes claude-code JSON ToolResult text and image data while preserving signal", () => {
+    const noSignalLog = Array.from({ length: 70 }, (_, index) => (
+      `compile progress row ${String(index).padStart(2, "0")} module cache warmed ${"x".repeat(24)}`
+    )).join("\n");
+    const base64Image = "A".repeat(2_048);
+    const body = JSON.stringify([
+      { type: "text", text: noSignalLog },
+      { type: "text", text: "error: boom failed" },
+      { type: "image", source: { type: "base64", media_type: "image/png", data: base64Image } },
+    ], null, 2);
+    const result = filterRawText(rawTurn("ToolResult: toolu_x", body));
+    const reduction = (result.bytesIn - result.bytesOut) / result.bytesIn;
+    const filteredBody = result.filtered.slice(result.filtered.indexOf("\n\n") + 2).trim();
+
+    expect(reduction).toBeGreaterThanOrEqual(0.70);
+    expect(result.filtered).not.toContain("compile progress row 00");
+    expect(result.filtered).not.toContain(base64Image);
+    expect(result.filtered).toContain("[elided");
+    expect(result.filtered).toContain("error: boom failed");
+    expect(() => JSON.parse(filteredBody)).not.toThrow();
+    expect(result.strippedByClass["json-fat-value"]).toBeGreaterThan(0);
+    expect(result.strippedByClass["image-data"]).toBeGreaterThan(0);
+    expect(result.noiseOnly).toBe(false);
+  });
+
+  it("keeps whole-file reduction above 70% for multi-turn claude-code JSON ToolResults", () => {
+    const toolResultBody = (turnIndex: number) => JSON.stringify([
+      {
+        type: "text",
+        text: Array.from({ length: 90 }, (_, index) => (
+          `claude result progress: turn ${turnIndex} row ${index} cache event ${"z".repeat(42)}`
+        )).join("\n"),
+      },
+      { type: "text", text: turnIndex === 4 ? "error: boom failed" : "3 passed" },
+      { type: "image", source: { type: "base64", media_type: "image/png", data: "B".repeat(3_500) } },
+    ], null, 2);
+    const text = [
+      rawTurn("Prompt", "Review the compile results and keep the useful failures."),
+      ...Array.from({ length: 8 }, (_, index) => rawTurn(`ToolResult: toolu_${index}`, toolResultBody(index))),
+      rawTurn("Response", "Kept the useful failures."),
+    ].join("\n");
+    const result = filterRawText(text);
+    const reduction = (result.bytesIn - result.bytesOut) / result.bytesIn;
+
+    expect(result.bytesIn).toBeGreaterThanOrEqual(50_000);
+    expect(reduction).toBeGreaterThanOrEqual(0.70);
+    expect(result.filtered).toContain("Review the compile results");
+    expect(result.filtered).toContain("error: boom failed");
+    expect(result.filtered).toContain("3 passed");
+    expect(result.filtered).not.toContain("claude result progress: turn 0 row 0");
+    expect(result.filtered).not.toContain("B".repeat(3_500));
+    expect(result.strippedByClass["json-fat-value"]).toBeGreaterThan(0);
+    expect(result.strippedByClass["image-data"]).toBeGreaterThan(0);
+    expect(result.noiseOnly).toBe(false);
+  });
+
+  it("prunes fenced JSON ToolUse content while preserving tool input fields", () => {
+    const largeContent = Array.from({ length: 70 }, (_, index) => (
+      `draft content: row ${index} generated prose without filter signal ${"q".repeat(34)}`
+    )).join("\n");
+    const body = [
+      "```json",
+      JSON.stringify({
+        file_path: "C:\\CodexProjects\\memory-system\\docs\\example.md",
+        command: "write_file",
+        content: largeContent,
+      }, null, 2),
+      "```",
+    ].join("\n");
+    const result = filterRawText(rawTurn("ToolUse: Write", body));
+    const reduction = (result.bytesIn - result.bytesOut) / result.bytesIn;
+    const fencedJson = result.filtered.match(/```json\n([\s\S]*?)\n```/u)?.[1] ?? "";
+    const parsed = JSON.parse(fencedJson) as { file_path: string; command: string; content: string };
+
+    expect(reduction).toBeGreaterThanOrEqual(0.70);
+    expect(parsed.file_path).toBe("C:\\CodexProjects\\memory-system\\docs\\example.md");
+    expect(parsed.command).toBe("write_file");
+    expect(parsed.content).toMatch(/^\[elided \d+ bytes\]$/u);
+    expect(result.filtered).not.toContain("draft content: row 0");
+    expect(result.strippedByClass["json-fat-value"]).toBeGreaterThan(0);
+    expect(result.noiseOnly).toBe(false);
+  });
+
+  it("prunes unmarked plain ToolResult output while preserving signal lines", () => {
+    const result = filterRawText(rawTurn("ToolResult: toolu_plain", [
+      ...Array.from({ length: 80 }, (_, index) => `plain read output row ${index} ${"n".repeat(48)}`),
+      "diff --git a/src/a.ts b/src/a.ts",
+      "@@ -1,2 +1,2 @@",
+      "error: boom failed",
+      "3 passed",
+      ...Array.from({ length: 80 }, (_, index) => `plain read output tail ${index} ${"m".repeat(48)}`),
+    ].join("\n")));
+    const reduction = (result.bytesIn - result.bytesOut) / result.bytesIn;
+
+    expect(reduction).toBeGreaterThanOrEqual(0.70);
+    expect(result.filtered).toContain("diff --git a/src/a.ts b/src/a.ts");
+    expect(result.filtered).toContain("@@ -1,2 +1,2 @@");
+    expect(result.filtered).toContain("error: boom failed");
+    expect(result.filtered).toContain("3 passed");
+    expect(result.filtered).not.toContain("plain read output row 0");
+    expect(result.strippedByClass["tool-output"]).toBeGreaterThan(0);
+    expect(result.noiseOnly).toBe(false);
+  });
+
   it("prunes plain-text ToolUse output sections while preserving command input and signal lines", () => {
     const bulkLine = "vite transform chunk with repetitive progress and module timing";
     const plainOutput = [
@@ -165,7 +269,7 @@ describe("filter-raw: tool-heavy reduction", () => {
     const reduction = (result.bytesIn - result.bytesOut) / result.bytesIn;
 
     expect(reduction).toBeGreaterThanOrEqual(0.55);
-    expect(result.strippedByClass["json-fat-field"]).toBeGreaterThan(0);
+    expect(result.strippedByClass["base64-blob"]).toBeGreaterThan(0);
     expect(result.filtered).toContain("Always test before pushing.");
     expect(result.filtered).toContain("error: unknown option '--kill'");
     expect(result.filtered).not.toContain("Shell cwd was reset");
