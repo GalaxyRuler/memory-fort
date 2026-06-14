@@ -7,6 +7,7 @@ import { createInterface } from "node:readline/promises";
 import { atomicWrite } from "../../storage/atomic-write.js";
 import { detectTemplateVars, type TemplateVars } from "../template-render.js";
 import { runConnect, type ConnectOptions, type ConnectResult } from "./connect.js";
+import { createDesktopShortcut, type DesktopShortcutResult } from "./desktop-shortcut.js";
 import { runInit, type InitOptions, type InitResult } from "./init.js";
 import { type CommandStdout } from "./write-guard.js";
 
@@ -51,6 +52,7 @@ export interface InitOnboardingResult {
   tools: InitToolName[];
   retrieval: RetrievalMode;
   connect: ConnectResult[];
+  shortcut?: DesktopShortcutResult;
 }
 
 export interface DetectInitToolsOptions {
@@ -278,6 +280,14 @@ async function executeOnboarding(args: InitOnboardingOptions & {
       }));
     }
 
+    const shortcut = await createDesktopShortcut({
+      platform: args.platform,
+      homeDir: args.homeDir,
+    });
+    if (shortcut.created) {
+      args.stdout?.write?.(`  ✓ Desktop shortcut created: ${shortcut.path}\n`);
+    }
+
     return {
       init,
       vault,
@@ -285,6 +295,7 @@ async function executeOnboarding(args: InitOnboardingOptions & {
       tools: args.selectedTools,
       retrieval: args.retrieval,
       connect,
+      shortcut,
     };
   });
 }
