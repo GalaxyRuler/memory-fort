@@ -76,6 +76,7 @@ const KNOWN_TYPES: EntityType[] = [
   "threads",
   "references",
   "tools",
+  "preferences",
   "crystal",
   "raw-session",
 ];

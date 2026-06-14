@@ -17,7 +17,8 @@ export type PageType =
   | "procedures"
   | "threads"
   | "references"
-  | "tools";
+  | "tools"
+  | "preferences";
 
 export function memoryRoot(): string {
   const override = process.env["MEMORY_ROOT"];

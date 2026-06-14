@@ -127,6 +127,7 @@ const PAGE_TYPES_BY_CATEGORY = {
   threads: "threads",
   procedures: "procedures",
   prospective: "prospective",
+  preferences: "preferences",
 } as const satisfies Record<PageType, PageType>;
 
 export function isKnowledgePageType(type: PageType): boolean {
@@ -138,7 +139,8 @@ export function isKnowledgePageType(type: PageType): boolean {
     type === "tools" ||
     type === "people" ||
     type === "procedures" ||
-    type === "prospective";
+    type === "prospective" ||
+    type === "preferences";
 }
 
 export function parseCompileOperationsBlock(text: string): ParseCompileOperationsResult {
@@ -521,6 +523,7 @@ function prepareCompileOperations(
     }
 
     const normalizedOperation = withPageOperationTarget(operation, normalizedPath, target.type);
+    const isPreferences = target.type === "preferences";
     const next = operation.kind === "append_page" && !existsSync(fullPath)
       ? {
           operation: {
@@ -532,14 +535,14 @@ function prepareCompileOperations(
               created: date,
               updated: date,
               status: "active",
-              lifecycle: "proposed",
+              lifecycle: isPreferences ? "consolidated" : "proposed",
               source: "compile-execute",
-              confidence: 0.6,
-              cognitive_type: "semantic",
+              confidence: isPreferences ? 0.8 : 0.6,
+              cognitive_type: isPreferences ? "core" : "semantic",
             },
             body: operation.section,
           },
-          stageReason: "append->create: low confidence",
+          ...(isPreferences ? {} : { stageReason: "append->create: low confidence" }),
         }
       : { operation: normalizedOperation };
     prepared.push(next);
@@ -1436,7 +1439,7 @@ async function appendText(fullPath: string, text: string): Promise<void> {
 
 function hasHighConfidence(operation: CompileOperation): boolean {
   if (operation.kind !== "write_page" && operation.kind !== "rewrite_page") return true;
-  if (operation.kind === "rewrite_page" && typeof operation.frontmatter?.confidence === "number") {
+  if ((operation.kind === "write_page" || operation.kind === "rewrite_page") && typeof operation.frontmatter?.confidence === "number") {
     return Number.isFinite(operation.frontmatter.confidence) && operation.frontmatter.confidence >= 0.7;
   }
   const relations = operation.frontmatter?.relations;
