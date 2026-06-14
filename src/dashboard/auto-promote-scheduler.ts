@@ -1,7 +1,8 @@
 import { appendFile } from "node:fs/promises";
 import { join } from "node:path";
-import { runCompile, type CompileResult } from "../cli/commands/compile.js";
+import { runCompile, runCompileDrain, type CompileDrainResult, type CompileResult } from "../cli/commands/compile.js";
 import {
+  emptyCompilePendingSummary,
   mutateCompileStateFile,
   scheduledCompilePromptPath,
   scheduledCompilePromptRelPath,
@@ -9,7 +10,7 @@ import {
 } from "../compile/state.js";
 import { runProcedurePropose } from "../cli/commands/procedure.js";
 import { runThreadPropose } from "../cli/commands/thread.js";
-import { loadMemoryConfig, type MemoryConfig } from "../storage/config.js";
+import { loadMemoryConfig, resolveCompileConfig, type MemoryConfig, type ResolvedCompileConfig } from "../storage/config.js";
 import type { VaultWriteCapability } from "../sync/vault-capability.js";
 
 export interface AutoPromoteScheduler {
@@ -22,9 +23,16 @@ export interface AutoPromoteSchedulerOptions {
   intervalFactory?: (handler: () => void, ms: number) => NodeJS.Timeout;
   clearIntervalFactory?: (handle: NodeJS.Timeout) => void;
   runner?: () => Promise<void>;
-  compileRunner?: (opts?: { execute?: boolean }) => Promise<DashboardCompileRunResult>;
+  compileRunner?: (opts?: DashboardCompileRunnerOptions) => Promise<DashboardCompileRunResult>;
   autoPromoteRunner?: () => Promise<void>;
   writeCapability?: VaultWriteCapability;
+}
+
+export interface DashboardCompileRunnerOptions {
+  execute?: boolean;
+  drain?: boolean;
+  maxPasses?: number;
+  rawFilter?: boolean;
 }
 
 export interface DashboardCompileRunResult {
@@ -34,6 +42,22 @@ export interface DashboardCompileRunResult {
   rawRemaining: number;
   pendingSummary?: CompilePendingSummary;
   execution?: CompileResult["execution"];
+  passes?: number;
+  noiseOnlySkipped?: number;
+  bytesReduced?: number;
+}
+
+interface ScheduledCompileSummary {
+  rawFilesIncluded: string[];
+  rawFilesSkipped: CompileResult["rawFilesSkipped"];
+  rawRemaining: number;
+  pendingSummary: CompilePendingSummary;
+  execution?: CompileResult["execution"];
+  operationsApplied: number;
+  operationsProposed: number;
+  passes: number;
+  noiseOnlySkipped: number;
+  bytesReduced: number;
 }
 
 const CADENCE_MS = {
@@ -60,7 +84,7 @@ export async function createAutoPromoteScheduler(
     intervals.push(intervalFactory(() => {
       if (running) return;
       running = true;
-      void (opts.compileRunner ?? ((runOpts) => runScheduledCompileOnce(opts.vaultRoot, runOpts)))({ execute: compile.execute })
+      void (opts.compileRunner ?? ((runOpts) => runScheduledCompileOnce(opts.vaultRoot, runOpts)))(scheduledCompileRunnerOptions(compile))
         .catch((error) => logSchedulerFailure(opts.vaultRoot, "compile scheduler failed", error))
         .finally(() => {
           running = false;
@@ -76,8 +100,8 @@ export async function createAutoPromoteScheduler(
       const task = compile.scheduled
         ? runScheduledVaultTasksOnce(opts.vaultRoot, {
             compileRunner: opts.compileRunner
-              ? () => opts.compileRunner!({ execute: compile.execute })
-              : () => runScheduledCompileOnce(opts.vaultRoot, { execute: compile.execute }),
+              ? () => opts.compileRunner!(scheduledCompileRunnerOptions(compile))
+              : () => runScheduledCompileOnce(opts.vaultRoot, scheduledCompileRunnerOptions(compile)),
             autoPromoteRunner: autoRunner,
           })
         : autoRunner().catch((error) => logSchedulerFailure(opts.vaultRoot, "auto-promote scheduler failed", error));
@@ -115,7 +139,7 @@ export async function runScheduledVaultTasksOnce(
 
 export async function runScheduledCompileOnce(
   vaultRoot: string,
-  opts: { execute?: boolean } = {},
+  opts: DashboardCompileRunnerOptions = {},
 ): Promise<DashboardCompileRunResult> {
   const startedAt = new Date();
   const outputPath = scheduledCompilePromptPath(vaultRoot);
@@ -125,7 +149,20 @@ export async function runScheduledCompileOnce(
     status: "running",
     lastRun: null,
   }));
-  const result = await runCompile({ vaultRoot, outputPath, execute: opts.execute });
+  const result = opts.drain
+    ? summarizeScheduledDrain(await runCompileDrain({
+        vaultRoot,
+        outputPath,
+        execute: opts.execute ?? false,
+        maxPasses: opts.maxPasses,
+        rawFilter: opts.rawFilter,
+      }))
+    : summarizeScheduledPass(await runCompile({
+        vaultRoot,
+        outputPath,
+        execute: opts.execute,
+        rawFilter: opts.rawFilter,
+      }));
   const finishedAt = new Date();
   await mutateCompileStateFile(vaultRoot, (fresh) => ({
     ...fresh,
@@ -137,22 +174,25 @@ export async function runScheduledCompileOnce(
       pagesCompiled: result.rawFilesIncluded.length,
       digestPath: outputRelPath,
       execute: opts.execute === true,
-      operationsApplied: result.execution?.applied.length ?? 0,
-      operationsProposed: result.execution?.proposed.length ?? 0,
+      operationsApplied: result.operationsApplied,
+      operationsProposed: result.operationsProposed,
     },
   }));
   await appendFile(
     join(vaultRoot, "log.md"),
-    `## [${finishedAt.toISOString()}] compile | scheduled prompt: ${result.rawFilesIncluded.length} raw included, ${result.pendingSummary.filesFullyDrained} already-drained, ${result.pendingSummary.filesWithPendingTail} pending tails\n`,
+    `## [${finishedAt.toISOString()}] compile | scheduled prompt: ${result.rawFilesIncluded.length} raw included, ${result.pendingSummary.filesFullyDrained} already-drained, ${result.pendingSummary.filesWithPendingTail} pending tails, ${result.passes} pass(es), ${result.noiseOnlySkipped} noise-only skipped, ${result.bytesReduced} raw bytes reduced\n`,
     "utf-8",
   );
   return {
     rawFilesIncluded: result.rawFilesIncluded,
     rawFilesSkipped: result.rawFilesSkipped,
     outputPath: outputRelPath,
-    rawRemaining: countRemainingRawFiles(result.rawFilesSkipped),
+    rawRemaining: result.rawRemaining,
     pendingSummary: result.pendingSummary,
     execution: result.execution,
+    passes: result.passes,
+    noiseOnlySkipped: result.noiseOnlySkipped,
+    bytesReduced: result.bytesReduced,
   };
 }
 
@@ -179,20 +219,55 @@ function readAutoPromoteConfig(config: MemoryConfig): {
   };
 }
 
-function readCompileConfig(config: MemoryConfig): {
-  scheduled: boolean;
-  cadence: "daily" | "weekly" | "manual";
-  execute: boolean;
-} {
-  const record = typeof config.compile === "object" && config.compile !== null
-    ? config.compile as Record<string, unknown>
-    : {};
-  const cadence = record["cadence"];
+function readCompileConfig(config: MemoryConfig): ResolvedCompileConfig {
+  return resolveCompileConfig(config.compile);
+}
+
+function scheduledCompileRunnerOptions(compile: ResolvedCompileConfig): DashboardCompileRunnerOptions {
+  if (!compile.drain) return { execute: compile.execute };
   return {
-    scheduled: record["scheduled"] === true,
-    cadence: cadence === "weekly" || cadence === "manual" ? cadence : "daily",
-    execute: record["execute"] === true,
+    execute: compile.execute,
+    drain: true,
+    maxPasses: compile.max_passes_per_run,
+    rawFilter: compile.raw_filter,
   };
+}
+
+function summarizeScheduledPass(result: CompileResult): ScheduledCompileSummary {
+  return {
+    rawFilesIncluded: result.rawFilesIncluded,
+    rawFilesSkipped: result.rawFilesSkipped,
+    rawRemaining: countRemainingRawFiles(result.rawFilesSkipped),
+    pendingSummary: result.pendingSummary,
+    execution: result.execution,
+    operationsApplied: result.execution?.applied.length ?? 0,
+    operationsProposed: result.execution?.proposed.length ?? 0,
+    passes: 1,
+    noiseOnlySkipped: result.noiseOnlySkipped,
+    bytesReduced: compileBytesReduced(result),
+  };
+}
+
+function summarizeScheduledDrain(result: CompileDrainResult): ScheduledCompileSummary {
+  const last = result.passes.at(-1);
+  return {
+    rawFilesIncluded: result.passes.flatMap((pass) => pass.rawFilesIncluded),
+    rawFilesSkipped: last?.rawFilesSkipped ?? [],
+    rawRemaining: result.rawFilesRemaining,
+    pendingSummary: last?.pendingSummary ?? emptyCompilePendingSummary(),
+    execution: last?.execution,
+    operationsApplied: result.passes.reduce((sum, pass) => sum + (pass.execution?.applied.length ?? 0), 0),
+    operationsProposed: result.passes.reduce((sum, pass) => sum + (pass.execution?.proposed.length ?? 0), 0),
+    passes: result.passes.length,
+    noiseOnlySkipped: result.passes.reduce((sum, pass) => sum + pass.noiseOnlySkipped, 0),
+    bytesReduced: result.passes.reduce((sum, pass) => sum + compileBytesReduced(pass), 0),
+  };
+}
+
+function compileBytesReduced(result: CompileResult): number {
+  const stats = result.filterStats;
+  if (!stats) return 0;
+  return Math.max(0, stats.bytesIn - stats.bytesOut);
 }
 
 async function logSchedulerFailure(vaultRoot: string, label: string, error: unknown): Promise<void> {
