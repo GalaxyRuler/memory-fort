@@ -82,6 +82,35 @@ describe("filter-raw: positive-match stripping and conservative noise-only class
   });
 });
 
+describe("filter-raw: tool-heavy reduction", () => {
+  it("strips at least 55% from a tool-heavy fixture while preserving signal", () => {
+    const noisyTurns = Array.from({ length: 40 }, (_, index) => rawTurn("ToolUse: Bash", [
+      "\u001b[32m✓ built in 812ms\u001b[39m",
+      `dist/assets/index-${String(index).padStart(2, "0")}.js    128.44 kB │ gzip: 42.10 kB`,
+      JSON.stringify({
+        content: "x".repeat(1_000),
+        originalFile: "y".repeat(1_000),
+        stderr: "\nShell cwd was reset to C:\\CodexProjects\\memory-system",
+      }),
+    ].join("\n"))).join("\n");
+    const text = [
+      noisyTurns,
+      rawTurn("Prompt", "Always test before pushing."),
+      rawTurn("ToolResult", "error: unknown option '--kill'"),
+    ].join("\n");
+
+    const result = filterRawText(text);
+    const reduction = (result.bytesIn - result.bytesOut) / result.bytesIn;
+
+    expect(reduction).toBeGreaterThanOrEqual(0.55);
+    expect(result.strippedByClass["json-fat-field"]).toBeGreaterThan(0);
+    expect(result.filtered).toContain("Always test before pushing.");
+    expect(result.filtered).toContain("error: unknown option '--kill'");
+    expect(result.filtered).not.toContain("Shell cwd was reset");
+    expect(result.noiseOnly).toBe(false);
+  });
+});
+
 function rawTurn(kind: string, body: string): string {
   return `## [12:00:00] ${kind}\n\n${body}\n`;
 }

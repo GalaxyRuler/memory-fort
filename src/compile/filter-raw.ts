@@ -98,7 +98,6 @@ function stripNoise(text: string, strippedByClass: Record<string, number>): { te
   let next = text;
   next = replaceWithCount(next, ANSI_RE, "", "ansi", strippedByClass);
   next = replaceWithCount(next, ASSET_TABLE_RE, "", "asset-table", strippedByClass);
-  next = replaceWithCount(next, CWD_RESET_RE, "", "cwd-reset", strippedByClass);
   next = replaceWithCount(next, BUILD_SUMMARY_RE, "", "build-summary", strippedByClass);
   next = replaceWithCount(next, DATA_BLOB_RE, (match) => elisionFor(match), "data-blob", strippedByClass);
   next = replaceWithCount(next, BASE64_BLOB_RE, (match) => elisionFor(match), "base64-blob", strippedByClass);
@@ -108,6 +107,7 @@ function stripNoise(text: string, strippedByClass: Record<string, number>): { te
     addStripped(strippedByClass, "suggestion-prompt", byteDelta(before, next));
   }
   next = stripFatJsonFields(next, strippedByClass);
+  next = replaceWithCount(next, CWD_RESET_RE, "", "cwd-reset", strippedByClass);
   return { text: next };
 }
 
@@ -127,25 +127,44 @@ function replaceWithCount(
 
 function stripFatJsonFields(text: string, strippedByClass: Record<string, number>): string {
   const trimmed = text.trim();
-  if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) return text;
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(trimmed);
-  } catch {
-    return text;
+  if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) return stripJsonLines(text, strippedByClass);
+  const parsedWhole = replaceJsonText(trimmed, strippedByClass);
+  if (parsedWhole !== null) {
+    const leading = text.slice(0, text.indexOf(trimmed));
+    const trailing = text.slice(text.indexOf(trimmed) + trimmed.length);
+    return `${leading}${parsedWhole}${trailing}`;
   }
-  let stripped = 0;
-  const normalized = replaceFatJsonValue(parsed, (removedBytes) => {
-    stripped += removedBytes;
-  });
-  if (stripped <= 0) return text;
-  addStripped(strippedByClass, "json-fat-field", stripped);
-  const leading = text.slice(0, text.indexOf(trimmed));
-  const trailing = text.slice(text.indexOf(trimmed) + trimmed.length);
-  return `${leading}${JSON.stringify(normalized, null, 2)}${trailing}`;
+  return stripJsonLines(text, strippedByClass);
 }
 
-function replaceFatJsonValue(value: unknown, onStrip: (bytes: number) => void): unknown {
+function stripJsonLines(text: string, strippedByClass: Record<string, number>): string {
+  return text.split(/(\r?\n)/).map((part) => {
+    const trimmed = part.trim();
+    if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) return part;
+    const replaced = replaceJsonText(trimmed, strippedByClass);
+    if (replaced === null) return part;
+    const leading = part.slice(0, part.indexOf(trimmed));
+    const trailing = part.slice(part.indexOf(trimmed) + trimmed.length);
+    return `${leading}${replaced}${trailing}`;
+  }).join("");
+}
+
+function replaceJsonText(text: string, strippedByClass: Record<string, number>): string | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  let didStrip = false;
+  const normalized = replaceFatJsonValue(parsed, (className, removedBytes) => {
+    didStrip = true;
+    addStripped(strippedByClass, className, removedBytes);
+  });
+  return didStrip ? JSON.stringify(normalized, null, 2) : null;
+}
+
+function replaceFatJsonValue(value: unknown, onStrip: (className: string, bytes: number) => void): unknown {
   if (Array.isArray(value)) return value.map((item) => replaceFatJsonValue(item, onStrip));
   if (!value || typeof value !== "object") return value;
   const record = value as Record<string, unknown>;
@@ -153,7 +172,11 @@ function replaceFatJsonValue(value: unknown, onStrip: (bytes: number) => void): 
   for (const [key, child] of Object.entries(record)) {
     if (FAT_JSON_FIELDS.has(key) && typeof child === "string" && child.length > 0) {
       const bytes = Buffer.byteLength(child, "utf-8");
-      onStrip(bytes);
+      onStrip("json-fat-field", bytes);
+      next[key] = `[elided ${bytes} bytes]`;
+    } else if (key === "stderr" && typeof child === "string" && /^\n?Shell cwd was reset to /u.test(child)) {
+      const bytes = Buffer.byteLength(child, "utf-8");
+      onStrip("cwd-reset", bytes);
       next[key] = `[elided ${bytes} bytes]`;
     } else {
       next[key] = replaceFatJsonValue(child, onStrip);
