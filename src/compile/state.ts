@@ -28,6 +28,10 @@ export interface CompileStateFile {
   [key: string]: unknown;
 }
 
+export interface ReadCompileStateFileOptions {
+  migrateLegacy?: boolean;
+}
+
 export interface CompilePendingSummary {
   filesWithPendingTail: number;
   pendingTailBytes: number;
@@ -78,13 +82,17 @@ export function scheduledCompilePromptPath(vaultRoot: string): string {
   return join(vaultRoot, ...scheduledCompilePromptRelPath().split("/"));
 }
 
-export async function readCompileStateFile(vaultRoot: string): Promise<CompileStateFile> {
+export async function readCompileStateFile(
+  vaultRoot: string,
+  opts: ReadCompileStateFileOptions = {},
+): Promise<CompileStateFile> {
   const path = compileStatePath(vaultRoot);
   if (existsSync(path)) return readCompileStateJson(path);
 
   const legacyPath = legacyCompileStatePath(vaultRoot);
   if (!existsSync(legacyPath)) return {};
   const state = await readCompileStateJson(legacyPath);
+  if (opts.migrateLegacy === false) return state;
   await writeCompileStateFile(vaultRoot, state);
   return state;
 }

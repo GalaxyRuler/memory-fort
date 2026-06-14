@@ -2,7 +2,7 @@
 declare const __MEMORY_BUILD_VERSION__: string | undefined;
 import { Command } from "commander";
 import { printDebugLogBanner } from "./cli/debug-banner.js";
-import { formatCompileExecuteSummary, runCompile, runCompileDrain } from "./cli/commands/compile.js";
+import { formatCompileExecuteSummary, formatCompileFilterReport, runCompile, runCompileDrain } from "./cli/commands/compile.js";
 import {
   formatConsolidateResult,
   runConsolidate,
@@ -599,6 +599,8 @@ program
   .option("--max-passes <n>", "maximum drain passes (default: 50)", parseInteger)
   .option("--reset-watermark [glob]", "clear consumed raw-file watermarks before compiling")
   .option("--backfill", "make unwatermarked raw files eligible regardless of the since cutoff (watermark dedup still applies)")
+  .option("--filter-report", "dry-run raw filter reduction report without LLM calls or writes")
+  .option("--json", "with --filter-report, emit JSON")
   .action(
     async (opts: {
       since?: string;
@@ -613,6 +615,8 @@ program
       maxPasses?: number;
       resetWatermark?: string | boolean;
       backfill?: boolean;
+      filterReport?: boolean;
+      json?: boolean;
     }) => {
       try {
         if (opts.backfill && opts.since) {
@@ -627,6 +631,30 @@ program
           throw new Error(
             "memory compile: --drain and --since are incompatible (--since bypasses the watermarks drain uses to make progress); drop --since or run single passes",
           );
+        }
+        if (opts.filterReport && opts.drain) {
+          throw new Error("memory compile: --filter-report cannot be combined with --drain");
+        }
+        if (opts.filterReport) {
+          const result = await runCompile({
+            since: opts.since,
+            perFileMaxBytes: opts.perFileMaxBytes,
+            totalMaxBytes: opts.totalMaxBytes,
+            existingPagesMaxBytes: opts.existingPagesMaxBytes,
+            maxFilesPerPass: opts.maxFilesPerPass,
+            filterReport: true,
+            backfill: opts.backfill,
+          });
+          const report = result.filterReport;
+          if (!report) {
+            throw new Error("memory compile: filter report was not produced");
+          }
+          process.stdout.write(
+            opts.json
+              ? `${JSON.stringify(report, null, 2)}\n`
+              : formatCompileFilterReport(report),
+          );
+          return;
         }
         if (opts.drain) {
           const result = await runCompileDrain({

@@ -58,6 +58,7 @@ export interface CompileOptions {
   excludeRawPaths?: ReadonlySet<string>;
   rawFilter?: boolean;
   rawFilterMinSignalBytes?: number;
+  filterReport?: boolean;
 }
 
 export interface CompileDrainOptions extends CompileOptions {
@@ -85,6 +86,7 @@ export interface CompileResult {
   } & ApplyCompileOperationsResult;
   indexRebuild?: RebuildIndexResult;
   filterStats?: CompileFilterStats;
+  filterReport?: CompileFilterReport;
   noiseOnlySkipped: number;
 }
 
@@ -94,6 +96,32 @@ export interface CompileFilterStats {
   signalBytes: number;
   rawBytesConsumed: number;
   filesFiltered: number;
+  strippedByClass: Record<string, number>;
+}
+
+export interface CompileFilterReport {
+  perFile: CompileFilterReportFile[];
+  aggregate: {
+    files: number;
+    bytesIn: number;
+    bytesOut: number;
+    reductionPct: number;
+    signalBytes: number;
+    rawBytesConsumed: number;
+    noiseOnlyFiles: number;
+    strippedByClass: Record<string, number>;
+  };
+}
+
+export interface CompileFilterReportFile {
+  path: string;
+  relPath: string;
+  bytesIn: number;
+  bytesOut: number;
+  reductionPct: number;
+  signalBytes: number;
+  rawBytesConsumed: number;
+  noiseOnly: boolean;
   strippedByClass: Record<string, number>;
 }
 
@@ -161,9 +189,12 @@ export async function runCompile(
     "existingPagesMaxBytes",
   );
   const root = opts.vaultRoot ?? memoryRoot();
+  if (opts.filterReport && opts.resetWatermark !== undefined && opts.resetWatermark !== false) {
+    throw new Error("memory compile: --filter-report cannot be combined with --reset-watermark");
+  }
   const memoryConfig = await (opts.configLoader ?? (() => loadMemoryConfig(root)))();
   const compileConfig = resolveCompileConfig(memoryConfig.compile);
-  const rawFilterEnabled = opts.rawFilter ?? compileConfig.raw_filter;
+  const rawFilterEnabled = opts.filterReport ? true : opts.rawFilter ?? compileConfig.raw_filter;
   void (opts.rawFilterMinSignalBytes ?? compileConfig.raw_filter_min_signal_bytes);
   const promptTemplate = await readRuntimePrompt({
     vaultRoot: root,
@@ -184,7 +215,7 @@ export async function runCompile(
       ? new Date(0)
       : detectSinceFromLog(log) ?? new Date(0);
   const watermarkMode: CompileResult["watermarkMode"] = opts.since ? "bypassed" : "gated";
-  let compileState = await readCompileStateForCompile(root);
+  let compileState = await readCompileStateForCompile(root, { migrateLegacy: !opts.filterReport });
   const watermarkReset = opts.resetWatermark !== undefined && opts.resetWatermark !== false
     ? await resetConsumedWatermarks(root, compileState, opts.resetWatermark)
     : undefined;
@@ -200,6 +231,7 @@ export async function runCompile(
   const noiseOnlyWatermarks: IncludedRawWatermark[] = [];
   const rawContentBlocks: string[] = [];
   const eligibleRaws: EligibleRaw[] = [];
+  const filterReportFiles: CompileFilterReportFile[] = [];
   const filterStats: CompileFilterStats = {
     bytesIn: 0,
     bytesOut: 0,
@@ -350,6 +382,19 @@ export async function runCompile(
       filterStats.rawBytesConsumed += includedBytes;
       filterStats.filesFiltered += 1;
       mergeStrippedByClass(filterStats.strippedByClass, filtered.strippedByClass);
+      if (opts.filterReport) {
+        filterReportFiles.push({
+          path: raw.candidate.path,
+          relPath: raw.candidate.relPath,
+          bytesIn: filtered.bytesIn,
+          bytesOut: filtered.bytesOut,
+          reductionPct: reductionPct(filtered.bytesIn, filtered.bytesOut),
+          signalBytes: filtered.signalBytes,
+          rawBytesConsumed: includedBytes,
+          noiseOnly: filtered.noiseOnly,
+          strippedByClass: { ...filtered.strippedByClass },
+        });
+      }
       text = filtered.filtered;
       if (filtered.noiseOnly) {
         noiseOnlyWatermarks.push({
@@ -385,6 +430,25 @@ export async function runCompile(
   const rawFilesRemaining =
     eligibleRaws.filter((raw) => raw.cursor < raw.content.byteLength).length + deferredRaws.length;
   truncatedAtTotalCap = rawBytesRemaining > 0 && (totalUsed >= totalMaxBytes || deferredRaws.length > 0);
+
+  if (opts.filterReport) {
+    return {
+      prompt: "",
+      rawFilesIncluded,
+      rawRelPathsIncluded: includedWatermarks.map((item) => item.relPath),
+      rawFilesSkipped,
+      sinceCutoff: sinceDate.toISOString(),
+      watermarkMode,
+      watermarksAdvanced: [],
+      pendingSummary: await summarizeCompilePending(root, compileState),
+      truncatedAtTotalCap,
+      rawBytesRemaining,
+      rawFilesRemaining,
+      noiseOnlySkipped,
+      filterStats,
+      filterReport: buildCompileFilterReport(filterReportFiles, filterStats),
+    };
+  }
 
   const prompt = renderPrompt(promptTemplate, {
     schema_content: schema,
@@ -467,6 +531,33 @@ export function formatCompileExecuteSummary(result: CompileResult): string[] {
     `${formatNumber(execution.sessionsScanned)} ${plural(execution.sessionsScanned, "session")} scanned. ${formatNumber(execution.pagesUnchanged)} ${plural(execution.pagesUnchanged, "page")} unchanged.`,
   ];
   return lines;
+}
+
+export function formatCompileFilterReport(report: CompileFilterReport): string {
+  const lines = [
+    "Compile raw filter report",
+    `  files:             ${report.aggregate.files}`,
+    `  bytes in:          ${report.aggregate.bytesIn}`,
+    `  bytes out:         ${report.aggregate.bytesOut}`,
+    `  reduction:         ${report.aggregate.reductionPct}%`,
+    `  signal bytes:      ${report.aggregate.signalBytes}`,
+    `  noise-only files:  ${report.aggregate.noiseOnlyFiles}`,
+  ];
+  const classes = Object.entries(report.aggregate.strippedByClass)
+    .sort(([a], [b]) => a.localeCompare(b));
+  if (classes.length > 0) {
+    lines.push("  stripped classes:");
+    for (const [className, bytes] of classes) {
+      lines.push(`    - ${className}: ${bytes}`);
+    }
+  }
+  if (report.perFile.length > 0) {
+    lines.push("  files:");
+    for (const item of report.perFile) {
+      lines.push(`    - ${item.relPath}: ${item.bytesIn} -> ${item.bytesOut} (${item.reductionPct}%, signal ${item.signalBytes}, noiseOnly ${item.noiseOnly ? "yes" : "no"})`);
+    }
+  }
+  return `${lines.join("\n")}\n`;
 }
 
 export async function runCompileDrain(
@@ -592,6 +683,30 @@ function mergeStrippedByClass(target: Record<string, number>, source: Record<str
   for (const [key, value] of Object.entries(source)) {
     target[key] = (target[key] ?? 0) + value;
   }
+}
+
+function buildCompileFilterReport(
+  perFile: CompileFilterReportFile[],
+  stats: CompileFilterStats,
+): CompileFilterReport {
+  return {
+    perFile,
+    aggregate: {
+      files: perFile.length,
+      bytesIn: stats.bytesIn,
+      bytesOut: stats.bytesOut,
+      reductionPct: reductionPct(stats.bytesIn, stats.bytesOut),
+      signalBytes: stats.signalBytes,
+      rawBytesConsumed: stats.rawBytesConsumed,
+      noiseOnlyFiles: perFile.filter((item) => item.noiseOnly).length,
+      strippedByClass: { ...stats.strippedByClass },
+    },
+  };
+}
+
+function reductionPct(bytesIn: number, bytesOut: number): number {
+  if (bytesIn <= 0) return 0;
+  return Math.round((1 - bytesOut / bytesIn) * 10_000) / 100;
 }
 
 async function persistLastFilterStats(root: string, stats: CompileFilterStats): Promise<void> {
@@ -920,9 +1035,12 @@ async function resetConsumedWatermarks(
   return { pattern, cleared };
 }
 
-async function readCompileStateForCompile(root: string): Promise<CompileStateFile> {
+async function readCompileStateForCompile(
+  root: string,
+  opts: { migrateLegacy?: boolean } = {},
+): Promise<CompileStateFile> {
   try {
-    return await readCompileStateFile(root);
+    return await readCompileStateFile(root, opts);
   } catch {
     return {};
   }
