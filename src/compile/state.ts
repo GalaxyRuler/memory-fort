@@ -10,9 +10,19 @@ export interface CompileConsumedWatermark {
   compressVersion?: number;
 }
 
+export interface CompileLastFilterStats {
+  bytesIn: number;
+  bytesOut: number;
+  rawBytesConsumed: number;
+  strippedByClass: Record<string, number>;
+  runId: string;
+  at: string;
+}
+
 export interface CompileStateFile {
   status?: string;
   lastRun?: unknown;
+  lastFilterStats?: CompileLastFilterStats;
   consumed?: Record<string, CompileConsumedWatermark>;
   compressed?: Record<string, CompileConsumedWatermark>;
   [key: string]: unknown;

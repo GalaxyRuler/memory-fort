@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import {
   mkdir,
   readFile,
@@ -422,6 +423,9 @@ export async function runCompile(
   if (watermarksAdvanced.length > 0) {
     await clearOpsJournal(root);
   }
+  if (rawFilterEnabled && filterStats.filesFiltered > 0) {
+    await persistLastFilterStats(root, filterStats);
+  }
   const indexRebuild = execution?.mode === "execute" && !opts.plan
     && execution.applied.length + execution.proposed.length > 0
     ? await rebuildIndex(root)
@@ -588,6 +592,22 @@ function mergeStrippedByClass(target: Record<string, number>, source: Record<str
   for (const [key, value] of Object.entries(source)) {
     target[key] = (target[key] ?? 0) + value;
   }
+}
+
+async function persistLastFilterStats(root: string, stats: CompileFilterStats): Promise<void> {
+  const at = new Date().toISOString();
+  const runId = randomUUID();
+  await mutateCompileStateFile(root, (state) => ({
+    ...state,
+    lastFilterStats: {
+      bytesIn: stats.bytesIn,
+      bytesOut: stats.bytesOut,
+      rawBytesConsumed: stats.rawBytesConsumed,
+      strippedByClass: { ...stats.strippedByClass },
+      runId,
+      at,
+    },
+  }));
 }
 
 function chooseSliceEnd(content: Buffer, startByte: number, maxBytes: number): number {
