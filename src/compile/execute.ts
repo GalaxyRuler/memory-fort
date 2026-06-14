@@ -1439,8 +1439,19 @@ async function appendText(fullPath: string, text: string): Promise<void> {
 
 function hasHighConfidence(operation: CompileOperation): boolean {
   if (operation.kind !== "write_page" && operation.kind !== "rewrite_page") return true;
-  if ((operation.kind === "write_page" || operation.kind === "rewrite_page") && typeof operation.frontmatter?.confidence === "number") {
-    return Number.isFinite(operation.frontmatter.confidence) && operation.frontmatter.confidence >= 0.7;
+  if (typeof operation.frontmatter?.confidence === "number") {
+    const numericConfidence = Number.isFinite(operation.frontmatter.confidence) && operation.frontmatter.confidence >= 0.7;
+    // For rewrite_page, numeric confidence always applies (pre-existing behavior).
+    // For write_page, numeric confidence only applies to preferences pages — a single
+    // explicit operator directive is sufficient for a core memory. All other page types
+    // must satisfy the multi-source corroboration gate below.
+    if (operation.kind === "rewrite_page") return numericConfidence;
+    if (operation.kind === "write_page") {
+      const target = readWikiPageTarget(operation.path);
+      if (target.kind === "page" && target.type === "preferences") return numericConfidence;
+      // Non-preferences write_page: ignore top-level numeric confidence; fall through
+      // to the relations (multi-source) gate.
+    }
   }
   const relations = operation.frontmatter?.relations;
   if (typeof relations !== "object" || relations === null) return false;

@@ -96,10 +96,37 @@ describe("executor: wiki/preferences/ pages", () => {
     const content = await readFile(created, "utf-8");
     const parsed = parseFrontmatter(content);
     expect(parsed.frontmatter.cognitive_type).toBe("core");
+    expect(parsed.frontmatter.lifecycle).toBe("consolidated");
     expect(parsed.frontmatter.source).toBe("compile-execute");
   });
 
   it("treats preferences as a knowledge page type", () => {
     expect(isKnowledgePageType("preferences")).toBe(true);
+  });
+
+  it("does NOT apply a non-preferences write_page on numeric confidence alone", async () => {
+    await mkdir(join(root, "wiki", "lessons"), { recursive: true });
+    const ops = [
+      {
+        kind: "write_page" as const,
+        path: "wiki/lessons/thin-single-source.md",
+        frontmatter: {
+          type: "lessons",
+          title: "Thin Single Source",
+          confidence: 0.9,
+        },
+        body: "A lesson with high stated confidence but no multi-source corroboration.",
+      },
+    ];
+
+    const result = await applyCompileOperations({
+      vaultRoot: root,
+      operations: ops,
+    });
+
+    // High numeric confidence alone must NOT make a non-preferences page apply
+    // directly; it should be staged/proposed (relations gate unmet), not applied.
+    expect(result.applied).not.toContain("wiki/lessons/thin-single-source.md");
+    expect(result.proposed.length).toBeGreaterThan(0);
   });
 });
