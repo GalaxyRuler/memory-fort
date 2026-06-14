@@ -26,6 +26,13 @@ const BASE64_BLOB_RE = /\b[A-Za-z0-9+/]{240,}={0,2}\b/gu;
 const FAT_STRING_BYTES = 300;
 const OUTPUT_MARKER = "**Output:**";
 const OUTPUT_LINE_PRUNE_MIN_BYTES = 400;
+const JSON_ALWAYS_KEEP_KEYS = new Set(["command", "cmd", "file_path", "path", "args", "argv", "input"]);
+const JSON_ALWAYS_ELIDE_KEYS = new Set(["content", "originalFile", "structuredPatch"]);
+const PROSE_SIGNAL_RES = [
+  /^#{1,6}\s/mu,
+  /\*\*(Findings|Summary|Conclusion|Decision|Recommendation|Result|Outcome|Root cause|Cause|Fix|Plan|Verdict)\b/iu,
+  /\b(blocker|root cause|recommendation|conclusion|verdict|trade-?off)\b/iu,
+];
 const KEEP_LIST_RES = [
   /error[:\s]/iu,
   /\bfailed\b/iu,
@@ -187,6 +194,7 @@ function pruneToolOutputLines(text: string, strippedByClass: Record<string, numb
 function flushDroppedToolOutput(dropped: string, strippedByClass: Record<string, number>): string {
   if (dropped.length === 0) return "";
   if (dropped.trim().length === 0) return "";
+  if (hasFatValueKeepSignal(dropped) && !hasJsonFileDumpKey(dropped)) return dropped;
   const droppedBytes = Buffer.byteLength(dropped, "utf-8");
   const placeholder = dropped.endsWith("\n")
     ? `[elided ${droppedBytes} bytes]\n`
@@ -295,6 +303,14 @@ function replaceFatJsonStringValue(
 ): string {
   const bytes = Buffer.byteLength(value, "utf-8");
   if (bytes <= FAT_STRING_BYTES) return value;
+  const key = path.at(-1);
+  if (key !== undefined && JSON_ALWAYS_KEEP_KEYS.has(key)) return value;
+  if (key !== undefined && JSON_ALWAYS_ELIDE_KEYS.has(key)) {
+    const mediaClass = mediaDataClass(value, path);
+    const replacement = `[elided ${bytes} bytes]`;
+    onStrip(mediaClass ?? "json-fat-value", value, replacement);
+    return replacement;
+  }
 
   const mediaClass = mediaDataClass(value, path);
   if (mediaClass !== null) {
@@ -302,12 +318,10 @@ function replaceFatJsonStringValue(
     onStrip(mediaClass, value, replacement);
     return replacement;
   }
-  if (!hasLineSignal(value)) {
-    const replacement = `[elided ${bytes} bytes]`;
-    onStrip("json-fat-value", value, replacement);
-    return replacement;
-  }
-  return pruneJsonSignalValue(value, onStrip);
+  if (hasFatValueKeepSignal(value)) return value;
+  const replacement = `[elided ${bytes} bytes]`;
+  onStrip("json-fat-value", value, replacement);
+  return replacement;
 }
 
 function mediaDataClass(value: string, path: string[]): "image-data" | "base64-blob" | null {
@@ -318,44 +332,21 @@ function mediaDataClass(value: string, path: string[]): "image-data" | "base64-b
   return null;
 }
 
-function pruneJsonSignalValue(
-  value: string,
-  onStrip: (className: string, before: string, after: string) => void,
-): string {
-  const lines = value.match(/[^\n]*(?:\n|$)/gu)?.filter((line) => line.length > 0) ?? [];
-  let out = "";
-  let dropped = "";
-
-  for (const line of lines) {
-    const lineText = line.replace(/\r?\n$/u, "");
-    if (isLineSignal(lineText)) {
-      out += flushDroppedJsonValue(dropped, onStrip);
-      dropped = "";
-      out += line;
-    } else {
-      dropped += line;
-    }
-  }
-  out += flushDroppedJsonValue(dropped, onStrip);
-  return out;
+function hasFatValueKeepSignal(value: string): boolean {
+  return hasLineSignal(value) || hasProseSignal(value);
 }
 
-function flushDroppedJsonValue(
-  dropped: string,
-  onStrip: (className: string, before: string, after: string) => void,
-): string {
-  if (dropped.length === 0) return "";
-  const droppedBytes = Buffer.byteLength(dropped, "utf-8");
-  const placeholder = dropped.endsWith("\n")
-    ? `[elided ${droppedBytes} bytes]\n`
-    : `[elided ${droppedBytes} bytes]`;
-  onStrip("json-fat-value", dropped, placeholder);
-  return placeholder;
+function hasJsonFileDumpKey(value: string): boolean {
+  return /"(?:content|originalFile|structuredPatch)"\s*:/u.test(value);
 }
 
 function hasLineSignal(value: string): boolean {
   const lines = value.match(/[^\n]*(?:\n|$)/gu)?.filter((line) => line.length > 0) ?? [];
   return lines.some((line) => isLineSignal(line.replace(/\r?\n$/u, "")));
+}
+
+function hasProseSignal(value: string): boolean {
+  return PROSE_SIGNAL_RES.some((re) => re.test(value));
 }
 
 function isKnownNoiseTurn(turn: RawTurn, strippedByClass: Record<string, number>): boolean {

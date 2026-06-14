@@ -83,6 +83,149 @@ describe("filter-raw: positive-match stripping and conservative noise-only class
 });
 
 describe("filter-raw: tool-heavy reduction", () => {
+  it("keeps long inline ToolUse command values whole", () => {
+    const longCommand = [
+      "powershell -NoProfile -Command",
+      "\"$ErrorActionPreference = 'Stop';",
+      "$script = @'",
+      ...Array.from({ length: 20 }, (_, index) => `Write-Output 'compile command slice ${index} ${"x".repeat(24)}'`),
+      "'@;",
+      "Invoke-Expression $script\"",
+    ].join(" ");
+    expect(Buffer.byteLength(longCommand, "utf-8")).toBeGreaterThan(300);
+
+    const result = filterRawText(rawTurn("ToolUse: Bash", JSON.stringify({ command: longCommand }, null, 2)));
+    const filteredBody = splitTurns(result.filtered)[0]?.body.trim() ?? "";
+    const parsed = JSON.parse(filteredBody) as { command: string };
+
+    expect(parsed.command).toBe(longCommand);
+    expect(result.filtered).not.toContain("[elided");
+    expect(result.noiseOnly).toBe(false);
+  });
+
+  it("keeps plain-text ToolUse input sections whole", () => {
+    const command = [
+      "powershell -NoProfile -Command",
+      ...Array.from({ length: 18 }, (_, index) => `"Write-Output plain input command ${index} ${"y".repeat(24)}"`),
+    ].join(" ");
+    const inputContent = Array.from({ length: 12 }, (_, index) => (
+      `plain input file payload ${index} ${"q".repeat(36)}`
+    )).join("\n");
+    const input = JSON.stringify({ command, content: inputContent }, null, 2);
+    expect(Buffer.byteLength(command, "utf-8")).toBeGreaterThan(300);
+    expect(Buffer.byteLength(inputContent, "utf-8")).toBeGreaterThan(300);
+
+    const result = filterRawText(rawTurn("ToolUse: Bash", [
+      "**Input:**",
+      input,
+      "",
+      "**Output:**",
+      "3 passed",
+    ].join("\n")));
+
+    expect(result.filtered).toContain("**Input:**");
+    expect(result.filtered).toContain(input);
+    expect(result.filtered).toContain("3 passed");
+    expect(result.noiseOnly).toBe(false);
+  });
+
+  it("keeps long ToolResult findings prose whole", () => {
+    const findings = [
+      "**Findings**",
+      "No P0/P1 blockers.",
+      "",
+      "P2: Keep the CLI confirmation wording intact for operator review.",
+      "Recommendation: ship the focused fix after the filtered transcript bench.",
+      "Conclusion: this is a fidelity improvement with an accepted reduction trade-off.",
+      ...Array.from({ length: 8 }, (_, index) => `Supporting note ${index}: preserve this prose summary for follow-up review.`),
+    ].join("\n");
+    expect(Buffer.byteLength(findings, "utf-8")).toBeGreaterThan(300);
+
+    const result = filterRawText(rawTurn("ToolResult: toolu_findings", JSON.stringify([
+      { type: "text", text: findings },
+    ], null, 2)));
+    const filteredBody = splitTurns(result.filtered)[0]?.body.trim() ?? "";
+    const parsed = JSON.parse(filteredBody) as Array<{ type: string; text: string }>;
+
+    expect(parsed[0]?.text).toBe(findings);
+    expect(result.filtered).not.toContain("[elided");
+    expect(result.noiseOnly).toBe(false);
+  });
+
+  it("keeps prose-marked plain-text ToolUse output runs whole", () => {
+    const output = [
+      "**Summary**",
+      "No P0/P1 blockers were found in the review pass.",
+      "Recommendation: retain this operator-facing summary even though it is long.",
+      ...Array.from({ length: 12 }, (_, index) => `Review note ${index}: preserve the prose context for later audit.`),
+    ].join("\n");
+    expect(Buffer.byteLength(output, "utf-8")).toBeGreaterThan(400);
+
+    const result = filterRawText(rawTurn("ToolUse: Bash", [
+      "**Input:**",
+      "review-tool --format markdown",
+      "",
+      "**Output:**",
+      output,
+    ].join("\n")));
+
+    expect(result.filtered).toContain(output);
+    expect(result.filtered).not.toContain("[elided");
+    expect(result.noiseOnly).toBe(false);
+  });
+
+  it("elides ToolResult content file dumps even when they contain prose markers", () => {
+    const dump = [
+      "**Decision**",
+      ...Array.from({ length: 80 }, (_, index) => (
+        `Decision record ${index}: this is file content, not an operator findings summary. ${"z".repeat(28)}`
+      )),
+    ].join("\n");
+    expect(Buffer.byteLength(dump, "utf-8")).toBeGreaterThan(3_000);
+
+    const result = filterRawText(rawTurn("ToolResult: toolu_file_dump", JSON.stringify({ content: dump }, null, 2)));
+    const filteredBody = splitTurns(result.filtered)[0]?.body.trim() ?? "";
+    const parsed = JSON.parse(filteredBody) as { content: string };
+
+    expect(parsed.content).toMatch(/^\[elided \d+ bytes\]$/u);
+    expect(result.filtered).not.toContain("Decision record 0");
+    expect(result.strippedByClass["json-fat-value"]).toBeGreaterThan(0);
+    expect(result.noiseOnly).toBe(true);
+  });
+
+  it("elides unparsed plain-output JSON content dumps even when they contain prose markers", () => {
+    const dump = [
+      "**Decision**",
+      ...Array.from({ length: 80 }, (_, index) => (
+        `Unparsed file dump ${index}: keep this eligible for output-run elision. ${"w".repeat(32)}`
+      )),
+    ].join("\n");
+    const output = [
+      "tool wrapper preface",
+      JSON.stringify({ content: dump }, null, 2),
+    ].join("\n");
+
+    const result = filterRawText(rawTurn("ToolResult: toolu_plain_dump", output));
+
+    expect(result.filtered).toContain("[elided");
+    expect(result.filtered).not.toContain("Unparsed file dump 0");
+    expect(result.noiseOnly).toBe(false);
+  });
+
+  it("keeps base64 image data elided", () => {
+    const base64Image = "A".repeat(2_048);
+    const result = filterRawText(rawTurn("ToolResult: toolu_image", JSON.stringify({
+      type: "image",
+      source: { type: "base64", media_type: "image/png", data: base64Image },
+    }, null, 2)));
+    const filteredBody = splitTurns(result.filtered)[0]?.body.trim() ?? "";
+    const parsed = JSON.parse(filteredBody) as { source: { data: string } };
+
+    expect(parsed.source.data).toMatch(/^\[elided \d+ bytes\]$/u);
+    expect(result.filtered).not.toContain(base64Image);
+    expect(result.strippedByClass["image-data"]).toBeGreaterThan(0);
+  });
+
   it("prunes claude-code JSON ToolResult text and image data while preserving signal", () => {
     const noSignalLog = Array.from({ length: 70 }, (_, index) => (
       `compile progress row ${String(index).padStart(2, "0")} module cache warmed ${"x".repeat(24)}`
@@ -108,7 +251,7 @@ describe("filter-raw: tool-heavy reduction", () => {
     expect(result.noiseOnly).toBe(false);
   });
 
-  it("keeps whole-file reduction above 70% for multi-turn claude-code JSON ToolResults", () => {
+  it("keeps whole-file reduction above 55% for multi-turn claude-code JSON ToolResults", () => {
     const toolResultBody = (turnIndex: number) => JSON.stringify([
       {
         type: "text",
@@ -128,7 +271,7 @@ describe("filter-raw: tool-heavy reduction", () => {
     const reduction = (result.bytesIn - result.bytesOut) / result.bytesIn;
 
     expect(result.bytesIn).toBeGreaterThanOrEqual(50_000);
-    expect(reduction).toBeGreaterThanOrEqual(0.70);
+    expect(reduction).toBeGreaterThanOrEqual(0.55);
     expect(result.filtered).toContain("Review the compile results");
     expect(result.filtered).toContain("error: boom failed");
     expect(result.filtered).toContain("3 passed");
@@ -216,7 +359,7 @@ describe("filter-raw: tool-heavy reduction", () => {
     expect(result.noiseOnly).toBe(false);
   });
 
-  it("keeps whole-file reduction above 70% for multi-turn plain-text tool outputs", () => {
+  it("keeps whole-file reduction above 75% for multi-turn plain-text tool outputs", () => {
     const plainToolTurn = (turnIndex: number) => rawTurn("ToolUse: Bash", [
       "**Input:**",
       JSON.stringify({ command: `npm test -- shard-${turnIndex}` }, null, 2),
@@ -239,7 +382,7 @@ describe("filter-raw: tool-heavy reduction", () => {
     const reduction = (result.bytesIn - result.bytesOut) / result.bytesIn;
 
     expect(result.bytesIn).toBeGreaterThanOrEqual(50_000);
-    expect(reduction).toBeGreaterThanOrEqual(0.70);
+    expect(reduction).toBeGreaterThanOrEqual(0.75);
     expect(result.filtered).toContain("Please run the compile tests before reporting.");
     expect(result.filtered).toContain("npm test -- shard-0");
     expect(result.filtered).toContain("3 passed");
