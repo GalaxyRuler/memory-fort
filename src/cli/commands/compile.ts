@@ -84,6 +84,7 @@ export interface CompileResult {
   } & ApplyCompileOperationsResult;
   indexRebuild?: RebuildIndexResult;
   filterStats?: CompileFilterStats;
+  noiseOnlySkipped: number;
 }
 
 export interface CompileFilterStats {
@@ -195,6 +196,7 @@ export async function runCompile(
   const rawFilesSkipped: CompileResult["rawFilesSkipped"] = [];
   const rawFilesIncluded: string[] = [];
   const includedWatermarks: IncludedRawWatermark[] = [];
+  const noiseOnlyWatermarks: IncludedRawWatermark[] = [];
   const rawContentBlocks: string[] = [];
   const eligibleRaws: EligibleRaw[] = [];
   const filterStats: CompileFilterStats = {
@@ -207,6 +209,7 @@ export async function runCompile(
   };
   let totalUsed = 0;
   let truncatedAtTotalCap = false;
+  let noiseOnlySkipped = 0;
 
   const rawFiles = await listRawFiles(root, join(root, "raw"));
   for (const candidate of rawFiles) {
@@ -328,13 +331,16 @@ export async function runCompile(
     }
 
     let text = Buffer.concat(raw.chunks).toString("utf-8");
+    let truncationNotice = "";
     if (raw.cursor < raw.content.byteLength) {
       const remainingBytes = raw.content.byteLength - raw.cursor;
-      text += `\n\n[truncated; ${remainingBytes} raw byte(s) remain after fairness window]`;
+      truncationNotice += `\n\n[truncated; ${remainingBytes} raw byte(s) remain after fairness window]`;
       if (totalUsed >= totalMaxBytes) {
-        text += `\n\n[truncated at totalMaxBytes ${totalMaxBytes}]`;
+        truncationNotice += `\n\n[truncated at totalMaxBytes ${totalMaxBytes}]`;
       }
     }
+    const originalText = text;
+    const lastObservationAt = detectLastObservationAt(raw.candidate.relPath, originalText, raw.candidate.mtimeMs);
     if (rawFilterEnabled) {
       const filtered = filterRawText(text);
       filterStats.bytesIn += filtered.bytesIn;
@@ -344,13 +350,23 @@ export async function runCompile(
       filterStats.filesFiltered += 1;
       mergeStrippedByClass(filterStats.strippedByClass, filtered.strippedByClass);
       text = filtered.filtered;
+      if (filtered.noiseOnly) {
+        noiseOnlyWatermarks.push({
+          relPath: raw.candidate.relPath,
+          bytes: raw.cursor,
+          lastObservationAt,
+        });
+        noiseOnlySkipped += 1;
+        continue;
+      }
     }
+    text += truncationNotice;
 
     rawFilesIncluded.push(raw.candidate.path);
     includedWatermarks.push({
       relPath: raw.candidate.relPath,
       bytes: raw.cursor,
-      lastObservationAt: detectLastObservationAt(raw.candidate.relPath, text, raw.candidate.mtimeMs),
+      lastObservationAt,
     });
     rawContentBlocks.push(
       `### ${raw.candidate.path}\n\n\`\`\`markdown\n${text}\n\`\`\``,
@@ -398,8 +414,10 @@ export async function runCompile(
     root,
     watermarkMode,
     plan: opts.plan,
+    execute: opts.execute,
     execution,
     includedWatermarks,
+    noiseOnlyWatermarks,
   });
   if (watermarksAdvanced.length > 0) {
     await clearOpsJournal(root);
@@ -426,6 +444,7 @@ export async function runCompile(
     truncatedAtTotalCap,
     rawBytesRemaining,
     rawFilesRemaining,
+    noiseOnlySkipped,
     execution,
     ...(indexRebuild ? { indexRebuild } : {}),
     ...(rawFilterEnabled ? { filterStats } : {}),
@@ -579,7 +598,15 @@ function chooseSliceEnd(content: Buffer, startByte: number, maxBytes: number): n
   if (nextBoundary !== null && nextBoundary <= hardEnd) {
     return nextBoundary;
   }
-  return hardEnd;
+  return backtrackUtf8Boundary(content, startByte, hardEnd);
+}
+
+function backtrackUtf8Boundary(content: Buffer, startByte: number, endByte: number): number {
+  let end = endByte;
+  while (end > startByte && end < content.byteLength && (content[end]! & 0b1100_0000) === 0b1000_0000) {
+    end -= 1;
+  }
+  return end;
 }
 
 function findObservationBoundaryAfter(content: Buffer, startByte: number): number | null {
@@ -816,18 +843,31 @@ async function maybeAdvanceWatermarks(opts: {
   root: string;
   watermarkMode: CompileResult["watermarkMode"];
   plan?: boolean;
+  execute?: boolean;
   execution?: CompileResult["execution"];
   includedWatermarks: IncludedRawWatermark[];
+  noiseOnlyWatermarks?: IncludedRawWatermark[];
 }): Promise<string[]> {
   if (opts.watermarkMode !== "gated") return [];
-  if (!opts.execution || opts.execution.mode !== "execute" || opts.plan) return [];
-  if (opts.execution.rawInputConsumed === false) return [];
-  if (opts.execution.applied.length + opts.execution.proposed.length === 0) return [];
-  if (opts.includedWatermarks.length === 0) return [];
+  if (opts.plan) return [];
+  const advanced: IncludedRawWatermark[] = [];
+  if (opts.execute && opts.noiseOnlyWatermarks && opts.noiseOnlyWatermarks.length > 0) {
+    advanced.push(...opts.noiseOnlyWatermarks);
+  }
+  if (
+    opts.execution
+    && opts.execution.mode === "execute"
+    && opts.execution.rawInputConsumed !== false
+    && opts.execution.applied.length + opts.execution.proposed.length > 0
+    && opts.includedWatermarks.length > 0
+  ) {
+    advanced.push(...opts.includedWatermarks);
+  }
+  if (advanced.length === 0) return [];
 
   await mutateCompileStateFile(opts.root, (state) => {
     const consumed = readConsumedMap(state);
-    for (const included of opts.includedWatermarks) {
+    for (const included of advanced) {
       consumed[included.relPath] = {
         bytes: included.bytes,
         lastObservationAt: included.lastObservationAt,
@@ -835,7 +875,7 @@ async function maybeAdvanceWatermarks(opts: {
     }
     return { ...state, consumed };
   });
-  return opts.includedWatermarks.map((item) => item.relPath);
+  return advanced.map((item) => item.relPath);
 }
 
 async function resetConsumedWatermarks(
