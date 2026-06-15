@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import type { ChatCompletionCreateParamsNonStreaming } from "openai/resources/chat/completions";
 import type {
   LLMFinishReason,
   LLMProvider,
@@ -37,27 +38,28 @@ export function createOpenRouterLLM(opts: OpenRouterLLMOptions): LLMProvider {
     providerName: "openrouter",
     modelName: model,
     async chat(request: LLMRequest): Promise<LLMResponse> {
-      const response = await client.chat.completions.create(
-        {
-          model,
-          messages: request.messages,
-          max_tokens: request.maxTokens ?? maxTokens,
-          temperature: request.temperature ?? temperature,
-          ...(request.jsonSchema
-            ? {
-                response_format: {
-                  type: "json_schema",
-                  json_schema: {
-                    name: request.jsonSchema.name,
-                    strict: request.jsonSchema.strict ?? true,
-                    schema: request.jsonSchema.schema,
-                  },
+      const completionRequest: ChatCompletionCreateParamsNonStreaming & {
+        usage: { include: true };
+      } = {
+        model,
+        messages: request.messages,
+        max_tokens: request.maxTokens ?? maxTokens,
+        temperature: request.temperature ?? temperature,
+        usage: { include: true },
+        ...(request.jsonSchema
+          ? {
+              response_format: {
+                type: "json_schema",
+                json_schema: {
+                  name: request.jsonSchema.name,
+                  strict: request.jsonSchema.strict ?? true,
+                  schema: request.jsonSchema.schema,
                 },
-              }
-            : {}),
-        },
-        { signal: request.signal },
-      );
+              },
+            }
+          : {}),
+      };
+      const response = await client.chat.completions.create(completionRequest, { signal: request.signal });
       const choice = response.choices[0];
       if (!choice) throw new Error("OpenRouter returned no choices");
       return {
@@ -91,9 +93,11 @@ function mapUsage(usage: unknown): LLMTokenUsage | undefined {
   ) {
     return undefined;
   }
+  const cost = record["cost"];
   return {
     prompt: record["prompt_tokens"],
     completion: record["completion_tokens"],
     total: record["total_tokens"],
+    ...(typeof cost === "number" && Number.isFinite(cost) ? { costUsd: cost } : {}),
   };
 }

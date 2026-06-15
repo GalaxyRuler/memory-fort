@@ -12,6 +12,14 @@ const PRICING: Record<string, LLMPricing> = {
     promptPerMTok: 0.25,
     completionPerMTok: 1.50,
   },
+  "openrouter/google/gemini-2.5-flash-lite": {
+    promptPerMTok: 0.10,
+    completionPerMTok: 0.40,
+  },
+  "openrouter/google/gemini-2.5-flash": {
+    promptPerMTok: 0.30,
+    completionPerMTok: 2.50,
+  },
   "google/google/gemini-3.1-flash-lite-preview": {
     promptPerMTok: 0.25,
     completionPerMTok: 1.50,

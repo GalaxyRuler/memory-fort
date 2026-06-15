@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createOpenRouterLLM } from "../../src/llm/openrouter.js";
 
 const openai = vi.hoisted(() => ({
@@ -14,6 +14,10 @@ vi.mock("openai", () => ({
 }));
 
 describe("OpenRouter LLM provider", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
   it("uses OpenRouter through the OpenAI SDK and normalizes responses", async () => {
     openai.create.mockResolvedValue({
       model: "openai/gpt-4o-mini",
@@ -52,6 +56,7 @@ describe("OpenRouter LLM provider", () => {
         messages: [{ role: "user", content: "Reply with exactly: pong" }],
         max_tokens: 4096,
         temperature: 0.2,
+        usage: { include: true },
       },
       { signal: undefined },
     );
@@ -63,5 +68,42 @@ describe("OpenRouter LLM provider", () => {
 
     await expect(llm.chat({ messages: [{ role: "user", content: "hi" }] }))
       .rejects.toThrow("OpenRouter returned no choices");
+  });
+
+  it("requests usage details and surfaces OpenRouter response cost", async () => {
+    openai.create.mockResolvedValue({
+      model: "google/gemini-2.5-flash-lite",
+      choices: [{
+        message: { content: "pong" },
+        finish_reason: "stop",
+      }],
+      usage: {
+        prompt_tokens: 3,
+        completion_tokens: 1,
+        total_tokens: 4,
+        cost: 0.0123,
+      },
+    });
+    const llm = createOpenRouterLLM({
+      apiKey: "test-key",
+      model: "google/gemini-2.5-flash-lite",
+    });
+
+    const result = await llm.chat({
+      messages: [{ role: "user", content: "Reply with exactly: pong" }],
+    });
+
+    expect(result.tokensUsed).toEqual({
+      prompt: 3,
+      completion: 1,
+      total: 4,
+      costUsd: 0.0123,
+    });
+    expect(openai.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        usage: { include: true },
+      }),
+      { signal: undefined },
+    );
   });
 });

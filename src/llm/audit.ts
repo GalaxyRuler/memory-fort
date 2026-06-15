@@ -102,6 +102,12 @@ export async function chatWithAudit(opts: ChatWithAuditOptions) {
     const response = await opts.llm.chat(opts.request);
     const auditMetadata = opts.auditMetadata ? await opts.auditMetadata(response) : {};
     const ts = new Date();
+    const estimatedCostUSD = estimateLLMCostUsd({
+      provider: opts.llm.providerName,
+      model: response.model,
+      tokensIn: response.tokensUsed?.prompt ?? null,
+      tokensOut: response.tokensUsed?.completion ?? null,
+    });
     const entry = {
       ts,
       consumer: opts.consumer,
@@ -112,12 +118,8 @@ export async function chatWithAudit(opts: ChatWithAuditOptions) {
       tokensIn: response.tokensUsed?.prompt ?? null,
       tokensOut: response.tokensUsed?.completion ?? null,
       durationMs: Math.max(0, Date.now() - started),
-      costUsd: estimateLLMCostUsd({
-        provider: opts.llm.providerName,
-        model: response.model,
-        tokensIn: response.tokensUsed?.prompt ?? null,
-        tokensOut: response.tokensUsed?.completion ?? null,
-      }),
+      costUsd: response.tokensUsed?.costUsd ?? estimatedCostUSD,
+      estimatedCostUSD,
       ...auditMetadata,
       finishReason: response.finishReason,
     } satisfies LLMAuditEntry;

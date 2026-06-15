@@ -23,6 +23,7 @@ export interface LLMTokenUsage {
   prompt: number;
   completion: number;
   total: number;
+  costUsd?: number;
 }
 
 export interface LLMResponse {

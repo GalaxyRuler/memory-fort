@@ -146,6 +146,57 @@ describe("LLM audit log", () => {
     vi.useRealTimers();
   });
 
+  it("chatWithAudit prefers response cost and falls back to Gemini pricing", async () => {
+    vi.setSystemTime(new Date("2026-05-27T22:14:03.000Z"));
+    const llm: LLMProvider = {
+      providerName: "openrouter",
+      modelName: "google/gemini-2.5-flash-lite",
+      chat: vi.fn()
+        .mockResolvedValueOnce({
+          content: "pong",
+          model: "google/gemini-2.5-flash-lite",
+          tokensUsed: {
+            prompt: 1_000_000,
+            completion: 1_000_000,
+            total: 2_000_000,
+            costUsd: 0.0123,
+          },
+          finishReason: "stop",
+          rawProviderName: "openrouter",
+        })
+        .mockResolvedValueOnce({
+          content: "pong",
+          model: "google/gemini-2.5-flash-lite",
+          tokensUsed: { prompt: 1_000_000, completion: 1_000_000, total: 2_000_000 },
+          finishReason: "stop",
+          rawProviderName: "openrouter",
+        }),
+    };
+
+    await chatWithAudit({
+      llm,
+      vaultRoot: tmp,
+      consumer: "gemini-provider-cost",
+      request: { messages: [{ role: "user", content: "secret prompt" }] },
+      env: {},
+    });
+    await chatWithAudit({
+      llm,
+      vaultRoot: tmp,
+      consumer: "gemini-fallback-cost",
+      request: { messages: [{ role: "user", content: "secret prompt" }] },
+      env: {},
+    });
+
+    const audit = await readFile(join(tmp, "wiki", ".audit", "llm-2026-05-27.md"), "utf-8");
+    const rows = auditRowsByConsumer(audit);
+    expect(rows.get("gemini-provider-cost")?.costUsd).toBe("0.0123");
+    expect(rows.get("gemini-fallback-cost")?.costUsd).toBe("0.5");
+    expect(rows.get("gemini-provider-cost")?.costUsd).not.toBe("");
+    expect(rows.get("gemini-fallback-cost")?.costUsd).not.toBe("");
+    vi.useRealTimers();
+  });
+
   it("chatWithAudit preserves unknown cost when pricing is unavailable", async () => {
     vi.setSystemTime(new Date("2026-05-27T22:14:03.000Z"));
     const llm: LLMProvider = {
@@ -235,4 +286,14 @@ function fakeLLM(content: string): LLMProvider {
       rawProviderName: "ollama",
     })),
   };
+}
+
+function auditRowsByConsumer(text: string): Map<string, { costUsd: string }> {
+  const rows = new Map<string, { costUsd: string }>();
+  for (const line of text.split(/\r?\n/)) {
+    if (!line.startsWith("| ") || line.includes("---") || line.startsWith("| ts ")) continue;
+    const cells = line.split("|").slice(1, -1).map((cell) => cell.trim());
+    rows.set(cells[1] ?? "", { costUsd: cells[9] ?? "" });
+  }
+  return rows;
 }
