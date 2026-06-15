@@ -4,6 +4,31 @@ All notable changes to Memory Fort are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-06-14
+
+Compile Cost Control & Core Memory Pages — pre-LLM noise filtering, condensed index injection, automatic core-memory page extraction, and full per-call cost observability.
+
+### Added
+- **Pre-LLM raw filter** (`src/compile/filter-raw.ts`) — strips tool-output noise from raw observations before they reach the compile LLM. Keeps user prompts, assistant responses/decisions, tool commands, findings prose, and signal lines (errors, diffs, commit lines, test counts, stack traces); prunes file dumps, base64/image data, ANSI, and long machine output. ~55% byte reduction corpus-wide, up to ~88% on large tool-heavy sessions, with ~96% hard-signal survival. STRIP-only — every file still reaches the LLM. Config `compile.raw_filter`.
+- **Noise-only LLM skip** — a slice that is provably all-noise advances its watermark without an LLM call, so noise is consumed once and never re-billed.
+- **Condensed index injection** (`src/compile/condense-index.ts`) — injects a compact title+path index instead of the full `index.md` each pass, cutting per-pass prompt overhead. Config `compile.condensed_index`, `index_desc_chars`, `index_max_bytes`.
+- **`compile --filter-report [--json]`** — dry-run reporting per-file and aggregate filter reduction with no LLM calls and no writes; validate the filter before enabling it.
+- **`compile.filter-health` verify check** — surfaces raw-filter reduction and backlog trend.
+- **Daily keep-up drain** — scheduled compile can run a bounded `runCompileDrain` (`compile.drain`, `compile.max_passes_per_run`) so the raw backlog never accumulates.
+- **Core memory pages** — `preferences` is now a first-class page type; `memory compile --execute` writes individual `wiki/preferences/<slug>.md` core-memory pages (`cognitive_type: core`) from explicit operator directives, deduped via the index.
+- **Desktop shortcut on init** — `memory init` creates a desktop shortcut that launches the dashboard (Windows `.lnk`, macOS `.command`, Linux `.desktop`) for non-technical users.
+- **Compile config knobs** — `raw_filter`, `raw_filter_min_signal_bytes`, `drain`, `max_passes_per_run`, `condensed_index`, `index_desc_chars`, `index_max_bytes`, plus a `resolveCompileConfig` normalizer.
+
+### Changed
+- Index rebuild now includes a **Preferences** section so core memory pages appear in the index and feed compile dedup.
+- `backfill-source` infers `compile-execute` as the source for `wiki/preferences/` pages.
+- Drain accounting counts noise-only consumption as progress and terminates cleanly without an LLM call on the trailing empty pass.
+
+### Fixed
+- **LLM audit `cost_usd` recorded for all OpenRouter models** — reads OpenRouter's per-call `usage.cost` with a static pricing-table fallback; previously only `gpt-4o-mini` rows had a cost, leaving spend on other models (e.g. Gemini) untracked.
+- Empty compile passes no longer make an LLM call, while still preserving compressed-fact consolidation.
+- `write_page` numeric-confidence gate narrowed to preferences pages only, so other page types keep the multi-source corroboration requirement.
+
 ## [0.7.0] - 2026-06-14
 
 Reliability Hardening — cross-process locking, crash-resume journaling, local-model backfill, production bug fixes.
