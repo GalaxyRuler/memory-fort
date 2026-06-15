@@ -57,7 +57,7 @@ describe("filter-raw: positive-match stripping and conservative noise-only class
       "\u001b[32m✓ built in 812ms\u001b[39m",
       "dist/assets/index-a1b2c3.js    128.44 kB │ gzip: 42.10 kB",
       "dist/assets/style-d4e5f6.css    24.20 kB │ gzip:  6.80 kB",
-      "\u001b[2mShell cwd was reset to C:\\CodexProjects\\memory-system\u001b[22m",
+      "\u001b[2mShell cwd was reset to C:\\Projects\\app\u001b[22m",
     ].join("\n");
 
     const result = filterRawText(rawTurn("ToolResult", body));
@@ -289,7 +289,7 @@ describe("filter-raw: tool-heavy reduction", () => {
     const body = [
       "```json",
       JSON.stringify({
-        file_path: "C:\\CodexProjects\\memory-system\\docs\\example.md",
+        file_path: "C:\\Projects\\app\\docs\\example.md",
         command: "write_file",
         content: largeContent,
       }, null, 2),
@@ -301,7 +301,7 @@ describe("filter-raw: tool-heavy reduction", () => {
     const parsed = JSON.parse(fencedJson) as { file_path: string; command: string; content: string };
 
     expect(reduction).toBeGreaterThanOrEqual(0.70);
-    expect(parsed.file_path).toBe("C:\\CodexProjects\\memory-system\\docs\\example.md");
+    expect(parsed.file_path).toBe("C:\\Projects\\app\\docs\\example.md");
     expect(parsed.command).toBe("write_file");
     expect(parsed.content).toMatch(/^\[elided \d+ bytes\]$/u);
     expect(result.filtered).not.toContain("draft content: row 0");
@@ -399,7 +399,7 @@ describe("filter-raw: tool-heavy reduction", () => {
       JSON.stringify({
         content: "x".repeat(1_000),
         originalFile: "y".repeat(1_000),
-        stderr: "\nShell cwd was reset to C:\\CodexProjects\\memory-system",
+        stderr: "\nShell cwd was reset to C:\\Projects\\app",
       }),
     ].join("\n"))).join("\n");
     const text = [

@@ -32,7 +32,7 @@ describe("runCompileDrain noise-only raw handling", () => {
   it("counts noise-only watermarks as drain progress and stops on a trailing empty pass", async () => {
     const raws = [
       ["one.md", rawTurn("ToolResult", "dist/assets/one-a1b2c3.js    12.00 kB | gzip: 3.00 kB\n")],
-      ["two.md", rawTurn("Log", "Shell cwd was reset to C:\\CodexProjects\\memory-system\n")],
+      ["two.md", rawTurn("Log", "Shell cwd was reset to C:\\Projects\\app\n")],
       ["three.md", rawTurn("ToolResult", JSON.stringify({ content: "x".repeat(1_000) }))],
     ] as const;
     for (const [name, body] of raws) {
