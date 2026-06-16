@@ -4,6 +4,11 @@ All notable changes to Memory Fort are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.1] - 2026-06-16
+
+### Fixed
+- **Compile rewrites no longer clobber curated graph relations** — `rewrite_page` (and `write_page` on an existing page) now reads the target page's existing `relations` and UNIONs them with the LLM-emitted relations (per relation type, deduped by normalized target, dangling targets filtered) instead of replacing them. Previously a rewrite emitting only `derived_from` from the current batch would drop accumulated curated edges (`uses`/`depends_on`/`learned_from` to decisions/lessons/tools), degrading the typed graph. The `curation.content-loss` guard catches such drops; this fix preserves the edges at the source.
+
 ## [0.8.0] - 2026-06-14
 
 Compile Cost Control & Core Memory Pages — pre-LLM noise filtering, condensed index injection, automatic core-memory page extraction, and full per-call cost observability.
