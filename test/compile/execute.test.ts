@@ -369,6 +369,151 @@ describe("compile execute operations", () => {
     expect(parseFrontmatter(archived).body).toContain("Memory Fort body.");
   });
 
+  it("preserves existing curated relations when rewrite_page emits only derived_from", async () => {
+    await writeFileAt("raw/x.md", rawPage("X", "session-x"));
+    await writeFileAt("wiki/tools/voyageai.md", page("tools", "VoyageAI", "VoyageAI embeddings."));
+    await writeFileAt("wiki/decisions/d.md", page("decisions", "D", "Decision D."));
+    await writeFileAt("wiki/projects/memory-fort.md", [
+      "---",
+      "type: projects",
+      "title: Memory Fort",
+      "relations:",
+      "  uses:",
+      "    - wiki/tools/voyageai.md",
+      "  depends_on:",
+      "    - wiki/decisions/d.md",
+      "---",
+      "",
+      "Memory Fort uses VoyageAI and depends on Decision D.",
+      "",
+    ].join("\n"));
+
+    const result = await applyCompileOperations({
+      vaultRoot: tmp,
+      operations: [{
+        kind: "rewrite_page",
+        path: "wiki/projects/memory-fort.md",
+        frontmatter: {
+          confidence: 0.9,
+          relations: { derived_from: ["raw/x.md"] },
+        },
+        body: "Memory Fort uses VoyageAI and depends on Decision D. The rewrite keeps curated anchors.",
+      }],
+      now: new Date("2026-05-31T12:00:00.000Z"),
+    });
+
+    expect(result.applied).toEqual(["wiki/projects/memory-fort.md"]);
+    expect(result.proposed).toEqual([]);
+    const written = parseFrontmatter(await readFile(join(tmp, "wiki", "projects", "memory-fort.md"), "utf-8"));
+    expect(written.frontmatter.relations).toEqual({
+      uses: ["wiki/tools/voyageai.md"],
+      depends_on: ["wiki/decisions/d.md"],
+      derived_from: ["raw/x.md"],
+    });
+  });
+
+  it("drops stale existing relations during rewrite_page merges", async () => {
+    await writeFileAt("raw/x.md", rawPage("X", "session-x"));
+    await writeFileAt("wiki/projects/memory-fort.md", [
+      "---",
+      "type: projects",
+      "title: Memory Fort",
+      "relations:",
+      "  uses:",
+      "    - wiki/tools/deleted.md",
+      "---",
+      "",
+      "Memory Fort used Deleted Tool.",
+      "",
+    ].join("\n"));
+
+    const result = await applyCompileOperations({
+      vaultRoot: tmp,
+      operations: [{
+        kind: "rewrite_page",
+        path: "wiki/projects/memory-fort.md",
+        frontmatter: {
+          confidence: 0.9,
+          relations: { derived_from: ["raw/x.md"] },
+        },
+        body: "Memory Fort used Deleted Tool. The rewrite keeps the historical wording.",
+      }],
+      now: new Date("2026-05-31T12:00:00.000Z"),
+    });
+
+    expect(result.applied).toEqual(["wiki/projects/memory-fort.md"]);
+    expect(result.proposed).toEqual([]);
+    expect(result.referencesStripped).toBe(1);
+    const written = parseFrontmatter(await readFile(join(tmp, "wiki", "projects", "memory-fort.md"), "utf-8"));
+    expect(written.frontmatter.relations).toEqual({
+      derived_from: ["raw/x.md"],
+    });
+  });
+
+  it("deduplicates re-emitted existing relations during rewrite_page merges", async () => {
+    await writeFileAt("raw/x.md", rawPage("X", "session-x"));
+    await writeFileAt("wiki/tools/voyageai.md", page("tools", "VoyageAI", "VoyageAI embeddings."));
+    await writeFileAt("wiki/projects/memory-fort.md", [
+      "---",
+      "type: projects",
+      "title: Memory Fort",
+      "relations:",
+      "  uses:",
+      "    - wiki/tools/voyageai.md",
+      "---",
+      "",
+      "Memory Fort uses VoyageAI.",
+      "",
+    ].join("\n"));
+
+    const result = await applyCompileOperations({
+      vaultRoot: tmp,
+      operations: [{
+        kind: "rewrite_page",
+        path: "wiki/projects/memory-fort.md",
+        frontmatter: {
+          confidence: 0.9,
+          relations: {
+            uses: ["wiki/tools/voyageai"],
+            derived_from: ["raw/x.md"],
+          },
+        },
+        body: "Memory Fort uses VoyageAI. The rewrite keeps the tool anchor.",
+      }],
+      now: new Date("2026-05-31T12:00:00.000Z"),
+    });
+
+    expect(result.applied).toEqual(["wiki/projects/memory-fort.md"]);
+    const written = parseFrontmatter(await readFile(join(tmp, "wiki", "projects", "memory-fort.md"), "utf-8"));
+    expect(written.frontmatter.relations).toEqual({
+      uses: ["wiki/tools/voyageai.md"],
+      derived_from: ["raw/x.md"],
+    });
+  });
+
+  it("does not merge phantom relations when write_page creates a new page", async () => {
+    const result = await applyCompileOperations({
+      vaultRoot: tmp,
+      operations: [{
+        kind: "write_page",
+        path: "wiki/lessons/new-compile-page.md",
+        frontmatter: {
+          type: "lessons",
+          title: "New Compile Page",
+          relations: { derived_from: ["raw/2026-05-28/a.md", "raw/2026-05-28/b.md"] },
+        },
+        body: "New compile page body.",
+      }],
+      now: new Date("2026-05-31T12:00:00.000Z"),
+    });
+
+    expect(result.applied).toEqual(["wiki/lessons/new-compile-page.md"]);
+    const written = parseFrontmatter(await readFile(join(tmp, "wiki", "lessons", "new-compile-page.md"), "utf-8"));
+    expect(written.frontmatter.relations).toEqual({
+      derived_from: ["raw/2026-05-28/a.md", "raw/2026-05-28/b.md"],
+    });
+  });
+
   it("applies shrinking rewrites when salient fact anchors are preserved", async () => {
     await writeFileAt("wiki/projects/memory-fort.md", page(
       "projects",

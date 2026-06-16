@@ -670,25 +670,12 @@ async function groundOperation(
 
   const frontmatter = normalizeFrontmatter(operation.frontmatter ?? {}, operation.path, now);
   const operationHadRelations = Object.prototype.hasOwnProperty.call(operation.frontmatter ?? {}, "relations");
-  const relations = frontmatter.relations && typeof frontmatter.relations === "object"
-    ? frontmatter.relations as Record<string, unknown>
-    : {};
-  let referencesStripped = 0;
-  const nextRelations: Record<string, SerializedRelationEdge[]> = {};
-  for (const [key, value] of Object.entries(relations)) {
-    const values = Array.isArray(value) ? value : [];
-    const kept: SerializedRelationEdge[] = [];
-    for (const item of values) {
-      const target = readRelationTarget(item);
-      if (!target) continue;
-      const filtered = await filterWikiReferencesToExisting(vaultRoot, [target]);
-      referencesStripped += filtered.stripped.length;
-      if (filtered.filtered.length > 0) {
-        kept.push(item as SerializedRelationEdge);
-      }
-    }
-    if (kept.length > 0) nextRelations[key] = kept;
-  }
+  const operationRelations = readRelationBuckets(frontmatter.relations);
+  const relations = operationHadRelations
+    ? mergeRelationBuckets(await readExistingRelationBuckets(vaultRoot, operation.path), operationRelations)
+    : operationRelations;
+  const filteredRelations = await filterRelationBucketsToExisting(vaultRoot, relations);
+  const nextRelations = filteredRelations.buckets;
 
   const cleanedBody = stripProsePathLeaksFromText(redactSecrets(operation.body));
   return {
@@ -700,9 +687,87 @@ async function groundOperation(
       },
       body: cleanedBody.text,
     },
-    referencesStripped,
+    referencesStripped: filteredRelations.stripped,
     prosePathLeaks: cleanedBody.stripped.length,
   };
+}
+
+async function readExistingRelationBuckets(
+  vaultRoot: string,
+  relPath: string,
+): Promise<Record<string, SerializedRelationEdge[]>> {
+  const fullPath = join(vaultRoot, ...relPath.split(/[\\/]/));
+  if (!existsSync(fullPath)) return {};
+  const parsed = parseFrontmatter(await readFile(fullPath, "utf-8"));
+  return readRelationBuckets(parsed.frontmatter.relations);
+}
+
+function readRelationBuckets(value: unknown): Record<string, SerializedRelationEdge[]> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return {};
+  const buckets: Record<string, SerializedRelationEdge[]> = {};
+  for (const [key, entries] of Object.entries(value as Record<string, unknown>)) {
+    if (!Array.isArray(entries)) continue;
+    const kept = entries.filter((entry): entry is SerializedRelationEdge => readRelationTarget(entry) !== null);
+    if (kept.length > 0) buckets[key] = kept;
+  }
+  return buckets;
+}
+
+function mergeRelationBuckets(
+  existing: Record<string, SerializedRelationEdge[]>,
+  incoming: Record<string, SerializedRelationEdge[]>,
+): Record<string, SerializedRelationEdge[]> {
+  const merged: Record<string, SerializedRelationEdge[]> = {};
+  for (const key of new Set([...Object.keys(existing), ...Object.keys(incoming)])) {
+    const seen = new Set<string>();
+    const entries: SerializedRelationEdge[] = [];
+    for (const entry of [...(existing[key] ?? []), ...(incoming[key] ?? [])]) {
+      const target = readRelationTarget(entry);
+      if (!target) continue;
+      const normalized = normalizeAnchor(target);
+      if (seen.has(normalized)) continue;
+      seen.add(normalized);
+      entries.push(entry);
+    }
+    if (entries.length > 0) merged[key] = entries;
+  }
+  return merged;
+}
+
+async function filterRelationBucketsToExisting(
+  vaultRoot: string,
+  buckets: Record<string, SerializedRelationEdge[]>,
+): Promise<{ buckets: Record<string, SerializedRelationEdge[]>; stripped: number }> {
+  let stripped = 0;
+  const next: Record<string, SerializedRelationEdge[]> = {};
+  for (const [key, value] of Object.entries(buckets)) {
+    const kept: SerializedRelationEdge[] = [];
+    for (const item of value) {
+      const target = readRelationTarget(item);
+      if (!target) continue;
+      const filtered = await filterWikiReferencesToExisting(vaultRoot, [target]);
+      stripped += filtered.stripped.length;
+      if (filtered.filtered.length > 0) {
+        kept.push(item);
+      }
+    }
+    if (kept.length > 0) next[key] = kept;
+  }
+  return { buckets: next, stripped };
+}
+
+async function frontmatterWithExistingRelationsOnly(
+  vaultRoot: string,
+  frontmatter: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const relationBuckets = readRelationBuckets(frontmatter.relations);
+  if (Object.keys(relationBuckets).length === 0) return frontmatter;
+  const filtered = await filterRelationBucketsToExisting(vaultRoot, relationBuckets);
+  if (Object.keys(filtered.buckets).length === 0) {
+    const { relations: _relations, ...withoutRelations } = frontmatter;
+    return withoutRelations;
+  }
+  return { ...frontmatter, relations: filtered.buckets };
 }
 
 export async function applyOperation(
@@ -1131,12 +1196,13 @@ async function guardRewriteOperation(
   if (normalizeContent(parsed.body) === normalizeContent(operation.body)) {
     return { ok: true, stage: false };
   }
+  const previousFrontmatter = await frontmatterWithExistingRelationsOnly(vaultRoot, parsed.frontmatter);
   const nextFrontmatter = {
-    ...parsed.frontmatter,
+    ...previousFrontmatter,
     ...operation.frontmatter,
   };
   const coverage = assessFactCoverage({
-    previousFrontmatter: parsed.frontmatter,
+    previousFrontmatter,
     previousBody: parsed.body,
     nextFrontmatter,
     nextBody: operation.body,
