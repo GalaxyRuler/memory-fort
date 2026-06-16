@@ -61,6 +61,18 @@ describe("sourceFieldCheck", () => {
     expect(result.detail).toContain("wiki/projects/a.md");
   });
 
+  it("excludes log.md (audit trail) from source provenance", async () => {
+    await writeWiki("wiki/projects/a.md", "A", "codex");
+    // a frontmatter-less log file inside wiki/ must not count as a missing-source page
+    await mkdir(join(tmp, "wiki"), { recursive: true });
+    await writeFile(join(tmp, "wiki", "log.md"), "## [2026-06-07] compile | 5 raw -> 0 updates\n", "utf-8");
+
+    const result = await sourceFieldCheck.run({ vaultRoot: tmp, now: () => new Date("2026-05-27") });
+
+    expect(result.status).toBe("pass");
+    expect(result.detail).toContain("all 1 live wiki pages");
+  });
+
   async function writeWiki(relPath: string, title: string, source?: string): Promise<void> {
     const fullPath = join(tmp, ...relPath.split("/"));
     await mkdir(dirname(fullPath), { recursive: true });

@@ -4,6 +4,11 @@ All notable changes to Memory Fort are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.3] - 2026-06-16
+
+### Fixed
+- **`frontmatter.source` verify check no longer counts `log.md`** — the append-only audit trail has no frontmatter (and no `source`) by design, so it was permanently reported as a wiki page "lacking source provenance." The check now excludes any `log.md`, so a clean vault reports a true pass instead of a perpetual 1-page warning.
+
 ## [0.8.2] - 2026-06-16
 
 ### Documentation

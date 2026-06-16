@@ -21,7 +21,11 @@ export const sourceFieldCheck: CheckDescriptor = {
 
 export async function checkSourceField(ctx: VerifyCheckContext): Promise<VerifyCheckResult> {
   const corpus = await loadSearchCorpus({ vaultRoot: ctx.vaultRoot, scope: "wiki" });
-  const live = corpus.documents.filter((document) => !document.relPath.startsWith("wiki/archive/"));
+  const live = corpus.documents.filter(
+    (document) =>
+      !document.relPath.startsWith("wiki/archive/") &&
+      !isAuditLogFile(document.relPath),
+  );
   const missing = live.filter((document) => lacksSource(document.source));
 
   if (missing.length === 0) {
@@ -39,4 +43,10 @@ export async function checkSourceField(ctx: VerifyCheckContext): Promise<VerifyC
 
 function lacksSource(source: unknown): boolean {
   return typeof source !== "string" || source.trim().length === 0 || source === "unknown";
+}
+
+// log.md is an append-only audit trail (no frontmatter / no source by design),
+// not a curated knowledge page; it must not count toward source provenance.
+function isAuditLogFile(relPath: string): boolean {
+  return (relPath.replace(/\\/g, "/").split("/").pop() ?? "") === "log.md";
 }
