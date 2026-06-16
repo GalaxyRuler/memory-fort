@@ -4,6 +4,12 @@ All notable changes to Memory Fort are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.2] - 2026-06-16
+
+### Documentation
+- **README catch-up** — documented the compile cost-control features (pre-LLM raw filter, condensed index, daily keep-up drain, `--filter-report`, cost observability), core-memory `preferences` pages, and the `memory init` desktop shortcut, which had shipped in 0.7-0.8.1 without README coverage.
+- **`docs/RELEASING.md`** — canonical release checklist so every public change ships with README + CHANGELOG + docs updates, a privacy scan, a rebuild, and a dashboard restart.
+
 ## [0.8.1] - 2026-06-16
 
 ### Fixed

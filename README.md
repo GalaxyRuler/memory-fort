@@ -42,7 +42,7 @@ Memory Fort does not require a cloud account, a running database, or a paid API 
 npx memory-fort init
 ```
 
-Interactive wizard asks ≤4 questions (all pre-defaulted), detects your installed tools, and wires everything. Press Enter to accept all defaults.
+Interactive wizard asks ≤4 questions (all pre-defaulted), detects your installed tools, and wires everything. Press Enter to accept all defaults. It also creates a **desktop shortcut** that launches the dashboard (Windows `.lnk` / macOS `.command` / Linux `.desktop`) so non-technical users can open Memory Fort with one click.
 
 **Prerequisites:** Node.js ≥ 20. Nothing else. No Docker, no database, no API key.
 
@@ -242,6 +242,20 @@ Switch any time: edit `~/.memory/config.yaml` or re-run `memory-fort init`.
 
 Search results include provenance receipts showing BM25, embedding, and graph signals — visible in the dashboard and MCP API.
 
+---
+
+## Compile & cost control
+
+`memory compile` distills raw observations into wiki pages. Compilation is built to stay cheap and safe at scale:
+
+- **Pre-LLM raw filter** (`compile.raw_filter`) strips tool-output noise (build logs, file dumps, base64/image data, ANSI) *before* the LLM sees it — roughly 55% fewer tokens corpus-wide and up to ~88% on large tool-heavy sessions, while preserving prompts, assistant decisions, tool commands, findings, and signal lines (errors, diffs, commit lines, test counts). Slices that are provably all-noise skip the LLM entirely and just advance the watermark.
+- **Condensed index injection** (`compile.condensed_index`) sends a compact title+path index each pass instead of the full `index.md`, cutting the fixed per-pass overhead.
+- **Daily keep-up drain** (`compile.drain`, `compile.max_passes_per_run`) clears each day's intake so the raw backlog never balloons.
+- **`memory compile --filter-report [--json]`** previews exactly what the filter would strip — no LLM calls, no writes — so you can validate before enabling it.
+- **Cost observability** — every LLM call's `cost_usd` is recorded in `wiki/.audit/llm-*.md` (OpenRouter per-call cost with a pricing-table fallback), and the `compile.filter-health` verify check surfaces reduction and backlog trend.
+
+**Core memories:** explicit operator directives ("always X", "never Y") are extracted into individual `wiki/preferences/<slug>.md` pages tagged `cognitive_type: core`. Rewrites preserve a page's accumulated curated graph relations (they are unioned, not replaced).
+
 Search also supports **temporal filtering** (`as_of=YYYY-MM-DD` returns only pages valid at that date, using inclusive `valid_from`/`valid_until` bounds) and **identity-aware filtering** (`agent_id`/`user_id` scoped retrieval with inclusive or strict modes — a retrieval preference, not security isolation). Both are available on the HTTP API, MCP `search` tool, and SDKs.
 
 When Voyage embeddings are enabled, Memory Fort uses **contextualized text embedding**: each wiki page is embedded with a graph-topology header (path, type, relations, tags, backlinks) prepended, improving recall for graph-aware queries. Enable via `retrieval.embeddings.contextualized: true` in config.yaml.
@@ -284,6 +298,7 @@ Memory Fort organizes curated knowledge by entity type:
 | `tools` | `wiki/tools/` | Libraries and services |
 | `threads` | `wiki/threads/` | Narrative arcs across a stretch of work |
 | `procedures` | `wiki/procedures/` | Reusable step-by-step workflows |
+| `preferences` | `wiki/preferences/` | Core memories — durable operator preferences/conventions (`cognitive_type: core`) |
 
 Pages link via typed graph edges (`uses`, `depends_on`, `supersedes`, `contradicts`, `caused_by`, `fixed_by`, `learned_from`, `derived_from`, `mentions`, `mentioned_in`, `linked`). Plain YAML frontmatter — no database required.
 

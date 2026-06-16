@@ -36,6 +36,7 @@ docs/*
 !docs/cli.md
 !docs/compatibility-matrix.md
 !docs/public-release-readiness.md
+!docs/RELEASING.md
 !docs/release-evidence/
 docs/release-evidence/*
 !docs/release-evidence/*.md
