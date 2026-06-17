@@ -28,6 +28,7 @@ import {
 import { chatgptBridgeRunningCheck, chatgptBridgeMcpCheck } from "./chatgpt.js";
 import { compileRecentCheck } from "./compile.js";
 import { compileExecuteHealthCheck } from "./compile-execute-health.js";
+import { compileRawAppendOnlyCheck } from "./compile-raw-append-only.js";
 import { compileFilterHealthCheck } from "./filter-health.js";
 import { configValidCheck } from "./config.js";
 import { curationContentLossCheck } from "./curation-content-loss.js";
@@ -67,6 +68,7 @@ export const ALL_CHECKS: CheckDescriptor[] = [
   compileExecuteHealthCheck,
   backlogGrowthCheck,
   compileFilterHealthCheck,
+  compileRawAppendOnlyCheck,
   promptDriftCheck,
   curationContentLossCheck,
   autoPushErrorsCheck,
