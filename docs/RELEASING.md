@@ -28,5 +28,10 @@ Run this checklist for **any** change that ships publicly — feature, fix, upgr
 - Restart the dashboard (stop the `:4410` listener, relaunch `memory dashboard`); hard-refresh the browser (Ctrl+Shift+R) to drop the cached bundle.
 - `memory verify` — confirm no new failures.
 
+## One-time VPS git durability
+- For existing VPS bare repositories, run:
+  `ssh <vps> 'git -C <bare-repo-path> config core.fsync committed && git -C <bare-repo-path> config receive.fsckObjects true'`
+- This should move into a future bootstrap command instead of staying a manual release step.
+
 ## Rule of thumb
 If you bumped behavior, you bumped the README and the CHANGELOG in the same commit. If you bumped the version, you rebuilt and restarted the dashboard.

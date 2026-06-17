@@ -24,6 +24,13 @@ export const gitRemoteCheck: CheckDescriptor = {
   run: checkGitRemote,
 };
 
+export const gitDurabilityConfigCheck: CheckDescriptor = {
+  id: "git.durability-config",
+  label: "git durability config (fsync) applied",
+  roles: ["operator"],
+  run: checkGitDurabilityConfig,
+};
+
 export async function checkGitRemote(
   opts: GitVerifyOptions,
 ): Promise<VerifyCheckResult> {
@@ -47,6 +54,50 @@ export async function checkGitRemote(
       "git.remote",
       `git remote ${remoteName} reachable`,
       "set `sync.remote_name` or run `memory sync-bootstrap --remote-name <name>`",
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+}
+
+export async function checkGitDurabilityConfig(
+  opts: GitVerifyOptions,
+): Promise<VerifyCheckResult> {
+  try {
+    const result = await (opts.execFile ?? execFileAsync)(
+      "git",
+      ["config", "--get", "core.fsync"],
+      {
+        cwd: opts.vaultRoot,
+        timeout: 5000,
+        windowsHide: true,
+      },
+    );
+    const value = (result as { stdout: string }).stdout?.trim();
+    if (!value) {
+      return fail(
+        "git.durability-config",
+        "git durability config (fsync) applied",
+        "run `memory init` again, or: git -C <vault> config core.fsync committed",
+        "core.fsync not set",
+      );
+    }
+    if (value !== "committed") {
+      return warn(
+        "git.durability-config",
+        "git durability config (fsync) applied",
+        `core.fsync = ${value}; expected 'committed' for full durability`,
+      );
+    }
+    return pass(
+      "git.durability-config",
+      "git durability config (fsync) applied",
+      "core.fsync=committed",
+    );
+  } catch (error) {
+    return fail(
+      "git.durability-config",
+      "git durability config (fsync) applied",
+      "check git installation and vault permissions",
       error instanceof Error ? error.message : String(error),
     );
   }

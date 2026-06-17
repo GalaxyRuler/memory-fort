@@ -34,7 +34,7 @@ import { curationContentLossCheck } from "./curation-content-loss.js";
 import { dashboardStatusCheck } from "./dashboard.js";
 import { episodicRelationsCoverageCheck } from "./episodic-relations.js";
 import { freshnessStaleCheck } from "./freshness.js";
-import { gitRemoteCheck } from "./git.js";
+import { gitDurabilityConfigCheck, gitRemoteCheck } from "./git.js";
 import { graphCohesionCheck } from "./graph-cohesion.js";
 import { embeddingHealthCheck } from "./embedding-health.js";
 import { intentClassifierHealthCheck } from "./intent-classifier.js";
@@ -68,6 +68,7 @@ export const ALL_CHECKS: CheckDescriptor[] = [
   autoPushErrorsCheck,
   uncommittedVaultCheck,
   gitRemoteCheck,
+  gitDurabilityConfigCheck,
   claudeCodeEnabledCheck,
   claudeCodeHookPathsCheck,
   claudeCodeCaptureCheck,

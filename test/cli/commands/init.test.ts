@@ -204,6 +204,12 @@ describe("runInit", () => {
         encoding: "utf-8",
       }).trim();
       expect(trackedPreferences).toBe("wiki/preferences.md");
+      expect(
+        execFileSync("git", ["config", "--get", "core.fsync"], {
+          cwd: result.root,
+          encoding: "utf-8",
+        }).trim(),
+      ).toBe("committed");
     }
   });
 });

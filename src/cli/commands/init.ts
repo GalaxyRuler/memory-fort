@@ -325,6 +325,18 @@ export async function runInit(opts: InitOptions = {}): Promise<InitResult> {
         cwd: root,
         stdio: ["ignore", "ignore", "ignore"],
       });
+      // Durability: fsync committed objects so loose objects survive power loss.
+      for (const [key, value] of [
+        ["core.fsync", "committed"],
+        ["core.fsyncMethod", "batch"],
+        ["fetch.fsckObjects", "true"],
+        ["transfer.fsckObjects", "true"],
+      ] as const) {
+        execFileSync("git", ["config", key, value], {
+          cwd: root,
+          stdio: ["ignore", "ignore", "ignore"],
+        });
+      }
       execFileSync(
         "git",
         [
