@@ -1,6 +1,6 @@
 import { mkdtemp, open, rm, stat, utimes, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { FileLockTimeoutError, withFileLock } from "../../src/storage/file-lock.js";
@@ -60,6 +60,39 @@ describe("withFileLock", () => {
     const result = await withFileLock(target, async () => "recovered", { staleMs: 30_000 });
     expect(result).toBe("recovered");
     expect(existsSync(lockPath)).toBe(false);
+  });
+
+  it("breaks a stale lock held by a dead process", async () => {
+    const lockPath = `${target}.lock`;
+    await writeFile(lockPath, JSON.stringify({
+      pid: 999999,
+      host: hostname(),
+      acquiredAt: "2020-01-01T00:00:00Z",
+    }));
+    const past = new Date(Date.now() - 60_000);
+    await utimes(lockPath, past, past);
+    let ran = false;
+
+    await withFileLock(target, async () => {
+      ran = true;
+    }, { staleMs: 1000, timeoutMs: 2000, pollMs: 20 });
+
+    expect(ran).toBe(true);
+  });
+
+  it("does not break a stale lock held by a live process", async () => {
+    const lockPath = `${target}.lock`;
+    await writeFile(lockPath, JSON.stringify({
+      pid: process.pid,
+      host: hostname(),
+      acquiredAt: "2020-01-01T00:00:00Z",
+    }));
+    const past = new Date(Date.now() - 60_000);
+    await utimes(lockPath, past, past);
+
+    await expect(
+      withFileLock(target, async () => undefined, { staleMs: 1000, timeoutMs: 800, pollMs: 20 }),
+    ).rejects.toBeInstanceOf(FileLockTimeoutError);
   });
 
   it("throws FileLockTimeoutError when a fresh lock is held past timeoutMs", async () => {

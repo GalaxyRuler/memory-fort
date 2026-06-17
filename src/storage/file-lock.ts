@@ -1,4 +1,5 @@
-import { open, stat, unlink, mkdir } from "node:fs/promises";
+import { open, readFile, stat, unlink, mkdir } from "node:fs/promises";
+import { hostname } from "node:os";
 import { dirname } from "node:path";
 
 export interface FileLockOptions {
@@ -44,7 +45,11 @@ async function tryAcquire(lockPath: string): Promise<boolean> {
     const handle = await open(lockPath, "wx");
     try {
       await handle.writeFile(
-        JSON.stringify({ pid: process.pid, acquiredAt: new Date().toISOString() }),
+        JSON.stringify({
+          pid: process.pid,
+          host: hostname(),
+          acquiredAt: new Date().toISOString(),
+        }),
         "utf-8",
       );
     } finally {
@@ -60,11 +65,32 @@ async function tryAcquire(lockPath: string): Promise<boolean> {
 async function breakIfStale(lockPath: string, staleMs: number): Promise<void> {
   try {
     const info = await stat(lockPath);
-    if (Date.now() - info.mtimeMs > staleMs) {
+    if (Date.now() - info.mtimeMs <= staleMs) return;
+    if (await isHolderDead(lockPath)) {
       await unlink(lockPath).catch(() => undefined);
     }
   } catch (error) {
     if (!isCode(error, "ENOENT")) throw error;
+  }
+}
+
+async function isHolderDead(lockPath: string): Promise<boolean> {
+  try {
+    const parsed = JSON.parse(await readFile(lockPath, "utf-8")) as {
+      pid?: unknown;
+      host?: unknown;
+    };
+    if (typeof parsed.pid !== "number") return true;
+    if (typeof parsed.host === "string" && parsed.host !== hostname()) return true;
+    try {
+      process.kill(parsed.pid, 0);
+      return false;
+    } catch (error) {
+      if (isCode(error, "EPERM")) return false;
+      return true;
+    }
+  } catch {
+    return true;
   }
 }
 

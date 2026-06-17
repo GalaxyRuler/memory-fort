@@ -24,6 +24,7 @@ import {
 import { type LLMProvider } from "../../llm/types.js";
 import { readRuntimePrompt } from "../../prompts/runtime.js";
 import { loadMemoryConfig, resolveCompileConfig, type MemoryConfig } from "../../storage/config.js";
+import { withFileLock } from "../../storage/file-lock.js";
 import {
   memoryRoot,
 } from "../../storage/paths.js";
@@ -172,6 +173,17 @@ const COMPILE_LOG_RE =
   /^## \[(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})\] compile \|/gm;
 
 export async function runCompile(
+  opts: CompileOptions = {},
+): Promise<CompileResult> {
+  const root = opts.vaultRoot ?? memoryRoot();
+  return withFileLock(
+    join(root, "var", "compile", "execute"),
+    () => runCompileImpl({ ...opts, vaultRoot: root }),
+    { timeoutMs: 60_000, staleMs: 300_000 },
+  );
+}
+
+async function runCompileImpl(
   opts: CompileOptions = {},
 ): Promise<CompileResult> {
   const perFileMaxBytes = readPositiveInteger(
