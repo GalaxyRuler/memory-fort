@@ -5,6 +5,7 @@ import type { VerifyRole } from "../../../../src/cli/commands/verify/types.js";
 const EXPECTED_ROLES = new Map<string, VerifyRole[]>([
   ["vault.read-write", ["operator", "server"]],
   ["config.valid", ["operator", "server"]],
+  ["build.version-match", ["operator"]],
   ["dashboard.status", ["operator", "server"]],
   ["search.pipeline", ["operator", "server"]],
   ["episodic.relations.coverage", ["operator", "server"]],

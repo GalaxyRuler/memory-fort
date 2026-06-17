@@ -1,6 +1,6 @@
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { loadSecretsIntoEnv, readSecretsMeta, writeSecret } from "../../src/storage/secrets.js";
 
@@ -19,6 +19,20 @@ describe("secrets store", () => {
     const meta = await readSecretsMeta(p);
     expect(meta["VOYAGE_API_KEY"]).toEqual({ present: true, last4: "4XYZ" });
     expect(JSON.stringify(meta)).not.toContain("abcd1234XYZ");
+  });
+
+  it("round-trips secrets atomically without leaving temp files behind", async () => {
+    const p = await tmpSecrets();
+
+    await writeSecret("VOYAGE_API_KEY", "abcd1234XYZ", p);
+
+    const raw = JSON.parse(await readFile(p, "utf-8")) as Record<string, string>;
+    expect(raw["VOYAGE_API_KEY"]).toBe("abcd1234XYZ");
+    const leftovers = (await readdir(dirname(p))).filter((entry) => entry.endsWith(".tmp"));
+    expect(leftovers).toEqual([]);
+    if (process.platform !== "win32") {
+      expect((await stat(p)).mode & 0o777).toBe(0o600);
+    }
   });
 
   it("reports absent keys as present:false", async () => {

@@ -1,6 +1,7 @@
 import { mkdirSync, readFileSync } from "node:fs";
-import { mkdir, writeFile } from "node:fs/promises";
+import { chmod } from "node:fs/promises";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
+import { atomicWrite } from "./atomic-write.js";
 import { memoryRoot } from "./paths.js";
 
 export const SECRET_KEYS = ["VOYAGE_API_KEY", "OPENAI_API_KEY", "OPENROUTER_API_KEY"] as const;
@@ -45,8 +46,10 @@ export async function writeSecret(key: string, value: string, filePath: string):
     throw new Error(`refusing to write secrets inside the vault: ${filePath}`);
   }
   const next = { ...readRaw(filePath), [key]: value };
-  await mkdir(dirname(filePath), { recursive: true });
-  await writeFile(filePath, JSON.stringify(next, null, 2), { encoding: "utf-8", mode: 0o600 });
+  await atomicWrite(filePath, JSON.stringify(next, null, 2));
+  if (process.platform !== "win32") {
+    await chmod(filePath, 0o600).catch(() => undefined);
+  }
 }
 
 /** Layer secrets-file values UNDER process.env (real env vars always win). */

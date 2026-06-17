@@ -31,6 +31,7 @@ import { compileExecuteHealthCheck } from "./compile-execute-health.js";
 import { compileRawAppendOnlyCheck } from "./compile-raw-append-only.js";
 import { compileFilterHealthCheck } from "./filter-health.js";
 import { configValidCheck } from "./config.js";
+import { buildVersionMatchCheck } from "./build.js";
 import { curationContentLossCheck } from "./curation-content-loss.js";
 import { dashboardStatusCheck } from "./dashboard.js";
 import { episodicRelationsCoverageCheck } from "./episodic-relations.js";
@@ -54,6 +55,7 @@ import { vaultReadWriteCheck } from "./vault.js";
 export const ALL_CHECKS: CheckDescriptor[] = [
   vaultReadWriteCheck,
   configValidCheck,
+  buildVersionMatchCheck,
   dashboardStatusCheck,
   searchPipelineCheck,
   episodicRelationsCoverageCheck,
