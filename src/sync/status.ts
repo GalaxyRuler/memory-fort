@@ -42,17 +42,21 @@ export async function defaultSyncStateFile(): Promise<SyncStateFile> {
 export async function readSyncStateFile(memoryRoot: string): Promise<SyncStateFile> {
   const path = syncStatePath(memoryRoot);
   if (!existsSync(path)) return defaultSyncStateFile();
-  const parsed = JSON.parse(await readFile(path, "utf-8")) as Partial<SyncStateFile>;
-  const defaults = await defaultSyncStateFile();
-  return {
-    last_sync_attempt: typeof parsed.last_sync_attempt === "string" ? parsed.last_sync_attempt : defaults.last_sync_attempt,
-    last_sync_success: typeof parsed.last_sync_success === "string" ? parsed.last_sync_success : defaults.last_sync_success,
-    pending_push_count: typeof parsed.pending_push_count === "number" ? parsed.pending_push_count : defaults.pending_push_count,
-    conflicts_pending: typeof parsed.conflicts_pending === "number" ? parsed.conflicts_pending : defaults.conflicts_pending,
-    conflict_files: Array.isArray(parsed.conflict_files)
-      ? parsed.conflict_files.filter((v): v is string => typeof v === "string")
-      : defaults.conflict_files,
-  };
+  try {
+    const parsed = JSON.parse(await readFile(path, "utf-8")) as Partial<SyncStateFile>;
+    const defaults = await defaultSyncStateFile();
+    return {
+      last_sync_attempt: typeof parsed.last_sync_attempt === "string" ? parsed.last_sync_attempt : defaults.last_sync_attempt,
+      last_sync_success: typeof parsed.last_sync_success === "string" ? parsed.last_sync_success : defaults.last_sync_success,
+      pending_push_count: typeof parsed.pending_push_count === "number" ? parsed.pending_push_count : defaults.pending_push_count,
+      conflicts_pending: typeof parsed.conflicts_pending === "number" ? parsed.conflicts_pending : defaults.conflicts_pending,
+      conflict_files: Array.isArray(parsed.conflict_files)
+        ? parsed.conflict_files.filter((v): v is string => typeof v === "string")
+        : defaults.conflict_files,
+    };
+  } catch {
+    return defaultSyncStateFile();
+  }
 }
 
 export async function writeSyncStateFile(memoryRoot: string, state: SyncStateFile): Promise<void> {

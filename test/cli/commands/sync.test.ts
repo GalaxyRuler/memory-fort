@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { existsSync } from "node:fs";
 import { mkdtemp, rm, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -122,6 +123,7 @@ describe("runSync", () => {
     expect(result.actionsPerformed).toEqual([]);
     expect(result.finalState).toBe("clean");
     expect(state.last_sync_success).toBe(now.toISOString());
+    expect(existsSync(join(tmp, ".sync-state.json.lock"))).toBe(false);
   });
 
   it("runSync pushes when local-ahead", async () => {

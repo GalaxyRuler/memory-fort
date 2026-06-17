@@ -6,7 +6,7 @@ import { memoryRoot as defaultMemoryRoot } from "../../storage/paths.js";
 import { makeRealCommandRunner, type CommandRunner } from "../../sync/git-remote.js";
 import {
   getSyncStatus,
-  writeSyncStateFile,
+  mutateSyncStateFile,
   type SyncState,
   type SyncStateFile,
 } from "../../sync/status.js";
@@ -118,7 +118,7 @@ export async function runSyncMode(mode: SyncMode, opts: SyncOptions = {}): Promi
     conflicts_pending: 0,
     conflict_files: [],
   };
-  await writeSyncStateFile(memoryRoot, nextStateFile);
+  await mutateSyncStateFile(memoryRoot, () => nextStateFile);
 
   return {
     initialState: initialStatus.state,
@@ -214,13 +214,13 @@ async function getUnmergedFiles(ctx: RequiredContext): Promise<string[]> {
 
 async function markConflicted(ctx: RequiredContext, conflictFiles: string[]): Promise<void> {
   const iso = ctx.now.toISOString();
-  await writeSyncStateFile(ctx.memoryRoot, {
+  await mutateSyncStateFile(ctx.memoryRoot, () => ({
     last_sync_attempt: iso,
     last_sync_success: null,
     pending_push_count: 0,
     conflicts_pending: conflictFiles.length,
     conflict_files: conflictFiles,
-  });
+  }));
   await atomicAppend(
     join(ctx.memoryRoot, "errors.log"),
     `[${iso}] sync conflict | ${conflictFiles.length} files | ${conflictFiles.join(", ")}\n`,

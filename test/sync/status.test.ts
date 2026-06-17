@@ -1,9 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  defaultSyncStateFile,
   getSyncStatus,
+  readSyncStateFile,
   writeSyncStateFile,
   type StatusContext,
 } from "../../src/sync/status.js";
@@ -122,5 +124,11 @@ describe("getSyncStatus", () => {
 
     expect(status.state).toBe("conflicted");
     expect(status.syncStateFile.conflict_files).toEqual(["x.md", "y.md"]);
+  });
+
+  it("readSyncStateFile tolerates corrupt JSON", async () => {
+    await writeFile(join(tmp, ".sync-state.json"), "{invalid", "utf-8");
+
+    await expect(readSyncStateFile(tmp)).resolves.toEqual(await defaultSyncStateFile());
   });
 });
