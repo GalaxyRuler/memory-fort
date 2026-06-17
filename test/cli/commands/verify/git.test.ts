@@ -44,10 +44,14 @@ describe("checkGitIntegrity", () => {
 
   it("passes local and remote fsck when both repositories are clean", async () => {
     const sshRunner = makeSshRunner();
+    const execFileCalls: string[][] = [];
 
     const results = await checkGitIntegrity({
       ...base,
-      execFile: async () => ({ stdout: "", stderr: "" }),
+      execFile: async (_file: string, args: string[]) => {
+        execFileCalls.push(args);
+        return { stdout: "", stderr: "" };
+      },
       configLoader: async () => ({
         sync: {},
         vps: { host: "example.test", install_root: "/srv/memory", ssh_user: "root" },
@@ -56,10 +60,11 @@ describe("checkGitIntegrity", () => {
     });
 
     expect(results.map((r) => r.status)).toEqual(["pass", "pass"]);
+    expect(execFileCalls[0]).toEqual(["fsck", "--full", "--strict", "--no-dangling"]);
     expect(sshRunner.calls).toHaveLength(1);
     expect(sshRunner.calls[0]?.host).toBe("root@example.test");
     expect(sshRunner.calls[0]?.command.command).toContain(
-      "git -C '/srv/memory/memory.git' fsck --full --strict",
+      "git -C '/srv/memory/memory.git' fsck --full --strict --no-dangling",
     );
   });
 
@@ -101,7 +106,7 @@ describe("checkGitIntegrity", () => {
     expect(results[1]?.detail).toContain("broken object");
   });
 
-  it("fails remote fsck when git fsck emits output", async () => {
+  it("passes remote fsck when only dangling/unreachable objects reported (exit 0)", async () => {
     const sshRunner = makeSshRunner({ stdout: "dangling blob abc\n" });
 
     const results = await checkGitIntegrity({
@@ -114,8 +119,8 @@ describe("checkGitIntegrity", () => {
       sshRunner,
     });
 
-    expect(results.map((r) => r.status)).toEqual(["pass", "fail"]);
-    expect(results[1]?.detail).toContain("dangling blob abc");
+    expect(results.map((r) => r.status)).toEqual(["pass", "pass"]);
+    expect(results[1]?.detail).toBe("remote git fsck passed");
   });
 
   it("warns when remote fsck cannot run because vps config is incomplete", async () => {
