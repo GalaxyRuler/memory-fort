@@ -193,6 +193,62 @@ describe("runVerify", () => {
 
     expect(seen).toEqual([memoryRoot()]);
   });
+
+  it("synthesizes FAIL when a check throws", async () => {
+    const result = await runVerify({
+      now: () => new Date("2026-05-26T03:30:00.000Z"),
+      checkDescriptors: [
+        descriptor("passing", ["operator"]),
+        {
+          id: "throwing",
+          label: "throws",
+          roles: ["operator"],
+          async run() {
+            throw new Error("boom");
+          },
+        },
+        descriptor("after", ["operator"]),
+      ],
+    });
+
+    expect(result.overallStatus).toBe("fail");
+    expect(result.checks).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: "throwing",
+        status: "fail",
+        detail: expect.stringContaining("boom"),
+      }),
+      expect.objectContaining({ id: "after", status: "pass" }),
+    ]));
+  });
+
+  it("synthesizes FAIL when a check exceeds the per-check timeout", async () => {
+    const result = await runVerify({
+      now: () => new Date("2026-05-26T03:30:00.000Z"),
+      perCheckTimeoutMs: 50,
+      checkDescriptors: [
+        {
+          id: "slow",
+          label: "slow",
+          roles: ["operator"],
+          async run() {
+            await new Promise((resolve) => setTimeout(resolve, 500));
+            return pass("slow");
+          },
+        },
+        descriptor("after", ["operator"]),
+      ],
+    });
+
+    expect(result.checks).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: "slow",
+        status: "fail",
+        detail: expect.stringContaining("timed out"),
+      }),
+      expect.objectContaining({ id: "after", status: "pass" }),
+    ]));
+  });
 });
 
 function pass(label: string): CheckResult {

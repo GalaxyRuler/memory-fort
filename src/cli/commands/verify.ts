@@ -7,6 +7,8 @@ import {
   type CheckDescriptor,
   type CheckResult,
   type CheckStatus,
+  fail,
+  type RunCheckOptions,
   type VerifyRole,
   type VerifyCheckResult,
   type VerifyReport,
@@ -28,6 +30,7 @@ export interface VerifyOptions {
   detectRoleFn?: () => VerifyRole;
   checkDescriptors?: CheckDescriptor[];
   checkFns?: CheckFn[];
+  perCheckTimeoutMs?: number;
 }
 
 export interface VerifyResult {
@@ -66,6 +69,7 @@ export async function runVerify(opts: VerifyOptions = {}): Promise<VerifyResult>
         dashboardUrl: opts.dashboardUrl,
         remoteName: opts.remoteName,
       },
+      opts.perCheckTimeoutMs ?? 15_000,
     );
 
   const passed = checks.filter((check) => check.status === "pass").length;
@@ -109,6 +113,7 @@ async function runDescriptorChecks(
   dashboardUrl?: string;
   remoteName?: string;
 },
+  perCheckTimeoutMs: number,
 ): Promise<VerifyCheckResult[]> {
   const checks: VerifyCheckResult[] = [];
   let dashboardStatus: VerifyDashboardStatus | null = null;
@@ -116,10 +121,10 @@ async function runDescriptorChecks(
     if (!descriptor.roles.includes(role)) continue;
     if (descriptor.id === "search.pipeline" && !ctx.includeSearch) continue;
 
-    const result = await descriptor.run({
+    const result = await runCheckIsolated(descriptor, {
       ...ctx,
       dashboardStatus,
-    });
+    }, perCheckTimeoutMs);
     const flattened = [result].flat();
     checks.push(...flattened);
     if (descriptor.id === "dashboard.status") {
@@ -127,6 +132,39 @@ async function runDescriptorChecks(
     }
   }
   return checks;
+}
+
+async function runCheckIsolated(
+  descriptor: CheckDescriptor,
+  opts: RunCheckOptions,
+  timeoutMs: number,
+): Promise<VerifyCheckResult | VerifyCheckResult[]> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const timeout = new Promise<VerifyCheckResult>((resolve) => {
+      timer = setTimeout(
+        () => resolve(
+          fail(
+            descriptor.id,
+            descriptor.label,
+            undefined,
+            `check timed out after ${timeoutMs}ms`,
+          ),
+        ),
+        timeoutMs,
+      );
+    });
+    return await Promise.race([descriptor.run(opts), timeout]);
+  } catch (error) {
+    return fail(
+      descriptor.id,
+      descriptor.label,
+      undefined,
+      `check threw: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 function readDashboardStatus(check: VerifyCheckResult | undefined): VerifyDashboardStatus | null {
