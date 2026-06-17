@@ -8,7 +8,7 @@ import {
   isKnowledgePageType,
   parseCompileOperationsBlock,
 } from "../../src/compile/execute.js";
-import type { LLMProvider } from "../../src/llm/types.js";
+import type { LLMFinishReason, LLMProvider } from "../../src/llm/types.js";
 import { parseFrontmatter } from "../../src/storage/frontmatter.js";
 
 describe("compile execute operations", () => {
@@ -767,6 +767,47 @@ describe("compile execute operations", () => {
     expect(written.body).not.toContain("SEARCH RESULT CARD COPY");
   });
 
+  it("stages fact-extraction truncation without rewriting the canonical page", async () => {
+    await writeFileAt("wiki/projects/memory-system.md", page(
+      "projects",
+      "Memory System",
+      "Memory System captures raw observations and compiles them into curated wiki pages.",
+    ));
+    const before = await readFile(join(tmp, "wiki", "projects", "memory-system.md"), "utf-8");
+    const llm = fakeExtractionAndNoveltyLLM({
+      facts: ["Memory System shipped a truncation guard."],
+      body: "Memory System shipped a truncation guard.",
+      extractionFinishReason: "length",
+    });
+
+    const result = await applyCompileOperations({
+      vaultRoot: tmp,
+      rewriteLLM: llm,
+      extractFacts: true,
+      now: new Date("2026-05-31T12:00:00.000Z"),
+      operations: [{
+        kind: "append_page",
+        path: "wiki/projects/memory-system.md",
+        section: [
+          "## 2026-05-31 update",
+          "",
+          "Memory System shipped a truncation guard.",
+        ].join("\n"),
+      }],
+    });
+
+    expect(result.applied).toEqual([]);
+    expect(result.proposed).toEqual(["wiki/compile-proposed/memory-system.md"]);
+    expect(result.outcomes.at(-1)).toMatchObject({
+      path: "wiki/projects/memory-system.md",
+      outcome: "staged-for-review",
+      reason: "fact extraction truncated by LLM",
+    });
+    await expect(readFile(join(tmp, "wiki", "projects", "memory-system.md"), "utf-8"))
+      .resolves.toBe(before);
+    expect(llm.calls).toBe(1);
+  });
+
   it("rewrites dated append_page updates against existing knowledge pages", async () => {
     await writeFileAt("wiki/projects/memory-fort.md", page(
       "projects",
@@ -1309,6 +1350,7 @@ function fakeNoveltyLLM(
 function fakeExtractionAndNoveltyLLM(opts: {
   facts: string[];
   body: string;
+  extractionFinishReason?: LLMFinishReason;
 }): LLMProvider & { calls: number; noveltyPrompts: string[] } {
   const provider: LLMProvider & { calls: number; noveltyPrompts: string[] } = {
     calls: 0,
@@ -1322,7 +1364,7 @@ function fakeExtractionAndNoveltyLLM(opts: {
         return {
           model: "rewrite-test",
           rawProviderName: "rewrite-test",
-          finishReason: "stop",
+          finishReason: opts.extractionFinishReason ?? "stop",
           tokensUsed: { prompt: 20, completion: 8, total: 28 },
           content: [
             "```json",

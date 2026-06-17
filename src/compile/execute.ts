@@ -1044,10 +1044,29 @@ async function rewriteExistingKnowledgePageUpdate(opts: {
       llm: opts.llm,
       maxBytes: opts.maxBytes,
     });
-    incoming = extraction.facts.map((fact) => `- ${fact}`).join("\n");
     extractionTokensUsed = extraction.tokensUsed;
-    factsExtracted = extraction.facts.length;
     sessionsScanned = 1;
+    if (extraction.truncated) {
+      const proposedPath = await stageCompileProposal(
+        opts.vaultRoot,
+        opts.operation,
+        opts.now,
+        "fact extraction truncated by LLM",
+      );
+      return {
+        handled: true,
+        outcome: "staged-for-review",
+        reason: "fact extraction truncated by LLM",
+        proposedPath,
+        extractionTokensUsed,
+        factsExtracted,
+        sessionsScanned,
+        referencesStripped: 0,
+        prosePathLeaks: 0,
+      };
+    }
+    incoming = extraction.facts.map((fact) => `- ${fact}`).join("\n");
+    factsExtracted = extraction.facts.length;
     if (extraction.facts.length === 0) {
       return {
         handled: true,

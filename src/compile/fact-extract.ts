@@ -15,6 +15,7 @@ export interface ExtractEntityFactsOptions {
 export interface ExtractEntityFactsResult {
   facts: string[];
   tokensUsed?: LLMTokenUsage;
+  truncated: boolean;
 }
 
 export interface CachedExtractEntityFactsOptions extends ExtractEntityFactsOptions {
@@ -42,6 +43,7 @@ export async function extractEntityFacts(opts: ExtractEntityFactsOptions): Promi
   const chunks = chunkUtf8(opts.rawText, maxBytes);
   const facts: string[] = [];
   let tokensUsed: LLMTokenUsage | undefined;
+  let truncated = false;
 
   for (const chunk of chunks) {
     const response = opts.vaultRoot
@@ -62,11 +64,16 @@ export async function extractEntityFacts(opts: ExtractEntityFactsOptions): Promi
         entityContext: opts.entityContext,
       }));
     tokensUsed = addTokenUsage(tokensUsed, response.tokensUsed);
+    if (response.finishReason === "length" || response.finishReason === "filter") {
+      truncated = true;
+      break;
+    }
     facts.push(...parseFactsResponse(response.content));
   }
 
   return {
     facts: dedupeFacts(facts),
+    truncated,
     ...(tokensUsed ? { tokensUsed } : {}),
   };
 }
@@ -85,18 +92,21 @@ export async function extractEntityFactsCached(
   if (cached) {
     return {
       facts: [...cached.facts],
+      truncated: false,
       ...(cached.tokensUsed ? { tokensUsed: cached.tokensUsed } : {}),
       fromCache: true,
     };
   }
 
   const extracted = await extractEntityFacts(opts);
-  cache[key] = {
-    facts: extracted.facts,
-    extractedAt: (opts.now ?? new Date()).toISOString(),
-    ...(extracted.tokensUsed ? { tokensUsed: extracted.tokensUsed } : {}),
-  };
-  opts.state.factExtraction = cache;
+  if (!extracted.truncated) {
+    cache[key] = {
+      facts: extracted.facts,
+      extractedAt: (opts.now ?? new Date()).toISOString(),
+      ...(extracted.tokensUsed ? { tokensUsed: extracted.tokensUsed } : {}),
+    };
+    opts.state.factExtraction = cache;
+  }
   return { ...extracted, fromCache: false };
 }
 

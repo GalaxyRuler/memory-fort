@@ -9,7 +9,7 @@ import {
   type SynthesisResult,
 } from "../../src/compile/synthesize-narrative.js";
 import type { ConsolidationFact } from "../../src/compile/filter-noise.js";
-import type { LLMProvider, LLMRequest, LLMResponse } from "../../src/llm/types.js";
+import type { LLMFinishReason, LLMProvider, LLMRequest, LLMResponse } from "../../src/llm/types.js";
 import { parseFrontmatter, serializeFrontmatter } from "../../src/storage/frontmatter.js";
 
 describe("synthesizeNarrative", () => {
@@ -187,6 +187,37 @@ describe("synthesizeNarrative", () => {
     expect(await readdir(join(tmp, "wiki", "compile-proposed"))).toEqual(["memory-system.md"]);
   });
 
+  it("rejects truncated novelty detection output", async () => {
+    await expect(synthesizeNarrative({
+      vaultRoot: tmp,
+      pageRelPath: "wiki/projects/memory-system.md",
+      facts: facts(),
+      llm: fakeNarrativeLLM({
+        detect: { contradicted_claims: [], net_new_facts: [] },
+        body: "unused",
+        detectFinishReason: "length",
+      }),
+      now: new Date("2026-06-01T10:00:00.000Z"),
+    })).rejects.toThrow(/truncated.*length/);
+  });
+
+  it("rejects filtered synthesis output", async () => {
+    await expect(synthesizeNarrative({
+      vaultRoot: tmp,
+      pageRelPath: "wiki/projects/memory-system.md",
+      facts: facts(),
+      llm: fakeNarrativeLLM({
+        detect: {
+          contradicted_claims: [],
+          net_new_facts: ["Memory System shipped a truncation guard."],
+        },
+        body: "Memory System shipped a truncation guard while [[docs/ROADMAP]] tracks rollout decisions.",
+        synthFinishReason: "filter",
+      }),
+      now: new Date("2026-06-01T10:00:00.000Z"),
+    })).rejects.toThrow(/truncated.*filter/);
+  });
+
   it("validates canonical narrative body syntax", () => {
     expect(validateNarrativeBody("One paragraph.\n\nAnother paragraph.")).toEqual({ ok: true });
     expect(validateNarrativeBody("## Heading\n\nBody")).toMatchObject({ ok: false });
@@ -274,23 +305,25 @@ function compressedFact(title: string, factLines: string[]) {
 function fakeNarrativeLLM(opts: {
   detect: { contradicted_claims: string[]; net_new_facts: string[] };
   body: string;
+  detectFinishReason?: LLMFinishReason;
+  synthFinishReason?: LLMFinishReason;
 }): LLMProvider {
   const chat = vi.fn(async (request: LLMRequest): Promise<LLMResponse> => {
     if (request.jsonSchema?.name === "NarrativeDetectOutput") {
-      return fakeResponse(JSON.stringify(opts.detect));
+      return fakeResponse(JSON.stringify(opts.detect), opts.detectFinishReason);
     }
     if (request.jsonSchema?.name === "NarrativeSynthesisOutput") {
-      return fakeResponse(JSON.stringify({ body: opts.body }));
+      return fakeResponse(JSON.stringify({ body: opts.body }), opts.synthFinishReason);
     }
     throw new Error(`unexpected schema ${request.jsonSchema?.name ?? "none"}`);
   });
   return { providerName: "test", modelName: "test", chat };
 }
 
-function fakeResponse(content: string): LLMResponse {
+function fakeResponse(content: string, finishReason: LLMFinishReason = "stop"): LLMResponse {
   return {
     model: "test",
-    finishReason: "stop",
+    finishReason,
     rawProviderName: "test",
     tokensUsed: { prompt: 30, completion: 12, total: 42 },
     content,

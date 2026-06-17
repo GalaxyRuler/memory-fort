@@ -110,6 +110,7 @@ export async function synthesizeNarrative(opts: SynthesizeNarrativeOptions): Pro
     temperature: 0,
     jsonSchema: { name: "NarrativeDetectOutput", schema: DETECT_SCHEMA, strict: true },
   });
+  throwIfTruncatedResponse("narrative synthesis detect", detectResponse.finishReason);
   let tokensUsed = detectResponse.tokensUsed;
   const detect = parseDetectOutput(detectResponse.content);
 
@@ -158,6 +159,7 @@ export async function synthesizeNarrative(opts: SynthesizeNarrativeOptions): Pro
     temperature: 0.2,
     jsonSchema: { name: "NarrativeSynthesisOutput", schema: SYNTHESIS_SCHEMA, strict: true },
   });
+  throwIfTruncatedResponse("narrative synthesis", synthResponse.finishReason);
   tokensUsed = addTokenUsage(tokensUsed, synthResponse.tokensUsed);
   const synth = parseSynthesisOutput(synthResponse.content);
 
@@ -516,6 +518,12 @@ function parseSynthesisOutput(content: string): NarrativeSynthesisOutput {
     throw new Error("narrative synthesis: LLM returned no body");
   }
   return { body: parsed.body };
+}
+
+function throwIfTruncatedResponse(stage: string, finishReason: string): void {
+  if (finishReason === "length" || finishReason === "filter") {
+    throw new Error(`${stage}: LLM response truncated (finishReason=${finishReason})`);
+  }
 }
 
 function parseJsonObject(content: string): unknown {
