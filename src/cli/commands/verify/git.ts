@@ -1,6 +1,7 @@
 import { execFile as nodeExecFile } from "node:child_process";
 import { promisify } from "node:util";
 import { loadMemoryConfig, type MemoryConfig } from "../../../storage/config.js";
+import { makeRealSshRunner, type SshRunner } from "../../../sync/ssh-runner.js";
 import { fail, pass, warn, type CheckDescriptor, type VerifyCheckContext, type VerifyCheckResult } from "./types.js";
 
 type ExecFile = (
@@ -14,7 +15,8 @@ const execFileAsync = promisify(nodeExecFile);
 export interface GitVerifyOptions extends VerifyCheckContext {
   remoteName?: string;
   execFile?: ExecFile;
-  configLoader?: (memoryRoot?: string) => Promise<Pick<MemoryConfig, "sync">>;
+  configLoader?: (memoryRoot?: string) => Promise<Pick<MemoryConfig, "sync" | "vps">>;
+  sshRunner?: SshRunner;
 }
 
 export const gitRemoteCheck: CheckDescriptor = {
@@ -29,6 +31,13 @@ export const gitDurabilityConfigCheck: CheckDescriptor = {
   label: "git durability config (fsync) applied",
   roles: ["operator"],
   run: checkGitDurabilityConfig,
+};
+
+export const gitIntegrityCheck: CheckDescriptor = {
+  id: "git.integrity",
+  label: "git repository has no corruption",
+  roles: ["operator"],
+  run: checkGitIntegrity,
 };
 
 export async function checkGitRemote(
@@ -57,6 +66,27 @@ export async function checkGitRemote(
       error instanceof Error ? error.message : String(error),
     );
   }
+}
+
+export async function checkGitIntegrity(
+  opts: GitVerifyOptions,
+): Promise<VerifyCheckResult[]> {
+  if (opts.offline) {
+    return [
+      warn(
+        "git.integrity",
+        "git repository has no corruption",
+        "git fsck skipped (--offline)",
+      ),
+    ];
+  }
+
+  const results: VerifyCheckResult[] = [];
+  const local = await checkLocalGitIntegrity(opts);
+  results.push(local);
+  if (local.status === "fail") return results;
+  results.push(await checkRemoteGitIntegrity(opts));
+  return results;
 }
 
 export async function checkGitDurabilityConfig(
@@ -101,6 +131,87 @@ export async function checkGitDurabilityConfig(
       error instanceof Error ? error.message : String(error),
     );
   }
+}
+
+async function checkLocalGitIntegrity(
+  opts: GitVerifyOptions,
+): Promise<VerifyCheckResult> {
+  try {
+    await (opts.execFile ?? execFileAsync)(
+      "git",
+      ["fsck", "--full", "--strict"],
+      {
+        cwd: opts.vaultRoot,
+        timeout: 30000,
+        windowsHide: true,
+      },
+    );
+    return pass(
+      "git.integrity",
+      "local vault repository: no corruption",
+      "git fsck passed",
+    );
+  } catch (error) {
+    return fail(
+      "git.integrity",
+      "local vault repository: no corruption",
+      "local vault git repository is corrupted; inspect with `git fsck --full --strict` before sync",
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+}
+
+async function checkRemoteGitIntegrity(
+  opts: GitVerifyOptions,
+): Promise<VerifyCheckResult> {
+  try {
+    const config = await (opts.configLoader ?? loadMemoryConfig)(opts.vaultRoot);
+    const host = config.vps?.host?.trim();
+    const installRoot = config.vps?.install_root?.trim();
+    if (!host || !installRoot) {
+      return warn(
+        "git.integrity",
+        "remote VPS repository: no corruption",
+        "VPS integrity check unavailable: no vps config with host and install_root",
+      );
+    }
+
+    const target = config.vps?.ssh_user?.trim()
+      ? `${config.vps.ssh_user.trim()}@${host}`
+      : host;
+    const repoPath = `${installRoot.replace(/\/+$/, "")}/memory.git`;
+    const result = await (opts.sshRunner ?? makeRealSshRunner()).run(target, {
+      command: `git -C ${shellQuote(repoPath)} fsck --full --strict`,
+      description: "verify remote VPS bare memory git repository integrity",
+    });
+    const output = [result.stdout.trim(), result.stderr.trim()]
+      .filter((part) => part.length > 0)
+      .join("\n");
+    if (result.exitCode !== 0 || output.length > 0) {
+      return fail(
+        "git.integrity",
+        "remote VPS repository: no corruption",
+        "remote bare repository may be corrupted; inspect the VPS repo before sync",
+        output || `ssh exited ${result.exitCode}`,
+      );
+    }
+    return pass(
+      "git.integrity",
+      "remote VPS repository: no corruption",
+      "remote git fsck passed",
+    );
+  } catch (error) {
+    return fail(
+      "git.integrity",
+      "remote VPS repository: no corruption",
+      "check vps config, SSH access, and remote bare repository path",
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, "'\"'\"'")}'`;
 }
 
 async function resolveRemoteName(opts: GitVerifyOptions): Promise<string> {

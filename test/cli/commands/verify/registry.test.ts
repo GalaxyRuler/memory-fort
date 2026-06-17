@@ -24,6 +24,7 @@ const EXPECTED_ROLES = new Map<string, VerifyRole[]>([
   ["autopush.errors", ["operator"]],
   ["sync.uncommitted-vault", ["operator"]],
   ["git.remote", ["operator"]],
+  ["git.integrity", ["operator"]],
   ["git.durability-config", ["operator"]],
   ["client.claude-code.enabled", ["operator"]],
   ["client.claude-code.hooks", ["operator"]],
