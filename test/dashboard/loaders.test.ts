@@ -179,6 +179,62 @@ describe("dashboard loaders", () => {
     });
   });
 
+  it("loadSyncState suppresses a stale conflict flag when git has no unmerged paths", async () => {
+    await writeFile(
+      join(tmp, ".sync-state.json"),
+      JSON.stringify({
+        last_sync_attempt: "2026-06-17T00:00:00.000Z",
+        last_sync_success: null,
+        pending_push_count: 0,
+        conflicts_pending: 2,
+        conflict_files: ["wiki/a.md", "wiki/b.md"],
+      }),
+    );
+    const runGit = async () => "";
+
+    const state = await loadSyncState(tmp, runGit);
+    expect(state?.conflictsPending).toBe(0);
+    expect(state?.conflictFiles).toEqual([]);
+  });
+
+  it("loadSyncState keeps the conflict when git reports unmerged paths", async () => {
+    await writeFile(
+      join(tmp, ".sync-state.json"),
+      JSON.stringify({
+        last_sync_attempt: "2026-06-17T00:00:00.000Z",
+        last_sync_success: null,
+        pending_push_count: 0,
+        conflicts_pending: 2,
+        conflict_files: ["wiki/a.md", "wiki/b.md"],
+      }),
+    );
+    const runGit = async () => "100644 abc123 1\twiki/a.md\n100644 def456 1\twiki/b.md\n";
+
+    const state = await loadSyncState(tmp, runGit);
+    expect(state?.conflictsPending).toBe(2);
+    expect(state?.conflictFiles).toEqual(["wiki/a.md", "wiki/b.md"]);
+  });
+
+  it("loadSyncState keeps the recorded conflict when git errors", async () => {
+    await writeFile(
+      join(tmp, ".sync-state.json"),
+      JSON.stringify({
+        last_sync_attempt: "2026-06-17T00:00:00.000Z",
+        last_sync_success: null,
+        pending_push_count: 0,
+        conflicts_pending: 1,
+        conflict_files: ["wiki/a.md"],
+      }),
+    );
+    const runGit = async () => {
+      throw new Error("not a git repository");
+    };
+
+    const state = await loadSyncState(tmp, runGit);
+    expect(state?.conflictsPending).toBe(1);
+    expect(state?.conflictFiles).toEqual(["wiki/a.md"]);
+  });
+
   it("loadCompileState returns idle when the state file is missing", async () => {
     await expect(loadCompileState(tmp)).resolves.toEqual({ status: "idle", lastRun: null });
   });

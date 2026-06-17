@@ -663,7 +663,10 @@ export async function loadErrorsLog(vaultRoot: string): Promise<DashboardStatus[
   };
 }
 
-export async function loadSyncState(vaultRoot: string): Promise<DashboardStatus["syncState"]> {
+export async function loadSyncState(
+  vaultRoot: string,
+  runGit: RunGit = defaultRunGit,
+): Promise<DashboardStatus["syncState"]> {
   const path = join(vaultRoot, ".sync-state.json");
   if (!(await pathExists(path))) return null;
   try {
@@ -671,7 +674,30 @@ export async function loadSyncState(vaultRoot: string): Promise<DashboardStatus[
     const lastSyncAttempt = typeof parsed["last_sync_attempt"] === "string" ? parsed["last_sync_attempt"] : null;
     const lastSyncSuccess = typeof parsed["last_sync_success"] === "string" ? parsed["last_sync_success"] : null;
     const pendingPushCount = typeof parsed["pending_push_count"] === "number" ? parsed["pending_push_count"] : 0;
-    const conflictsPending = typeof parsed["conflicts_pending"] === "number" ? parsed["conflicts_pending"] : 0;
+    const recordedConflictsPending = typeof parsed["conflicts_pending"] === "number" ? parsed["conflicts_pending"] : 0;
+    const recordedConflictFiles = Array.isArray(parsed["conflict_files"])
+      ? parsed["conflict_files"].filter((value): value is string => typeof value === "string")
+      : [];
+
+    // Reconcile a possibly-stale conflict flag against real git state, mirroring
+    // getSyncStatus / the sync-state-drift verify check. Only spawn git when a
+    // conflict is actually recorded, so normal polls cost nothing. If git
+    // confirms no unmerged paths, the flag is stale; show a clean state. If git
+    // is unavailable or errors, keep the recorded value.
+    let conflictsPending = recordedConflictsPending;
+    let conflictFiles = recordedConflictFiles;
+    if (recordedConflictsPending > 0) {
+      try {
+        const unmerged = await runGit({ cwd: vaultRoot, args: ["ls-files", "-u"] });
+        if (unmerged.trim().length === 0) {
+          conflictsPending = 0;
+          conflictFiles = [];
+        }
+      } catch {
+        // Conservative fallback for dashboard-only machines without git access.
+      }
+    }
+
     const lastCheckoutAt =
       typeof parsed["last_checkout_at"] === "string"
         ? parsed["last_checkout_at"]
@@ -681,9 +707,7 @@ export async function loadSyncState(vaultRoot: string): Promise<DashboardStatus[
       lastSyncSuccess,
       pendingPushCount,
       conflictsPending,
-      conflictFiles: Array.isArray(parsed["conflict_files"])
-        ? parsed["conflict_files"].filter((value): value is string => typeof value === "string")
-        : [],
+      conflictFiles,
       lastCheckoutAt,
       isStale:
         typeof parsed["is_stale"] === "boolean"

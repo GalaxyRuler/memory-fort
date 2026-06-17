@@ -68,7 +68,7 @@ describe("runSync", () => {
     await expect(runSync({ memoryRoot: tmp, runner, now })).rejects.toThrow(/wiki\/foo\.md[\s\S]*wiki\/bar\.md/);
   });
 
-  it("runSync refuses with exit 3 when sync-state.json has conflicts_pending > 0", async () => {
+  it("runSync refuses with exit 3 when git has real unmerged paths", async () => {
     await writeSyncStateFile(tmp, {
       last_sync_attempt: null,
       last_sync_success: null,
@@ -76,12 +76,39 @@ describe("runSync", () => {
       conflicts_pending: 2,
       conflict_files: ["wiki/x.md", "wiki/y.md"],
     });
-    const runner = makeRunner((call) =>
-      isPorcelain(call) ? { stdout: "" } : { stdout: "0\t0\n" },
-    );
+    const runner = makeRunner((call) => {
+      if (call.args.includes("ls-files")) {
+        return { stdout: "100644 abc 1\twiki/x.md\n100644 def 1\twiki/y.md\n" };
+      }
+      if (isPorcelain(call)) return { stdout: "" };
+      return { stdout: "0\t0\n" };
+    });
 
     await expect(runSync({ memoryRoot: tmp, runner, now })).rejects.toMatchObject({ exitCode: 3 });
     await expect(runSync({ memoryRoot: tmp, runner, now })).rejects.toThrow(/wiki\/x\.md[\s\S]*wiki\/y\.md/);
+  });
+
+  it("runSync auto-clears a stale conflicts_pending flag when git has no unmerged paths", async () => {
+    await writeSyncStateFile(tmp, {
+      last_sync_attempt: null,
+      last_sync_success: null,
+      pending_push_count: 0,
+      conflicts_pending: 2,
+      conflict_files: ["wiki/x.md", "wiki/y.md"],
+    });
+    const runner = makeRunner((call) => {
+      if (call.args.includes("ls-files")) return { stdout: "" };
+      if (isPorcelain(call)) return { stdout: "" };
+      if (isRevList(call)) return { stdout: "0\t0\n" };
+      return { stdout: "" };
+    });
+
+    const result = await runSync({ memoryRoot: tmp, runner, now });
+    expect(result.finalState).toBe("clean");
+
+    const persisted = JSON.parse(await readFile(join(tmp, ".sync-state.json"), "utf-8"));
+    expect(persisted.conflicts_pending).toBe(0);
+    expect(persisted.conflict_files).toEqual([]);
   });
 
   it("runSync is a no-op when clean and synced", async () => {

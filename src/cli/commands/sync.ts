@@ -6,7 +6,6 @@ import { memoryRoot as defaultMemoryRoot } from "../../storage/paths.js";
 import { makeRealCommandRunner, type CommandRunner } from "../../sync/git-remote.js";
 import {
   getSyncStatus,
-  readSyncStateFile,
   writeSyncStateFile,
   type SyncState,
   type SyncStateFile,
@@ -55,21 +54,18 @@ export async function runSyncMode(mode: SyncMode, opts: SyncOptions = {}): Promi
   const runner = opts.runner ?? makeRealCommandRunner();
   const now = opts.now ?? new Date();
   const ctx = { memoryRoot, remoteName, branch, runner, now };
-  const stateFile = await readSyncStateFile(memoryRoot);
   const attemptIso = now.toISOString();
 
   await ensureSyncStateIgnored(memoryRoot);
 
-  if (stateFile.conflicts_pending > 0) {
-    throw new SyncCommandError(formatConflictMessage(memoryRoot, stateFile.conflict_files), 3);
-  }
-
   let initialStatus = await getSyncStatus(ctx);
+  throwIfConflicted(memoryRoot, initialStatus);
   if (initialStatus.state === "dirty") {
     throw new SyncCommandError(formatDirtyMessage(initialStatus.dirtyFiles), 2);
   }
   await gitChecked(runner, memoryRoot, ["fetch", remoteName, branch], "git fetch");
   initialStatus = await getSyncStatus(ctx);
+  throwIfConflicted(memoryRoot, initialStatus);
   if (initialStatus.state === "dirty") {
     throw new SyncCommandError(formatDirtyMessage(initialStatus.dirtyFiles), 2);
   }
@@ -252,6 +248,18 @@ function formatConflictMessage(memoryRoot: string, conflictFiles: string[]): str
     `  3. Clear the conflict state: edit ${join(memoryRoot, ".sync-state.json")} and set conflicts_pending: 0 and conflict_files: []`,
     "  4. Re-run: memory sync",
   ].join("\n");
+}
+
+function throwIfConflicted(
+  memoryRoot: string,
+  status: { state: SyncState; syncStateFile: SyncStateFile },
+): void {
+  if (status.state === "conflicted") {
+    throw new SyncCommandError(
+      formatConflictMessage(memoryRoot, status.syncStateFile.conflict_files),
+      3,
+    );
+  }
 }
 
 function isPushReject(output: string): boolean {

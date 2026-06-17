@@ -4,6 +4,12 @@ All notable changes to Memory Fort are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.4] - 2026-06-17
+
+### Fixed
+- **Sync no longer deadlocks on a stale conflict flag** — `memory sync` (and the background auto-push worker) previously aborted with exit 3 whenever `.sync-state.json` recorded `conflicts_pending > 0`, reading that raw flag *before* the self-heal in `getSyncStatus` could run. A transient failure (e.g. an unreachable or corrupt backup remote) or a since-resolved rebase conflict left the flag set, and the worker re-armed it every cycle — wedging sync permanently until the file was hand-edited. `runSyncMode` now defers to `getSyncStatus`, which clears a stale flag when `git ls-files -u` shows no unmerged paths and reports `conflicted` only for genuine unmerged paths, so sync self-recovers. A real unresolved conflict still pauses sync with exit 3.
+- **Dashboard no longer shows a phantom "conflict pending" banner** — the dashboard's `loadSyncState` read `conflicts_pending` straight from `.sync-state.json` with no reconciliation, so a stale flag rendered a red "unresolved sync conflicts" banner that never cleared on a dashboard-only machine (where nothing runs `memory sync` to trigger the self-heal). It now performs the same lightweight `git ls-files -u` reconciliation as the `sync-state-drift` check — only when a conflict is recorded — and displays a clean state when git confirms no unmerged paths, while conservatively keeping the banner if git reports unmerged paths or is unavailable.
+
 ## [0.8.3] - 2026-06-16
 
 ### Fixed
