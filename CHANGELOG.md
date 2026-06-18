@@ -4,6 +4,12 @@ All notable changes to Memory Fort are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.6] - 2026-06-18
+
+### Fixed
+- **Verify per-check timeout no longer false-fails slow checks** — 0.8.5's per-check hang backstop (15s) was shorter than some legitimately-slow checks: `git.integrity` (full `git fsck` on a large vault plus a remote SSH fsck) and `search.pipeline` (a real embedding query) timed out and reported false failures. The default backstop is now 60s, `CheckDescriptor` accepts a per-check `timeoutMs` override, and `git.integrity`/`search.pipeline` are set to 120s. A genuinely hung check is still bounded (no infinite freeze of `/api/health`).
+- **`git.durability-config` reports the real cause when `core.fsync` is unset** — `git config --get core.fsync` exits 1 on an unset key, which previously surfaced the misleading "check git installation and vault permissions"; it now reports "core.fsync not set" with the remediation command.
+
 ## [0.8.5] - 2026-06-18
 
 Reliability Hardening (Phase 1) — close the silent byte-loss (git corruption) and silent meaning-loss (LLM truncation, content-blind watermark) failure classes that caused prior incidents. Derived from `docs/reliability-assessment.md`.
