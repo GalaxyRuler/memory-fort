@@ -4,6 +4,25 @@ All notable changes to Memory Fort are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.5] - 2026-06-18
+
+Reliability Hardening (Phase 1) — close the silent byte-loss (git corruption) and silent meaning-loss (LLM truncation, content-blind watermark) failure classes that caused prior incidents. Derived from `docs/reliability-assessment.md`.
+
+### Added
+- **Git durability config on init** — `memory init` now sets `core.fsync=committed`, `core.fsyncMethod=batch`, and `fetch.fsckObjects`/`transfer.fsckObjects=true` on the vault repo, so loose objects survive power-loss (the root cause of the empty-object corruption incidents) and corrupt objects are rejected in transit. The VPS bare repo gets the equivalent (`core.fsync`, `receive.fsckObjects`) as a documented setup step.
+- **`git.integrity` verify check** — runs `git fsck --full --strict --no-dangling` on the local vault and (over SSH) on the VPS bare repo, hard-failing on real corruption (missing/broken/corrupt objects) while ignoring benign dangling/diagnostic output. Detection for the both-copies-corrupted class that `git.remote` (reachability only) could not catch.
+- **`git.durability-config` verify check** — asserts `core.fsync` is applied.
+- **`compile.raw-append-only` verify check** — flags any `raw/` file that shrank below its compile watermark (interim detection for the content-blind byte-count cursor; the full content-hashed cursor is Phase 2).
+- **`build.version-match` verify check** — asserts the baked CLI/dashboard build version matches `package.json`, catching the stale-dashboard footgun.
+- **Cross-process compile mutex** — `runCompile` now holds a vault-wide lock so a manual `memory compile` cannot race the scheduled drain and double-apply operations.
+
+### Fixed
+- **LLM truncation no longer silently drops data** — compile refuses to apply output (and does not advance the watermark) when the LLM `finishReason` is `length`/`filter`; narrative detect/synth throw to the staged-for-review path and truncated fact extraction stages a proposal instead of persisting partial facts.
+- **One bad/hung verify check can no longer blank the health surface** — the verify orchestrator now isolates each check in try/catch and bounds it with a per-check timeout, synthesizing a `fail` result instead of aborting or freezing `/api/health`.
+- **Stale-lock breaking is now liveness-aware** — `withFileLock` records the holder's host and only breaks a past-stale lock when the recorded process is provably gone (`process.kill(pid, 0)` / foreign host / unparseable), so a slow-but-alive holder (e.g. a long embedding rebuild) is never robbed of its lock.
+- **`.sync-state.json` writes are now locked and corrupt-tolerant** — all writes route through the locked `mutateSyncStateFile` (no more unlocked write racing the auto-push worker), and a malformed state file falls back to defaults instead of bricking sync.
+- **Secrets are written atomically** — `writeSecret` uses `atomicWrite` (+ `0600` on POSIX), so a crash can no longer truncate the only copy of API keys.
+
 ## [0.8.4] - 2026-06-17
 
 ### Fixed
