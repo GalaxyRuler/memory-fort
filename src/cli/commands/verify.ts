@@ -18,6 +18,7 @@ export { formatVerifyResult } from "./verify/render.js";
 export type { CheckDescriptor, CheckResult, CheckStatus, VerifyCheckResult, VerifyReport, VerifyRole } from "./verify/types.js";
 
 type CheckFn = () => Promise<VerifyCheckResult | VerifyCheckResult[]>;
+const DEFAULT_PER_CHECK_TIMEOUT_MS = 60_000;
 
 export interface VerifyOptions {
   offline?: boolean;
@@ -69,7 +70,7 @@ export async function runVerify(opts: VerifyOptions = {}): Promise<VerifyResult>
         dashboardUrl: opts.dashboardUrl,
         remoteName: opts.remoteName,
       },
-      opts.perCheckTimeoutMs ?? 15_000,
+      opts.perCheckTimeoutMs,
     );
 
   const passed = checks.filter((check) => check.status === "pass").length;
@@ -113,7 +114,7 @@ async function runDescriptorChecks(
   dashboardUrl?: string;
   remoteName?: string;
 },
-  perCheckTimeoutMs: number,
+  perCheckTimeoutMs?: number,
 ): Promise<VerifyCheckResult[]> {
   const checks: VerifyCheckResult[] = [];
   let dashboardStatus: VerifyDashboardStatus | null = null;
@@ -137,9 +138,11 @@ async function runDescriptorChecks(
 async function runCheckIsolated(
   descriptor: CheckDescriptor,
   opts: RunCheckOptions,
-  timeoutMs: number,
+  perCheckTimeoutMs?: number,
 ): Promise<VerifyCheckResult | VerifyCheckResult[]> {
   let timer: ReturnType<typeof setTimeout> | undefined;
+  const effectiveTimeoutMs =
+    descriptor.timeoutMs ?? perCheckTimeoutMs ?? DEFAULT_PER_CHECK_TIMEOUT_MS;
   try {
     const timeout = new Promise<VerifyCheckResult>((resolve) => {
       timer = setTimeout(
@@ -148,10 +151,10 @@ async function runCheckIsolated(
             descriptor.id,
             descriptor.label,
             undefined,
-            `check timed out after ${timeoutMs}ms`,
+            `check timed out after ${effectiveTimeoutMs}ms`,
           ),
         ),
-        timeoutMs,
+        effectiveTimeoutMs,
       );
     });
     return await Promise.race([descriptor.run(opts), timeout]);

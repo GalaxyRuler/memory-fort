@@ -34,6 +34,17 @@ describe("checkGitDurabilityConfig", () => {
 
     expect(r.status).toBe("fail");
   });
+
+  it("fails with core.fsync not set when git config exits 1 without stderr", async () => {
+    const execFile = async () => {
+      throw { code: 1, stderr: "" };
+    };
+
+    const r = await checkGitDurabilityConfig({ ...base, execFile });
+
+    expect(r.status).toBe("fail");
+    expect(r.detail).toContain("core.fsync not set");
+  });
 });
 
 describe("checkGitIntegrity", () => {

@@ -13,6 +13,7 @@ export const searchPipelineCheck: CheckDescriptor = {
   id: "search.pipeline",
   label: "search pipeline",
   roles: ["operator", "server"],
+  timeoutMs: 120_000,
   run: checkSearch,
 };
 

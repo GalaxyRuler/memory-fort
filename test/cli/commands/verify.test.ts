@@ -249,6 +249,60 @@ describe("runVerify", () => {
       expect.objectContaining({ id: "after", status: "pass" }),
     ]));
   });
+
+  it("synthesizes FAIL when a descriptor timeout override is exceeded", async () => {
+    const result = await runVerify({
+      now: () => new Date("2026-05-26T03:30:00.000Z"),
+      checkDescriptors: [
+        {
+          id: "slow-override",
+          label: "slow override",
+          roles: ["operator"],
+          timeoutMs: 50,
+          async run() {
+            await new Promise((resolve) => setTimeout(resolve, 500));
+            return pass("slow-override");
+          },
+        },
+        descriptor("after", ["operator"]),
+      ],
+    });
+
+    expect(result.checks).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: "slow-override",
+        status: "fail",
+        detail: expect.stringContaining("timed out after 50ms"),
+      }),
+      expect.objectContaining({ id: "after", status: "pass" }),
+    ]));
+  });
+
+  it("lets descriptor timeout override a low injected timeout", async () => {
+    const result = await runVerify({
+      now: () => new Date("2026-05-26T03:30:00.000Z"),
+      perCheckTimeoutMs: 1,
+      checkDescriptors: [
+        {
+          id: "slow-but-allowed",
+          label: "slow but allowed",
+          roles: ["operator"],
+          timeoutMs: 5000,
+          async run() {
+            await new Promise((resolve) => setTimeout(resolve, 20));
+            return pass("slow-but-allowed");
+          },
+        },
+      ],
+    });
+
+    expect(result.checks).toEqual([
+      expect.objectContaining({
+        id: "slow-but-allowed",
+        status: "pass",
+      }),
+    ]);
+  });
 });
 
 function pass(label: string): CheckResult {

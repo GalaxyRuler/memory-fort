@@ -38,6 +38,8 @@ export interface CheckDescriptor {
   id: string;
   label: string;
   roles: VerifyRole[];
+  /** Hang-backstop timeout for this check (ms). Overrides the orchestrator default. */
+  timeoutMs?: number;
   run: (opts: RunCheckOptions) => Promise<CheckResult | CheckResult[]>;
 }
 

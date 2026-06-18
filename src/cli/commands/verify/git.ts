@@ -37,6 +37,7 @@ export const gitIntegrityCheck: CheckDescriptor = {
   id: "git.integrity",
   label: "git repository has no corruption",
   roles: ["operator"],
+  timeoutMs: 120_000,
   run: checkGitIntegrity,
 };
 
@@ -124,6 +125,14 @@ export async function checkGitDurabilityConfig(
       "core.fsync=committed",
     );
   } catch (error) {
+    if (isUnsetGitConfigError(error)) {
+      return fail(
+        "git.durability-config",
+        "git durability config (fsync) applied",
+        "run `memory init` again, or: git -C <vault> config core.fsync committed",
+        "core.fsync not set",
+      );
+    }
     return fail(
       "git.durability-config",
       "git durability config (fsync) applied",
@@ -131,6 +140,13 @@ export async function checkGitDurabilityConfig(
       error instanceof Error ? error.message : String(error),
     );
   }
+}
+
+function isUnsetGitConfigError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const maybeGitError = error as { code?: unknown; stderr?: unknown };
+  const stderr = typeof maybeGitError.stderr === "string" ? maybeGitError.stderr : "";
+  return maybeGitError.code === 1 && stderr.trim().length === 0;
 }
 
 async function checkLocalGitIntegrity(
