@@ -25,10 +25,10 @@
     "prepublishOnly": "npm run scan:leaks && npm run build",
     "memory": "node dist/cli.mjs",
     "electron:dev": "npm run build && electron .",
-    "electron:build": "npm run build && electron-builder build --win --x64"
+    "electron:build": "npm run build && electron-builder build --win"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "bin": {
     "memory-fort": "dist/cli.mjs",
