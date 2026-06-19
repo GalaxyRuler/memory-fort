@@ -44,7 +44,9 @@ npx memory-fort init
 
 Interactive wizard asks ≤4 questions (all pre-defaulted), detects your installed tools, and wires everything. Press Enter to accept all defaults. It also creates a **desktop shortcut** that launches the dashboard (Windows `.lnk` / macOS `.command` / Linux `.desktop`) so non-technical users can open Memory Fort with one click.
 
-**Prerequisites:** Node.js ≥ 20. Nothing else. No Docker, no database, no API key.
+**Prefer a binary?** Download the desktop app (Windows `.exe`, macOS `.dmg`, Linux `.AppImage`) from the [Releases page](https://github.com/GalaxyRuler/memory-fort/releases) — no Node.js required. See [Desktop app](#desktop-app).
+
+**Prerequisites (npm/CLI install):** Node.js ≥ 20. Nothing else. No Docker, no database, no API key.
 
 ```bash
 # Search immediately (no key needed)
@@ -320,6 +322,24 @@ Built-in React dashboard:
 - Securely manage API credentials via **API key management** (masked secrets fields stored outside the vault with test-then-save validation flow).
 - Check and manage the **ChatGPT bridge status** (verify checks: `chatgpt.bridge.running` and `chatgpt.bridge.mcp`).
 - Review **lifecycle proposals** (`wiki/compile-proposed/`) — dispute and supersede candidates staged for human review before any wiki edit.
+
+---
+
+## Desktop app
+
+Memory Fort ships as a native desktop application so you don't need Node.js or a terminal. Download the installer for your OS from the [Releases page](https://github.com/GalaxyRuler/memory-fort/releases):
+
+| OS | Installer |
+|----|-----------|
+| Windows | `MemoryFort-Setup-X.Y.Z.exe` (NSIS) |
+| macOS | `MemoryFort-X.Y.Z.dmg` (Intel + Apple Silicon) |
+| Linux | `MemoryFort-X.Y.Z.AppImage` |
+
+The app is the same dashboard in a native window — it starts the local server in-process and opens automatically. Your vault lives in the same place as the CLI's (`memory init` is still the way to wire up AI-tool integrations).
+
+> **Unsigned installers.** The binaries are not code-signed, so the first launch triggers a warning — Windows SmartScreen ("More info → Run anyway") or macOS Gatekeeper (right-click → Open). This is expected; the app is open source (GPL-3.0) and free.
+
+**Build it yourself:** `npm run electron:build` produces an installer for your current OS in `dist/electron-installer/`.
 
 ---
 
