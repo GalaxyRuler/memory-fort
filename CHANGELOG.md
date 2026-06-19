@@ -4,6 +4,14 @@ All notable changes to Memory Fort are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.3] - 2026-06-19
+
+### Changed
+- **Node.js baseline raised; CI on Node 24** — Node 20 reached end-of-life (Apr 30, 2026). The `engines` floor is now `>=22` (drops EOL Node 20 while still supporting Node 22, maintained through 2027), CI builds/tests/release run on **Node 24** (current Active LTS, supported to 2028), and the tsdown output target is `node22`. The bundled desktop app is unaffected — Electron ships its own Node runtime.
+
+### Fixed
+- **`electron:build` no longer hardcodes `--x64`** — it now builds the full Windows matrix (x64 + ARM64) defined in `electron-builder.yml`.
+
 ## [0.9.2] - 2026-06-19
 
 ### Documentation

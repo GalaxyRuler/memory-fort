@@ -18,7 +18,7 @@ const pkg = JSON.parse(readFileSync(new URL("package.json", import.meta.url), "u
 const common = {
   format: "esm",
   platform: "node",
-  target: "node20",
+  target: "node22",
   dts: true,
   sourcemap: true,
   checks: { pluginTimings: false },
