@@ -296,9 +296,13 @@ jobs:
         shell: pwsh
         run: |
           $log = Join-Path $env:RUNNER_TEMP "electron.log"
+          # Launch the real electron.exe directly — Start-Process with "npx"
+          # resolves to the extensionless shell shim ("%1 is not a valid Win32
+          # application") on Windows runners.
+          $electron = Join-Path $PWD "node_modules\electron\dist\electron.exe"
           $process = Start-Process `
-            -FilePath "npx" `
-            -ArgumentList @("electron", ".") `
+            -FilePath $electron `
+            -ArgumentList @(".") `
             -WorkingDirectory $PWD `
             -RedirectStandardOutput $log `
             -RedirectStandardError "$log.err" `
