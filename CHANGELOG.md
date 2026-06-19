@@ -4,6 +4,12 @@ All notable changes to Memory Fort are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.2] - 2026-06-19
+
+### Documentation
+- **Unified versioning** — a single SemVer version now spans the public repo and the private mirror; the `-private` pre-release suffix is dropped (it ranked the build below the public release and forced lockfile/merge friction). `docs/RELEASING.md` documents `npm version` bumps (atomic package.json + lockfile + tag) and the desktop release flow (electron-builder matrix, draft-release publish, Linux lockfile regeneration).
+- **README desktop matrix corrected** to the real build targets: Windows x64 + ARM64, macOS Apple Silicon only, Linux AppImage.
+
 ## [0.9.1] - 2026-06-19
 
 ### Changed

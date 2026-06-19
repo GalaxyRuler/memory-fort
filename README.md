@@ -331,9 +331,9 @@ Memory Fort ships as a native desktop application so you don't need Node.js or a
 
 | OS | Installer |
 |----|-----------|
-| Windows | `MemoryFort-Setup-X.Y.Z.exe` (NSIS) |
-| macOS | `MemoryFort-X.Y.Z.dmg` (Intel + Apple Silicon) |
-| Linux | `MemoryFort-X.Y.Z.AppImage` |
+| Windows (x64 + ARM64) | `MemoryFort-Setup-X.Y.Z.exe` (NSIS) |
+| macOS (Apple Silicon) | `MemoryFort-X.Y.Z-arm64.dmg` |
+| Linux (any distro) | `MemoryFort-X.Y.Z.AppImage` |
 
 The app is the same dashboard in a native window — it starts the local server in-process and opens automatically. Your vault lives in the same place as the CLI's (`memory init` is still the way to wire up AI-tool integrations).
 
