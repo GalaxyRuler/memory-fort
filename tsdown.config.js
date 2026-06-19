@@ -190,4 +190,11 @@ export default defineConfig([
     dts: false,
     deps: { onlyBundle: ["zod"] },
   },
+  {
+    ...common,
+    entry: { "electron-main": "electron/main.ts" },
+    deps: { neverBundle: ["electron"] },
+    dts: false,
+    clean: false,
+  },
 ]);
