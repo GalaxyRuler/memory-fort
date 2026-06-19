@@ -1,6 +1,6 @@
 {
   "name": "memory-fort",
-  "version": "0.8.6-private",
+  "version": "0.9.0-private",
   "type": "module",
   "description": "Cross-tool persistent memory for AI agents — works with Claude Code, Codex, Antigravity, Hermes, Pi, ChatGPT, OpenCode, OpenClaw, Claude Desktop, and VS Code",
   "author": {
@@ -9,6 +9,7 @@
     "url": "https://github.com/GalaxyRuler"
   },
   "license": "GPL-3.0-only",
+  "main": "dist/electron-main.mjs",
   "scripts": {
     "build": "node scripts/check-prompt-drift.mjs && node --max-old-space-size=8192 ./node_modules/tsdown/dist/run.mjs && npm run build:ui",
     "build:ui": "vite build",
@@ -22,7 +23,9 @@
     "install:dev-hooks": "node scripts/install-dev-hooks.mjs",
     "scan:leaks": "node scripts/scan-leaks.mjs",
     "prepublishOnly": "npm run scan:leaks && npm run build",
-    "memory": "node dist/cli.mjs"
+    "memory": "node dist/cli.mjs",
+    "electron:dev": "npm run build && electron .",
+    "electron:build": "npm run build && electron-builder build --win --x64"
   },
   "engines": {
     "node": ">=20"
@@ -92,6 +95,8 @@
     "@types/three": "^0.184.1",
     "@vitejs/plugin-react": "^4.7.0",
     "autoprefixer": "^10.5.0",
+    "electron": "^35.7.5",
+    "electron-builder": "^25.1.8",
     "jsdom": "^25.0.1",
     "postcss": "^8.5.15",
     "sharp": "^0.34.5",

@@ -1,0 +1,52 @@
+appId: io.alkulaib.memoryfort
+productName: MemoryFort
+copyright: Copyright © 2026 Memory Fort
+
+directories:
+  output: dist/electron-installer
+
+# Only ship what the Electron main needs: compiled main + SPA assets + icon.
+# tsdown bundles all Node deps into electron-main.mjs — no node_modules required.
+files:
+  - dist/electron-main.mjs
+  - dist/dashboard-ui/**
+  - assets/memory_fort_icon_512.png
+
+# Disable asar so the Node HTTP server can serve dashboard-ui files normally
+asar: false
+
+# Publish built artifacts to GitHub Releases (used by the release workflow)
+publish:
+  provider: github
+  owner: GalaxyRuler
+  repo: memory-fort
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+  icon: assets/memory_fort_icon_512.png
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  runAfterFinish: true
+
+mac:
+  target:
+    - target: dmg
+      arch:
+        - x64
+        - arm64
+  category: public.app-category.productivity
+  icon: assets/memory_fort_icon_512.png
+
+linux:
+  target:
+    - target: AppImage
+      arch:
+        - x64
+  category: Utility
+  icon: assets/memory_fort_icon_512.png

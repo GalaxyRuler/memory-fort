@@ -188,3 +188,141 @@ jobs:
               throw "missing vault file: $path"
             }
           }
+
+  # Launches the actual Electron desktop shell (electron/main.ts) on each OS and
+  # verifies the in-process dashboard server answers. This is how the macOS build
+  # gets verified without a physical Mac — the GitHub macOS runner is the tester.
+  electron:
+    name: Electron launch (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+          - windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Set isolated memory root
+        if: runner.os != 'Windows'
+        shell: bash
+        run: echo "MEMORY_ROOT=${RUNNER_TEMP}/memory-home" >> "$GITHUB_ENV"
+
+      - name: Set isolated memory root
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: '"MEMORY_ROOT=$env:RUNNER_TEMP\memory-home" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append'
+
+      # Electron needs a display + system libs on Linux; runners ship them but
+      # xvfb provides the virtual display and --no-sandbox avoids the SUID
+      # sandbox requirement in CI.
+      - name: Install Electron Linux deps
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb libgbm1 libnss3 libatk-bridge2.0-0 libgtk-3-0 libasound2t64
+
+      - name: Electron launch smoke (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          xvfb-run -a npx electron . --no-sandbox > "${RUNNER_TEMP}/electron.log" 2>&1 &
+          app_pid=$!
+          cleanup() {
+            kill "$app_pid" 2>/dev/null || true
+            wait "$app_pid" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+
+          for _ in $(seq 1 60); do
+            status=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:4410/memory/api/status 2>/dev/null || echo 000)
+            if [ "$status" = "200" ]; then
+              echo "electron app OK"
+              exit 0
+            fi
+            sleep 1
+          done
+
+          echo "electron app failed to serve"
+          cat "${RUNNER_TEMP}/electron.log" || true
+          exit 1
+
+      - name: Electron launch smoke (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx electron . > "${RUNNER_TEMP}/electron.log" 2>&1 &
+          app_pid=$!
+          cleanup() {
+            kill "$app_pid" 2>/dev/null || true
+            wait "$app_pid" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+
+          for _ in $(seq 1 60); do
+            status=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:4410/memory/api/status 2>/dev/null || echo 000)
+            if [ "$status" = "200" ]; then
+              echo "electron app OK"
+              exit 0
+            fi
+            sleep 1
+          done
+
+          echo "electron app failed to serve"
+          cat "${RUNNER_TEMP}/electron.log" || true
+          exit 1
+
+      - name: Electron launch smoke (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP "electron.log"
+          $process = Start-Process `
+            -FilePath "npx" `
+            -ArgumentList @("electron", ".") `
+            -WorkingDirectory $PWD `
+            -RedirectStandardOutput $log `
+            -RedirectStandardError "$log.err" `
+            -WindowStyle Hidden `
+            -PassThru
+
+          try {
+            foreach ($i in 1..90) {
+              try {
+                $response = Invoke-WebRequest -Uri "http://127.0.0.1:4410/memory/api/status" -UseBasicParsing -TimeoutSec 2
+                if ([int]$response.StatusCode -eq 200) {
+                  Write-Host "electron app OK"
+                  exit 0
+                }
+              } catch {}
+              Start-Sleep -Seconds 1
+            }
+
+            Write-Host "electron app failed to serve"
+            Get-Content -Path $log -ErrorAction SilentlyContinue
+            Get-Content -Path "$log.err" -ErrorAction SilentlyContinue
+            exit 1
+          } finally {
+            if (-not $process.HasExited) {
+              Stop-Process -Id $process.Id -Force
+            }
+          }

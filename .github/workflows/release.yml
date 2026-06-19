@@ -1,0 +1,50 @@
+name: Release (desktop binaries)
+
+# Builds the Electron desktop app for Windows, macOS, and Linux, then attaches
+# the installers to a GitHub Release. Triggered by pushing a version tag
+# (e.g. `git tag v0.8.7 && git push origin v0.8.7`), or run manually.
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write # needed to create the release and upload installers
+
+jobs:
+  build:
+    name: Build ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false # one platform failing must not block the others
+      matrix:
+        os:
+          - windows-latest
+          - macos-latest
+          - ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build (CLI + dashboard UI + electron main)
+        run: npm run build
+
+      - name: Package and publish desktop app
+        # electron-builder defaults to the host OS target, so each matrix leg
+        # produces its own installer (.exe / .dmg / .AppImage).
+        run: npx electron-builder --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # No Apple Developer cert in CI — skip signing instead of failing.
+          CSC_IDENTITY_AUTO_DISCOVERY: false

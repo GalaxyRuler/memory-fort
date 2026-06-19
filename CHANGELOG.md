@@ -4,6 +4,13 @@ All notable changes to Memory Fort are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-06-19
+
+### Added
+- **Desktop app (Electron) with native binary installers** — Memory Fort now ships as an installable desktop application for **Windows** (NSIS `.exe`), **macOS** (`.dmg`, Intel + Apple Silicon), and **Linux** (`.AppImage`), in addition to the npm package. The app wraps the existing dashboard in a native window — no browser tab, no per-launch rebuild. The Electron main process (`electron/main.ts`) starts the dashboard HTTP server **in-process** (no sidecar / child process) via `runDashboard({ noOpen: true })` and loads it in a `BrowserWindow`, with a single-instance lock and external links routed to the system browser. New `electron:dev` / `electron:build` scripts; `electron-builder.yml` defines all three targets and publishes to GitHub Releases. Installers are **unsigned** — Windows SmartScreen / macOS Gatekeeper will warn on first run (click through to proceed).
+- **Cross-platform release workflow** (`.github/workflows/release.yml`) — a tag push (`v*`) fans out a Windows/macOS/Linux build matrix and attaches each installer to a GitHub Release automatically.
+- **Tri-OS Electron launch smoke** (`.github/workflows/smoke.yml`) — boots the actual Electron shell headless on Windows, macOS, and Linux runners and asserts the in-process dashboard answers `200`, verifying the desktop build on every platform without a physical machine.
+
 ## [0.8.6] - 2026-06-18
 
 ### Fixed
