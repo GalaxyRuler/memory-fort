@@ -1,6 +1,6 @@
 appId: io.alkulaib.memoryfort
 productName: MemoryFort
-copyright: Copyright © 2026 Abdullah Al Kulaib
+copyright: Copyright © 2026 Memory Fort
 
 directories:
   output: dist/electron-installer
