@@ -26,6 +26,7 @@ win:
     - target: nsis
       arch:
         - x64
+        - arm64
   icon: assets/memory_fort_icon_512.png
 
 nsis:
@@ -34,15 +35,16 @@ nsis:
   createDesktopShortcut: true
   runAfterFinish: true
 
+# macOS: Apple Silicon only — Intel (x64) is intentionally not built.
 mac:
   target:
     - target: dmg
       arch:
-        - x64
         - arm64
   category: public.app-category.productivity
   icon: assets/memory_fort_icon_512.png
 
+# Linux: AppImage runs on any distro (Debian/Ubuntu included), so no .deb.
 linux:
   target:
     - target: AppImage

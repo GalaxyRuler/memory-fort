@@ -4,6 +4,11 @@ All notable changes to Memory Fort are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.1] - 2026-06-19
+
+### Changed
+- **Desktop build matrix** — installers now target **Windows x64 + ARM64**, **macOS Apple Silicon (arm64) only**, and **Linux AppImage** (runs on any distro, Debian/Ubuntu included). macOS Intel (x64) is no longer built.
+
 ## [0.9.0] - 2026-06-19
 
 ### Added
