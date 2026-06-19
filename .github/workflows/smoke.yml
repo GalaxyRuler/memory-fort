@@ -239,6 +239,23 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y xvfb libgbm1 libnss3 libatk-bridge2.0-0 libgtk-3-0 libasound2t64
 
+      # The electron npm postinstall occasionally downloads but fails to extract
+      # the binary ("Electron failed to install correctly"); re-run it with
+      # retries so the launch smoke doesn't flake on a missing binary.
+      - name: Ensure Electron binary
+        shell: bash
+        run: |
+          for i in 1 2 3; do
+            if node -e "require('node:fs').accessSync(require('electron'))" 2>/dev/null; then
+              echo "electron binary present"
+              exit 0
+            fi
+            echo "electron binary missing — reinstall attempt $i"
+            node node_modules/electron/install.js || true
+          done
+          node -e "require('node:fs').accessSync(require('electron'))" \
+            || { echo "electron binary still missing after retries"; exit 1; }
+
       - name: Electron launch smoke (Linux)
         if: runner.os == 'Linux'
         shell: bash
