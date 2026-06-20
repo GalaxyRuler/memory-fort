@@ -4,6 +4,11 @@ All notable changes to Memory Fort are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.3] - 2026-06-20
+
+### Fixed
+- **Consistent Windows installer naming** — the NSIS installer's on-disk name used spaces (`MemoryFort Setup X.Y.Z.exe`), which GitHub rewrote to dots on upload, so the zipped copy (`MemoryFort.Setup.X.Y.Z.exe.zip`) didn't match the dashed raw installer (`MemoryFort-Setup-X.Y.Z.exe`). Pinned the NSIS `artifactName` to dashes so the raw and zipped Windows downloads share one consistent name.
+
 ## [0.10.2] - 2026-06-20
 
 ### Changed

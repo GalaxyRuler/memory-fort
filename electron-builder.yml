@@ -34,6 +34,11 @@ nsis:
   allowToChangeInstallationDirectory: true
   createDesktopShortcut: true
   runAfterFinish: true
+  # Dash-separated on-disk name (default is "MemoryFort Setup X.Y.Z.exe" with
+  # spaces, which GitHub rewrites to dots on upload — making the zipped copy's
+  # name inconsistent with the dashed raw installer). dmg/AppImage already use
+  # dashes by default.
+  artifactName: ${productName}-Setup-${version}.${ext}
 
 # macOS: Apple Silicon only — Intel (x64) is intentionally not built.
 mac:
