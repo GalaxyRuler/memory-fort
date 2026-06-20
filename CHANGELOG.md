@@ -4,6 +4,17 @@ All notable changes to Memory Fort are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.4] - 2026-06-20
+
+### Fixed
+- **Sync no longer wedges on a secret-shaped capture** — auto-commit detected secret-shaped files but blocked the *entire* batch, so a single captured session containing a credential-shaped string (an API key, password, or token) silently stopped all sync; with the tree left dirty, manual `memory sync` then refused too. Auto-commit now **redacts the offending content in place and commits** instead of blocking; only content that redaction still cannot clean is held back, so one file can no longer wedge the pipeline.
+- **Defense-in-depth redaction at the commit boundary** — secret redaction previously ran only at capture time, so any unredacted content reaching disk another way (an older client on another machine, a future writer, or a newly-seen key shape) was committed and pushed as-is. The auto-commit step now re-redacts before pushing, giving a second line of defense.
+- **AWS access-key IDs are now redacted** (`AKIA…`/`ASIA…`) — previously not covered by any rule and not matched by the generic `KEY/SECRET=` pattern.
+
+### Fixed (Windows)
+- **Auto-push no longer logs spurious `auto-push schedule failed`** — on Windows the exclusive pending-lock open returns `EPERM` while the lock is in delete-pending state (`existsSync` reports it gone), which was misclassified as a fatal error. It's now treated as transient contention (busy) and retried on the next scheduled run.
+- **Transient atomic-write temp/lock files no longer block auto-commit** — `.auto-push-pending.lock` and `*.tmp` write artifacts could appear in `git status -uall` and trip the "non-raw dirty" skip. They are now ignored and added to `.git/info/exclude`.
+
 ## [0.10.3] - 2026-06-20
 
 ### Fixed
