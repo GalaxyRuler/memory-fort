@@ -22,16 +22,18 @@ Lane shape:
 - commands: `npm ci` -> `npm run build` -> `npm run typecheck` (+ `typecheck:ui`) ->
   `npm test -- --reporter=dot`
 
-### Live gate is closed
+### Live gate is open
 
-`liveExecution.allowed` is `false` and `dryRunOnly` is `true`. The profile, route, and
-metadata are wired, but no live container run happens until the project owner approves a
-VPS Docker run with bridge networking for `npm ci`. Until then, only dry-run route
-resolution and metadata validation are expected.
+`liveExecution.allowed` is `true` and `dryRunOnly` is `false` — the project owner
+approved a live VPS Docker run with bridge networking for `npm ci`. Before each live
+dispatch, confirm the selected runner (`vps`) is healthy; its dispatch-health overlay
+goes stale past 72h and must be re-probed:
 
-To open the gate later: set `dryRunOnly` to `false` and `liveExecution.allowed` to `true`
-in `qa/profiles/broad-validation.json`, confirm the selected runner is healthy (normally
-`vps`), then dispatch the bounded Homelab container lane.
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File "$env:CODEX_HOMELAB_ROOT\tools\codex-runner\Test-CodexContainerRunnerHealth.ps1" -RunnerName vps -SshTarget vps -OutputDirectory "$env:TEMP\vps-health" -Json
+```
+
+To re-close the gate, set both flags back (`dryRunOnly: true`, `liveExecution.allowed: false`).
 
 ### Resolve the route (dry, no execution)
 
