@@ -110,7 +110,7 @@ export function EmbedderConfigCard({ disabledReason = null }: { disabledReason?:
       {!editing ? (
         <p className="mb-3 rounded-md border border-border-subtle bg-surface-2 p-2 text-xs text-text-secondary">
           {disabledReason
-            ? `Embedder settings are locked here: ${disabledReason}`
+            ? "Embedder settings are locked here. Hover Read-only or see the notice above for why."
             : "Embedder settings are editable. Use Edit to change the vector provider and model."}
         </p>
       ) : null}

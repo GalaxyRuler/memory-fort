@@ -106,7 +106,7 @@ export function LLMConfigCard({ disabledReason = null }: { disabledReason?: stri
       {!editing ? (
         <p className="mb-3 rounded-md border border-border-subtle bg-surface-2 p-2 text-xs text-text-secondary">
           {disabledReason
-            ? `LLM settings are locked here: ${disabledReason}`
+            ? "LLM settings are locked here. Hover Read-only or see the notice above for why."
             : "LLM settings are editable. Use Edit to change provider, model, and request tuning."}
         </p>
       ) : null}
