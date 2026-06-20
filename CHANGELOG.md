@@ -4,6 +4,11 @@ All notable changes to Memory Fort are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.1] - 2026-06-20
+
+### Fixed
+- **`verify` no longer false-flags large vaults as corrupted** — the `git.integrity` check ran `git fsck --full --strict`, which re-hashes every object and on a large vault (hundreds of MB / 100k+ objects) takes minutes, blowing past its timeout and reporting a healthy vault as "corrupted." Both the local and remote (VPS) checks now use `git fsck --full --connectivity-only`, which catches the missing/unreachable-object corruption that actually breaks sync in about a second. Deep `--strict` inspection is still suggested when a real failure surfaces.
+
 ## [0.10.0] - 2026-06-20
 
 ### Added
