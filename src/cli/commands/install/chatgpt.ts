@@ -44,7 +44,11 @@ export async function runInstallChatGpt(
   if (!opts.dryRun) {
     // Write port to config.yaml directly (chatgpt section is not in applyConfigPatch safelist)
     const configPath = join(root, "config.yaml");
-    const updated = { ...config, chatgpt: { ...config.chatgpt, bridge_port: port } };
+    const updated = {
+      ...config,
+      clients: { ...config.clients, chatgpt: true },
+      chatgpt: { ...config.chatgpt, bridge_port: port },
+    };
     await atomicWrite(
       configPath,
       yaml.dump(updated, { schema: yaml.JSON_SCHEMA, lineWidth: 100, noRefs: true, sortKeys: false }),

@@ -4,12 +4,12 @@ import { useEffect, useState } from "react";
 import { useListKeyNav } from "../hooks/useListKeyNav.js";
 import { type RawIndexFile, useRawIndex } from "../hooks/useRawIndex.js";
 import { readPageSize } from "../lib/pagination.js";
-import { parseSourceFromFilename, type RawSource } from "../lib/raw-helpers.js";
+import { parseSourceFromFilename, RAW_SOURCES, type RawSource } from "../lib/raw-helpers.js";
 import { EmptyState } from "./EmptyState.js";
 import { RawFilters } from "./RawFilters.js";
 import { SessionTile } from "./SessionTile.js";
 
-const VALID_SOURCES = new Set<RawSource>(["claude-code", "codex", "antigravity", "claude-desktop", "manual", "unknown"]);
+const VALID_SOURCES = new Set<RawSource>(RAW_SOURCES);
 
 interface SessionTileEntry {
   date: string;

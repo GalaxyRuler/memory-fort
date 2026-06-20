@@ -241,6 +241,12 @@ describe("client toggles", () => {
     expect(isClientEnabled({ clients: {} }, "codex")).toBe(true);
   });
 
+  it("defaults ChatGPT to disabled until explicitly enabled", () => {
+    expect(isClientEnabled({}, "chatgpt")).toBe(false);
+    expect(isClientEnabled({ clients: {} }, "chatgpt")).toBe(false);
+    expect(isClientEnabled({ clients: { chatgpt: true } }, "chatgpt")).toBe(true);
+  });
+
   it("honors an explicit false", () => {
     expect(isClientEnabled({ clients: { codex: false } }, "codex")).toBe(false);
     expect(isClientEnabled({ clients: { codex: false } }, "claude-code")).toBe(true);

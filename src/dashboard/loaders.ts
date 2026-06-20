@@ -73,6 +73,9 @@ const TIMELINE_LANES = [
   "antigravity",
   "claude-desktop",
   "chatgpt",
+  "hermes",
+  "pi",
+  "openclaw",
   "opencode",
   "opencoven",
   "vscode",
@@ -87,6 +90,9 @@ const TIMELINE_COLORS: Record<(typeof TIMELINE_LANES)[number], string> = {
   antigravity: "#cebdff",
   "claude-desktop": "#c084fc",
   chatgpt: "#10a37f",
+  hermes: "#14b8a6",
+  pi: "#f43f5e",
+  openclaw: "#84cc16",
   opencode: "#f97316",
   opencoven: "#e879f9",
   vscode: "#007acc",
@@ -146,7 +152,20 @@ export interface RawSession {
   sizeBytes: number;
 }
 
-export type RawSessionSource = "claude-code" | "codex" | "antigravity" | "claude-desktop" | "chatgpt" | "opencode" | "opencoven" | "vscode" | "manual" | "unknown";
+export type RawSessionSource =
+  | "claude-code"
+  | "codex"
+  | "antigravity"
+  | "claude-desktop"
+  | "chatgpt"
+  | "hermes"
+  | "pi"
+  | "openclaw"
+  | "opencode"
+  | "opencoven"
+  | "vscode"
+  | "manual"
+  | "unknown";
 
 export interface RawSessionDetail {
   date: string;
@@ -177,6 +196,9 @@ export type ActivitySource =
   | "antigravity"
   | "claude-desktop"
   | "chatgpt"
+  | "hermes"
+  | "pi"
+  | "openclaw"
   | "opencode"
   | "opencoven"
   | "vscode"
@@ -1424,6 +1446,9 @@ export function timelineLaneForEvent(event: ActivityEvent): (typeof TIMELINE_LAN
     event.source === "antigravity" ||
     event.source === "claude-desktop" ||
     event.source === "chatgpt" ||
+    event.source === "hermes" ||
+    event.source === "pi" ||
+    event.source === "openclaw" ||
     event.source === "opencode" ||
     event.source === "opencoven" ||
     event.source === "vscode" ||
@@ -1452,6 +1477,12 @@ function rawCaptureSourceLabel(source: RawCaptureSource): string {
       return "Claude Desktop";
     case "chatgpt":
       return "ChatGPT";
+    case "hermes":
+      return "Hermes";
+    case "pi":
+      return "Pi";
+    case "openclaw":
+      return "OpenClaw";
     case "opencode":
       return "OpenCode";
     case "opencoven":

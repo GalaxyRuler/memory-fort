@@ -63,6 +63,21 @@ describe("sessionStartBody", () => {
     expect(all).not.toContain("Schema");
   });
 
+  it("emits no session context when the detected client is disabled", async () => {
+    const writes: string[] = [];
+    await sessionStartBody(
+      {},
+      {
+        detectTool: () => "codex",
+        configLoader: async () => ({ clients: { codex: false } }),
+        readFile: async () => "should not be read",
+        write: (t) => writes.push(t),
+      },
+    );
+
+    expect(writes).toEqual([]);
+  });
+
   it("tails log.md to last 20 lines", async () => {
     const writes: string[] = [];
     const longLog = Array.from({ length: 50 }, (_, i) => `line${i}`).join("\n");

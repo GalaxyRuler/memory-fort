@@ -1,6 +1,7 @@
 import { mkdir, readFile, readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import yaml from "js-yaml";
+import { CONFIGURABLE_CLIENT_IDS } from "../clients/catalog.js";
 import { atomicWrite as defaultAtomicWrite } from "../storage/atomic-write.js";
 import { loadMemoryConfig, type MemoryConfig } from "../storage/config.js";
 import { classifyConfiguredOutboundUrl, classifyOpenAIBaseUrl, classifyOutboundUrl } from "../storage/url-safety.js";
@@ -83,14 +84,7 @@ const SAFELISTED_PATHS = new Set([
   "capture.max_output_bytes",
   "dashboard.trusted_origins",
   "dashboard.behind_proxy",
-  "clients.claude-code",
-  "clients.codex",
-  "clients.antigravity",
-  "clients.opencoven",
-  "clients.opencode",
-  "clients.chatgpt",
-  "clients.vscode",
-  "clients.claude-desktop",
+  ...CONFIGURABLE_CLIENT_IDS.map((clientId) => `clients.${clientId}`),
 ]);
 
 // Keys inside embedder.options / llm.options whose value is an outbound URL.
@@ -98,8 +92,8 @@ const URL_LIKE_OPTION_KEY = /^(base[_-]?url|url|host|endpoint)$/i;
 const PROTOTYPE_POLLUTION_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 
 const VALID_TOP_LEVEL_KEYS = new Set(["embedder", "llm", "auto_promote", "auto_heal", "compile", "capture", "dashboard", "clients"]);
-const VALID_EMBEDDER_PROVIDERS = new Set(["lexical", "voyage", "openai", "ollama"]);
-const VALID_LLM_PROVIDERS = new Set(["openrouter", "ollama"]);
+const VALID_EMBEDDER_PROVIDERS = new Set(["lexical", "voyage", "openai", "ollama", "openai-compat"]);
+const VALID_LLM_PROVIDERS = new Set(["openrouter", "ollama", "openai-compat"]);
 const VALID_AUTO_PROMOTE_CADENCES = new Set(["weekly", "daily", "manual"]);
 const VALID_AUTO_PROMOTE_THRESHOLDS = new Set(["high", "none"]);
 const VALID_COMPILE_CADENCES = new Set(["daily", "weekly", "manual"]);

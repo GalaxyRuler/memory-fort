@@ -7,6 +7,9 @@ export type RawCaptureSource =
   | "antigravity"
   | "claude-desktop"
   | "chatgpt"
+  | "hermes"
+  | "pi"
+  | "openclaw"
   | "opencode"
   | "opencoven"
   | "vscode"
@@ -51,6 +54,9 @@ const RAW_CAPTURE_SESSION_PREFIXES = [
   "claude-desktop-",
   "antigravity-",
   "chatgpt-",
+  "hermes-",
+  "pi-",
+  "openclaw-",
   "opencode-",
   "opencoven-",
   "vscode-",
@@ -173,6 +179,9 @@ export function parseRawCaptureSourceFromFilename(filename: string): RawCaptureS
   if (filename.startsWith("antigravity-")) return "antigravity";
   if (filename.startsWith("claude-desktop-")) return "claude-desktop";
   if (filename.startsWith("chatgpt-")) return "chatgpt";
+  if (filename.startsWith("hermes-")) return "hermes";
+  if (filename.startsWith("pi-")) return "pi";
+  if (filename.startsWith("openclaw-")) return "openclaw";
   if (filename.startsWith("opencode-")) return "opencode";
   if (filename.startsWith("opencoven-")) return "opencoven";
   if (filename.startsWith("vscode-")) return "vscode";

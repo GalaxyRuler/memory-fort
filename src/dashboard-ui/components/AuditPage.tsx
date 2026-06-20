@@ -29,6 +29,9 @@ const SOURCES: Array<{ value: ActivityEvent["source"] | "all"; label: string }> 
   { value: "antigravity", label: "Antigravity" },
   { value: "claude-desktop", label: "Claude Desktop" },
   { value: "chatgpt", label: "ChatGPT" },
+  { value: "hermes", label: "Hermes" },
+  { value: "pi", label: "Pi" },
+  { value: "openclaw", label: "OpenClaw" },
   { value: "opencode", label: "OpenCode" },
   { value: "opencoven", label: "OpenCoven" },
   { value: "vscode", label: "VS Code" },
@@ -39,7 +42,7 @@ const VALID_LEVELS = new Set<ActivityEvent["level"]>(["info", "warn", "error"]);
 const VALID_SOURCES = new Set<ActivityEvent["source"]>([
   "git", "compile", "sync", "lint", "errors",
   "claude-code", "codex", "antigravity", "claude-desktop",
-  "chatgpt", "opencode", "opencoven", "vscode", "manual",
+  "chatgpt", "hermes", "pi", "openclaw", "opencode", "opencoven", "vscode", "manual",
 ]);
 
 function readLevel(value: unknown): ActivityEvent["level"] | "all" {

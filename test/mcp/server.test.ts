@@ -122,6 +122,27 @@ describe("logObservation", () => {
     expect(ensureRawSessionFileFn).toHaveBeenCalled();
     expect(appendBlockFn).toHaveBeenCalled();
   });
+
+  it("skips source-tagged client observations when that client is disabled", async () => {
+    const ensureRawSessionFile = vi.fn();
+    const appendBlock = vi.fn();
+    const commitVaultChange = vi.fn();
+
+    const result = await logObservation(
+      { text: "do not capture", source: "codex" },
+      {
+        configLoader: async () => ({ clients: { codex: false } }),
+        ensureRawSessionFile,
+        appendBlock,
+        commitVaultChange,
+      },
+    );
+
+    expect(result.content[0]!.text).toContain("codex is disabled");
+    expect(ensureRawSessionFile).not.toHaveBeenCalled();
+    expect(appendBlock).not.toHaveBeenCalled();
+    expect(commitVaultChange).not.toHaveBeenCalled();
+  });
 });
 
 describe("readPage", () => {

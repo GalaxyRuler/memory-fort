@@ -8,6 +8,15 @@ describe("parseRawCaptureSourceFromFilename — new clients", () => {
   it("detects opencode", () => {
     expect(parseRawCaptureSourceFromFilename("opencode-abc123.md")).toBe("opencode");
   });
+  it("detects hermes", () => {
+    expect(parseRawCaptureSourceFromFilename("hermes-abc123.md")).toBe("hermes");
+  });
+  it("detects pi", () => {
+    expect(parseRawCaptureSourceFromFilename("pi-abc123.md")).toBe("pi");
+  });
+  it("detects openclaw", () => {
+    expect(parseRawCaptureSourceFromFilename("openclaw-abc123.md")).toBe("openclaw");
+  });
   it("detects opencoven", () => {
     expect(parseRawCaptureSourceFromFilename("opencoven-abc123.md")).toBe("opencoven");
   });

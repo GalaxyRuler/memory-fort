@@ -55,6 +55,8 @@ describe("runInstallChatGpt", () => {
 
     const [writtenPath, writtenContent] = mockWrite.mock.calls[0] as [string, string];
     expect(writtenPath).toContain("config.yaml");
+    expect(writtenContent).toContain("clients:");
+    expect(writtenContent).toContain("chatgpt: true");
     expect(writtenContent).toContain("bridge_port: 3100");
   });
 });

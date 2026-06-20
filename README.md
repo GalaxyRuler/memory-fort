@@ -79,6 +79,16 @@ memory-fort grep "your query"
 memory-fort dashboard
 ```
 
+### First-run checklist
+
+1. Install Node.js 20 or newer.
+2. Run `npx memory-fort init` and accept the keyless lexical retrieval default unless you already know which embedding provider you want.
+3. Start the dashboard with `memory-fort dashboard` and open the printed `http://127.0.0.1:4410/memory/` URL.
+4. In Settings, confirm the embedder is `lexical` for a no-key setup, or choose Voyage, OpenAI, Ollama, or OpenAI-compatible and save the provider settings.
+5. Add API keys from the dashboard only when using hosted providers; keys are stored outside the git-backed vault and are never written into `~/.memory/config.yaml`.
+6. Turn off clients you do not want Memory Fort to use. Turning a client off preserves its saved setup; `memory-fort disconnect <client>` removes the integration config.
+7. Run `memory-fort doctor` or `memory-fort verify` after connecting clients to confirm the vault, providers, dashboard, and integrations are healthy.
+
 ---
 
 ## How it works
@@ -245,6 +255,12 @@ OpenCode support features MCP config wiring and selected event plugin installati
 
 ChatGPT connects through an HTTP/SSE bridge server (default `localhost:3100`) that translates MCP stdio into HTTP Server-Sent Events, which ChatGPT's "Connectors" feature can consume. You can manage the bridge via the CLI (`memory-fort chatgpt-bridge start|stop|status`) or configure the port in `~/.memory/config.yaml` under `chatgpt.bridge_port`. Autostart on Windows is supported via the HKCU Run registry key (best-effort).
 
+Disable vs disconnect:
+
+- **Disable temporarily:** use the dashboard Settings → Clients switches, or set `clients.<client>: false` in `~/.memory/config.yaml`. This keeps saved configuration but makes supported hooks, MCP observations, and verify checks skip that client.
+- **Disconnect/remove setup:** run `memory-fort disconnect <client>` or `memory-fort disconnect --all`. This removes the integration files or connector setup where the platform supports removal.
+- **ChatGPT is opt-in:** the bridge stays disabled until `memory-fort install chatgpt` or `clients.chatgpt: true` enables it.
+
 ```bash
 # Undo any integration cleanly
 memory-fort uninstall claude-code
@@ -262,8 +278,18 @@ memory-fort disconnect --all
 | **Voyage embeddings** | `VOYAGE_API_KEY` | Hosted semantic retrieval |
 | **OpenAI embeddings** | `OPENAI_API_KEY` | Alternative to Voyage |
 | **Ollama (local)** | Ollama running locally | Full local, no cloud at all |
+| **OpenAI-compatible endpoint** | Local/compatible HTTP endpoint | Advanced local gateways; dashboard stores endpoint URL and dimension, not API keys |
 
 Switch any time: edit `~/.memory/config.yaml` or re-run `memory-fort init`.
+
+Provider checks:
+
+```bash
+memory-fort provider list-embedders
+memory-fort provider test-embedder
+memory-fort provider list-llms
+memory-fort provider test-llm
+```
 
 Search results include provenance receipts showing BM25, embedding, and graph signals — visible in the dashboard and MCP API.
 

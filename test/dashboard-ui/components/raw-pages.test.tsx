@@ -62,6 +62,13 @@ describe("raw page helpers and components", () => {
     expect(parseSourceFromFilename("codex-abc.md")).toBe("codex");
     expect(parseSourceFromFilename("antigravity-abc.md")).toBe("antigravity");
     expect(parseSourceFromFilename("claude-desktop-abc.md")).toBe("claude-desktop");
+    expect(parseSourceFromFilename("chatgpt-abc.md")).toBe("chatgpt");
+    expect(parseSourceFromFilename("hermes-abc.md")).toBe("hermes");
+    expect(parseSourceFromFilename("pi-abc.md")).toBe("pi");
+    expect(parseSourceFromFilename("openclaw-abc.md")).toBe("openclaw");
+    expect(parseSourceFromFilename("opencode-abc.md")).toBe("opencode");
+    expect(parseSourceFromFilename("opencoven-abc.md")).toBe("opencoven");
+    expect(parseSourceFromFilename("vscode-abc.md")).toBe("vscode");
     expect(parseSourceFromFilename("manual-mcp-abc.md")).toBe("manual");
     expect(parseSourceFromFilename("mystery-abc.md")).toBe("unknown");
   });
@@ -70,6 +77,8 @@ describe("raw page helpers and components", () => {
     expect(parseSessionIdFromFilename("claude-code-abc.md")).toBe("abc");
     expect(parseSessionIdFromFilename("codex-abc.md")).toBe("abc");
     expect(parseSessionIdFromFilename("antigravity-abc.md")).toBe("abc");
+    expect(parseSessionIdFromFilename("openclaw-abc.md")).toBe("abc");
+    expect(parseSessionIdFromFilename("vscode-abc.md")).toBe("abc");
     expect(parseSessionIdFromFilename("manual-mcp-abc.md")).toBe("abc");
     expect(parseSessionIdFromFilename("manual-abc.md")).toBe("abc");
   });

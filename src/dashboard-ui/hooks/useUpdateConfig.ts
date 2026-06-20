@@ -3,15 +3,17 @@ import { apiPatch } from "../lib/api.js";
 
 export interface ConfigPatchBody {
   embedder?: {
-    provider?: "lexical" | "voyage" | "openai" | "ollama";
+    provider?: "lexical" | "voyage" | "openai" | "ollama" | "openai-compat";
     model?: string;
+    allow_internal_hosts?: boolean;
     options?: Record<string, unknown>;
   };
   llm?: {
-    provider?: "openrouter" | "ollama";
+    provider?: "openrouter" | "ollama" | "openai-compat";
     model?: string;
     max_tokens?: number;
     temperature?: number;
+    allow_internal_hosts?: boolean;
     options?: Record<string, unknown>;
   };
   auto_promote?: {

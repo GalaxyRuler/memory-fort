@@ -38,6 +38,12 @@ describe("EmbedderConfigCard", () => {
             envVarStatus: "missing",
             models: [{ id: "text-embedding-3-small", dim: 1536, default: true }],
           },
+          {
+            provider: "openai-compat",
+            envVar: "none",
+            envVarStatus: "set",
+            models: [{ id: "nomic-embed-text", dim: 768, default: true }],
+          },
         ],
       },
       isLoading: false,
@@ -66,6 +72,44 @@ describe("EmbedderConfigCard", () => {
 
     expect(mutation.mutate).toHaveBeenCalledWith(
       { embedder: { provider: "openai", model: "text-embedding-3-small" } },
+      expect.any(Object),
+    );
+  });
+
+  test("saves openai-compatible endpoint settings without an API key field", () => {
+    const mutation = { mutate: vi.fn(), isPending: false, error: null };
+    hooks.useConfig.mockReturnValue({
+      data: {
+        embedder: {
+          provider: "openai-compat",
+          model: "nomic-embed-text",
+          options: { baseURL: "http://127.0.0.1:11434/v1", dim: 768 },
+        },
+      },
+      isLoading: false,
+      error: null,
+    });
+    hooks.useUpdateConfig.mockReturnValue(mutation);
+
+    render(<EmbedderConfigCard />);
+
+    fireEvent.click(screen.getByRole("button", { name: /edit embedder/i }));
+    expect(screen.queryByLabelText("OpenAI-compat API key")).toBeNull();
+    fireEvent.change(screen.getByLabelText("OpenAI-compat base URL"), {
+      target: { value: "http://127.0.0.1:11435/v1" },
+    });
+    fireEvent.change(screen.getByLabelText("Embedding dimension"), { target: { value: "1024" } });
+    fireEvent.click(screen.getByRole("button", { name: /save embedder changes/i }));
+
+    expect(mutation.mutate).toHaveBeenCalledWith(
+      {
+        embedder: {
+          provider: "openai-compat",
+          model: "nomic-embed-text",
+          options: { baseURL: "http://127.0.0.1:11435/v1", dim: 1024 },
+          allow_internal_hosts: true,
+        },
+      },
       expect.any(Object),
     );
   });

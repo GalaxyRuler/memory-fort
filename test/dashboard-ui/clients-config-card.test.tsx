@@ -23,9 +23,12 @@ describe("ClientsConfigCard", () => {
     mockClients = { codex: false };
     mockMutate = vi.fn();
     wrap(<ClientsConfigCard />);
-    expect(screen.getByText(/codex/i)).toBeInTheDocument();
-    const offBadge = screen.getByText(/^off$/i);
-    expect(offBadge).toBeInTheDocument();
+    expect(screen.getByText("Codex")).toBeInTheDocument();
+    expect(screen.getByText("Hermes")).toBeInTheDocument();
+    expect(screen.getByText("OpenClaw")).toBeInTheDocument();
+    expect(screen.getByText("Claude Desktop")).toBeInTheDocument();
+    expect(screen.getByText("VS Code")).toBeInTheDocument();
+    expect(screen.getAllByText(/^off$/i).length).toBeGreaterThanOrEqual(1);
   });
 
   it("calls mutate with { clients: { 'claude-code': false } } when toggling an enabled client off", () => {
@@ -41,11 +44,21 @@ describe("ClientsConfigCard", () => {
     expect(mockMutate).toHaveBeenCalledWith({ clients: { "claude-code": false } });
   });
 
-  it("shows no Off badge when all clients are enabled (empty clients map)", () => {
+  it("shows ChatGPT off by default because the bridge is opt-in", () => {
     mockClients = {};
     mockMutate = vi.fn();
     wrap(<ClientsConfigCard />);
 
-    expect(screen.queryByText(/^off$/i)).toBeNull();
+    expect(screen.getByRole("switch", { name: /chatgpt disabled/i })).toBeInTheDocument();
+  });
+
+  it("calls mutate with { clients: { chatgpt: true } } when enabling ChatGPT", () => {
+    mockClients = {};
+    mockMutate = vi.fn();
+    wrap(<ClientsConfigCard />);
+
+    fireEvent.click(screen.getByRole("switch", { name: /chatgpt disabled/i }));
+
+    expect(mockMutate).toHaveBeenCalledWith({ clients: { chatgpt: true } });
   });
 });

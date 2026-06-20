@@ -38,6 +38,12 @@ describe("LLMConfigCard", () => {
             envVarStatus: "set",
             models: [{ id: "llama3.2", default: true }],
           },
+          {
+            provider: "openai-compat",
+            envVar: "none",
+            envVarStatus: "set",
+            models: [{ id: "llama3.2", default: true }],
+          },
         ],
       },
       isLoading: false,
@@ -63,6 +69,47 @@ describe("LLMConfigCard", () => {
 
     expect(mutation.mutate).toHaveBeenCalledWith(
       { llm: { provider: "ollama", model: "llama3.2", max_tokens: 1024, temperature: 0.7 } },
+      expect.any(Object),
+    );
+  });
+
+  test("saves openai-compatible endpoint settings without an API key field", () => {
+    const mutation = { mutate: vi.fn(), isPending: false, error: null };
+    hooks.useConfig.mockReturnValue({
+      data: {
+        llm: {
+          provider: "openai-compat",
+          model: "llama3.2",
+          max_tokens: 2048,
+          temperature: 0.2,
+          options: { baseURL: "http://127.0.0.1:11434/v1" },
+        },
+      },
+      isLoading: false,
+      error: null,
+    });
+    hooks.useUpdateConfig.mockReturnValue(mutation);
+
+    render(<LLMConfigCard />);
+
+    fireEvent.click(screen.getByRole("button", { name: /edit llm/i }));
+    expect(screen.queryByLabelText("OpenAI-compat API key")).toBeNull();
+    fireEvent.change(screen.getByLabelText("OpenAI-compat base URL"), {
+      target: { value: "http://127.0.0.1:11435/v1" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /save llm changes/i }));
+
+    expect(mutation.mutate).toHaveBeenCalledWith(
+      {
+        llm: {
+          provider: "openai-compat",
+          model: "llama3.2",
+          max_tokens: 2048,
+          temperature: 0.2,
+          options: { baseURL: "http://127.0.0.1:11435/v1" },
+          allow_internal_hosts: true,
+        },
+      },
       expect.any(Object),
     );
   });

@@ -2,19 +2,18 @@ import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import https from "node:https";
 import { chatgptBridgePidPath } from "../../../storage/paths.js";
-import { loadMemoryConfig, getChatGptBridgePort } from "../../../storage/config.js";
+import { loadMemoryConfig, getChatGptBridgePort, isClientEnabled } from "../../../storage/config.js";
 import { loadBridgeTlsCert } from "../../../mcp/tls.js";
 import { fail, pass, skip, warn, type CheckDescriptor } from "./types.js";
 
 const CLIENT_ID = "chatgpt";
 
 /**
- * ChatGPT bridge is opt-in: skip unless `clients.chatgpt: true` in config.yaml.
- * Most clients default-on, but the bridge requires explicit setup so we don't
- * spam failures for users who haven't installed it.
+ * ChatGPT bridge is opt-in: the shared client catalog defaults it off until
+ * install or settings explicitly set `clients.chatgpt: true`.
  */
 function isChatGptBridgeEnabled(config: { clients?: Record<string, boolean> }): boolean {
-  return config.clients?.[CLIENT_ID] === true;
+  return isClientEnabled(config, CLIENT_ID);
 }
 
 export const chatgptBridgeRunningCheck: CheckDescriptor = {

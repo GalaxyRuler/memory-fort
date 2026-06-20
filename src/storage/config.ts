@@ -1,6 +1,7 @@
 import { appendFile, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import yaml from "js-yaml";
+import { readConfiguredClientEnabled } from "../clients/catalog.js";
 import { memoryRoot as defaultMemoryRoot } from "./paths.js";
 
 export interface ResolvedCompileConfig {
@@ -189,11 +190,11 @@ export function resolveCompileConfig(raw: MemoryConfig["compile"]): ResolvedComp
 export function validateMemoryConfig(config: MemoryConfig): string[] {
   const warnings: string[] = [];
   const embedder = asRecord(config.embedder);
-  if (embedder?.["provider"] !== undefined && !["lexical", "voyage", "openai", "ollama"].includes(String(embedder["provider"]))) {
+  if (embedder?.["provider"] !== undefined && !["lexical", "voyage", "openai", "ollama", "openai-compat"].includes(String(embedder["provider"]))) {
     warnings.push(`embedder.provider has invalid value ${JSON.stringify(embedder["provider"])}`);
   }
   const embedding = asRecord(config.embedding);
-  if (embedding?.["provider"] !== undefined && !["lexical", "voyage", "openai", "ollama"].includes(String(embedding["provider"]))) {
+  if (embedding?.["provider"] !== undefined && !["lexical", "voyage", "openai", "ollama", "openai-compat"].includes(String(embedding["provider"]))) {
     warnings.push(`embedding.provider has invalid value ${JSON.stringify(embedding["provider"])}`);
   }
   const llm = asRecord(config.llm);
@@ -377,7 +378,7 @@ export function getChatGptBridgePort(config: MemoryConfig): number {
   return port;
 }
 
-/** A client is enabled unless config.clients[id] is explicitly false. */
+/** Most clients default on; opt-in clients such as ChatGPT default off until explicitly enabled. */
 export function isClientEnabled(config: MemoryConfig, id: string): boolean {
-  return config.clients?.[id] !== false;
+  return readConfiguredClientEnabled(config.clients, id);
 }

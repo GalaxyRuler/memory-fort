@@ -17,7 +17,6 @@ interface LLMDraft {
   max_tokens: number;
   temperature: number;
   baseURL?: string;
-  apiKey?: string;
 }
 
 export function LLMConfigCard({ disabledReason = null }: { disabledReason?: string | null }) {
@@ -31,6 +30,10 @@ export function LLMConfigCard({ disabledReason = null }: { disabledReason?: stri
   const providerEntries = providers.data?.llms ?? [];
   const selectedProvider = providerEntries.find((entry) => entry.provider === draft.provider);
   const activeProviderEntry = providerEntries.find((entry) => entry.provider === active.provider);
+  const saveDisabled = mutation.isPending ||
+    draft.model.trim().length === 0 ||
+    disabledReason !== null ||
+    (draft.provider === "openai-compat" && !draft.baseURL?.trim());
 
   function startEditing() {
     if (disabledReason) return;
@@ -49,10 +52,8 @@ export function LLMConfigCard({ disabledReason = null }: { disabledReason?: stri
     };
     if (provider === "openai-compat") {
       next.baseURL = "";
-      next.apiKey = "";
     } else {
       delete next.baseURL;
-      delete next.apiKey;
     }
     setDraft(next);
   }
@@ -67,7 +68,6 @@ export function LLMConfigCard({ disabledReason = null }: { disabledReason?: stri
     if (draft.provider === "openai-compat") {
       const options: Record<string, unknown> = {};
       if (draft.baseURL?.trim()) options["baseURL"] = draft.baseURL.trim();
-      if (draft.apiKey?.trim()) options["apiKey"] = draft.apiKey.trim();
       patch["options"] = options;
       patch["allow_internal_hosts"] = true;
     }
@@ -99,10 +99,17 @@ export function LLMConfigCard({ disabledReason = null }: { disabledReason?: stri
             className="disabled:cursor-not-allowed disabled:opacity-45"
           >
             <Pencil size={15} strokeWidth={1.5} />
-            Edit
+            {disabledReason ? "Read-only" : "Edit"}
           </Button>
         )}
       </div>
+      {!editing ? (
+        <p className="mb-3 rounded-md border border-border-subtle bg-surface-2 p-2 text-xs text-text-secondary">
+          {disabledReason
+            ? `LLM settings are locked here: ${disabledReason}`
+            : "LLM settings are editable. Use Edit to change provider, model, and request tuning."}
+        </p>
+      ) : null}
 
       {editing ? (
         <div className="space-y-3">
@@ -173,16 +180,10 @@ export function LLMConfigCard({ disabledReason = null }: { disabledReason?: stri
                   className="w-full"
                 />
               </label>
-              <label className="block text-sm">
-                <span className="mb-1 block text-xs uppercase tracking-wide text-text-muted">API Key (optional)</span>
-                <Input
-                  aria-label="OpenAI-compat API key"
-                  value={draft.apiKey ?? ""}
-                  placeholder="Leave blank if not required"
-                  onChange={(event) => setDraft((current) => ({ ...current, apiKey: event.target.value }))}
-                  className="w-full"
-                />
-              </label>
+              <p className="rounded-md border border-border-subtle bg-surface-2 p-2 text-xs text-text-secondary">
+                API keys are not stored in config from the dashboard. Use a local endpoint that does not require a key
+                or configure credentials outside the vault.
+              </p>
             </>
           )}
 
@@ -195,7 +196,7 @@ export function LLMConfigCard({ disabledReason = null }: { disabledReason?: stri
               type="button"
               variant="primary"
               onClick={save}
-              disabled={mutation.isPending || draft.model.trim().length === 0 || disabledReason !== null}
+              disabled={saveDisabled}
               title={disabledReason ?? undefined}
               aria-label="Save LLM changes"
             >
@@ -340,11 +341,13 @@ function KeyStatus({ provider, loading }: { provider?: ProviderCatalogEntry; loa
 
 function readActiveLLM(config: ConfigObject | undefined): LLMDraft {
   const llm = asRecord(config?.llm);
+  const options = asRecord(llm?.options);
   return {
     provider: readLLMProvider(llm?.provider) ?? "openrouter",
     model: readString(llm?.model) ?? "openai/gpt-4o-mini",
     max_tokens: readNumber(llm?.max_tokens) ?? 4096,
     temperature: readNumber(llm?.temperature) ?? 0.2,
+    baseURL: readString(options?.baseURL),
   };
 }
 

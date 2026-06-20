@@ -2,7 +2,15 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { codexCaptureCheck } from "../../../../src/cli/commands/verify/clients.js";
+import {
+  claudeDesktopConfigCheck,
+  codexCaptureCheck,
+  snifferClaudeDesktopCaptureCheck,
+  snifferClaudeDesktopWatcherCheck,
+  snifferVscodeCaptureCheck,
+  snifferVscodeExtensionCheck,
+  vscodeConfigCheck,
+} from "../../../../src/cli/commands/verify/clients.js";
 
 async function makeVault(configYaml: string): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "mf-clients-"));
@@ -23,5 +31,23 @@ describe("client toggle short-circuits verify", () => {
     const result = await codexCaptureCheck.run({ vaultRoot, now: () => new Date() } as never);
     const flat = Array.isArray(result) ? result : [result];
     expect(flat[0]?.status).not.toBe("skip");
+  });
+
+  it("skips every VS Code verify check when VS Code is disabled", async () => {
+    const vaultRoot = await makeVault("clients:\n  vscode: false\n");
+    for (const check of [vscodeConfigCheck, snifferVscodeExtensionCheck, snifferVscodeCaptureCheck]) {
+      const result = await check.run({ vaultRoot, now: () => new Date() } as never);
+      const flat = Array.isArray(result) ? result : [result];
+      expect(flat[0]?.status).toBe("skip");
+    }
+  });
+
+  it("skips every Claude Desktop verify check when Claude Desktop is disabled", async () => {
+    const vaultRoot = await makeVault("clients:\n  claude-desktop: false\n");
+    for (const check of [claudeDesktopConfigCheck, snifferClaudeDesktopWatcherCheck, snifferClaudeDesktopCaptureCheck]) {
+      const result = await check.run({ vaultRoot, now: () => new Date() } as never);
+      const flat = Array.isArray(result) ? result : [result];
+      expect(flat[0]?.status).toBe("skip");
+    }
   });
 });
