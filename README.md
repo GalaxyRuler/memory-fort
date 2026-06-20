@@ -386,6 +386,8 @@ Memory Fort ships as a native desktop application so you don't need Node.js or a
 
 The app is the same dashboard in a native window — it starts the local server in-process and opens automatically. Your vault lives in the same place as the CLI's (`memory init` is still the way to wire up AI-tool integrations).
 
+> **Browser blocks the download?** Chrome and other browsers sometimes refuse to download an unsigned `.exe` ("can't be downloaded securely"). Every installer is also published as a `.zip` (`MemoryFort-Setup-X.Y.Z.exe.zip`, etc.) — download that instead, then extract and run the installer inside.
+
 > **Unsigned installers.** The binaries are not code-signed, so the first launch triggers a warning — Windows SmartScreen ("More info → Run anyway") or macOS Gatekeeper (right-click → Open). This is expected; the app is open source (GPL-3.0) and free.
 
 **Build it yourself:** `npm run electron:build` produces an installer for your current OS in `dist/electron-installer/`.
