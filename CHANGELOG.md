@@ -4,7 +4,7 @@ All notable changes to Memory Fort are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.10.0] - 2026-06-20
 
 ### Added
 - **Client enable/disable controls** — Settings → Clients now lists every supported client with a per-client toggle. Disabled clients are skipped by supported runtime checks, hooks, MCP observation logging, raw capture, and status/activity displays, while keeping their saved setup until you `disconnect`. ChatGPT is now opt-in (absent `clients.chatgpt` means disabled).
