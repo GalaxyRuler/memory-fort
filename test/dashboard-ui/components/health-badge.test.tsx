@@ -97,6 +97,30 @@ describe("HealthBadge", () => {
       screen.getByText("OUTAGE: enabled but no capture in 4 days (last seen 2026-05-22)"),
     ).toBeInTheDocument();
   });
+
+  it("reframes a failing report as setup-in-progress for a new vault", () => {
+    mockUseHealth.mockReturnValue(query(mixedReport()));
+
+    render(<HealthBadge newVault={true} />);
+
+    // Calm, non-alarming summary instead of "Health needs attention".
+    expect(screen.getByText("Finishing setup")).toBeInTheDocument();
+    expect(screen.queryByText("Health needs attention")).not.toBeInTheDocument();
+    // The scary red failure-count pill is suppressed for a new vault.
+    expect(screen.queryByText("1 failure")).not.toBeInTheDocument();
+    // Details remain available — nothing is hidden, just recontextualized.
+    fireEvent.click(screen.getByRole("button", { name: /memory health/i }));
+    expect(screen.getByText("claude-code plugin enabled")).toBeInTheDocument();
+  });
+
+  it("does not reframe a healthy report on a new vault", () => {
+    mockUseHealth.mockReturnValue(query(allPassReport()));
+
+    render(<HealthBadge newVault={true} />);
+
+    expect(screen.getByText("All systems connected")).toBeInTheDocument();
+    expect(screen.queryByText("Finishing setup")).not.toBeInTheDocument();
+  });
 });
 
 function loadingQuery(): ReturnType<typeof useHealth> {

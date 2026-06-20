@@ -4,6 +4,7 @@ import { EmptyState } from "../components/EmptyState.js";
 import { GraphHealthPanel } from "../components/GraphHealthPanel.js";
 import { HealthBadge } from "../components/HealthBadge.js";
 import { NeedsAttention } from "../components/NeedsAttention.js";
+import { WelcomeCard, isNewVault } from "../components/WelcomeCard.js";
 import { StatCard } from "../components/StatCard.js";
 import { useActivity } from "../hooks/useActivity.js";
 import { useStatus } from "../hooks/useStatus.js";
@@ -43,6 +44,7 @@ function OverviewScreen() {
   const graph = useGraph("wiki");
 
   const counts = status.data?.counts;
+  const newVault = isNewVault(counts);
 
   // 1. Pages metric and breakdown
   const byCategory = wiki.data?.byCategory ?? {};
@@ -117,7 +119,8 @@ function OverviewScreen() {
         </div>
       </header>
 
-      <HealthBadge />
+      {newVault ? <WelcomeCard /> : null}
+      <HealthBadge newVault={newVault} />
       <GraphHealthPanel />
 
       {/* Top Row: 4 Metric Cards */}

@@ -47,7 +47,7 @@ const UNKNOWN_HEALTH_CHECK: CheckResult = {
   durationMs: 0,
 };
 
-export function HealthBadge() {
+export function HealthBadge({ newVault = false }: { newVault?: boolean } = {}) {
   const health = useHealth();
   const [expanded, setExpanded] = useState(() =>
     typeof window !== "undefined" && window.location.hash === "#memory-health",
@@ -88,7 +88,16 @@ export function HealthBadge() {
   }, [report]);
 
   const status = health.isError ? "fail" : report?.overallStatus ?? "warn";
-  const meta = STATUS_META[status];
+  // A brand-new vault routinely reports failing/ warning checks (no embeddings
+  // yet, no verify report) that are expected setup state, not problems. Reframe
+  // them calmly for first-time users instead of flashing a red alarm. Details
+  // stay expandable below, so nothing is hidden — only recontextualized.
+  const calmForNewVault = newVault &&
+    !health.isLoading &&
+    !health.isError &&
+    !showUnknownHealth &&
+    status !== "pass";
+  const meta = calmForNewVault ? STATUS_META.warn : STATUS_META[status];
   const Icon = meta.icon;
   const summary = showUnknownHealth
     ? "Health status unknown — run memory verify to check"
@@ -96,16 +105,20 @@ export function HealthBadge() {
       ? "Checking memory health"
       : health.isError
         ? "Health check unavailable"
-        : status === "pass"
-          ? "All systems connected"
-          : status === "fail"
-            ? "Health needs attention"
-            : "Health has warnings";
+        : calmForNewVault
+          ? "Finishing setup"
+          : status === "pass"
+            ? "All systems connected"
+            : status === "fail"
+              ? "Health needs attention"
+              : "Health has warnings";
   const detail = showUnknownHealth
     ? "run memory verify"
-    : counts.total > 0
-      ? plural(counts.total, "check")
-      : "waiting for verify report";
+    : calmForNewVault
+      ? "New vaults show checks here until you add memories — this is expected."
+      : counts.total > 0
+        ? plural(counts.total, "check")
+        : "waiting for verify report";
   const visibleChecks = showUnknownHealth ? [UNKNOWN_HEALTH_CHECK] : report?.checks ?? [];
 
   return (
@@ -124,21 +137,29 @@ export function HealthBadge() {
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <span className="font-mono text-sm font-semibold text-text-primary">{summary}</span>
-              {status === "warn" && counts.warn > 0 && counts.fail === 0 ? (
+              {calmForNewVault ? (
                 <span className="rounded border border-status-amber/40 px-2 py-0.5 font-mono text-[11px] text-status-amber">
-                  {plural(counts.warn, "warning")}
+                  setup in progress
                 </span>
-              ) : null}
-              {counts.fail > 0 ? (
-                <span className="rounded border border-status-red/40 px-2 py-0.5 font-mono text-[11px] text-status-red">
-                  {plural(counts.fail, "failure")}
-                </span>
-              ) : null}
-              {counts.warn > 0 && counts.fail > 0 ? (
-                <span className="rounded border border-status-amber/40 px-2 py-0.5 font-mono text-[11px] text-status-amber">
-                  {plural(counts.warn, "warning")}
-                </span>
-              ) : null}
+              ) : (
+                <>
+                  {status === "warn" && counts.warn > 0 && counts.fail === 0 ? (
+                    <span className="rounded border border-status-amber/40 px-2 py-0.5 font-mono text-[11px] text-status-amber">
+                      {plural(counts.warn, "warning")}
+                    </span>
+                  ) : null}
+                  {counts.fail > 0 ? (
+                    <span className="rounded border border-status-red/40 px-2 py-0.5 font-mono text-[11px] text-status-red">
+                      {plural(counts.fail, "failure")}
+                    </span>
+                  ) : null}
+                  {counts.warn > 0 && counts.fail > 0 ? (
+                    <span className="rounded border border-status-amber/40 px-2 py-0.5 font-mono text-[11px] text-status-amber">
+                      {plural(counts.warn, "warning")}
+                    </span>
+                  ) : null}
+                </>
+              )}
             </div>
             <p className="mt-0.5 font-mono text-xs text-text-muted">
               {detail}
