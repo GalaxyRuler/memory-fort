@@ -28,6 +28,17 @@ describe("redactSecrets", () => {
     expect(containsSecretShape(input)).toBe(true);
   });
 
+  it("redacts AWS access key IDs (AKIA/ASIA)", () => {
+    const input = "deploy used AKIAIOSFODNN7EXAMPLE and temp ASIAY34FZKBOKMUTVV7A today";
+
+    const output = redactSecrets(input);
+
+    expect(output).not.toContain("AKIAIOSFODNN7EXAMPLE");
+    expect(output).not.toContain("ASIAY34FZKBOKMUTVV7A");
+    expect(output).toContain("[REDACTED]");
+    expect(containsSecretShape(input)).toBe(true);
+  });
+
   it("does not flag already-redacted secret shapes", () => {
     const input = [
       "OPENAI_API_KEY=[REDACTED]",

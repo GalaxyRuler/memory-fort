@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { containsSecretShape } from "../privacy/redaction.js";
+import { containsSecretShape, redactSecrets } from "../privacy/redaction.js";
+import { atomicWrite } from "../storage/atomic-write.js";
 import type { CommandRunner } from "./git-remote.js";
 
 export interface AutoCommitOptions {
@@ -11,7 +12,7 @@ export interface AutoCommitOptions {
 
 export type AutoCommitResult =
   | { kind: "no-dirty-files" }
-  | { kind: "committed"; filesCount: number; commitSha: string }
+  | { kind: "committed"; filesCount: number; commitSha: string; redactedFiles?: string[] }
   | { kind: "skipped-non-raw-dirty"; dirtyNonRawFiles: string[] }
   | { kind: "skipped-secret-shape"; secretFiles: string[] };
 
@@ -35,9 +36,34 @@ export async function autoCommitRawsIfDirty(opts: AutoCommitOptions): Promise<Au
   }
 
   const files = [...new Set(dirty.map((file) => file.path))];
+
+  // Defense-in-depth: capture-time redaction can be bypassed (content from an
+  // older client version on another machine, a future writer that forgets to
+  // redact, or a newly-discovered key shape). Re-scan here and redact in place
+  // before committing rather than blocking — a single secret-shaped file must
+  // never wedge the whole auto-commit batch. Only files redaction still cannot
+  // clean are held back, so unknown shapes can't silently reach the remote.
   const secretFiles = await findSecretFiles(opts.memoryRoot, files);
-  if (secretFiles.length > 0) {
-    return { kind: "skipped-secret-shape", secretFiles };
+  const redactedFiles: string[] = [];
+  const unredactableFiles: string[] = [];
+  for (const file of secretFiles) {
+    const absolute = join(opts.memoryRoot, ...file.split("/"));
+    let content: string;
+    try {
+      content = await readFile(absolute, "utf-8");
+    } catch {
+      continue; // Deleted/unreadable between scan and now — nothing to redact.
+    }
+    const cleaned = redactSecrets(content);
+    if (containsSecretShape(cleaned)) {
+      unredactableFiles.push(file); // Redaction can't remove it — never commit.
+      continue;
+    }
+    await atomicWrite(absolute, cleaned);
+    redactedFiles.push(file);
+  }
+  if (unredactableFiles.length > 0) {
+    return { kind: "skipped-secret-shape", secretFiles: unredactableFiles };
   }
 
   const message = `chore: auto-capture ${files.length} vault system file(s)`;
@@ -54,6 +80,7 @@ export async function autoCommitRawsIfDirty(opts: AutoCommitOptions): Promise<Au
     kind: "committed",
     filesCount: files.length,
     commitSha: parseCommitSha(commit.stdout) ?? parseCommitSha(commit.stderr) ?? "",
+    ...(redactedFiles.length > 0 ? { redactedFiles } : {}),
   };
 }
 
@@ -64,10 +91,20 @@ function parseDirtyFiles(output: string): DirtyFile[] {
     .filter((line) => line.length > 0)
     .map((line) => parseStatusPath(line))
     .filter((path): path is string => path.length > 0)
+    .filter((path) => !isTransientArtifact(path))
     .map((path) => ({
       path,
       isAutoCommitEligible: isAutoCommitEligiblePath(path),
     }));
+}
+
+// Internal artifacts that are never committable and must never block or count
+// as dirt: the auto-push pending lock and atomic-write temp files
+// (`<name>.<pid>.<ts>.<uuid>.tmp`). They appear transiently in
+// `git status -uall` and previously tripped the "non-raw dirty" skip.
+function isTransientArtifact(path: string): boolean {
+  const name = path.split("/").at(-1) ?? path;
+  return name === ".auto-push-pending.lock" || /\.\d+\.\d+\.[0-9a-fA-F-]+\.tmp$/.test(name);
 }
 
 function isAutoCommitEligiblePath(path: string): boolean {

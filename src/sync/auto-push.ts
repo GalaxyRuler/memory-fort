@@ -120,11 +120,16 @@ function tryAcquirePendingFileLock(path: string): (() => void) | null {
   };
 }
 
-export function isBusyPendingFileLockError(error: unknown, lockPath: string): boolean {
+export function isBusyPendingFileLockError(error: unknown, _lockPath: string): boolean {
   if (typeof error !== "object" || error === null || !("code" in error)) return false;
   const code = (error as NodeJS.ErrnoException).code;
-  if (code === "EEXIST") return true;
-  return (code === "EPERM" || code === "EACCES") && existsSync(lockPath);
+  // EEXIST: lock held by another process (POSIX + Windows).
+  // EPERM/EACCES: Windows returns these from an exclusive "wx" open when the
+  // lock is in delete-pending state (a handle is still closing). existsSync()
+  // reports false for such a file, so gating on existence misclassified this
+  // transient contention as a fatal error and threw "auto-push schedule
+  // failed". Treat it as busy and let the next scheduled run retry.
+  return code === "EEXIST" || code === "EPERM" || code === "EACCES";
 }
 
 async function ensureAutoPushIgnored(memoryRoot: string): Promise<void> {
@@ -134,9 +139,13 @@ async function ensureAutoPushIgnored(memoryRoot: string): Promise<void> {
   await mkdir(dirname(excludePath), { recursive: true });
   const current = existsSync(excludePath) ? await readFile(excludePath, "utf-8") : "";
   const lines = current.split(/\r?\n/);
-  const missing = [".auto-push-pending", ".auto-push-last-scheduled", "auto-sync.log"].filter(
-    (line) => !lines.includes(line),
-  );
+  const missing = [
+    ".auto-push-pending",
+    ".auto-push-pending.lock",
+    ".auto-push-pending.*.tmp",
+    ".auto-push-last-scheduled",
+    "auto-sync.log",
+  ].filter((line) => !lines.includes(line));
   if (missing.length === 0) return;
 
   const prefix = current.length > 0 && !current.endsWith("\n") ? "\n" : "";

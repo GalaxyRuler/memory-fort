@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -97,6 +97,32 @@ describe("scheduleAutoPush", () => {
     await writeFile(lockPath, "locked");
 
     expect(isBusyPendingFileLockError(Object.assign(new Error("locked"), { code: "EPERM" }), lockPath)).toBe(true);
+  });
+
+  it("treats EPERM/EACCES as busy even when the lock file is gone (Windows delete-pending race)", () => {
+    const lockPath = join(tmp, ".auto-push-pending.lock"); // intentionally NOT created
+
+    expect(isBusyPendingFileLockError(Object.assign(new Error("x"), { code: "EPERM" }), lockPath)).toBe(true);
+    expect(isBusyPendingFileLockError(Object.assign(new Error("x"), { code: "EACCES" }), lockPath)).toBe(true);
+  });
+
+  it("does not treat unrelated errors as busy", () => {
+    const lockPath = join(tmp, ".auto-push-pending.lock");
+
+    expect(isBusyPendingFileLockError(Object.assign(new Error("x"), { code: "ENOSPC" }), lockPath)).toBe(false);
+    expect(isBusyPendingFileLockError(new Error("no code"), lockPath)).toBe(false);
+  });
+
+  it("adds the pending-lock + temp glob to .git/info/exclude so they never show as dirty", async () => {
+    await mkdir(join(tmp, ".git"), { recursive: true });
+    const { spawnFn } = makeSpawn();
+
+    await scheduleAutoPush({ memoryRoot: tmp, spawnFn: spawnFn as never });
+
+    const exclude = await readFile(join(tmp, ".git", "info", "exclude"), "utf-8");
+    expect(exclude).toContain(".auto-push-pending\n");
+    expect(exclude).toContain(".auto-push-pending.lock");
+    expect(exclude).toContain(".auto-push-pending.*.tmp");
   });
 
   it("handles concurrent schedule attempts without errors.log entries", async () => {

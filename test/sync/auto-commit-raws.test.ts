@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mkdir, mkdtemp, writeFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { autoCommitRawsIfDirty } from "../../src/sync/auto-commit-raws.js";
@@ -126,57 +126,110 @@ describe("autoCommitRawsIfDirty", () => {
     expect(calls[0]?.args.join(" ")).toBe("status --porcelain -uall");
   });
 
-  it("skips auto-commit when dirty raw files contain secret-shaped content", async () => {
+  it("redacts secret-shaped raw files in place, then commits", async () => {
     const tmp = await mkdtemp(join(tmpdir(), "auto-commit-raw-secret-"));
     try {
       await mkdir(join(tmp, "raw", "2026-06-03"), { recursive: true });
-      await writeFile(
-        join(tmp, "raw", "2026-06-03", "codex-secret.md"),
-        "OPENROUTER_API_KEY=sk-live-secret-material-123456",
-      );
+      const file = join(tmp, "raw", "2026-06-03", "codex-secret.md");
+      await writeFile(file, "OPENROUTER_API_KEY=sk-live-secret-material-123456");
       const { runner, calls } = makeRunner((call) => {
         const args = call.args.join(" ");
         if (args === "status --porcelain -uall") {
           return { stdout: "?? raw/2026-06-03/codex-secret.md\n" };
         }
-        throw new Error(`unexpected command: ${args}`);
-      });
-
-      await expect(autoCommitRawsIfDirty({ memoryRoot: tmp, runner })).resolves.toEqual({
-        kind: "skipped-secret-shape",
-        secretFiles: ["raw/2026-06-03/codex-secret.md"],
-      });
-
-      expect(calls.map((call) => call.args.join(" "))).toEqual(["status --porcelain -uall"]);
-    } finally {
-      await rm(tmp, { recursive: true, force: true });
-    }
-  });
-
-  it("skips auto-commit when a whitelisted file contains secret-shaped content", async () => {
-    const tmp = await mkdtemp(join(tmpdir(), "auto-commit-whitelist-secret-"));
-    try {
-      await writeFile(
-        join(tmp, "log.md"),
-        "OPENROUTER_API_KEY=sk-live-secret-material-123456",
-      );
-      const { runner, calls } = makeRunner((call) => {
-        const args = call.args.join(" ");
-        if (args === "status --porcelain -uall") {
-          return { stdout: " M log.md\n" };
+        if (args === "add -- raw/2026-06-03/codex-secret.md") return {};
+        if (args.startsWith("commit -m")) {
+          return { stdout: "[main abc1234] chore: auto-capture 1 vault system file(s)\n" };
         }
         throw new Error(`unexpected command: ${args}`);
       });
 
       await expect(autoCommitRawsIfDirty({ memoryRoot: tmp, runner })).resolves.toEqual({
-        kind: "skipped-secret-shape",
-        secretFiles: ["log.md"],
+        kind: "committed",
+        filesCount: 1,
+        commitSha: "abc1234",
+        redactedFiles: ["raw/2026-06-03/codex-secret.md"],
       });
 
-      expect(calls.map((call) => call.args.join(" "))).toEqual(["status --porcelain -uall"]);
+      const onDisk = await readFile(file, "utf-8");
+      expect(onDisk).toContain("[REDACTED]");
+      expect(onDisk).not.toContain("sk-live-secret-material-123456");
+      expect(calls.map((call) => call.args[0])).toEqual(["status", "add", "commit"]);
     } finally {
       await rm(tmp, { recursive: true, force: true });
     }
+  });
+
+  it("redacts a secret-shaped whitelisted file in place, then commits", async () => {
+    const tmp = await mkdtemp(join(tmpdir(), "auto-commit-whitelist-secret-"));
+    try {
+      const file = join(tmp, "log.md");
+      await writeFile(file, "OPENROUTER_API_KEY=sk-live-secret-material-123456");
+      const { runner } = makeRunner((call) => {
+        const args = call.args.join(" ");
+        if (args === "status --porcelain -uall") return { stdout: " M log.md\n" };
+        if (args === "add -- log.md") return {};
+        if (args.startsWith("commit -m")) {
+          return { stdout: "[main abc1234] chore: auto-capture 1 vault system file(s)\n" };
+        }
+        throw new Error(`unexpected command: ${args}`);
+      });
+
+      await expect(autoCommitRawsIfDirty({ memoryRoot: tmp, runner })).resolves.toMatchObject({
+        kind: "committed",
+        filesCount: 1,
+        redactedFiles: ["log.md"],
+      });
+
+      const onDisk = await readFile(file, "utf-8");
+      expect(onDisk).toContain("[REDACTED]");
+      expect(onDisk).not.toContain("sk-live-secret-material-123456");
+    } finally {
+      await rm(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("ignores transient atomic-write temp + pending-lock artifacts", async () => {
+    const { runner, calls } = makeRunner((call) => {
+      const args = call.args.join(" ");
+      if (args === "status --porcelain -uall") {
+        return {
+          stdout: [
+            " M raw/2026-05-21/foo.md",
+            "?? .auto-push-pending.lock",
+            "?? .auto-push-pending.32484.1781980629235.a9733669-381e-420b-82ba-f842b13f6b3d.tmp",
+            "?? config.yaml.123.456.abcd-ef01.tmp",
+            "",
+          ].join("\n"),
+        };
+      }
+      if (args === "add -- raw/2026-05-21/foo.md") return {};
+      if (args.startsWith("commit -m")) {
+        return { stdout: "[main abc1234] chore: auto-capture 1 vault system file(s)\n" };
+      }
+      throw new Error(`unexpected command: ${args}`);
+    });
+
+    await expect(autoCommitRawsIfDirty({ memoryRoot: "/mem", runner })).resolves.toMatchObject({
+      kind: "committed",
+      filesCount: 1,
+    });
+
+    expect(calls.map((call) => call.args.join(" "))).toEqual([
+      "status --porcelain -uall",
+      "add -- raw/2026-05-21/foo.md",
+      "commit -m chore: auto-capture 1 vault system file(s)",
+    ]);
+  });
+
+  it("returns no-dirty-files when only transient artifacts are dirty", async () => {
+    const { runner } = makeRunner(() => ({
+      stdout: "?? .auto-push-pending.lock\n?? .auto-push-pending.1.2.abcd-ef01.tmp\n",
+    }));
+
+    await expect(autoCommitRawsIfDirty({ memoryRoot: "/mem", runner })).resolves.toEqual({
+      kind: "no-dirty-files",
+    });
   });
 
   it("commits when wiki/ is dirty (system-managed)", async () => {

@@ -143,13 +143,17 @@ async function handleAutoCommit(
   switch (autoCommit.kind) {
     case "no-dirty-files":
       return "clean";
-    case "committed":
+    case "committed": {
+      const redactedNote = autoCommit.redactedFiles?.length
+        ? ` (redacted ${autoCommit.redactedFiles.length} secret-shaped file(s) in place)`
+        : "";
       await writeLog(
         memoryRoot,
-        `[${nowIso}] auto-committed ${autoCommit.filesCount} vault system file(s) as ${autoCommit.commitSha.slice(0, 7)}\n`,
+        `[${nowIso}] auto-committed ${autoCommit.filesCount} vault system file(s) as ${autoCommit.commitSha.slice(0, 7)}${redactedNote}\n`,
         logSink,
       );
       return "committed";
+    }
     case "skipped-non-raw-dirty": {
       const shown = autoCommit.dirtyNonRawFiles.slice(0, 3).join(", ");
       const suffix = autoCommit.dirtyNonRawFiles.length > 3 ? "..." : "";
