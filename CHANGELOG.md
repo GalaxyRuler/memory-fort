@@ -4,6 +4,16 @@ All notable changes to Memory Fort are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Client enable/disable controls** — Settings → Clients now lists every supported client with a per-client toggle. Disabled clients are skipped by supported runtime checks, hooks, MCP observation logging, raw capture, and status/activity displays, while keeping their saved setup until you `disconnect`. ChatGPT is now opt-in (absent `clients.chatgpt` means disabled).
+- **OpenAI-compatible LLM/embedder settings in the dashboard** — configure a local/compatible HTTP endpoint by URL and dimension without writing API keys into `~/.memory/config.yaml`; `allow_internal_hosts` is set for local endpoints.
+
+### Documentation
+- **First-run onboarding** — README gained a first-run checklist and disable-vs-disconnect guidance; `docs/cli.md` expanded the integration docs; `templates/config.yaml` documents explicit client defaults and OpenAI-compatible examples.
+- **README Node baseline corrected to 22+** to match the `engines.node` `>=22` floor.
+
 ## [0.9.3] - 2026-06-19
 
 ### Changed

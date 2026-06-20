@@ -81,7 +81,7 @@ memory-fort dashboard
 
 ### First-run checklist
 
-1. Install Node.js 20 or newer.
+1. Install Node.js 22 or newer.
 2. Run `npx memory-fort init` and accept the keyless lexical retrieval default unless you already know which embedding provider you want.
 3. Start the dashboard with `memory-fort dashboard` and open the printed `http://127.0.0.1:4410/memory/` URL.
 4. In Settings, confirm the embedder is `lexical` for a no-key setup, or choose Voyage, OpenAI, Ollama, or OpenAI-compatible and save the provider settings.
