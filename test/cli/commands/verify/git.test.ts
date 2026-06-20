@@ -71,11 +71,14 @@ describe("checkGitIntegrity", () => {
     });
 
     expect(results.map((r) => r.status)).toEqual(["pass", "pass"]);
-    expect(execFileCalls[0]).toEqual(["fsck", "--full", "--strict", "--no-dangling"]);
+    // Connectivity-only fsck: catches missing/unreachable objects (the
+    // corruption that breaks sync) without re-hashing every object, which on a
+    // large vault takes minutes and false-failed the check on timeout.
+    expect(execFileCalls[0]).toEqual(["fsck", "--full", "--connectivity-only", "--no-dangling"]);
     expect(sshRunner.calls).toHaveLength(1);
     expect(sshRunner.calls[0]?.host).toBe("root@example.test");
     expect(sshRunner.calls[0]?.command.command).toContain(
-      "git -C '/srv/memory/memory.git' fsck --full --strict --no-dangling",
+      "git -C '/srv/memory/memory.git' fsck --full --connectivity-only --no-dangling",
     );
   });
 

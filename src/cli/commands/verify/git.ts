@@ -155,7 +155,11 @@ async function checkLocalGitIntegrity(
   try {
     await (opts.execFile ?? execFileAsync)(
       "git",
-      ["fsck", "--full", "--strict", "--no-dangling"],
+      // --connectivity-only: verify every ref reaches a present, valid object
+      // (catches the missing/unreachable-object corruption that breaks sync)
+      // WITHOUT re-hashing every object. Full --strict fsck on a large vault
+      // takes minutes and was timing out here, false-reporting "corrupted".
+      ["fsck", "--full", "--connectivity-only", "--no-dangling"],
       {
         cwd: opts.vaultRoot,
         timeout: 30000,
@@ -197,7 +201,7 @@ async function checkRemoteGitIntegrity(
       : host;
     const repoPath = `${installRoot.replace(/\/+$/, "")}/memory.git`;
     const result = await (opts.sshRunner ?? makeRealSshRunner()).run(target, {
-      command: `git -C ${shellQuote(repoPath)} fsck --full --strict --no-dangling`,
+      command: `git -C ${shellQuote(repoPath)} fsck --full --connectivity-only --no-dangling`,
       description: "verify remote VPS bare memory git repository integrity",
     });
     const output = [result.stdout.trim(), result.stderr.trim()]
