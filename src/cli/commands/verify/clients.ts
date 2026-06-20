@@ -200,54 +200,78 @@ export const vscodeConfigCheck: CheckDescriptor = {
   id: "client.vscode.config",
   label: "VS Code MCP entry present",
   roles: ["operator"],
-  run: () => checkJsonServer(
-    vscodeMcpConfigPath(),
-    "servers",
-    "client.vscode.config",
-    "vscode MCP entry present",
-    "run `memory connect vscode`",
-  ),
+  run: async (ctx) => {
+    const off = await skipIfClientDisabled(ctx, "vscode", "client.vscode.config", "VS Code MCP entry present");
+    if (off) return off;
+    return checkJsonServer(
+      vscodeMcpConfigPath(),
+      "servers",
+      "client.vscode.config",
+      "vscode MCP entry present",
+      "run `memory connect vscode`",
+    );
+  },
 };
 
 export const snifferVscodeExtensionCheck: CheckDescriptor = {
   id: "sniffer.vscode.extension",
   label: "VS Code Memory Fort extension installed",
   roles: ["operator"],
-  run: () => checkVsCodeExtension(),
+  run: async (ctx) => {
+    const off = await skipIfClientDisabled(ctx, "vscode", "sniffer.vscode.extension", "VS Code Memory Fort extension installed");
+    if (off) return off;
+    return checkVsCodeExtension();
+  },
 };
 
 export const snifferVscodeCaptureCheck: CheckDescriptor = {
   id: "sniffer.vscode.capture",
   label: "VS Code extension capture is fresh",
   roles: ["operator"],
-  run: (ctx) => checkVsCodeCapture(ctx),
+  run: async (ctx) => {
+    const off = await skipIfClientDisabled(ctx, "vscode", "sniffer.vscode.capture", "VS Code extension capture is fresh");
+    if (off) return off;
+    return checkVsCodeCapture(ctx);
+  },
 };
 
 export const claudeDesktopConfigCheck: CheckDescriptor = {
   id: "client.claude-desktop.config",
   label: "Claude Desktop MCP entry present",
   roles: ["operator"],
-  run: () => checkJsonServer(
-    claudeDesktopConfigPath(),
-    "mcpServers",
-    "client.claude-desktop.config",
-    "claude-desktop MCP entry present",
-    "run `memory connect claude-desktop`",
-  ),
+  run: async (ctx) => {
+    const off = await skipIfClientDisabled(ctx, "claude-desktop", "client.claude-desktop.config", "Claude Desktop MCP entry present");
+    if (off) return off;
+    return checkJsonServer(
+      claudeDesktopConfigPath(),
+      "mcpServers",
+      "client.claude-desktop.config",
+      "claude-desktop MCP entry present",
+      "run `memory connect claude-desktop`",
+    );
+  },
 };
 
 export const snifferClaudeDesktopWatcherCheck: CheckDescriptor = {
   id: "sniffer.claude-desktop.watcher",
   label: "Claude Desktop watcher source available",
   roles: ["operator"],
-  run: () => checkClaudeDesktopWatcher(),
+  run: async (ctx) => {
+    const off = await skipIfClientDisabled(ctx, "claude-desktop", "sniffer.claude-desktop.watcher", "Claude Desktop watcher source available");
+    if (off) return off;
+    return checkClaudeDesktopWatcher();
+  },
 };
 
 export const snifferClaudeDesktopCaptureCheck: CheckDescriptor = {
   id: "sniffer.claude-desktop.capture",
   label: "Claude Desktop watcher capture is fresh",
   roles: ["operator"],
-  run: (ctx) => checkRecentCapture(ctx, ["claude-desktop-"], "sniffer.claude-desktop.capture", "claude-desktop watcher"),
+  run: async (ctx) => {
+    const off = await skipIfClientDisabled(ctx, "claude-desktop", "sniffer.claude-desktop.capture", "Claude Desktop watcher capture is fresh");
+    if (off) return off;
+    return checkRecentCapture(ctx, ["claude-desktop-"], "sniffer.claude-desktop.capture", "claude-desktop watcher");
+  },
 };
 
 export const CLIENT_CHECKS: CheckDescriptor[] = [

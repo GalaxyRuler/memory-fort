@@ -5,6 +5,8 @@ import {
   formatTimestamp,
   truncateMiddle,
 } from "./raw-file.js";
+import { isClientEnabled, loadMemoryConfig, type MemoryConfig } from "../storage/config.js";
+import { memoryRoot } from "../storage/paths.js";
 import { redactSecrets } from "../privacy/redaction.js";
 
 const OPENCODE_TOOL = "opencode" as const;
@@ -18,6 +20,7 @@ const SUPPORTED_EVENT_TYPES = new Set([
 export interface OpenCodeEventDeps {
   ensureRawSessionFile?: typeof ensureRawSessionFile;
   appendBlock?: typeof appendBlock;
+  configLoader?: (root: string) => Promise<MemoryConfig>;
   now?: () => Date;
 }
 
@@ -35,6 +38,8 @@ export async function opencodeEventBody(
   const sessionId = readSessionId(payload);
   const cwd = readCwd(payload);
 
+  if (await shouldSkipForDisabledClient(deps)) return;
+
   await ensureFn({ tool: OPENCODE_TOOL, sessionId, cwd, now });
   await appendFn({
     tool: OPENCODE_TOOL,
@@ -46,6 +51,15 @@ export async function opencodeEventBody(
     }),
     now,
   });
+}
+
+async function shouldSkipForDisabledClient(deps: OpenCodeEventDeps): Promise<boolean> {
+  const shouldReadConfig = deps.configLoader !== undefined ||
+    (deps.ensureRawSessionFile === undefined && deps.appendBlock === undefined);
+  if (!shouldReadConfig) return false;
+  const root = memoryRoot();
+  const config = await (deps.configLoader ?? loadMemoryConfig)(root);
+  return !isClientEnabled(config, OPENCODE_TOOL);
 }
 
 function formatOpenCodeEventBlock(input: {

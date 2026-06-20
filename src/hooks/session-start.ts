@@ -1,17 +1,21 @@
 import { readFile } from "node:fs/promises";
 import { runHook, type HookPayload } from "./error-handler.js";
+import { detectTool } from "./util/detect-tool.js";
 import {
   confidenceAwareIndex,
   currentProjectMemoryBlock,
   whatToRememberBlock,
 } from "./session-start-helpers.js";
 import { schemaPath, indexPath, logPath, memoryRoot } from "../storage/paths.js";
+import { isClientEnabled, loadMemoryConfig, type MemoryConfig } from "../storage/config.js";
 
 export interface SessionStartDeps {
   readFile?: (path: string) => Promise<string>;
   write?: (text: string) => void;
   memoryRoot?: string;
   maxInjectedChars?: number;
+  detectTool?: typeof detectTool;
+  configLoader?: (root: string) => Promise<MemoryConfig>;
 }
 
 /**
@@ -32,6 +36,8 @@ export async function sessionStartBody(
     (async (p: string) => readFile(p, "utf-8"));
   const writeFn =
     deps.write ?? ((text: string) => process.stdout.write(text));
+
+  if (await shouldSkipForDisabledClient(payload, deps)) return;
 
   const parts: string[] = [];
   parts.push(`[memory:session-start] context loading\n`);
@@ -79,6 +85,19 @@ export async function sessionStartBody(
   }
 
   writeFn(parts.join(""));
+}
+
+async function shouldSkipForDisabledClient(
+  payload: HookPayload,
+  deps: SessionStartDeps,
+): Promise<boolean> {
+  const shouldReadConfig = deps.configLoader !== undefined ||
+    (deps.readFile === undefined && deps.write === undefined);
+  if (!shouldReadConfig) return false;
+  const root = deps.memoryRoot ?? memoryRoot();
+  const config = await (deps.configLoader ?? loadMemoryConfig)(root);
+  const tool = (deps.detectTool ?? detectTool)({ payload });
+  return !isClientEnabled(config, tool);
 }
 
 function lastLines(text: string, n: number): string {

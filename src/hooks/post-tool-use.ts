@@ -19,7 +19,7 @@ import {
 import type { ToolName } from "../storage/paths.js";
 import { errorsLogPath, memoryRoot } from "../storage/paths.js";
 import { atomicAppend } from "../storage/atomic-write.js";
-import { loadMemoryConfig, type MemoryConfig } from "../storage/config.js";
+import { isClientEnabled, loadMemoryConfig, type MemoryConfig } from "../storage/config.js";
 import { scheduleAutoPush } from "../sync/auto-push.js";
 import { autoLinkRawToWiki } from "../capture/auto-link.js";
 import { runAutoHealCapture } from "../retrieval/auto-heal.js";
@@ -53,9 +53,10 @@ export async function postToolUseBody(
   if (!toolName) return;
 
   const root = memoryRoot();
-  const config = await (deps.configLoader ?? loadMemoryConfig)(root);
+  const config = await loadHookConfig(deps, root);
   const captureCaps = readCaptureCaps(config);
   const tool: ToolName = detectFn();
+  if (!isClientEnabled(config, tool)) return;
   const sessionId = readSessionId(payload);
   const cwd = readCwd(payload);
   const now = nowFn();
@@ -129,6 +130,13 @@ export async function postToolUseBody(
       await appendErrorFn(`${nowFn().toISOString()} auto-push schedule failed: ${(err as Error).message}\n`);
     }
   }
+}
+
+async function loadHookConfig(deps: PostToolUseDeps, root: string): Promise<MemoryConfig> {
+  const shouldReadConfig = deps.configLoader !== undefined ||
+    (deps.ensureRawSessionFile === undefined && deps.appendBlock === undefined);
+  if (!shouldReadConfig) return {};
+  return (deps.configLoader ?? loadMemoryConfig)(root);
 }
 
 function readAutoLinkEnabled(config: MemoryConfig): boolean {

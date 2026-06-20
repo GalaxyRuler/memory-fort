@@ -51,6 +51,32 @@ describe("postToolUseBody", () => {
     expect(calls.length).toBe(0);
   });
 
+  it("skips capture when the detected client is disabled", async () => {
+    const calls: any[] = [];
+    await postToolUseBody(
+      {
+        session_id: "abc",
+        cwd: "C:\\test",
+        tool_name: "Read",
+        tool_input: { path: "foo.md" },
+        tool_output: "file contents",
+      },
+      {
+        detectTool: () => "codex",
+        configLoader: async () => ({ clients: { codex: false } }),
+        ensureRawSessionFile: async (i) => {
+          calls.push({ kind: "ensure", ...i });
+          return "/fake/path";
+        },
+        appendBlock: async (i) => {
+          calls.push({ kind: "append", ...i });
+        },
+        now: () => fixedNow,
+      },
+    );
+    expect(calls).toEqual([]);
+  });
+
   it("falls back to 'unknown' session_id when missing", async () => {
     let captured: any = null;
     await postToolUseBody(

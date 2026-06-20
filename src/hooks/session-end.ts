@@ -10,6 +10,7 @@ import type { ToolName } from "../storage/paths.js";
 import { errorsLogPath, memoryRoot } from "../storage/paths.js";
 import { atomicAppend } from "../storage/atomic-write.js";
 import { scheduleAutoPush } from "../sync/auto-push.js";
+import { isClientEnabled, loadMemoryConfig, type MemoryConfig } from "../storage/config.js";
 
 export interface SessionEndDeps {
   detectTool?: typeof detectTool;
@@ -17,6 +18,7 @@ export interface SessionEndDeps {
   appendBlock?: typeof appendBlock;
   scheduleAutoPush?: typeof scheduleAutoPush;
   appendErrorLog?: (line: string) => Promise<void>;
+  configLoader?: (root: string) => Promise<MemoryConfig>;
   now?: () => Date;
 }
 
@@ -32,6 +34,7 @@ export async function sessionEndBody(
   const nowFn = deps.now ?? (() => new Date());
 
   const tool: ToolName = detectFn();
+  if (await shouldSkipForDisabledClient(tool, deps)) return;
   const sessionId = readSessionId(payload);
   const cwd = readCwd(payload);
   const now = nowFn();
@@ -50,6 +53,15 @@ export async function sessionEndBody(
       await appendErrorFn(`${nowFn().toISOString()} auto-push schedule failed: ${(err as Error).message}\n`);
     }
   }
+}
+
+async function shouldSkipForDisabledClient(tool: ToolName, deps: SessionEndDeps): Promise<boolean> {
+  const shouldReadConfig = deps.configLoader !== undefined ||
+    (deps.ensureRawSessionFile === undefined && deps.appendBlock === undefined);
+  if (!shouldReadConfig) return false;
+  const root = memoryRoot();
+  const config = await (deps.configLoader ?? loadMemoryConfig)(root);
+  return !isClientEnabled(config, tool);
 }
 
 if (process.argv[1]?.endsWith("session-end.mjs")) {

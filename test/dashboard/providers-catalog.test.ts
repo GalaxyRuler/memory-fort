@@ -36,6 +36,11 @@ describe("providers catalog", () => {
           envVar: "OLLAMA_HOST",
           envVarStatus: "set",
         }),
+        expect.objectContaining({
+          provider: "openai-compat",
+          envVar: "none",
+          envVarStatus: "set",
+        }),
       ]),
     );
     expect(catalog.llms).toEqual(
@@ -51,6 +56,11 @@ describe("providers catalog", () => {
         expect.objectContaining({
           provider: "ollama",
           envVar: "OLLAMA_HOST",
+          envVarStatus: "set",
+        }),
+        expect.objectContaining({
+          provider: "openai-compat",
+          envVar: "none",
           envVarStatus: "set",
         }),
       ]),

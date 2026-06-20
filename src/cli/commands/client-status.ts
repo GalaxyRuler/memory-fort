@@ -3,9 +3,12 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import {
+  chatgptBridgePidPath,
   claudeDesktopConfigPath,
+  configPath as memoryConfigPath,
   memoryRoot,
 } from "../../storage/paths.js";
+import { getChatGptBridgePort, isClientEnabled, loadMemoryConfig } from "../../storage/config.js";
 import { isClaudeCodePluginEnabled } from "./install/claude-code.js";
 import { readOpenCodeReadiness } from "./install/opencode.js";
 import { readOpenCovenReadiness } from "./install/opencoven.js";
@@ -57,6 +60,7 @@ export async function getClientStatuses(): Promise<ClientStatus[]> {
     await readCodexStatus(),
     antigravity,
     { ...antigravity, client: "antigravity-ide" },
+    await readChatGptStatus(),
     await readHermesStatus(),
     await readPiStatus(),
     await readOpenClawStatus(),
@@ -64,6 +68,36 @@ export async function getClientStatuses(): Promise<ClientStatus[]> {
     await readOpenCodeStatus(),
     await readVsCodeStatus(),
   ];
+}
+
+async function readChatGptStatus(): Promise<ClientStatus> {
+  const config = await loadMemoryConfig();
+  const port = getChatGptBridgePort(config);
+  if (!isClientEnabled(config, "chatgpt")) {
+    return {
+      client: "chatgpt",
+      state: "missing",
+      detail: "disabled in config.yaml",
+      configPath: memoryConfigPath(),
+    };
+  }
+
+  const pidPath = chatgptBridgePidPath();
+  if (!existsSync(pidPath)) {
+    return {
+      client: "chatgpt",
+      state: "stale",
+      detail: `enabled but bridge PID file is missing (expected https://localhost:${port}/sse)`,
+      configPath: memoryConfigPath(),
+    };
+  }
+
+  return {
+    client: "chatgpt",
+    state: "installed",
+    detail: `enabled; bridge state at ${pidPath}`,
+    configPath: memoryConfigPath(),
+  };
 }
 
 export function formatClientStatus(status: ClientStatus): string {

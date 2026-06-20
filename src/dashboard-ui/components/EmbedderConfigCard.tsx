@@ -16,7 +16,6 @@ interface EmbedderDraft {
   model: string;
   baseURL?: string;
   dim?: string;
-  apiKey?: string;
 }
 
 export function EmbedderConfigCard({ disabledReason = null }: { disabledReason?: string | null }) {
@@ -33,6 +32,14 @@ export function EmbedderConfigCard({ disabledReason = null }: { disabledReason?:
 
   const selectedModels = selectedProvider?.models ?? [];
   const activeDim = activeProviderEntry?.models.find((model) => model.id === active.model)?.dim;
+  const parsedDim = Number(draft.dim);
+  const saveDisabled = mutation.isPending ||
+    draft.model.trim().length === 0 ||
+    disabledReason !== null ||
+    (
+      draft.provider === "openai-compat" &&
+      (!draft.baseURL?.trim() || !Number.isInteger(parsedDim) || parsedDim <= 0)
+    );
 
   function startEditing() {
     if (disabledReason) return;
@@ -51,7 +58,6 @@ export function EmbedderConfigCard({ disabledReason = null }: { disabledReason?:
     if (provider === "openai-compat") {
       next.baseURL = "";
       next.dim = "768";
-      next.apiKey = "";
     }
     setDraft(next);
   }
@@ -64,7 +70,6 @@ export function EmbedderConfigCard({ disabledReason = null }: { disabledReason?:
       if (draft.baseURL?.trim()) options["baseURL"] = draft.baseURL.trim();
       const dimNum = Number(draft.dim);
       if (Number.isInteger(dimNum) && dimNum > 0) options["dim"] = dimNum;
-      if (draft.apiKey?.trim()) options["apiKey"] = draft.apiKey.trim();
       patch["options"] = options;
       patch["allow_internal_hosts"] = true;
     }
@@ -98,10 +103,17 @@ export function EmbedderConfigCard({ disabledReason = null }: { disabledReason?:
             className="disabled:cursor-not-allowed disabled:opacity-45"
           >
             <Pencil size={15} strokeWidth={1.5} />
-            Edit
+            {disabledReason ? "Read-only" : "Edit"}
           </Button>
         )}
       </div>
+      {!editing ? (
+        <p className="mb-3 rounded-md border border-border-subtle bg-surface-2 p-2 text-xs text-text-secondary">
+          {disabledReason
+            ? `Embedder settings are locked here: ${disabledReason}`
+            : "Embedder settings are editable. Use Edit to change the vector provider and model."}
+        </p>
+      ) : null}
 
       {editing ? (
         <div className="space-y-3">
@@ -160,16 +172,10 @@ export function EmbedderConfigCard({ disabledReason = null }: { disabledReason?:
                   className="w-full"
                 />
               </label>
-              <label className="block text-sm">
-                <span className="mb-1 block text-xs uppercase tracking-wide text-text-muted">API Key (optional)</span>
-                <Input
-                  aria-label="OpenAI-compat API key"
-                  value={draft.apiKey ?? ""}
-                  placeholder="Leave blank if not required"
-                  onChange={(event) => setDraft((current) => ({ ...current, apiKey: event.target.value }))}
-                  className="w-full"
-                />
-              </label>
+              <p className="rounded-md border border-border-subtle bg-surface-2 p-2 text-xs text-text-secondary">
+                API keys are not stored in config from the dashboard. Use a local endpoint that does not require a key
+                or configure credentials outside the vault.
+              </p>
             </>
           )}
 
@@ -189,7 +195,7 @@ export function EmbedderConfigCard({ disabledReason = null }: { disabledReason?:
               type="button"
               variant="primary"
               onClick={save}
-              disabled={mutation.isPending || draft.model.trim().length === 0 || disabledReason !== null}
+              disabled={saveDisabled}
               title={disabledReason ?? undefined}
               aria-label="Save embedder changes"
             >
@@ -333,9 +339,13 @@ function KeyStatus({ provider, loading }: { provider?: ProviderCatalogEntry; loa
 
 function readActiveEmbedder(config: ConfigObject | undefined): EmbedderDraft {
   const embedder = asRecord(config?.embedder) ?? asRecord(config?.embedding);
+  const options = asRecord(embedder?.options);
+  const dim = readNumber(options?.dim) ?? readNumber(embedder?.dim);
   return {
     provider: readEmbedderProvider(embedder?.provider) ?? "lexical",
     model: readString(embedder?.model) ?? "lexical",
+    baseURL: readString(options?.baseURL),
+    dim: dim === undefined ? undefined : String(dim),
   };
 }
 
@@ -353,6 +363,10 @@ function isEmbedderProvider(value: unknown): value is EmbedderProvider {
 
 function readString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function readNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {

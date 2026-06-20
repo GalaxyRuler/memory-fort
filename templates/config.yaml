@@ -55,10 +55,31 @@ auto_link:
 #     - https://example.tailnet.ts.net
 
 # llm:
-#   provider: openrouter   # openrouter | ollama
+#   provider: openrouter   # openrouter | ollama | openai-compat
 #   model: openai/gpt-4o-mini
 #   max_tokens: 4096
 #   temperature: 0.2
+#   # For openai-compat, set options.baseURL. Dashboard edits do not store API keys in config.
+#   # allow_internal_hosts: true
+#   # options:
+#   #   baseURL: http://127.0.0.1:11434/v1
+
+clients:
+  # Most clients default on so existing installs keep working. Set any client to false
+  # to disable it without removing saved integration files. Run
+  # `memory-fort disconnect <client>` to remove an integration.
+  claude-code: true
+  codex: true
+  antigravity: true
+  hermes: true
+  pi: true
+  openclaw: true
+  opencoven: true
+  opencode: true
+  claude-desktop: true
+  vscode: true
+  # ChatGPT bridge is opt-in because it runs a local HTTP/SSE bridge.
+  chatgpt: false
 
 embedding:
   # Legacy fallback. New writes should use embedder above.

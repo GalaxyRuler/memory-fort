@@ -59,6 +59,14 @@ const EMBEDDER_MODELS: ProviderCatalogEntry[] = [
       { id: "all-minilm", dim: 384 },
     ],
   },
+  {
+    provider: "openai-compat",
+    envVar: "none",
+    envVarStatus: "set",
+    models: [
+      { id: "nomic-embed-text", dim: 768, default: true },
+    ],
+  },
 ];
 
 const LLM_MODELS: ProviderCatalogEntry[] = [
@@ -79,6 +87,14 @@ const LLM_MODELS: ProviderCatalogEntry[] = [
       { id: "qwen2.5" },
     ],
   },
+  {
+    provider: "openai-compat",
+    envVar: "none",
+    envVarStatus: "set",
+    models: [
+      { id: "llama3.2", default: true },
+    ],
+  },
 ];
 
 export function buildProvidersCatalog(env: NodeJS.ProcessEnv = process.env): ProvidersCatalog {
@@ -94,7 +110,7 @@ function withEnvStatus(
 ): ProviderCatalogEntry {
   return {
     ...provider,
-    envVarStatus: provider.provider === "lexical" || provider.provider === "ollama"
+    envVarStatus: provider.provider === "lexical" || provider.provider === "ollama" || provider.envVar === "none"
       ? "set"
       : env[provider.envVar]?.trim() ? "set" : "missing",
     models: provider.models.map((model) => ({ ...model })),

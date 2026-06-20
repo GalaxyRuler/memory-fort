@@ -123,11 +123,15 @@ Wire hooks (where available) + MCP for one of the supported platforms.
 |---|---|
 | `claude-code` | Writes plugin manifest + hooks.json + plugin-scoped `.mcp.json` to `~/.memory/claude-code-plugin/`. Migrates legacy `~/.claude/.mcp.json` if present. |
 | `codex` | Appends sentinel-marker block to `~/.codex/config.toml` with `[[hooks.*]]` and `[mcp_servers.memory]`. Covers both Codex desktop and CLI. |
-| `antigravity` | Merges memory MCP entry into `~/.gemini/antigravity/mcp_config.json`. No hooks (Antigravity has no hook system). |
-| `chatgpt` | Sets up OpenAI tunnel-client profile for ChatGPT desktop connection via stdio MCP. |
+| `antigravity` | Merges memory MCP entry and installs the live-capture plugin where supported. |
+| `hermes` | Writes YAML hook and MCP config to `~/.hermes/config.yaml`. |
+| `pi` | Writes YAML hook config to `~/.pi/config.yaml`; MCP is skipped for v1. |
+| `openclaw` | Adds the Memory Fort MCP server to `~/.openclaw/openclaw.json`; passive hooks are skipped for v1. |
+| `chatgpt` | Enables `clients.chatgpt`, configures the local HTTP/SSE bridge, and starts it when possible. |
 | `opencode` | Writes OpenCode MCP config and selected event plugin support. |
-| `opencoven` | Configures OpenCoven MCP integration. |
-| `vscode` | Installs VS Code extension for memory capture. |
+| `opencoven` | Checks OpenCoven / CovenCave readiness; no session launch or writable integration is installed. |
+| `claude-desktop` | Adds the Memory Fort MCP server to Claude Desktop config. |
+| `vscode` | Installs VS Code MCP config and the bundled Memory Fort extension shell. |
 
 **Exit codes:** 0 success, 1 IO error, 2 unknown platform.
 
@@ -137,7 +141,11 @@ memory install claude-code
 memory install codex
 memory install antigravity
 memory install chatgpt
+memory install opencode
 ```
+
+Use `memory disconnect <platform>` to remove an integration. Use dashboard Settings -> Clients, or edit
+`clients.<platform>: false` in `~/.memory/config.yaml`, to disable a client temporarily without deleting saved setup.
 
 ---
 

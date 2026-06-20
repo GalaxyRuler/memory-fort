@@ -46,6 +46,23 @@ describe("dashboard config patch", () => {
     })).toEqual({ ok: true, errors: [] });
   });
 
+  it("accepts openai-compatible provider settings without API keys in config", () => {
+    expect(validateConfigPatch({
+      embedder: {
+        provider: "openai-compat",
+        model: "nomic-embed-text",
+        allow_internal_hosts: true,
+        options: { baseURL: "http://127.0.0.1:11434/v1", dim: 768 },
+      },
+      llm: {
+        provider: "openai-compat",
+        model: "llama3.2",
+        allow_internal_hosts: true,
+        options: { baseURL: "http://127.0.0.1:11434/v1" },
+      },
+    })).toEqual({ ok: true, errors: [] });
+  });
+
   it("rejects unsafelisted fields with the offending path", () => {
     const result = validateConfigPatch({ embedder: { api_key: "secret" } });
 
@@ -857,6 +874,24 @@ describe("dashboard config patch", () => {
 describe("clients patch", () => {
   it("accepts a boolean client toggle", () => {
     const v = validateConfigPatch({ clients: { codex: false } });
+    expect(v.ok).toBe(true);
+  });
+  it("accepts every configurable client id", () => {
+    const v = validateConfigPatch({
+      clients: {
+        "claude-code": false,
+        codex: false,
+        antigravity: false,
+        hermes: false,
+        pi: false,
+        openclaw: false,
+        opencoven: false,
+        opencode: false,
+        "claude-desktop": false,
+        vscode: false,
+        chatgpt: true,
+      },
+    });
     expect(v.ok).toBe(true);
   });
   it("rejects a non-boolean client toggle", () => {

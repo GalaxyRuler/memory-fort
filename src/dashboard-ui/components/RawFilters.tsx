@@ -8,6 +8,13 @@ const SOURCES: { value: RawSource | "all"; label: string }[] = [
   { value: "codex", label: "Codex" },
   { value: "antigravity", label: "Antigravity" },
   { value: "claude-desktop", label: "Claude Desktop" },
+  { value: "chatgpt", label: "ChatGPT" },
+  { value: "hermes", label: "Hermes" },
+  { value: "pi", label: "Pi" },
+  { value: "openclaw", label: "OpenClaw" },
+  { value: "opencode", label: "OpenCode" },
+  { value: "opencoven", label: "OpenCoven" },
+  { value: "vscode", label: "VS Code" },
   { value: "manual", label: "Manual" },
 ];
 

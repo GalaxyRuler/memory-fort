@@ -5,9 +5,10 @@ import * as z from "zod/v3";
 import { readFile, readdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join, relative } from "node:path";
+import { isConfigurableClientId } from "../clients/catalog.js";
 import { memoryRoot, secretsPath, wikiDir, type ToolName } from "../storage/paths.js";
 import { loadSecretsIntoEnv } from "../storage/secrets.js";
-import { loadMemoryConfig, type MemoryConfig } from "../storage/config.js";
+import { isClientEnabled, loadMemoryConfig, type MemoryConfig } from "../storage/config.js";
 import {
   ensureRawSessionFile,
   appendBlock,
@@ -37,6 +38,7 @@ export interface LogObservationDeps {
   ensureRawSessionFile?: typeof ensureRawSessionFile;
   appendBlock?: typeof appendBlock;
   commitVaultChange?: typeof defaultCommitVaultChange;
+  configLoader?: (root: string) => Promise<MemoryConfig>;
   now?: () => Date;
   sessionId?: () => string;
 }
@@ -62,6 +64,15 @@ export async function logObservation(
   const cwd = process.cwd();
   const now = nowFn();
   const root = memoryRoot();
+
+  if (isConfigurableClientId(tool)) {
+    const config = await (deps.configLoader ?? loadMemoryConfig)(root);
+    if (!isClientEnabled(config, tool)) {
+      return {
+        content: [{ type: "text", text: `Observation skipped (${tool} is disabled in config.yaml)` }],
+      };
+    }
+  }
 
   const rawPath = await ensureFn({ tool, sessionId, cwd, now });
   await appendFn({
@@ -513,6 +524,14 @@ function isToolName(value: unknown): value is ToolName {
     value === "claude-code" ||
     value === "codex" ||
     value === "antigravity" ||
+    value === "claude-desktop" ||
+    value === "chatgpt" ||
+    value === "hermes" ||
+    value === "pi" ||
+    value === "openclaw" ||
+    value === "opencoven" ||
+    value === "opencode" ||
+    value === "vscode" ||
     value === "manual"
   );
 }

@@ -5,7 +5,14 @@ export type ToolName =
   | "claude-code"
   | "codex"
   | "antigravity"
+  | "claude-desktop"
+  | "chatgpt"
+  | "hermes"
+  | "pi"
+  | "openclaw"
+  | "opencoven"
   | "opencode"
+  | "vscode"
   | "manual";
 export type PageType =
   | "projects"
