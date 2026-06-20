@@ -4,6 +4,11 @@ All notable changes to Memory Fort are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.2] - 2026-06-20
+
+### Changed
+- **Desktop installers are now also published as `.zip`** — browsers (Chrome's unsigned-download heuristic / SmartScreen) block direct downloads of raw `.exe`/`.dmg`/`.AppImage` files. Each release now attaches a zipped copy of every installer (`MemoryFort-Setup-X.Y.Z.exe.zip`, etc.) that downloads without being blocked; extract and run the installer inside. The raw installers and `latest*.yml` update feed are unchanged. (The zip only fixes the download block — an unsigned installer still warns on run; signing remains intentionally out of scope.)
+
 ## [0.10.1] - 2026-06-20
 
 ### Fixed

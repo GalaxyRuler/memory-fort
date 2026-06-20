@@ -48,3 +48,37 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # No Apple Developer cert in CI — skip signing instead of failing.
           CSC_IDENTITY_AUTO_DISCOVERY: false
+
+      # Browsers (Chrome SmartScreen heuristic) block direct downloads of
+      # unsigned installers. Ship a .zip of each installer alongside the raw
+      # file so the download is not blocked; the raw installers + latest*.yml
+      # stay for the electron-updater feed. The .zip only fixes the download
+      # block — the unsigned installer still warns on run (signing is the only
+      # fix for that, and is intentionally never done).
+      - name: Zip installer for browser-safe download (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem dist/electron-installer/*.exe | Select-Object -First 1
+          if (-not $exe) { throw "No .exe installer found to zip" }
+          $zip = "$($exe.FullName).zip"
+          Compress-Archive -Path $exe.FullName -DestinationPath $zip -Force
+          gh release upload ${{ github.ref_name }} $zip --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Zip installer for browser-safe download (macOS / Linux)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          cd dist/electron-installer
+          shopt -s nullglob
+          found=0
+          for f in *.dmg *.AppImage; do
+            found=1
+            zip -q "$f.zip" "$f"
+            gh release upload "${{ github.ref_name }}" "$f.zip" --clobber
+          done
+          if [ "$found" -eq 0 ]; then echo "No .dmg/.AppImage installer found to zip" >&2; exit 1; fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
