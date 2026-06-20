@@ -36,6 +36,29 @@ Memory Fort does not require a cloud account, a running database, or a paid API 
 
 ---
 
+## How Memory Fort compares
+
+There are now many "memory layers" for AI agents. Most ship as a **hosted service or a database-backed library** you wire into one of your own applications. Memory Fort takes a different shape: a **local-first vault of plain-text files** that many AI tools read and write automatically. Here is how it lines up against the most widely used options.
+
+| | **Memory Fort** | **Mem0** | **Letta (MemGPT)** | **Zep / Graphiti** | **Cognee** | **Built-in memory** (ChatGPT / Claude) |
+|---|---|---|---|---|---|---|
+| **What it is** | Cross-tool persistent memory vault | Memory layer / SDK | Stateful agent framework | Temporal knowledge-graph memory | Memory engine + ECL pipeline | The vendor's own chat memory |
+| **License** | GPL-3.0 (open source) | Apache-2.0 (open source) | Apache-2.0 (open source) | Graphiti Apache-2.0; Zep Cloud proprietary | Apache-2.0 (open source) | Proprietary |
+| **Where data lives** | Plain markdown + YAML in `~/.memory/` (a git repo / Obsidian vault) | Vector store (20+ backends) + optional graph DB | SQLite by default; Postgres + pgvector for production | Graph DB server (Neo4j / FalkorDB / Neptune) | Embedded graph + vector (Kuzu / LanceDB); Postgres optional | The vendor's cloud |
+| **Works with zero API keys** | ✅ Default lexical + graph search and raw capture use **no LLM or embedding model at all** | Needs an LLM + embedder (a local model like Ollama avoids a key) | Needs an LLM provider (local models supported) | Needs an LLM + embedder (local via Ollama supported) | Needs an LLM + embedder (documented no-key local path via Ollama / Fastembed) | N/A — vendor account |
+| **Standalone database server to run** | ✅ None — just plain files | Vector store (embedded options exist; servers common) | None by default (SQLite); Postgres for production | Yes — a graph DB server | None by default (embedded); Postgres optional | Managed by vendor |
+| **Auto-captures across many tools** | ✅ Passive hooks for Claude Code, Codex, Antigravity, OpenCode, Hermes, Pi (ChatGPT / OpenClaw are MCP/manual) | You instrument your own app | You build on the framework | You instrument your own app | You instrument your own app | ❌ Single vendor only |
+| **Typed knowledge graph** | ✅ Markdown + typed edges (Obsidian-native) | ✅ Optional graph memory | Editable memory blocks (not a graph) | ✅ Temporal knowledge graph | ✅ Graph + vector | ❌ Opaque |
+| **Data portability** | ✅ Plain text you own — grep, git, Obsidian | Export via API | Export via API / DB | Export via API / DB | Export via API / DB | ❌ Locked to the vendor |
+
+> Competitor details reflect each project's public positioning as of mid-2026 and will change — check their docs for current specifics. Memory Fort deliberately does **not** publish head-to-head benchmark scores; see [Evidence posture](#evidence-posture).
+
+**What's similar.** Like Mem0, Letta, Zep, and Cognee, Memory Fort distills durable facts from raw activity, supports semantic + graph retrieval, exposes an MCP server and SDKs, and can use a typed knowledge graph for multi-hop recall.
+
+**What's different.** Those systems are primarily a **service or library you wire into one of your own applications**, and their default value comes from semantic extraction and retrieval — both of which need an LLM/embedding model (hosted, or local via something like Ollama), and the strongest options are hosted clouds. Memory Fort is a **local-first folder of plain-text files**: there is no database to run, lexical + graph search and raw capture work with zero API keys on day one (an LLM is only used optionally, to compile raw logs into wiki pages), your data is a git repo you can read and edit by hand, and capture happens automatically across many coding tools at once rather than from a single app. The trade-off is honest — the dedicated cloud services (especially Zep's temporal graph and Mem0's many managed backends) give you turnkey scaling and infrastructure you don't operate yourself. Memory Fort optimizes instead for **privacy, ownership, and zero-setup local use**.
+
+---
+
 ## Quickstart
 
 ```bash
