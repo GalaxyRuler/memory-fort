@@ -3,7 +3,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import * as z from "zod/v3";
 import { readFile, readdir } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { existsSync, appendFileSync, mkdirSync } from "node:fs";
 import { join, relative } from "node:path";
 import { isConfigurableClientId } from "../clients/catalog.js";
 import { memoryRoot, secretsPath, wikiDir, type ToolName } from "../storage/paths.js";
@@ -505,7 +505,62 @@ export function createServer(deps: SearchDeps = {}): McpServer {
   return server;
 }
 
+/**
+ * Harden the stdio MCP process against Windows attach/teardown races.
+ *
+ * Claude Desktop on Windows can tear down a freshly-spawned stdio server while
+ * it is still writing — surfacing client-side as `write EPIPE` / "Could not
+ * attach to MCP server memory". Node's default is to throw a broken stdout/
+ * stderr pipe as an uncaughtException, turning a recoverable client hiccup into
+ * a hard crash with no trace (Claude swallows our stderr). These guards:
+ *   - exit cleanly (code 0) when our own stdout/stderr pipe breaks, and
+ *   - log any genuine uncaught error to a file under the memory root, since
+ *     stderr is invisible once the client has detached.
+ */
+function installMcpProcessGuards(): void {
+  const isBrokenPipe = (err: unknown): boolean => {
+    const code = (err as NodeJS.ErrnoException | undefined)?.code;
+    return (
+      code === "EPIPE" || code === "ERR_STREAM_DESTROYED" || code === "ECONNRESET"
+    );
+  };
+
+  const logFatal = (label: string, err: unknown): void => {
+    try {
+      const dir = join(memoryRoot(), "logs");
+      mkdirSync(dir, { recursive: true });
+      const detail = err instanceof Error ? (err.stack ?? err.message) : String(err);
+      appendFileSync(
+        join(dir, "mcp-server.log"),
+        `${new Date().toISOString()} [${label}] ${detail}\n`,
+      );
+    } catch {
+      // Last resort: stderr may already be gone, so there is nowhere left to go.
+    }
+  };
+
+  // A broken stdout/stderr pipe means the client is gone — exit quietly rather
+  // than letting Node escalate it to an uncaughtException.
+  const onStreamError = (err: NodeJS.ErrnoException): void => {
+    if (isBrokenPipe(err)) process.exit(0);
+  };
+  process.stdout.on("error", onStreamError);
+  process.stderr.on("error", onStreamError);
+
+  process.on("uncaughtException", (err) => {
+    if (isBrokenPipe(err)) process.exit(0);
+    logFatal("uncaughtException", err);
+    process.exit(1);
+  });
+  process.on("unhandledRejection", (reason) => {
+    if (isBrokenPipe(reason)) process.exit(0);
+    logFatal("unhandledRejection", reason);
+    process.exit(1);
+  });
+}
+
 if (process.argv[1]?.endsWith("mcp-server.mjs")) {
+  installMcpProcessGuards();
   // Layer provider keys from the out-of-vault secrets file UNDER real env vars
   // so dashboard-entered keys are available to search/embeddings. Real env wins.
   loadSecretsIntoEnv(secretsPath());
