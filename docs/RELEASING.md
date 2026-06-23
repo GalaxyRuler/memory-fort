@@ -32,7 +32,12 @@ Run this checklist for **any** change that ships publicly — feature, fix, upgr
 - **Lockfile gotcha:** after any `electron-builder` dependency change, regenerate `package-lock.json` inside a Linux `node:20` Docker container — Windows `npm install` prunes electron-builder's optional deps from the lock and CI `npm ci` then fails.
 - Verify the desktop app on all three OSes via the `electron` job in `.github/workflows/smoke.yml` (launches the real Electron shell headless and asserts the dashboard serves).
 
-## 8. Restart + verify
+## 8. Upgrade the local install (REQUIRED — a release is not done until the installed binary is current)
+- Publishing the installer to the GitHub Release is **not enough**. The `memory` CLI is `npm link`'d to the repo, so it tracks the rebuilt `dist` automatically and is already current — but the installed desktop app (`%LOCALAPPDATA%\Programs\MemoryFort\MemoryFort.exe`) is a **separate artifact** that nothing in the build/publish steps touches. Leaving it stale means "released" while the running app is the old version.
+- Steps: download `MemoryFort-Setup-X.Y.Z.exe` from the release, verify its sha512 against the release `latest.yml`, stop any running `MemoryFort.exe`, run it silently (`/S` — NSIS is `oneClick:false` assisted but per-user, so no UAC), then confirm **both** the uninstall-registry `DisplayVersion` **and** the exe `ProductVersion` read `X.Y.Z`.
+- A release ends only when the npm path (CLI/`dist`) **and** the installed binary report the same new version.
+
+## 9. Restart + verify
 - Restart the dashboard (stop the `:4410` listener, relaunch `memory dashboard`); hard-refresh the browser (Ctrl+Shift+R) to drop the cached bundle.
 - `memory verify` — confirm no new failures.
 
@@ -42,4 +47,4 @@ Run this checklist for **any** change that ships publicly — feature, fix, upgr
 - This should move into a future bootstrap command instead of staying a manual release step.
 
 ## Rule of thumb
-If you bumped behavior, you bumped the README and the CHANGELOG in the same commit. If you bumped the version, you rebuilt and restarted the dashboard.
+If you bumped behavior, you bumped the README and the CHANGELOG in the same commit. If you bumped the version, you rebuilt and restarted the dashboard. A release is not shipped until **both** the npm path (CLI/`dist`) **and** the installed binary report the new version — publishing the GitHub installer is not the same as upgrading the machine.
