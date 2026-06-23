@@ -4,6 +4,11 @@ All notable changes to Memory Fort are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.6] - 2026-06-24
+
+### Fixed (Windows)
+- **Desktop app now surfaces its existing window when re-launched** — the app is single-instance, so clicking the Start-menu shortcut while an instance was already running (as it is right after the installer's auto-launch) handed off to the existing instance, whose handler only called `focus()`. A background process's `focus()` does not reliably bring a window to the foreground on Windows, so a minimized or covered window stayed hidden and the click appeared to do nothing. The second-instance handler now also restores, shows, raises (`moveTop`), and toggles always-on-top to force the window to the foreground.
+
 ## [0.10.5] - 2026-06-24
 
 ### Added
