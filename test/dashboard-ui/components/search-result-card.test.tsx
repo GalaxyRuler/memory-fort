@@ -54,6 +54,10 @@ const RESULT: SearchResult = {
       { source: "graph-spread", rank: 2 },
       { source: "rerank", rank: 3 },
     ],
+    confidence: null,
+    sourceFactCount: 0,
+    derivedFromCount: 0,
+    tier: "medium",
   },
   kind: "crystal",
 };

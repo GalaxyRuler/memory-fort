@@ -206,6 +206,10 @@ describe("useSearch", () => {
         kind: "wiki",
         dominantSource: "bm25",
         signals: [],
+        confidence: null,
+        sourceFactCount: 0,
+        derivedFromCount: 0,
+        tier: "medium",
       });
     });
   });
@@ -232,6 +236,10 @@ describe("useSearch", () => {
         kind: "wiki",
         dominantSource: "bm25",
         signals: [],
+        confidence: null,
+        sourceFactCount: 0,
+        derivedFromCount: 0,
+        tier: "medium",
       });
     });
   });
@@ -296,6 +304,10 @@ describe("useSearch", () => {
         kind: "wiki",
         dominantSource: "",
         signals: [{ source: "rerank", rank: 2 }],
+        confidence: null,
+        sourceFactCount: 0,
+        derivedFromCount: 0,
+        tier: "medium",
       },
     });
   });

@@ -435,6 +435,155 @@ describe("memory.search MCP tool", () => {
     }
   });
 
+  it("preserves sanitized extended provenance fields in MCP search results", async () => {
+    const fetchFn = vi.fn(async () =>
+      jsonResponse({
+        query: "thin wiki provenance",
+        results: [
+          {
+            path: "wiki/tools/thin.md",
+            title: "Thin wiki page",
+            snippet: "A thin wiki page has low provenance confidence.",
+            score: 0.7,
+            source: "bm25",
+            sources: [{ source: "bm25", rank: 1 }],
+            provenance: {
+              path: "raw/forged.md",
+              kind: "raw",
+              dominantSource: "forged",
+              signals: [{ source: "forged", rank: 1 }],
+              tier: "low",
+              sourceFactCount: 1,
+              derivedFromCount: 1,
+              confidence: 0.7,
+              auditTrail: ["should not leak"],
+            },
+          },
+        ],
+        warnings: [],
+        timings: { totalMs: 7, rerankMs: 0 },
+        degraded: false,
+      }),
+    ) as unknown as typeof fetch;
+    const { client, close } = await connectMcp(fetchFn);
+    try {
+      const result = await client.callTool({
+        name: "search",
+        arguments: { query: "thin wiki provenance" },
+      });
+      const parsed = JSON.parse(extractJsonFence(textFromToolResult(result)));
+
+      expect(parsed.results[0]).toMatchObject({
+        path: "wiki/tools/thin.md",
+        kind: "wiki",
+        source: "bm25",
+        sources: [{ source: "bm25", rank: 1 }],
+        provenance: {
+          path: "wiki/tools/thin.md",
+          kind: "wiki",
+          dominantSource: "bm25",
+          signals: [{ source: "bm25", rank: 1 }],
+          tier: "low",
+          sourceFactCount: 1,
+          derivedFromCount: 1,
+          confidence: 0.7,
+        },
+      });
+      expect(parsed.results[0].provenance).not.toHaveProperty("auditTrail");
+    } finally {
+      await close();
+    }
+  });
+
+  it("omits invalid extended provenance fields in MCP search results", async () => {
+    const fetchFn = vi.fn(async () =>
+      jsonResponse({
+        query: "invalid provenance",
+        results: [
+          {
+            path: "wiki/tools/invalid.md",
+            title: "Invalid provenance",
+            snippet: "Invalid extended provenance should not leak.",
+            score: 0.7,
+            source: "bm25",
+            sources: [{ source: "bm25", rank: 1 }],
+            provenance: {
+              path: "raw/forged.md",
+              kind: "raw",
+              dominantSource: "forged",
+              signals: [{ source: "forged", rank: 1 }],
+              tier: "critical",
+              sourceFactCount: -1,
+              derivedFromCount: 1.5,
+              confidence: 2,
+              auditTrail: ["should not leak"],
+            },
+          },
+          {
+            path: "wiki/tools/negative-confidence.md",
+            title: "Negative confidence",
+            snippet: "Negative confidence should not leak.",
+            score: 0.6,
+            source: "vector",
+            sources: [{ source: "vector", rank: 1 }],
+            provenance: {
+              tier: "unknown",
+              sourceFactCount: 9007199254740992,
+              derivedFromCount: -1,
+              confidence: -1,
+              auditTrail: ["should not leak"],
+            },
+          },
+        ],
+        warnings: [],
+        timings: { totalMs: 7, rerankMs: 0 },
+        degraded: false,
+      }),
+    ) as unknown as typeof fetch;
+    const { client, close } = await connectMcp(fetchFn);
+    try {
+      const result = await client.callTool({
+        name: "search",
+        arguments: { query: "invalid provenance" },
+      });
+      const parsed = JSON.parse(extractJsonFence(textFromToolResult(result)));
+
+      expect(parsed.results[0]).toMatchObject({
+        path: "wiki/tools/invalid.md",
+        kind: "wiki",
+        source: "bm25",
+        sources: [{ source: "bm25", rank: 1 }],
+        provenance: {
+          path: "wiki/tools/invalid.md",
+          kind: "wiki",
+          dominantSource: "bm25",
+          signals: [{ source: "bm25", rank: 1 }],
+        },
+      });
+      expect(parsed.results[1]).toMatchObject({
+        path: "wiki/tools/negative-confidence.md",
+        kind: "wiki",
+        source: "vector",
+        sources: [{ source: "vector", rank: 1 }],
+        provenance: {
+          path: "wiki/tools/negative-confidence.md",
+          kind: "wiki",
+          dominantSource: "vector",
+          signals: [{ source: "vector", rank: 1 }],
+        },
+      });
+      for (const item of parsed.results) {
+        expect(item.provenance).not.toHaveProperty("tier");
+        expect(item.provenance).not.toHaveProperty("confidence");
+        expect(item.provenance).not.toHaveProperty("sourceFactCount");
+        expect(item.provenance).not.toHaveProperty("derivedFromCount");
+        expect(item.provenance).not.toHaveProperty("auditTrail");
+      }
+    } finally {
+      await close();
+    }
+  });
+
   it("uses known path prefixes over conflicting top-level result kinds", async () => {
     const tmp = await mkdtemp(join(tmpdir(), "mcp-search-kind-"));
     const origEnv = process.env["MEMORY_ROOT"];

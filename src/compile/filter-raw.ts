@@ -1,8 +1,7 @@
-export interface RawTurn {
-  header: string;
-  kind: string;
-  body: string;
-}
+import { detectAutomationKind, AUTOMATION_PROMPT_SIGNATURES } from "./automation-signatures.js";
+import { splitTurns, type RawTurn } from "./raw-turns.js";
+
+export { splitTurns, type RawTurn } from "./raw-turns.js";
 
 export interface RawFilterResult {
   filtered: string;
@@ -11,16 +10,20 @@ export interface RawFilterResult {
   signalBytes: number;
   strippedByClass: Record<string, number>;
   noiseOnly: boolean;
+  automationKind: string | null;
+  lowSignal: boolean;
 }
 
-const TURN_HEADER_RE = /^## \[\d{2}:\d{2}:\d{2}\] (.+)$/gm;
+export interface FilterRawOptions {
+  minSignalBytes?: number;
+}
+
 const KNOWN_TURN_RE = /^(Prompt|Response|Thinking|ToolUse(?:: .+)?|ToolResult(?:: .+)?|ToolError(?:: .+)?|Log(?:: .+)?|Event(?:: .+)?|SessionEnd)$/u;
 const SIGNAL_TURN_RE = /^(Prompt|Response|Thinking)$/u;
 const ANSI_RE = /\x1B\[[0-?]*[ -/]*[@-~]/gu;
 const ASSET_TABLE_RE = /^.*\bdist\/assets\/\S+\s+\d+(?:\.\d+)?\s+kB\b.*\bgzip:\s*\d+(?:\.\d+)?\s+kB.*(?:\r?\n|$)/gimu;
 const CWD_RESET_RE = /^.*Shell cwd was reset to .*$(?:\r?\n)?/gimu;
 const BUILD_SUMMARY_RE = /^\s*[✓✔]\s*built in \d+(?:\.\d+)?\s*(?:ms|s)\s*$(?:\r?\n)?/gimu;
-const SUGGESTION_PROMPT_RE = /# Overview[\s\S]*?Generate 0 to 3 hyperpersonalized[\s\S]*/u;
 const DATA_BLOB_RE = /\bdata:[\w.+/-]+\/[\w.+-]+;base64,[A-Za-z0-9+/=]{200,}/gu;
 const BASE64_BLOB_RE = /\b[A-Za-z0-9+/]{240,}={0,2}\b/gu;
 const FAT_STRING_BYTES = 300;
@@ -61,22 +64,7 @@ const LINE_SIGNAL_RES = [
   /error TS\d+/u,
 ];
 
-export function splitTurns(text: string): RawTurn[] {
-  const matches = [...text.matchAll(TURN_HEADER_RE)];
-  return matches.map((match, index) => {
-    const headerStart = match.index ?? 0;
-    const headerEnd = text.indexOf("\n", headerStart);
-    const bodyStart = headerEnd === -1 ? text.length : headerEnd + 1;
-    const nextStart = matches[index + 1]?.index ?? text.length;
-    return {
-      header: text.slice(headerStart, headerEnd === -1 ? text.length : headerEnd),
-      kind: match[1] ?? "",
-      body: text.slice(bodyStart, nextStart),
-    };
-  });
-}
-
-export function filterRawText(text: string): RawFilterResult {
+export function filterRawText(text: string, options: FilterRawOptions = {}): RawFilterResult {
   const bytesIn = Buffer.byteLength(text, "utf-8");
   const turns = splitTurns(text);
   const strippedByClass: Record<string, number> = {};
@@ -85,30 +73,61 @@ export function filterRawText(text: string): RawFilterResult {
   const hasKeepSignal = hasKeepListSignal(text);
   const hasHardSignalTurn = turns.some((turn) => SIGNAL_TURN_RE.test(turn.kind));
   const hasUnknownTurn = turns.some((turn) => !KNOWN_TURN_RE.test(turn.kind));
+  const automationKind = detectAutomationKind(text);
   const noiseOnly = turns.length > 0
+    && (
+      automationKind !== null
+      || (
+        !hasKeepSignal
+        && !hasHardSignalTurn
+        && !hasUnknownTurn
+        && turns.every((turn) => isKnownNoiseTurn(turn, strippedByClass))
+      )
+    );
+  const signalBytes = turns.length > 0
+    ? turns.reduce((sum, turn) => sum + signalBytesForTurn(turn), 0)
+    : bytesIn;
+  const minSignalBytes = options.minSignalBytes ?? 0;
+  const lowSignal = !noiseOnly
+    && automationKind === null
     && !hasKeepSignal
-    && !hasHardSignalTurn
     && !hasUnknownTurn
-    && turns.every((turn) => isKnownNoiseTurn(turn, strippedByClass));
+    && turns.length > 0
+    && minSignalBytes > 0
+    && signalBytes < minSignalBytes;
   return {
     filtered,
     bytesIn,
     bytesOut,
-    signalBytes: turns.length > 0
-      ? turns.reduce((sum, turn) => sum + signalBytesForTurn(turn), 0)
-      : bytesIn,
+    signalBytes,
     strippedByClass,
     noiseOnly,
+    automationKind,
+    lowSignal,
   };
 }
 
 function filterTurns(text: string, turns: RawTurn[], strippedByClass: Record<string, number>): string {
   let out = text.slice(0, text.indexOf(turns[0]!.header));
   for (const turn of turns) {
-    const stripped = shouldStripTurn(turn) ? stripToolTurnBody(turn, strippedByClass) : turn.body;
+    let stripped: string;
+    if (isAutomationPromptTurn(turn)) {
+      const placeholder = "[elided automation prompt]\n";
+      addStripped(strippedByClass, "automation-prompt", byteDelta(turn.body, placeholder));
+      stripped = placeholder;
+    } else if (shouldStripTurn(turn)) {
+      stripped = stripToolTurnBody(turn, strippedByClass);
+    } else {
+      stripped = turn.body;
+    }
     out += `${turn.header}\n${stripped}`;
   }
   return out;
+}
+
+function isAutomationPromptTurn(turn: RawTurn): boolean {
+  if (turn.kind !== "Prompt") return false;
+  return AUTOMATION_PROMPT_SIGNATURES.some((sig) => sig.re.test(turn.body));
 }
 
 function shouldStripTurn(turn: RawTurn): boolean {
@@ -127,11 +146,6 @@ function stripNoise(text: string, strippedByClass: Record<string, number>): { te
   next = stripFatJsonValues(next, strippedByClass);
   next = replaceWithCount(next, DATA_BLOB_RE, (match) => elisionFor(match), "data-blob", strippedByClass);
   next = replaceWithCount(next, BASE64_BLOB_RE, (match) => elisionFor(match), "base64-blob", strippedByClass);
-  if (SUGGESTION_PROMPT_RE.test(next)) {
-    const before = next;
-    next = next.replace(SUGGESTION_PROMPT_RE, "");
-    addStripped(strippedByClass, "suggestion-prompt", byteDelta(before, next));
-  }
   next = replaceWithCount(next, CWD_RESET_RE, "", "cwd-reset", strippedByClass);
   return { text: next };
 }

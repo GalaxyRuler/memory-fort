@@ -54,6 +54,30 @@ describe("runCompile noise-only raw skip", () => {
     expect(state.consumed?.["raw/2026-06-14/noise.md"]?.bytes).toBe(Buffer.byteLength(raw));
   });
 
+  it("skips the LLM for a codex suggestion-generator session and advances its watermark", async () => {
+    await mkdir(join(root, "raw", "2026-06-20"), { recursive: true });
+    const rawPath = join(root, "raw", "2026-06-20", "codex-suggest.md");
+    const raw =
+      "---\ntype: raw-session\nsource: codex\n---\n\n" +
+      rawTurn("Prompt", "# Overview\n\nGenerate 0 to 3 hyperpersonalized suggestions for what this user can do with Codex in this local project: C:\\X\n\n# Rules\n[]");
+    await writeFile(rawPath, raw);
+    const chat = vi.fn(async () => emptyOpsResponse());
+
+    const result = await runCompile({
+      vaultRoot: root,
+      rawFilter: true,
+      execute: true,
+      configLoader: async () => ({ llm: { provider: "ollama", model: "llama3.2" } }),
+      llmFactory: () => fakeLLM(chat),
+      env: {},
+    });
+
+    const state = await readCompileStateFile(root);
+    expect(chat).not.toHaveBeenCalled();
+    expect(result.noiseOnlySkipped).toBe(1);
+    expect(state.consumed?.["raw/2026-06-20/codex-suggest.md"]?.bytes).toBe(Buffer.byteLength(raw));
+  });
+
   it("sends a capped slice when a keep-list error line is present", async () => {
     const rawPath = join(root, "raw", "2026-06-14", "signal.md");
     await writeFile(rawPath, rawTurn("ToolResult", [

@@ -16,6 +16,10 @@ export interface SearchResult {
     kind: "wiki" | "raw" | "crystal";
     dominantSource: string;
     signals: Array<{ source: string; rank: number }>;
+    confidence: number | null;
+    sourceFactCount: number;
+    derivedFromCount: number;
+    tier: "high" | "medium" | "low";
   };
   kind: "wiki" | "raw" | "crystal";
 }
@@ -54,6 +58,10 @@ type RuntimeSearchResult = Partial<Omit<SearchResult, "provenance" | "sources">>
     kind?: unknown;
     dominantSource?: unknown;
     signals?: unknown;
+    confidence?: unknown;
+    sourceFactCount?: unknown;
+    derivedFromCount?: unknown;
+    tier?: unknown;
   };
 };
 
@@ -92,7 +100,7 @@ function normalizeSearchResponse(response: RuntimeSearchResponse): SearchRespons
   };
 }
 
-function normalizeSearchResult(result: RuntimeSearchResult): SearchResult[] {
+export function normalizeSearchResult(result: RuntimeSearchResult): SearchResult[] {
   if (typeof result.path !== "string" || !isSearchResultKind(result.kind)) return [];
 
   const provenance = result.provenance;
@@ -111,6 +119,10 @@ function normalizeSearchResult(result: RuntimeSearchResult): SearchResult[] {
       kind: isSearchResultKind(provenance?.kind) ? provenance.kind : result.kind,
       dominantSource: typeof provenance?.dominantSource === "string" ? provenance.dominantSource : source,
       signals: normalizeSearchSignals(provenance?.signals),
+      confidence: normalizeProvenanceProbability(provenance?.confidence),
+      sourceFactCount: normalizeProvenanceCount(provenance?.sourceFactCount),
+      derivedFromCount: normalizeProvenanceCount(provenance?.derivedFromCount),
+      tier: normalizeProvenanceTier(provenance?.tier),
     },
   };
   return [normalizedResult];
@@ -118,4 +130,14 @@ function normalizeSearchResult(result: RuntimeSearchResult): SearchResult[] {
 
 function isSearchResultKind(kind: unknown): kind is SearchResult["kind"] {
   return kind === "wiki" || kind === "raw" || kind === "crystal";
+}
+
+function normalizeProvenanceProbability(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1 ? value : null;
+}
+function normalizeProvenanceCount(value: unknown): number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : 0;
+}
+function normalizeProvenanceTier(value: unknown): "high" | "medium" | "low" {
+  return value === "high" || value === "low" ? value : "medium";
 }

@@ -64,6 +64,10 @@ describe("search core", () => {
         path: first.path,
         kind: first.kind,
         dominantSource: first.source,
+        tier: expect.stringMatching(/^(high|medium|low)$/),
+        confidence: first.provenance.confidence,
+        sourceFactCount: expect.any(Number),
+        derivedFromCount: expect.any(Number),
         signals: expect.arrayContaining([
           expect.objectContaining({
             source: expect.any(String),
@@ -85,6 +89,10 @@ describe("search core", () => {
         path: result.path,
         kind: result.kind,
         dominantSource: result.source,
+        tier: expect.stringMatching(/^(high|medium|low)$/),
+        confidence: result.provenance.confidence,
+        sourceFactCount: expect.any(Number),
+        derivedFromCount: expect.any(Number),
         signals: expect.arrayContaining([
           expect.objectContaining({
             source: expect.any(String),

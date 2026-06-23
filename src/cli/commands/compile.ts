@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import {
+  appendFile,
   mkdir,
   readFile,
   readdir,
@@ -90,6 +91,7 @@ export interface CompileResult {
   filterStats?: CompileFilterStats;
   filterReport?: CompileFilterReport;
   noiseOnlySkipped: number;
+  lowSignalQuarantined: number;
 }
 
 export interface CompileFilterStats {
@@ -208,7 +210,8 @@ async function runCompileImpl(
   const memoryConfig = await (opts.configLoader ?? (() => loadMemoryConfig(root)))();
   const compileConfig = resolveCompileConfig(memoryConfig.compile);
   const rawFilterEnabled = opts.filterReport ? true : opts.rawFilter ?? compileConfig.raw_filter;
-  void (opts.rawFilterMinSignalBytes ?? compileConfig.raw_filter_min_signal_bytes);
+  const rawFilterMinSignalBytes = opts.rawFilterMinSignalBytes ?? compileConfig.raw_filter_min_signal_bytes;
+  const quarantineLowSignal = compileConfig.raw_filter_quarantine_low_signal;
   const promptTemplate = await readRuntimePrompt({
     vaultRoot: root,
     name: "compile.md",
@@ -234,6 +237,10 @@ async function runCompileImpl(
       ? new Date(0)
       : detectSinceFromLog(log) ?? new Date(0);
   const watermarkMode: CompileResult["watermarkMode"] = opts.since ? "bypassed" : "gated";
+  const canCommitLowSignalQuarantine = quarantineLowSignal
+    && opts.execute === true
+    && opts.plan !== true
+    && watermarkMode === "gated";
   let compileState = await readCompileStateForCompile(root, { migrateLegacy: !opts.filterReport });
   const watermarkReset = opts.resetWatermark !== undefined && opts.resetWatermark !== false
     ? await resetConsumedWatermarks(root, compileState, opts.resetWatermark)
@@ -248,6 +255,7 @@ async function runCompileImpl(
   const rawFilesIncluded: string[] = [];
   const includedWatermarks: IncludedRawWatermark[] = [];
   const noiseOnlyWatermarks: IncludedRawWatermark[] = [];
+  const pendingLowSignalQuarantines: LowSignalQuarantineEntry[] = [];
   const rawContentBlocks: string[] = [];
   const eligibleRaws: EligibleRaw[] = [];
   const filterReportFiles: CompileFilterReportFile[] = [];
@@ -262,6 +270,7 @@ async function runCompileImpl(
   let totalUsed = 0;
   let truncatedAtTotalCap = false;
   let noiseOnlySkipped = 0;
+  let lowSignalQuarantined = 0;
 
   const rawFiles = await listRawFiles(root, join(root, "raw"));
   for (const candidate of rawFiles) {
@@ -394,7 +403,7 @@ async function runCompileImpl(
     const originalText = text;
     const lastObservationAt = detectLastObservationAt(raw.candidate.relPath, originalText, raw.candidate.mtimeMs);
     if (rawFilterEnabled) {
-      const filtered = filterRawText(text);
+      const filtered = filterRawText(text, { minSignalBytes: canCommitLowSignalQuarantine ? rawFilterMinSignalBytes : 0 });
       filterStats.bytesIn += filtered.bytesIn;
       filterStats.bytesOut += filtered.bytesOut;
       filterStats.signalBytes += filtered.signalBytes;
@@ -422,6 +431,19 @@ async function runCompileImpl(
           lastObservationAt,
         });
         noiseOnlySkipped += 1;
+        continue;
+      }
+      if (canCommitLowSignalQuarantine && filtered.lowSignal) {
+        noiseOnlyWatermarks.push({
+          relPath: raw.candidate.relPath,
+          bytes: raw.cursor,
+          lastObservationAt,
+        });
+        pendingLowSignalQuarantines.push({
+          relPath: raw.candidate.relPath,
+          signalBytes: filtered.signalBytes,
+          at: lastObservationAt,
+        });
         continue;
       }
     }
@@ -464,6 +486,7 @@ async function runCompileImpl(
       rawBytesRemaining,
       rawFilesRemaining,
       noiseOnlySkipped,
+      lowSignalQuarantined,
       filterStats,
       filterReport: buildCompileFilterReport(filterReportFiles, filterStats),
     };
@@ -503,6 +526,14 @@ async function runCompileImpl(
     includedWatermarks,
     noiseOnlyWatermarks,
   });
+  if (pendingLowSignalQuarantines.length > 0 && watermarksAdvanced.length > 0) {
+    const advancedRelPaths = new Set(watermarksAdvanced);
+    const committedLowSignalQuarantines = pendingLowSignalQuarantines.filter((entry) => advancedRelPaths.has(entry.relPath));
+    for (const entry of committedLowSignalQuarantines) {
+      await appendLowSignalQuarantine(root, entry);
+    }
+    lowSignalQuarantined = committedLowSignalQuarantines.length;
+  }
   if (watermarksAdvanced.length > 0) {
     await clearOpsJournal(root);
   }
@@ -532,10 +563,20 @@ async function runCompileImpl(
     rawBytesRemaining,
     rawFilesRemaining,
     noiseOnlySkipped,
+    lowSignalQuarantined,
     execution,
     ...(indexRebuild ? { indexRebuild } : {}),
     ...(rawFilterEnabled ? { filterStats } : {}),
   };
+}
+
+type LowSignalQuarantineEntry = { relPath: string; signalBytes: number; at: string };
+
+async function appendLowSignalQuarantine(root: string, entry: LowSignalQuarantineEntry): Promise<void> {
+  const dir = join(root, "var");
+  await mkdir(dir, { recursive: true });
+  const line = JSON.stringify({ relPath: entry.relPath, signalBytes: entry.signalBytes, at: entry.at }) + "\n";
+  await appendFile(join(dir, "quarantine-lowsignal.jsonl"), line, "utf-8");
 }
 
 export function formatCompileExecuteSummary(result: CompileResult): string[] {
@@ -633,7 +674,7 @@ export async function runCompileDrain(
     totalWatermarksAdvanced += result.watermarksAdvanced.length;
     const progressLine = formatDrainProgress(pass, result);
     opts.onProgress?.(progressLine, result, pass);
-    if (result.rawFilesIncluded.length === 0 && result.noiseOnlySkipped === 0) {
+    if (result.rawFilesIncluded.length === 0 && result.noiseOnlySkipped === 0 && result.lowSignalQuarantined === 0) {
       return {
         passes,
         stopReason: "empty",
@@ -648,7 +689,7 @@ export async function runCompileDrain(
     // re-sent next pass. Retry once (transient LLM flakiness), then quarantine
     // the batch for the rest of this run so the drain moves on to other files.
     // Quarantined files keep their watermarks and are retried on the next run.
-    const madeProgress = result.watermarksAdvanced.length > 0 || result.noiseOnlySkipped > 0;
+    const madeProgress = result.watermarksAdvanced.length > 0 || result.noiseOnlySkipped > 0 || result.lowSignalQuarantined > 0;
     if (!madeProgress) {
       consecutiveStalls += 1;
       if (consecutiveStalls >= 2) {
@@ -794,6 +835,7 @@ async function executeCompilePrompt(opts: CompileOptions & {
 }): Promise<CompileResult["execution"]> {
   const env = opts.env ?? process.env;
   const config = await (opts.configLoader ?? (() => loadMemoryConfig(opts.root)))();
+  const compileConfig = resolveCompileConfig(config.compile);
   const llmConfig = getActiveLLMConfig(config);
   const llm = (opts.llmFactory ?? createLLMFromConfig)(llmConfig, env);
   const compressedFacts = opts.skipFactConsolidation ? [] : await loadCompressedFacts(opts.root);
@@ -801,6 +843,7 @@ async function executeCompilePrompt(opts: CompileOptions & {
     const result = await runFactConsolidation({
       vaultRoot: opts.root,
       llm,
+      faithfulnessCheck: compileConfig.faithfulness_check,
     });
     const consolidationDidWork =
       result.applied.length > 0 || result.proposed.length > 0;

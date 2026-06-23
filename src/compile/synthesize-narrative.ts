@@ -8,6 +8,7 @@ import { atomicWrite } from "../storage/atomic-write.js";
 import { parseFrontmatter, serializeFrontmatter, type Frontmatter } from "../storage/frontmatter.js";
 import { kebabCase } from "../storage/slug.js";
 import type { ConsolidationFact } from "./filter-noise.js";
+import { assessClaimSupport } from "./faithfulness.js";
 
 export const NARRATIVE_KNOWLEDGE_TYPES = [
   "projects",
@@ -28,6 +29,7 @@ export interface SynthesisResult {
   outcome: SynthesisOutcome;
   path: string;
   proposed: boolean;
+  llmCalls: number;
   proposedPath?: string;
   reason?: string;
   tokensUsed?: LLMTokenUsage;
@@ -39,6 +41,7 @@ export interface SynthesizeNarrativeOptions {
   facts: ConsolidationFact[];
   llm: LLMProvider;
   now: Date;
+  faithfulnessCheck?: boolean;
 }
 
 interface NarrativeDetectOutput {
@@ -111,6 +114,7 @@ export async function synthesizeNarrative(opts: SynthesizeNarrativeOptions): Pro
     jsonSchema: { name: "NarrativeDetectOutput", schema: DETECT_SCHEMA, strict: true },
   });
   throwIfTruncatedResponse("narrative synthesis detect", detectResponse.finishReason);
+  let llmCalls = 1;
   let tokensUsed = detectResponse.tokensUsed;
   const detect = parseDetectOutput(detectResponse.content);
 
@@ -124,9 +128,9 @@ export async function synthesizeNarrative(opts: SynthesizeNarrativeOptions): Pro
     );
     if (relationFrontmatter !== baseFrontmatter) {
       await atomicWrite(fullPath, serializeFrontmatter(relationFrontmatter, parsed.body));
-      return { outcome: "rewritten", path: opts.pageRelPath, proposed: false, tokensUsed };
+      return { outcome: "rewritten", path: opts.pageRelPath, proposed: false, llmCalls, tokensUsed };
     }
-    return { outcome: "unchanged", path: opts.pageRelPath, proposed: false, tokensUsed };
+    return { outcome: "unchanged", path: opts.pageRelPath, proposed: false, llmCalls, tokensUsed };
   }
   if (detect.contradicted_claims.length >= 10) {
     const proposedPath = await stageNarrativeReview(opts.vaultRoot, opts.pageRelPath, {
@@ -141,6 +145,7 @@ export async function synthesizeNarrative(opts: SynthesizeNarrativeOptions): Pro
       proposed: true,
       proposedPath,
       reason: "too many contradicted claims for automatic rewrite",
+      llmCalls,
       tokensUsed,
     };
   }
@@ -160,8 +165,28 @@ export async function synthesizeNarrative(opts: SynthesizeNarrativeOptions): Pro
     jsonSchema: { name: "NarrativeSynthesisOutput", schema: SYNTHESIS_SCHEMA, strict: true },
   });
   throwIfTruncatedResponse("narrative synthesis", synthResponse.finishReason);
+  llmCalls += 1;
   tokensUsed = addTokenUsage(tokensUsed, synthResponse.tokensUsed);
   const synth = parseSynthesisOutput(synthResponse.content);
+
+  if (opts.faithfulnessCheck) {
+    const verdict = await assessClaimSupport({
+      body: synth.body,
+      facts: opts.facts.map((fact) => ({ fact_id: fact.fact_id, narrative: fact.fact.narrative })),
+      llm: opts.llm,
+      priorBody: parsed.body,
+    });
+    llmCalls += 1;
+    if (!verdict.supported) {
+      const reason = `unsupported claims: ${verdict.unsupportedClaims.join("; ")}`;
+      const proposedPath = await stageNarrativeReview(opts.vaultRoot, opts.pageRelPath, {
+        reason,
+        body: synth.body,
+        facts: opts.facts,
+      }, opts.now);
+      return { outcome: "staged-for-review", path: opts.pageRelPath, proposed: true, proposedPath, reason, llmCalls, tokensUsed };
+    }
+  }
 
   const body = normalizeBody(synth.body);
   const validation = validateNarrativeBody(body);
@@ -171,7 +196,7 @@ export async function synthesizeNarrative(opts: SynthesizeNarrativeOptions): Pro
       body,
       facts: opts.facts,
     }, opts.now);
-    return { outcome: "staged-for-review", path: opts.pageRelPath, proposed: true, proposedPath, reason: validation.reason, tokensUsed };
+    return { outcome: "staged-for-review", path: opts.pageRelPath, proposed: true, proposedPath, reason: validation.reason, llmCalls, tokensUsed };
   }
   const wikilinkCheck = validateWikilinkRetention(parsed.body, body);
   if (!wikilinkCheck.ok) {
@@ -180,10 +205,10 @@ export async function synthesizeNarrative(opts: SynthesizeNarrativeOptions): Pro
       body,
       facts: opts.facts,
     }, opts.now);
-    return { outcome: "staged-for-review", path: opts.pageRelPath, proposed: true, proposedPath, reason: wikilinkCheck.reason, tokensUsed };
+    return { outcome: "staged-for-review", path: opts.pageRelPath, proposed: true, proposedPath, reason: wikilinkCheck.reason, llmCalls, tokensUsed };
   }
   if (narrativeEquivalent(parsed.body, body)) {
-    return { outcome: "unchanged", path: opts.pageRelPath, proposed: false, tokensUsed };
+    return { outcome: "unchanged", path: opts.pageRelPath, proposed: false, llmCalls, tokensUsed };
   }
 
   const history = await archivePageVersion(opts.vaultRoot, opts.pageRelPath, current, opts.now, parsed.frontmatter);
@@ -194,7 +219,7 @@ export async function synthesizeNarrative(opts: SynthesizeNarrativeOptions): Pro
     opts.facts,
   );
   await atomicWrite(fullPath, serializeFrontmatter(nextFrontmatter, `${body}\n`));
-  return { outcome: "rewritten", path: opts.pageRelPath, proposed: false, tokensUsed };
+  return { outcome: "rewritten", path: opts.pageRelPath, proposed: false, llmCalls, tokensUsed };
 }
 
 export function isNarrativeKnowledgePageType(value: unknown): value is NarrativeKnowledgeType {

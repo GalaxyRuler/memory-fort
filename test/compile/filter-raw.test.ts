@@ -423,3 +423,61 @@ describe("filter-raw: tool-heavy reduction", () => {
 function rawTurn(kind: string, body: string): string {
   return `## [12:00:00] ${kind}\n\n${body}\n`;
 }
+
+const SUGGESTION_RAW =
+  "---\ntype: raw-session\nsource: codex\n---\n\n" +
+  "## [00:08:12] Prompt\n\n# Overview\n\n" +
+  "Generate 0 to 3 hyperpersonalized suggestions for what this user can do with Codex in this local project: C:\\Projects\\FamTree\n\n" +
+  "# Rules\nRecent Codex threads in this project:\n[]\n";
+
+describe("filter-raw: automation sessions are noise-only", () => {
+  it("marks a codex suggestion session noiseOnly with an automationKind", () => {
+    const r = filterRawText(SUGGESTION_RAW);
+    expect(r.automationKind).toBe("codex-suggestion-generator");
+    expect(r.noiseOnly).toBe(true);
+  });
+
+  it("keeps a real user session as signal", () => {
+    const real =
+      "## [00:08:12] Prompt\n\nWire Supabase auth into the nasab page.\n" +
+      "## [00:09:00] Response\n\nDone, added supabase client.\n";
+    const r = filterRawText(real);
+    expect(r.automationKind).toBeNull();
+    expect(r.noiseOnly).toBe(false);
+  });
+});
+
+describe("filter-raw: strips automation prompt body in mixed sessions", () => {
+  it("drops the boilerplate but keeps the user prompt", () => {
+    const mixed =
+      "## [00:01:00] Prompt\n\n# Overview\n\nGenerate 0 to 3 hyperpersonalized suggestions for what this user can do with Codex in this local project: C:\\X\n\n# Rules\n[]\n" +
+      "## [00:02:00] Prompt\n\nRefactor the lineage resolver to memoize.\n";
+    const r = filterRawText(mixed);
+    expect(r.automationKind).toBeNull();
+    expect(r.noiseOnly).toBe(false);
+    expect(r.filtered).toContain("[elided automation prompt]");
+    expect(r.filtered).toContain("Refactor the lineage resolver to memoize.");
+    expect(r.filtered).not.toContain("hyperpersonalized suggestions");
+    expect(r.strippedByClass["automation-prompt"]).toBeGreaterThan(0);
+  });
+});
+
+describe("filter-raw: low-signal detection", () => {
+  it("flags a tiny single-prompt session as lowSignal below threshold", () => {
+    const tiny = "## [00:01:00] Prompt\n\nhi\n";
+    const r = filterRawText(tiny, { minSignalBytes: 40 });
+    expect(r.automationKind).toBeNull();
+    expect(r.lowSignal).toBe(true);
+  });
+
+  it("does not flag a substantial session as lowSignal", () => {
+    const big = "## [00:01:00] Prompt\n\n" + "design the nasab graph schema in detail ".repeat(20) + "\n";
+    const r = filterRawText(big, { minSignalBytes: 40 });
+    expect(r.lowSignal).toBe(false);
+  });
+
+  it("never flags lowSignal when minSignalBytes is omitted (default 0)", () => {
+    const tiny = "## [00:01:00] Prompt\n\nhi\n";
+    expect(filterRawText(tiny).lowSignal).toBe(false);
+  });
+});

@@ -20,6 +20,7 @@ export interface FactConsolidationOptions {
   minImportance?: number;
   timeoutMs?: number;
   now?: Date;
+  faithfulnessCheck?: boolean;
 }
 
 export interface FactConsolidationResult {
@@ -100,6 +101,7 @@ export async function runFactConsolidation(opts: FactConsolidationOptions): Prom
         facts: filtered.accepted,
         llm: opts.llm,
         now: opts.now ?? new Date(),
+        faithfulnessCheck: opts.faithfulnessCheck,
       });
     } catch (error) {
       // One bad LLM response (e.g. invalid JSON from a weaker model) must not
@@ -117,7 +119,7 @@ export async function runFactConsolidation(opts: FactConsolidationOptions): Prom
       });
       continue;
     }
-    llmCalls += result.outcome === "unchanged" ? 1 : 2;
+    llmCalls += result.llmCalls;
     rewriteTokensUsed = addTokenUsage(rewriteTokensUsed, result.tokensUsed);
 
     if (result.outcome === "unchanged") {

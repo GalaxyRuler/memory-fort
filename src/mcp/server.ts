@@ -326,6 +326,11 @@ interface ApiSearchResult {
     path?: unknown;
     kind?: unknown;
     dominantSource?: unknown;
+    signals?: unknown;
+    confidence?: unknown;
+    sourceFactCount?: unknown;
+    derivedFromCount?: unknown;
+    tier?: unknown;
   };
   kind?: unknown;
 }
@@ -565,6 +570,7 @@ function buildSearchUrl(baseUrl: string, input: SearchInput): string {
 
 type SearchKind = "wiki" | "raw" | "crystal";
 type SearchSignal = { source: string; rank: number };
+type SearchProvenanceTier = "high" | "medium" | "low";
 type ApiSearchResultWithPath = ApiSearchResult & { path: string };
 
 function inferSearchKind(item: ApiSearchResultWithPath): SearchKind {
@@ -639,6 +645,33 @@ function normalizeSearchSignals(value: unknown): SearchSignal[] {
   return signals;
 }
 
+function normalizeExtendedSearchProvenanceFields(value: unknown): {
+  confidence?: number | null;
+  sourceFactCount?: number;
+  derivedFromCount?: number;
+  tier?: SearchProvenanceTier;
+} {
+  if (!isRecord(value)) return {};
+  return {
+    ...(isSearchProvenanceTier(value.tier) ? { tier: value.tier } : {}),
+    ...(isProbabilityNumberOrNull(value.confidence) ? { confidence: value.confidence } : {}),
+    ...(isSafeNonNegativeInteger(value.sourceFactCount) ? { sourceFactCount: value.sourceFactCount } : {}),
+    ...(isSafeNonNegativeInteger(value.derivedFromCount) ? { derivedFromCount: value.derivedFromCount } : {}),
+  };
+}
+
+function isSearchProvenanceTier(value: unknown): value is SearchProvenanceTier {
+  return value === "high" || value === "medium" || value === "low";
+}
+
+function isProbabilityNumberOrNull(value: unknown): value is number | null {
+  return value === null || (typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1);
+}
+
+function isSafeNonNegativeInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+
 function formatSearchToolResponse(body: ApiSearchResponse, results: ApiSearchResultWithPath[]): string {
   const result = {
     query: sanitizeString(body.query, MAX_SEARCH_QUERY_LENGTH, ""),
@@ -667,6 +700,7 @@ function formatSearchToolResponse(body: ApiSearchResponse, results: ApiSearchRes
           kind,
           dominantSource: source,
           signals: sources.map((signal) => ({ ...signal })),
+          ...normalizeExtendedSearchProvenanceFields(item.provenance),
         },
         kind,
       };

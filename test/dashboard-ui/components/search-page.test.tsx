@@ -72,6 +72,10 @@ function makeResult(): SearchResult {
         { source: "bm25", rank: 1 },
         { source: "rerank", rank: 1 },
       ],
+      confidence: null,
+      sourceFactCount: 0,
+      derivedFromCount: 0,
+      tier: "medium",
     },
     kind: "wiki",
   };
@@ -91,6 +95,10 @@ function makeCrystalResult(): SearchResult {
         { source: "bm25", rank: 1 },
         { source: "rerank", rank: 1 },
       ],
+      confidence: null,
+      sourceFactCount: 0,
+      derivedFromCount: 0,
+      tier: "medium",
     },
     kind: "crystal",
   };

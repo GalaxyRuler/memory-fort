@@ -23,6 +23,7 @@ import {
 import { exactBoosts } from "./exact.js";
 import { buildGraph, expandGraph, resolveEdgeWeights, spreadingActivation } from "./graph.js";
 import { scoreByMetadata } from "./metadata-score.js";
+import { buildProvenance, type Provenance } from "./provenance-annotator.js";
 import { rrfFuse, type RankedItem, type RrfResult } from "./rrf.js";
 import { applyIntentWeights } from "./intent-weights.js";
 import {
@@ -101,12 +102,7 @@ export interface SearchResult {
   score: number;
   source: string;
   sources: Array<{ source: string; rank: number }>;
-  provenance: {
-    path: string;
-    kind: "wiki" | "raw" | "crystal";
-    dominantSource: string;
-    signals: Array<{ source: string; rank: number }>;
-  };
+  provenance: Provenance;
   kind: "wiki" | "raw" | "crystal";
 }
 
@@ -548,12 +544,7 @@ export async function runSearch(opts: SearchOptions): Promise<SearchResponse> {
         score,
         source,
         sources,
-        provenance: {
-          path: candidate.document.relPath,
-          kind: candidate.document.kind,
-          dominantSource: source,
-          signals: sources.map((signal) => ({ ...signal })),
-        },
+        provenance: buildProvenance(candidate.document, source, sources),
         kind: candidate.document.kind,
       };
     });

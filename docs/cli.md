@@ -6,17 +6,32 @@
 
 `memory search <query> [--scope wiki|raw|crystals|all] [--k <n>] [--min-score <n>] [--no-rerank] [--json] [--vps-url <url>]` queries the VPS dashboard `/api/search` endpoint over Tailscale and prints ranked memory results. Use `--json` to emit the raw API response for debugging or scripts; otherwise the CLI prints the query, result count, latency, warnings, and a short snippet per result. This command does not run retrieval locally and does not need local Voyage credentials.
 
+JSON search output, dashboard API responses, and the MCP `search` tool include a `provenance` object per result. In addition to `path`, `kind`, `dominantSource`, and `signals`, provenance includes:
+
+| Field | Meaning |
+|---|---|
+| `provenance.tier` | Coarse trust hint: `high`, `medium`, or `low` |
+| `provenance.confidence` | Numeric confidence extracted from page frontmatter when present, otherwise `null` |
+| `provenance.sourceFactCount` | Count of frontmatter `source_facts` backing the result |
+| `provenance.derivedFromCount` | Count of `relations.derived_from` edges backing the result |
+
+Treat these as retrieval provenance signals, not access-control or hard filtering. A `low` tier marks thin or weakly confident wiki results so downstream callers can be more cautious about using them as authoritative context.
+
 ---
 
 ## compile
 
 **Synopsis:**
 ```bash
-memory compile [--since <iso>] [--per-file-max-bytes <bytes>] [--total-max-bytes <bytes>] [-o, --output <path>]
+memory compile [--since <iso>] [--per-file-max-bytes <bytes>] [--total-max-bytes <bytes>] [--existing-pages-max-bytes <bytes>] [--max-files-per-pass <n>] [-o, --output <path>] [--execute] [--plan] [--drain] [--max-passes <n>] [--reset-watermark [glob]] [--backfill] [--filter-report [--json]]
 ```
 
 **Description:**
-Assemble an LLM prompt by substituting recent raw observations, schema, index, and log context into `~/.memory/prompts/compile.md`. This command is an orchestrator: the LLM in your active agent session reads the printed prompt and performs the actual wiki edits. `memory compile` never calls an LLM and never writes to `wiki/`.
+Without `--execute`, assemble an LLM prompt by substituting recent raw observations, schema, index, and log context into `~/.memory/prompts/compile.md`. In this prompt-only mode the active agent session reads the printed prompt and performs any wiki edits manually.
+
+With `--execute`, `memory compile` sends the prompt to the configured LLM and applies grounded compile operations. High-confidence changes are written directly; lower-confidence or policy-blocked changes are staged under `wiki/compile-proposed/` for review. `--plan` previews the compile operations without applying writes.
+
+`--filter-report` is a dry run for the raw filter. It forces the raw filter for reporting, makes no LLM calls, does not write wiki pages, and prints per-file plus aggregate byte reduction, signal bytes, noise-only classification, and stripped classes. Use `--filter-report --json` for the structured report.
 
 **Options:**
 
@@ -25,12 +40,38 @@ Assemble an LLM prompt by substituting recent raw observations, schema, index, a
 | `--since <iso>` | Latest `compile` entry in `log.md`, or epoch if none | Only include raw files modified at or after this timestamp |
 | `--per-file-max-bytes <bytes>` | `10000` | Maximum content read from each raw file |
 | `--total-max-bytes <bytes>` | `200000` | Maximum raw content folded into the prompt across all files |
+| `--existing-pages-max-bytes <bytes>` | `40000` | Maximum existing-page context folded into the prompt |
+| `--max-files-per-pass <n>` | `40` | Maximum raw files included in one compile pass |
 | `-o, --output <path>` | stdout only | Also write the assembled prompt to a file |
+| `--execute` | off | Send the prompt to the configured LLM and apply grounded compile operations |
+| `--plan` | off | With `--execute`, preview operations without writing |
+| `--drain` | off | With `--execute`, keep compiling until no eligible raw tails remain |
+| `--max-passes <n>` | `50` | Maximum drain passes |
+| `--reset-watermark [glob]` | off | Clear consumed raw-file watermarks before compiling |
+| `--backfill` | off | Make unwatermarked raw files eligible regardless of the since cutoff while preserving watermark deduplication |
+| `--filter-report` | off | Run the raw filter in dry-run report mode with no LLM calls or writes |
+| `--json` | off | With `--filter-report`, emit the report as JSON |
+
+`--drain` requires `--execute`, cannot be combined with `--plan`, and is incompatible with `--since` because drain progress depends on watermarks. `--filter-report` is incompatible with `--drain` and with `--reset-watermark`.
+
+**Compile config:**
+
+Set these under `compile:` in `~/.memory/config.yaml`.
+
+| Key | Default | Behavior |
+|---|---|---|
+| `raw_filter` | `false` | Enables the pre-LLM raw filter for real compile runs. The filter keeps user prompts, assistant decisions, tool commands, findings prose, errors, diffs, commits, tests, and other signal lines while stripping or condensing automation-heavy output such as file dumps, base64/media blobs, ANSI, and long machine output. Noise-only slices advance the consumed watermark without an LLM call so pure automation noise is consumed once and not re-billed. |
+| `raw_filter_quarantine_low_signal` | `false` | Opt-in low-signal quarantine. When enabled during an `--execute` run that is not `--plan` and is using normal watermark gating, filtered slices that are not noise-only but contain too little signal are skipped from the prompt, watermarked, and recorded in `var/quarantine-lowsignal.jsonl`. Prompt-only, `--plan`, `--filter-report`, and `--since` runs do not commit low-signal quarantine entries. |
+| `raw_filter_min_signal_bytes` | `40` | Signal-byte threshold for the low-signal quarantine path. The numeric threshold defaults to `40`, but it is non-breaking and inert unless `raw_filter_quarantine_low_signal` is enabled in a run that can commit quarantine. |
+| `faithfulness_check` | `false` | Opt-in faithfulness gate for fact-consolidation narrative synthesis. When enabled, compile asks the LLM to check synthesized prose against accepted `source_facts`; unsupported claims are staged under `wiki/compile-proposed/` with an `unsupported claims` reason instead of auto-applying the rewrite. The default is off to preserve existing behavior and avoid the extra LLM call. |
 
 **Examples:**
 ```bash
 node dist/cli.mjs compile
 node dist/cli.mjs compile --output compile-prompt.md
+node dist/cli.mjs compile --filter-report
+node dist/cli.mjs compile --filter-report --json
+node dist/cli.mjs compile --execute --plan
 ```
 
 **Exit codes:** 0 success, 1 error. If `~/.memory/prompts/compile.md` is missing, run `memory init` first.

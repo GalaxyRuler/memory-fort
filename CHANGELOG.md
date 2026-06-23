@@ -4,6 +4,13 @@ All notable changes to Memory Fort are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Automation-noise filter and opt-in low-signal quarantine** — compile can now consume pure automation noise without re-billing the LLM, and `compile.raw_filter_quarantine_low_signal` can quarantine unknown low-signal slices to `var/quarantine-lowsignal.jsonl`; `compile.raw_filter_min_signal_bytes` defaults to `40` but remains inert unless the quarantine knob is enabled.
+- **Faithfulness gate** — `compile.faithfulness_check` adds an opt-in check that stages unsupported synthesized narrative rewrites for review instead of auto-applying them.
+- **Search provenance tiers and counts** — JSON and MCP search results now expose `provenance.tier`, `provenance.confidence`, `provenance.sourceFactCount`, and `provenance.derivedFromCount` so callers can distinguish thin or weakly supported retrieval hits from stronger ones.
+
 ## [0.10.4] - 2026-06-20
 
 ### Fixed

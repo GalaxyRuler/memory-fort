@@ -69,6 +69,10 @@ function makeResult(overrides: Partial<SearchResult>): SearchResult {
       kind: "wiki" as const,
       dominantSource: "rerank",
       signals: [{ source: "rerank", rank: 1 }],
+      confidence: null,
+      sourceFactCount: 0,
+      derivedFromCount: 0,
+      tier: "medium" as const,
     },
     kind: "wiki",
     ...overrides,
@@ -81,6 +85,10 @@ function makeResult(overrides: Partial<SearchResult>): SearchResult {
       kind: result.kind as SearchResult["kind"],
       dominantSource: result.source,
       signals: result.sources,
+      confidence: null,
+      sourceFactCount: 0,
+      derivedFromCount: 0,
+      tier: "medium" as const,
     },
   };
 }

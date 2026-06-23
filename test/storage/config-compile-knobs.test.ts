@@ -13,6 +13,22 @@ describe("compile config knobs", () => {
     expect(c.index_max_bytes).toBe(32_000);
   });
 
+  it("defaults the low-signal quarantine knob to false", () => {
+    const c = resolveCompileConfig(parseMemoryConfigYaml("", "config.yaml").compile);
+    expect(c.raw_filter_quarantine_low_signal).toBe(false);
+  });
+
+  it("defaults faithfulness_check to false", () => {
+    const c = resolveCompileConfig(parseMemoryConfigYaml("", "config.yaml").compile);
+    expect(c.faithfulness_check).toBe(false);
+  });
+
+  it("reads raw_filter_quarantine_low_signal when set", () => {
+    const yaml = "compile:\n  raw_filter_quarantine_low_signal: true\n";
+    const c = resolveCompileConfig(parseMemoryConfigYaml(yaml, "config.yaml").compile);
+    expect(c.raw_filter_quarantine_low_signal).toBe(true);
+  });
+
   it("parses overrides", () => {
     const yaml = [
       "compile:",

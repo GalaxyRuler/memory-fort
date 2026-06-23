@@ -10,6 +10,8 @@ export interface ResolvedCompileConfig {
   execute: boolean;
   raw_filter: boolean;
   raw_filter_min_signal_bytes: number;
+  raw_filter_quarantine_low_signal: boolean;
+  faithfulness_check: boolean;
   drain: boolean;
   max_passes_per_run: number;
   condensed_index: boolean;
@@ -83,6 +85,8 @@ export interface MemoryConfig {
     execute?: boolean;
     raw_filter?: boolean;
     raw_filter_min_signal_bytes?: number;
+    raw_filter_quarantine_low_signal?: boolean;
+    faithfulness_check?: boolean;
     drain?: boolean;
     max_passes_per_run?: number;
     condensed_index?: boolean;
@@ -172,6 +176,8 @@ export function resolveCompileConfig(raw: MemoryConfig["compile"]): ResolvedComp
     execute: config.execute === true,
     raw_filter: config.raw_filter === true,
     raw_filter_min_signal_bytes: readInteger(config.raw_filter_min_signal_bytes, 40),
+    raw_filter_quarantine_low_signal: config.raw_filter_quarantine_low_signal === true,
+    faithfulness_check: config.faithfulness_check === true,
     drain: config.drain === true,
     max_passes_per_run: readInteger(config.max_passes_per_run, 25),
     condensed_index: config.condensed_index !== false,
@@ -223,6 +229,15 @@ export function validateMemoryConfig(config: MemoryConfig): string[] {
     !isIntegerInRange(compile["raw_filter_min_signal_bytes"], 0, 1_000_000)
   ) {
     warnings.push("compile.raw_filter_min_signal_bytes must be an integer between 0 and 1000000");
+  }
+  if (
+    compile?.["raw_filter_quarantine_low_signal"] !== undefined &&
+    typeof compile["raw_filter_quarantine_low_signal"] !== "boolean"
+  ) {
+    warnings.push("compile.raw_filter_quarantine_low_signal must be a boolean");
+  }
+  if (compile?.["faithfulness_check"] !== undefined && typeof compile["faithfulness_check"] !== "boolean") {
+    warnings.push("compile.faithfulness_check must be a boolean");
   }
   if (compile?.["drain"] !== undefined && typeof compile["drain"] !== "boolean") {
     warnings.push("compile.drain must be a boolean");

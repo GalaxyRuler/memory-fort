@@ -187,6 +187,35 @@ describe("synthesizeNarrative", () => {
     expect(await readdir(join(tmp, "wiki", "compile-proposed"))).toEqual(["memory-system.md"]);
   });
 
+  it("stages the page for review when prose makes unsupported claims", async () => {
+    await writeFileAt("wiki/projects/famtree.md", serializeFrontmatter({
+      type: "projects",
+      title: "FamTree",
+      created: "2026-06-22",
+      updated: "2026-06-22",
+      status: "active",
+      lifecycle: "consolidated",
+      version: 1,
+    }, "FamTree directory exists.\n"));
+    const llm = fakeNarrativeLLM({
+      detect: { contradicted_claims: [], net_new_facts: ["FamTree directory exists."] },
+      body: "FamTree is built with Supabase and the e2e suite passes.",
+      faithfulness: { unsupported_claims: ["built with Supabase", "e2e suite passes"] },
+    });
+
+    const result = await synthesizeNarrative({
+      vaultRoot: tmp,
+      pageRelPath: "wiki/projects/famtree.md",
+      facts: facts(),
+      llm,
+      now: new Date("2026-06-22T10:00:00.000Z"),
+      faithfulnessCheck: true,
+    });
+
+    expect(result.proposed).toBe(true);
+    expect(llm.chat).toHaveBeenCalledTimes(3);
+  });
+
   it("rejects truncated novelty detection output", async () => {
     await expect(synthesizeNarrative({
       vaultRoot: tmp,
@@ -305,6 +334,7 @@ function compressedFact(title: string, factLines: string[]) {
 function fakeNarrativeLLM(opts: {
   detect: { contradicted_claims: string[]; net_new_facts: string[] };
   body: string;
+  faithfulness?: { unsupported_claims: string[] };
   detectFinishReason?: LLMFinishReason;
   synthFinishReason?: LLMFinishReason;
 }): LLMProvider {
@@ -314,6 +344,9 @@ function fakeNarrativeLLM(opts: {
     }
     if (request.jsonSchema?.name === "NarrativeSynthesisOutput") {
       return fakeResponse(JSON.stringify({ body: opts.body }), opts.synthFinishReason);
+    }
+    if (request.jsonSchema?.name === "FaithfulnessOutput" && opts.faithfulness) {
+      return fakeResponse(JSON.stringify(opts.faithfulness));
     }
     throw new Error(`unexpected schema ${request.jsonSchema?.name ?? "none"}`);
   });
