@@ -4,12 +4,15 @@ All notable changes to Memory Fort are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.10.5] - 2026-06-24
 
 ### Added
 - **Automation-noise filter and opt-in low-signal quarantine** — compile can now consume pure automation noise without re-billing the LLM, and `compile.raw_filter_quarantine_low_signal` can quarantine unknown low-signal slices to `var/quarantine-lowsignal.jsonl`; `compile.raw_filter_min_signal_bytes` defaults to `40` but remains inert unless the quarantine knob is enabled.
 - **Faithfulness gate** — `compile.faithfulness_check` adds an opt-in check that stages unsupported synthesized narrative rewrites for review instead of auto-applying them.
 - **Search provenance tiers and counts** — JSON and MCP search results now expose `provenance.tier`, `provenance.confidence`, `provenance.sourceFactCount`, and `provenance.derivedFromCount` so callers can distinguish thin or weakly supported retrieval hits from stronger ones.
+
+### Fixed (Windows)
+- **MCP server no longer hard-crashes on a Claude Desktop attach/teardown EPIPE** — Claude Desktop on Windows can tear down a freshly-spawned stdio MCP server mid-write, surfacing client-side as `write EPIPE` / "Could not attach to MCP server memory". Node escalated the broken stdout/stderr pipe to an uncaughtException, turning a recoverable client hiccup into a hard server crash with no trace (Claude swallows the server's stderr). The MCP entrypoint now exits cleanly when its own stdout/stderr pipe breaks, and routes genuine `uncaughtException`/`unhandledRejection` to `<memoryRoot>/logs/mcp-server.log` for diagnosis.
 
 ## [0.10.4] - 2026-06-20
 
