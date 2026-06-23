@@ -45,11 +45,20 @@ async function createWindow(): Promise<void> {
   });
 }
 
-// Focus existing window if user launches a second instance
+// Surface the existing window when the user launches a second instance
+// (e.g. clicking the Start-menu shortcut while the app is already running,
+// as it is right after the installer's runAfterFinish auto-launch). A plain
+// focus() from a background process does not reliably come to the foreground
+// on Windows, so also un-minimize, show, raise, and toggle always-on-top to
+// bypass the foreground lock.
 app.on("second-instance", () => {
   if (mainWindow) {
     if (mainWindow.isMinimized()) mainWindow.restore();
+    if (!mainWindow.isVisible()) mainWindow.show();
     mainWindow.focus();
+    mainWindow.moveTop();
+    mainWindow.setAlwaysOnTop(true);
+    mainWindow.setAlwaysOnTop(false);
   }
 });
 
