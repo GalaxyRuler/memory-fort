@@ -4,6 +4,11 @@ All notable changes to Memory Fort are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.7] - 2026-06-24
+
+### Fixed
+- **Desktop app no longer OOM-crashes on launch with a large vault** — the dashboard backend runs in the Electron main process and loads the local vault; once `raw/` grew into the hundreds of MB it exhausted V8's default old-space heap and the app was OOM-killed a few seconds after the window appeared ("opens then crashes right away"). The main-process heap limit is raised to 8 GB so large vaults load. (Stopgap: the vault loaders should also be bounded so they never read all of `raw/` into memory at once — tracked as a follow-up.)
+
 ## [0.10.6] - 2026-06-24
 
 ### Fixed (Windows)
