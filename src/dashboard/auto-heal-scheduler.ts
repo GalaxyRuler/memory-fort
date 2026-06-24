@@ -26,7 +26,7 @@ export function runAutoHealTickInChild(
   const spawnFn = opts.spawnFn ?? spawn;
   const workerPath = opts.workerPath ?? defaultVaultWorkerPath();
   return new Promise((resolvePromise, rejectPromise) => {
-    const child = spawnFn("node", [workerPath, vaultRoot, "auto-heal", reconcile ? "1" : "0"], {
+    const child = spawnFn("node", ["--max-old-space-size=8192", workerPath, vaultRoot, "auto-heal", reconcile ? "1" : "0"], {
       stdio: "ignore",
       windowsHide: true,
     });

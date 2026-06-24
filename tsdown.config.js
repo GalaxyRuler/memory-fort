@@ -78,6 +78,11 @@ export default defineConfig([
   },
   {
     ...common,
+    entry: { "dashboard/verify-worker": "src/dashboard/verify-worker.ts" },
+    clean: false,
+  },
+  {
+    ...common,
     entry: { "retrieval/corpus": "src/retrieval/corpus.ts" },
     clean: false,
   },

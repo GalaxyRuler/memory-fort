@@ -266,7 +266,7 @@ export function runScheduledVaultTaskInChild(
   const spawnFn = opts.spawnFn ?? spawn;
   const workerPath = opts.workerPath ?? defaultVaultWorkerPath();
   return new Promise((resolvePromise, rejectPromise) => {
-    const child = spawnFn("node", [workerPath, vaultRoot, kind], {
+    const child = spawnFn("node", ["--max-old-space-size=8192", workerPath, vaultRoot, kind], {
       stdio: "ignore",
       windowsHide: true,
     });

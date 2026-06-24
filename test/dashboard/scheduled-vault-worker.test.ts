@@ -28,7 +28,7 @@ describe("runScheduledVaultTaskInChild", () => {
     });
     expect(calls).toHaveLength(1);
     expect(calls[0].cmd).toBe("node");
-    expect(calls[0].args).toEqual(["/w/scheduled-vault-worker.mjs", "/vault", "compile"]);
+    expect(calls[0].args.slice(-3)).toEqual(["/w/scheduled-vault-worker.mjs", "/vault", "compile"]);
   });
 
   it("rejects when the worker exits non-zero", async () => {
@@ -47,7 +47,7 @@ describe("runScheduledVaultTaskInChild", () => {
       spawnFn: spawnFn as never,
       workerPath: "/w/scheduled-vault-worker.mjs",
     });
-    expect(calls[0].args).toEqual(["/w/scheduled-vault-worker.mjs", "/vault", "auto-heal", "1"]);
+    expect(calls[0].args.slice(-4)).toEqual(["/w/scheduled-vault-worker.mjs", "/vault", "auto-heal", "1"]);
   });
 
   it("passes reconcile=0 and rejects on a failed auto-heal worker", async () => {

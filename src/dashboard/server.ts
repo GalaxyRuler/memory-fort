@@ -2,7 +2,8 @@ import { createServer as createHttpServer, type IncomingHttpHeaders, type Incomi
 import { readFile, stat } from "node:fs/promises";
 import { extname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { runVerify, type VerifyResult, type VerifyRole } from "../cli/commands/verify.js";
+import { type VerifyResult, type VerifyRole } from "../cli/commands/verify.js";
+import { runVerifyInChild } from "./verify-worker.js";
 import { detectRole } from "../cli/commands/verify/role.js";
 import { createSearchRuntimeCache, runSearch } from "../retrieval/search.js";
 import { parseAsOf } from "../retrieval/temporal-filter.js";
@@ -649,12 +650,15 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
   const port = opts.port ?? 4410;
   const host = opts.host ?? "127.0.0.1";
   const loader = opts.loader ?? loadDashboardStatus;
+  // Default: run verify in a child process. It loads the embeddings sidecars +
+  // corpus (multi-GB peak), which OOM-killed the app when run in-process on the
+  // /api/health fetch the dashboard UI makes on mount. An injected runner
+  // (tests) runs in-process.
   const verifyRunner = opts.verifyRunner ?? ((runnerOpts) =>
-    runVerify({
-      offline: false,
-      includeSearch: runnerOpts.includeSearch,
-      role: runnerOpts.role,
+    runVerifyInChild({
       vaultRoot: runnerOpts.vaultRoot,
+      role: runnerOpts.role,
+      includeSearch: runnerOpts.includeSearch,
     }));
   const env = opts.env ?? process.env;
   const config = await loadMemoryConfig(opts.vaultRoot);
