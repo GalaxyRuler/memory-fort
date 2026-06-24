@@ -4,6 +4,11 @@ All notable changes to Memory Fort are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.9] - 2026-06-24
+
+### Fixed
+- **Dashboard launch memory now stays under ~1 GB on a large vault** — completing the OOM work from v0.10.7/v0.10.8. Two remaining auto-on-launch loaders that ran in the Electron main process are bounded/isolated: the **`/api/health` check** (fetched by the dashboard UI on mount) ran `memory verify` in-process, loading the embeddings sidecars + corpus (~3.5 GB peak) — it now runs in a child process that returns its report as JSON; and the **graph** now caps raw reads by a **64 MB byte budget** (`DASHBOARD_GRAPH_MAX_RAW_BYTES`) instead of a file count, since raw files vary wildly in size (small captures vs 20-30 MB sessions) and a count cap could still pull GBs. The scheduler/auto-heal/verify worker children get a raised heap so their multi-GB corpus loads complete in isolation. Verified on a 754 MB vault: the dashboard holds 78 MB after `/api/health`, ~600 MB after a full-scope graph, under 1 GB throughout. (The 8 GB main-process heap limit remains as a backstop for on-demand full-corpus `/api/search`, which still loads in-process by design.)
+
 ## [0.10.8] - 2026-06-24
 
 ### Fixed
