@@ -107,6 +107,7 @@ describe("retrieval corpus loader", () => {
     await expect(loadSearchCorpus({ vaultRoot: tmp })).resolves.toEqual({
       documents: [],
       errors: [],
+      rawTruncated: false,
       scannedCounts: { wiki: 0, raw: 0, crystals: 0 },
     });
   });

@@ -62,11 +62,22 @@ export interface SearchDocument {
 export interface LoadCorpusOptions {
   vaultRoot: string;
   scope?: SearchScope;
+  /**
+   * Cap on how many raw/ files are read into memory, keeping the most recent
+   * (raw relPaths embed the date — `raw/<date>/...` — so lexical-descending
+   * order is newest-first). Dashboard callers set this so a large raw pool
+   * can't exhaust the heap (the graph holds every selected document at once);
+   * compile/search omit it and load every raw file. Wiki/crystals are never
+   * capped. `scannedCounts.raw` still reports the true on-disk total.
+   */
+  maxRawFiles?: number;
 }
 
 export interface LoadCorpusResult {
   documents: SearchDocument[];
   errors: Array<{ path: string; reason: string }>;
+  /** True when `maxRawFiles` dropped some raw files from this load. */
+  rawTruncated: boolean;
   scannedCounts: {
     wiki: number;
     raw: number;
@@ -101,6 +112,15 @@ export async function loadSearchCorpus(
     raw: await collectMarkdownFiles(vaultRoot, "raw"),
     crystals: await collectMarkdownFiles(vaultRoot, "crystals"),
   };
+  const rawTotal = allFiles.raw.length;
+  let rawTruncated = false;
+  if (opts.maxRawFiles !== undefined && allFiles.raw.length > opts.maxRawFiles) {
+    // raw relPaths embed the date (raw/<date>/...); newest-first, keep the cap.
+    allFiles.raw = [...allFiles.raw]
+      .sort((a, b) => b.relPath.localeCompare(a.relPath))
+      .slice(0, opts.maxRawFiles);
+    rawTruncated = true;
+  }
   const selected = selectedFilesForScope(allFiles, scope);
   const documents: SearchDocument[] = [];
   const errors: LoadCorpusResult["errors"] = [];
@@ -137,9 +157,10 @@ export async function loadSearchCorpus(
   return {
     documents: scopedDocuments,
     errors,
+    rawTruncated,
     scannedCounts: {
       wiki: allFiles.wiki.length,
-      raw: allFiles.raw.length,
+      raw: rawTotal,
       crystals: scope === "crystals" ? scopedDocuments.length : allFiles.crystals.length,
     },
   };

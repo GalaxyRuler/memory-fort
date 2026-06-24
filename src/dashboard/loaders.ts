@@ -1229,8 +1229,18 @@ export async function loadTimelineFeed(
   };
 }
 
-export async function loadGraphFeed(vaultRoot: string, scope: SearchScope = "wiki"): Promise<GraphFeed> {
-  const corpus = await loadSearchCorpus({ vaultRoot, scope });
+// The dashboard graph holds every selected document in memory at once to build
+// the node/edge set, so an unbounded raw/ pool (hundreds of MB) OOM-killed the
+// app. Cap how many raw files the graph reads, keeping the most recent; wiki
+// (the curated, meaningful graph) is always loaded in full.
+export const DASHBOARD_GRAPH_MAX_RAW_FILES = 1500;
+
+export async function loadGraphFeed(
+  vaultRoot: string,
+  scope: SearchScope = "wiki",
+  maxRawFiles: number = DASHBOARD_GRAPH_MAX_RAW_FILES,
+): Promise<GraphFeed> {
+  const corpus = await loadSearchCorpus({ vaultRoot, scope, maxRawFiles });
   const graph = buildGraph(corpus.documents);
   const docsByPath = new Map(corpus.documents.map((document) => [document.relPath, document]));
 
