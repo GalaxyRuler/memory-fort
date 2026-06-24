@@ -63,20 +63,23 @@ export interface LoadCorpusOptions {
   vaultRoot: string;
   scope?: SearchScope;
   /**
-   * Cap on how many raw/ files are read into memory, keeping the most recent
-   * (raw relPaths embed the date — `raw/<date>/...` — so lexical-descending
-   * order is newest-first). Dashboard callers set this so a large raw pool
-   * can't exhaust the heap (the graph holds every selected document at once);
-   * compile/search omit it and load every raw file. Wiki/crystals are never
-   * capped. `scannedCounts.raw` still reports the true on-disk total.
+   * Byte budget for how much raw/ content is read into memory, keeping the most
+   * recent files (raw relPaths embed the date — `raw/<date>/...` — so lexical-
+   * descending order is newest-first) until their on-disk size reaches the
+   * budget. A byte budget (not a file count) is used because raw files vary
+   * wildly in size — a single 20-30MB session would blow a file-count cap.
+   * Dashboard callers set this so a large raw pool can't exhaust the heap (the
+   * graph holds every selected document at once); compile/search omit it and
+   * load every raw file. Wiki/crystals are never capped. `scannedCounts.raw`
+   * still reports the true on-disk total.
    */
-  maxRawFiles?: number;
+  maxRawBytes?: number;
 }
 
 export interface LoadCorpusResult {
   documents: SearchDocument[];
   errors: Array<{ path: string; reason: string }>;
-  /** True when `maxRawFiles` dropped some raw files from this load. */
+  /** True when `maxRawBytes` dropped some raw files from this load. */
   rawTruncated: boolean;
   scannedCounts: {
     wiki: number;
@@ -114,12 +117,24 @@ export async function loadSearchCorpus(
   };
   const rawTotal = allFiles.raw.length;
   let rawTruncated = false;
-  if (opts.maxRawFiles !== undefined && allFiles.raw.length > opts.maxRawFiles) {
-    // raw relPaths embed the date (raw/<date>/...); newest-first, keep the cap.
-    allFiles.raw = [...allFiles.raw]
-      .sort((a, b) => b.relPath.localeCompare(a.relPath))
-      .slice(0, opts.maxRawFiles);
-    rawTruncated = true;
+  if (opts.maxRawBytes !== undefined && allFiles.raw.length > 0) {
+    // raw relPaths embed the date (raw/<date>/...); keep newest-first until the
+    // running on-disk size reaches the budget. The newest file is always kept
+    // even if it alone exceeds the budget.
+    const newestFirst = [...allFiles.raw].sort((a, b) => b.relPath.localeCompare(a.relPath));
+    const kept: MarkdownFile[] = [];
+    let bytes = 0;
+    for (const file of newestFirst) {
+      if (bytes >= opts.maxRawBytes) break;
+      kept.push(file);
+      try {
+        bytes += (await stat(file.fullPath)).size;
+      } catch {
+        // unreadable/missing — loadDocument will record the error below.
+      }
+    }
+    if (kept.length < rawTotal) rawTruncated = true;
+    allFiles.raw = kept;
   }
   const selected = selectedFilesForScope(allFiles, scope);
   const documents: SearchDocument[] = [];
