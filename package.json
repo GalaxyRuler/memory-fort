@@ -1,6 +1,6 @@
 {
   "name": "memory-fort",
-  "version": "0.10.6",
+  "version": "0.10.7",
   "type": "module",
   "description": "Cross-tool persistent memory for AI agents — works with Claude Code, Codex, Antigravity, Hermes, Pi, ChatGPT, OpenCode, OpenClaw, Claude Desktop, and VS Code",
   "author": {
