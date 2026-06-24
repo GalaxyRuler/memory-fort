@@ -4,6 +4,12 @@ All notable changes to Memory Fort are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.8] - 2026-06-24
+
+### Fixed
+- **Desktop app no longer OOM-crashes on launch with a large vault (root-cause fix)** — the dashboard runs its background schedulers in the Electron main process, and both the auto-promote scheduler (scheduled compile + auto-promote) and the auto-heal reconciler load/process the entire `raw/` corpus (`loadSearchCorpus` scope `all`). On a large vault that spiked the app's heap into the GBs and the app was OOM-killed a few seconds after the window appeared — the actual cause behind "opens then crashes" that v0.10.7's 8 GB heap limit only masked. These tasks now run in a spawned **child process** (`scheduled-vault-worker`), so their multi-GB peak lives and dies in the child and never touches the app heap. Verified: an idle dashboard holds ~76 MB flat across a reconcile cycle (was ~3.3 GB). The 8 GB heap limit remains as a backstop for on-demand full-corpus search.
+- **Dashboard graph no longer loads the entire `raw/` corpus into memory** — the graph view (and graph-health, which scans `scope=all`) built the node set from the full corpus. It now caps raw reads to the 1500 most recent files (`DASHBOARD_GRAPH_MAX_RAW_FILES`); the curated wiki/crystals graph is never capped.
+
 ## [0.10.7] - 2026-06-24
 
 ### Fixed
