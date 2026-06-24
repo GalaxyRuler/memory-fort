@@ -4,6 +4,11 @@ All notable changes to Memory Fort are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.10] - 2026-06-25
+
+### Fixed
+- **Dashboard worker isolation now actually runs (it didn't in v0.10.8/v0.10.9).** The scheduler (auto-promote/auto-heal) and `/api/health` verify child processes were resolved via `dirname(import.meta.url)/<worker>.mjs`, but `tsdown` inlines the dashboard code into `dist/cli.mjs` and `dist/electron-main.mjs` (root `dist/`), so the path pointed at a nonexistent `dist/<worker>.mjs` instead of the real `dist/dashboard/<worker>.mjs`. Spawns failed with `MODULE_NOT_FOUND`; the schedulers swallowed it fail-soft (so background curation/auto-heal silently stopped running) and `/api/health` returned 500. `electron-builder.yml` also never packaged the worker files. Fixed with a shared `resolveWorkerPath()` that locates the worker from both the root and `dashboard/` bundle layouts, and by shipping both worker bundles in the installer. Verified end-to-end: the worker exits 0 and `/api/health` returns a real verify report.
+
 ## [0.10.9] - 2026-06-24
 
 ### Fixed
