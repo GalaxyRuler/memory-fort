@@ -1,5 +1,7 @@
+import { spawn } from "node:child_process";
 import { appendFile } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { runCompile, runCompileDrain, type CompileDrainResult, type CompileResult } from "../cli/commands/compile.js";
 import {
   emptyCompilePendingSummary,
@@ -84,7 +86,13 @@ export async function createAutoPromoteScheduler(
     intervals.push(intervalFactory(() => {
       if (running) return;
       running = true;
-      void (opts.compileRunner ?? ((runOpts) => runScheduledCompileOnce(opts.vaultRoot, runOpts)))(scheduledCompileRunnerOptions(compile))
+      // Default: isolate the full-corpus compile in a child process so its
+      // multi-GB peak never touches the dashboard/app heap. An injected runner
+      // (tests) runs in-process.
+      const run = opts.compileRunner
+        ? opts.compileRunner(scheduledCompileRunnerOptions(compile))
+        : runScheduledVaultTaskInChild(opts.vaultRoot, "compile");
+      void Promise.resolve(run)
         .catch((error) => logSchedulerFailure(opts.vaultRoot, "compile scheduler failed", error))
         .finally(() => {
           running = false;
@@ -96,15 +104,24 @@ export async function createAutoPromoteScheduler(
     intervals.push(intervalFactory(() => {
       if (running) return;
       running = true;
-      const autoRunner = opts.autoPromoteRunner ?? opts.runner ?? (() => runAutoPromoteOnce(opts.vaultRoot));
-      const task = compile.scheduled
-        ? runScheduledVaultTasksOnce(opts.vaultRoot, {
-            compileRunner: opts.compileRunner
-              ? () => opts.compileRunner!(scheduledCompileRunnerOptions(compile))
-              : () => runScheduledCompileOnce(opts.vaultRoot, scheduledCompileRunnerOptions(compile)),
-            autoPromoteRunner: autoRunner,
-          })
-        : autoRunner().catch((error) => logSchedulerFailure(opts.vaultRoot, "auto-promote scheduler failed", error));
+      const injectedAuto = opts.autoPromoteRunner ?? opts.runner;
+      let task: Promise<unknown>;
+      if (opts.compileRunner || injectedAuto) {
+        // Injected (tests): keep the previous in-process behaviour.
+        const autoRunner = injectedAuto ?? (() => runAutoPromoteOnce(opts.vaultRoot));
+        task = compile.scheduled
+          ? runScheduledVaultTasksOnce(opts.vaultRoot, {
+              compileRunner: opts.compileRunner
+                ? () => opts.compileRunner!(scheduledCompileRunnerOptions(compile))
+                : () => runScheduledCompileOnce(opts.vaultRoot, scheduledCompileRunnerOptions(compile)),
+              autoPromoteRunner: autoRunner,
+            })
+          : autoRunner().catch((error) => logSchedulerFailure(opts.vaultRoot, "auto-promote scheduler failed", error));
+      } else {
+        // Default: isolate the full-corpus work in a child process.
+        task = runScheduledVaultTaskInChild(opts.vaultRoot, compile.scheduled ? "vault" : "auto-promote")
+          .catch((error) => logSchedulerFailure(opts.vaultRoot, "auto-promote scheduler failed", error));
+      }
       void task.finally(() => {
           running = false;
         });
@@ -203,6 +220,62 @@ export async function runAutoPromoteOnce(vaultRoot: string): Promise<void> {
   } catch (error) {
     await logSchedulerFailure(vaultRoot, "auto-promote scheduler failed", error);
   }
+}
+
+export type ScheduledVaultTaskKind = "compile" | "auto-promote" | "vault";
+
+/**
+ * Run a scheduled vault task in-process. This loads/processes the entire raw/
+ * corpus, so it is only safe to call from a dedicated worker process (see
+ * scheduled-vault-worker) — never inside the dashboard/Electron-main process,
+ * where its multi-GB peak would OOM the app. The scheduler spawns a child that
+ * calls this; tests and the worker entrypoint reuse it directly.
+ */
+export async function runScheduledVaultTask(
+  vaultRoot: string,
+  kind: ScheduledVaultTaskKind,
+): Promise<void> {
+  const config = await loadMemoryConfig(vaultRoot);
+  const compile = readCompileConfig(config);
+  if (kind === "compile") {
+    await runScheduledCompileOnce(vaultRoot, scheduledCompileRunnerOptions(compile));
+  } else if (kind === "auto-promote") {
+    await runAutoPromoteOnce(vaultRoot);
+  } else {
+    await runScheduledVaultTasksOnce(vaultRoot, {
+      compileRunner: () => runScheduledCompileOnce(vaultRoot, scheduledCompileRunnerOptions(compile)),
+      autoPromoteRunner: () => runAutoPromoteOnce(vaultRoot),
+    });
+  }
+}
+
+function defaultVaultWorkerPath(): string {
+  return resolve(dirname(fileURLToPath(import.meta.url)), "scheduled-vault-worker.mjs");
+}
+
+/**
+ * Spawn the scheduled vault task in a child process so its full-corpus memory
+ * peak lives and dies in the child, isolated from the dashboard/app heap.
+ * Resolves when the child exits 0; rejects on spawn error or non-zero exit.
+ */
+export function runScheduledVaultTaskInChild(
+  vaultRoot: string,
+  kind: ScheduledVaultTaskKind,
+  opts: { spawnFn?: typeof spawn; workerPath?: string } = {},
+): Promise<void> {
+  const spawnFn = opts.spawnFn ?? spawn;
+  const workerPath = opts.workerPath ?? defaultVaultWorkerPath();
+  return new Promise((resolvePromise, rejectPromise) => {
+    const child = spawnFn("node", [workerPath, vaultRoot, kind], {
+      stdio: "ignore",
+      windowsHide: true,
+    });
+    child.once("error", rejectPromise);
+    child.once("exit", (code) => {
+      if (code === 0) resolvePromise();
+      else rejectPromise(new Error(`scheduled vault worker (${kind}) exited with code ${code ?? "unknown"}`));
+    });
+  });
 }
 
 function readAutoPromoteConfig(config: MemoryConfig): {

@@ -1,10 +1,42 @@
+import { spawn } from "node:child_process";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import type { MemoryConfig } from "../storage/config.js";
 import {
   readAutoHealSettings,
-  runAutoHealTick,
   type AutoHealRunResult,
   type AutoHealTickOptions,
 } from "../retrieval/auto-heal.js";
+
+function defaultVaultWorkerPath(): string {
+  return resolve(dirname(fileURLToPath(import.meta.url)), "scheduled-vault-worker.mjs");
+}
+
+/**
+ * Run one auto-heal tick in a child process. The reconciler loads the full
+ * corpus (scope "all") to refresh embeddings, peaking into the GBs; doing that
+ * in the dashboard (Electron-main) process OOM-killed the app, so it is
+ * isolated here. Resolves on child exit 0; rejects on spawn error / non-zero.
+ */
+export function runAutoHealTickInChild(
+  vaultRoot: string,
+  reconcile: boolean,
+  opts: { spawnFn?: typeof spawn; workerPath?: string } = {},
+): Promise<void> {
+  const spawnFn = opts.spawnFn ?? spawn;
+  const workerPath = opts.workerPath ?? defaultVaultWorkerPath();
+  return new Promise((resolvePromise, rejectPromise) => {
+    const child = spawnFn("node", [workerPath, vaultRoot, "auto-heal", reconcile ? "1" : "0"], {
+      stdio: "ignore",
+      windowsHide: true,
+    });
+    child.once("error", rejectPromise);
+    child.once("exit", (code) => {
+      if (code === 0) resolvePromise();
+      else rejectPromise(new Error(`auto-heal worker exited with code ${code ?? "unknown"}`));
+    });
+  });
+}
 
 export interface AutoHealScheduler {
   close(): void;
@@ -37,11 +69,14 @@ export function createAutoHealScheduler(
     running = true;
     const reconcile = Date.now() - lastReconcilerAt >= tickIntervalMs;
     try {
-      await (opts.runTick ?? ((input) => runAutoHealTick(input)))({
-        memoryRoot: opts.vaultRoot,
-        env: opts.env,
-        reconcile,
-      });
+      if (opts.runTick) {
+        // Injected (tests): run in-process.
+        await opts.runTick({ memoryRoot: opts.vaultRoot, env: opts.env, reconcile });
+      } else {
+        // Default: isolate the full-corpus reconcile in a child process so its
+        // multi-GB peak never touches the dashboard/app heap.
+        await runAutoHealTickInChild(opts.vaultRoot, reconcile);
+      }
       if (reconcile) {
         lastReconcilerAt = Date.now();
       }

@@ -73,6 +73,11 @@ export default defineConfig([
   },
   {
     ...common,
+    entry: { "dashboard/scheduled-vault-worker": "src/dashboard/scheduled-vault-worker.ts" },
+    clean: false,
+  },
+  {
+    ...common,
     entry: { "retrieval/corpus": "src/retrieval/corpus.ts" },
     clean: false,
   },
