@@ -9,6 +9,12 @@ directories:
 # tsdown bundles all Node deps into electron-main.mjs — no node_modules required.
 files:
   - dist/electron-main.mjs
+  # Self-contained worker bundles the dashboard schedulers + /api/health verify
+  # spawn as child processes. electron-main.mjs inlines the spawn code but NOT
+  # these entries, so they must be shipped explicitly or isolation silently
+  # fails (workers not found → fail-soft → heavy work never runs).
+  - dist/dashboard/scheduled-vault-worker.mjs
+  - dist/dashboard/verify-worker.mjs
   - dist/dashboard-ui/**
   - assets/memory_fort_icon_512.png
 

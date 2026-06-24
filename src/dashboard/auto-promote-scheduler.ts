@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { appendFile } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
+import { resolveWorkerPath } from "./worker-paths.js";
 import { runCompile, runCompileDrain, type CompileDrainResult, type CompileResult } from "../cli/commands/compile.js";
 import {
   emptyCompilePendingSummary,
@@ -250,7 +250,7 @@ export async function runScheduledVaultTask(
 }
 
 function defaultVaultWorkerPath(): string {
-  return resolve(dirname(fileURLToPath(import.meta.url)), "scheduled-vault-worker.mjs");
+  return resolveWorkerPath(import.meta.url, "scheduled-vault-worker.mjs");
 }
 
 /**

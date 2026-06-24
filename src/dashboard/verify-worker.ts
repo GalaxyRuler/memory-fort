@@ -4,12 +4,11 @@
 // OOM-killed the app. The child prints its VerifyResult as JSON on stdout; the
 // parent parses it. The child gets a raised heap so the multi-GB load completes.
 import { spawn } from "node:child_process";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { resolveWorkerPath } from "./worker-paths.js";
 import { runVerify, type VerifyResult, type VerifyRole } from "../cli/commands/verify.js";
 
 function defaultVerifyWorkerPath(): string {
-  return resolve(dirname(fileURLToPath(import.meta.url)), "verify-worker.mjs");
+  return resolveWorkerPath(import.meta.url, "verify-worker.mjs");
 }
 
 export interface VerifyInChildOptions {

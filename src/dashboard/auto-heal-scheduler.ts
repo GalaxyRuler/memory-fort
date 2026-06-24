@@ -1,6 +1,5 @@
 import { spawn } from "node:child_process";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { resolveWorkerPath } from "./worker-paths.js";
 import type { MemoryConfig } from "../storage/config.js";
 import {
   readAutoHealSettings,
@@ -9,7 +8,7 @@ import {
 } from "../retrieval/auto-heal.js";
 
 function defaultVaultWorkerPath(): string {
-  return resolve(dirname(fileURLToPath(import.meta.url)), "scheduled-vault-worker.mjs");
+  return resolveWorkerPath(import.meta.url, "scheduled-vault-worker.mjs");
 }
 
 /**
