@@ -4,6 +4,11 @@ All notable changes to Memory Fort are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.12] - 2026-06-25
+
+### Changed
+- **Dashboard server now runs in an Electron utility process, not the main process.** All server work (the HTTP API, schedulers, search, verify, the admission gate, corpus loads) moved out of the Electron main/UI process into a long-lived `utilityProcess` (`dashboard-service`); main only forks, supervises (exponential backoff + crash-loop guard that resets on a healthy start and surfaces a startup-error window instead of hanging), and loads the window from the service's reported URL. This isolates the heavy work so the UI process can't be destabilized by it. It does **not** by itself lower the search memory ceiling (the utility process is also ~4 GB-capped by Electron pointer compression) — that's the on-disk index in later phases (see `docs/adr/0001-tier2-search-index.md`).
+
 ## [0.10.11] - 2026-06-25
 
 ### Changed
