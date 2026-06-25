@@ -4,6 +4,14 @@ All notable changes to Memory Fort are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.11] - 2026-06-25
+
+### Changed
+- **Dashboard memory hardening (Tier-1).** Added a shared full-corpus admission gate so at most one corpus-sized operation runs at a time across scheduled compile/auto-promote, auto-heal, `/api/search`, and verify — interactive search takes priority and maintenance yields — preventing the multiplicative memory peak of overlapping jobs. `/api/health` now returns last-known verify state in O(1) and no longer runs `verify` on UI mount; a full verify runs only on explicit `?refresh=true`, single-flighted per role. The `maxRawBytes` graph budget now counts an unreadable raw file against the budget instead of silently admitting the entire raw corpus.
+
+### Removed
+- **The no-op 8 GB main-process heap flag.** `v8.setFlagsFromString("--max-old-space-size")` (and the `js-flags` switch) cannot raise an already-initialized V8 heap, and the Electron main process is hard-capped near 4 GB by pointer compression — so the "stopgap" never took effect. Memory safety comes from the child-process worker isolation (which keeps its own start-time heap flag), not from the main process. ([Node v8 docs](https://nodejs.org/api/v8.html), [electron#41248](https://github.com/electron/electron/issues/41248))
+
 ## [0.10.10] - 2026-06-25
 
 ### Fixed
