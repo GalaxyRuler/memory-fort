@@ -37,6 +37,9 @@ docs/*
 !docs/compatibility-matrix.md
 !docs/public-release-readiness.md
 !docs/RELEASING.md
+!docs/adr/
+docs/adr/*
+!docs/adr/*.md
 !docs/release-evidence/
 docs/release-evidence/*
 !docs/release-evidence/*.md
