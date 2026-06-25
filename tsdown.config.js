@@ -73,6 +73,11 @@ export default defineConfig([
   },
   {
     ...common,
+    entry: { "dashboard/dashboard-service": "src/dashboard/dashboard-service.ts" },
+    clean: false,
+  },
+  {
+    ...common,
     entry: { "dashboard/scheduled-vault-worker": "src/dashboard/scheduled-vault-worker.ts" },
     clean: false,
   },

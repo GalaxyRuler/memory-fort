@@ -30,4 +30,10 @@ describe("resolveWorkerPath", () => {
     const callerUrl = pathToFileURL(join(root, "dashboard", "server.mjs")).href;
     expect(resolveWorkerPath(callerUrl, "demo-worker.mjs")).toBe(join(root, "dashboard", "demo-worker.mjs"));
   });
+
+  it("resolves the worker from the dashboard service bundle", async () => {
+    const root = await vaultWithWorker();
+    const callerUrl = pathToFileURL(join(root, "dashboard", "dashboard-service.mjs")).href;
+    expect(resolveWorkerPath(callerUrl, "demo-worker.mjs")).toBe(join(root, "dashboard", "demo-worker.mjs"));
+  });
 });

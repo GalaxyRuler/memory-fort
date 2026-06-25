@@ -24,4 +24,14 @@ describe("dashboard build robustness", () => {
 
     expect(packageJson.scripts?.["build"]).toContain("npm run build:ui");
   });
+
+  it("builds and packages the Electron dashboard utility service", async () => {
+    const entries = Array.isArray(tsdownConfig)
+      ? tsdownConfig.flatMap((item) => Object.keys((item as { entry?: Record<string, string> }).entry ?? {}))
+      : [];
+    expect(entries).toContain("dashboard/dashboard-service");
+
+    const electronBuilder = await readFile(resolve(process.cwd(), "electron-builder.yml"), "utf8");
+    expect(electronBuilder).toContain("dist/dashboard/dashboard-service.mjs");
+  });
 });
