@@ -75,6 +75,9 @@ export default defineConfig([
     ...common,
     entry: { "dashboard/dashboard-service": "src/dashboard/dashboard-service.ts" },
     clean: false,
+    outputOptions: {
+      codeSplitting: false,
+    },
   },
   {
     ...common,
