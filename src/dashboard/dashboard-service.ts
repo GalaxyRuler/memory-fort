@@ -1,3 +1,6 @@
+import { appendFile, mkdir } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import { runDashboard, type DashboardOptions, type DashboardRun } from "../cli/commands/dashboard.js";
 
 export interface DashboardServiceInit {
@@ -35,14 +38,19 @@ export function startDashboardService(opts: DashboardServiceOptions): Promise<Da
   }
 
   async function start(init: DashboardServiceInit): Promise<DashboardServiceReady> {
-    dashboard = await runDashboardImpl({
-      noOpen: true,
-      vaultRoot: init.vaultRoot,
-      dashboardDistRoot: init.dashboardDistRoot,
-    });
-    const ready = { url: dashboard.url, port: dashboard.port };
-    opts.parentPort.postMessage(ready);
-    return ready;
+    try {
+      dashboard = await runDashboardImpl({
+        noOpen: true,
+        vaultRoot: init.vaultRoot,
+        dashboardDistRoot: init.dashboardDistRoot,
+      });
+      const ready = { url: dashboard.url, port: dashboard.port };
+      opts.parentPort.postMessage(ready);
+      return ready;
+    } catch (error) {
+      await appendDashboardServiceLog(init.vaultRoot, error);
+      throw error;
+    }
   }
 
   const ready = new Promise<DashboardServiceReady>((resolve, reject) => {
@@ -53,7 +61,9 @@ export function startDashboardService(opts: DashboardServiceOptions): Promise<Da
         return;
       }
       if (!isInitMessage(payload)) {
-        reject(new Error("dashboard service expected initial vaultRoot and dashboardDistRoot message"));
+        const error = new Error("dashboard service expected initial vaultRoot and dashboardDistRoot message");
+        void appendDashboardServiceLog(undefined, error);
+        reject(error);
         return;
       }
       start(payload).then(resolve, reject);
@@ -96,6 +106,25 @@ function unwrapParentPortMessage(message: unknown): unknown {
   return message;
 }
 
+async function appendDashboardServiceLog(vaultRoot: string | undefined, error: unknown): Promise<void> {
+  try {
+    const logPath = vaultRoot
+      ? join(vaultRoot, "logs", "dashboard-service.log")
+      : join(tmpdir(), "dashboard-service.log");
+    await mkdir(dirname(logPath), { recursive: true });
+    await appendFile(logPath, `[${new Date().toISOString()}] ${formatErrorForLog(error)}\n`, "utf8");
+  } catch {
+    // Best-effort diagnostic logging must not change service behavior.
+  }
+}
+
+function formatErrorForLog(error: unknown): string {
+  if (error instanceof Error) {
+    return error.stack ?? error.message;
+  }
+  return String(error);
+}
+
 declare global {
   namespace NodeJS {
     interface Process {
@@ -104,13 +133,10 @@ declare global {
   }
 }
 
-if (process.argv[1]?.endsWith("dashboard-service.mjs")) {
+if (process.parentPort) {
   const parentPort = process.parentPort;
-  if (!parentPort) {
-    console.error("[dashboard-service] missing Electron parentPort");
-    process.exit(1);
-  }
-  startDashboardService({ parentPort }).catch((error: unknown) => {
+  startDashboardService({ parentPort }).catch(async (error: unknown) => {
+    await appendDashboardServiceLog(undefined, error);
     console.error(`[dashboard-service] ${(error as Error)?.message ?? String(error)}`);
     process.exit(1);
   });
