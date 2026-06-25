@@ -4,6 +4,11 @@ All notable changes to Memory Fort are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.14] - 2026-06-25
+
+### Fixed
+- **Desktop app dashboard actually starts now (real fix for the 0.10.12–0.10.13 packaged-app regression).** The dashboard utility-process bundle imported a shared `redaction-*.mjs` chunk via `../` that the installer never shipped, so in the packaged app it failed with `ERR_MODULE_NOT_FOUND` before any code ran — the window showed "MemoryFort failed to start". (The 0.10.12/0.10.13 guard changes were misdiagnoses; the entry and `process.parentPort` detection were fine.) The dashboard-service entry is now built self-contained (no shared chunks), matching the workers and electron-main. Added a build guard test that fails if any Electron-shipped entry imports a file the installer doesn't package.
+
 ## [0.10.13] - 2026-06-25
 
 ### Fixed
