@@ -1,133 +1,132 @@
-# Tier-2 Phase 0 — Electron upgrade + packaged native-capability matrix
+# Tier-2 Phase 0 — native-stack proof + Electron upgrade
 
-> **Detailed plan for Phase 0 of [the Tier-2 roadmap](2026-06-25-tier2-search-index.md).** The de-risk gate: prove the native stack (better-sqlite3 FTS5 + sqlite-vec) loads in the **installed** app on **all four targets** — on a **supported** Electron — *before* any index feature code. Codex implements task-by-task; Claude audits (read + run + packaged smoke). No Tier-2 logic ships until 0b is green on Win-arm64.
+> **Detailed plan for Phase 0 of [the Tier-2 roadmap](2026-06-25-tier2-search-index.md).** The de-risk gate: prove the native stack (better-sqlite3 FTS5 + sqlite-vec exact KNN) loads in the **installed** Electron app on **all four targets** — on a **supported** Electron — *before* any index feature code. Codex implements; Claude audits (read + run + the packaged probe). **Revised 2026-06-26 after a GPT-5.5 Pro review + independent verification** — see the audit note.
 
-**Why first:** the single biggest Tier-2 risk is a native module that compiles in CI but won't `dlopen` in the packaged app on a target (esp. Windows arm64) — it would violate a hard shipping constraint and we've already eaten two packaged-app misdiagnoses (0.10.12/13). Electron 35 is **EOL** (since 2025-09-02), so we also can't rebuild native against an unsupported runtime. Fix both here, once.
+**Why first:** the biggest Tier-2 risk is a native module that builds in CI but won't `dlopen` in the packaged app on a target — and **sqlite-vec ships no Windows-ARM64 prebuilt**, which is a hard target. Electron 35 is **EOL**. Both get resolved here, cheapest-risk-first.
 
-**Grounded targets (verified 2026-06-25):**
-- Electron has **no LTS**; supported = latest ~3 majors, ~8-week cadence (41 EOS 2026-08-25; **42.4.1** latest). → target **Electron 42** (longest runway; accept future bumps). Sources: [endoflife.date/electron](https://endoflife.date/electron), [electron releases](https://releases.electronjs.org/).
-- `electron-builder` **^25 → ^26** (26.15.3; v27 is breaking native-ESM — defer). [npm](https://www.npmjs.com/package/electron-builder?activeTab=versions).
-- `better-sqlite3` bundles FTS5; `sqlite-vec` (MIT/Apache) is the vector ext; both rebuilt against Electron 42 ABI via `@electron/rebuild`.
+> **AUDIT NOTE (2026-06-26).** GPT-5.5 review + verification changed this plan:
+> - **sqlite-vec has NO win-arm64 npm prebuilt** (binary-only; issues [#211](https://github.com/asg017/sqlite-vec/issues/211), [#73](https://github.com/asg017/sqlite-vec/issues/73)). → **Phase 0.0 preflight proves win-arm64 FIRST**, before any Electron work. This is the single most likely hard stop.
+> - **GitHub `windows-11-arm` runners are GA** ([changelog](https://github.blog/changelog/2025-08-07-arm64-hosted-runners-for-public-repositories-are-now-generally-available/)) → we can build + test a win-arm64 `vec0.dll` from source natively. Mitigation is real.
+> - **System-Node vitest is NOT an ABI gate** — Electron runs its own Node ABI. The release gate is **Electron-runtime + installed-artifact**, vitest is dev feedback only.
+> - **Do NOT ship 0a as a public release** — a zero-feature 7-major Electron jump before the native gate is wasted risk. 0a = internal RC; **one public release after 0b passes**.
+> - **Don't throw the probe away** — extract a small reusable **native-capability bootstrap module** (Phase 3 reuses it); honors "no `src/index/**` feature code."
+> - **Pin exact versions** (Electron 42.5.0, electron-builder 26.15.5 — latest stable as of 2026-06-25), not carets. v27 (native-ESM) deferred.
 
-**Out of scope:** any `src/index/**` code, the reconciler, search routes (those are Phase 3+). Phase 0 ships an Electron-upgraded baseline + a throwaway capability spike.
+**Grounded targets (verified 2026-06-25/26):** Electron **no LTS**, latest-3-majors supported; **42.5.0** current (EOL 2026-10-20; 41 EOS 2026-08-25; 43 stable 2026-06-30) → target **42.x, pinned**. electron-builder **26.15.5** (v27 alpha, deferred). better-sqlite3 FTS5; sqlite-vec (MIT/Apache) exact KNN. Sources: [Electron schedule](https://releases.electronjs.org/schedule), [electron-builder releases](https://github.com/electron-userland/electron-builder/releases), [sqlite-vec](https://github.com/asg017/sqlite-vec).
+
+**Out of scope:** `src/index/**` feature code (reconciler, real search) — Phase 3+. Phase 0 ships an upgraded baseline + a reusable native bootstrap proven on every target.
 
 ---
 
-## Phase 0a — Electron 35 → 42 upgrade, ship a re-verified baseline
+## Phase 0.0 — Win-arm64 sqlite-vec preflight (do this FIRST, outside the app)
 
-**Architecture:** bump Electron + electron-builder, fix main-process API breakage across 7 majors, keep the v0.10.14 utilityProcess architecture intact, rebuild installers for all four targets, confirm the **existing** app still works packaged (server in the child utility process, `/api/health` real). This is a standalone release (decoupled from Tier-2 feature risk).
+**The most likely hard stop, settled cheaply before any migration effort.** A standalone CI job on a **native `windows-11-arm` runner** (not the full app): prove sqlite-vec can load + KNN on win-arm64, by official binary or a from-source `vec0.dll`.
 
-### Task 0a.1: pick the target + bump build tooling
+### Task 0.0.1: win-arm64 sqlite-vec load + KNN spike (CI, no app)
 
-**Files:** `package.json`, `electron-builder.yml`, `.github/workflows/release.yml`.
+**Files:** `.github/workflows/preflight-winarm64-vec.yml`, `scripts/preflight-vec.mjs`.
 
-- [ ] **Verify-first:** read electron-builder 26 changelog for breaking changes vs 25; confirm it supports Electron 42 + our targets (win x64/arm64 nsis, mac arm64 dmg/zip, linux AppImage). Record findings inline in the PR description.
-- [ ] Bump `devDependencies`: `electron ^42.4.1`, `electron-builder ^26.15.3`. Add `@electron/rebuild` (latest 4.x).
-- [ ] `npm install`; resolve peer/engine warnings (electron-builder 27 needs Node ≥22.12 — we pin 26 to avoid the ESM break).
-- [ ] **Acceptance:** `npx electron --version` → `v42.x`; `npx electron-builder --version` → `26.x`. Commit: `build(deps): electron 35→42, electron-builder 25→26, add @electron/rebuild`.
+- [ ] Workflow on `runs-on: windows-11-arm`; install pinned `better-sqlite3` + `sqlite-vec`; run `scripts/preflight-vec.mjs`: log `process.platform/arch/versions.node`; open better-sqlite3; resolve + `loadExtension` the sqlite-vec binary; `CREATE VIRTUAL TABLE v USING vec0(embedding float[3])`; insert 2 vectors; KNN-query nearest; assert correct rowid.
+- [ ] **If the official npm package has no win-arm64 binary (expected):** in the same runner, build `vec0.dll` from the sqlite-vec C amalgamation (`sqlite-vec.c` — single file, no deps; mind the `__popcnt64` win-arm64 intrinsic, issue #73 workaround), then `loadExtension(builtDll)` and re-run the KNN assertion.
+- [ ] **Acceptance (THE PHASE-0 GO/NO-GO):** win-arm64 sqlite-vec KNN works via **official binary OR a from-source `vec0.dll`**, plus better-sqlite3 FTS5 on win-arm64. Record the winning path + the exact binary provenance in `docs/release-evidence/phase0.0-winarm64-<date>.md`.
+- [ ] **If neither works:** STOP Phase 0. Revise the vector decision in the roadmap (alternate ext, defer vectors to lexical-only ship, or drop win-arm64 — a constraint change needing the owner) **before** spending effort on the Electron migration.
 
-### Task 0a.2: fix main-process API breakage (35→42)
+---
 
-**Files:** `electron/main.ts`, `src/dashboard/dashboard-service.ts`, `dashboard-service-supervisor.ts`, any `electron/*` modules.
+## Phase 0a — Electron 35 → 42 upgrade, internal baseline (NOT a public release)
 
-- [ ] **Verify-first:** grep `electron/` + `src/dashboard/` for APIs deprecated/removed across 36–42 (e.g. `utilityProcess` signature changes, `app.*` removals, `BrowserWindow` option renames, `protocol.*`, `nativeImage`). Cross-check each against the Electron breaking-changes docs for 36→42.
-- [ ] Fix breakages minimally; keep the utilityProcess fork + supervisor + second-instance handler behavior identical.
-- [ ] **Test:** `npx tsc --noEmit` + `npx tsc -p tsconfig.ui.json --noEmit` (both — UI typecheck gap is real); `npx vitest run` (full suite green; the known slow/flaky CLI/routing suites pass isolated — see verify-tests-slow-flaky note; authoritative green = VPS lane).
-- [ ] **Acceptance:** typecheck (both) + tests green. Commit: `fix(electron): adapt main/utilityProcess to Electron 42 API`.
+**Architecture:** pin Electron 42.x + electron-builder 26.x, design native-dep packaging up front, fix main-process API breakage 36→42, keep the v0.10.14 utilityProcess architecture identical, build all four installers, prove the **existing** app still works packaged — as an **internal RC / CI checkpoint**, not a user release.
 
-### Task 0a.3: build all-4-target installers + packaged smoke (existing app)
+### Task 0a.1: pin versions + native-dep packaging design
+
+**Files:** `package.json`, `electron-builder.yml`, `tsdown.config.js`, `.github/workflows/release.yml`.
+
+- [ ] **Verify-first:** read electron-builder 26 breaking-changes vs 25; confirm Electron 42 + our four targets supported. Record inline.
+- [ ] Pin (exact, not caret): `electron 42.5.0`, `electron-builder 26.15.5`; add `@electron/rebuild` (4.x). (Use the latest 42.x/26.x patch at implementation time.)
+- [ ] **Native-dep packaging design (do this NOW, not after 0b):** decide how `better_sqlite3.node` + the sqlite-vec ext binary reach the installed runtime path the utilityProcess loads from. Mark native deps **external** in tsdown (don't let the bundler rewrite `bindings`/`require`); add them + their binaries to electron-builder `files`; resolve at runtime via `app.getAppPath()`-relative paths (asar:false). Document the exact installed path per platform.
+- [ ] **Acceptance:** `npx electron --version` → 42.5.x; `electron-builder --version` → 26.15.x; written native-packaging path map. Commit: `build(deps): pin electron 42 + electron-builder 26, add @electron/rebuild`.
+
+### Task 0a.2: fix main-process API breakage (35→42) + runtime-env logging
+
+**Files:** `electron/main.ts`, `src/dashboard/dashboard-service.ts`, `dashboard-service-supervisor.ts`, `electron/*`.
+
+- [ ] **Verify-first:** check Electron 36–42 breaking-changes for APIs the app uses (`utilityProcess.fork` opts, `app.*`, `BrowserWindow` opts, `protocol.*`, notifications/signing). Fix minimally; keep fork + supervisor + second-instance behavior identical.
+- [ ] **Add runtime-env logging** to the packaged smoke (so 0a actually proves the child runtime, not just "health ok"): log `process.versions.{electron,node,modules}`, `process.platform`, `process.arch`, `app.getAppPath()`, utility child PID, parent PID, service entry path, and whether `process.parentPort` exists.
+- [ ] **Test:** `npx tsc --noEmit` + `npx tsc -p tsconfig.ui.json --noEmit` (both — UI typecheck gap is real); `npx vitest run`.
+- [ ] **Acceptance:** typecheck (both) + tests green. Commit: `fix(electron): adapt main/utilityProcess to Electron 42`.
+
+### Task 0a.3: build 4 installers + packaged smoke (existing app) — internal RC
 
 **Files:** none (build + verify); evidence → `docs/release-evidence/`.
 
-- [ ] `npm run build` (tsdown self-contained entries + vite UI). Assert each shipped entry still has 0 relative imports: for `electron-main`, `dashboard/{dashboard-service,scheduled-vault-worker,verify-worker}` → `grep -cE 'from "\.\.?/' dist/<entry>.mjs` == 0. (Guard test `test/build/dashboard-build.test.ts` must pass.)
-- [ ] Build installers for win x64, **win arm64**, mac arm64, linux AppImage (CI `release.yml` matrix; the macOS-arm64-only / no-Intel / no-.deb matrix is fixed — don't widen).
-- [ ] **Packaged smoke (the gate, by output not memory):** install (kill app first; assert `MemoryFort.exe` exists, not just the registry key), launch. Confirm: window surfaces; `:4410` owner is a child `--type=utility` process of main (`type=utility:True`); `/api/health` returns a real report; version string = new build. Record in `docs/release-evidence/phase0a-<date>.md`.
-- [ ] **Acceptance:** all four installers build; Windows packaged smoke green (server in child utility process, health real). Ship as the Electron-42 baseline release (follow `docs/RELEASING.md`: CHANGELOG, version bump, scan:leaks, push public+private, installers, packaged smoke). Commit/tag per the release ritual.
+- [ ] `npm run build`; assert each shipped entry still self-contained (`grep -cE 'from "\.\.?/' dist/<entry>.mjs` == 0 for electron-main + the three dashboard workers; guard test green).
+- [ ] Build win x64, **win arm64**, mac arm64, linux AppImage (CI matrix unchanged — mac arm64 only, no .deb).
+- [ ] **Packaged smoke (by output):** install (kill app first; assert `MemoryFort.exe` exists, not just registry), launch; confirm window surfaces, `:4410` owner is a child `--type=utility` process of main, `/api/health` real, version correct, **+ the runtime-env log from 0a.2**. Record in `docs/release-evidence/phase0a-<date>.md`.
+- [ ] **Acceptance:** four installers build; Windows packaged smoke green with runtime-env logged. **Tag as an internal pre-release / RC — DO NOT publish to users yet** (public release is one combined release after 0b). Exception: a security-driven Electron-only ship, called out explicitly.
 
 ---
 
-## Phase 0b — packaged native-capability spike (better-sqlite3 + sqlite-vec)
+## Phase 0b — native-capability bootstrap, proven in the installed app (all 4 targets)
 
-**Architecture:** a **throwaway** capability-probe entry, shipped in the app like a worker, that runs inside the real utilityProcess and exercises the entire native path end-to-end, logging each step's result to a temp file. Run the **installed** artifact on all four targets. This proves the Phase 3+ foundation without writing any of it. Delete the probe (or gate it behind an env flag) before Phase 3 feature work.
+**Architecture:** build a **small reusable bootstrap module** (NOT index feature code) that opens the DB, asserts FTS5, resolves + loads sqlite-vec, asserts vec0 KNN; gate it under **Electron's Node runtime** and inside the **installed utilityProcess** on every target. vitest stays as fast dev feedback only.
 
-### Task 0b.1: add better-sqlite3, rebuild for Electron, prove FTS5 in vitest
+### Task 0b.1: bootstrap module + better-sqlite3, Electron-runtime FTS5 gate
 
-**Files:** `package.json`, `test/index/native-fts5.test.ts`, build scripts.
+**Files:** `src/index/native/capability.ts` (reusable: `openCapabilityDb`, `assertFts5`, `resolveSqliteVecBinary`, `loadSqliteVec`, `assertVec0Knn`), `test/index/native-fts5.test.ts` (vitest, dev), CI Electron-runtime test.
 
-- [ ] **Failing test:** open an in-memory better-sqlite3 DB, create an FTS5 table, insert + bm25-query.
-```ts
-import Database from "better-sqlite3";
-it("better-sqlite3 has FTS5", () => {
-  const db = new Database(":memory:");
-  db.exec("CREATE VIRTUAL TABLE t USING fts5(body)");
-  db.exec("INSERT INTO t(body) VALUES ('kafka streams'),('postgres rows')");
-  const row = db.prepare("SELECT body, bm25(t) s FROM t WHERE t MATCH 'kafka' ORDER BY s").get() as any;
-  expect(row.body).toContain("kafka");
-});
-```
-- [ ] **Run, expect:** PASS if the local Node ABI matches; if it fails to load, that's the rebuild signal — wire `@electron/rebuild` into the dev/build flow (rebuild against Electron 42's ABI for the Electron context; keep a Node-ABI copy for vitest, or run this test via electron's node). Document the dual-ABI handling (vitest runs on system Node; the app runs Electron's Node).
-- [ ] **Acceptance:** FTS5 test green on system Node. Commit: `feat(index): add better-sqlite3 + @electron/rebuild; prove FTS5`.
+- [ ] vitest (dev signal): `openCapabilityDb(':memory:')` + `assertFts5` (create fts5, bm25 query). **Not a gate.**
+- [ ] **Gate:** the SAME FTS5 assertion runs under **Electron's Node** in CI (headless Electron main/utility test), after `@electron/rebuild` against Electron 42's ABI. A green vitest with a red Electron-runtime test = the dual-ABI trap; the Electron one wins.
+- [ ] **Acceptance:** FTS5 green under Electron runtime. Commit: `feat(index): native capability bootstrap + better-sqlite3 (Electron-ABI FTS5)`.
 
-### Task 0b.2: add sqlite-vec, prove load + exact vector query in vitest
+### Task 0b.2: sqlite-vec into the bootstrap, Electron-runtime KNN gate
 
-**Files:** `package.json`, `src/index/vectors/sqlite-vec.ts` (loader only), `test/index/native-vec.test.ts`.
+**Files:** `src/index/native/capability.ts` (`resolveSqliteVecBinary`, `loadSqliteVec`, `assertVec0Knn`), `test/index/native-vec.test.ts`.
 
-- [ ] **Failing test:** load the sqlite-vec extension into a better-sqlite3 DB; create a vec table; insert 2 vectors; KNN-query nearest.
-```ts
-import Database from "better-sqlite3";
-import { loadSqliteVec } from "../../src/index/vectors/sqlite-vec.js";
-it("sqlite-vec loads and does exact KNN", () => {
-  const db = new Database(":memory:");
-  loadSqliteVec(db);                       // db.loadExtension(resolved .so/.dylib/.dll)
-  db.exec("CREATE VIRTUAL TABLE v USING vec0(embedding float[3])");
-  db.prepare("INSERT INTO v(rowid, embedding) VALUES (?, ?)").run(1, new Float32Array([1,0,0]));
-  db.prepare("INSERT INTO v(rowid, embedding) VALUES (?, ?)").run(2, new Float32Array([0,1,0]));
-  const hit = db.prepare("SELECT rowid FROM v WHERE embedding MATCH ? ORDER BY distance LIMIT 1").get(new Float32Array([0.9,0,0])) as any;
-  expect(hit.rowid).toBe(1);
-});
-```
-- [ ] **Implement** `loadSqliteVec(db)`: resolve the platform-correct prebuilt (`vec0.dll`/`.dylib`/`.so`), `db.loadExtension(path)`; throw a typed error if missing (Phase 5 catches → degrade to lexical).
-- [ ] **Acceptance:** KNN test green. Commit: `feat(index): sqlite-vec loader + exact KNN proof`.
+- [ ] `resolveSqliteVecBinary()` → platform/arch-correct binary (incl. the **win-arm64 path proven in 0.0** — official or vendored `vec0.dll`); `loadSqliteVec(db)` = `db.loadExtension(path)`, typed error if missing (Phase 5 degrades to lexical).
+- [ ] vitest (dev) + **Electron-runtime gate**: vec0 table, insert, KNN nearest assertion.
+- [ ] **Acceptance:** KNN green under Electron runtime. Commit: `feat(index): sqlite-vec load + exact KNN in the bootstrap`.
 
-### Task 0b.3: the packaged "hello-index" probe entry (all-4-target spike)
+### Task 0b.3: installed-app probe (all 4 targets) — the real gate
 
-**Files:** `src/index/capability-probe.ts` (throwaway), `tsdown.config.js` (add entry, `codeSplitting:false`), `electron-builder.yml` (ship the probe `.mjs` + the native `.node` + the sqlite-vec ext binaries, `asar:false`), `electron/main.ts` (fork the probe behind `MEMORY_CAP_PROBE=1`).
+**Files:** `src/index/native/capability-probe.ts` (thin wrapper over the bootstrap, env-gated `MEMORY_CAP_PROBE=1`), `tsdown.config.js` (entry, `codeSplitting:false`, native external), `electron-builder.yml` (ship probe `.mjs` + native binaries), `electron/main.ts` (fork the probe under the env flag).
 
-- [ ] **Implement** `capability-probe.ts` (runs in the utilityProcess; `if (process.parentPort)` guard): in a temp dir, step through and log each to `<tmp>/cap-probe.log`:
-  1. `new Database(path)` (WAL) → `step1 sqlite-open ok`
-  2. create FTS5 + bm25 query → `step2 fts5 ok`
-  3. `db.close()`, reopen, read back → `step3 wal-reopen ok`
-  4. `loadSqliteVec(db)` → `step4 vec-load ok`
+- [ ] Probe runs in the real utilityProcess (`if (process.parentPort)`), logs each step to `<tmp>/cap-probe.log`:
+  1. open SQLite WAL → `step1 ok`; **log resolved path + `stat` for `better_sqlite3.node` and the vec binary**
+  2. FTS5 bm25 query → `step2 ok`
+  3. close, reopen, read back → `step3 wal-reopen ok`
+  4. `loadSqliteVec` → `step4 vec-load ok`
   5. vec0 insert + KNN → `step5 vec-knn ok`
-  6. signal parent "ready"; parent kills + re-forks; probe re-runs steps 1–5 on the same DB file → `step6 restart-recover ok`
-  Any throw → log `stepN FAIL <err>` and exit non-zero. (Mirrors the diagnostic-swap technique: a missing native file produces a specific load error, not silence.)
-- [ ] **Ship it self-contained:** assert `grep -cE 'from "\.\.?/' dist/index/capability-probe.mjs` == 0; native `.node` + ext binaries listed in electron-builder `files` and unpacked (asar:false already).
-- [ ] **Run the INSTALLED app** with `MEMORY_CAP_PROBE=1` on **Win x64, Win arm64, macOS arm64, Linux x64** (CI matrix + local Windows). Collect each `cap-probe.log`.
-- [ ] **Acceptance (THE GATE):** all six steps `ok` on **all four targets** — especially **Win arm64 + step4/5 (sqlite-vec)**. Record every target's log in `docs/release-evidence/phase0b-<date>.md`. If a target fails step4/5 (e.g. no win-arm64 sqlite-vec prebuilt), STOP: resolve (build the ext from source in CI, or vendor a binary) or revise the vector decision in the roadmap before Phase 3.
+  6. parent kills + re-forks; probe re-runs 1–5 on the same DB file → `step6 restart-recover ok`
+  7. **concurrent WAL:** one writer + one reader connection, read during/after write → `step7 concurrent-wal ok`
+  8. **modest scale:** build a ~30 MB DB (enough rows/vectors to exercise WAL growth + checkpoint), reopen → `step8 30mb-reopen ok`
+  Any throw → `stepN FAIL <err>`, exit non-zero.
+- [ ] Ship self-contained (`grep` relative-imports == 0); native binaries in `files`, present at runtime paths.
+- [ ] **Run the INSTALLED app** with `MEMORY_CAP_PROBE=1` on **Win x64, Win arm64, macOS arm64, Linux x64** (CI matrix + local Windows). Collect every log.
+- [ ] **Acceptance (THE GATE):** steps 1–8 `ok` on **all four targets**, especially **win-arm64 + step4/5**. Record all logs in `docs/release-evidence/phase0b-<date>.md`. (Disk-full / corrupt-DB recovery are deferred to the index feature phase — not native-stack proof.)
 
-### Task 0b.4: guard test for native-file shipping + cleanup
+### Task 0b.4: runtime-path native guard + cleanup
 
-**Files:** `test/build/native-packaging.test.ts`, remove/flag the probe.
+**Files:** `test/build/native-packaging.test.ts`.
 
-- [ ] **Test (mutation-proven):** parse `electron-builder.yml` `files` + assert every native artifact the probe/app loads (`better_sqlite3.node`, the sqlite-vec ext per platform) is in the shipped set and unpacked. Invert it (drop one) → test must fail. (Extends the existing relative-import guard to native deps.)
-- [ ] Gate the probe behind `MEMORY_CAP_PROBE` (don't run in normal launch) or delete it; keep `loadSqliteVec` + the better-sqlite3 dep (Phase 3 uses them).
-- [ ] **Acceptance:** guard test green + mutation-verified; normal launch unaffected (packaged smoke still green). Commit: `test(build): guard native module + sqlite-vec shipping`.
+- [ ] **Guard (mutation-proven):** for each target arch, assert the native artifacts the app loads exist **at the exact installed runtime path** (`better_sqlite3.node`, the per-platform sqlite-vec binary `.dll/.dylib/.so`) — present on disk, not inside asar, `process.arch` matches. Remove one → installed smoke must fail.
+- [ ] Keep the bootstrap module + deps (Phase 3 uses them); probe stays env-gated.
+- [ ] **Acceptance:** guard green + mutation-verified; normal launch unaffected. Commit: `test(build): runtime-path guard for native module + sqlite-vec`.
 
 ---
 
-## Acceptance (Phase 0 done = Phase 3 unblocked)
+## Phase 0 done = Phase 3 unblocked
 
-1. App ships on **Electron 42** (supported), all four installers build, existing packaged smoke green (utilityProcess server, `/api/health` real) — verified by output.
-2. The capability probe passes **all six steps on all four targets**, incl. **Win arm64 + sqlite-vec** — logs banked in `docs/release-evidence/`.
-3. `@electron/rebuild` is wired into the build; native-shipping guard test is green + mutation-verified.
-4. No `src/index/**` feature code yet (catalog/reconciler/search are Phase 3).
+1. **0.0:** win-arm64 sqlite-vec proven (official or from-source) — the go/no-go, settled before migration.
+2. **0a:** app on Electron 42.x, four installers build, existing packaged smoke green w/ runtime-env logged — as an **internal RC**.
+3. **0b:** the bootstrap passes all probe steps on all four targets (incl. win-arm64 + sqlite-vec + concurrent WAL + 30 MB reopen); runtime-path guard green + mutation-verified.
+4. **One combined public release** after 0b (per `docs/RELEASING.md`). No `src/index/**` feature code yet.
 
 ## Self-review
 
-- **Spec coverage:** 0a = supported-Electron baseline (the EOL fix); 0b = the native-load gate (the biggest risk) end-to-end in the packaged app on every target. Together they de-risk everything Phase 3+ assumes.
+- **Spec coverage:** 0.0 settles the load-bearing unknown first; 0a = supported-Electron baseline (EOL fix) as an internal RC; 0b = the native gate end-to-end in the installed app, under Electron's ABI, on every target, via reusable code.
 - **Placeholders:** none — each task has a test/probe, the contract, exact assertions, and a recorded-evidence gate.
-- **Risks flagged:** dual ABI (vitest=system Node vs app=Electron Node — handled in 0b.1); win-arm64 sqlite-vec prebuilt may not exist (0b.3 stop-condition → build-from-source/vendor); electron-builder 26 breaking changes (0a.1 verify-first); Electron's no-LTS treadmill (accepted — periodic bumps).
+- **Risks flagged:** win-arm64 sqlite-vec (now Phase 0.0, with a from-source mitigation on `windows-11-arm`); dual ABI (Electron-runtime tests are the gate, vitest demoted); native packaging from a bundler (designed in 0a.1, guarded in 0b.4); macOS unsigned dlopen (test the DMG as a user gets it); Electron no-LTS treadmill (pinned 42.x, accepted bumps); electron-builder 26 churn (verify-first, v27 deferred).
 
 ## Execution handoff
 
-Codex implements 0a.1 → 0b.4 in order; Claude audits each (read diff + run typecheck/tests + the packaged probe on Windows; CI covers the other targets). 0a ships as its own release per `docs/RELEASING.md`. **Hard gate: do not start Phase 3 until 0b.3 is green on Win arm64.** Next detailed plan (Phase 3) already exists in [the roadmap](2026-06-25-tier2-search-index.md#phase-3--detailed-tasks).
+Codex implements **0.0 → 0a → 0b** in order; Claude audits each (read diff + run typecheck/tests + the installed probe on Windows; CI covers the other targets + win-arm64). **Hard gates:** (1) don't start 0a until **0.0** is green on win-arm64; (2) don't publish until **0b.3** is green on all four targets; (3) don't start Phase 3 until 0b is fully green. Phase 3 detail: [the roadmap](2026-06-25-tier2-search-index.md#phase-3--detailed-tasks).
