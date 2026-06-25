@@ -194,6 +194,44 @@ it("serves /api/search from the index when the flag is on", async () => {
 
 ---
 
+## Phase 4–7 task breakdowns (task-level; each finalizes against earlier-phase results when reached)
+
+> Phase 0 = [its own detailed plan](2026-06-25-tier2-phase0-electron-native.md). Phase 3 = detailed above. Phases 4–7 below are task-level; each gets a full bite-sized plan at execution (vector/scheduler specifics depend on Phase 0's measured counts + Phase 3/4 code).
+
+### Phase 4 — Lexical cutover (safety milestone, no vectors)
+- [ ] **T1** Flip `MEMORY_INDEX_SEARCH` default **on**; legacy path behind the off-switch (kept one release for rollback). Test: default `/api/search` hits the index.
+- [ ] **T2** Fallback: index absent/corrupt/rebuilding → degrade to the existing ripgrep/bounded path over canonical markdown. Test: with the DB file missing, search still returns results (no throw, no corpus load).
+- [ ] **T3** **DELETE the in-process corpus cache from the search path** — remove `loadSearchCorpus` from `runSearch`; the BM25 corpus module leaves the request path. Test (mutation-proven): a spy `loadSearchCorpus` that throws is never called on any `/api/search`.
+- [ ] **T4** Parity gate: fixed real-vault query set, index top-K vs legacy within tolerance.
+- [ ] **T5** Packaged smoke: `scope=all` search keeps the DB-worker heap bounded; record evidence. (Scheduler 8 GB flags stay until Phase 7.)
+- **Acceptance:** corpus cache gone from search; fallback verified; parity holds; heap bounded by output.
+
+### Phase 5 — Vectors + RRF hybrid
+- [ ] **T1** Embedding ingestion: reuse the existing Voyage embeddings store; write into the `vectors` table keyed by chunk + **embedding-profile fingerprint**; reuse embeddings for unchanged record hashes; hosted embeddings **opt-in** (UI states what leaves the machine). Test: unchanged chunk → no re-embed.
+- [ ] **T2** Adapter `upsert`/`query` exact via sqlite-vec; reconciler writes/updates vectors per changed chunk under the generation. Test: KNN returns the planted nearest.
+- [ ] **T3** **RRF fusion** (rank-based) of FTS + vector top-K; parent-level dedup; deterministic tie-break. Unit-test the RRF math (known ranks → known order).
+- [ ] **T4** Cursor pagination carrying `{queryFingerprint, generation}`; invalidate when the active generation flips. Test: stale cursor across a reconcile → rejected/refreshed, not wrong rows.
+- [ ] **T5** Graceful degrade: vector ext missing/incompatible → lexical-only, DB still opens. Test: stub a load failure → lexical results, no crash.
+- [ ] **T6** Sampled **recall@K** vs legacy on the real vault; gate. Packaged smoke. **No cross-encoder.** Decide quantization/ANN only if measured latency fails (depends on Phase-0 vector counts).
+- **Acceptance:** hybrid returns correct fused top-K; degrades cleanly; recall ≥ target; heap bounded.
+
+### Phase 6 — Graph + health from the index
+- [ ] **T1** Reconciler materializes `graph_nodes` + `graph_edges` from frontmatter relations + wikilinks (edge type + derivation version). Test: a wikilink + a frontmatter relation → expected edges.
+- [ ] **T2** `/api/graph` serves bounded neighborhoods / time-window / level-of-detail from edges. Test: output size bounded by the requested window, not vault size.
+- [ ] **T3** Retire the `loadGraphFeed` byte-budget recent-activity cap (replaced by indexed neighborhoods).
+- [ ] **T4** Health surfaces index freshness / last-good-scan generation / queue depth / corruption state from `meta`+`jobs`. Test: stale index → health reports it.
+- **Acceptance:** graph + health read the index; no unbounded graph JSON; index state visible in health.
+
+### Phase 7 — Incremental schedulers + retire the 8 GB stopgap
+- [ ] **T1** Document the **invalidation dependencies** per scheduler first (auto-heal, auto-promote): which global state each needs (dedup, backlinks, contradictions) — "changed-rows-only" is not automatically correct.
+- [ ] **T2** Rewrite **auto-promote** as changed/missing-rows-only over the index. Test: an unchanged corpus → no work; one changed row → exactly that row processed.
+- [ ] **T3** Rewrite **auto-heal** likewise (per its documented invalidation deps).
+- [ ] **T4** As each path becomes bounded, lower then remove its worker `--max-old-space-size=8192`. Test: a CI run at a deliberately low old-space cap passes.
+- [ ] **T5** Confirm **no path loads the corpus into any process heap** (grep `loadSearchCorpus`/`loadGraphFeed` out of hot paths); remove the 8 GB flags. Update [desktop-oom-large-vault] memory + close `task_ba6be8a6`.
+- **Acceptance:** low-heap CI green; 8 GB flags gone; OOM invariant removed for good.
+
+---
+
 ## Self-review
 
 - **Spec coverage:** Phase 0 (Electron upgrade + native matrix) gates everything; Phase 3 = catalog/FTS/reconciler (detailed below); Phase 4 = lexical cutover + corpus-cache deletion (the safety milestone); Phase 5 = vectors+RRF; Phase 6 = graph/health; Phase 7 = incremental schedulers + stopgap retirement. Phase 3 tasks cover DB, chunking, reconcile (incremental+delete), FTS search, service wiring, and the packaged gate.
