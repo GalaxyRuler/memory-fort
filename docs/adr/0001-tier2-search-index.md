@@ -7,7 +7,7 @@
 
 ## Context
 
-The dashboard backend runs inside the Electron **main** process and serves the UI on `127.0.0.1:4410`. Several features materialize a corpus-proportional fraction of the vault into the JS heap on demand:
+The dashboard backend serves the UI on `127.0.0.1:4410`. As of v0.10.14 it runs in a long-lived Electron **utilityProcess** (Phase 2 of the migration below, already shipped); main only supervises/restarts it. Several features still materialize a corpus-proportional fraction of the vault into that process's JS heap on demand:
 
 - `loadSearchCorpus({scope:"all"})` reads + parses **every** raw/wiki file into `SearchDocument` objects.
 - `/api/search` (`runSearch`) loads the full corpus on first query (BM25 + embeddings + rerank) and caches it.
