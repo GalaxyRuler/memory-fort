@@ -24,6 +24,7 @@ import type { LLMProvider } from "../llm/types.js";
 import { createAutoPromoteScheduler } from "./auto-promote-scheduler.js";
 import { runScheduledCompileOnce, type DashboardCompileRunResult } from "./auto-promote-scheduler.js";
 import { createAutoHealScheduler } from "./auto-heal-scheduler.js";
+import { defaultFullCorpusAdmissionGate, type FullCorpusAdmissionGate } from "./full-corpus-admission.js";
 import {
   createCompilePendingSummaryCache,
   emptyCompilePendingSummary,
@@ -106,6 +107,7 @@ export interface ServerOptions {
   writeSecretImpl?: (key: string, value: string, p: string) => Promise<void>;
   validateKeyImpl?: (provider: SecretProvider, key: string) => Promise<{ ok: boolean; message?: string }>;
   syncRunner?: () => Promise<SyncRunnerResult>;
+  fullCorpusGate?: FullCorpusAdmissionGate;
 }
 
 export interface SyncRunnerResult {
@@ -558,6 +560,58 @@ interface GraphHealthCacheEntry {
   report: GraphHealthReport;
 }
 
+interface RunSingleFlightVerifyOptions {
+  cacheKey: string;
+  healthCache: Map<string, HealthCacheEntry>;
+  includeSearch: boolean;
+  role: VerifyRole;
+  vaultRoot: string;
+  verifyJobs: Map<string, Promise<VerifyResult>>;
+  verifyRunner: NonNullable<ServerOptions["verifyRunner"]>;
+  fullCorpusGate: FullCorpusAdmissionGate;
+}
+
+function missingVerifyReport(role: VerifyRole, includeSearch: boolean): VerifyResult {
+  const now = new Date().toISOString();
+  return {
+    startedAt: now,
+    finishedAt: now,
+    role,
+    overallStatus: "warn",
+    checks: [{
+      id: "verify.report.missing",
+      label: includeSearch ? "deep verify report available" : "verify report available",
+      status: "warn",
+      detail: "No cached verify report is available yet.",
+      suggestedFix: "memory verify",
+      durationMs: 0,
+    }],
+    passed: 0,
+    failed: 0,
+    warnings: 1,
+    exitCode: 0,
+  };
+}
+
+async function runSingleFlightVerify(opts: RunSingleFlightVerifyOptions): Promise<VerifyResult> {
+  const existing = opts.verifyJobs.get(opts.cacheKey);
+  if (existing) return existing;
+
+  const job = opts.fullCorpusGate.runVerify(async () => {
+    const report = await opts.verifyRunner({
+      includeSearch: opts.includeSearch,
+      role: opts.role,
+      vaultRoot: opts.vaultRoot,
+    });
+    opts.healthCache.set(opts.cacheKey, { atMs: Date.now(), report });
+    return report;
+  }).finally(() => {
+    opts.verifyJobs.delete(opts.cacheKey);
+  });
+  opts.verifyJobs.set(opts.cacheKey, job);
+  return job;
+}
+
 interface GraphFeedCacheEntry {
   atMs: number;
   feed: Awaited<ReturnType<typeof loadGraphFeed>>;
@@ -679,6 +733,7 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
   const readSecretsMetaFn = opts.readSecretsMetaImpl ?? defaultReadSecretsMeta;
   const writeSecretFn = opts.writeSecretImpl ?? defaultWriteSecret;
   const validateKeyFn = opts.validateKeyImpl ?? defaultValidateKey;
+  const fullCorpusGate = opts.fullCorpusGate ?? defaultFullCorpusAdmissionGate;
   const PROVIDER_ENV: Record<string, string> = {
     voyage: "VOYAGE_API_KEY",
     openai: "OPENAI_API_KEY",
@@ -690,14 +745,17 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
   const searchRuntimeCache = createSearchRuntimeCache();
   const rawCaptureCache = createRawCaptureEventCache();
   const compilePendingSummaryCache = createCompilePendingSummaryCache();
+  const verifyJobs = new Map<string, Promise<VerifyResult>>();
   const autoPromoteScheduler = await createAutoPromoteScheduler({
     vaultRoot: opts.vaultRoot,
     writeCapability,
+    fullCorpusGate,
   });
   const autoHealScheduler = createAutoHealScheduler({
     vaultRoot: opts.vaultRoot,
     config,
     env,
+    fullCorpusGate,
   });
   const closeSchedulers = () => {
     autoPromoteScheduler.close();
@@ -1090,13 +1148,19 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
         }
         const cacheKey = `${role}:${includeSearch ? "deep" : "shallow"}`;
         const cached = healthCache.get(cacheKey);
-        const nowMs = Date.now();
-        const report = cached && nowMs - cached.atMs < HEALTH_CACHE_MS
-          ? cached.report
-          : await verifyRunner({ includeSearch, role, vaultRoot: opts.vaultRoot });
-        if (!cached || nowMs - cached.atMs >= HEALTH_CACHE_MS) {
-          healthCache.set(cacheKey, { atMs: nowMs, report });
-        }
+        const shouldRefresh = url.searchParams.get("refresh") === "true" || url.searchParams.get("verify") === "true";
+        const report = shouldRefresh
+          ? await runSingleFlightVerify({
+              cacheKey,
+              healthCache,
+              includeSearch,
+              role,
+              vaultRoot: opts.vaultRoot,
+              verifyJobs,
+              verifyRunner,
+              fullCorpusGate,
+            })
+          : cached?.report ?? missingVerifyReport(role, includeSearch);
         writeJson(res, report, report.overallStatus === "fail" ? 503 : 200);
       } catch (err) {
         writeJsonError(res, 500, (err as Error).message);
@@ -1322,7 +1386,7 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
             ? ("strict" as const)
             : ("inclusive" as const);
         try {
-          const result = await runSearch({
+          const result = await fullCorpusGate.runSearch(() => runSearch({
             query,
             scope: parseSearchScope(url.searchParams.get("scope")),
             k: parseClampedInt(url.searchParams.get("k"), 10, 1, 50),
@@ -1341,7 +1405,7 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
             llmProvider: intent ? llmProvider : null,
             refreshEmbeddings: false,
             runtimeCache: searchRuntimeCache,
-          });
+          }));
           writeJson(res, result);
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);

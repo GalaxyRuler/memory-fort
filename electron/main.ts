@@ -1,18 +1,8 @@
 import { app, BrowserWindow, shell } from "electron";
 import { join } from "node:path";
-import { setFlagsFromString } from "node:v8";
 import { runDashboard, type DashboardRun } from "../src/cli/commands/dashboard.js";
 
-// The dashboard backend runs in THIS (main) process and loads the local vault.
-// A large vault (raw/ can reach hundreds of MB) pushed V8's default old-space
-// past its limit, OOM-killing the app a few seconds after launch ("opens then
-// crashes"). Raise the main-process heap so large vaults load. This is a
-// stopgap — the loaders should also be bounded so they never read all of raw/
-// into memory at once (tracked separately). setFlagsFromString adjusts the
-// already-initialised main-process heap; the command-line switch covers any
-// child V8 instances.
-setFlagsFromString("--max-old-space-size=8192");
-app.commandLine.appendSwitch("js-flags", "--max-old-space-size=8192");
+// main heap is ~4GB-capped; heavy work runs in child workers.
 
 // Prevent two MemoryFort windows competing on port 4410
 const gotLock = app.requestSingleInstanceLock();

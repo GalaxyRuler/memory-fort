@@ -14,6 +14,7 @@ import { runProcedurePropose } from "../cli/commands/procedure.js";
 import { runThreadPropose } from "../cli/commands/thread.js";
 import { loadMemoryConfig, resolveCompileConfig, type MemoryConfig, type ResolvedCompileConfig } from "../storage/config.js";
 import type { VaultWriteCapability } from "../sync/vault-capability.js";
+import { defaultFullCorpusAdmissionGate, type FullCorpusAdmissionGate } from "./full-corpus-admission.js";
 
 export interface AutoPromoteScheduler {
   close(): void;
@@ -28,6 +29,7 @@ export interface AutoPromoteSchedulerOptions {
   compileRunner?: (opts?: DashboardCompileRunnerOptions) => Promise<DashboardCompileRunResult>;
   autoPromoteRunner?: () => Promise<void>;
   writeCapability?: VaultWriteCapability;
+  fullCorpusGate?: FullCorpusAdmissionGate;
 }
 
 export interface DashboardCompileRunnerOptions {
@@ -77,6 +79,7 @@ export async function createAutoPromoteScheduler(
   const clearIntervalFactory = opts.clearIntervalFactory ?? clearInterval;
   const intervals: NodeJS.Timeout[] = [];
   let running = false;
+  const fullCorpusGate = opts.fullCorpusGate ?? defaultFullCorpusAdmissionGate;
 
   if (opts.writeCapability?.writable === false) {
     return { close: () => undefined };
@@ -86,13 +89,16 @@ export async function createAutoPromoteScheduler(
     intervals.push(intervalFactory(() => {
       if (running) return;
       running = true;
-      // Default: isolate the full-corpus compile in a child process so its
-      // multi-GB peak never touches the dashboard/app heap. An injected runner
-      // (tests) runs in-process.
-      const run = opts.compileRunner
-        ? opts.compileRunner(scheduledCompileRunnerOptions(compile))
-        : runScheduledVaultTaskInChild(opts.vaultRoot, "compile");
-      void Promise.resolve(run)
+      void fullCorpusGate.tryRunMaintenance(async () => {
+        // Default: isolate the full-corpus compile in a child process so its
+        // multi-GB peak never touches the dashboard/app heap. An injected runner
+        // (tests) runs in-process.
+        if (opts.compileRunner) {
+          await opts.compileRunner(scheduledCompileRunnerOptions(compile));
+        } else {
+          await runScheduledVaultTaskInChild(opts.vaultRoot, "compile");
+        }
+      })
         .catch((error) => logSchedulerFailure(opts.vaultRoot, "compile scheduler failed", error))
         .finally(() => {
           running = false;
@@ -104,25 +110,27 @@ export async function createAutoPromoteScheduler(
     intervals.push(intervalFactory(() => {
       if (running) return;
       running = true;
-      const injectedAuto = opts.autoPromoteRunner ?? opts.runner;
-      let task: Promise<unknown>;
-      if (opts.compileRunner || injectedAuto) {
-        // Injected (tests): keep the previous in-process behaviour.
-        const autoRunner = injectedAuto ?? (() => runAutoPromoteOnce(opts.vaultRoot));
-        task = compile.scheduled
-          ? runScheduledVaultTasksOnce(opts.vaultRoot, {
+      void fullCorpusGate.tryRunMaintenance(async () => {
+        const injectedAuto = opts.autoPromoteRunner ?? opts.runner;
+        if (opts.compileRunner || injectedAuto) {
+          // Injected (tests): keep the previous in-process behaviour.
+          const autoRunner = injectedAuto ?? (() => runAutoPromoteOnce(opts.vaultRoot));
+          if (compile.scheduled) {
+            await runScheduledVaultTasksOnce(opts.vaultRoot, {
               compileRunner: opts.compileRunner
                 ? () => opts.compileRunner!(scheduledCompileRunnerOptions(compile))
                 : () => runScheduledCompileOnce(opts.vaultRoot, scheduledCompileRunnerOptions(compile)),
               autoPromoteRunner: autoRunner,
-            })
-          : autoRunner().catch((error) => logSchedulerFailure(opts.vaultRoot, "auto-promote scheduler failed", error));
-      } else {
-        // Default: isolate the full-corpus work in a child process.
-        task = runScheduledVaultTaskInChild(opts.vaultRoot, compile.scheduled ? "vault" : "auto-promote")
-          .catch((error) => logSchedulerFailure(opts.vaultRoot, "auto-promote scheduler failed", error));
-      }
-      void task.finally(() => {
+            });
+          } else {
+            await autoRunner().catch((error) => logSchedulerFailure(opts.vaultRoot, "auto-promote scheduler failed", error));
+          }
+        } else {
+          // Default: isolate the full-corpus work in a child process.
+          await runScheduledVaultTaskInChild(opts.vaultRoot, compile.scheduled ? "vault" : "auto-promote")
+            .catch((error) => logSchedulerFailure(opts.vaultRoot, "auto-promote scheduler failed", error));
+        }
+      }).finally(() => {
           running = false;
         });
     }, CADENCE_MS[autoPromote.cadence]));

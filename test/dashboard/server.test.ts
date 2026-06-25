@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { DashboardStatus } from "../../src/dashboard/loaders.js";
 import { createServer, sameOriginAllowed } from "../../src/dashboard/server.js";
+import { createFullCorpusAdmissionGate } from "../../src/dashboard/full-corpus-admission.js";
 import type { VerifyResult, VerifyRole } from "../../src/cli/commands/verify.js";
 import { writeCompileStateFile } from "../../src/compile/state.js";
 import type { VoyageClient } from "../../src/retrieval/voyage-client.js";
@@ -506,7 +507,7 @@ describe("dashboard server", () => {
     });
 
     try {
-      const first = await fetch(`http://${server.host}:${server.port}/api/health`);
+      const first = await fetch(`http://${server.host}:${server.port}/api/health?refresh=true`);
       const second = await fetch(`http://${server.host}:${server.port}/api/health`);
 
       expect(first.status).toBe(200);
@@ -514,6 +515,62 @@ describe("dashboard server", () => {
       await expect(first.json()).resolves.toEqual(report);
       await expect(second.json()).resolves.toEqual(report);
       expect(calls).toEqual([{ includeSearch: false, role: "operator", vaultRoot: tmp }]);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("GET /api/health returns last-known state without starting verify", async () => {
+    const verifyRunner = vi.fn(async () => verifyReport("pass"));
+    const server = await createServer({
+      vaultRoot: tmp,
+      port: 0,
+      verifyRunner,
+    });
+
+    try {
+      const response = await fetch(`http://${server.host}:${server.port}/api/health`);
+      const body = await response.json() as VerifyResult;
+
+      expect(response.status).toBe(200);
+      expect(verifyRunner).not.toHaveBeenCalled();
+      expect(body.overallStatus).toBe("warn");
+      expect(body.checks[0]).toMatchObject({
+        id: "verify.report.missing",
+        status: "warn",
+      });
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("GET /api/health?refresh=true shares one in-flight verify job across callers", async () => {
+    let releaseVerify!: () => void;
+    const report = verifyReport("pass");
+    const verifyRunner = vi.fn(async () => {
+      await new Promise<void>((resolve) => {
+        releaseVerify = resolve;
+      });
+      return report;
+    });
+    const server = await createServer({
+      vaultRoot: tmp,
+      port: 0,
+      verifyRunner,
+    });
+
+    try {
+      const first = fetch(`http://${server.host}:${server.port}/api/health?refresh=true`);
+      const second = fetch(`http://${server.host}:${server.port}/api/health?refresh=true`);
+      await until(() => verifyRunner.mock.calls.length === 1);
+      releaseVerify();
+
+      const [firstResponse, secondResponse] = await Promise.all([first, second]);
+      expect(firstResponse.status).toBe(200);
+      expect(secondResponse.status).toBe(200);
+      await expect(firstResponse.json()).resolves.toEqual(report);
+      await expect(secondResponse.json()).resolves.toEqual(report);
+      expect(verifyRunner).toHaveBeenCalledOnce();
     } finally {
       await server.close();
     }
@@ -532,7 +589,7 @@ describe("dashboard server", () => {
     });
 
     try {
-      const response = await fetch(`http://${server.host}:${server.port}/api/health?deep=true`);
+      const response = await fetch(`http://${server.host}:${server.port}/api/health?deep=true&refresh=true`);
 
       expect(response.status).toBe(503);
       await expect(response.json()).resolves.toEqual(report);
@@ -558,7 +615,7 @@ describe("dashboard server", () => {
     });
 
     try {
-      const response = await fetch(`http://${server.host}:${server.port}/api/health`);
+      const response = await fetch(`http://${server.host}:${server.port}/api/health?refresh=true`);
       const body = await response.json() as VerifyResult;
 
       expect(response.status).toBe(200);
@@ -583,7 +640,7 @@ describe("dashboard server", () => {
     });
 
     try {
-      const response = await fetch(`http://${server.host}:${server.port}/api/health?role=operator`);
+      const response = await fetch(`http://${server.host}:${server.port}/api/health?role=operator&refresh=true`);
       const body = await response.json() as VerifyResult;
 
       expect(response.status).toBe(200);
@@ -622,8 +679,8 @@ describe("dashboard server", () => {
     });
 
     try {
-      const serverResponse = await fetch(`http://${server.host}:${server.port}/api/health?role=server`);
-      const operatorResponse = await fetch(`http://${server.host}:${server.port}/api/health?role=operator`);
+      const serverResponse = await fetch(`http://${server.host}:${server.port}/api/health?role=server&refresh=true`);
+      const operatorResponse = await fetch(`http://${server.host}:${server.port}/api/health?role=operator&refresh=true`);
       const cachedServerResponse = await fetch(`http://${server.host}:${server.port}/api/health?role=server`);
       const serverBody = await serverResponse.json() as VerifyResult;
       const operatorBody = await operatorResponse.json() as VerifyResult;
@@ -784,6 +841,45 @@ describe("dashboard server", () => {
         bm25Cache: expect.any(Object),
       });
       expect(body.results.length).toBeGreaterThan(0);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("GET /api/search waits for the full-corpus admission gate", async () => {
+    await writeSearchWiki(tmp);
+    const fullCorpusGate = createFullCorpusAdmissionGate();
+    let releaseVerify!: () => void;
+    const verify = fullCorpusGate.runVerify(async () => {
+      await new Promise<void>((resolve) => {
+        releaseVerify = resolve;
+      });
+    });
+    await until(() => fullCorpusGate.snapshot().active?.kind === "verify");
+
+    const server = await createServer({
+      vaultRoot: tmp,
+      port: 0,
+      voyageClient: null,
+      fullCorpusGate,
+    });
+
+    try {
+      let settled = false;
+      const search = fetch(`http://${server.host}:${server.port}/api/search?q=foo&noHyde=true`)
+        .then((response) => {
+          settled = true;
+          return response;
+        });
+
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(settled).toBe(false);
+
+      releaseVerify();
+      await verify;
+      const response = await search;
+      expect(response.status).toBe(200);
+      expect(fullCorpusGate.snapshot().active).toBeNull();
     } finally {
       await server.close();
     }
@@ -2812,4 +2908,12 @@ function verifyReport(
     warnings: overallStatus === "warn" ? 1 : 0,
     exitCode: overallStatus === "fail" ? 1 : 0,
   };
+}
+
+async function until(predicate: () => boolean): Promise<void> {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  throw new Error("condition was not met");
 }

@@ -6,6 +6,7 @@ import {
   type AutoHealRunResult,
   type AutoHealTickOptions,
 } from "../retrieval/auto-heal.js";
+import { defaultFullCorpusAdmissionGate, type FullCorpusAdmissionGate } from "./full-corpus-admission.js";
 
 function defaultVaultWorkerPath(): string {
   return resolveWorkerPath(import.meta.url, "scheduled-vault-worker.mjs");
@@ -48,6 +49,7 @@ export interface AutoHealSchedulerOptions {
   runTick?: (opts: AutoHealTickOptions) => Promise<AutoHealRunResult>;
   setIntervalFn?: typeof setInterval;
   clearIntervalFn?: typeof clearInterval;
+  fullCorpusGate?: FullCorpusAdmissionGate;
 }
 
 export function createAutoHealScheduler(
@@ -55,6 +57,7 @@ export function createAutoHealScheduler(
 ): AutoHealScheduler {
   const settings = readAutoHealSettings(opts.config);
   if (!settings.enabled) return { close: () => undefined };
+  const fullCorpusGate = opts.fullCorpusGate ?? defaultFullCorpusAdmissionGate;
 
   let running = false;
   const tickIntervalMs = Math.max(1, settings.tickIntervalSeconds) * 1000;
@@ -68,15 +71,17 @@ export function createAutoHealScheduler(
     running = true;
     const reconcile = Date.now() - lastReconcilerAt >= tickIntervalMs;
     try {
-      if (opts.runTick) {
-        // Injected (tests): run in-process.
-        await opts.runTick({ memoryRoot: opts.vaultRoot, env: opts.env, reconcile });
-      } else {
-        // Default: isolate the full-corpus reconcile in a child process so its
-        // multi-GB peak never touches the dashboard/app heap.
-        await runAutoHealTickInChild(opts.vaultRoot, reconcile);
-      }
-      if (reconcile) {
+      const admission = await fullCorpusGate.tryRunMaintenance(async () => {
+        if (opts.runTick) {
+          // Injected (tests): run in-process.
+          await opts.runTick({ memoryRoot: opts.vaultRoot, env: opts.env, reconcile });
+        } else {
+          // Default: isolate the full-corpus reconcile in a child process so its
+          // multi-GB peak never touches the dashboard/app heap.
+          await runAutoHealTickInChild(opts.vaultRoot, reconcile);
+        }
+      });
+      if (admission.started && reconcile) {
         lastReconcilerAt = Date.now();
       }
     } catch {

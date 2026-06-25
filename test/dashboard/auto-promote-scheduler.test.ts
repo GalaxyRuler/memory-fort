@@ -8,6 +8,7 @@ import {
   runScheduledCompileOnce,
   runScheduledVaultTasksOnce,
 } from "../../src/dashboard/auto-promote-scheduler.js";
+import { createFullCorpusAdmissionGate } from "../../src/dashboard/full-corpus-admission.js";
 import { writeCompileStateFile } from "../../src/compile/state.js";
 
 describe("auto-promote scheduler", () => {
@@ -105,6 +106,41 @@ describe("auto-promote scheduler", () => {
     expect(compileRunner).toHaveBeenCalledOnce();
     scheduler.close();
     expect(clearIntervalFactory).toHaveBeenCalledWith(handle);
+  });
+
+  it("skips a scheduled compile tick while search holds the full-corpus gate", async () => {
+    const gate = createFullCorpusAdmissionGate();
+    let releaseSearch!: () => void;
+    const search = gate.runSearch(async () => {
+      await new Promise<void>((resolve) => {
+        releaseSearch = resolve;
+      });
+    });
+    await until(() => gate.snapshot().active?.kind === "search");
+
+    const intervalFactory = vi.fn((handler: () => void) => {
+      handler();
+      return Symbol("interval") as unknown as NodeJS.Timeout;
+    });
+    const compileRunner = vi.fn(async () => ({
+      rawFilesIncluded: [],
+      rawFilesSkipped: [],
+      outputPath: "var/compile/scheduled-compile-prompt.md",
+      rawRemaining: 0,
+    }));
+
+    await createAutoPromoteScheduler({
+      vaultRoot: tmp,
+      configLoader: async () => ({ compile: { scheduled: true, cadence: "daily" } }),
+      intervalFactory,
+      compileRunner,
+      fullCorpusGate: gate,
+    });
+
+    await Promise.resolve();
+    expect(compileRunner).not.toHaveBeenCalled();
+    releaseSearch();
+    await search;
   });
 
   it("passes compile.execute to scheduled compile runners", async () => {
@@ -213,3 +249,11 @@ describe("auto-promote scheduler", () => {
     await expect(readFile(join(tmp, "errors.log"), "utf-8")).resolves.toContain("auto-promote scheduler failed:");
   });
 });
+
+async function until(predicate: () => boolean): Promise<void> {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  throw new Error("condition was not met");
+}

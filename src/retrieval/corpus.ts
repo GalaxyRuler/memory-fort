@@ -104,6 +104,7 @@ const TOP_LEVEL: Record<"wiki" | "raw" | "crystals", SearchKind> = {
   raw: "raw",
   crystals: "crystal",
 };
+const RAW_STAT_FAILURE_ADMISSION_BYTES = Number.MAX_SAFE_INTEGER;
 
 export async function loadSearchCorpus(
   opts: LoadCorpusOptions,
@@ -130,7 +131,9 @@ export async function loadSearchCorpus(
       try {
         bytes += (await stat(file.fullPath)).size;
       } catch {
-        // unreadable/missing — loadDocument will record the error below.
+        // unreadable/missing — loadDocument will record the error below, but
+        // admission must still consume budget instead of allowing all raw/.
+        bytes += RAW_STAT_FAILURE_ADMISSION_BYTES;
       }
     }
     if (kept.length < rawTotal) rawTruncated = true;
