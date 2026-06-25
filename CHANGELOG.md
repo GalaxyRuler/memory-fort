@@ -4,6 +4,11 @@ All notable changes to Memory Fort are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.13] - 2026-06-25
+
+### Fixed
+- **Desktop app dashboard now starts (v0.10.12 packaged-app regression).** Moving the server to a utility process in 0.10.12 broke it in the packaged app — the service's entry was gated on `process.argv[1]`, but `utilityProcess.fork` doesn't put the script path in `process.argv`, so the service never ran and the app showed "MemoryFort failed to start". The entry is now gated on `process.parentPort` (the documented utility-process signal). Startup failures are also written to `<memoryRoot>/logs/dashboard-service.log` (utility-process stderr isn't captured by the parent), so any future startup failure is diagnosable.
+
 ## [0.10.12] - 2026-06-25
 
 ### Changed
