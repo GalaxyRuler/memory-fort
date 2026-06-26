@@ -4,6 +4,12 @@ All notable changes to Memory Fort are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.15] - 2026-06-26
+
+### Changed
+- **Electron upgraded from 35 (EOL) to 42.5.0.** Electron 35 reached end-of-life 2025-09-02; the app now runs on Electron 42 (supported through 2026-10-20). No user-visible behavior changes — the upgrade is a runtime security and stability fix.
+- **electron-builder upgraded to 26.15.5** and `@electron/rebuild` 4.0.4 added (prepares the installer pipeline for the upcoming SQLite search index which requires native modules).
+
 ## [0.10.14] - 2026-06-25
 
 ### Fixed
