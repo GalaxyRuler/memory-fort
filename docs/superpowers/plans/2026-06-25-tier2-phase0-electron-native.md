@@ -24,12 +24,19 @@
 
 ### Task 0.0.1: win-arm64 sqlite-vec load + KNN spike (CI, no app)
 
+> **✅ COMPLETE — GO (2026-06-26). CI run #28221618101 on `windows-11-arm` runner (Node 22.23.0, win32/arm64).**
+> - Official binary: FAILED (no win-arm64 prebuilt — as expected; issues #211/#73).
+> - From-source MSVC cl.exe direct: FAILED (no cl.exe in PATH on runner).
+> - **From-source MSVC vcvarsall + cl.exe: SUCCESS** — `vec0.dll` built from `sqlite-vec.c` amalgamation, loaded, FTS5 PASS, KNN PASS.
+> - Load path: `from-source-msvc`. Evidence artifact: run 28221618101 / artifact 7898781613 (expires 2026-09-24).
+> - **Phase 0a is unblocked.** Win-arm64 mitigation: build `vec0.dll` via `vcvarsall + cl.exe` on `windows-11-arm` CI runner.
+
 **Files:** `.github/workflows/preflight-winarm64-vec.yml`, `scripts/preflight-vec.mjs`.
 
-- [ ] Workflow on `runs-on: windows-11-arm`; install pinned `better-sqlite3` + `sqlite-vec`; run `scripts/preflight-vec.mjs`: log `process.platform/arch/versions.node`; open better-sqlite3; resolve + `loadExtension` the sqlite-vec binary; `CREATE VIRTUAL TABLE v USING vec0(embedding float[3])`; insert 2 vectors; KNN-query nearest; assert correct rowid.
-- [ ] **If the official npm package has no win-arm64 binary (expected):** in the same runner, build `vec0.dll` from the sqlite-vec C amalgamation (`sqlite-vec.c` — single file, no deps; mind the `__popcnt64` win-arm64 intrinsic, issue #73 workaround), then `loadExtension(builtDll)` and re-run the KNN assertion.
-- [ ] **Acceptance (THE PHASE-0 GO/NO-GO):** win-arm64 sqlite-vec KNN works via **official binary OR a from-source `vec0.dll`**, plus better-sqlite3 FTS5 on win-arm64. Record the winning path + the exact binary provenance in `docs/release-evidence/phase0.0-winarm64-<date>.md`.
-- [ ] **If neither works:** STOP Phase 0. Revise the vector decision in the roadmap (alternate ext, defer vectors to lexical-only ship, or drop win-arm64 — a constraint change needing the owner) **before** spending effort on the Electron migration.
+- [x] Workflow on `runs-on: windows-11-arm`; install pinned `better-sqlite3` + `sqlite-vec`; run `scripts/preflight-vec.mjs`: log `process.platform/arch/versions.node`; open better-sqlite3; resolve + `loadExtension` the sqlite-vec binary; `CREATE VIRTUAL TABLE v USING vec0(embedding float[3])`; insert 2 vectors; KNN-query nearest; assert correct rowid.
+- [x] **If the official npm package has no win-arm64 binary (expected):** in the same runner, build `vec0.dll` from the sqlite-vec C amalgamation (`sqlite-vec.c` — single file, no deps; mind the `__popcnt64` win-arm64 intrinsic, issue #73 workaround), then `loadExtension(builtDll)` and re-run the KNN assertion.
+- [x] **Acceptance (THE PHASE-0 GO/NO-GO):** win-arm64 sqlite-vec KNN works via **official binary OR a from-source `vec0.dll`**, plus better-sqlite3 FTS5 on win-arm64. Record the winning path + the exact binary provenance in `docs/release-evidence/phase0.0-winarm64-<date>.md`.
+- [x] **If neither works:** N/A — GO.
 
 ---
 
