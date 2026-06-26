@@ -1,0 +1,42 @@
+name: Preflight - Windows ARM64 sqlite-vec
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "scripts/preflight-vec.mjs"
+      - ".github/workflows/preflight-winarm64-vec.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    name: win-arm64 sqlite-vec probe
+    runs-on: windows-11-arm
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install better-sqlite3 + sqlite-vec
+        id: npm_install
+        run: npm install --no-save better-sqlite3 sqlite-vec
+        continue-on-error: true
+
+      - name: Run win-arm64 preflight probe
+        run: node scripts/preflight-vec.mjs
+        env:
+          PROBE_RESULT_DIR: docs/release-evidence
+          PROBE_RUNNER_LABEL: windows-11-arm
+
+      - name: Upload evidence
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: phase0.0-winarm64-evidence
+          path: docs/release-evidence/phase0.0-winarm64-*.md
