@@ -4,6 +4,8 @@ import {
   createDashboardServiceSupervisor,
   type DashboardServiceSupervisor,
   type DashboardServiceChild,
+  type DashboardServiceMainRuntimeEnv,
+  type DashboardServiceRuntimeEnv,
 } from "../src/dashboard/dashboard-service-supervisor.js";
 
 // main heap is ~4GB-capped; dashboard server work runs in a utility process.
@@ -22,11 +24,15 @@ async function createWindow(): Promise<void> {
   const appPath = app.getAppPath();
   const dashboardDistRoot = join(appPath, "dist", "dashboard-ui");
   const dashboardServicePath = join(appPath, "dist", "dashboard", "dashboard-service.mjs");
+  const runtimeEnv = createMainRuntimeEnv(appPath, dashboardServicePath);
+  console.info(`[memory-fort runtime main] ${JSON.stringify(runtimeEnv)}`);
   dashboardSupervisor = createDashboardServiceSupervisor({
     servicePath: dashboardServicePath,
     vaultRoot: process.env["MEMORY_ROOT"] ?? join(app.getPath("home"), ".memory"),
     dashboardDistRoot,
     fork: (servicePath) => utilityProcess.fork(servicePath) as unknown as DashboardServiceChild,
+    runtimeEnv,
+    onRuntimeEnv: logUtilityRuntimeEnv,
     onReady: (ready) => {
       if (mainWindow && !mainWindow.isDestroyed()) {
         void mainWindow.loadURL(ready.url);
@@ -117,6 +123,23 @@ function escapeHtml(value: string): string {
     .replaceAll(">", "&gt;")
     .replaceAll("\"", "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+function createMainRuntimeEnv(appPath: string, servicePath: string): DashboardServiceMainRuntimeEnv {
+  return {
+    electron: process.versions.electron ?? null,
+    node: process.versions.node,
+    modules: process.versions.modules,
+    platform: process.platform,
+    arch: process.arch,
+    appPath,
+    servicePath,
+    parentPid: process.pid,
+  };
+}
+
+function logUtilityRuntimeEnv(env: DashboardServiceRuntimeEnv): void {
+  console.info(`[memory-fort runtime utility] ${JSON.stringify(env)}`);
 }
 
 // Surface the existing window when the user launches a second instance

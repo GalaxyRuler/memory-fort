@@ -3,7 +3,23 @@ export interface DashboardServiceReady {
   port: number;
 }
 
+export interface DashboardServiceMainRuntimeEnv {
+  electron: string | null;
+  node: string;
+  modules: string;
+  platform: NodeJS.Platform;
+  arch: string;
+  appPath: string;
+  servicePath: string;
+  parentPid: number;
+}
+
+export interface DashboardServiceRuntimeEnv extends DashboardServiceMainRuntimeEnv {
+  utilityChildPid: number | null;
+}
+
 export interface DashboardServiceChild {
+  readonly pid?: number;
   postMessage(message: unknown): void;
   kill(): void;
   once(event: "message", listener: (message: unknown) => void): unknown;
@@ -18,6 +34,8 @@ export interface DashboardServiceSupervisorOptions {
   setTimeout?: (handler: () => void, ms: number) => unknown;
   clearTimeout?: (handle: unknown) => void;
   onReady?: (ready: DashboardServiceReady) => void;
+  onRuntimeEnv?: (env: DashboardServiceRuntimeEnv) => void;
+  runtimeEnv?: DashboardServiceMainRuntimeEnv;
   maxRestarts?: number;
   initialBackoffMs?: number;
   maxBackoffMs?: number;
@@ -48,9 +66,17 @@ export function createDashboardServiceSupervisor(
   function forkService(): void {
     child = opts.fork(opts.servicePath);
     const current = child;
+    const runtimeEnv = opts.runtimeEnv
+      ? {
+        ...opts.runtimeEnv,
+        utilityChildPid: typeof current.pid === "number" ? current.pid : null,
+      }
+      : undefined;
+    if (runtimeEnv) opts.onRuntimeEnv?.(runtimeEnv);
     current.postMessage({
       vaultRoot: opts.vaultRoot,
       dashboardDistRoot: opts.dashboardDistRoot,
+      ...(runtimeEnv ? { runtimeEnv } : {}),
     });
 
     current.once("exit", () => {

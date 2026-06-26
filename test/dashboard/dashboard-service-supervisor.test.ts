@@ -4,6 +4,7 @@ import { createDashboardServiceSupervisor } from "../../src/dashboard/dashboard-
 
 class FakeChild extends EventEmitter {
   readonly sent: unknown[] = [];
+  readonly pid = 1234;
   killed = false;
 
   postMessage(message: unknown): void {
@@ -203,5 +204,50 @@ describe("dashboard service supervisor", () => {
     }
 
     expect(children).toHaveLength(5);
+  });
+
+  it("passes runtime environment details to the forked service", () => {
+    const runtimeEvents: unknown[] = [];
+    const children: FakeChild[] = [];
+    const supervisor = createDashboardServiceSupervisor({
+      servicePath: "C:/app/dist/dashboard/dashboard-service.mjs",
+      vaultRoot: "C:/vault",
+      dashboardDistRoot: "C:/app/dist/dashboard-ui",
+      fork: () => {
+        const child = new FakeChild();
+        children.push(child);
+        return child;
+      },
+      runtimeEnv: {
+        electron: "42.5.0",
+        node: "24.18.0",
+        modules: "140",
+        platform: "win32",
+        arch: "x64",
+        appPath: "C:/app",
+        servicePath: "C:/app/dist/dashboard/dashboard-service.mjs",
+        parentPid: 99,
+      },
+      onRuntimeEnv: (env) => runtimeEvents.push(env),
+    });
+
+    void supervisor.start();
+
+    expect(runtimeEvents).toEqual([{
+      electron: "42.5.0",
+      node: "24.18.0",
+      modules: "140",
+      platform: "win32",
+      arch: "x64",
+      appPath: "C:/app",
+      servicePath: "C:/app/dist/dashboard/dashboard-service.mjs",
+      parentPid: 99,
+      utilityChildPid: 1234,
+    }]);
+    expect(children[0].sent).toEqual([{
+      vaultRoot: "C:/vault",
+      dashboardDistRoot: "C:/app/dist/dashboard-ui",
+      runtimeEnv: runtimeEvents[0],
+    }]);
   });
 });

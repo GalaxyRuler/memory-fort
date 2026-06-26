@@ -2,10 +2,12 @@ import { appendFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { runDashboard, type DashboardOptions, type DashboardRun } from "../cli/commands/dashboard.js";
+import type { DashboardServiceRuntimeEnv } from "./dashboard-service-supervisor.js";
 
 export interface DashboardServiceInit {
   vaultRoot: string;
   dashboardDistRoot: string;
+  runtimeEnv?: DashboardServiceRuntimeEnv;
 }
 
 export interface DashboardServiceReady {
@@ -39,6 +41,7 @@ export function startDashboardService(opts: DashboardServiceOptions): Promise<Da
 
   async function start(init: DashboardServiceInit): Promise<DashboardServiceReady> {
     try {
+      await appendDashboardServiceRuntimeLog(init);
       dashboard = await runDashboardImpl({
         noOpen: true,
         vaultRoot: init.vaultRoot,
@@ -107,12 +110,33 @@ function unwrapParentPortMessage(message: unknown): unknown {
 }
 
 async function appendDashboardServiceLog(vaultRoot: string | undefined, error: unknown): Promise<void> {
+  await appendDashboardServiceLogLine(vaultRoot, formatErrorForLog(error));
+}
+
+async function appendDashboardServiceRuntimeLog(init: DashboardServiceInit): Promise<void> {
+  await appendDashboardServiceLogLine(init.vaultRoot, `runtime ${JSON.stringify({
+    main: init.runtimeEnv ?? null,
+    child: {
+      electron: process.versions.electron ?? null,
+      node: process.versions.node,
+      modules: process.versions.modules,
+      platform: process.platform,
+      arch: process.arch,
+      childPid: process.pid,
+      parentPid: process.ppid,
+      serviceEntryPath: process.argv[1] ?? null,
+      parentPortPresent: Boolean(process.parentPort),
+    },
+  })}`);
+}
+
+async function appendDashboardServiceLogLine(vaultRoot: string | undefined, line: string): Promise<void> {
   try {
     const logPath = vaultRoot
       ? join(vaultRoot, "logs", "dashboard-service.log")
       : join(tmpdir(), "dashboard-service.log");
     await mkdir(dirname(logPath), { recursive: true });
-    await appendFile(logPath, `[${new Date().toISOString()}] ${formatErrorForLog(error)}\n`, "utf8");
+    await appendFile(logPath, `[${new Date().toISOString()}] ${line}\n`, "utf8");
   } catch {
     // Best-effort diagnostic logging must not change service behavior.
   }

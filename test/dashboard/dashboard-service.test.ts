@@ -1,4 +1,7 @@
 import { EventEmitter } from "node:events";
+import { mkdtemp, readFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { startDashboardService } from "../../src/dashboard/dashboard-service.js";
 import type { DashboardRun } from "../../src/cli/commands/dashboard.js";
@@ -108,5 +111,52 @@ describe("dashboard service entry", () => {
 
     expect(closeCalls).toBe(1);
     expect(exitCodes).toEqual([0]);
+  });
+
+  it("logs the main and child runtime environment before serving", async () => {
+    const vaultRoot = await mkdtemp(join(tmpdir(), "dashboard-service-runtime-"));
+    const parentPort = new FakeParentPort();
+    const ready = startDashboardService({
+      parentPort,
+      runDashboardImpl: async () => ({
+        url: "http://127.0.0.1:4410/memory/",
+        host: "127.0.0.1",
+        port: 4410,
+        close: async () => undefined,
+      }),
+      exit: () => undefined,
+    });
+
+    parentPort.emit("message", {
+      vaultRoot,
+      dashboardDistRoot: "C:/app/dist/dashboard-ui",
+      runtimeEnv: {
+        electron: "42.5.0",
+        node: "24.18.0",
+        modules: "140",
+        platform: "win32",
+        arch: "x64",
+        appPath: "C:/app",
+        servicePath: "C:/app/dist/dashboard/dashboard-service.mjs",
+        parentPid: 99,
+        utilityChildPid: 1234,
+      },
+    });
+
+    await ready;
+
+    const log = await readFile(join(vaultRoot, "logs", "dashboard-service.log"), "utf8");
+    expect(log).toContain("\"appPath\":\"C:/app\"");
+    expect(log).toContain("\"servicePath\":\"C:/app/dist/dashboard/dashboard-service.mjs\"");
+    expect(log).toContain("\"utilityChildPid\":1234");
+    expect(log).toContain("\"parentPid\":99");
+    expect(log).toContain("\"childPid\":");
+    expect(log).toContain("\"serviceEntryPath\":");
+    expect(log).toContain("\"parentPortPresent\":");
+    expect(log).toContain("\"electron\":");
+    expect(log).toContain("\"node\":");
+    expect(log).toContain("\"modules\":");
+    expect(log).toContain("\"platform\":");
+    expect(log).toContain("\"arch\":");
   });
 });
