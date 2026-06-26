@@ -5,8 +5,16 @@ copyright: Copyright © 2026 Memory Fort
 directories:
   output: dist/electron-installer
 
-# Only ship what the Electron main needs: compiled main + SPA assets + icon.
-# tsdown bundles all Node deps into electron-main.mjs — no node_modules required.
+# Only ship what the Electron main needs today: compiled main + utility entries
+# + SPA assets + icon. Tier-2 native modules stay external to tsdown and load
+# from app.getAppPath()-relative node_modules paths under asar:false:
+#   Windows: resources/app/node_modules/better-sqlite3/build/Release/better_sqlite3.node
+#   macOS:   Contents/Resources/app/node_modules/better-sqlite3/build/Release/better_sqlite3.node
+#   Linux:   resources/app/node_modules/better-sqlite3/build/Release/better_sqlite3.node
+# sqlite-vec follows the platform package under
+# resources/app/node_modules/sqlite-vec-<platform>-<arch>/ or macOS
+# Contents/Resources/app/node_modules/sqlite-vec-<platform>-<arch>/.
+# Windows arm64 uses the Phase 0.0 vcvarsall-built vec0.dll path once vendored.
 files:
   - dist/electron-main.mjs
   # Self-contained worker bundles the dashboard schedulers + /api/health verify
@@ -18,8 +26,17 @@ files:
   - dist/dashboard/verify-worker.mjs
   - dist/dashboard-ui/**
   - assets/memory_fort_icon_512.png
+  # Phase 0a native-packaging design: these packages are intentionally
+  # externalized in tsdown.config.js and copied into the unpacked app root when
+  # Phase 0b adds the actual runtime dependencies.
+  - node_modules/better-sqlite3/**
+  - node_modules/bindings/**
+  - node_modules/file-uri-to-path/**
+  - node_modules/sqlite-vec/**
+  - node_modules/sqlite-vec-*/**
 
 # Disable asar so the Node HTTP server can serve dashboard-ui files normally
+# and native binaries can be loaded directly from app.getAppPath().
 asar: false
 
 # Publish built artifacts to GitHub Releases (used by the release workflow)

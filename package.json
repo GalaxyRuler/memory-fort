@@ -25,7 +25,8 @@
     "prepublishOnly": "npm run scan:leaks && npm run build",
     "memory": "node dist/cli.mjs",
     "electron:dev": "npm run build && electron .",
-    "electron:build": "npm run build && electron-builder build --win"
+    "electron:rebuild": "electron-rebuild -f",
+    "electron:build": "npm run build && npm run electron:rebuild && electron-builder build --win"
   },
   "engines": {
     "node": ">=22"
@@ -82,6 +83,7 @@
     "voyageai": "~0.2.1"
   },
   "devDependencies": {
+    "@electron/rebuild": "4.0.4",
     "@tailwindcss/typography": "^0.5.19",
     "@tanstack/router-plugin": "^1.168.11",
     "@testing-library/dom": "^10.4.1",
@@ -95,8 +97,8 @@
     "@types/three": "^0.184.1",
     "@vitejs/plugin-react": "^4.7.0",
     "autoprefixer": "^10.5.0",
-    "electron": "^35.7.5",
-    "electron-builder": "^25.1.8",
+    "electron": "42.5.0",
+    "electron-builder": "26.15.5",
     "jsdom": "^25.0.1",
     "postcss": "^8.5.15",
     "sharp": "^0.34.5",

@@ -15,6 +15,18 @@ try {
 
 const pkg = JSON.parse(readFileSync(new URL("package.json", import.meta.url), "utf-8"));
 
+const nativeRuntimeExternals = [
+  "better-sqlite3",
+  "bindings",
+  "file-uri-to-path",
+  "sqlite-vec",
+  /^sqlite-vec-.+$/,
+];
+
+const commonDeps = {
+  neverBundle: nativeRuntimeExternals,
+};
+
 const common = {
   format: "esm",
   platform: "node",
@@ -26,6 +38,7 @@ const common = {
     __MEMORY_BUILD_COMMIT__: JSON.stringify(commit),
     __MEMORY_BUILD_VERSION__: JSON.stringify(pkg.version),
   },
+  deps: commonDeps,
 };
 
 const serverClean = [
@@ -199,19 +212,19 @@ export default defineConfig([
     entry: { "hooks/mcp-server": "src/mcp/server.ts" },
     clean: false,
     dts: false,
-    deps: { onlyBundle: ["zod"] },
+    deps: { ...commonDeps, onlyBundle: ["zod"] },
   },
   {
     ...common,
     entry: { "mcp/http-bridge": "src/mcp/http-bridge.ts" },
     clean: false,
     dts: false,
-    deps: { onlyBundle: ["zod"] },
+    deps: { ...commonDeps, onlyBundle: ["zod"] },
   },
   {
     ...common,
     entry: { "electron-main": "electron/main.ts" },
-    deps: { neverBundle: ["electron"] },
+    deps: { neverBundle: ["electron", ...nativeRuntimeExternals] },
     dts: false,
     clean: false,
   },
