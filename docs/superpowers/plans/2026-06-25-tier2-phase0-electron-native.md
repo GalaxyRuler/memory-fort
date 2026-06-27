@@ -42,34 +42,37 @@
 
 ## Phase 0a — Electron 35 → 42 upgrade, internal baseline (NOT a public release)
 
+> **✅ COMPLETE — shipped as v0.10.15 (2026-06-27).** All four installers built green (CI run 28275398715, win x64+arm64 / mac arm64 / linux AppImage). Windows packaged smoke green with runtime-env logged: installed app runs **Electron 42.5.0 / Node 24.17.0 / modules 146**, child is a genuine `utilityProcess` (`parentPortPresent: true`, childPid owns `:4410`), `/api/health` HTTP 200. Installed binary upgraded to 0.10.15 (exe ProductVersion + registry DisplayVersion). Evidence: `docs/release-evidence/phase0a-packaged-smoke-2026-06-27.md`.
+> **Publish deviation (called out):** plan said 0a = internal RC; **published as `latest`** under the plan's own **security-driven Electron-only ship** exception — Electron 35 is EOL since 2025-09-02. 0b still gates Phase 3.
+
 **Architecture:** pin Electron 42.x + electron-builder 26.x, design native-dep packaging up front, fix main-process API breakage 36→42, keep the v0.10.14 utilityProcess architecture identical, build all four installers, prove the **existing** app still works packaged — as an **internal RC / CI checkpoint**, not a user release.
 
 ### Task 0a.1: pin versions + native-dep packaging design
 
 **Files:** `package.json`, `electron-builder.yml`, `tsdown.config.js`, `.github/workflows/release.yml`.
 
-- [ ] **Verify-first:** read electron-builder 26 breaking-changes vs 25; confirm Electron 42 + our four targets supported. Record inline.
-- [ ] Pin (exact, not caret): `electron 42.5.0`, `electron-builder 26.15.5`; add `@electron/rebuild` (4.x). (Use the latest 42.x/26.x patch at implementation time.)
-- [ ] **Native-dep packaging design (do this NOW, not after 0b):** decide how `better_sqlite3.node` + the sqlite-vec ext binary reach the installed runtime path the utilityProcess loads from. Mark native deps **external** in tsdown (don't let the bundler rewrite `bindings`/`require`); add them + their binaries to electron-builder `files`; resolve at runtime via `app.getAppPath()`-relative paths (asar:false). Document the exact installed path per platform.
-- [ ] **Acceptance:** `npx electron --version` → 42.5.x; `electron-builder --version` → 26.15.x; written native-packaging path map. Commit: `build(deps): pin electron 42 + electron-builder 26, add @electron/rebuild`.
+- [x] **Verify-first:** read electron-builder 26 breaking-changes vs 25; confirm Electron 42 + our four targets supported. Record inline.
+- [x] Pin (exact, not caret): `electron 42.5.0`, `electron-builder 26.15.5`; add `@electron/rebuild` (4.x). (Use the latest 42.x/26.x patch at implementation time.)
+- [x] **Native-dep packaging design (do this NOW, not after 0b):** decide how `better_sqlite3.node` + the sqlite-vec ext binary reach the installed runtime path the utilityProcess loads from. Mark native deps **external** in tsdown (don't let the bundler rewrite `bindings`/`require`); add them + their binaries to electron-builder `files`; resolve at runtime via `app.getAppPath()`-relative paths (asar:false). Document the exact installed path per platform.
+- [x] **Acceptance:** runtime-confirmed `electron 42.5.0` (smoke log), `electron-builder --version` → 26.15.5; native-packaging path map in `docs/release-evidence/phase0a-native-packaging-design-2026-06-26.md`. Commit: `build(deps): pin electron 42 + electron-builder 26, add @electron/rebuild`. (CI `electron --version` dropped — Electron binary aborts on Linux runners, SUID sandbox; the version `test`s cover it.)
 
 ### Task 0a.2: fix main-process API breakage (35→42) + runtime-env logging
 
 **Files:** `electron/main.ts`, `src/dashboard/dashboard-service.ts`, `dashboard-service-supervisor.ts`, `electron/*`.
 
-- [ ] **Verify-first:** check Electron 36–42 breaking-changes for APIs the app uses (`utilityProcess.fork` opts, `app.*`, `BrowserWindow` opts, `protocol.*`, notifications/signing). Fix minimally; keep fork + supervisor + second-instance behavior identical.
-- [ ] **Add runtime-env logging** to the packaged smoke (so 0a actually proves the child runtime, not just "health ok"): log `process.versions.{electron,node,modules}`, `process.platform`, `process.arch`, `app.getAppPath()`, utility child PID, parent PID, service entry path, and whether `process.parentPort` exists.
-- [ ] **Test:** `npx tsc --noEmit` + `npx tsc -p tsconfig.ui.json --noEmit` (both — UI typecheck gap is real); `npx vitest run`.
-- [ ] **Acceptance:** typecheck (both) + tests green. Commit: `fix(electron): adapt main/utilityProcess to Electron 42`.
+- [x] **Verify-first:** check Electron 36–42 breaking-changes for APIs the app uses (`utilityProcess.fork` opts, `app.*`, `BrowserWindow` opts, `protocol.*`, notifications/signing). Fix minimally; keep fork + supervisor + second-instance behavior identical.
+- [x] **Add runtime-env logging** to the packaged smoke (so 0a actually proves the child runtime, not just "health ok"): log `process.versions.{electron,node,modules}`, `process.platform`, `process.arch`, `app.getAppPath()`, utility child PID, parent PID, service entry path, and whether `process.parentPort` exists. → confirmed in installed-app log (Electron 42.5.0 / Node 24.17.0 / modules 146 / parentPortPresent true).
+- [x] **Test:** `npx tsc --noEmit` + `npx tsc -p tsconfig.ui.json --noEmit` (both — UI typecheck gap is real); `npx vitest run`.
+- [x] **Acceptance:** typecheck (both) + tests green. Commit: `fix(electron): adapt main/utilityProcess to Electron 42`.
 
 ### Task 0a.3: build 4 installers + packaged smoke (existing app) — internal RC
 
 **Files:** none (build + verify); evidence → `docs/release-evidence/`.
 
-- [ ] `npm run build`; assert each shipped entry still self-contained (`grep -cE 'from "\.\.?/' dist/<entry>.mjs` == 0 for electron-main + the three dashboard workers; guard test green).
-- [ ] Build win x64, **win arm64**, mac arm64, linux AppImage (CI matrix unchanged — mac arm64 only, no .deb).
-- [ ] **Packaged smoke (by output):** install (kill app first; assert `MemoryFort.exe` exists, not just registry), launch; confirm window surfaces, `:4410` owner is a child `--type=utility` process of main, `/api/health` real, version correct, **+ the runtime-env log from 0a.2**. Record in `docs/release-evidence/phase0a-<date>.md`.
-- [ ] **Acceptance:** four installers build; Windows packaged smoke green with runtime-env logged. **Tag as an internal pre-release / RC — DO NOT publish to users yet** (public release is one combined release after 0b). Exception: a security-driven Electron-only ship, called out explicitly.
+- [x] `npm run build`; assert each shipped entry still self-contained (`grep -cE 'from "\.\.?/' dist/<entry>.mjs` == 0 for electron-main + the three dashboard workers; guard test green).
+- [x] Build win x64, **win arm64**, mac arm64, linux AppImage (CI matrix unchanged — mac arm64 only, no .deb). → CI run 28275398715, all 3 jobs green; 11 release assets complete.
+- [x] **Packaged smoke (by output):** install (kill app first; assert `MemoryFort.exe` exists, not just registry), launch; confirm window surfaces, `:4410` owner is a child `--type=utility` process of main, `/api/health` real, version correct, **+ the runtime-env log from 0a.2**. Record in `docs/release-evidence/phase0a-<date>.md`. → `docs/release-evidence/phase0a-packaged-smoke-2026-06-27.md`.
+- [x] **Acceptance:** four installers build; Windows packaged smoke green with runtime-env logged. ~~Tag as internal RC — do not publish~~ → **published as v0.10.15 `latest`** under the security-driven Electron-only ship exception (Electron 35 EOL 2025-09-02). 0b still gates Phase 3.
 
 ---
 
