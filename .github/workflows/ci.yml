@@ -24,7 +24,10 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm ci
+        # npm install (not npm ci): a Windows-generated package-lock.json prunes
+        # electron-builder's cross-platform optional deps, so npm ci fails on the
+        # Linux runner. Matches release.yml. See electron-builder-lockfile note.
+        run: npm install
 
       - name: Typecheck
         run: npm run typecheck

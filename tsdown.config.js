@@ -226,6 +226,9 @@ export default defineConfig([
     entry: { "electron-main": "electron/main.ts" },
     deps: { neverBundle: ["electron", ...nativeRuntimeExternals] },
     dts: false,
+    outputOptions: {
+      codeSplitting: false,
+    },
     clean: false,
   },
 ]);

@@ -32,7 +32,7 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm ci
+        run: npm install
 
       - name: Build
         run: npm run build
@@ -214,7 +214,7 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm ci
+        run: npm install
 
       - name: Build
         run: npm run build
@@ -350,4 +350,123 @@ jobs:
             if (-not $process.HasExited) {
               Stop-Process -Id $process.Id -Force
             }
+          }
+
+  electron-native-capability:
+    name: Electron native capability (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - macos-latest
+          - windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build
+        run: npm run build
+
+      - name: Rebuild native modules for Electron ABI
+        run: npm run electron:rebuild
+
+      # Electron needs a display + system libs on Linux; runners ship them but
+      # xvfb provides the virtual display and --no-sandbox avoids the SUID
+      # sandbox requirement in CI.
+      - name: Install Electron Linux deps
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb libgbm1 libnss3 libatk-bridge2.0-0 libgtk-3-0 libasound2t64
+
+      # Keep the launch resilient to occasional partial Electron extraction,
+      # but this capability gate must fail if no Electron binary is available.
+      - name: Ensure Electron binary
+        shell: bash
+        run: |
+          for i in 1 2 3; do
+            if node -e "require('node:fs').accessSync(require('electron'))" 2>/dev/null; then
+              echo "electron binary present"
+              exit 0
+            fi
+            echo "electron binary missing — reinstall attempt $i"
+            node node_modules/electron/install.js || true
+          done
+          echo "::error::Electron binary unavailable after retries; cannot run native capability gate"
+          exit 1
+
+      - name: Electron FTS5 capability gate (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set +e
+          MEMORY_CAP_TEST=1 xvfb-run -a npx electron . --no-sandbox > "${RUNNER_TEMP}/electron-capability.log" 2>&1
+          code=$?
+          set -e
+          cat "${RUNNER_TEMP}/electron-capability.log"
+          if [ "$code" -ne 0 ]; then
+            exit "$code"
+          fi
+          grep -F "[cap-test] electron=" "${RUNNER_TEMP}/electron-capability.log"
+          grep -F "[cap-test] CAP_FTS5 ok" "${RUNNER_TEMP}/electron-capability.log"
+
+      - name: Electron FTS5 capability gate (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set +e
+          MEMORY_CAP_TEST=1 npx electron . > "${RUNNER_TEMP}/electron-capability.log" 2>&1
+          code=$?
+          set -e
+          cat "${RUNNER_TEMP}/electron-capability.log"
+          if [ "$code" -ne 0 ]; then
+            exit "$code"
+          fi
+          grep -F "[cap-test] electron=" "${RUNNER_TEMP}/electron-capability.log"
+          grep -F "[cap-test] CAP_FTS5 ok" "${RUNNER_TEMP}/electron-capability.log"
+
+      - name: Electron FTS5 capability gate (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $env:MEMORY_CAP_TEST = "1"
+          $log = Join-Path $env:RUNNER_TEMP "electron-capability.log"
+          $err = Join-Path $env:RUNNER_TEMP "electron-capability.err.log"
+          $electron = Join-Path $PWD "node_modules\electron\dist\electron.exe"
+          $process = Start-Process `
+            -FilePath $electron `
+            -ArgumentList @(".") `
+            -WorkingDirectory $PWD `
+            -RedirectStandardOutput $log `
+            -RedirectStandardError $err `
+            -WindowStyle Hidden `
+            -Wait `
+            -PassThru
+
+          Get-Content -Path $log -ErrorAction SilentlyContinue
+          Get-Content -Path $err -ErrorAction SilentlyContinue
+          if ($process.ExitCode -ne 0) {
+            exit $process.ExitCode
+          }
+
+          $stdout = Get-Content -Path $log -Raw
+          if (-not $stdout.Contains("[cap-test] electron=")) {
+            throw "missing Electron runtime metadata log"
+          }
+          if (-not $stdout.Contains("[cap-test] CAP_FTS5 ok")) {
+            throw "missing CAP_FTS5 ok log"
           }

@@ -11,7 +11,8 @@ import {
 // main heap is ~4GB-capped; dashboard server work runs in a utility process.
 
 // Prevent two MemoryFort windows competing on port 4410
-const gotLock = app.requestSingleInstanceLock();
+const isCapabilityTest = process.env["MEMORY_CAP_TEST"] === "1";
+const gotLock = isCapabilityTest || app.requestSingleInstanceLock();
 if (!gotLock) {
   app.quit();
   process.exit(0);
@@ -142,6 +143,31 @@ function logUtilityRuntimeEnv(env: DashboardServiceRuntimeEnv): void {
   console.info(`[memory-fort runtime utility] ${JSON.stringify(env)}`);
 }
 
+async function runCapabilityTest(): Promise<void> {
+  console.info(
+    `[cap-test] electron=${process.versions.electron ?? "unknown"} node=${process.versions.node} modules=${
+      process.versions.modules
+    } arch=${process.arch}`
+  );
+
+  const { assertFts5, closeCapabilityDb, openCapabilityDb } = await import("../src/index/native/capability.js");
+  const db = openCapabilityDb(":memory:");
+  try {
+    assertFts5(db);
+  } finally {
+    closeCapabilityDb(db);
+  }
+
+  console.info("[cap-test] CAP_FTS5 ok");
+}
+
+function formatErrorForLog(error: unknown): string {
+  if (error instanceof Error) {
+    return error.stack ?? `${error.name}: ${error.message}`;
+  }
+  return String(error);
+}
+
 // Surface the existing window when the user launches a second instance
 // (e.g. clicking the Start-menu shortcut while the app is already running,
 // as it is right after the installer's runAfterFinish auto-launch). A plain
@@ -159,7 +185,25 @@ app.on("second-instance", () => {
   }
 });
 
-app.whenReady().then(createWindow).catch(console.error);
+app
+  .whenReady()
+  .then(async () => {
+    if (isCapabilityTest) {
+      try {
+        await runCapabilityTest();
+        app.exit(0);
+      } catch (error) {
+        console.error(`[cap-test] CAP_FTS5 FAIL ${formatErrorForLog(error)}`);
+        app.exit(1);
+      }
+      return;
+    }
+    await createWindow();
+  })
+  .catch((error) => {
+    console.error(error);
+    app.exit(1);
+  });
 
 app.on("before-quit", () => {
   dashboardSupervisor?.stop();
