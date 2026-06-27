@@ -92,11 +92,13 @@
 
 ### Task 0b.2: sqlite-vec into the bootstrap, Electron-runtime KNN gate
 
+> **✅ COMPLETE — merged to main (2026-06-27, commit ccf7415, PR #7).** `sqlite-vec` **0.1.9** pinned; `capability.ts` `resolveSqliteVecBinary` (npm `getLoadablePath()`; win-arm64 vendored chokepoint returns null → 0b.3 fills it) / `loadSqliteVec` / `assertVec0Knn`; typed steps `vec-resolve|vec-load|vec-knn`. `electron/main.ts` `MEMORY_CAP_TEST` runs FTS5 then sqlite-vec load + KNN; `smoke.yml` asserts `CAP_VEC_KNN ok`. **Claude audit:** tri-OS KNN gate green (macOS+Linux+**Windows-x64**); gate reproduced locally (modules=146, `CAP_FTS5 ok` + `CAP_VEC_KNN ok`); **mutation-proven** (remove `vec0.dll` → RED at `vec-resolve`, FTS5 still ok); native-vec dev test green; both typechecks 0; `electron-main.mjs` self-contained (sqlite-vec external). ⚠️ ubuntu full-suite CI flakes on `test/dashboard/server.test.ts` (604s suite-timeout under native-addon CPU load — **pre-existing on main since 0b.1, unrelated**: nothing links sqlite-vec to the dashboard, passes isolated 6s, real-dashboard smoke green). Follow-up task filed to fix the GH lane; authoritative full suite = VPS.
+
 **Files:** `src/index/native/capability.ts` (`resolveSqliteVecBinary`, `loadSqliteVec`, `assertVec0Knn`), `test/index/native-vec.test.ts`.
 
-- [ ] `resolveSqliteVecBinary()` → platform/arch-correct binary (incl. the **win-arm64 path proven in 0.0** — official or vendored `vec0.dll`); `loadSqliteVec(db)` = `db.loadExtension(path)`, typed error if missing (Phase 5 degrades to lexical).
-- [ ] vitest (dev) + **Electron-runtime gate**: vec0 table, insert, KNN nearest assertion.
-- [ ] **Acceptance:** KNN green under Electron runtime. Commit: `feat(index): sqlite-vec load + exact KNN in the bootstrap`.
+- [x] `resolveSqliteVecBinary()` → platform/arch-correct binary (npm `getLoadablePath()`; **win-arm64 vendored `vec0.dll` chokepoint left for 0b.3**); `loadSqliteVec(db)` = `db.loadExtension(path)`, typed error if missing (Phase 5 degrades to lexical).
+- [x] vitest (dev) + **Electron-runtime gate**: vec0 table, insert, KNN nearest assertion.
+- [x] **Acceptance:** KNN green under Electron runtime. Commit: `feat(index): sqlite-vec load + exact KNN in the bootstrap`.
 
 ### Task 0b.3: installed-app probe (all 4 targets) — the real gate
 
