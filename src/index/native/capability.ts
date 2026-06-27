@@ -1,10 +1,16 @@
 import { createRequire } from "node:module";
+import { existsSync } from "node:fs";
+import { isAbsolute } from "node:path";
 
 const require = createRequire(import.meta.url);
 const BetterSqlite3 = require("better-sqlite3") as BetterSqlite3Constructor;
+const sqliteVec = require("sqlite-vec") as SqliteVecModule;
 
 const FTS5_PROBE_TABLE = "capability_fts5_probe";
+const VEC_PROBE_TABLE = "capability_vec_probe";
 const EXPECTED_FIRST_TITLE = "expected electron fts5";
+const EXPECTED_NEAREST_ROWID = 1;
+const VEC_QUERY = JSON.stringify([1.0, 0.1, 0.0]);
 
 export type CapabilityStep =
   | "open"
@@ -13,6 +19,9 @@ export type CapabilityStep =
   | "fts5-seed"
   | "fts5-query"
   | "fts5-ranking"
+  | "vec-resolve"
+  | "vec-load"
+  | "vec-knn"
   | "close";
 
 export class CapabilityError extends Error {
@@ -32,6 +41,7 @@ export interface CapabilityDb {
 
 export interface CapabilitySqliteDatabase {
   exec(sql: string): void;
+  loadExtension(path: string, entrypoint?: string): void;
   pragma(sql: string, options?: { readonly simple?: boolean }): unknown;
   prepare<Params extends unknown[] = unknown[], Row = unknown>(
     sql: string
@@ -54,9 +64,18 @@ interface BetterSqlite3Constructor {
   new (path: string): CapabilitySqliteDatabase;
 }
 
+interface SqliteVecModule {
+  getLoadablePath(): string;
+}
+
 interface Fts5ProbeRow {
   readonly title: string;
   readonly rank: number;
+}
+
+interface VecKnnProbeRow {
+  readonly rowid: number | bigint;
+  readonly distance: number;
 }
 
 /** Open a better-sqlite3 DB at `path` (':memory:' or a file). WAL for file DBs. Typed throw on failure. */
@@ -144,8 +163,78 @@ export function assertFts5(db: CapabilityDb, options: Fts5ProbeOptions = {}): vo
       )}. Rows: ${rankedTitles}`
     );
   }
+}
 
-  // TODO(0b.2): resolveSqliteVecBinary / loadSqliteVec / assertVec0Knn.
+/**
+ * Resolve the platform/arch-correct sqlite-vec loadable extension.
+ *
+ * Keep this as the single chokepoint for Phase 0b.3's future win-arm64
+ * vendored vec0.dll path; official sqlite-vec npm packages do not ship one.
+ */
+export function resolveSqliteVecBinary(): string {
+  try {
+    const vendoredBinary = resolveVendoredSqliteVecBinary();
+    if (vendoredBinary) return validateSqliteVecBinaryPath(vendoredBinary);
+
+    return validateSqliteVecBinaryPath(sqliteVec.getLoadablePath());
+  } catch (error) {
+    throw new CapabilityError(
+      "vec-resolve",
+      `Failed to resolve sqlite-vec loadable extension for ${process.platform}-${process.arch}`,
+      error
+    );
+  }
+}
+
+/** Load sqlite-vec into an open better-sqlite3 database. */
+export function loadSqliteVec(db: CapabilityDb): void {
+  const binaryPath = resolveSqliteVecBinary();
+  try {
+    db.database.loadExtension(binaryPath);
+  } catch (error) {
+    throw new CapabilityError("vec-load", `Failed to load sqlite-vec extension at ${binaryPath}`, error);
+  }
+}
+
+/**
+ * Create a vec0 table, seed known vectors, and verify exact nearest-neighbour ordering.
+ * Throws CapabilityError when vec0 is unavailable or KNN semantics regress.
+ */
+export function assertVec0Knn(db: CapabilityDb): void {
+  try {
+    db.database.exec(`
+      DROP TABLE IF EXISTS temp.${VEC_PROBE_TABLE};
+      CREATE VIRTUAL TABLE temp.${VEC_PROBE_TABLE} USING vec0(embedding float[3]);
+    `);
+
+    const insert = db.database.prepare<[bigint, string]>(
+      `INSERT INTO temp.${VEC_PROBE_TABLE} (rowid, embedding) VALUES (?, ?)`
+    );
+    insert.run(1n, JSON.stringify([1.0, 0.0, 0.0]));
+    insert.run(2n, JSON.stringify([0.0, 1.0, 0.0]));
+
+    const row = db.database
+      .prepare<[string], VecKnnProbeRow>(`
+        SELECT rowid, distance
+        FROM temp.${VEC_PROBE_TABLE}
+        WHERE embedding MATCH ?
+        ORDER BY distance
+        LIMIT 1
+      `)
+      .get(VEC_QUERY);
+
+    if (!row) {
+      throw new Error(`sqlite-vec KNN query returned no rows for ${VEC_QUERY}`);
+    }
+
+    if (Number(row.rowid) !== EXPECTED_NEAREST_ROWID) {
+      throw new Error(
+        `sqlite-vec KNN returned rowid ${String(row.rowid)} first; expected ${EXPECTED_NEAREST_ROWID}`
+      );
+    }
+  } catch (error) {
+    throw new CapabilityError("vec-knn", "sqlite-vec exact KNN probe failed", error);
+  }
 }
 
 export function closeCapabilityDb(db: CapabilityDb): void {
@@ -154,4 +243,23 @@ export function closeCapabilityDb(db: CapabilityDb): void {
   } catch (error) {
     throw new CapabilityError("close", `Failed to close capability database at ${db.path}`, error);
   }
+}
+
+function resolveVendoredSqliteVecBinary(): string | null {
+  if (process.platform === "win32" && process.arch === "arm64") {
+    return null;
+  }
+  return null;
+}
+
+function validateSqliteVecBinaryPath(binaryPath: string): string {
+  if (!isAbsolute(binaryPath)) {
+    throw new Error(`sqlite-vec resolved a non-absolute loadable extension path: ${binaryPath}`);
+  }
+
+  if (!existsSync(binaryPath)) {
+    throw new Error(`sqlite-vec loadable extension does not exist: ${binaryPath}`);
+  }
+
+  return binaryPath;
 }

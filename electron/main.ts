@@ -150,22 +150,52 @@ async function runCapabilityTest(): Promise<void> {
     } arch=${process.arch}`
   );
 
-  const { assertFts5, closeCapabilityDb, openCapabilityDb } = await import("../src/index/native/capability.js");
-  const db = openCapabilityDb(":memory:");
+  const { assertFts5, assertVec0Knn, closeCapabilityDb, loadSqliteVec, openCapabilityDb } = await import(
+    "../src/index/native/capability.js"
+  );
+  let db: ReturnType<typeof openCapabilityDb>;
   try {
-    assertFts5(db);
+    db = openCapabilityDb(":memory:");
+  } catch (error) {
+    console.error(`[cap-test] CAP_FTS5 FAIL ${formatErrorForLog(error)}`);
+    throw error;
+  }
+
+  try {
+    runCapabilityProbe("CAP_FTS5", () => assertFts5(db));
+    runCapabilityProbe("CAP_VEC_KNN", () => {
+      loadSqliteVec(db);
+      assertVec0Knn(db);
+    });
   } finally {
     closeCapabilityDb(db);
   }
+}
 
-  console.info("[cap-test] CAP_FTS5 ok");
+function runCapabilityProbe(label: "CAP_FTS5" | "CAP_VEC_KNN", probe: () => void): void {
+  try {
+    probe();
+  } catch (error) {
+    console.error(`[cap-test] ${label} FAIL ${formatErrorForLog(error)}`);
+    throw error;
+  }
+
+  console.info(`[cap-test] ${label} ok`);
 }
 
 function formatErrorForLog(error: unknown): string {
   if (error instanceof Error) {
-    return error.stack ?? `${error.name}: ${error.message}`;
+    const step = getErrorStep(error);
+    const summary = step ? `${error.name} step=${step}: ${error.message}` : `${error.name}: ${error.message}`;
+    if (!error.stack) return summary;
+    return step ? `${summary}\n${error.stack}` : error.stack;
   }
   return String(error);
+}
+
+function getErrorStep(error: Error): string | null {
+  const step = (error as { readonly step?: unknown }).step;
+  return typeof step === "string" ? step : null;
 }
 
 // Surface the existing window when the user launches a second instance
@@ -192,8 +222,7 @@ app
       try {
         await runCapabilityTest();
         app.exit(0);
-      } catch (error) {
-        console.error(`[cap-test] CAP_FTS5 FAIL ${formatErrorForLog(error)}`);
+      } catch {
         app.exit(1);
       }
       return;

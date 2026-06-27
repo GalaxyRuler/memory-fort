@@ -409,7 +409,7 @@ jobs:
           echo "::error::Electron binary unavailable after retries; cannot run native capability gate"
           exit 1
 
-      - name: Electron FTS5 capability gate (Linux)
+      - name: Electron native capability gate (Linux)
         if: runner.os == 'Linux'
         shell: bash
         run: |
@@ -423,8 +423,9 @@ jobs:
           fi
           grep -F "[cap-test] electron=" "${RUNNER_TEMP}/electron-capability.log"
           grep -F "[cap-test] CAP_FTS5 ok" "${RUNNER_TEMP}/electron-capability.log"
+          grep -F "[cap-test] CAP_VEC_KNN ok" "${RUNNER_TEMP}/electron-capability.log"
 
-      - name: Electron FTS5 capability gate (macOS)
+      - name: Electron native capability gate (macOS)
         if: runner.os == 'macOS'
         shell: bash
         run: |
@@ -438,8 +439,9 @@ jobs:
           fi
           grep -F "[cap-test] electron=" "${RUNNER_TEMP}/electron-capability.log"
           grep -F "[cap-test] CAP_FTS5 ok" "${RUNNER_TEMP}/electron-capability.log"
+          grep -F "[cap-test] CAP_VEC_KNN ok" "${RUNNER_TEMP}/electron-capability.log"
 
-      - name: Electron FTS5 capability gate (Windows)
+      - name: Electron native capability gate (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
@@ -469,4 +471,7 @@ jobs:
           }
           if (-not $stdout.Contains("[cap-test] CAP_FTS5 ok")) {
             throw "missing CAP_FTS5 ok log"
+          }
+          if (-not $stdout.Contains("[cap-test] CAP_VEC_KNN ok")) {
+            throw "missing CAP_VEC_KNN ok log"
           }
