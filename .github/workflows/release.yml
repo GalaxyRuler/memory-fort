@@ -43,7 +43,6 @@ jobs:
           test "$(node -p "require('./node_modules/electron/package.json').version")" = "42.5.0"
           test "$(node -p "require('./node_modules/electron-builder/package.json').version")" = "26.15.5"
           test "$(node -p "require('./node_modules/@electron/rebuild/package.json').version")" = "4.0.4"
-          npx electron --version
           npx electron-builder --version
 
       - name: Rebuild Electron native modules
