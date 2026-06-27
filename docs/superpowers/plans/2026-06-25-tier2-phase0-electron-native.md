@@ -82,11 +82,13 @@
 
 ### Task 0b.1: bootstrap module + better-sqlite3, Electron-runtime FTS5 gate
 
+> **✅ COMPLETE — merged to main (2026-06-27, commit ebad1d5, PR #6).** better-sqlite3 **12.11.1** pinned; `src/index/native/capability.ts` (`openCapabilityDb`/`assertFts5`/`closeCapabilityDb`, typed `CapabilityError`, 0b.2 vec seam). Electron-runtime gate = `MEMORY_CAP_TEST=1` branch in `electron/main.ts` + tri-OS `electron-native-capability` job in `smoke.yml` (runs `electron:rebuild` then asserts `CAP_FTS5 ok`). **Claude audit:** both typechecks 0, dev test green, `electron-main.mjs` self-contained (capability inlined, better-sqlite3 external, 0 relative imports); gate reproduced locally (exit 0, **modules=146**) and **mutation-proven** (rebuild for system-Node ABI 137 → gate RED at the open step). CI green on all 3 OS (capability gate macOS+Linux+Windows). Also fixed `ci.yml`+`smoke.yml` `npm ci`→`npm install` (same Windows-lockfile prune as release.yml). Bonus: `tsdown` `codeSplitting:false` on `electron-main` (now imports capability).
+
 **Files:** `src/index/native/capability.ts` (reusable: `openCapabilityDb`, `assertFts5`, `resolveSqliteVecBinary`, `loadSqliteVec`, `assertVec0Knn`), `test/index/native-fts5.test.ts` (vitest, dev), CI Electron-runtime test.
 
-- [ ] vitest (dev signal): `openCapabilityDb(':memory:')` + `assertFts5` (create fts5, bm25 query). **Not a gate.**
-- [ ] **Gate:** the SAME FTS5 assertion runs under **Electron's Node** in CI (headless Electron main/utility test), after `@electron/rebuild` against Electron 42's ABI. A green vitest with a red Electron-runtime test = the dual-ABI trap; the Electron one wins.
-- [ ] **Acceptance:** FTS5 green under Electron runtime. Commit: `feat(index): native capability bootstrap + better-sqlite3 (Electron-ABI FTS5)`.
+- [x] vitest (dev signal): `openCapabilityDb(':memory:')` + `assertFts5` (create fts5, bm25 query). **Not a gate.**
+- [x] **Gate:** the SAME FTS5 assertion runs under **Electron's Node** in CI (headless Electron main/utility test), after `@electron/rebuild` against Electron 42's ABI. A green vitest with a red Electron-runtime test = the dual-ABI trap; the Electron one wins. → mutation-proven: ABI-137 build makes the gate RED.
+- [x] **Acceptance:** FTS5 green under Electron runtime. Commit: `feat(index): native capability bootstrap + better-sqlite3 (Electron-ABI FTS5)`.
 
 ### Task 0b.2: sqlite-vec into the bootstrap, Electron-runtime KNN gate
 
