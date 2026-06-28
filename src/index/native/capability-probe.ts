@@ -26,6 +26,8 @@ interface ProbeInit {
   readonly vaultRoot: string;
   readonly dashboardDistRoot: string;
   readonly runtimeEnv?: DashboardServiceRuntimeEnv;
+  readonly probeDir?: string;
+  readonly probePhase?: ProbePhase;
 }
 
 interface ProbeBinary {
@@ -42,8 +44,38 @@ interface CompileOptionRow {
   readonly compile_options: string;
 }
 
+type ProbePhase = "full" | "write-hold" | "reopen-verify";
+
+interface CountRow {
+  readonly count: number;
+}
+
+interface WalFtsRow {
+  readonly rowid: number | bigint;
+  readonly title: string;
+}
+
+interface WalVecRow {
+  readonly rowid: number | bigint;
+  readonly distance: number;
+}
+
+interface ConcurrentWalSnapshot {
+  readonly row_count: number;
+  readonly max_sequence: number | null;
+  readonly labels: string | null;
+}
+
 const require = createRequire(import.meta.url);
 const parentPort = process.parentPort;
+const CAPABILITY_DB_NAME = "capability.sqlite";
+const WAL_FTS_TABLE = "capability_wal_fts5_probe";
+const WAL_VEC_TABLE = "capability_wal_vec_probe";
+const WAL_CONCURRENT_TABLE = "capability_concurrent_wal_probe";
+const WAL_FTS_QUERY = "crash recovery";
+const WAL_VEC_QUERY = JSON.stringify([0.9, 0.0, 0.0]);
+const EXPECTED_WAL_FTS_TITLE = "wal crash recovery primary";
+const EXPECTED_WAL_VEC_ROWID = 701;
 
 if (!parentPort) {
   console.error("[cap-probe] process.parentPort is required");
@@ -60,10 +92,11 @@ waitForInit(parentPort)
   .catch((error: unknown) => {
     console.error(`[cap-probe] fatal ${formatErrorForLog(error)}`);
     process.exit(1);
-  });
+});
 
 async function runCapabilityProbe(port: ParentPort, init: ProbeInit): Promise<void> {
-  const probeDir = await createProbeDir();
+  const phase = getProbePhase(init);
+  const probeDir = await createProbeDir(init);
   const logPath = join(probeDir, "cap-probe.log");
   const logger = async (line: string) => {
     const entry = `[${new Date().toISOString()}] ${line}`;
@@ -79,6 +112,26 @@ async function runCapabilityProbe(port: ParentPort, init: ProbeInit): Promise<vo
 
   try {
     await logger(`log path ${logPath}`);
+    await logger(`phase=${phase}`);
+
+    if (phase === "reopen-verify") {
+      const dbPath = join(probeDir, CAPABILITY_DB_NAME);
+      db = openCapabilityDb(dbPath);
+      await logger(`db path ${db.path}`);
+      await runStep(7, "restart-recover", logger, async () => {
+        assertDb(db);
+        loadSqliteVec(db);
+        verifyRecoveredWalRows(db);
+        assertVec0Knn(db);
+      });
+      await runStep(8, "concurrent-wal", logger, async () => {
+        runConcurrentWal(dbPath);
+      });
+      await logger("steps 1-8 ok");
+      await signalReadyAndWaitForShutdown(port, logPath);
+      return;
+    }
+
     await runStep(1, "runtime-paths", logger, async () => {
       await logger(`execPath=${process.execPath}`);
       await logger(`cwd=${process.cwd()}`);
@@ -98,7 +151,7 @@ async function runCapabilityProbe(port: ParentPort, init: ProbeInit): Promise<vo
       if (!hasSpaceAndUnicode(probeDir)) {
         throw new Error(`probe directory must contain a space and Unicode character: ${probeDir}`);
       }
-      const dbPath = join(probeDir, "capability.sqlite");
+      const dbPath = join(probeDir, CAPABILITY_DB_NAME);
       db = openCapabilityDb(dbPath);
       await logger(`db path ${db.path}`);
       betterSqliteBinary = await describeBinary("better_sqlite3.node", resolveBetterSqliteNativeBinary(), logger);
@@ -137,9 +190,18 @@ async function runCapabilityProbe(port: ParentPort, init: ProbeInit): Promise<vo
     });
 
     await logger("steps 1-6 ok");
-    const shutdown = waitForShutdown(port, 30_000);
-    port.postMessage({ type: "cap-probe-ready", url: "cap-probe://ok", port: 0, logPath });
-    await shutdown;
+
+    if (phase === "write-hold") {
+      await runStep(7, "restart-recover-write-hold", logger, async () => {
+        assertDb(db);
+        await writeUncheckpointedWalRows(db, logger);
+      });
+      await logger("write-hold waiting for forced kill");
+      await new Promise<never>(() => {});
+      return;
+    }
+
+    await signalReadyAndWaitForShutdown(port, logPath);
   } catch (error) {
     exitCode = 1;
     const message = formatErrorForLog(error);
@@ -155,6 +217,12 @@ async function runCapabilityProbe(port: ParentPort, init: ProbeInit): Promise<vo
     }
   }
   process.exit(exitCode);
+}
+
+async function signalReadyAndWaitForShutdown(port: ParentPort, logPath: string): Promise<void> {
+  const shutdown = waitForShutdown(port, 30_000);
+  port.postMessage({ type: "cap-probe-ready", url: "cap-probe://ok", port: 0, logPath });
+  await shutdown;
 }
 
 async function runStep(
@@ -216,15 +284,26 @@ function unwrapParentPortMessage(message: unknown): unknown {
   if (
     typeof message === "object" &&
     message !== null &&
-    "data" in message &&
-    "ports" in message
+    "data" in message
   ) {
     return (message as { data: unknown }).data;
   }
   return message;
 }
 
-async function createProbeDir(): Promise<string> {
+function getProbePhase(init: ProbeInit): ProbePhase {
+  const phase = init.probePhase ?? process.env["MEMORY_CAP_PROBE_PHASE"] ?? "full";
+  if (phase === "full" || phase === "write-hold" || phase === "reopen-verify") return phase;
+  throw new Error(`unsupported capability probe phase: ${String(phase)}`);
+}
+
+async function createProbeDir(init: ProbeInit): Promise<string> {
+  const provided = init.probeDir ?? process.env["MEMORY_CAP_PROBE_DB_DIR"];
+  if (provided) {
+    const resolved = resolve(provided);
+    await mkdir(resolved, { recursive: true });
+    return resolved;
+  }
   const base = resolve(process.env["MEMORY_CAP_PROBE_LOG_DIR"] ?? tmpdir());
   await mkdir(base, { recursive: true });
   return mkdtemp(join(base, "Memory Fort cap probe Ω-"));
@@ -236,6 +315,216 @@ function hasSpaceAndUnicode(value: string): boolean {
 
 function assertDb(db: CapabilityDb | null): asserts db is CapabilityDb {
   if (!db) throw new Error("capability database was not opened");
+}
+
+async function writeUncheckpointedWalRows(
+  db: CapabilityDb,
+  logger: (line: string) => Promise<void>,
+): Promise<void> {
+  db.database.pragma("busy_timeout = 2000");
+  db.database.pragma("wal_autocheckpoint = 0");
+  db.database.pragma("synchronous = FULL");
+  db.database.exec(`
+    DROP TABLE IF EXISTS ${WAL_FTS_TABLE};
+    DROP TABLE IF EXISTS ${WAL_VEC_TABLE};
+    CREATE VIRTUAL TABLE ${WAL_FTS_TABLE} USING fts5(title, body);
+    CREATE VIRTUAL TABLE ${WAL_VEC_TABLE} USING vec0(embedding float[3]);
+  `);
+
+  const insertFts = db.database.prepare<[number, string, string]>(
+    `INSERT INTO ${WAL_FTS_TABLE} (rowid, title, body) VALUES (?, ?, ?)`,
+  );
+  const insertVec = db.database.prepare<[bigint, string]>(
+    `INSERT INTO ${WAL_VEC_TABLE} (rowid, embedding) VALUES (?, ?)`,
+  );
+
+  let transactionOpen = false;
+  try {
+    db.database.exec("BEGIN IMMEDIATE");
+    transactionOpen = true;
+    insertFts.run(
+      701,
+      EXPECTED_WAL_FTS_TITLE,
+      "crash recovery primary row written before the forced utilityProcess kill",
+    );
+    insertFts.run(
+      702,
+      "wal crash recovery secondary",
+      "secondary crash recovery row committed in the same WAL transaction",
+    );
+    insertVec.run(BigInt(EXPECTED_WAL_VEC_ROWID), JSON.stringify([1.0, 0.0, 0.0]));
+    insertVec.run(702n, JSON.stringify([0.0, 1.0, 0.0]));
+    db.database.exec("COMMIT");
+    transactionOpen = false;
+  } catch (error) {
+    if (transactionOpen) {
+      try {
+        db.database.exec("ROLLBACK");
+      } catch {
+        // Preserve the original write failure.
+      }
+    }
+    throw error;
+  }
+
+  const ftsCount = db.database
+    .prepare<[string], CountRow>(`SELECT count(*) AS count FROM ${WAL_FTS_TABLE} WHERE ${WAL_FTS_TABLE} MATCH ?`)
+    .get(WAL_FTS_QUERY)?.count;
+  if (ftsCount !== 2) {
+    throw new Error(`expected 2 committed WAL FTS rows before crash; got ${String(ftsCount)}`);
+  }
+
+  const vecRow = db.database
+    .prepare<[string], WalVecRow>(`
+      SELECT rowid, distance
+      FROM ${WAL_VEC_TABLE}
+      WHERE embedding MATCH ?
+      ORDER BY distance
+      LIMIT 1
+    `)
+    .get(WAL_VEC_QUERY);
+  if (!vecRow || Number(vecRow.rowid) !== EXPECTED_WAL_VEC_ROWID) {
+    throw new Error(`expected WAL vec rowid ${EXPECTED_WAL_VEC_ROWID}; got ${String(vecRow?.rowid)}`);
+  }
+
+  const walSize = await waitForWalFile(db.path);
+  await logger(`wrote-uncheckpointed ok wal=${db.path}-wal size=${walSize}`);
+}
+
+function verifyRecoveredWalRows(db: CapabilityDb): void {
+  const ftsRows = db.database
+    .prepare<[string], WalFtsRow>(`
+      SELECT rowid, title
+      FROM ${WAL_FTS_TABLE}
+      WHERE ${WAL_FTS_TABLE} MATCH ?
+      ORDER BY bm25(${WAL_FTS_TABLE}) ASC, rowid ASC
+      LIMIT 2
+    `)
+    .all(WAL_FTS_QUERY);
+  if (ftsRows.length !== 2) {
+    throw new Error(`expected 2 recovered WAL FTS rows; got ${ftsRows.length}`);
+  }
+  if (ftsRows[0]?.title !== EXPECTED_WAL_FTS_TITLE || Number(ftsRows[0]?.rowid) !== 701) {
+    throw new Error(`unexpected recovered FTS row order: ${JSON.stringify(ftsRows)}`);
+  }
+
+  const vecRow = db.database
+    .prepare<[string], WalVecRow>(`
+      SELECT rowid, distance
+      FROM ${WAL_VEC_TABLE}
+      WHERE embedding MATCH ?
+      ORDER BY distance
+      LIMIT 1
+    `)
+    .get(WAL_VEC_QUERY);
+  if (!vecRow || Number(vecRow.rowid) !== EXPECTED_WAL_VEC_ROWID) {
+    throw new Error(`expected recovered WAL vec rowid ${EXPECTED_WAL_VEC_ROWID}; got ${String(vecRow?.rowid)}`);
+  }
+}
+
+function runConcurrentWal(dbPath: string): void {
+  const writer = openCapabilityDb(dbPath);
+  let reader: CapabilityDb | null = null;
+  let transactionOpen = false;
+  try {
+    writer.database.pragma("busy_timeout = 2000");
+    writer.database.exec(`
+      DROP TABLE IF EXISTS ${WAL_CONCURRENT_TABLE};
+      CREATE TABLE ${WAL_CONCURRENT_TABLE} (
+        sequence INTEGER PRIMARY KEY,
+        label TEXT NOT NULL
+      );
+      INSERT INTO ${WAL_CONCURRENT_TABLE} (sequence, label) VALUES (1, 'baseline-committed');
+    `);
+
+    reader = openCapabilityDb(dbPath);
+    reader.database.pragma("busy_timeout = 2000");
+    assertConcurrentSnapshot("initial", readConcurrentSnapshot(reader), {
+      rowCount: 1,
+      maxSequence: 1,
+      labels: "baseline-committed",
+    });
+
+    writer.database.exec("BEGIN IMMEDIATE");
+    transactionOpen = true;
+    writer.database
+      .prepare<[number, string]>(`INSERT INTO ${WAL_CONCURRENT_TABLE} (sequence, label) VALUES (?, ?)`)
+      .run(2, "writer-in-flight");
+
+    assertConcurrentSnapshot("during writer transaction", readConcurrentSnapshot(reader), {
+      rowCount: 1,
+      maxSequence: 1,
+      labels: "baseline-committed",
+    });
+
+    writer.database.exec("COMMIT");
+    transactionOpen = false;
+
+    assertConcurrentSnapshot("after writer commit", readConcurrentSnapshot(reader), {
+      rowCount: 2,
+      maxSequence: 2,
+      labels: "baseline-committed,writer-in-flight",
+    });
+  } catch (error) {
+    if (transactionOpen) {
+      try {
+        writer.database.exec("ROLLBACK");
+      } catch {
+        // Preserve the original concurrency failure.
+      }
+    }
+    throw error;
+  } finally {
+    if (reader) closeCapabilityDb(reader);
+    closeCapabilityDb(writer);
+  }
+}
+
+function readConcurrentSnapshot(db: CapabilityDb): ConcurrentWalSnapshot {
+  const row = db.database.prepare<[], ConcurrentWalSnapshot>(`
+    SELECT
+      count(*) AS row_count,
+      max(sequence) AS max_sequence,
+      group_concat(label, ',') AS labels
+    FROM (
+      SELECT sequence, label
+      FROM ${WAL_CONCURRENT_TABLE}
+      ORDER BY sequence
+    )
+  `).get();
+  if (!row) throw new Error("concurrent WAL snapshot query returned no row");
+  return row;
+}
+
+function assertConcurrentSnapshot(
+  label: string,
+  actual: ConcurrentWalSnapshot,
+  expected: { readonly rowCount: number; readonly maxSequence: number; readonly labels: string },
+): void {
+  if (
+    actual.row_count !== expected.rowCount ||
+    actual.max_sequence !== expected.maxSequence ||
+    actual.labels !== expected.labels
+  ) {
+    throw new Error(
+      `${label} snapshot mismatch: expected ${JSON.stringify(expected)} got ${JSON.stringify(actual)}`,
+    );
+  }
+}
+
+async function waitForWalFile(dbPath: string): Promise<number> {
+  const walPath = `${dbPath}-wal`;
+  const deadline = Date.now() + 5_000;
+  while (Date.now() < deadline) {
+    try {
+      const walStat = await stat(walPath);
+      if (walStat.size > 0) return walStat.size;
+    } catch {
+      // Retry until SQLite has materialized the WAL file.
+    }
+    await new Promise((resolveWait) => setTimeout(resolveWait, 50));
+  }
+  throw new Error(`WAL file was not created or remained empty: ${walPath}`);
 }
 
 function resolveBetterSqliteNativeBinary(): string {

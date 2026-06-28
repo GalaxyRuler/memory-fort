@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - codex/phase0b3-installed-probe*
+      - codex/phase0b3c-wal-durability*
 
 permissions:
   contents: read
@@ -65,7 +66,7 @@ jobs:
           Copy-Item -LiteralPath $capLog.FullName -Destination $targetLog -Force
           $content = Get-Content -Path $targetLog -Raw
           if ($process.ExitCode -ne 0) { exit $process.ExitCode }
-          foreach ($needle in @("step1 runtime-paths ok", "step2 wal-open-native-stats ok", "fts5 ok", "vec-load ok", "vec-knn ok", "runtime-path guard ok", "steps 1-6 ok")) {
+          foreach ($needle in @("step1 runtime-paths ok", "step2 wal-open-native-stats ok", "fts5 ok", "vec-load ok", "vec-knn ok", "runtime-path guard ok", "steps 1-6 ok", "step7 restart-recover ok", "step8 concurrent-wal ok", "steps 1-8 ok", "forced-kill confirmed")) {
             if (-not $content.Contains($needle)) { throw "missing probe log line: $needle" }
           }
       - uses: actions/upload-artifact@v4
@@ -128,7 +129,7 @@ jobs:
           Copy-Item -LiteralPath $capLog.FullName -Destination $targetLog -Force
           $content = Get-Content -Path $targetLog -Raw
           if ($process.ExitCode -ne 0) { exit $process.ExitCode }
-          foreach ($needle in @("step1 runtime-paths ok", "step2 wal-open-native-stats ok", "fts5 ok", "vec-load ok", "vec-knn ok", "runtime-path guard ok", "steps 1-6 ok")) {
+          foreach ($needle in @("step1 runtime-paths ok", "step2 wal-open-native-stats ok", "fts5 ok", "vec-load ok", "vec-knn ok", "runtime-path guard ok", "steps 1-6 ok", "step7 restart-recover ok", "step8 concurrent-wal ok", "steps 1-8 ok", "forced-kill confirmed")) {
             if (-not $content.Contains($needle)) { throw "missing probe log line: $needle" }
           }
       - uses: actions/upload-artifact@v4
@@ -197,6 +198,10 @@ jobs:
           grep -F "vec-knn ok" "$evidence_dir/phase0b3-macos-arm64-cap-probe.log"
           grep -F "runtime-path guard ok" "$evidence_dir/phase0b3-macos-arm64-cap-probe.log"
           grep -F "steps 1-6 ok" "$evidence_dir/phase0b3-macos-arm64-cap-probe.log"
+          grep -F "step7 restart-recover ok" "$evidence_dir/phase0b3-macos-arm64-cap-probe.log"
+          grep -F "step8 concurrent-wal ok" "$evidence_dir/phase0b3-macos-arm64-cap-probe.log"
+          grep -F "steps 1-8 ok" "$evidence_dir/phase0b3-macos-arm64-cap-probe.log"
+          grep -F "forced-kill confirmed" "$evidence_dir/phase0b3-macos-arm64-cap-probe.log"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -255,6 +260,10 @@ jobs:
           grep -F "vec-knn ok" "$evidence_dir/phase0b3-linux-x64-cap-probe.log"
           grep -F "runtime-path guard ok" "$evidence_dir/phase0b3-linux-x64-cap-probe.log"
           grep -F "steps 1-6 ok" "$evidence_dir/phase0b3-linux-x64-cap-probe.log"
+          grep -F "step7 restart-recover ok" "$evidence_dir/phase0b3-linux-x64-cap-probe.log"
+          grep -F "step8 concurrent-wal ok" "$evidence_dir/phase0b3-linux-x64-cap-probe.log"
+          grep -F "steps 1-8 ok" "$evidence_dir/phase0b3-linux-x64-cap-probe.log"
+          grep -F "forced-kill confirmed" "$evidence_dir/phase0b3-linux-x64-cap-probe.log"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
