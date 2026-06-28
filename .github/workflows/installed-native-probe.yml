@@ -1,0 +1,262 @@
+name: Installed Native Capability Probe
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - codex/phase0b3-installed-probe*
+
+permissions:
+  contents: read
+
+jobs:
+  win-arm64:
+    name: Installed probe (Windows ARM64)
+    runs-on: windows-11-arm
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm install
+      - run: node scripts/assert-vendored-sqlite-vec.mjs .
+      - run: npm run build
+      - run: npm run electron:rebuild
+      - run: npx electron-builder --win nsis --arm64 --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+      - name: Install and run MEMORY_CAP_PROBE
+        shell: pwsh
+        run: |
+          $evidenceDir = Join-Path $PWD "docs\release-evidence"
+          New-Item -ItemType Directory -Path $evidenceDir -Force | Out-Null
+          $logBase = Join-Path $env:RUNNER_TEMP "cap probe logs arm64"
+          New-Item -ItemType Directory -Path $logBase -Force | Out-Null
+          $installer = Get-ChildItem dist/electron-installer/*.exe | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+          if (-not $installer) { throw "No NSIS installer found" }
+          $installDir = Join-Path $env:RUNNER_TEMP "Memory Fort Probe ARM64 Install"
+          if (Test-Path -LiteralPath $installDir) { Remove-Item -LiteralPath $installDir -Recurse -Force }
+          & $installer.FullName /S "/D=$installDir"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $exe = Join-Path $installDir "MemoryFort.exe"
+          $betterNode = Join-Path $installDir "resources\app\node_modules\better-sqlite3\build\Release\better_sqlite3.node"
+          $vecBinary = Join-Path $installDir "resources\app\vendor\sqlite-vec\win32-arm64\vec0.dll"
+          foreach ($i in 1..180) {
+            if ((Test-Path -LiteralPath $exe) -and (Test-Path -LiteralPath $betterNode) -and (Test-Path -LiteralPath $vecBinary)) { break }
+            Start-Sleep -Seconds 1
+          }
+          if (-not (Test-Path -LiteralPath $betterNode)) { throw "better_sqlite3.node did not appear: $betterNode" }
+          if (-not (Test-Path -LiteralPath $vecBinary)) { throw "sqlite-vec binary did not appear: $vecBinary" }
+          node scripts/assert-vendored-sqlite-vec.mjs (Join-Path $installDir "resources\app")
+          if (-not (Test-Path -LiteralPath $exe)) { $exe = (Get-ChildItem -Path $installDir -Filter "*.exe" | Select-Object -First 1).FullName }
+          $env:MEMORY_CAP_PROBE = "1"
+          $env:MEMORY_CAP_PROBE_LOG_DIR = $logBase
+          $env:MEMORY_ROOT = Join-Path $env:RUNNER_TEMP "memory root arm64"
+          $stdout = Join-Path $logBase "app.stdout.log"
+          $stderr = Join-Path $logBase "app.stderr.log"
+          $process = Start-Process -FilePath $exe -WorkingDirectory $installDir -RedirectStandardOutput $stdout -RedirectStandardError $stderr -WindowStyle Hidden -Wait -PassThru
+          Get-Content -Path $stdout -ErrorAction SilentlyContinue
+          Get-Content -Path $stderr -ErrorAction SilentlyContinue
+          $capLog = Get-ChildItem -Path $logBase -Recurse -Filter cap-probe.log | Select-Object -First 1
+          if (-not $capLog) { throw "cap-probe.log was not created" }
+          $targetLog = Join-Path $evidenceDir "phase0b3-win-arm64-cap-probe.log"
+          Copy-Item -LiteralPath $capLog.FullName -Destination $targetLog -Force
+          $content = Get-Content -Path $targetLog -Raw
+          if ($process.ExitCode -ne 0) { exit $process.ExitCode }
+          foreach ($needle in @("step1 runtime-paths ok", "step2 wal-open-native-stats ok", "fts5 ok", "vec-load ok", "vec-knn ok", "runtime-path guard ok", "steps 1-6 ok")) {
+            if (-not $content.Contains($needle)) { throw "missing probe log line: $needle" }
+          }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: phase0b3-win-arm64-cap-probe
+          path: docs/release-evidence/phase0b3-win-arm64-cap-probe.log
+
+  win-x64:
+    name: Installed probe (Windows x64)
+    runs-on: windows-latest
+    needs: win-arm64
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm install
+      - run: npm run build
+      - run: npm run electron:rebuild
+      - run: npx electron-builder --win nsis --x64 --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+      - name: Install and run MEMORY_CAP_PROBE
+        shell: pwsh
+        run: |
+          $evidenceDir = Join-Path $PWD "docs\release-evidence"
+          New-Item -ItemType Directory -Path $evidenceDir -Force | Out-Null
+          $logBase = Join-Path $env:RUNNER_TEMP "cap probe logs x64"
+          New-Item -ItemType Directory -Path $logBase -Force | Out-Null
+          $installer = Get-ChildItem dist/electron-installer/*.exe | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+          if (-not $installer) { throw "No NSIS installer found" }
+          $installDir = Join-Path $env:RUNNER_TEMP "Memory Fort Probe X64 Install"
+          if (Test-Path -LiteralPath $installDir) { Remove-Item -LiteralPath $installDir -Recurse -Force }
+          & $installer.FullName /S "/D=$installDir"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $exe = Join-Path $installDir "MemoryFort.exe"
+          $betterNode = Join-Path $installDir "resources\app\node_modules\better-sqlite3\build\Release\better_sqlite3.node"
+          $vecBinary = Join-Path $installDir "resources\app\node_modules\sqlite-vec-windows-x64\vec0.dll"
+          foreach ($i in 1..180) {
+            if ((Test-Path -LiteralPath $exe) -and (Test-Path -LiteralPath $betterNode) -and (Test-Path -LiteralPath $vecBinary)) { break }
+            Start-Sleep -Seconds 1
+          }
+          if (-not (Test-Path -LiteralPath $betterNode)) { throw "better_sqlite3.node did not appear: $betterNode" }
+          if (-not (Test-Path -LiteralPath $vecBinary)) { throw "sqlite-vec binary did not appear: $vecBinary" }
+          if (-not (Test-Path -LiteralPath $exe)) { $exe = (Get-ChildItem -Path $installDir -Filter "*.exe" | Select-Object -First 1).FullName }
+          $env:MEMORY_CAP_PROBE = "1"
+          $env:MEMORY_CAP_PROBE_LOG_DIR = $logBase
+          $env:MEMORY_ROOT = Join-Path $env:RUNNER_TEMP "memory root x64"
+          $stdout = Join-Path $logBase "app.stdout.log"
+          $stderr = Join-Path $logBase "app.stderr.log"
+          $process = Start-Process -FilePath $exe -WorkingDirectory $installDir -RedirectStandardOutput $stdout -RedirectStandardError $stderr -WindowStyle Hidden -Wait -PassThru
+          Get-Content -Path $stdout -ErrorAction SilentlyContinue
+          Get-Content -Path $stderr -ErrorAction SilentlyContinue
+          $capLog = Get-ChildItem -Path $logBase -Recurse -Filter cap-probe.log | Select-Object -First 1
+          if (-not $capLog) { throw "cap-probe.log was not created" }
+          $targetLog = Join-Path $evidenceDir "phase0b3-win-x64-cap-probe.log"
+          Copy-Item -LiteralPath $capLog.FullName -Destination $targetLog -Force
+          $content = Get-Content -Path $targetLog -Raw
+          if ($process.ExitCode -ne 0) { exit $process.ExitCode }
+          foreach ($needle in @("step1 runtime-paths ok", "step2 wal-open-native-stats ok", "fts5 ok", "vec-load ok", "vec-knn ok", "runtime-path guard ok", "steps 1-6 ok")) {
+            if (-not $content.Contains($needle)) { throw "missing probe log line: $needle" }
+          }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: phase0b3-win-x64-cap-probe
+          path: docs/release-evidence/phase0b3-win-x64-cap-probe.log
+
+  macos-arm64:
+    name: Installed probe (macOS ARM64)
+    runs-on: macos-latest
+    needs: win-x64
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm install
+      - run: npm run build
+      - run: npm run electron:rebuild
+      - run: npx electron-builder --mac dmg --arm64 --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+      - name: Mount DMG, copy app, quarantine, and run MEMORY_CAP_PROBE
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence_dir="$PWD/docs/release-evidence"
+          mkdir -p "$evidence_dir"
+          log_base="$RUNNER_TEMP/cap probe logs mac"
+          mkdir -p "$log_base"
+          dmg="$(ls -t dist/electron-installer/*.dmg | head -n 1)"
+          mount_dir="$RUNNER_TEMP/Memory Fort Probe DMG"
+          rm -rf "$mount_dir"
+          mkdir -p "$mount_dir"
+          hdiutil attach -nobrowse -mountpoint "$mount_dir" "$dmg"
+          app_src="$(find "$mount_dir" -maxdepth 2 -name '*.app' -print -quit)"
+          app_dir="$RUNNER_TEMP/Memory Fort Probe Apps"
+          app_dst="$app_dir/MemoryFort.app"
+          rm -rf "$app_dir"
+          mkdir -p "$app_dir"
+          cp -R "$app_src" "$app_dst"
+          hdiutil detach "$mount_dir"
+          xattr -w com.apple.quarantine "0081;$(date +%s);GitHubActions;https://github.com/GalaxyRuler/memory-fort-private" "$app_dst"
+          codesign -dv --verbose=4 "$app_dst" > "$evidence_dir/phase0b3-macos-arm64-codesign.log" 2>&1 || true
+          set +e
+          spctl --assess --type execute -vv "$app_dst" > "$evidence_dir/phase0b3-macos-arm64-spctl.log" 2>&1
+          spctl_code=$?
+          set -e
+          echo "spctl_exit=$spctl_code" >> "$evidence_dir/phase0b3-macos-arm64-spctl.log"
+          export MEMORY_CAP_PROBE=1
+          export MEMORY_CAP_PROBE_LOG_DIR="$log_base"
+          export MEMORY_ROOT="$RUNNER_TEMP/memory root mac"
+          "$app_dst/Contents/MacOS/MemoryFort" > "$log_base/app.stdout.log" 2> "$log_base/app.stderr.log"
+          cat "$log_base/app.stdout.log" || true
+          cat "$log_base/app.stderr.log" || true
+          cap_log="$(find "$log_base" -name cap-probe.log -print -quit)"
+          test -n "$cap_log"
+          cp "$cap_log" "$evidence_dir/phase0b3-macos-arm64-cap-probe.log"
+          grep -F "step1 runtime-paths ok" "$evidence_dir/phase0b3-macos-arm64-cap-probe.log"
+          grep -F "step2 wal-open-native-stats ok" "$evidence_dir/phase0b3-macos-arm64-cap-probe.log"
+          grep -F "fts5 ok" "$evidence_dir/phase0b3-macos-arm64-cap-probe.log"
+          grep -F "vec-load ok" "$evidence_dir/phase0b3-macos-arm64-cap-probe.log"
+          grep -F "vec-knn ok" "$evidence_dir/phase0b3-macos-arm64-cap-probe.log"
+          grep -F "runtime-path guard ok" "$evidence_dir/phase0b3-macos-arm64-cap-probe.log"
+          grep -F "steps 1-6 ok" "$evidence_dir/phase0b3-macos-arm64-cap-probe.log"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: phase0b3-macos-arm64-cap-probe
+          path: |
+            docs/release-evidence/phase0b3-macos-arm64-cap-probe.log
+            docs/release-evidence/phase0b3-macos-arm64-codesign.log
+            docs/release-evidence/phase0b3-macos-arm64-spctl.log
+
+  linux-x64:
+    name: Installed probe (Linux x64)
+    runs-on: ubuntu-latest
+    needs: macos-arm64
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm install
+      - name: Install Linux runtime deps
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb libgbm1 libnss3 libatk-bridge2.0-0 libgtk-3-0 libasound2t64 file
+          sudo apt-get install -y libfuse2 || sudo apt-get install -y libfuse2t64
+      - run: npm run build
+      - run: npm run electron:rebuild
+      - run: npx electron-builder --linux AppImage --x64 --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+      - name: Run real AppImage under xvfb with MEMORY_CAP_PROBE
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence_dir="$PWD/docs/release-evidence"
+          mkdir -p "$evidence_dir"
+          log_base="$RUNNER_TEMP/cap probe logs linux"
+          mkdir -p "$log_base"
+          appimage="$(ls -t dist/electron-installer/*.AppImage | head -n 1)"
+          chmod +x "$appimage"
+          export MEMORY_CAP_PROBE=1
+          export MEMORY_CAP_PROBE_LOG_DIR="$log_base"
+          export MEMORY_ROOT="$RUNNER_TEMP/memory root linux"
+          xvfb-run -a "$appimage" --no-sandbox > "$log_base/app.stdout.log" 2> "$log_base/app.stderr.log"
+          cat "$log_base/app.stdout.log" || true
+          cat "$log_base/app.stderr.log" || true
+          cap_log="$(find "$log_base" -name cap-probe.log -print -quit)"
+          test -n "$cap_log"
+          cp "$cap_log" "$evidence_dir/phase0b3-linux-x64-cap-probe.log"
+          grep -F "step1 runtime-paths ok" "$evidence_dir/phase0b3-linux-x64-cap-probe.log"
+          grep -F "step2 wal-open-native-stats ok" "$evidence_dir/phase0b3-linux-x64-cap-probe.log"
+          grep -F "fts5 ok" "$evidence_dir/phase0b3-linux-x64-cap-probe.log"
+          grep -F "vec-load ok" "$evidence_dir/phase0b3-linux-x64-cap-probe.log"
+          grep -F "vec-knn ok" "$evidence_dir/phase0b3-linux-x64-cap-probe.log"
+          grep -F "runtime-path guard ok" "$evidence_dir/phase0b3-linux-x64-cap-probe.log"
+          grep -F "steps 1-6 ok" "$evidence_dir/phase0b3-linux-x64-cap-probe.log"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: phase0b3-linux-x64-cap-probe
+          path: docs/release-evidence/phase0b3-linux-x64-cap-probe.log

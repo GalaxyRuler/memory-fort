@@ -20,7 +20,12 @@ export interface DashboardServiceRuntimeEnv extends DashboardServiceMainRuntimeE
 
 export interface DashboardServiceChild {
   readonly pid?: number;
+  readonly stdout?: NodeJS.ReadableStream | null;
+  readonly stderr?: NodeJS.ReadableStream | null;
   postMessage(message: unknown): void;
+  on?(event: "message", listener: (message: unknown) => void): unknown;
+  off?(event: "message", listener: (message: unknown) => void): unknown;
+  removeListener?(event: "message", listener: (message: unknown) => void): unknown;
   kill(): void;
   once(event: "message", listener: (message: unknown) => void): unknown;
   once(event: "exit", listener: (code: number | null, signal?: string | null) => void): unknown;
@@ -34,7 +39,9 @@ export interface DashboardServiceSupervisorOptions {
   setTimeout?: (handler: () => void, ms: number) => unknown;
   clearTimeout?: (handle: unknown) => void;
   onReady?: (ready: DashboardServiceReady) => void;
+  onMessage?: (message: unknown) => void;
   onRuntimeEnv?: (env: DashboardServiceRuntimeEnv) => void;
+  isReadyMessage?: (message: unknown) => message is DashboardServiceReady;
   runtimeEnv?: DashboardServiceMainRuntimeEnv;
   maxRestarts?: number;
   initialBackoffMs?: number;
@@ -54,6 +61,7 @@ export function createDashboardServiceSupervisor(
   const maxRestarts = opts.maxRestarts ?? 6;
   const initialBackoffMs = opts.initialBackoffMs ?? 500;
   const maxBackoffMs = opts.maxBackoffMs ?? 8_000;
+  const readyMessage = opts.isReadyMessage ?? isReadyMessage;
   let child: DashboardServiceChild | null = null;
   let stopped = false;
   let restartCount = 0;
@@ -84,15 +92,34 @@ export function createDashboardServiceSupervisor(
       scheduleRestart();
     });
 
-    current.once("message", (message) => {
-      if (!isReadyMessage(message)) {
-        rejectReadyWaiters(new Error("dashboard service sent an invalid ready message"));
+    listenForReady(current);
+  }
+
+  function listenForReady(current: DashboardServiceChild): void {
+    let ready = false;
+    const onMessage = (message: unknown) => {
+      if (ready) return;
+      if (!readyMessage(message)) {
+        opts.onMessage?.(message);
+        if (!opts.onMessage) {
+          rejectReadyWaiters(new Error("dashboard service sent an invalid ready message"));
+        }
         return;
       }
+
+      ready = true;
+      current.off?.("message", onMessage);
+      current.removeListener?.("message", onMessage);
       restartCount = 0;
       opts.onReady?.(message);
       resolveReadyWaiters(message);
-    });
+    };
+
+    if (typeof current.on === "function") {
+      current.on("message", onMessage);
+    } else {
+      current.once("message", onMessage);
+    }
   }
 
   function scheduleRestart(): void {

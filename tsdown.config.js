@@ -94,6 +94,15 @@ export default defineConfig([
   },
   {
     ...common,
+    entry: { "index/native/capability-probe": "src/index/native/capability-probe.ts" },
+    clean: false,
+    dts: false,
+    outputOptions: {
+      codeSplitting: false,
+    },
+  },
+  {
+    ...common,
     entry: { "dashboard/scheduled-vault-worker": "src/dashboard/scheduled-vault-worker.ts" },
     clean: false,
   },

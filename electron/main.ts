@@ -12,7 +12,8 @@ import {
 
 // Prevent two MemoryFort windows competing on port 4410
 const isCapabilityTest = process.env["MEMORY_CAP_TEST"] === "1";
-const gotLock = isCapabilityTest || app.requestSingleInstanceLock();
+const isCapabilityProbe = process.env["MEMORY_CAP_PROBE"] === "1";
+const gotLock = isCapabilityTest || isCapabilityProbe || app.requestSingleInstanceLock();
 if (!gotLock) {
   app.quit();
   process.exit(0);
@@ -31,7 +32,7 @@ async function createWindow(): Promise<void> {
     servicePath: dashboardServicePath,
     vaultRoot: process.env["MEMORY_ROOT"] ?? join(app.getPath("home"), ".memory"),
     dashboardDistRoot,
-    fork: (servicePath) => utilityProcess.fork(servicePath) as unknown as DashboardServiceChild,
+    fork: (servicePath) => forkDashboardUtilityProcess(servicePath, appPath),
     runtimeEnv,
     onRuntimeEnv: logUtilityRuntimeEnv,
     onReady: (ready) => {
@@ -143,6 +144,70 @@ function logUtilityRuntimeEnv(env: DashboardServiceRuntimeEnv): void {
   console.info(`[memory-fort runtime utility] ${JSON.stringify(env)}`);
 }
 
+function forkDashboardUtilityProcess(entryPath: string, appPath: string): DashboardServiceChild {
+  const child = utilityProcess.fork(entryPath, [], createDashboardUtilityForkOptions(appPath)) as unknown as DashboardServiceChild;
+  child.stdout?.on("data", (chunk: Buffer | string) => {
+    console.info(`[memory-fort utility stdout] ${String(chunk).trimEnd()}`);
+  });
+  child.stderr?.on("data", (chunk: Buffer | string) => {
+    console.error(`[memory-fort utility stderr] ${String(chunk).trimEnd()}`);
+  });
+  return child;
+}
+
+function createDashboardUtilityForkOptions(appPath: string): Parameters<typeof utilityProcess.fork>[2] {
+  const options: Parameters<typeof utilityProcess.fork>[2] = {
+    cwd: appPath,
+    stdio: "pipe",
+    env: {
+      ...process.env,
+      MEMORY_FORT_APP_PATH: appPath,
+    },
+  };
+  if (process.platform === "darwin") {
+    options.allowLoadingUnsignedLibraries = true;
+  }
+  return options;
+}
+
+async function runInstalledCapabilityProbe(): Promise<void> {
+  const appPath = app.getAppPath();
+  process.env["MEMORY_FORT_APP_PATH"] = appPath;
+  const dashboardDistRoot = join(appPath, "dist", "dashboard-ui");
+  const probePath = join(appPath, "dist", "index", "native", "capability-probe.mjs");
+  const runtimeEnv = createMainRuntimeEnv(appPath, probePath);
+  console.info(`[cap-probe main] ${JSON.stringify(runtimeEnv)}`);
+  const supervisor = createDashboardServiceSupervisor({
+    servicePath: probePath,
+    vaultRoot: process.env["MEMORY_ROOT"] ?? join(app.getPath("temp"), "Memory Fort cap probe vault Ω"),
+    dashboardDistRoot,
+    fork: (servicePath) => forkDashboardUtilityProcess(servicePath, appPath),
+    runtimeEnv,
+    maxRestarts: 0,
+    onRuntimeEnv: logUtilityRuntimeEnv,
+    onMessage: logCapabilityProbeMessage,
+  });
+  await supervisor.start();
+  supervisor.stop();
+}
+
+function logCapabilityProbeMessage(message: unknown): void {
+  if (typeof message === "object" && message !== null) {
+    const type = (message as { type?: unknown }).type;
+    const line = (message as { line?: unknown }).line;
+    const error = (message as { error?: unknown }).error;
+    if (type === "cap-probe-log" && typeof line === "string") {
+      console.info(`[cap-probe child] ${line}`);
+      return;
+    }
+    if (type === "cap-probe-fail" && typeof error === "string") {
+      console.error(`[cap-probe child] ${error}`);
+      return;
+    }
+  }
+  console.info(`[cap-probe child] ${JSON.stringify(message)}`);
+}
+
 async function runCapabilityTest(): Promise<void> {
   console.info(
     `[cap-test] electron=${process.versions.electron ?? "unknown"} node=${process.versions.node} modules=${
@@ -218,6 +283,16 @@ app.on("second-instance", () => {
 app
   .whenReady()
   .then(async () => {
+    if (isCapabilityProbe) {
+      try {
+        await runInstalledCapabilityProbe();
+        app.exit(0);
+      } catch (error) {
+        console.error(`[cap-probe main] FAIL ${formatErrorForLog(error)}`);
+        app.exit(1);
+      }
+      return;
+    }
     if (isCapabilityTest) {
       try {
         await runCapabilityTest();

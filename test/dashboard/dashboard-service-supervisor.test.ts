@@ -250,4 +250,27 @@ describe("dashboard service supervisor", () => {
       runtimeEnv: runtimeEvents[0],
     }]);
   });
+
+  it("forwards non-ready child messages while waiting for readiness", async () => {
+    const messages: unknown[] = [];
+    const children: FakeChild[] = [];
+    const supervisor = createDashboardServiceSupervisor({
+      servicePath: "C:/app/dist/index/native/capability-probe.mjs",
+      vaultRoot: "C:/vault",
+      dashboardDistRoot: "C:/app/dist/dashboard-ui",
+      fork: () => {
+        const child = new FakeChild();
+        children.push(child);
+        return child;
+      },
+      onMessage: (message) => messages.push(message),
+    });
+
+    const ready = supervisor.start();
+    children[0].emit("message", { type: "cap-probe-log", line: "step1 runtime ok" });
+    children[0].emit("message", { url: "cap-probe://ok", port: 0 });
+
+    await expect(ready).resolves.toEqual({ url: "cap-probe://ok", port: 0 });
+    expect(messages).toEqual([{ type: "cap-probe-log", line: "step1 runtime ok" }]);
+  });
 });
