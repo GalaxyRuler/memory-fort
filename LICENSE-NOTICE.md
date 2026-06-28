@@ -34,3 +34,14 @@ Memory Fort was authored by Abdullah Al Kulaib with assistance from AI coding ag
 ## Open source
 
 GPLv3 is an OSI-approved and FSF-approved copyleft open-source license. The full license text in [LICENSE](LICENSE) controls over this summary.
+
+## Third-party notices
+
+Memory Fort ships `sqlite-vec` (`vec0`) as a SQLite loadable extension for native vector search capability checks.
+
+- Project: `sqlite-vec`
+- Author: Alex Garcia and contributors
+- Repository: https://github.com/asg017/sqlite-vec
+- License: Apache-2.0 OR MIT
+
+The vendored Windows ARM64 `vec0.dll` is built from the upstream sqlite-vec amalgamation. Its provenance and SHA-256 are recorded in `vendor/sqlite-vec/win32-arm64/manifest.json`.

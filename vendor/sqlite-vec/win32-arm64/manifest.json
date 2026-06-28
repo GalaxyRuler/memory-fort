@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "package": "sqlite-vec",
+  "target": {
+    "platform": "win32",
+    "arch": "arm64",
+    "file": "vec0.dll",
+    "peMachine": "ARM64"
+  },
+  "upstream": {
+    "repository": "https://github.com/asg017/sqlite-vec",
+    "tag": "v0.1.9",
+    "commit": "e9f598abfa0c06b328d8fe5da9c3760cce74be10",
+    "sourceAsset": "sqlite-vec-0.1.9-amalgamation.tar.gz (https://github.com/asg017/sqlite-vec/releases/download/v0.1.9/sqlite-vec-0.1.9-amalgamation.tar.gz)",
+    "sourceSha256": "ba081a47fa02eadc3cf6b16c314b695b84081269349aac722b4efa338fe8fd85",
+    "license": "Apache-2.0 OR MIT",
+    "notice": "sqlite-vec is copyright Alex Garcia and contributors and is licensed under Apache-2.0 OR MIT."
+  },
+  "build": {
+    "recipe": "scripts/preflight-vec.mjs from-source-msvc",
+    "buildScriptSha256": "3aa943a8f7fe4926449ae7c05420c9237230bd8d06a6198642bc7e225cac20de",
+    "compiler": "MSVC vcvarsall + cl.exe",
+    "msvcVersion": "19.44.35228 for ARM64",
+    "runnerLabel": "windows-11-arm",
+    "runnerOs": "Windows",
+    "runnerArch": "ARM64",
+    "imageOs": "win11-arm64",
+    "buildDate": "2026-06-28T01:27:53.804Z"
+  },
+  "output": {
+    "sha256": "8fc0ec99ecd8cfda0925148ae66a765cb9a5202f47195c306ff2056925ee9cf5",
+    "size": 278528
+  }
+}

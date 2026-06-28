@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import {
   cp,
   mkdir,
@@ -29,6 +29,12 @@ const resultFile = path.join(
   `phase0.0-winarm64-${isoDate.replaceAll("-", "")}.md`,
 );
 const forceSource = process.env.PROBE_FORCE_SOURCE === "1";
+const targetPlatform = process.env.PROBE_TARGET_PLATFORM ?? process.platform;
+const targetArch = process.env.PROBE_TARGET_ARCH ?? process.arch;
+const vendorOutputDir = process.env.PROBE_VENDOR_OUTPUT_DIR
+  ? path.resolve(process.env.PROBE_VENDOR_OUTPUT_DIR)
+  : null;
+const sqliteVecTag = process.env.PROBE_SQLITE_VEC_TAG ?? defaultSqliteVecTag();
 
 const fts5Query =
   "SELECT snippet(t, 0, '<b>', '</b>', '...', 10) AS snippet FROM t WHERE t MATCH 'hello'";
@@ -61,9 +67,11 @@ const probe = {
     compiler: null,
     source: null,
     releaseTag: null,
+    upstreamCommit: null,
     releaseAsset: null,
     headerDir: null,
     output: null,
+    sourceProvenance: null,
     provenance: null,
     load: "NOT_RUN",
     error: null,
@@ -77,6 +85,10 @@ const probe = {
     error: null,
   },
   loadPath: "FAILED",
+  target: {
+    platform: targetPlatform,
+    arch: targetArch,
+  },
   errors: [],
   verdict: "NO-GO",
 };
@@ -138,6 +150,20 @@ async function fileProvenance(filePath) {
     size: fileStat.size,
     sha256: createHash("sha256").update(contents).digest("hex"),
   };
+}
+
+function defaultSqliteVecTag() {
+  try {
+    const packageJson = JSON.parse(
+      readFileSync(path.join(repoRoot, "node_modules", "sqlite-vec", "package.json"), "utf8"),
+    );
+    if (typeof packageJson.version === "string" && packageJson.version.length > 0) {
+      return `v${packageJson.version}`;
+    }
+  } catch {
+    // Keep the preflight runnable before npm install; 0b.3 pins sqlite-vec 0.1.9.
+  }
+  return "v0.1.9";
 }
 
 async function findFile(root, predicate) {
@@ -205,8 +231,24 @@ async function sqliteVecPackageSource(workDir) {
   };
 }
 
-async function downloadLatestAmalgamation(workDir) {
-  const releaseUrl = "https://api.github.com/repos/asg017/sqlite-vec/releases/latest";
+async function resolveTagCommit(tag) {
+  try {
+    const ref = await fetchJson(`https://api.github.com/repos/asg017/sqlite-vec/git/ref/tags/${tag}`);
+    if (ref?.object?.type === "commit" && typeof ref.object.sha === "string") {
+      return ref.object.sha;
+    }
+    if (ref?.object?.type === "tag" && typeof ref.object.url === "string") {
+      const tagObject = await fetchJson(ref.object.url);
+      if (typeof tagObject?.object?.sha === "string") return tagObject.object.sha;
+    }
+  } catch {
+    // The source asset hash remains the primary provenance when the tag API is unavailable.
+  }
+  return null;
+}
+
+async function downloadTaggedAmalgamation(workDir) {
+  const releaseUrl = `https://api.github.com/repos/asg017/sqlite-vec/releases/tags/${sqliteVecTag}`;
   const release = await fetchJson(releaseUrl);
   const assets = Array.isArray(release.assets) ? release.assets : [];
   const asset =
@@ -260,6 +302,7 @@ async function downloadLatestAmalgamation(workDir) {
     file: sourceFile,
     source: asset.browser_download_url,
     releaseTag: release.tag_name ?? "unknown",
+    upstreamCommit: await resolveTagCommit(release.tag_name ?? sqliteVecTag),
     releaseAsset: `${asset.name} (${asset.browser_download_url})`,
   };
 }
@@ -267,7 +310,7 @@ async function downloadLatestAmalgamation(workDir) {
 async function ensureSqliteVecSource(workDir) {
   const packageSource = await sqliteVecPackageSource(workDir);
   if (packageSource) return packageSource;
-  return downloadLatestAmalgamation(workDir);
+  return downloadTaggedAmalgamation(workDir);
 }
 
 async function findSqliteHeaderDir() {
@@ -303,10 +346,11 @@ async function findSqliteHeaderDir() {
 }
 
 function msvcArchArg() {
-  if (process.arch === "arm64") return "arm64";
-  if (process.arch === "x64") return "x64";
-  if (process.arch === "ia32") return "x86";
-  return process.arch;
+  if (targetArch === "arm64" && process.arch === "x64") return "x64_arm64";
+  if (targetArch === "arm64") return "arm64";
+  if (targetArch === "x64") return "x64";
+  if (targetArch === "ia32") return "x86";
+  return targetArch;
 }
 
 function quoteCmd(value) {
@@ -371,7 +415,6 @@ function candidateVcvarsallPaths() {
 
 function msvcArgs(sourceFile, outputFile, headerDir, workDir) {
   return [
-    "/nologo",
     "/LD",
     "/O2",
     "/I",
@@ -429,6 +472,7 @@ async function buildSource(db, workDir, sourceInfo) {
   const outputFile = path.join(workDir, "vec0.dll");
   const headerDir = await findSqliteHeaderDir();
   probe.source.headerDir = headerDir;
+  probe.source.sourceProvenance = await fileProvenance(sourceFile);
 
   const attempts = [
     {
@@ -493,14 +537,38 @@ async function buildSource(db, workDir, sourceInfo) {
     });
     if (!result.ok || !existsSync(outputFile)) continue;
 
+    const machine = readPeMachine(outputFile);
+    const expectedMachine = expectedPeMachine();
+    if (expectedMachine && machine !== expectedMachine) {
+      probe.source.buildLogs.push({
+        compiler: `${attempt.name} arch-check`,
+        command: `readPeMachine(${outputFile})`,
+        status: null,
+        signal: null,
+        stdout: "",
+        stderr: "",
+        error: `Built ${machine}; expected ${expectedMachine} for ${targetPlatform}/${targetArch}`,
+      });
+      continue;
+    }
+
+    probe.source.attempt = "SUCCESS";
+    probe.source.compiler = attempt.name;
+    probe.source.output = outputFile;
+    probe.source.provenance = await fileProvenance(outputFile);
+    probe.loadPath = attempt.loadPath;
+    if (vendorOutputDir) {
+      await writeVendoredArtifact(outputFile, sourceInfo, attempt.name, result);
+    }
+
+    if (targetPlatform !== process.platform || targetArch !== process.arch) {
+      probe.source.load = "SKIPPED_CROSS_TARGET";
+      return true;
+    }
+
     try {
       db.loadExtension(outputFile);
-      probe.source.attempt = "SUCCESS";
-      probe.source.compiler = attempt.name;
-      probe.source.output = outputFile;
-      probe.source.provenance = await fileProvenance(outputFile);
       probe.source.load = "SUCCESS";
-      probe.loadPath = attempt.loadPath;
       return true;
     } catch (error) {
       probe.source.load = "FAILED";
@@ -522,6 +590,77 @@ async function buildSource(db, workDir, sourceInfo) {
     probe.source.error = "All source build attempts failed";
   }
   return false;
+}
+
+async function writeVendoredArtifact(outputFile, sourceInfo, compiler, result) {
+  await mkdir(vendorOutputDir, { recursive: true });
+  const vendoredDll = path.join(vendorOutputDir, "vec0.dll");
+  await cp(outputFile, vendoredDll);
+  const output = await fileProvenance(vendoredDll);
+  const source = await fileProvenance(sourceInfo.file);
+  const script = await fileProvenance(__filename);
+  const manifest = {
+    schemaVersion: 1,
+    package: "sqlite-vec",
+    target: {
+      platform: targetPlatform,
+      arch: targetArch,
+      file: "vec0.dll",
+      peMachine: readPeMachine(outputFile),
+    },
+    upstream: {
+      repository: "https://github.com/asg017/sqlite-vec",
+      tag: sourceInfo.releaseTag ?? sqliteVecTag,
+      commit: sourceInfo.upstreamCommit ?? null,
+      sourceAsset: sourceInfo.releaseAsset ?? null,
+      sourceSha256: source.sha256,
+      license: "Apache-2.0 OR MIT",
+      notice: "sqlite-vec is copyright Alex Garcia and contributors and is licensed under Apache-2.0 OR MIT.",
+    },
+    build: {
+      recipe: "scripts/preflight-vec.mjs from-source-msvc",
+      buildScriptSha256: script.sha256,
+      compiler,
+      msvcVersion: extractMsvcVersion(`${result.stdout}\n${result.stderr}`),
+      runnerLabel: probe.runnerLabel,
+      runnerOs: probe.runnerOs,
+      runnerArch: probe.runnerArch,
+      imageOs: probe.imageOs,
+      buildDate: new Date().toISOString(),
+    },
+    output: {
+      sha256: output.sha256,
+      size: output.size,
+    },
+  };
+  await writeFile(path.join(vendorOutputDir, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+}
+
+function extractMsvcVersion(text) {
+  const match = text.match(/(?:Compiler|C\/C\+\+ Optimizing Compiler) Version\s+([^\r\n]+)/i);
+  return match?.[1]?.trim() ?? null;
+}
+
+function expectedPeMachine() {
+  if (targetPlatform !== "win32") return null;
+  if (targetArch === "arm64") return "ARM64";
+  if (targetArch === "x64") return "AMD64";
+  if (targetArch === "ia32") return "I386";
+  return null;
+}
+
+function readPeMachine(filePath) {
+  const bytes = readFileSync(filePath);
+  if (bytes.length < 0x40 || bytes.toString("ascii", 0, 2) !== "MZ") return "unknown";
+  const peOffset = bytes.readUInt32LE(0x3c);
+  if (peOffset + 6 > bytes.length || bytes.toString("ascii", peOffset, peOffset + 4) !== "PE\u0000\u0000") {
+    return "unknown";
+  }
+  const machine = bytes.readUInt16LE(peOffset + 4);
+  if (machine === 0xaa64) return "ARM64";
+  if (machine === 0x8664) return "AMD64";
+  if (machine === 0x014c) return "I386";
+  return `0x${machine.toString(16)}`;
 }
 
 function runFts5Probe(db) {
@@ -581,6 +720,7 @@ async function trySourceBuild(db) {
     const sourceInfo = await ensureSqliteVecSource(workDir);
     probe.source.source = sourceInfo.source;
     probe.source.releaseTag = sourceInfo.releaseTag ?? null;
+    probe.source.upstreamCommit = sourceInfo.upstreamCommit ?? null;
     probe.source.releaseAsset = sourceInfo.releaseAsset ?? null;
     return await buildSource(db, workDir, sourceInfo);
   } catch (error) {
@@ -640,6 +780,7 @@ function evidenceMarkdown() {
     `Runner env: ${probe.runnerOs} / ${probe.runnerArch} / ${probe.imageOs}`,
     `Node: ${probe.node}`,
     `Platform: ${probe.platform} / ${probe.arch}`,
+    `Target: ${probe.target.platform} / ${probe.target.arch}`,
     `sqlite-vec load path: ${probe.loadPath}`,
     "",
     "## FTS5 (better-sqlite3)",
@@ -667,7 +808,9 @@ function evidenceMarkdown() {
     `Compiler: ${probe.source.compiler ?? "n/a"}`,
     `Source: ${probe.source.source ?? "n/a"}`,
     `Release tag: ${probe.source.releaseTag ?? "n/a"}`,
+    `Upstream commit: ${probe.source.upstreamCommit ?? "n/a"}`,
     `Release asset: ${probe.source.releaseAsset ?? "n/a"}`,
+    `Source SHA256: ${probe.source.sourceProvenance?.sha256 ?? "n/a"}`,
     `SQLite header dir: ${probe.source.headerDir ?? "n/a"}`,
     `Load: ${probe.source.load}`,
     ...provenanceLines(probe.source.provenance),
@@ -722,15 +865,20 @@ async function main() {
     runFts5Probe(db);
 
     let officialLoaded = false;
-    if (forceSource) {
+    if (forceSource || targetPlatform !== process.platform || targetArch !== process.arch) {
       probe.official.attempt = "SKIPPED";
-      probe.official.error = "Skipped because PROBE_FORCE_SOURCE=1";
+      probe.official.error = forceSource
+        ? "Skipped because PROBE_FORCE_SOURCE=1"
+        : `Skipped because target ${targetPlatform}/${targetArch} differs from runtime ${process.platform}/${process.arch}`;
     } else {
       officialLoaded = await tryOfficialBinary(db);
     }
     const vecLoaded = officialLoaded || (await trySourceBuild(db));
-    if (vecLoaded) {
+    if (vecLoaded && targetPlatform === process.platform && targetArch === process.arch) {
       runKnnProbe(db);
+    } else if (vecLoaded) {
+      probe.knn.result = "SKIPPED_CROSS_TARGET";
+      probe.knn.error = `Built ${targetPlatform}/${targetArch}; current runtime is ${process.platform}/${process.arch}`;
     } else {
       probe.knn.result = "FAIL";
       probe.knn.error = "sqlite-vec did not load through the official or source path";
@@ -740,7 +888,10 @@ async function main() {
   } finally {
     if (db) db.close();
     probe.verdict =
-      probe.fts5.result === "PASS" && probe.knn.result === "PASS" ? "GO" : "NO-GO";
+      probe.fts5.result === "PASS" &&
+      (probe.knn.result === "PASS" || (vendorOutputDir && probe.source.attempt === "SUCCESS"))
+        ? "GO"
+        : "NO-GO";
     await writeEvidence();
     process.exitCode = probe.verdict === "GO" ? 0 : 1;
   }

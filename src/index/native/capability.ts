@@ -1,6 +1,7 @@
 import { createRequire } from "node:module";
-import { existsSync } from "node:fs";
-import { isAbsolute } from "node:path";
+import { createHash } from "node:crypto";
+import { existsSync, readFileSync, statSync } from "node:fs";
+import { isAbsolute, join } from "node:path";
 
 const require = createRequire(import.meta.url);
 const BetterSqlite3 = require("better-sqlite3") as BetterSqlite3Constructor;
@@ -76,6 +77,19 @@ interface Fts5ProbeRow {
 interface VecKnnProbeRow {
   readonly rowid: number | bigint;
   readonly distance: number;
+}
+
+interface VendoredSqliteVecManifest {
+  readonly target?: {
+    readonly platform?: string;
+    readonly arch?: string;
+    readonly file?: string;
+    readonly peMachine?: string;
+  };
+  readonly output?: {
+    readonly sha256?: string;
+    readonly size?: number;
+  };
 }
 
 /** Open a better-sqlite3 DB at `path` (':memory:' or a file). WAL for file DBs. Typed throw on failure. */
@@ -245,9 +259,14 @@ export function closeCapabilityDb(db: CapabilityDb): void {
   }
 }
 
-function resolveVendoredSqliteVecBinary(): string | null {
+export function resolveVendoredSqliteVecBinary(): string | null {
   if (process.platform === "win32" && process.arch === "arm64") {
-    return null;
+    const appRoot = resolveElectronAppRoot();
+    const vendorDir = join(appRoot, "vendor", "sqlite-vec", "win32-arm64");
+    const manifestPath = join(vendorDir, "manifest.json");
+    const binaryPath = join(vendorDir, "vec0.dll");
+    validateVendoredSqliteVecBinary({ binaryPath, manifestPath });
+    return binaryPath;
   }
   return null;
 }
@@ -262,4 +281,88 @@ function validateSqliteVecBinaryPath(binaryPath: string): string {
   }
 
   return binaryPath;
+}
+
+function resolveElectronAppRoot(): string {
+  const envAppPath = process.env["MEMORY_FORT_APP_PATH"];
+  if (envAppPath && isAbsolute(envAppPath)) return envAppPath;
+
+  const resourcesPath = (process as NodeJS.Process & { readonly resourcesPath?: string }).resourcesPath;
+  if (resourcesPath && isAbsolute(resourcesPath)) {
+    return join(resourcesPath, "app");
+  }
+
+  throw new Error(
+    "Cannot resolve vendored sqlite-vec path: MEMORY_FORT_APP_PATH and process.resourcesPath are unavailable"
+  );
+}
+
+function validateVendoredSqliteVecBinary(opts: { readonly binaryPath: string; readonly manifestPath: string }): void {
+  const { binaryPath, manifestPath } = opts;
+  if (!isAbsolute(binaryPath)) {
+    throw new Error(`vendored sqlite-vec path is not absolute: ${binaryPath}`);
+  }
+  if (!existsSync(binaryPath)) {
+    throw new Error(`vendored sqlite-vec binary does not exist: ${binaryPath}`);
+  }
+  if (!existsSync(manifestPath)) {
+    throw new Error(`vendored sqlite-vec manifest does not exist: ${manifestPath}`);
+  }
+
+  const manifest = readVendoredManifest(manifestPath);
+  const target = manifest.target;
+  const output = manifest.output;
+  if (!target || target.platform !== "win32" || target.arch !== "arm64") {
+    throw new Error(
+      `vendored sqlite-vec manifest target is ${target?.platform}/${target?.arch}; expected win32/arm64`
+    );
+  }
+  if (!output) {
+    throw new Error(`vendored sqlite-vec manifest is missing output details: ${manifestPath}`);
+  }
+  if (target.file !== "vec0.dll") {
+    throw new Error(`vendored sqlite-vec manifest file is ${String(target.file)}; expected vec0.dll`);
+  }
+  const actualSize = statSync(binaryPath).size;
+  if (output.size !== actualSize) {
+    throw new Error(
+      `vendored sqlite-vec size mismatch: manifest=${String(output.size)} actual=${actualSize}`
+    );
+  }
+  const actualSha256 = sha256File(binaryPath);
+  if (output.sha256 !== actualSha256) {
+    throw new Error(`vendored sqlite-vec sha256 mismatch: manifest=${output.sha256} actual=${actualSha256}`);
+  }
+  const actualMachine = readPeMachine(binaryPath);
+  if (target.peMachine !== "ARM64" || actualMachine !== "ARM64") {
+    throw new Error(
+      `vendored sqlite-vec arch mismatch: manifest=${String(target.peMachine)} actual=${actualMachine}`
+    );
+  }
+}
+
+function readVendoredManifest(manifestPath: string): VendoredSqliteVecManifest {
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as VendoredSqliteVecManifest;
+  if (!manifest.output || typeof manifest.output.sha256 !== "string" || typeof manifest.output.size !== "number") {
+    throw new Error(`vendored sqlite-vec manifest is missing output sha256/size: ${manifestPath}`);
+  }
+  return manifest;
+}
+
+function sha256File(filePath: string): string {
+  return createHash("sha256").update(readFileSync(filePath)).digest("hex");
+}
+
+function readPeMachine(filePath: string): string {
+  const bytes = readFileSync(filePath);
+  if (bytes.length < 0x40 || bytes.toString("ascii", 0, 2) !== "MZ") return "unknown";
+  const peOffset = bytes.readUInt32LE(0x3c);
+  if (peOffset + 6 > bytes.length || bytes.toString("ascii", peOffset, peOffset + 4) !== "PE\u0000\u0000") {
+    return "unknown";
+  }
+  const machine = bytes.readUInt16LE(peOffset + 4);
+  if (machine === 0xaa64) return "ARM64";
+  if (machine === 0x8664) return "AMD64";
+  if (machine === 0x014c) return "I386";
+  return `0x${machine.toString(16)}`;
 }

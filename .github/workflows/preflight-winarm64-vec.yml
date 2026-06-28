@@ -5,7 +5,10 @@ on:
   push:
     paths:
       - "scripts/preflight-vec.mjs"
+      - "scripts/assert-vendored-sqlite-vec.mjs"
       - ".github/workflows/preflight-winarm64-vec.yml"
+      - "vendor/sqlite-vec/**"
+      - "electron-builder.yml"
 
 permissions:
   contents: read
@@ -21,18 +24,50 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "24"
+          cache: npm
 
-      - name: Install better-sqlite3 + sqlite-vec
-        id: npm_install
-        run: npm install --no-save better-sqlite3 sqlite-vec
-        continue-on-error: true
+      - name: Install dependencies
+        run: npm install
 
-      - name: Run win-arm64 preflight probe
+      - name: Build vendored win-arm64 sqlite-vec
+        shell: pwsh
         run: node scripts/preflight-vec.mjs
         env:
+          PROBE_FORCE_SOURCE: "1"
+          PROBE_TARGET_PLATFORM: win32
+          PROBE_TARGET_ARCH: arm64
+          PROBE_VENDOR_OUTPUT_DIR: vendor/sqlite-vec/win32-arm64
           PROBE_RESULT_DIR: docs/release-evidence
           PROBE_RUNNER_LABEL: windows-11-arm
+
+      - name: Assert vendored sqlite-vec manifest
+        run: node scripts/assert-vendored-sqlite-vec.mjs .
+
+      - name: Build desktop app
+        run: npm run build
+
+      - name: Rebuild native modules for Electron ABI
+        run: npm run electron:rebuild
+
+      - name: Package win-arm64 NSIS installer
+        run: npx electron-builder --win nsis --arm64 --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+
+      - name: Install win-arm64 app and assert packaged sqlite-vec hash
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem dist/electron-installer/*.exe | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+          if (-not $installer) { throw "No NSIS installer found" }
+          $installDir = Join-Path $env:RUNNER_TEMP "Memory Fort ARM64 Install"
+          if (Test-Path -LiteralPath $installDir) {
+            Remove-Item -LiteralPath $installDir -Recurse -Force
+          }
+          & $installer.FullName /S "/D=$installDir"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $appRoot = Join-Path $installDir "resources\app"
+          node scripts/assert-vendored-sqlite-vec.mjs $appRoot
 
       - name: Upload evidence
         uses: actions/upload-artifact@v4
@@ -40,3 +75,10 @@ jobs:
         with:
           name: phase0.0-winarm64-evidence
           path: docs/release-evidence/phase0.0-winarm64-*.md
+
+      - name: Upload vendored sqlite-vec
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sqlite-vec-win32-arm64-vendor
+          path: vendor/sqlite-vec/win32-arm64/**

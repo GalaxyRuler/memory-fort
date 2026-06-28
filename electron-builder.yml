@@ -14,7 +14,8 @@ directories:
 # sqlite-vec follows the platform package under
 # resources/app/node_modules/sqlite-vec-<platform>-<arch>/ or macOS
 # Contents/Resources/app/node_modules/sqlite-vec-<platform>-<arch>/.
-# Windows arm64 uses the Phase 0.0 vcvarsall-built vec0.dll path once vendored.
+# Windows arm64 uses the Phase 0.0/0b.3a vcvarsall-built vendored path:
+# resources/app/vendor/sqlite-vec/win32-arm64/vec0.dll
 files:
   - dist/electron-main.mjs
   # Self-contained worker bundles the dashboard schedulers + /api/health verify
@@ -34,6 +35,7 @@ files:
   - node_modules/file-uri-to-path/**
   - node_modules/sqlite-vec/**
   - node_modules/sqlite-vec-*/**
+  - vendor/sqlite-vec/**
 
 # Disable asar so the Node HTTP server can serve dashboard-ui files normally
 # and native binaries can be loaded directly from app.getAppPath().
