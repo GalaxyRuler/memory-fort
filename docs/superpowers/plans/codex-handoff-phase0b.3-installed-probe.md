@@ -1,86 +1,102 @@
 # Codex handoff — Phase 0b.3: installed-app native probe on all four targets (THE Phase-0 gate)
 
-> Self-contained task brief. Codex cannot read the conversation that produced this. **Builds on 0b.1 (`ebad1d5`) + 0b.2 (`ccf7415`), both merged.** This is the **real Phase-0 gate** and the largest 0b task — it introduces a utilityProcess probe, the **win-arm64 `vec0.dll` vendoring pipeline**, and **installed-artifact** testing on all four targets. 0b.4 (runtime-path guard) follows. **Do not bump version / release** — the combined public release comes after 0b.3 passes.
+> Self-contained task brief. Codex cannot read the conversation that produced this. **Builds on 0b.1 (`ebad1d5`) + 0b.2 (`ccf7415`), both merged.** This is the **real Phase-0 gate** and the largest 0b task. **Revised 2026-06-28 after a GPT-5.5 Pro adversarial review + Claude verification of the load-bearing API claims** — see the audit note. **Do not bump version / release** — the combined public release comes after 0b.3.
+
+> **AUDIT NOTE (2026-06-28).** GPT-5.5 review + primary-source verification changed this plan:
+> - **Run the probe in the REAL dashboard-service utilityProcess host**, not a naively-forked separate process. A divergent fork (different cwd/env/appPath/options) can pass while the real index host fails. Reuse the dashboard-service supervisor's exact fork path/options.
+> - **"Use the unpacked artifact" is NOT acceptable for the gate.** Unpacked dirs, locally-built unquarantined DMGs, and `--appimage-extract` all have different path/security/process semantics than a real user install. Gate on real NSIS install / DMG mount+copy / AppImage exec; unpacked = non-gating evidence only.
+> - **Split the big-bang into 0b.3a → 0b.3b → 0b.3c (+ advisory scale)** so vendoring, installed-load, and WAL/recovery don't fail under one red light.
+> - **Step-6 restart-recovery must be an UNGRACEFUL kill.** Verified: Electron `utilityProcess.kill()` sends **SIGTERM on POSIX (graceful)** — a child that closes SQLite cleanly masks WAL crash recovery. Use SIGKILL / forced termination, write+don't-checkpoint, then reopen.
+> - **Demote the ~30 MB test** from hard gate to advisory evidence (scale/checkpoint, not native-load; CI-flake risk).
+> - **vec0 does NOT need to match better-sqlite3's exact SQLite version.** Verified: SQLite loadable extensions load at runtime via `dlopen`/`LoadLibrary` and bind to the host's `sqlite3_api_routines` — the real risk is host-API compatibility, not source-version matching. Log `sqlite_version()` + `pragma compile_options` and prove `loadExtension` + KNN at runtime. (better-sqlite3 12.11.1 bundles SQLite 3.53.1.)
+> - **macOS unsigned posture:** the app is unsigned (`CSC_IDENTITY_AUTO_DISCOVERY:false`), so library validation is NOT enforced and is not the current `loadExtension` blocker — **Gatekeeper/quarantine on first launch is**. Test it (`spctl --assess`, add a quarantine xattr). Forward constraint: **if signing is ever enabled**, the dashboard-service utilityProcess fork must set **`allowLoadingUnsignedLibraries: true`** (macOS opt, default false — verified) or the nested `vec0.dylib` must be signed, else `loadExtension` fails under hardened runtime.
 
 ## Goal
 
-Prove the native stack (better-sqlite3 FTS5 + sqlite-vec exact KNN, on WAL, with restart-recovery, concurrent WAL, and modest scale) works **inside the real Electron `utilityProcess` of the INSTALLED app** on **Windows x64, Windows ARM64, macOS ARM64, Linux x64**. The 0b.1/0b.2 gates ran `npx electron .` from a built repo; this gate runs the **packaged installer's** app so it proves the native binaries resolve at the **installed runtime paths** — the failure mode CI-builds-but-won't-`dlopen` that motivated all of Phase 0. **The hardest target is win-arm64**, which has no sqlite-vec npm prebuilt and needs a vendored from-source `vec0.dll`.
+Prove the native stack (better-sqlite3 FTS5 + sqlite-vec exact KNN, on WAL, with ungraceful-restart recovery and concurrent WAL) loads and runs inside the **real Electron dashboard-service utilityProcess of the INSTALLED app** on **Windows x64, Windows ARM64, macOS ARM64, Linux x64**. The 0b.1/0b.2 gates ran `npx electron .` in the **main** process from a built repo; this gate runs the **packaged installer's** app and the **utilityProcess** that will actually host the index — proving the native binaries resolve at the **installed runtime paths**. **The hardest target is win-arm64** (no sqlite-vec prebuilt → vendored from-source `vec0.dll`).
 
 ## Background (read — grounds everything)
 
-**MemoryFort:** single-user Electron 42.5.0 desktop app, GPL-3.0-only (`memory-fort-private`; public mirror `memory-fort`). Dashboard HTTP backend already runs in a long-lived Electron **`utilityProcess`** forked from `electron/main.ts` via `src/dashboard/dashboard-service-supervisor.ts`. Tier-2 adds a derived SQLite index (FTS5 + sqlite-vec). `asar:false`; native modules ship in `node_modules/**` under `resources/app/` and load at runtime via `createRequire` / `db.loadExtension`.
+**MemoryFort:** single-user Electron 42.5.0 desktop app, GPL-3.0-only (`memory-fort-private`; public mirror `memory-fort`). The dashboard HTTP backend runs in a long-lived Electron **`utilityProcess`** forked from `electron/main.ts` via `src/dashboard/dashboard-service-supervisor.ts` (`forkService()` builds a runtime-env, derives paths from `app.getAppPath()`, postMessages the child). `asar:false`; native modules ship in `node_modules/**` (+ a new `vendor/**`) under `resources/app/` and load via `createRequire` / `db.loadExtension`.
 
-**What 0b.1 + 0b.2 shipped (your foundation — reuse, don't duplicate):**
-- `src/index/native/capability.ts`: `openCapabilityDb(path)` (WAL for file DBs), `assertFts5`, `resolveSqliteVecBinary`, `loadSqliteVec`, `assertVec0Knn`, `closeCapabilityDb`; typed `CapabilityError { step }`. **`resolveSqliteVecBinary` already has the chokepoint** `resolveVendoredSqliteVecBinary()` that currently returns `null` for `win32/arm64` — **this is where you plug the vendored `vec0.dll`.**
-- Electron-runtime gate proven (modules=146) + **mutation-proven** on all three x64/arm64-mac CI OSes via `MEMORY_CAP_TEST=1` in `electron/main.ts` and the `electron-native-capability` job in `smoke.yml`. Keep that gate; 0b.3 adds a **separate, heavier, installed-app probe**.
-- tsdown: `electron-main` entry is `codeSplitting:false` with `neverBundle: ["electron", ...nativeRuntimeExternals]`; `nativeRuntimeExternals` includes `better-sqlite3`, `sqlite-vec`, `/^sqlite-vec-.+$/`. `electron-builder.yml` ships `node_modules/better-sqlite3/**`, `bindings`, `file-uri-to-path`, `sqlite-vec/**`, `sqlite-vec-*/**`.
+**0b.1 + 0b.2 foundation (reuse, don't duplicate):**
+- `src/index/native/capability.ts`: `openCapabilityDb(path)` (WAL for file DBs), `assertFts5`, `resolveSqliteVecBinary`, `loadSqliteVec` (= `db.loadExtension`), `assertVec0Knn`, `closeCapabilityDb`; typed `CapabilityError { step }`. **`resolveSqliteVecBinary` already calls `resolveVendoredSqliteVecBinary()` which currently returns `null` for `win32/arm64` — 0b.3a fills it**; everything else uses the npm `getLoadablePath()`.
+- Electron-runtime FTS5+KNN gate proven + mutation-proven on macOS/Linux/Win-x64 via `MEMORY_CAP_TEST=1` in `electron/main.ts` (runs in **main**) + the `electron-native-capability` smoke job. Keep that gate; 0b.3 adds the heavier **installed utilityProcess** probe.
+- tsdown: entries are `codeSplitting:false`, native modules in `nativeRuntimeExternals` (`neverBundle`). `electron-builder.yml` ships `better-sqlite3`, `bindings`, `file-uri-to-path`, `sqlite-vec`, `sqlite-vec-*`.
 
-**The win-arm64 fact (Phase 0.0, GO):** sqlite-vec ships **no win-arm64 npm prebuilt** ([#211](https://github.com/asg017/sqlite-vec/issues/211), [#73](https://github.com/asg017/sqlite-vec/issues/73)). Phase 0.0 **proved** a from-source `vec0.dll` — built on a `windows-11-arm` runner with MSVC `vcvarsall + cl.exe` from the `sqlite-vec.c` amalgamation — loads + KNN-works (CI run 28221618101, load path `from-source-msvc`). The build recipe lives in `scripts/preflight-vec.mjs` (`PROBE_FORCE_SOURCE=1`). **0b.3 productionizes that**: build the win-arm64 `vec0.dll` in CI, vendor it into the app, and have `resolveVendoredSqliteVecBinary()` return its installed path on `win32/arm64`.
+**Win-arm64 (Phase 0.0, GO):** no sqlite-vec npm prebuilt ([#211](https://github.com/asg017/sqlite-vec/issues/211), [#73](https://github.com/asg017/sqlite-vec/issues/73) — `__popcnt64`, still open). Phase 0.0 proved a from-source `vec0.dll` (MSVC `vcvarsall + cl.exe` from `sqlite-vec.c` on `windows-11-arm`) loads + KNN-works. Recipe in `scripts/preflight-vec.mjs` (`PROBE_FORCE_SOURCE=1`).
 
-**Probe vs gate (why a new file):** 0b.1/0b.2's `MEMORY_CAP_TEST` runs in the **main** process. 0b.3's probe must run in the **real utilityProcess** (`if (process.parentPort)`) — the same runtime that will host the index — and exercise WAL/restart/concurrency/scale that the in-main assertion doesn't. It is **env-gated** (`MEMORY_CAP_PROBE=1`) and ships in the app so it can run against the **installed** binary.
+**Verified facts (2026-06-28, primary sources):** `utilityProcess.fork` has `allowLoadingUnsignedLibraries` (macOS, default `false`); `kill()` is SIGTERM/graceful on POSIX. better-sqlite3 12.11.1 (Jun 15 2026) fixes Electron-42 Windows builds; bundles SQLite 3.53.1. GitHub hosted runners include `windows-11-arm` (admin, UAC off) and `macos-latest`(arm64); NSIS supports `/S` + `/D=<path>` (last arg, unquoted, spaces ok).
 
-## What to build
+---
 
-### 1. Win-arm64 `vec0.dll` vendoring pipeline
-- In CI (a `windows-11-arm` job — reuse `scripts/preflight-vec.mjs`'s `from-source-msvc` recipe), build `vec0.dll` for win-arm64 and make it available to the packaging step that builds the **win-arm64 installer**. Decide and document the mechanism: either (a) **commit** a vendored `vendor/sqlite-vec/win32-arm64/vec0.dll` with recorded provenance (sha256, sqlite-vec source version, build date) and a note that it's regenerated by the preflight recipe, or (b) build it in the release job and inject before `electron-builder`. Prefer whichever is reproducible and auditable; record the choice in `docs/release-evidence/phase0b3-winarm64-vendor-<date>.md` (sha256 + provenance).
-- `electron-builder.yml`: ensure the vendored dir ships for the win-arm64 target at a path `resolveVendoredSqliteVecBinary()` can compute from `app.getAppPath()`.
-- `capability.ts`: implement `resolveVendoredSqliteVecBinary()` for `win32/arm64` → absolute path to the vendored `vec0.dll` (validated by the existing `isAbsolute` + `existsSync`); keep returning `null` for every other platform/arch (they use the npm `getLoadablePath()`).
+## Task 0b.3a — vendor the win-arm64 `vec0.dll` + resolver + packaged-hash assertion
 
-### 2. The probe — `src/index/native/capability-probe.ts` (NEW, thin wrapper over the bootstrap)
-- Entry runs only inside the utilityProcess: `if (!process.parentPort) { /* not a utility child */ }`. Gate the whole probe behind `process.env.MEMORY_CAP_PROBE === "1"`.
-- Use a **file DB** in a temp dir (not `:memory:`) so WAL is real. Log each step to `<tmp>/cap-probe.log` (and to stdout/parentPort so the harness can read it), in order; any throw → `stepN FAIL <err>` + non-zero exit:
-  1. open SQLite **WAL** → `step1 ok`; **log the resolved path + `fs.stat` size/mtime for `better_sqlite3.node` and the resolved sqlite-vec binary** (proves the installed-path resolution).
-  2. FTS5 bm25 query (reuse `assertFts5`) → `step2 ok`.
-  3. close, reopen the same file, read back the row → `step3 wal-reopen ok`.
-  4. `loadSqliteVec` → `step4 vec-load ok`.
-  5. vec0 insert + KNN (reuse `assertVec0Knn`) → `step5 vec-knn ok`.
-  6. **restart-recover:** parent kills the utility child and re-forks; the probe re-runs steps 1–5 against the **same DB file** → `step6 restart-recover ok`.
-  7. **concurrent WAL:** one writer + one reader connection open at once; read during/after a write transaction; assert no corruption / correct read → `step7 concurrent-wal ok`.
-  8. **modest scale:** build a **~30 MB** DB (enough FTS5 rows + vec rows to force WAL growth + a checkpoint), reopen, query → `step8 30mb-reopen ok`.
-- Reuse `capability.ts` for all DB/FTS5/vec work — the probe is orchestration + WAL/restart/concurrency/scale, **not** a re-implementation. **No `src/index/**` feature code** (no reconciler, no real search).
+**Files:** `vendor/sqlite-vec/win32-arm64/vec0.dll` (+ `manifest.json`), `src/index/native/capability.ts`, `electron-builder.yml`, a CI assertion, third-party notices.
 
-### 3. Wire the probe into the app
-- `tsdown.config.js`: add a `capability-probe` entry, `codeSplitting:false`, native modules external (same `commonDeps`/`nativeRuntimeExternals`). It must build **self-contained** (`grep -cE '(from|import\()\s*"\.\.?/' dist/...capability-probe.mjs` == 0).
-- `electron/main.ts`: when `MEMORY_CAP_PROBE=1`, **fork the probe as a utilityProcess** (mirror the dashboard-service supervisor's fork; the probe needs `process.parentPort`), drive steps 1–8 incl. the kill+re-fork for step 6, collect logs, exit 0 only if all 8 steps `ok`. Do **not** open a window. Keep the normal (no-env) launch path identical.
-- `electron-builder.yml`: ship the probe `.mjs` + all native binaries (already listed) so they're present at installed runtime paths.
+- Build `vec0.dll` for win-arm64 in CI (reuse the 0.0 `from-source-msvc` recipe on `windows-11-arm`). **Commit** `vendor/sqlite-vec/win32-arm64/vec0.dll` + `vendor/sqlite-vec/win32-arm64/manifest.json` recording: upstream sqlite-vec tag/commit, source amalgamation sha256, build-script hash, MSVC version, runner image label, build date, **output sha256**, file size, and the Apache-2.0/MIT license notice. (MSVC output is not byte-reproducible — trust model is "shipped binary sha256 == manifest sha256", not "rebuild reproduces the bytes".)
+- `electron-builder.yml`: ship `vendor/sqlite-vec/**` so the win-arm64 installer carries it; compute its installed path from `app.getAppPath()`.
+- `resolveVendoredSqliteVecBinary()`: for `win32/arm64` return the absolute installed `vec0.dll` path; validate **absolute + exists + sha256 == manifest + file size + arch** before returning; `null` for every other platform/arch.
+- Add the sqlite-vec Apache-2.0/MIT notice to the app's third-party notices (GPL-3.0 app shipping an Apache/MIT binary — compliance).
+- **CI assertion:** the built **win-arm64** app contains exactly the manifest sha256 at the expected installed path.
+- **Acceptance:** vendored DLL + manifest committed; resolver returns the validated win-arm64 path; CI proves the packaged win-arm64 app contains the exact hash at the right path. Commit: `build(index): vendor win-arm64 sqlite-vec vec0.dll + provenance manifest`.
 
-### 4. Run the INSTALLED app on all four targets
-- Extend the **release/smoke CI** so that, after the installer is built for each target, the app is **installed (or the unpacked artifact is used)** and launched with `MEMORY_CAP_PROBE=1`, collecting `cap-probe.log`. Targets: **Windows x64, Windows ARM64 (`windows-11-arm`), macOS ARM64, Linux x64**. (macOS ARM64 + win-arm64 are the load-bearing ones — verify on the GitHub `macos-latest` arm64 + `windows-11-arm` runners, since there's no physical device.) Local Windows-x64 is also fine as one data point but the **installed-artifact** run is the gate.
-- Collect every target's log into `docs/release-evidence/phase0b3-<date>.md`.
+## Task 0b.3b — micro installed native-load gate (win-arm64 FIRST, then all targets) — THE load-bearing gate
 
-## Tests / verification Codex must run before handing back
+**Files:** `src/index/native/capability-probe.ts` (NEW), `tsdown.config.js` (entry), `electron/main.ts` (fork via the supervisor), `src/dashboard/dashboard-service-supervisor.ts` (reuse/extend the fork path), `electron-builder.yml`, `.github/workflows/*`.
+
+- **`capability-probe.ts`** runs ONLY inside a utilityProcess (`if (!process.parentPort) bail`), gated behind `MEMORY_CAP_PROBE=1`. It must be forked through the **same `dashboard-service-supervisor` fork path/options** the dashboard-service uses (same cwd, env, runtime-env construction, `app.getAppPath()` resolution) — so it proves the **real index host**, not a divergent process. (Acceptable alternative: run the probe inside the dashboard-service entry itself behind the env flag, before the HTTP server starts. A naive standalone `utilityProcess.fork` of a different entry is NOT acceptable — it can diverge.)
+- The micro-gate runs ONLY these steps (file DB in a temp dir with a **space and Unicode** in the path), logging each to `<tmp>/cap-probe.log` + parentPort; any throw → `stepN FAIL <err>` + non-zero exit:
+  1. **Log the runtime + paths:** `process.execPath`, `process.cwd()`, `process.resourcesPath`, parent `app.getAppPath()`, `process.platform`, `process.arch`, `process.versions.{electron,node,modules}`.
+  2. Open SQLite **WAL** file DB → log resolved path + `fs.stat` (size/mtime) + **sha256** for `better_sqlite3.node` AND the resolved sqlite-vec binary; log `select sqlite_version()` + `pragma compile_options`.
+  3. FTS5 bm25 (reuse `assertFts5`) → `fts5 ok`.
+  4. `loadSqliteVec` → `vec-load ok`.
+  5. vec0 insert + KNN (reuse `assertVec0Knn`) → `vec-knn ok`.
+  6. **Runtime-path guard (pulled forward from 0b.4):** assert both native binaries resolved from **inside the installed app** (`resourcesPath`/`app.getAppPath()` subtree) — NOT a dev path, global npm cache, or unpacked build tree; arch matches `process.arch`. Mismatch → fail.
+- **Run the INSTALLED app** with `MEMORY_CAP_PROBE=1` on **win-arm64 FIRST**, then Win x64, macOS arm64, Linux x64 — via real distribution artifacts:
+  - Win x64 + **win-arm64**: NSIS silent install into a path **with spaces** (`/S /D=<path with spaces>`), launch the installed `.exe`. (`windows-11-arm` runner.)
+  - macOS arm64: mount the DMG, copy `.app` to a non-build path with spaces, **add a `com.apple.quarantine` xattr**, run `codesign -dv --verbose=4` + `spctl --assess --type execute -vv`, then launch with the env flag. Record whether Gatekeeper/quarantine blocks launch.
+  - Linux x64: run the real **AppImage** under `xvfb-run`. If FUSE is unavailable and you must `--appimage-extract`, **label that result weaker/non-gating** — do not treat it as equivalent.
+- **Acceptance (THE GATE):** steps 1–6 `ok` on **all four targets via real installed artifacts — especially win-arm64 vec-load+vec-knn and macOS arm64 (launch + load under quarantine)**. Logs → `docs/release-evidence/phase0b3-<date>.md`. A skipped target is a **NO-GO**, not a pass. Commit: `feat(index): installed-app native-load gate (4 targets, win-arm64 vendored vec0)`.
+
+## Task 0b.3c — WAL durability: ungraceful restart-recovery + concurrent WAL (after 0b.3b green)
+
+**Files:** `src/index/native/capability-probe.ts` (extend), the CI gate.
+
+- Extend the probe (still in the real utilityProcess host, installed artifacts) with:
+  7. **Ungraceful restart-recover:** write committed WAL frames, **avoid checkpoint**, then **forcibly terminate** the utility child (SIGKILL on POSIX / forced process kill on Windows — NOT `utilityProcess.kill()`, which is graceful SIGTERM), keep the DB dir stable, re-fork, reopen + read back + re-run load/KNN → `restart-recover ok`.
+  8. **Concurrent WAL (small):** one writer + one reader connection open at once; read during/after a write txn; assert correct read, no corruption, no lock error → `concurrent-wal ok`. Keep it small — file-locking proof in the packaged runtime, NOT index-feature testing.
+- **Acceptance:** steps 7–8 `ok` on all four installed targets. Logs appended to the 0b3 evidence file. Commit: `feat(index): WAL crash-recovery + concurrent-WAL probe steps`.
+
+## Advisory (NOT a hard gate) — ~30 MB scale smoke
+- Optionally, after 0b.3b/0b.3c are green, build a ~30 MB DB (force WAL growth + checkpoint), reopen, query → record as **evidence** in the 0b3 file. **Not a release blocker** for Phase 0 (it's scale/checkpoint, not native-load; it adds CI-timeout/disk flake). If it flakes, it does not fail the gate.
+
+## Tests / verification Codex must run before handing back (each sub-task)
 - `npx tsc --noEmit` + `npx tsc -p tsconfig.ui.json --noEmit` — both 0.
-- `npm run build` — green; both `electron-main.mjs` **and** `capability-probe.mjs` self-contained (0 relative runtime imports; better-sqlite3 + sqlite-vec external).
-- Local Windows-x64: `npm run electron:rebuild`, then run the packaged/unpacked app with `MEMORY_CAP_PROBE=1`; confirm `step1..step8 ok` and the logged binary paths/stats.
-- Do NOT run the full vitest suite on WHITEDRAGON (repo policy; `server.test.ts` is a known CPU-load flake — run targeted files only).
-
-## Acceptance criteria (THE GATE)
-- Win-arm64 `vec0.dll` vendored with recorded sha256 + provenance; `resolveVendoredSqliteVecBinary()` returns its installed path on win32/arm64, `null` elsewhere.
-- `capability-probe.ts` runs in the real utilityProcess, env-gated, reuses the bootstrap, ships self-contained.
-- **Steps 1–8 `ok` on all four targets — especially win-arm64 step4/5 (vec-load + vec-knn) and macOS arm64.** Logs recorded in `docs/release-evidence/phase0b3-<date>.md`.
-- Both typechecks + build green; normal launch unaffected.
-- Commit: `feat(index): installed-app native capability probe (4 targets, win-arm64 vendored vec0)`.
+- `npm run build` — green; `capability-probe.mjs` (and `electron-main.mjs`) **self-contained** (`grep -cE '(from|import\()\s*"\.\.?/' dist/...` == 0; better-sqlite3 + sqlite-vec external).
+- Local Windows-x64: `npm run electron:rebuild`, run the packaged app with `MEMORY_CAP_PROBE=1`; confirm the relevant steps `ok` and the logged binary paths/stats are **inside the installed app**.
+- Do NOT run the full vitest suite on WHITEDRAGON (repo policy; `server.test.ts` is a known CPU-load flake) — targeted files only.
 
 ## What NOT to do
 - **No `src/index/**` feature code** — no reconciler/search/index wiring; probe + bootstrap only.
-- Do not weaken or remove the 0b.1/0b.2 `MEMORY_CAP_TEST` gate; the probe is additive.
-- Do not require an end-user toolchain — the win-arm64 `vec0.dll` is built in CI and **vendored**; users never compile.
+- Do not weaken/remove the 0b.1/0b.2 `MEMORY_CAP_TEST` gate; the probe is additive.
+- Do not fork a **divergent** probe process — reuse the dashboard-service supervisor's fork path/options (or run inside dashboard-service behind the flag).
+- Do not accept "unpacked artifact" as the gate; do not pretend `--appimage-extract` == real AppImage.
+- Do not use graceful `utilityProcess.kill()` for step 7 (it's SIGTERM) — use forced termination.
+- Do not require an end-user toolchain (win-arm64 `vec0.dll` is CI-built + vendored).
 - Do not switch vector extensions, bundle native modules into JS, set `asar:true`, or revert `npm install`→`npm ci`.
-- Do not bump version / cut a release (that's after 0b.3 passes, per `docs/RELEASING.md`).
-- Do not silently skip a target — if a runner can't install the artifact, `log` it loudly; a skipped win-arm64 is a NO-GO, not a pass.
+- Do not bump version / cut a release.
 
-## After Codex hands back — Claude's audit steps
-1. Diff review: probe is utilityProcess-gated, reuses the bootstrap, no feature code; `resolveVendoredSqliteVecBinary` win32/arm64 branch correct + validated.
-2. Verify win-arm64 `vec0.dll` provenance (sha256 recorded; rebuildable from `scripts/preflight-vec.mjs`); confirm electron-builder ships it for the win-arm64 target only where intended.
-3. Local Windows-x64: typechecks + build; grep both shipped entries self-contained; run the packaged app with `MEMORY_CAP_PROBE=1` → steps 1–8 ok; eyeball the logged binary stat paths are **inside the installed app**, not the repo.
-4. **CI: confirm steps 1–8 ok on all four targets**, reading each `cap-probe.log` — especially **win-arm64 step4/5** and **macOS arm64**. A skipped target = NO-GO.
-5. **Mutation-prove**: remove/rename one native binary at the installed path (e.g. the win-arm64 `vec0.dll`, and separately `better_sqlite3.node`) → the probe must fail at the right step. Revert.
-6. On green: tick 0b.3 in the plan; hand off **0b.4** (runtime-path native guard, mutation-proven) — then Phase 0 is done and the **one combined public release** follows per `docs/RELEASING.md`.
+## After each sub-task — Claude's audit steps
+- **0b.3a:** verify the manifest provenance + that the packaged win-arm64 app contains exactly the manifest sha256 at the installed path; resolver win32/arm64 branch validated (sha256+arch+exists); license notice present.
+- **0b.3b:** read each target's `cap-probe.log`; confirm steps 1–6 ok on **real installed artifacts** on all four targets (win-arm64 + macOS arm64 load-bearing); eyeball that the logged binary paths are **inside the installed app**, not the repo; confirm the probe ran via the supervisor fork path (same appPath/resourcesPath as dashboard-service). **Mutation-prove:** rename the installed win-arm64 `vec0.dll` (and separately `better_sqlite3.node`) → probe fails at the right step. macOS: confirm the quarantine/spctl result is recorded.
+- **0b.3c:** confirm step 7 used a **forced** kill (not `utilityProcess.kill()`); steps 7–8 ok on all four.
+- On all green: tick 0b.3 in the plan; hand off **0b.4** (formal runtime-path guard test, mutation-proven — much of it proven by 0b.3b step 6) → then Phase 0 done → **one combined public release** per `docs/RELEASING.md`.
 
 ## References (repo-root-relative)
 - Plan: `docs/superpowers/plans/2026-06-25-tier2-phase0-electron-native.md` (Phase 0b.3)
-- Bootstrap (your base): `src/index/native/capability.ts`; 0b.2 merge `ccf7415`, 0b.1 merge `ebad1d5`
-- Win-arm64 recipe: `scripts/preflight-vec.mjs` (`from-source-msvc`, `PROBE_FORCE_SOURCE=1`); 0.0 brief `docs/superpowers/plans/codex-handoff-phase0.0-winarm64-vec.md`; evidence in plan §Phase 0.0
-- Fork pattern: `src/dashboard/dashboard-service-supervisor.ts`, `electron/main.ts`
-- Packaging: `electron-builder.yml`, `tsdown.config.js`; release CI `.github/workflows/release.yml`, smoke `.github/workflows/smoke.yml`
-- sqlite-vec: https://github.com/asg017/sqlite-vec · win-arm64 gaps: [#211](https://github.com/asg017/sqlite-vec/issues/211), [#73](https://github.com/asg017/sqlite-vec/issues/73) · GitHub `windows-11-arm` runners GA: https://github.blog/changelog/2025-08-07-arm64-hosted-runners-for-public-repositories-are-now-generally-available/
+- Bootstrap: `src/index/native/capability.ts`; merges 0b.1 `ebad1d5`, 0b.2 `ccf7415`
+- Win-arm64 recipe: `scripts/preflight-vec.mjs`; 0.0 brief `docs/superpowers/plans/codex-handoff-phase0.0-winarm64-vec.md`
+- Fork pattern to reuse: `src/dashboard/dashboard-service-supervisor.ts`, `electron/main.ts`
+- Packaging: `electron-builder.yml`, `tsdown.config.js`; CI `.github/workflows/release.yml`, `smoke.yml`
+- Electron utilityProcess (`allowLoadingUnsignedLibraries`, `kill` SIGTERM): https://www.electronjs.org/docs/latest/api/utility-process · SQLite loadext: https://sqlite.org/loadext.html · NSIS CLI: https://nsis.sourceforge.io/Docs/Chapter3.html · sqlite-vec: https://github.com/asg017/sqlite-vec · better-sqlite3 releases: https://github.com/WiseLibs/better-sqlite3/releases

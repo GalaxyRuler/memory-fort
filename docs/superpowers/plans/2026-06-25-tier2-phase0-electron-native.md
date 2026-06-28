@@ -102,21 +102,15 @@
 
 ### Task 0b.3: installed-app probe (all 4 targets) — the real gate
 
-**Files:** `src/index/native/capability-probe.ts` (thin wrapper over the bootstrap, env-gated `MEMORY_CAP_PROBE=1`), `tsdown.config.js` (entry, `codeSplitting:false`, native external), `electron-builder.yml` (ship probe `.mjs` + native binaries), `electron/main.ts` (fork the probe under the env flag).
+> **REVISED 2026-06-28 after GPT-5.5 review + Claude verification (round 3). Split into 0b.3a→0b.3b→0b.3c (+ advisory).** Full Codex brief: `docs/superpowers/plans/codex-handoff-phase0b.3-installed-probe.md`. Key changes: probe runs in the **real dashboard-service utilityProcess host** (not a divergent fork); **gate on real installed artifacts** (NSIS `/S /D=` into a spaced path, DMG mount+copy+quarantine, AppImage under xvfb) — "unpacked artifact" removed from acceptance; **ungraceful** kill for restart-recovery (verified `utilityProcess.kill()` is graceful SIGTERM); **30 MB demoted to advisory**; vec0 needs runtime API compat not exact SQLite-version match (log `sqlite_version()`+`compile_options`); win-arm64 `vec0.dll` committed-vendored with provenance manifest; runtime-path guard pulled forward from 0b.4; macOS `allowLoadingUnsignedLibraries` is the forward escape-hatch if signing is enabled (unsigned today → Gatekeeper/quarantine is the real first-launch risk).
 
-- [ ] Probe runs in the real utilityProcess (`if (process.parentPort)`), logs each step to `<tmp>/cap-probe.log`:
-  1. open SQLite WAL → `step1 ok`; **log resolved path + `stat` for `better_sqlite3.node` and the vec binary**
-  2. FTS5 bm25 query → `step2 ok`
-  3. close, reopen, read back → `step3 wal-reopen ok`
-  4. `loadSqliteVec` → `step4 vec-load ok`
-  5. vec0 insert + KNN → `step5 vec-knn ok`
-  6. parent kills + re-forks; probe re-runs 1–5 on the same DB file → `step6 restart-recover ok`
-  7. **concurrent WAL:** one writer + one reader connection, read during/after write → `step7 concurrent-wal ok`
-  8. **modest scale:** build a ~30 MB DB (enough rows/vectors to exercise WAL growth + checkpoint), reopen → `step8 30mb-reopen ok`
-  Any throw → `stepN FAIL <err>`, exit non-zero.
-- [ ] Ship self-contained (`grep` relative-imports == 0); native binaries in `files`, present at runtime paths.
-- [ ] **Run the INSTALLED app** with `MEMORY_CAP_PROBE=1` on **Win x64, Win arm64, macOS arm64, Linux x64** (CI matrix + local Windows). Collect every log.
-- [ ] **Acceptance (THE GATE):** steps 1–8 `ok` on **all four targets**, especially **win-arm64 + step4/5**. Record all logs in `docs/release-evidence/phase0b-<date>.md`. (Disk-full / corrupt-DB recovery are deferred to the index feature phase — not native-stack proof.)
+**Files:** `src/index/native/capability-probe.ts` (env-gated `MEMORY_CAP_PROBE=1`, forked via the dashboard-service supervisor's exact path/options), `vendor/sqlite-vec/win32-arm64/{vec0.dll,manifest.json}`, `src/index/native/capability.ts` (`resolveVendoredSqliteVecBinary` win32/arm64), `tsdown.config.js`, `electron-builder.yml`, `electron/main.ts`, `.github/workflows/*`.
+
+- [ ] **0b.3a:** commit vendored win-arm64 `vec0.dll` + provenance manifest (sha256/tag/recipe/MSVC/runner/date); `resolveVendoredSqliteVecBinary()` returns the validated installed path (absolute+exists+sha256+arch) for win32/arm64, null elsewhere; ship `vendor/**`; sqlite-vec Apache/MIT notice; CI asserts the packaged win-arm64 app contains the exact hash at the installed path.
+- [ ] **0b.3b (THE load-bearing gate):** `capability-probe.ts` in the **real utilityProcess host**; steps: log runtime/paths (`execPath/cwd/resourcesPath/appPath/platform/arch/versions`), open WAL + `stat`+sha256 both binaries + `sqlite_version()`+`compile_options`, FTS5, `loadSqliteVec`, vec0 KNN, **runtime-path guard** (binaries resolved from inside the installed app). Run the **INSTALLED** artifact with `MEMORY_CAP_PROBE=1` on **win-arm64 FIRST**, then Win x64, macOS arm64 (DMG+quarantine+`spctl`), Linux x64 (real AppImage/xvfb). Self-contained bundle. Skipped target = NO-GO.
+- [ ] **0b.3c:** extend probe with **ungraceful** restart-recover (SIGKILL/forced, write-without-checkpoint, re-fork, reopen) + small concurrent-WAL (one writer/one reader). All four installed targets.
+- [ ] **Advisory (not a gate):** ~30 MB DB reopen/checkpoint as evidence only — never blocks the gate.
+- [ ] **Acceptance (THE GATE):** 0b.3a hash-assertion green; 0b.3b steps `ok` on **all four installed targets** (esp. **win-arm64 vec-load/KNN + macOS arm64 launch-under-quarantine**), mutation-proven (rename a binary → fail at the right step); 0b.3c restart+concurrent `ok`. Logs in `docs/release-evidence/phase0b3-<date>.md`. (Disk-full / corrupt-DB recovery deferred to the index feature phase.)
 
 ### Task 0b.4: runtime-path native guard + cleanup
 
