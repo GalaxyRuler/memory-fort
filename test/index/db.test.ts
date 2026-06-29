@@ -43,6 +43,45 @@ describe("openIndexDb", () => {
     expect(triggerRows.map((row) => row.name)).toEqual(["chunks_ad", "chunks_ai", "chunks_au"]);
   });
 
+  it("keeps chunks_fts consistent across insert/update/delete (no ghost rows)", async () => {
+    const { openIndexDb } = await import("../../src/index/db.js");
+    tempDir = await mkdtemp(join(tmpdir(), "memory-index-db-"));
+    const indexDb = track(openIndexDb(join(tempDir, "index.db")));
+    const db = indexDb.database;
+
+    db.prepare("INSERT INTO files(relPath, generation) VALUES('a.md', 1)").run();
+    const insChunk = db.prepare(
+      "INSERT INTO chunks(chunkId, relPath, ordinal, byteStart, byteEnd, text, textHash, generation) VALUES(?,?,?,?,?,?,?,?)",
+    );
+    insChunk.run("c1", "a.md", 0, 0, 5, "kafka streams", "h1", 1);
+    insChunk.run("c2", "a.md", 1, 6, 11, "postgres rows", "h2", 1);
+
+    const match = (term: string): string[] =>
+      (
+        db
+          .prepare(
+            "SELECT c.chunkId AS chunkId FROM chunks_fts f JOIN chunks c ON c.rowid = f.rowid WHERE chunks_fts MATCH ? ORDER BY bm25(chunks_fts)",
+          )
+          .all(term) as Array<{ chunkId: string }>
+      ).map((r) => r.chunkId);
+
+    // insert trigger: terms are searchable
+    expect(match("kafka")).toEqual(["c1"]);
+    expect(match("postgres")).toEqual(["c2"]);
+
+    // update trigger: old term gone (no ghost), new term present
+    db.prepare("UPDATE chunks SET text = 'redis cache' WHERE chunkId = 'c1'").run();
+    expect(match("kafka")).toEqual([]);
+    expect(match("redis")).toEqual(["c1"]);
+
+    // delete trigger: FTS entry removed
+    db.prepare("DELETE FROM chunks WHERE chunkId = 'c2'").run();
+    expect(match("postgres")).toEqual([]);
+
+    // external-content index stays consistent with the content table
+    expect(() => indexDb.integrityCheck()).not.toThrow();
+  });
+
   it("drops a corrupted derived database and stale sidecars before rebuilding", async () => {
     const { openIndexDb } = await import("../../src/index/db.js");
     tempDir = await mkdtemp(join(tmpdir(), "memory-index-db-"));
