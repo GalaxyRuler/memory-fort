@@ -2,10 +2,9 @@ name: Installed Native Capability Probe
 
 on:
   workflow_dispatch:
-  push:
+  pull_request:
     branches:
-      - codex/phase0b3-installed-probe*
-      - codex/phase0b3c-wal-durability*
+      - main
 
 permissions:
   contents: read
@@ -41,15 +40,32 @@ jobs:
           if (Test-Path -LiteralPath $installDir) { Remove-Item -LiteralPath $installDir -Recurse -Force }
           & $installer.FullName /S "/D=$installDir"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          function Assert-InstalledNativePath($AppRoot, $RelativePath) {
+            $path = Join-Path $AppRoot $RelativePath
+            if (-not (Test-Path -LiteralPath $path)) { throw "missing installed native path: $RelativePath -> $path" }
+            $resolvedAppRoot = (Resolve-Path -LiteralPath $AppRoot).Path
+            $resolvedPath = (Resolve-Path -LiteralPath $path).Path
+            if (-not $resolvedPath.StartsWith($resolvedAppRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
+              throw "native path escaped installed app root: $resolvedPath"
+            }
+            if ($resolvedPath -like "*.asar*") { throw "native path is inside asar: $resolvedPath" }
+            return $path
+          }
           $exe = Join-Path $installDir "MemoryFort.exe"
-          $betterNode = Join-Path $installDir "resources\app\node_modules\better-sqlite3\build\Release\better_sqlite3.node"
-          $vecBinary = Join-Path $installDir "resources\app\vendor\sqlite-vec\win32-arm64\vec0.dll"
+          $appRoot = Join-Path $installDir "resources\app"
+          $appAsar = Join-Path $installDir "resources\app.asar"
+          $betterNodeRelative = "node_modules\better-sqlite3\build\Release\better_sqlite3.node"
+          $vecBinaryRelative = "vendor\sqlite-vec\win32-arm64\vec0.dll"
+          $betterNode = Join-Path $appRoot $betterNodeRelative
+          $vecBinary = Join-Path $appRoot $vecBinaryRelative
           foreach ($i in 1..180) {
+            if (Test-Path -LiteralPath $appAsar) { throw "unexpected app.asar in installed app: $appAsar" }
             if ((Test-Path -LiteralPath $exe) -and (Test-Path -LiteralPath $betterNode) -and (Test-Path -LiteralPath $vecBinary)) { break }
             Start-Sleep -Seconds 1
           }
-          if (-not (Test-Path -LiteralPath $betterNode)) { throw "better_sqlite3.node did not appear: $betterNode" }
-          if (-not (Test-Path -LiteralPath $vecBinary)) { throw "sqlite-vec binary did not appear: $vecBinary" }
+          if (Test-Path -LiteralPath $appAsar) { throw "unexpected app.asar in installed app: $appAsar" }
+          $betterNode = Assert-InstalledNativePath $appRoot $betterNodeRelative
+          $vecBinary = Assert-InstalledNativePath $appRoot $vecBinaryRelative
           node scripts/assert-vendored-sqlite-vec.mjs (Join-Path $installDir "resources\app")
           if (-not (Test-Path -LiteralPath $exe)) { $exe = (Get-ChildItem -Path $installDir -Filter "*.exe" | Select-Object -First 1).FullName }
           $env:MEMORY_CAP_PROBE = "1"
@@ -105,15 +121,32 @@ jobs:
           if (Test-Path -LiteralPath $installDir) { Remove-Item -LiteralPath $installDir -Recurse -Force }
           & $installer.FullName /S "/D=$installDir"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          function Assert-InstalledNativePath($AppRoot, $RelativePath) {
+            $path = Join-Path $AppRoot $RelativePath
+            if (-not (Test-Path -LiteralPath $path)) { throw "missing installed native path: $RelativePath -> $path" }
+            $resolvedAppRoot = (Resolve-Path -LiteralPath $AppRoot).Path
+            $resolvedPath = (Resolve-Path -LiteralPath $path).Path
+            if (-not $resolvedPath.StartsWith($resolvedAppRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
+              throw "native path escaped installed app root: $resolvedPath"
+            }
+            if ($resolvedPath -like "*.asar*") { throw "native path is inside asar: $resolvedPath" }
+            return $path
+          }
           $exe = Join-Path $installDir "MemoryFort.exe"
-          $betterNode = Join-Path $installDir "resources\app\node_modules\better-sqlite3\build\Release\better_sqlite3.node"
-          $vecBinary = Join-Path $installDir "resources\app\node_modules\sqlite-vec-windows-x64\vec0.dll"
+          $appRoot = Join-Path $installDir "resources\app"
+          $appAsar = Join-Path $installDir "resources\app.asar"
+          $betterNodeRelative = "node_modules\better-sqlite3\build\Release\better_sqlite3.node"
+          $vecBinaryRelative = "node_modules\sqlite-vec-windows-x64\vec0.dll"
+          $betterNode = Join-Path $appRoot $betterNodeRelative
+          $vecBinary = Join-Path $appRoot $vecBinaryRelative
           foreach ($i in 1..180) {
+            if (Test-Path -LiteralPath $appAsar) { throw "unexpected app.asar in installed app: $appAsar" }
             if ((Test-Path -LiteralPath $exe) -and (Test-Path -LiteralPath $betterNode) -and (Test-Path -LiteralPath $vecBinary)) { break }
             Start-Sleep -Seconds 1
           }
-          if (-not (Test-Path -LiteralPath $betterNode)) { throw "better_sqlite3.node did not appear: $betterNode" }
-          if (-not (Test-Path -LiteralPath $vecBinary)) { throw "sqlite-vec binary did not appear: $vecBinary" }
+          if (Test-Path -LiteralPath $appAsar) { throw "unexpected app.asar in installed app: $appAsar" }
+          $betterNode = Assert-InstalledNativePath $appRoot $betterNodeRelative
+          $vecBinary = Assert-InstalledNativePath $appRoot $vecBinaryRelative
           if (-not (Test-Path -LiteralPath $exe)) { $exe = (Get-ChildItem -Path $installDir -Filter "*.exe" | Select-Object -First 1).FullName }
           $env:MEMORY_CAP_PROBE = "1"
           $env:MEMORY_CAP_PROBE_LOG_DIR = $logBase
@@ -175,6 +208,33 @@ jobs:
           mkdir -p "$app_dir"
           cp -R "$app_src" "$app_dst"
           hdiutil detach "$mount_dir"
+          app_root="$app_dst/Contents/Resources/app"
+          app_asar="$app_dst/Contents/Resources/app.asar"
+          assert_installed_native_path() {
+            local relative="$1"
+            local path="$app_root/$relative"
+            if [[ ! -f "$path" ]]; then
+              echo "missing installed native path: $relative -> $path" >&2
+              exit 1
+            fi
+            case "$path" in
+              "$app_root"/*) ;;
+              *)
+                echo "native path escaped installed app root: $path" >&2
+                exit 1
+                ;;
+            esac
+            if [[ "$path" == *".asar"* ]]; then
+              echo "native path is inside asar: $path" >&2
+              exit 1
+            fi
+          }
+          if [[ -e "$app_asar" ]]; then
+            echo "unexpected app.asar in installed app: $app_asar" >&2
+            exit 1
+          fi
+          assert_installed_native_path "node_modules/better-sqlite3/build/Release/better_sqlite3.node"
+          assert_installed_native_path "node_modules/sqlite-vec-darwin-arm64/vec0.dylib"
           xattr -w com.apple.quarantine "0081;$(date +%s);GitHubActions;https://github.com/GalaxyRuler/memory-fort-private" "$app_dst"
           codesign -dv --verbose=4 "$app_dst" > "$evidence_dir/phase0b3-macos-arm64-codesign.log" 2>&1 || true
           set +e
@@ -242,8 +302,39 @@ jobs:
           mkdir -p "$evidence_dir"
           log_base="$RUNNER_TEMP/cap probe logs linux"
           mkdir -p "$log_base"
-          appimage="$(ls -t dist/electron-installer/*.AppImage | head -n 1)"
+          appimage="$(realpath "$(ls -t dist/electron-installer/*.AppImage | head -n 1)")"
           chmod +x "$appimage"
+          extract_dir="$RUNNER_TEMP/appimage-extract"
+          rm -rf "$extract_dir"
+          mkdir -p "$extract_dir"
+          (cd "$extract_dir" && "$appimage" --appimage-extract > "$log_base/appimage-extract.log")
+          app_root="$extract_dir/squashfs-root/resources/app"
+          app_asar="$extract_dir/squashfs-root/resources/app.asar"
+          assert_installed_native_path() {
+            local relative="$1"
+            local path="$app_root/$relative"
+            if [[ ! -f "$path" ]]; then
+              echo "missing installed native path: $relative -> $path" >&2
+              exit 1
+            fi
+            case "$path" in
+              "$app_root"/*) ;;
+              *)
+                echo "native path escaped installed app root: $path" >&2
+                exit 1
+                ;;
+            esac
+            if [[ "$path" == *".asar"* ]]; then
+              echo "native path is inside asar: $path" >&2
+              exit 1
+            fi
+          }
+          if [[ -e "$app_asar" ]]; then
+            echo "unexpected app.asar in installed app: $app_asar" >&2
+            exit 1
+          fi
+          assert_installed_native_path "node_modules/better-sqlite3/build/Release/better_sqlite3.node"
+          assert_installed_native_path "node_modules/sqlite-vec-linux-x64/vec0.so"
           export MEMORY_CAP_PROBE=1
           export MEMORY_CAP_PROBE_LOG_DIR="$log_base"
           export MEMORY_ROOT="$RUNNER_TEMP/memory root linux"
