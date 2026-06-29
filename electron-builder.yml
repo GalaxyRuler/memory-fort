@@ -23,6 +23,7 @@ files:
   # these entries, so they must be shipped explicitly or isolation silently
   # fails (workers not found → fail-soft → heavy work never runs).
   - dist/dashboard/dashboard-service.mjs
+  - dist/dashboard/index-concurrency-spike.mjs
   - dist/index/native/capability-probe.mjs
   - dist/dashboard/scheduled-vault-worker.mjs
   - dist/dashboard/verify-worker.mjs

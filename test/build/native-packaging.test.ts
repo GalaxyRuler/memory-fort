@@ -27,6 +27,7 @@ const PE_MACHINE_ARM64 = 0xaa64;
 const SHIPPED_NATIVE_RUNTIME_ENTRIES = [
   "electron-main",
   "dashboard/dashboard-service",
+  "dashboard/index-concurrency-spike",
   "index/native/capability-probe",
 ];
 

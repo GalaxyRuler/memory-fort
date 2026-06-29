@@ -94,6 +94,15 @@ export default defineConfig([
   },
   {
     ...common,
+    entry: { "dashboard/index-concurrency-spike": "src/dashboard/index-concurrency-spike.ts" },
+    clean: false,
+    dts: false,
+    outputOptions: {
+      codeSplitting: false,
+    },
+  },
+  {
+    ...common,
     entry: { "index/native/capability-probe": "src/index/native/capability-probe.ts" },
     clean: false,
     dts: false,

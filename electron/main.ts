@@ -1,8 +1,9 @@
 import { app, BrowserWindow, shell, utilityProcess } from "electron";
 import { execFile } from "node:child_process";
-import { appendFile, mkdir, mkdtemp, stat } from "node:fs/promises";
+import { appendFile, mkdir, mkdtemp, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { performance } from "node:perf_hooks";
 import { promisify } from "node:util";
 import {
   createDashboardServiceSupervisor,
@@ -19,7 +20,8 @@ const execFileAsync = promisify(execFile);
 // Prevent two MemoryFort windows competing on port 4410
 const isCapabilityTest = process.env["MEMORY_CAP_TEST"] === "1";
 const isCapabilityProbe = process.env["MEMORY_CAP_PROBE"] === "1";
-const gotLock = isCapabilityTest || isCapabilityProbe || app.requestSingleInstanceLock();
+const isIndexConcurrencySpike = process.env["MEMORY_INDEX_SPIKE"] === "1";
+const gotLock = isCapabilityTest || isCapabilityProbe || isIndexConcurrencySpike || app.requestSingleInstanceLock();
 if (!gotLock) {
   app.quit();
   process.exit(0);
@@ -484,6 +486,567 @@ async function forceKillCapabilityProbeChild(pid: number): Promise<string> {
   return "SIGKILL";
 }
 
+type IndexSpikeMode = "option-b" | "option-a-service" | "option-a-writer";
+type IndexSpikeRecommendation = "B" | "A\"" | "blocked";
+
+interface IndexSpikeThresholds {
+  readonly searchP50Ms: number;
+  readonly searchP95Ms: number;
+  readonly searchP99Ms: number;
+  readonly searchMaxMs: number;
+  readonly ownerRssBytes: number;
+  readonly ownerUsedHeapToCorpusMax: number;
+  readonly ownerUsedHeapBytesSoftMax: number;
+  readonly coldFullIndexTargetMs: number;
+  readonly coldFullIndexHardMs: number;
+}
+
+interface IndexSpikeInit {
+  readonly mode: IndexSpikeMode;
+  readonly vaultRoot: string;
+  readonly dbDir: string;
+  readonly chunkBytes: number;
+  readonly chunksPerTxn: number;
+  readonly query: string;
+  readonly writerResetsDb?: boolean;
+}
+
+interface IndexSpikeReady {
+  readonly type: "index-spike-ready";
+  readonly mode: IndexSpikeMode;
+  readonly pid: number;
+  readonly url?: string;
+  readonly port?: number;
+  readonly dbPath: string;
+}
+
+interface IndexSpikeDone {
+  readonly type: "index-spike-done";
+  readonly mode: IndexSpikeMode;
+  readonly result: IndexSpikeChildResult;
+}
+
+interface IndexSpikeFail {
+  readonly type: "index-spike-fail";
+  readonly error: string;
+}
+
+interface IndexSpikeChildResult {
+  readonly wallTimeMs: number;
+  readonly filesIndexed: number;
+  readonly chunksIndexed: number;
+  readonly transactions: number;
+  readonly totalBytes: number;
+  readonly chunkBytes: number;
+  readonly chunksPerTxn: number;
+  readonly dbPath: string;
+  readonly dbBytes: {
+    readonly db: number;
+    readonly wal: number;
+    readonly shm: number;
+    readonly total: number;
+  };
+  readonly owner: {
+    readonly current: IndexSpikeMemorySnapshot;
+    readonly peak: IndexSpikeMemorySnapshot & { readonly sampledAt: string };
+    readonly eventLoopDelay: IndexSpikeEventLoopDelay;
+  };
+}
+
+interface IndexSpikeMemorySnapshot {
+  readonly rss: number;
+  readonly external: number;
+  readonly arrayBuffers: number;
+  readonly heapUsed: number;
+  readonly usedHeapSize: number;
+}
+
+interface IndexSpikeEventLoopDelay {
+  readonly minMs: number;
+  readonly meanMs: number;
+  readonly maxMs: number;
+  readonly p50Ms: number;
+  readonly p95Ms: number;
+  readonly p99Ms: number;
+}
+
+interface IndexSpikeExit {
+  readonly code: number | null;
+  readonly signal: string | null;
+}
+
+interface IndexSpikeRun {
+  readonly child: DashboardServiceChild;
+  readonly ready: IndexSpikeReady;
+  readonly exit: Promise<IndexSpikeExit>;
+}
+
+interface IndexSpikeSearchStats {
+  readonly count: number;
+  readonly errors: number;
+  readonly p50Ms: number;
+  readonly p95Ms: number;
+  readonly p99Ms: number;
+  readonly maxMs: number;
+  readonly minMs: number;
+}
+
+interface IndexSpikeMeasuredOption {
+  readonly label: "B" | "A\"";
+  readonly pass: boolean;
+  readonly issues: string[];
+  readonly search: IndexSpikeSearchStats;
+  readonly child: IndexSpikeChildResult;
+}
+
+async function runIndexConcurrencySpike(): Promise<void> {
+  const appPath = app.getAppPath();
+  process.env["MEMORY_FORT_APP_PATH"] = appPath;
+  const spikePath = join(appPath, "dist", "dashboard", "index-concurrency-spike.mjs");
+  const resultPath = requiredEnv("MEMORY_INDEX_SPIKE_RESULT_JSON");
+  const vaultRoot = requiredEnv("MEMORY_INDEX_SPIKE_VAULT");
+  const dbRoot = requiredEnv("MEMORY_INDEX_SPIKE_DB_ROOT");
+  const thresholds = readIndexSpikeThresholds();
+  const query = process.env["MEMORY_INDEX_SPIKE_QUERY"]?.trim() || "needle";
+  const chunkBytes = readEnvInt("MEMORY_INDEX_SPIKE_CHUNK_BYTES", 64 * 1024);
+  const chunksPerTxn = readEnvInt("MEMORY_INDEX_SPIKE_CHUNKS_PER_TXN", 32);
+  const startedAt = new Date().toISOString();
+
+  console.info(`[index-spike main] appPath=${appPath}`);
+  console.info(`[index-spike main] spikePath=${spikePath}`);
+  console.info(`[index-spike main] vaultRoot=${vaultRoot}`);
+
+  const optionB = await runIndexSpikeOptionB({
+    appPath,
+    spikePath,
+    vaultRoot,
+    dbRoot,
+    query,
+    chunkBytes,
+    chunksPerTxn,
+    thresholds,
+  });
+
+  let optionA: IndexSpikeMeasuredOption | null = null;
+  let recommendation: IndexSpikeRecommendation = "B";
+  if (!optionB.pass) {
+    console.info(`[index-spike main] Option B missed thresholds: ${optionB.issues.join("; ")}`);
+    optionA = await runIndexSpikeOptionA({
+      appPath,
+      spikePath,
+      vaultRoot,
+      dbRoot,
+      query,
+      chunkBytes,
+      chunksPerTxn,
+      thresholds,
+    });
+    recommendation = optionA.pass ? "A\"" : "blocked";
+  }
+
+  const payload = {
+    generatedAt: new Date().toISOString(),
+    startedAt,
+    runtime: {
+      electron: process.versions.electron ?? null,
+      node: process.versions.node,
+      modules: process.versions.modules,
+      platform: process.platform,
+      arch: process.arch,
+      appPath,
+      spikePath,
+      packaged: !(process as NodeJS.Process & { readonly defaultApp?: boolean }).defaultApp,
+    },
+    thresholds,
+    recommendation,
+    options: {
+      B: optionB,
+      ...(optionA ? { "A\"": optionA } : { "A\"": { ran: false, reason: "Option B met thresholds" } }),
+    },
+  };
+
+  await mkdir(resolve(resultPath, ".."), { recursive: true });
+  await writeFile(resultPath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+  console.info(`[index-spike main] wrote result ${resultPath}`);
+
+  if (recommendation === "blocked") {
+    throw new Error("No D1 option met the spike thresholds");
+  }
+}
+
+async function runIndexSpikeOptionB(opts: {
+  readonly appPath: string;
+  readonly spikePath: string;
+  readonly vaultRoot: string;
+  readonly dbRoot: string;
+  readonly query: string;
+  readonly chunkBytes: number;
+  readonly chunksPerTxn: number;
+  readonly thresholds: IndexSpikeThresholds;
+}): Promise<IndexSpikeMeasuredOption> {
+  const run = await forkIndexSpikeChild({
+    appPath: opts.appPath,
+    spikePath: opts.spikePath,
+    init: {
+      mode: "option-b",
+      vaultRoot: opts.vaultRoot,
+      dbDir: join(opts.dbRoot, "option-b"),
+      query: opts.query,
+      chunkBytes: opts.chunkBytes,
+      chunksPerTxn: opts.chunksPerTxn,
+    },
+  });
+  if (!run.ready.url) throw new Error("Option B did not expose a search URL");
+  const done = waitForIndexSpikeDone(run, "option-b", 30 * 60_000);
+  const hammer = hammerIndexSpikeSearch(run.ready.url, opts.query, done);
+  run.child.postMessage({ type: "start" });
+  try {
+    const child = await done;
+    const search = await hammer;
+    run.child.postMessage({ type: "shutdown" });
+    const measured = evaluateIndexSpikeOption("B", child, search, opts.thresholds);
+    await waitForIndexSpikeExit(run.exit, 30_000);
+    return measured;
+  } catch (error) {
+    try {
+      run.child.kill();
+    } catch {
+      // Preserve the original spike failure.
+    }
+    throw error;
+  }
+}
+
+async function runIndexSpikeOptionA(opts: {
+  readonly appPath: string;
+  readonly spikePath: string;
+  readonly vaultRoot: string;
+  readonly dbRoot: string;
+  readonly query: string;
+  readonly chunkBytes: number;
+  readonly chunksPerTxn: number;
+  readonly thresholds: IndexSpikeThresholds;
+}): Promise<IndexSpikeMeasuredOption> {
+  const dbDir = join(opts.dbRoot, "option-a2");
+  const service = await forkIndexSpikeChild({
+    appPath: opts.appPath,
+    spikePath: opts.spikePath,
+    init: {
+      mode: "option-a-service",
+      vaultRoot: opts.vaultRoot,
+      dbDir,
+      query: opts.query,
+      chunkBytes: opts.chunkBytes,
+      chunksPerTxn: opts.chunksPerTxn,
+    },
+  });
+  if (!service.ready.url) throw new Error("Option A\" service did not expose a search URL");
+  const writer = await forkIndexSpikeChild({
+    appPath: opts.appPath,
+    spikePath: opts.spikePath,
+    init: {
+      mode: "option-a-writer",
+      vaultRoot: opts.vaultRoot,
+      dbDir,
+      query: opts.query,
+      chunkBytes: opts.chunkBytes,
+      chunksPerTxn: opts.chunksPerTxn,
+    },
+  });
+
+  const done = waitForIndexSpikeDone(writer, "option-a-writer", 30 * 60_000);
+  const hammer = hammerIndexSpikeSearch(service.ready.url, opts.query, done);
+  writer.child.postMessage({ type: "start" });
+
+  try {
+    const child = await done;
+    const search = await hammer;
+    writer.child.postMessage({ type: "shutdown" });
+    service.child.postMessage({ type: "shutdown" });
+    const measured = evaluateIndexSpikeOption("A\"", child, search, opts.thresholds);
+    await Promise.allSettled([
+      waitForIndexSpikeExit(writer.exit, 30_000),
+      waitForIndexSpikeExit(service.exit, 30_000),
+    ]);
+    return measured;
+  } catch (error) {
+    try {
+      writer.child.kill();
+      service.child.kill();
+    } catch {
+      // Preserve the original spike failure.
+    }
+    throw error;
+  }
+}
+
+async function forkIndexSpikeChild(opts: {
+  readonly appPath: string;
+  readonly spikePath: string;
+  readonly init: IndexSpikeInit;
+}): Promise<IndexSpikeRun> {
+  const child = forkDashboardUtilityProcess(opts.spikePath, opts.appPath);
+  const pid = await waitForCapabilityProbePid(child, 10_000);
+  const exit = new Promise<IndexSpikeExit>((resolveExit) => {
+    child.once("exit", (code, signal) => {
+      resolveExit({ code, signal: signal ?? null });
+    });
+  });
+  const ready = waitForIndexSpikeReady(child, opts.init.mode, 30_000);
+  child.postMessage(opts.init);
+  return { child, ready: await ready, exit };
+}
+
+function waitForIndexSpikeReady(
+  child: DashboardServiceChild,
+  mode: IndexSpikeMode,
+  timeoutMs: number,
+): Promise<IndexSpikeReady> {
+  return waitForIndexSpikeMessage(child, timeoutMs, (payload) => {
+    if (isIndexSpikeFail(payload)) throw new Error(payload.error);
+    if (!isIndexSpikeReady(payload) || payload.mode !== mode) return null;
+    return payload;
+  });
+}
+
+function waitForIndexSpikeDone(
+  run: IndexSpikeRun,
+  mode: IndexSpikeMode,
+  timeoutMs: number,
+): Promise<IndexSpikeChildResult> {
+  return waitForIndexSpikeMessage(run.child, timeoutMs, (payload) => {
+    if (isIndexSpikeFail(payload)) throw new Error(payload.error);
+    if (!isIndexSpikeDone(payload) || payload.mode !== mode) return null;
+    return payload.result;
+  });
+}
+
+function waitForIndexSpikeMessage<T>(
+  child: DashboardServiceChild,
+  timeoutMs: number,
+  read: (payload: unknown) => T | null,
+): Promise<T> {
+  return new Promise((resolveMessage, reject) => {
+    let settled = false;
+    const finish = (value?: T, error?: Error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      child.off?.("message", onMessage);
+      child.removeListener?.("message", onMessage);
+      if (error) reject(error);
+      else resolveMessage(value as T);
+    };
+    const timer = setTimeout(() => {
+      finish(undefined, new Error(`timed out waiting for index spike message after ${timeoutMs}ms`));
+    }, timeoutMs);
+    const onMessage = (message: unknown) => {
+      const payload = unwrapUtilityProcessMessage(message);
+      try {
+        const value = read(payload);
+        if (value) finish(value);
+      } catch (error) {
+        finish(undefined, error instanceof Error ? error : new Error(String(error)));
+      }
+    };
+    child.on?.("message", onMessage);
+  });
+}
+
+async function hammerIndexSpikeSearch(
+  baseUrl: string,
+  query: string,
+  done: Promise<unknown>,
+): Promise<IndexSpikeSearchStats> {
+  let stopped = false;
+  done.then(
+    () => {
+      stopped = true;
+    },
+    () => {
+      stopped = true;
+    },
+  );
+
+  const samples: number[] = [];
+  let errors = 0;
+  while (!stopped) {
+    const url = new URL("/api/search", baseUrl);
+    url.searchParams.set("q", query);
+    url.searchParams.set("limit", "20");
+    const started = performance.now();
+    try {
+      const response = await fetchWithTimeout(url, 10_000);
+      await response.arrayBuffer();
+      if (!response.ok) errors += 1;
+      samples.push(performance.now() - started);
+    } catch {
+      errors += 1;
+      samples.push(performance.now() - started);
+    }
+    await new Promise((resolveWait) => setTimeout(resolveWait, 20));
+  }
+
+  return summarizeSearchSamples(samples, errors);
+}
+
+async function fetchWithTimeout(url: URL, timeoutMs: number): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function summarizeSearchSamples(samples: readonly number[], errors: number): IndexSpikeSearchStats {
+  const sorted = [...samples].sort((a, b) => a - b);
+  return {
+    count: sorted.length,
+    errors,
+    minMs: sorted[0] ?? 0,
+    p50Ms: percentile(sorted, 50),
+    p95Ms: percentile(sorted, 95),
+    p99Ms: percentile(sorted, 99),
+    maxMs: sorted.at(-1) ?? 0,
+  };
+}
+
+function percentile(sorted: readonly number[], percentileValue: number): number {
+  if (sorted.length === 0) return Number.POSITIVE_INFINITY;
+  const index = Math.min(sorted.length - 1, Math.max(0, Math.ceil((percentileValue / 100) * sorted.length) - 1));
+  return sorted[index] ?? Number.POSITIVE_INFINITY;
+}
+
+function evaluateIndexSpikeOption(
+  label: "B" | "A\"",
+  child: IndexSpikeChildResult,
+  search: IndexSpikeSearchStats,
+  thresholds: IndexSpikeThresholds,
+): IndexSpikeMeasuredOption {
+  const issues: string[] = [];
+  if (search.count < 10) issues.push(`search samples too low: ${search.count}`);
+  if (search.errors > 0) issues.push(`search errors: ${search.errors}`);
+  if (search.p50Ms > thresholds.searchP50Ms) issues.push(`search p50 ${search.p50Ms.toFixed(1)}ms > ${thresholds.searchP50Ms}ms`);
+  if (search.p95Ms > thresholds.searchP95Ms) issues.push(`search p95 ${search.p95Ms.toFixed(1)}ms > ${thresholds.searchP95Ms}ms`);
+  if (search.p99Ms > thresholds.searchP99Ms) issues.push(`search p99 ${search.p99Ms.toFixed(1)}ms > ${thresholds.searchP99Ms}ms`);
+  if (search.maxMs > thresholds.searchMaxMs) issues.push(`search max ${search.maxMs.toFixed(1)}ms > ${thresholds.searchMaxMs}ms`);
+  if (child.owner.peak.rss > thresholds.ownerRssBytes) {
+    issues.push(`owner peak rss ${child.owner.peak.rss} > ${thresholds.ownerRssBytes}`);
+  }
+  const usedHeapRatio = child.totalBytes > 0 ? child.owner.peak.usedHeapSize / child.totalBytes : 1;
+  if (
+    usedHeapRatio > thresholds.ownerUsedHeapToCorpusMax &&
+    child.owner.peak.usedHeapSize > thresholds.ownerUsedHeapBytesSoftMax
+  ) {
+    issues.push(
+      `owner used_heap ratio ${usedHeapRatio.toFixed(3)} > ${thresholds.ownerUsedHeapToCorpusMax} and used_heap ${child.owner.peak.usedHeapSize} > ${thresholds.ownerUsedHeapBytesSoftMax}`,
+    );
+  }
+  if (child.wallTimeMs > thresholds.coldFullIndexTargetMs) {
+    const hardSuffix = child.wallTimeMs <= thresholds.coldFullIndexHardMs ? " (within hard cap)" : " (over hard cap)";
+    issues.push(`cold full-index ${child.wallTimeMs.toFixed(1)}ms > target ${thresholds.coldFullIndexTargetMs}ms${hardSuffix}`);
+  }
+
+  return { label, pass: issues.length === 0, issues, search, child };
+}
+
+function isIndexSpikeReady(payload: unknown): payload is IndexSpikeReady {
+  return (
+    typeof payload === "object" &&
+    payload !== null &&
+    (payload as { type?: unknown }).type === "index-spike-ready" &&
+    typeof (payload as { pid?: unknown }).pid === "number" &&
+    typeof (payload as { dbPath?: unknown }).dbPath === "string"
+  );
+}
+
+function isIndexSpikeDone(payload: unknown): payload is IndexSpikeDone {
+  return (
+    typeof payload === "object" &&
+    payload !== null &&
+    (payload as { type?: unknown }).type === "index-spike-done" &&
+    typeof (payload as { result?: unknown }).result === "object" &&
+    (payload as { result?: unknown }).result !== null
+  );
+}
+
+function isIndexSpikeFail(payload: unknown): payload is IndexSpikeFail {
+  return (
+    typeof payload === "object" &&
+    payload !== null &&
+    (payload as { type?: unknown }).type === "index-spike-fail" &&
+    typeof (payload as { error?: unknown }).error === "string"
+  );
+}
+
+async function waitForIndexSpikeExit(
+  exit: Promise<IndexSpikeExit>,
+  timeoutMs: number,
+): Promise<IndexSpikeExit> {
+  let timeout: ReturnType<typeof setTimeout> | null = null;
+  try {
+    return await Promise.race([
+      exit,
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(
+          () => reject(new Error(`timed out waiting for index spike exit after ${timeoutMs}ms`)),
+          timeoutMs,
+        );
+      }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
+function readIndexSpikeThresholds(): IndexSpikeThresholds {
+  return {
+    searchP50Ms: readEnvNumber("MEMORY_INDEX_SPIKE_SEARCH_P50_MS", 50),
+    searchP95Ms: readEnvNumber("MEMORY_INDEX_SPIKE_SEARCH_P95_MS", 200),
+    searchP99Ms: readEnvNumber("MEMORY_INDEX_SPIKE_SEARCH_P99_MS", 500),
+    searchMaxMs: readEnvNumber("MEMORY_INDEX_SPIKE_SEARCH_MAX_MS", 1_000),
+    ownerRssBytes: readEnvNumber("MEMORY_INDEX_SPIKE_OWNER_RSS_BYTES", 1.5 * 1024 * 1024 * 1024),
+    ownerUsedHeapToCorpusMax: readEnvNumber("MEMORY_INDEX_SPIKE_USED_HEAP_CORPUS_RATIO", 0.25),
+    ownerUsedHeapBytesSoftMax: readEnvNumber("MEMORY_INDEX_SPIKE_USED_HEAP_SOFT_MAX_BYTES", 512 * 1024 * 1024),
+    coldFullIndexTargetMs: readEnvNumber("MEMORY_INDEX_SPIKE_COLD_TARGET_MS", 10 * 60_000),
+    coldFullIndexHardMs: readEnvNumber("MEMORY_INDEX_SPIKE_COLD_HARD_MS", 20 * 60_000),
+  };
+}
+
+function requiredEnv(name: string): string {
+  const value = process.env[name]?.trim();
+  if (!value) throw new Error(`${name} is required`);
+  return value;
+}
+
+function readEnvInt(name: string, fallback: number): number {
+  return Math.trunc(readEnvNumber(name, fallback));
+}
+
+function readEnvNumber(name: string, fallback: number): number {
+  const value = process.env[name];
+  if (!value) return fallback;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+async function writeIndexSpikeFailure(error: unknown): Promise<void> {
+  const resultPath = process.env["MEMORY_INDEX_SPIKE_RESULT_JSON"]?.trim();
+  if (!resultPath) return;
+  await mkdir(resolve(resultPath, ".."), { recursive: true });
+  await writeFile(
+    resultPath,
+    `${JSON.stringify({
+      generatedAt: new Date().toISOString(),
+      recommendation: "blocked",
+      error: formatErrorForLog(error),
+    }, null, 2)}\n`,
+    "utf8",
+  );
+}
+
 async function logCapabilityProbeTransition(probeDir: string, line: string): Promise<void> {
   const entry = `[${new Date().toISOString()}] parent ${line}`;
   await appendFile(join(probeDir, "cap-probe.log"), `${entry}\n`, "utf8");
@@ -565,6 +1128,17 @@ app.on("second-instance", () => {
 app
   .whenReady()
   .then(async () => {
+    if (isIndexConcurrencySpike) {
+      try {
+        await runIndexConcurrencySpike();
+        app.exit(0);
+      } catch (error) {
+        console.error(`[index-spike main] FAIL ${formatErrorForLog(error)}`);
+        await writeIndexSpikeFailure(error);
+        app.exit(1);
+      }
+      return;
+    }
     if (isCapabilityProbe) {
       try {
         await runInstalledCapabilityProbe();
