@@ -116,18 +116,22 @@
 
 **Files:** `test/build/native-packaging.test.ts`.
 
-- [ ] **Guard (mutation-proven):** for each target arch, assert the native artifacts the app loads exist **at the exact installed runtime path** (`better_sqlite3.node`, the per-platform sqlite-vec binary `.dll/.dylib/.so`) — present on disk, not inside asar, `process.arch` matches. Remove one → installed smoke must fail.
-- [ ] Keep the bootstrap module + deps (Phase 3 uses them); probe stays env-gated.
-- [ ] **Acceptance:** guard green + mutation-verified; normal launch unaffected. Commit: `test(build): runtime-path guard for native module + sqlite-vec`.
+> **✅ COMPLETE — merged 35ce299 (PR #9).** `test/build/native-packaging.test.ts` asserts the packaging contract (asar:false + all native `files` globs + tsdown `nativeRuntimeExternals`/`codeSplitting` on the 3 shipped entries + the vendored win-arm64 manifest↔`vec0.dll` sha256/size/PE chain); `installed-native-probe.yml` adds per-target on-disk native-path + no-asar assertions and is reconciled to `pull_request(main)` + `workflow_dispatch`. **Claude audit:** test 3 passed + **mutation-proven independently** (`asar:true` → red); all PR checks green incl. the 4-target installed probe with the new no-asar assertions.
+
+- [x] **Guard (mutation-proven):** native artifacts at the exact installed runtime path, not inside asar, `process.arch` matches — runtime side via the 0b.3b probe `runtime-path guard` (mutation-proven: rename `vec0.dll` → probe fails); build side via `test/build/native-packaging.test.ts` (mutation-proven: `asar:true` → red).
+- [x] Keep the bootstrap module + deps (Phase 3 uses them); probe stays env-gated.
+- [x] **Acceptance:** guard green + mutation-verified; normal launch unaffected. Commit: `test(build): runtime-path guard for native module + sqlite-vec`.
 
 ---
 
 ## Phase 0 done = Phase 3 unblocked
 
-1. **0.0:** win-arm64 sqlite-vec proven (official or from-source) — the go/no-go, settled before migration.
-2. **0a:** app on Electron 42.x, four installers build, existing packaged smoke green w/ runtime-env logged — as an **internal RC**.
-3. **0b:** the bootstrap passes all probe steps on all four targets (incl. win-arm64 + sqlite-vec + concurrent WAL + 30 MB reopen); runtime-path guard green + mutation-verified.
-4. **One combined public release** after 0b (per `docs/RELEASING.md`). No `src/index/**` feature code yet.
+> **✅ PHASE 0 COMPLETE (2026-06-28, main `35ce299`).** All sub-phases merged + Claude-audited. Next milestone: the **one combined public release** (separate task — full `docs/RELEASING.md` ritual + a 4-target installed re-check). No `src/index/**` feature code yet; Phase 3 unblocked after the release.
+
+1. **0.0 ✅:** win-arm64 sqlite-vec proven from-source (`vcvarsall + cl.exe` on `windows-11-arm`).
+2. **0a ✅ (shipped v0.10.15):** app on Electron 42.5.0, four installers build, packaged smoke green w/ runtime-env logged.
+3. **0b ✅:** bootstrap (0b.1 FTS5, 0b.2 sqlite-vec KNN) + installed-app probe passes all steps on all four targets (0b.3a vendored win-arm64 vec0, 0b.3b native-load, 0b.3c ungraceful-restart + concurrent WAL); packaging guard green + mutation-verified (0b.4).
+4. **One combined public release** after 0b (per `docs/RELEASING.md`) — **next**.
 
 ## Self-review
 
