@@ -10,7 +10,7 @@
 
 ## Synthetic Vault
 
-- Root: `C:\Users\Admin\AppData\Local\Temp\memory-fort-phase3-spike-2026-06-29\synthetic-vault`
+- Root: `C:\Users\<user>\AppData\Local\Temp\memory-fort-phase3-spike-2026-06-29\synthetic-vault`
 - Markdown files: 3001
 - Total corpus bytes: 750.00 MiB (786432000)
 - Pathological files: `wiki/pathological/pathological-150mb.md` 150.00 MiB
@@ -18,8 +18,8 @@
 
 ## Packaged Run
 
-- Executable: `C:\CodexProjects\memory-system-worktrees\phase3-task0-d1-spike\dist\electron-installer\win-unpacked\MemoryFort.exe`
-- App path: `C:\CodexProjects\memory-system-worktrees\phase3-task0-d1-spike\dist\electron-installer\win-unpacked\resources\app`
+- Executable: `<repo>\dist\electron-installer\win-unpacked\MemoryFort.exe`
+- App path: `<repo>\dist\electron-installer\win-unpacked\resources\app`
 - Electron: 42.5.0
 - Node: 24.17.0
 - Platform: win32 x64
@@ -27,7 +27,7 @@
   - `npm.cmd run build`
   - `npm.cmd run electron:rebuild`
   - `npx.cmd electron-builder build --win dir --x64 --publish never`
-  - `C:\CodexProjects\memory-system-worktrees\phase3-task0-d1-spike\dist\electron-installer\win-unpacked\MemoryFort.exe (MEMORY_INDEX_SPIKE=1)`
+  - `<repo>\dist\electron-installer\win-unpacked\MemoryFort.exe (MEMORY_INDEX_SPIKE=1)`
 
 ## Thresholds
 

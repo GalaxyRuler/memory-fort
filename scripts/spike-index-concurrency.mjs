@@ -15,7 +15,7 @@ const defaultSmallFiles = 3000;
 const defaultChunkBytes = 64 * 1024;
 const defaultChunksPerTxn = 32;
 const defaultDate = new Intl.DateTimeFormat("en-CA", {
-  timeZone: "Asia/Riyadh",
+  timeZone: "UTC",
   year: "numeric",
   month: "2-digit",
   day: "2-digit",
