@@ -14,7 +14,7 @@ jobs:
   win-arm64:
     name: Installed probe (Windows ARM64)
     runs-on: windows-11-arm
-    timeout-minutes: 35
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -86,17 +86,27 @@ jobs:
           foreach ($needle in @("step1 runtime-paths ok", "step2 wal-open-native-stats ok", "fts5 ok", "vec-load ok", "vec-knn ok", "runtime-path guard ok", "steps 1-6 ok", "step7 restart-recover ok", "step8 concurrent-wal ok", "steps 1-8 ok", "forced-kill confirmed")) {
             if (-not $content.Contains($needle)) { throw "missing probe log line: $needle" }
           }
+          Remove-Item Env:MEMORY_CAP_PROBE -ErrorAction SilentlyContinue
+          $gateWork = Join-Path $env:RUNNER_TEMP "phase3 index gate arm64"
+          $gateJson = Join-Path $evidenceDir "phase3-win-arm64-installed-index-gate.json"
+          $gateMd = Join-Path $evidenceDir "phase3-win-arm64-installed-index-gate.md"
+          $gateLogs = Join-Path $evidenceDir "phase3-win-arm64-installed-index-gate-logs"
+          node scripts/run-installed-index-gate.mjs --app-executable $exe --work-dir $gateWork --evidence-json $gateJson --evidence-path $gateMd --log-dir $gateLogs --target-mib 750 --huge-mib 150 --small-files 3000 --timeout-minutes 25
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: phase0b3-win-arm64-cap-probe
-          path: docs/release-evidence/phase0b3-win-arm64-cap-probe.log
+          path: |
+            docs/release-evidence/phase0b3-win-arm64-cap-probe.log
+            docs/release-evidence/phase3-win-arm64-installed-index-gate.json
+            docs/release-evidence/phase3-win-arm64-installed-index-gate.md
+            docs/release-evidence/phase3-win-arm64-installed-index-gate-logs/**
 
   win-x64:
     name: Installed probe (Windows x64)
     runs-on: windows-latest
     needs: win-arm64
-    timeout-minutes: 35
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -166,17 +176,27 @@ jobs:
           foreach ($needle in @("step1 runtime-paths ok", "step2 wal-open-native-stats ok", "fts5 ok", "vec-load ok", "vec-knn ok", "runtime-path guard ok", "steps 1-6 ok", "step7 restart-recover ok", "step8 concurrent-wal ok", "steps 1-8 ok", "forced-kill confirmed")) {
             if (-not $content.Contains($needle)) { throw "missing probe log line: $needle" }
           }
+          Remove-Item Env:MEMORY_CAP_PROBE -ErrorAction SilentlyContinue
+          $gateWork = Join-Path $env:RUNNER_TEMP "phase3 index gate x64"
+          $gateJson = Join-Path $evidenceDir "phase3-win-x64-installed-index-gate.json"
+          $gateMd = Join-Path $evidenceDir "phase3-win-x64-installed-index-gate.md"
+          $gateLogs = Join-Path $evidenceDir "phase3-win-x64-installed-index-gate-logs"
+          node scripts/run-installed-index-gate.mjs --app-executable $exe --work-dir $gateWork --evidence-json $gateJson --evidence-path $gateMd --log-dir $gateLogs --target-mib 750 --huge-mib 150 --small-files 3000 --timeout-minutes 25
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: phase0b3-win-x64-cap-probe
-          path: docs/release-evidence/phase0b3-win-x64-cap-probe.log
+          path: |
+            docs/release-evidence/phase0b3-win-x64-cap-probe.log
+            docs/release-evidence/phase3-win-x64-installed-index-gate.json
+            docs/release-evidence/phase3-win-x64-installed-index-gate.md
+            docs/release-evidence/phase3-win-x64-installed-index-gate-logs/**
 
   macos-arm64:
     name: Installed probe (macOS ARM64)
     runs-on: macos-latest
     needs: win-x64
-    timeout-minutes: 35
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -263,6 +283,12 @@ jobs:
           grep -F "step8 concurrent-wal ok" "$evidence_dir/phase0b3-macos-arm64-cap-probe.log"
           grep -F "steps 1-8 ok" "$evidence_dir/phase0b3-macos-arm64-cap-probe.log"
           grep -F "forced-kill confirmed" "$evidence_dir/phase0b3-macos-arm64-cap-probe.log"
+          unset MEMORY_CAP_PROBE
+          gate_work="$RUNNER_TEMP/phase3 index gate macos-arm64"
+          gate_json="$evidence_dir/phase3-macos-arm64-installed-index-gate.json"
+          gate_md="$evidence_dir/phase3-macos-arm64-installed-index-gate.md"
+          gate_logs="$evidence_dir/phase3-macos-arm64-installed-index-gate-logs"
+          node scripts/run-installed-index-gate.mjs --app-executable "$app_dst/Contents/MacOS/MemoryFort" --work-dir "$gate_work" --evidence-json "$gate_json" --evidence-path "$gate_md" --log-dir "$gate_logs" --target-mib 750 --huge-mib 150 --small-files 3000 --timeout-minutes 25
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -271,12 +297,15 @@ jobs:
             docs/release-evidence/phase0b3-macos-arm64-cap-probe.log
             docs/release-evidence/phase0b3-macos-arm64-codesign.log
             docs/release-evidence/phase0b3-macos-arm64-spctl.log
+            docs/release-evidence/phase3-macos-arm64-installed-index-gate.json
+            docs/release-evidence/phase3-macos-arm64-installed-index-gate.md
+            docs/release-evidence/phase3-macos-arm64-installed-index-gate-logs/**
 
   linux-x64:
     name: Installed probe (Linux x64)
     runs-on: ubuntu-latest
     needs: macos-arm64
-    timeout-minutes: 35
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -356,8 +385,18 @@ jobs:
           grep -F "step8 concurrent-wal ok" "$evidence_dir/phase0b3-linux-x64-cap-probe.log"
           grep -F "steps 1-8 ok" "$evidence_dir/phase0b3-linux-x64-cap-probe.log"
           grep -F "forced-kill confirmed" "$evidence_dir/phase0b3-linux-x64-cap-probe.log"
+          unset MEMORY_CAP_PROBE
+          gate_work="$RUNNER_TEMP/phase3 index gate linux-x64"
+          gate_json="$evidence_dir/phase3-linux-x64-installed-index-gate.json"
+          gate_md="$evidence_dir/phase3-linux-x64-installed-index-gate.md"
+          gate_logs="$evidence_dir/phase3-linux-x64-installed-index-gate-logs"
+          node scripts/run-installed-index-gate.mjs --app-executable "$appimage" --app-arg=--no-sandbox --work-dir "$gate_work" --evidence-json "$gate_json" --evidence-path "$gate_md" --log-dir "$gate_logs" --target-mib 750 --huge-mib 150 --small-files 3000 --timeout-minutes 25 --xvfb
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: phase0b3-linux-x64-cap-probe
-          path: docs/release-evidence/phase0b3-linux-x64-cap-probe.log
+          path: |
+            docs/release-evidence/phase0b3-linux-x64-cap-probe.log
+            docs/release-evidence/phase3-linux-x64-installed-index-gate.json
+            docs/release-evidence/phase3-linux-x64-installed-index-gate.md
+            docs/release-evidence/phase3-linux-x64-installed-index-gate-logs/**

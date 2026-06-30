@@ -30,4 +30,15 @@ describe("Electron main heap policy", () => {
     expect(source).toContain("MemoryFort failed to start");
     expect(source).toContain("data:text/html");
   });
+
+  it("asserts expected installed-gate skips and treats index-writer errors as failures", async () => {
+    const mainSource = await readFile(join(process.cwd(), "electron", "main.ts"), "utf-8");
+    const gateScriptSource = await readFile(join(process.cwd(), "scripts", "run-installed-index-gate.mjs"), "utf-8");
+
+    expect(mainSource).toContain("MEMORY_INDEX_GATE_EXPECTED_SKIPPED");
+    expect(mainSource).toContain("assertExpectedIndexGateSkips");
+    expect(mainSource).toContain("filesSkipped");
+    expect(gateScriptSource).toContain("MEMORY_INDEX_GATE_EXPECTED_SKIPPED");
+    expect(gateScriptSource).toContain("index-writer emitted error");
+  });
 });

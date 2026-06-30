@@ -2,6 +2,11 @@ import { appendFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { runDashboard, type DashboardOptions, type DashboardRun } from "../cli/commands/dashboard.js";
+import {
+  createProcessStatsMonitor,
+  createProcessStatsResponse,
+  isProcessStatsRequest,
+} from "./process-stats.js";
 import type { DashboardServiceRuntimeEnv } from "./dashboard-service-supervisor.js";
 
 export interface DashboardServiceInit {
@@ -29,12 +34,14 @@ export interface DashboardServiceOptions {
 export function startDashboardService(opts: DashboardServiceOptions): Promise<DashboardServiceReady> {
   const runDashboardImpl = opts.runDashboardImpl ?? runDashboard;
   const exit = opts.exit ?? ((code) => process.exit(code));
+  const processStats = createProcessStatsMonitor();
   let dashboard: DashboardRun | null = null;
   let shuttingDown = false;
 
   async function shutdown(): Promise<void> {
     if (shuttingDown) return;
     shuttingDown = true;
+    processStats.close();
     await dashboard?.close();
     exit(0);
   }
@@ -61,6 +68,10 @@ export function startDashboardService(opts: DashboardServiceOptions): Promise<Da
       const payload = unwrapParentPortMessage(message);
       if (isShutdownMessage(payload)) {
         void shutdown().catch(reject);
+        return;
+      }
+      if (isProcessStatsRequest(payload)) {
+        opts.parentPort.postMessage(createProcessStatsResponse("dashboard-service", payload, processStats.snapshot()));
         return;
       }
       if (!isInitMessage(payload)) {

@@ -118,7 +118,7 @@ describe("dashboard index search route", () => {
           releaseWriter = resolve;
         });
         indexDb.database.exec("COMMIT");
-        return { filesIndexed: 0, filesTombstoned: 0, chunks: 0 };
+        return { filesIndexed: 0, filesTombstoned: 0, chunks: 0, filesSkipped: 0 };
       },
       exit: (code) => {
         exitCodes.push(code);
@@ -197,6 +197,55 @@ describe("dashboard index search route", () => {
     expect(loadSearchCorpus).not.toHaveBeenCalled();
   });
 
+  it("reports skipped oversized files while serving the indexed remainder", async () => {
+    const { vaultRoot } = await createVault();
+    const indexDbPath = join(tempDir!, "index", "index.db");
+    await writeVaultFile(vaultRoot, "raw/too-large.md", `# Too Large\n\n${"oversized ".repeat(20)}`);
+    await writeVaultFile(vaultRoot, "wiki/indexed.md", "# Indexed\n\nneedle still indexed");
+    const indexDb = openIndexDb(indexDbPath);
+    openDbs.push(indexDb);
+    await reconcileIndex(indexDb, vaultRoot, { maxFileBytes: 64 });
+    indexDb.close();
+    openDbs.pop();
+
+    server = await createServer({
+      vaultRoot,
+      port: 0,
+      env: {
+        ...process.env,
+        MEMORY_INDEX_SEARCH: "1",
+        MEMORY_INDEX_DB_PATH: indexDbPath,
+      },
+      voyageClient: null,
+    });
+
+    const status = await fetch(`http://${server.host}:${server.port}/api/index-status`);
+    const statusBody = await status.json();
+    const search = await fetch(`http://${server.host}:${server.port}/api/search?q=needle&limit=5`);
+    const searchBody = await search.json();
+
+    expect(status.status).toBe(200);
+    expect(statusBody).toMatchObject({
+      ready: true,
+      chunkCount: 1,
+      filesSkipped: 1,
+      skippedFiles: [
+        expect.objectContaining({
+          relPath: "raw/too-large.md",
+          errorState: "too-large",
+        }),
+      ],
+    });
+    expect(search.status).toBe(200);
+    expect(searchBody.results).toEqual([
+      expect.objectContaining({
+        path: "wiki/indexed.md",
+        source: "index",
+      }),
+    ]);
+    expect(loadSearchCorpus).not.toHaveBeenCalled();
+  });
+
   it("cursor-paginates index search results without loading the legacy corpus", async () => {
     const { vaultRoot, indexDbPath } = await createIndexedVaultWithPages([
       ["wiki/a.md", "# A\n\nneedle alpha"],
@@ -252,7 +301,7 @@ describe("dashboard index search route", () => {
     const ready = startIndexWriter({
       parentPort,
       openIndexDbImpl: () => fakeDb,
-      reconcileIndexImpl: async () => ({ filesIndexed: 1, filesTombstoned: 0, chunks: 1 }),
+      reconcileIndexImpl: async () => ({ filesIndexed: 1, filesTombstoned: 0, chunks: 1, filesSkipped: 0 }),
       exit: () => undefined,
     });
     parentPort.emit("message", {

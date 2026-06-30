@@ -10,6 +10,7 @@ export interface ReconcileIndexResult {
   readonly filesIndexed: number;
   readonly filesTombstoned: number;
   readonly chunks: number;
+  readonly filesSkipped: number;
 }
 
 export type ReconcileIndexEvent =
@@ -25,7 +26,7 @@ export interface ReconcileIndexOptions {
 }
 
 const DEFAULT_MAX_CHUNKS_PER_FILE = 50_000;
-const DEFAULT_MAX_FILE_BYTES = 256 * 1024 * 1024;
+const DEFAULT_MAX_FILE_BYTES = 16 * 1024 * 1024;
 
 interface VaultFile {
   readonly absPath: string;
@@ -38,6 +39,7 @@ interface FileStatRow {
   readonly mtimeMs: number | null;
   readonly contentHash: string | null;
   readonly generation: number | null;
+  readonly errorState: string | null;
 }
 
 interface MaxRunIdRow {
@@ -56,7 +58,10 @@ export async function reconcileIndex(
   const db = indexDb.database;
   const runId = startRun(db);
   emit(options, { type: "runStarted", runId });
+  const maxFileBytes = positiveInteger(options.maxFileBytes ?? DEFAULT_MAX_FILE_BYTES, "maxFileBytes");
+  const maxChunksPerFile = positiveInteger(options.maxChunksPerFile ?? DEFAULT_MAX_CHUNKS_PER_FILE, "maxChunksPerFile");
   let filesIndexed = 0;
+  let filesSkipped = 0;
   let chunks = 0;
 
   for await (const file of walkVaultMarkdown(vaultRoot)) {
@@ -65,17 +70,29 @@ export async function reconcileIndex(
     const mtimeMs = Math.trunc(stats.mtimeMs);
     const existing = db
       .prepare<[string], FileStatRow>(
-        "SELECT sizeBytes, mtimeMs, contentHash, generation FROM files WHERE relPath = ?",
+        "SELECT sizeBytes, mtimeMs, contentHash, generation, errorState FROM files WHERE relPath = ?",
       )
       .get(file.relPath);
-    if (existing?.contentHash && existing.sizeBytes === stats.size && existing.mtimeMs === mtimeMs) {
+    if (stats.size > maxFileBytes) {
+      markFileSkipped(db, {
+        relPath: file.relPath,
+        kind: file.kind,
+        sizeBytes: stats.size,
+        mtimeMs,
+        generation: existing?.generation ?? 0,
+        runId,
+        errorState: "too-large",
+      });
+      filesSkipped += 1;
+      continue;
+    }
+    if (existing?.contentHash && !existing.errorState && existing.sizeBytes === stats.size && existing.mtimeMs === mtimeMs) {
       markFileSeen(db, file.relPath, runId);
       continue;
     }
 
-    assertFileWithinByteCap(file.relPath, stats.size, options.maxFileBytes ?? DEFAULT_MAX_FILE_BYTES);
     const contentHash = await hashFile(file.absPath);
-    if (existing?.contentHash === contentHash) {
+    if (existing?.contentHash === contentHash && !existing.errorState) {
       markFileUnchanged(db, {
         relPath: file.relPath,
         kind: file.kind,
@@ -87,7 +104,7 @@ export async function reconcileIndex(
     }
 
     const indexedContent = await readTextFileWithHash(file.absPath);
-    if (existing?.contentHash === indexedContent.contentHash) {
+    if (existing?.contentHash === indexedContent.contentHash && !existing.errorState) {
       markFileUnchanged(db, {
         relPath: file.relPath,
         kind: file.kind,
@@ -100,11 +117,19 @@ export async function reconcileIndex(
 
     const generation = (existing?.generation ?? 0) + 1;
     const fileChunks = chunkMarkdown(indexedContent.text, options.chunkOptions);
-    assertChunksWithinRowCap(
-      file.relPath,
-      fileChunks.length,
-      options.maxChunksPerFile ?? DEFAULT_MAX_CHUNKS_PER_FILE,
-    );
+    if (fileChunks.length > maxChunksPerFile) {
+      markFileSkipped(db, {
+        relPath: file.relPath,
+        kind: file.kind,
+        sizeBytes: stats.size,
+        mtimeMs,
+        generation: existing?.generation ?? 0,
+        runId,
+        errorState: "too-many-chunks",
+      });
+      filesSkipped += 1;
+      continue;
+    }
 
     writeIndexedFile(
       db,
@@ -128,21 +153,7 @@ export async function reconcileIndex(
   markRunComplete(db, runId);
   const filesTombstoned = tombstoneMissingFiles(db, runId);
   markRunFinished(db, runId);
-  return { filesIndexed, filesTombstoned, chunks };
-}
-
-function assertFileWithinByteCap(relPath: string, sizeBytes: number, maxFileBytes: number): void {
-  const max = positiveInteger(maxFileBytes, "maxFileBytes");
-  if (sizeBytes > max) {
-    throw new Error(`${relPath} exceeds maxFileBytes (${sizeBytes} > ${max})`);
-  }
-}
-
-function assertChunksWithinRowCap(relPath: string, chunkCount: number, maxChunksPerFile: number): void {
-  const max = positiveInteger(maxChunksPerFile, "maxChunksPerFile");
-  if (chunkCount > max) {
-    throw new Error(`${relPath} exceeds maxChunksPerFile (${chunkCount} > ${max})`);
-  }
+  return { filesIndexed, filesTombstoned, chunks, filesSkipped };
 }
 
 function emit(options: ReconcileIndexOptions, event: ReconcileIndexEvent): void {
@@ -168,6 +179,59 @@ function markFileUnchanged(
      SET kind = ?, sizeBytes = ?, mtimeMs = ?, lastSeenRunId = ?
      WHERE relPath = ?`,
   ).run(input.kind, input.sizeBytes, input.mtimeMs, input.runId, input.relPath);
+}
+
+function markFileSkipped(
+  db: SqliteDatabase,
+  input: {
+    readonly relPath: string;
+    readonly kind: "raw" | "wiki";
+    readonly sizeBytes: number;
+    readonly mtimeMs: number;
+    readonly generation: number;
+    readonly runId: number;
+    readonly errorState: "too-large" | "too-many-chunks";
+  },
+): void {
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    db.prepare<[string, string, number, number, null, number, number, string, null, number]>(
+      `INSERT INTO files(
+         relPath, kind, sizeBytes, mtimeMs, contentHash, generation, lastSeenRunId, errorState, indexedAt, lastErrorAt
+       )
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(relPath) DO UPDATE SET
+         kind = excluded.kind,
+         sizeBytes = excluded.sizeBytes,
+         mtimeMs = excluded.mtimeMs,
+         contentHash = NULL,
+         generation = excluded.generation,
+         lastSeenRunId = excluded.lastSeenRunId,
+         errorState = excluded.errorState,
+         indexedAt = NULL,
+         lastErrorAt = excluded.lastErrorAt`,
+    ).run(
+      input.relPath,
+      input.kind,
+      input.sizeBytes,
+      input.mtimeMs,
+      null,
+      input.generation,
+      input.runId,
+      input.errorState,
+      null,
+      Date.now(),
+    );
+    db.prepare<[string]>("DELETE FROM chunks WHERE relPath = ?").run(input.relPath);
+    db.exec("COMMIT");
+  } catch (error) {
+    try {
+      db.exec("ROLLBACK");
+    } catch {
+      // Preserve the original skip failure.
+    }
+    throw error;
+  }
 }
 
 async function* walkVaultMarkdown(vaultRoot: string): AsyncGenerator<VaultFile> {

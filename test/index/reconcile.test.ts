@@ -44,7 +44,7 @@ describe("reconcileIndex", () => {
 
     const result = await reconcileIndex(indexDb, vaultRoot);
 
-    expect(result).toEqual({ filesIndexed: 0, filesTombstoned: 0, chunks: 0 });
+    expect(result).toEqual({ filesIndexed: 0, filesTombstoned: 0, chunks: 0, filesSkipped: 0 });
     expect(selectChunks(indexDb)).toEqual(originalChunks);
     expect(() => indexDb.integrityCheck()).not.toThrow();
   });
@@ -58,7 +58,7 @@ describe("reconcileIndex", () => {
 
     const result = await reconcileIndex(indexDb, vaultRoot);
 
-    expect(result).toEqual({ filesIndexed: 0, filesTombstoned: 0, chunks: 0 });
+    expect(result).toEqual({ filesIndexed: 0, filesTombstoned: 0, chunks: 0, filesSkipped: 0 });
     expect(selectChunks(indexDb)).toEqual(originalChunks);
     expect(() => indexDb.integrityCheck()).not.toThrow();
   });
@@ -72,7 +72,7 @@ describe("reconcileIndex", () => {
 
     const result = await reconcileIndex(indexDb, vaultRoot);
 
-    expect(result).toEqual({ filesIndexed: 0, filesTombstoned: 1, chunks: 0 });
+    expect(result).toEqual({ filesIndexed: 0, filesTombstoned: 1, chunks: 0, filesSkipped: 0 });
     expect(selectFilePaths(indexDb)).toEqual(["wiki/page.md"]);
     expect(countChunks(indexDb, "raw/deleted.md")).toBe(0);
     expect(searchChunkTexts(indexDb, "ghostterm")).toEqual([]);
@@ -87,7 +87,7 @@ describe("reconcileIndex", () => {
 
     const result = await reconcileIndex(indexDb, vaultRoot);
 
-    expect(result).toEqual({ filesIndexed: 1, filesTombstoned: 0, chunks: 1 });
+    expect(result).toEqual({ filesIndexed: 1, filesTombstoned: 0, chunks: 1, filesSkipped: 0 });
     expect(searchChunkTexts(indexDb, "oldterm")).toEqual([]);
     expect(searchChunkTexts(indexDb, "newterm")).toEqual(["# Page\n\nnewterm changed"]);
     expect(() => indexDb.integrityCheck()).not.toThrow();
@@ -142,37 +142,80 @@ describe("reconcileIndex", () => {
     expect(() => reopened.integrityCheck()).not.toThrow();
   });
 
-  it("aborts before tombstoning when a file exceeds the byte cap", async () => {
-    const { vaultRoot, dbPath, indexDb } = await createHarness();
+  it("skips a newly oversized file and still tombstones missing files", async () => {
+    const { vaultRoot, indexDb } = await createHarness();
     await writeVaultFile(vaultRoot, "wiki/deleted.md", "# Deleted\n\nghostterm");
     await reconcileIndex(indexDb, vaultRoot);
     await unlink(vaultPath(vaultRoot, "wiki/deleted.md"));
     await writeVaultFile(vaultRoot, "raw/too-large.md", "# Too Large\n\noversized");
 
-    await expect(reconcileIndex(indexDb, vaultRoot, { maxFileBytes: 4 })).rejects.toThrow("maxFileBytes");
+    const result = await reconcileIndex(indexDb, vaultRoot, { maxFileBytes: 4 });
 
-    const reopened = reopenIndexDb(dbPath, indexDb);
-    expect(selectFilePaths(reopened)).toEqual(["wiki/deleted.md"]);
-    expect(searchChunkTexts(reopened, "ghostterm")).toEqual(["# Deleted\n\nghostterm"]);
-    expect(searchChunkTexts(reopened, "oversized")).toEqual([]);
-    expect(() => reopened.integrityCheck()).not.toThrow();
+    expect(result).toEqual({ filesIndexed: 0, filesTombstoned: 1, chunks: 0, filesSkipped: 1 });
+    expect(selectFilePaths(indexDb)).toEqual(["raw/too-large.md"]);
+    expect(selectFileRows(indexDb)).toEqual([
+      expect.objectContaining({
+        relPath: "raw/too-large.md",
+        errorState: "too-large",
+        contentHash: null,
+      }),
+    ]);
+    expect(searchChunkTexts(indexDb, "ghostterm")).toEqual([]);
+    expect(searchChunkTexts(indexDb, "oversized")).toEqual([]);
+    expect(() => indexDb.integrityCheck()).not.toThrow();
   });
 
-  it("aborts before writing a file transaction when chunk rows exceed the cap", async () => {
-    const { vaultRoot, dbPath, indexDb } = await createHarness();
+  it("skips an oversized file without aborting the reconcile run", async () => {
+    const { vaultRoot, indexDb } = await createHarness();
+    await writeVaultFile(vaultRoot, "raw/too-large.md", "# Original\n\noldterm");
+    await writeVaultFile(vaultRoot, "wiki/deleted.md", "# Deleted\n\nghostterm");
+    await reconcileIndex(indexDb, vaultRoot);
+    await unlink(vaultPath(vaultRoot, "wiki/deleted.md"));
+    await writeVaultFile(vaultRoot, "raw/too-large.md", `# Too Large\n\n${"oversized ".repeat(20)}`);
+    await writeVaultFile(vaultRoot, "wiki/rest.md", "# Rest\n\nneedle survives");
+
+    const result = await reconcileIndex(indexDb, vaultRoot, { maxFileBytes: 64 });
+
+    expect(result).toEqual({ filesIndexed: 1, filesTombstoned: 1, chunks: 1, filesSkipped: 1 });
+    expect(selectFilePaths(indexDb)).toEqual(["raw/too-large.md", "wiki/rest.md"]);
+    expect(selectFileRows(indexDb)).toEqual([
+      expect.objectContaining({
+        relPath: "raw/too-large.md",
+        errorState: "too-large",
+        contentHash: null,
+      }),
+      expect.objectContaining({
+        relPath: "wiki/rest.md",
+        errorState: null,
+      }),
+    ]);
+    expect(countChunks(indexDb, "raw/too-large.md")).toBe(0);
+    expect(searchChunkTexts(indexDb, "oldterm")).toEqual([]);
+    expect(searchChunkTexts(indexDb, "oversized")).toEqual([]);
+    expect(searchChunkTexts(indexDb, "needle")).toEqual(["# Rest\n\nneedle survives"]);
+    expect(() => indexDb.integrityCheck()).not.toThrow();
+  });
+
+  it("skips a file when chunk rows exceed the cap", async () => {
+    const { vaultRoot, indexDb } = await createHarness();
     await writeVaultFile(vaultRoot, "raw/many-chunks.md", "# Many\n\none two three four five six seven eight");
 
-    await expect(
-      reconcileIndex(indexDb, vaultRoot, {
-        maxChunksPerFile: 1,
-        chunkOptions: { maxTokens: 2, overlapTokens: 0, maxChunkChars: 40 },
-      }),
-    ).rejects.toThrow("maxChunksPerFile");
+    const result = await reconcileIndex(indexDb, vaultRoot, {
+      maxChunksPerFile: 1,
+      chunkOptions: { maxTokens: 2, overlapTokens: 0, maxChunkChars: 40 },
+    });
 
-    const reopened = reopenIndexDb(dbPath, indexDb);
-    expect(selectFilePaths(reopened)).toEqual([]);
-    expect(searchChunkTexts(reopened, "seven")).toEqual([]);
-    expect(() => reopened.integrityCheck()).not.toThrow();
+    expect(result).toEqual({ filesIndexed: 0, filesTombstoned: 0, chunks: 0, filesSkipped: 1 });
+    expect(selectFileRows(indexDb)).toEqual([
+      expect.objectContaining({
+        relPath: "raw/many-chunks.md",
+        errorState: "too-many-chunks",
+        contentHash: null,
+      }),
+    ]);
+    expect(countChunks(indexDb, "raw/many-chunks.md")).toBe(0);
+    expect(searchChunkTexts(indexDb, "seven")).toEqual([]);
+    expect(() => indexDb.integrityCheck()).not.toThrow();
   });
 
   async function createHarness(): Promise<{ vaultRoot: string; dbPath: string; indexDb: IndexDb }> {
@@ -208,6 +251,14 @@ describe("reconcileIndex", () => {
     return (
       indexDb.database.prepare<[], { relPath: string }>("SELECT relPath FROM files ORDER BY relPath").all()
     ).map((row) => row.relPath);
+  }
+
+  function selectFileRows(indexDb: IndexDb): Array<{ relPath: string; errorState: string | null; contentHash: string | null }> {
+    return indexDb.database
+      .prepare<[], { relPath: string; errorState: string | null; contentHash: string | null }>(
+        "SELECT relPath, errorState, contentHash FROM files ORDER BY relPath",
+      )
+      .all();
   }
 
   function selectChunks(indexDb: IndexDb): Array<{ relPath: string; ordinal: number; text: string }> {

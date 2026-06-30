@@ -4,6 +4,11 @@ import {
   defaultFullCorpusAdmissionGate,
   type FullCorpusAdmissionGate,
 } from "./full-corpus-admission.js";
+import {
+  createProcessStatsMonitor,
+  createProcessStatsResponse,
+  isProcessStatsRequest,
+} from "./process-stats.js";
 import type { DashboardServiceRuntimeEnv } from "./dashboard-service-supervisor.js";
 
 export interface IndexWriterInit {
@@ -45,6 +50,7 @@ export function startIndexWriter(opts: IndexWriterOptions): Promise<IndexWriterR
   const setTimer = opts.setTimeout ?? ((handler: () => void, ms: number) => setTimeout(handler, ms));
   const clearTimer = opts.clearTimeout ?? ((handle: unknown) => clearTimeout(handle as ReturnType<typeof setTimeout>));
   const exit = opts.exit ?? ((code) => process.exit(code));
+  const processStats = createProcessStatsMonitor();
   let indexDb: IndexDb | null = null;
   let init: IndexWriterInit | null = null;
   let timer: unknown = null;
@@ -66,7 +72,11 @@ export function startIndexWriter(opts: IndexWriterOptions): Promise<IndexWriterR
     try {
       const admission = await fullCorpusGate.tryRunMaintenance(async () => {
         try {
-          const result = await reconcileIndexImpl(indexDb!, init!.vaultRoot);
+          processStats.observe();
+          const result = await reconcileIndexImpl(indexDb!, init!.vaultRoot, {
+            onEvent: () => processStats.observe(),
+          });
+          processStats.observe();
           checkpointWal(indexDb!);
           markReconcileCheckpoint(indexDb!);
           clearLastError(indexDb!);
@@ -101,6 +111,7 @@ export function startIndexWriter(opts: IndexWriterOptions): Promise<IndexWriterR
       clearTimer(timer);
       timer = null;
     }
+    processStats.close();
     await running;
     indexDb?.close();
     indexDb = null;
@@ -121,6 +132,10 @@ export function startIndexWriter(opts: IndexWriterOptions): Promise<IndexWriterR
       const payload = unwrapParentPortMessage(message);
       if (isShutdownMessage(payload)) {
         void shutdown().catch(reject);
+        return;
+      }
+      if (isProcessStatsRequest(payload)) {
+        opts.parentPort.postMessage(createProcessStatsResponse("index-writer", payload, processStats.snapshot()));
         return;
       }
       if (!isInitMessage(payload)) {

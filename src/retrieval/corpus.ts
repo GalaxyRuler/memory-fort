@@ -1,5 +1,5 @@
-import { readdir, readFile, stat } from "node:fs/promises";
-import { basename, join, relative, resolve } from "node:path";
+import { appendFile, mkdir, readdir, readFile, stat } from "node:fs/promises";
+import { basename, dirname, join, relative, resolve } from "node:path";
 import { canonicalizeRawObservation } from "../compile/canonicalize.js";
 import { getConfidenceScore } from "../storage/confidence.js";
 import {
@@ -111,6 +111,7 @@ export async function loadSearchCorpus(
 ): Promise<LoadCorpusResult> {
   const vaultRoot = resolve(opts.vaultRoot);
   const scope = opts.scope ?? "all";
+  await recordLoadSearchCorpusSentinel({ vaultRoot, scope });
   const allFiles = {
     wiki: await collectMarkdownFiles(vaultRoot, "wiki"),
     raw: await collectMarkdownFiles(vaultRoot, "raw"),
@@ -182,6 +183,23 @@ export async function loadSearchCorpus(
       crystals: scope === "crystals" ? scopedDocuments.length : allFiles.crystals.length,
     },
   };
+}
+
+async function recordLoadSearchCorpusSentinel(opts: { vaultRoot: string; scope: SearchScope }): Promise<void> {
+  const sentinelPath = process.env["MEMORY_LOAD_SEARCH_CORPUS_SENTINEL"]?.trim();
+  if (!sentinelPath) return;
+  const resolved = resolve(sentinelPath);
+  await mkdir(dirname(resolved), { recursive: true });
+  await appendFile(
+    resolved,
+    `${JSON.stringify({
+      at: new Date().toISOString(),
+      pid: process.pid,
+      vaultRoot: opts.vaultRoot,
+      scope: opts.scope,
+    })}\n`,
+    "utf8",
+  );
 }
 
 export async function loadSearchCorpusFileSignature(

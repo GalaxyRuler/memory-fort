@@ -624,10 +624,18 @@ interface DashboardIndexStatus {
   dbPath: string;
   schemaVersion: string | null;
   chunkCount: number;
+  filesSkipped: number;
+  skippedFiles: readonly DashboardSkippedIndexFile[];
   lastCompleteReconcile: string | null;
   currentState: string;
   lastError: string | null;
   ready: boolean;
+}
+
+interface DashboardSkippedIndexFile {
+  relPath: string;
+  errorState: string;
+  sizeBytes: number | null;
 }
 
 interface DashboardIndexSearchController {
@@ -656,6 +664,12 @@ interface MetaValueRow {
 
 interface CountRow {
   count: number;
+}
+
+interface SkippedIndexFileRow {
+  relPath: string;
+  errorState: string | null;
+  sizeBytes: number | null;
 }
 
 function parseSearchBoolean(value: string | null): boolean {
@@ -737,6 +751,8 @@ function createDashboardIndexSearchController(opts: {
         dbPath,
         schemaVersion: null,
         chunkCount: 0,
+        filesSkipped: 0,
+        skippedFiles: [],
         lastCompleteReconcile: null,
         currentState: "building",
         lastError: lastOpenError,
@@ -771,12 +787,27 @@ function readIndexStatus(indexDb: IndexDb, lastOpenError: string | null): Dashbo
   const activeState = readIndexMeta(indexDb, "activeReconcileState");
   const lastError = readIndexMeta(indexDb, "lastReconcileError") ?? lastOpenError;
   const chunkCount = indexDb.database.prepare<[], CountRow>("SELECT count(*) AS count FROM chunks").get()?.count ?? 0;
+  const filesSkipped = indexDb.database
+    .prepare<[], CountRow>("SELECT count(*) AS count FROM files WHERE errorState IS NOT NULL")
+    .get()?.count ?? 0;
+  const skippedFiles = indexDb.database
+    .prepare<[], SkippedIndexFileRow>(
+      "SELECT relPath, errorState, sizeBytes FROM files WHERE errorState IS NOT NULL ORDER BY relPath LIMIT 20",
+    )
+    .all()
+    .flatMap((row) => row.errorState ? [{
+      relPath: row.relPath,
+      errorState: row.errorState,
+      sizeBytes: row.sizeBytes,
+    }] : []);
   const ready = schemaVersion !== null && lastCompleteReconcile !== null && activeState !== "walking" && activeState !== "tombstoning";
   return {
     enabled: true,
     dbPath: indexDb.path,
     schemaVersion,
     chunkCount,
+    filesSkipped,
+    skippedFiles,
     lastCompleteReconcile,
     currentState: activeState ?? (chunkCount > 0 ? "ready" : "building"),
     lastError,
@@ -1556,6 +1587,8 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
           dbPath: indexSearchDbPath(opts.vaultRoot, env),
           schemaVersion: null,
           chunkCount: 0,
+          filesSkipped: 0,
+          skippedFiles: [],
           lastCompleteReconcile: null,
           currentState: "disabled",
           lastError: null,
