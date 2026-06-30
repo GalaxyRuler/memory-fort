@@ -17,6 +17,7 @@ describe("Electron main heap policy", () => {
 
     expect(source).toContain("utilityProcess");
     expect(source).toContain("dashboard-service.mjs");
+    expect(source).toContain("index-writer.mjs");
     expect(source).toContain("createDashboardServiceSupervisor");
     expect(source).not.toContain("runDashboard(");
   });

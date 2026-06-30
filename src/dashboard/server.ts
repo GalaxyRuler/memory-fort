@@ -1,16 +1,18 @@
 import { createServer as createHttpServer, type IncomingHttpHeaders, type IncomingMessage, type Server as HttpServer, type ServerResponse } from "node:http";
 import { readFile, stat } from "node:fs/promises";
-import { extname, isAbsolute, join, relative, resolve } from "node:path";
+import { basename, extname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { type VerifyResult, type VerifyRole } from "../cli/commands/verify.js";
 import { runVerifyInChild } from "./verify-worker.js";
 import { detectRole } from "../cli/commands/verify/role.js";
-import { createSearchRuntimeCache, runSearch } from "../retrieval/search.js";
+import { createSearchRuntimeCache, runSearch, type Bm25CacheStats, type SearchResponse, type SearchResult, type SearchTimings } from "../retrieval/search.js";
 import { parseAsOf } from "../retrieval/temporal-filter.js";
 import { handlePostObservation, handleGetPages } from "./api-handlers.js";
 import { loadSearchCorpus, type SearchScope } from "../retrieval/corpus.js";
 import { isEntityWikiPath } from "../retrieval/wiki-paths.js";
 import { isIntentLabel, type IntentLabel } from "../retrieval/query-intent.js";
+import { openReadOnlyIndexDb, resolveIndexDbPath, type IndexDb } from "../index/db.js";
+import { lexicalSearch, type LexicalSearchResult } from "../index/search.js";
 import type { EmbedClient } from "../retrieval/refresh.js";
 import {
   createEmbedderFromConfig,
@@ -617,6 +619,45 @@ interface GraphFeedCacheEntry {
   feed: Awaited<ReturnType<typeof loadGraphFeed>>;
 }
 
+interface DashboardIndexStatus {
+  enabled: boolean;
+  dbPath: string;
+  schemaVersion: string | null;
+  chunkCount: number;
+  lastCompleteReconcile: string | null;
+  currentState: string;
+  lastError: string | null;
+  ready: boolean;
+}
+
+interface DashboardIndexSearchController {
+  readonly dbPath: string;
+  search(query: string, page: IndexSearchPage): IndexSearchRouteResponse;
+  status(): DashboardIndexStatus;
+  close(): void;
+}
+
+interface IndexSearchPage {
+  readonly cursor: string | null;
+  readonly offset: number;
+  readonly limit: number;
+  readonly fetchLimit: number;
+}
+
+type IndexSearchRouteResponse = SearchResponse & {
+  readonly index: DashboardIndexStatus;
+  readonly cursor: string | null;
+  readonly nextCursor: string | null;
+};
+
+interface MetaValueRow {
+  value: string | null;
+}
+
+interface CountRow {
+  count: number;
+}
+
 function parseSearchBoolean(value: string | null): boolean {
   return value === "true";
 }
@@ -643,6 +684,236 @@ function parseSearchIntent(value: string | null): IntentLabel | undefined {
   if (!value) return undefined;
   const normalized = value.trim().toLowerCase();
   return isIntentLabel(normalized) ? normalized : undefined;
+}
+
+function parseIndexSearchPage(url: URL): IndexSearchPage {
+  const limit = parseClampedInt(url.searchParams.get("limit") ?? url.searchParams.get("k"), 20, 1, 100);
+  const offset = parseIndexSearchCursor(url.searchParams.get("cursor"));
+  return {
+    cursor: offset > 0 ? String(offset) : null,
+    offset,
+    limit,
+    fetchLimit: Math.min(100, offset + limit + 1),
+  };
+}
+
+function parseIndexSearchCursor(cursor: string | null): number {
+  if (!cursor) return 0;
+  const parsed = Number.parseInt(cursor, 10);
+  if (!Number.isFinite(parsed) || parsed < 0) return 0;
+  return Math.trunc(parsed);
+}
+
+function indexSearchDbPath(vaultRoot: string, env: NodeJS.ProcessEnv): string {
+  const override = env["MEMORY_INDEX_DB_PATH"]?.trim();
+  return override ? resolve(override) : resolveIndexDbPath({ vaultRoot });
+}
+
+function createDashboardIndexSearchController(opts: {
+  vaultRoot: string;
+  env: NodeJS.ProcessEnv;
+}): DashboardIndexSearchController {
+  const dbPath = indexSearchDbPath(opts.vaultRoot, opts.env);
+  let reader: IndexDb | null = null;
+  let lastOpenError: string | null = null;
+
+  function getReader(): IndexDb | null {
+    if (reader) return reader;
+    try {
+      reader = openReadOnlyIndexDb(dbPath);
+      lastOpenError = null;
+      return reader;
+    } catch (error) {
+      lastOpenError = error instanceof Error ? error.message : String(error);
+      return null;
+    }
+  }
+
+  function currentStatus(): DashboardIndexStatus {
+    const db = getReader();
+    if (!db) {
+      return {
+        enabled: true,
+        dbPath,
+        schemaVersion: null,
+        chunkCount: 0,
+        lastCompleteReconcile: null,
+        currentState: "building",
+        lastError: lastOpenError,
+        ready: false,
+      };
+    }
+    return readIndexStatus(db, lastOpenError);
+  }
+
+  return {
+    dbPath,
+    search: (query, page) => {
+      const started = Date.now();
+      const db = getReader();
+      if (!db) return indexingSearchResponse(query, page, started, currentStatus());
+      const results = lexicalSearch(db, query, { limit: page.fetchLimit });
+      const status = readIndexStatus(db, lastOpenError);
+      return indexSearchResponse(query, page, results, status, started);
+    },
+    status: currentStatus,
+    close: () => {
+      reader?.close();
+      reader = null;
+    },
+  };
+}
+
+function readIndexStatus(indexDb: IndexDb, lastOpenError: string | null): DashboardIndexStatus {
+  const schemaVersion = readIndexMeta(indexDb, "schemaVersion");
+  const lastCompleteReconcile = readIndexMeta(indexDb, "lastCompleteReconcileAt")
+    ?? readIndexMeta(indexDb, "lastCompleteRunId");
+  const activeState = readIndexMeta(indexDb, "activeReconcileState");
+  const lastError = readIndexMeta(indexDb, "lastReconcileError") ?? lastOpenError;
+  const chunkCount = indexDb.database.prepare<[], CountRow>("SELECT count(*) AS count FROM chunks").get()?.count ?? 0;
+  const ready = schemaVersion !== null && lastCompleteReconcile !== null && activeState !== "walking" && activeState !== "tombstoning";
+  return {
+    enabled: true,
+    dbPath: indexDb.path,
+    schemaVersion,
+    chunkCount,
+    lastCompleteReconcile,
+    currentState: activeState ?? (chunkCount > 0 ? "ready" : "building"),
+    lastError,
+    ready,
+  };
+}
+
+function readIndexMeta(indexDb: IndexDb, key: string): string | null {
+  return indexDb.database
+    .prepare<[string], MetaValueRow>("SELECT value FROM meta WHERE key = ?")
+    .get(key)?.value ?? null;
+}
+
+function indexingSearchResponse(
+  query: string,
+  page: IndexSearchPage,
+  started: number,
+  status: DashboardIndexStatus,
+): IndexSearchRouteResponse {
+  return {
+    ...baseIndexSearchResponse(query, started),
+    warnings: ["indexing"],
+    degraded: true,
+    index: status,
+    cursor: page.cursor,
+    nextCursor: null,
+  };
+}
+
+function indexSearchResponse(
+  query: string,
+  page: IndexSearchPage,
+  results: LexicalSearchResult[],
+  status: DashboardIndexStatus,
+  started: number,
+): IndexSearchRouteResponse {
+  const pageResults = results.slice(page.offset, page.offset + page.limit);
+  const nextOffset = page.offset + pageResults.length;
+  const nextCursor = results.length > nextOffset ? String(nextOffset) : null;
+  return {
+    ...baseIndexSearchResponse(query, started),
+    results: pageResults.map(indexSearchResultToSearchResult),
+    warnings: status.ready ? [] : ["indexing"],
+    degraded: !status.ready,
+    bm25Cache: {
+      indexCacheHit: true,
+      documentCount: status.chunkCount,
+      tokenCacheHits: 0,
+      tokenCacheMisses: 0,
+    },
+    index: status,
+    cursor: page.cursor,
+    nextCursor,
+  };
+}
+
+function baseIndexSearchResponse(query: string, started: number): SearchResponse {
+  return {
+    query,
+    results: [],
+    warnings: [],
+    timings: indexSearchTimings(started),
+    degraded: false,
+    hyde: { used: false, reason: "disabled-by-flag" },
+    corpusErrorCount: 0,
+    bm25Cache: emptyIndexBm25CacheStats(),
+  };
+}
+
+function indexSearchResultToSearchResult(result: LexicalSearchResult, index: number): SearchResult {
+  const kind = searchKindFromIndexRelPath(result.relPath);
+  const source = "index";
+  return {
+    path: result.relPath,
+    title: titleFromIndexResult(result),
+    snippet: result.text,
+    score: result.score,
+    source,
+    sources: [{ source, rank: index + 1 }],
+    kind,
+    provenance: {
+      path: result.relPath,
+      kind,
+      dominantSource: source,
+      signals: [{ source, rank: index + 1 }],
+      confidence: null,
+      sourceFactCount: 0,
+      derivedFromCount: 0,
+      tier: "medium",
+    },
+  };
+}
+
+function titleFromIndexResult(result: LexicalSearchResult): string {
+  if (result.headingPath) {
+    const parts = result.headingPath.split(">").map((part) => part.trim()).filter(Boolean);
+    if (parts.length > 0) return parts.at(-1)!;
+  }
+  return basename(result.relPath).replace(/\.md$/i, "");
+}
+
+function searchKindFromIndexRelPath(relPath: string): SearchResult["kind"] {
+  if (relPath.startsWith("raw/")) return "raw";
+  if (relPath.startsWith("wiki/")) return "wiki";
+  return "crystal";
+}
+
+function indexSearchTimings(started: number): SearchTimings {
+  return {
+    corpusMs: 0,
+    refreshMs: 0,
+    embedQueryMs: 0,
+    bm25Ms: Math.max(0, Date.now() - started),
+    vectorMs: 0,
+    exactMs: 0,
+    graphMs: 0,
+    graphSpreadMs: 0,
+    metadataMs: 0,
+    rrfMs: 0,
+    rerankMs: 0,
+    totalMs: Math.max(0, Date.now() - started),
+    intentClassification: {
+      label: "open-ended",
+      confidence: 0.5,
+      method: "fallback",
+      latencyMs: 0,
+    },
+  };
+}
+
+function emptyIndexBm25CacheStats(): Bm25CacheStats {
+  return {
+    indexCacheHit: true,
+    documentCount: 0,
+    tokenCacheHits: 0,
+    tokenCacheMisses: 0,
+  };
 }
 
 function parseGraphScope(value: string | null): SearchScope | null {
@@ -734,6 +1005,9 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
   const writeSecretFn = opts.writeSecretImpl ?? defaultWriteSecret;
   const validateKeyFn = opts.validateKeyImpl ?? defaultValidateKey;
   const fullCorpusGate = opts.fullCorpusGate ?? defaultFullCorpusAdmissionGate;
+  const indexSearch = env["MEMORY_INDEX_SEARCH"] === "1"
+    ? createDashboardIndexSearchController({ vaultRoot: opts.vaultRoot, env })
+    : null;
   const PROVIDER_ENV: Record<string, string> = {
     voyage: "VOYAGE_API_KEY",
     openai: "OPENAI_API_KEY",
@@ -760,6 +1034,7 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
   const closeSchedulers = () => {
     autoPromoteScheduler.close();
     autoHealScheduler.close();
+    indexSearch?.close();
   };
   let compileRunActive = false;
   let syncRunActive = false;
@@ -1275,6 +1550,20 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
         return;
       }
 
+      if (segments.length === 2 && segments[0] === "api" && segments[1] === "index-status") {
+        writeJson(res, indexSearch?.status() ?? {
+          enabled: false,
+          dbPath: indexSearchDbPath(opts.vaultRoot, env),
+          schemaVersion: null,
+          chunkCount: 0,
+          lastCompleteReconcile: null,
+          currentState: "disabled",
+          lastError: null,
+          ready: false,
+        } satisfies DashboardIndexStatus);
+        return;
+      }
+
       if (segments.length === 2 && segments[0] === "api" && segments[1] === "secrets") {
         const policy = await loadDashboardOriginPolicy(opts.vaultRoot);
         if (!sameOriginAllowed(req.headers.origin, url, req.headers, policy.trustedOrigins, policy.trustForwardedHeaders, req.socket.remoteAddress)) {
@@ -1367,6 +1656,15 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
         const query = url.searchParams.get("q")?.trim() ?? "";
         if (query.length === 0) {
           writeJson(res, { error: "missing query parameter q" }, 400);
+          return;
+        }
+        if (indexSearch) {
+          try {
+            writeJson(res, indexSearch.search(query, parseIndexSearchPage(url)));
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            writeJsonError(res, 500, message);
+          }
           return;
         }
         const noRerank = parseSearchBoolean(url.searchParams.get("noRerank"));

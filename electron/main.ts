@@ -28,17 +28,28 @@ if (!gotLock) {
 }
 
 let dashboardSupervisor: DashboardServiceSupervisor | null = null;
+let indexWriterSupervisor: DashboardServiceSupervisor | null = null;
 let mainWindow: BrowserWindow | null = null;
 
 async function createWindow(): Promise<void> {
   const appPath = app.getAppPath();
+  const vaultRoot = process.env["MEMORY_ROOT"] ?? join(app.getPath("home"), ".memory");
   const dashboardDistRoot = join(appPath, "dist", "dashboard-ui");
   const dashboardServicePath = join(appPath, "dist", "dashboard", "dashboard-service.mjs");
+  const indexWriterPath = join(appPath, "dist", "dashboard", "index-writer.mjs");
   const runtimeEnv = createMainRuntimeEnv(appPath, dashboardServicePath);
   console.info(`[memory-fort runtime main] ${JSON.stringify(runtimeEnv)}`);
+  if (isIndexSearchEnabled()) {
+    startIndexWriterSupervisor({
+      appPath,
+      vaultRoot,
+      dashboardDistRoot,
+      indexWriterPath,
+    });
+  }
   dashboardSupervisor = createDashboardServiceSupervisor({
     servicePath: dashboardServicePath,
-    vaultRoot: process.env["MEMORY_ROOT"] ?? join(app.getPath("home"), ".memory"),
+    vaultRoot,
     dashboardDistRoot,
     fork: (servicePath) => forkDashboardUtilityProcess(servicePath, appPath),
     runtimeEnv,
@@ -54,6 +65,8 @@ async function createWindow(): Promise<void> {
     dashboard = await dashboardSupervisor.start();
   } catch (error) {
     console.error("dashboard service failed to start", error);
+    indexWriterSupervisor?.stop();
+    indexWriterSupervisor = null;
     await createStartupErrorWindow(error);
     return;
   }
@@ -83,6 +96,36 @@ async function createWindow(): Promise<void> {
   mainWindow.on("closed", () => {
     mainWindow = null;
   });
+}
+
+function isIndexSearchEnabled(): boolean {
+  return process.env["MEMORY_INDEX_SEARCH"] === "1";
+}
+
+function startIndexWriterSupervisor(opts: {
+  appPath: string;
+  vaultRoot: string;
+  dashboardDistRoot: string;
+  indexWriterPath: string;
+}): void {
+  const runtimeEnv = createMainRuntimeEnv(opts.appPath, opts.indexWriterPath);
+  console.info(`[memory-fort index-writer runtime main] ${JSON.stringify(runtimeEnv)}`);
+  indexWriterSupervisor = createDashboardServiceSupervisor({
+    servicePath: opts.indexWriterPath,
+    vaultRoot: opts.vaultRoot,
+    dashboardDistRoot: opts.dashboardDistRoot,
+    fork: (servicePath) => forkDashboardUtilityProcess(servicePath, opts.appPath),
+    runtimeEnv,
+    onRuntimeEnv: logUtilityRuntimeEnv,
+    onMessage: logIndexWriterMessage,
+  });
+  void indexWriterSupervisor.start().catch((error) => {
+    console.error("index writer failed to start", error);
+  });
+}
+
+function logIndexWriterMessage(message: unknown): void {
+  console.info(`[memory-fort index-writer] ${JSON.stringify(message)}`);
 }
 
 async function createStartupErrorWindow(error: unknown): Promise<void> {
@@ -1166,11 +1209,15 @@ app
   });
 
 app.on("before-quit", () => {
+  indexWriterSupervisor?.stop();
+  indexWriterSupervisor = null;
   dashboardSupervisor?.stop();
   dashboardSupervisor = null;
 });
 
 app.on("window-all-closed", () => {
+  indexWriterSupervisor?.stop();
+  indexWriterSupervisor = null;
   dashboardSupervisor?.stop();
   dashboardSupervisor = null;
   app.quit();

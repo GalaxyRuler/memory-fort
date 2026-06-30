@@ -8,6 +8,7 @@ import tsdownConfig from "../../tsdown.config.js";
 const ELECTRON_SHIPPED_ENTRIES = [
   "dist/electron-main.mjs",
   "dist/dashboard/dashboard-service.mjs",
+  "dist/dashboard/index-writer.mjs",
   "dist/dashboard/index-concurrency-spike.mjs",
   "dist/dashboard/scheduled-vault-worker.mjs",
   "dist/dashboard/verify-worker.mjs",
@@ -70,10 +71,12 @@ describe("dashboard build robustness", () => {
       ? tsdownConfig.flatMap((item) => Object.keys((item as { entry?: Record<string, string> }).entry ?? {}))
       : [];
     expect(entries).toContain("dashboard/dashboard-service");
+    expect(entries).toContain("dashboard/index-writer");
     expect(entries).toContain("dashboard/index-concurrency-spike");
 
     const electronBuilder = await readFile(resolve(process.cwd(), "electron-builder.yml"), "utf8");
     expect(electronBuilder).toContain("dist/dashboard/dashboard-service.mjs");
+    expect(electronBuilder).toContain("dist/dashboard/index-writer.mjs");
     expect(electronBuilder).toContain("dist/dashboard/index-concurrency-spike.mjs");
   });
 

@@ -94,6 +94,14 @@ export default defineConfig([
   },
   {
     ...common,
+    entry: { "dashboard/index-writer": "src/dashboard/index-writer.ts" },
+    clean: false,
+    outputOptions: {
+      codeSplitting: false,
+    },
+  },
+  {
+    ...common,
     entry: { "dashboard/index-concurrency-spike": "src/dashboard/index-concurrency-spike.ts" },
     clean: false,
     dts: false,

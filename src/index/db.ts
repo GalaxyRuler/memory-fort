@@ -107,7 +107,7 @@ export interface SqliteStatement<Params extends unknown[] = unknown[], Row = unk
 }
 
 interface BetterSqlite3Constructor {
-  new (path: string): SqliteDatabase;
+  new (path: string, options?: { readonly?: boolean; fileMustExist?: boolean }): SqliteDatabase;
 }
 
 interface MetaRow {
@@ -128,6 +128,37 @@ export function openIndexDb(pathOrOptions?: string | OpenIndexDbOptions): IndexD
     deleteIndexDbFiles(options.path);
     return openInitializedIndexDb(options.path, options.busyTimeoutMs);
   }
+}
+
+export function openReadOnlyIndexDb(pathOrOptions?: string | OpenIndexDbOptions): IndexDb {
+  const options = normalizeOptions(pathOrOptions);
+  const database = new BetterSqlite3(options.path, { readonly: true, fileMustExist: true });
+
+  try {
+    database.pragma("foreign_keys = ON");
+    database.pragma(`busy_timeout = ${options.busyTimeoutMs}`);
+    assertSchema(database);
+  } catch (error) {
+    try {
+      database.close();
+    } catch {
+      // Preserve the open/schema failure.
+    }
+    throw error;
+  }
+
+  return {
+    path: options.path,
+    database,
+    close: () => database.close(),
+    integrityCheck: () => {
+      // A read-only search connection must never issue the FTS integrity-check
+      // maintenance command because that command writes through the virtual table.
+    },
+    rebuildFts: () => {
+      throw new Error("Cannot rebuild FTS from a read-only index connection");
+    },
+  };
 }
 
 function openInitializedIndexDb(path: string, busyTimeoutMs: number): IndexDb {
@@ -175,6 +206,12 @@ export function resolveIndexDbPath(options: Omit<OpenIndexDbOptions, "path" | "b
 function normalizeOptions(pathOrOptions?: string | OpenIndexDbOptions): Required<Pick<OpenIndexDbOptions, "path" | "busyTimeoutMs">> {
   if (typeof pathOrOptions === "string") {
     return { path: resolve(pathOrOptions), busyTimeoutMs: DEFAULT_BUSY_TIMEOUT_MS };
+  }
+  if (pathOrOptions?.path) {
+    return {
+      path: resolve(pathOrOptions.path),
+      busyTimeoutMs: pathOrOptions.busyTimeoutMs ?? DEFAULT_BUSY_TIMEOUT_MS,
+    };
   }
   return {
     path: resolveIndexDbPath(pathOrOptions),
