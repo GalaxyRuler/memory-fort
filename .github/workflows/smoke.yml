@@ -4,10 +4,46 @@ on:
   push:
     branches:
       - main
+    paths:
+      - "src/**"
+      - "electron/**"
+      - "packages/**"
+      - "scripts/**"
+      - "test/**"
+      - "qa/**"
+      - "vendor/**"
+      - "package.json"
+      - "package-lock.json"
+      - "tsconfig*.json"
+      - "vite.config.ts"
+      - "vitest.config.ts"
+      - "tsdown.config.js"
+      - "electron-builder.yml"
+      - ".github/workflows/smoke.yml"
   pull_request:
     branches:
       - main
+    paths:
+      - "src/**"
+      - "electron/**"
+      - "packages/**"
+      - "scripts/**"
+      - "test/**"
+      - "qa/**"
+      - "vendor/**"
+      - "package.json"
+      - "package-lock.json"
+      - "tsconfig*.json"
+      - "vite.config.ts"
+      - "vitest.config.ts"
+      - "tsdown.config.js"
+      - "electron-builder.yml"
+      - ".github/workflows/smoke.yml"
   workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   smoke:
