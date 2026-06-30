@@ -21,20 +21,16 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # The vitest suite is sharded across parallel runners and run SERIALLY within
-  # each shard (--no-file-parallelism). Timing-sensitive routing suites (e.g.
-  # test/dashboard/server.test.ts) starve and hit the 60s testTimeout when they
-  # co-schedule with the native-addon (better-sqlite3/sqlite-vec) test workers on
-  # a 2-core runner — they pass in isolation. Sharding + serial-within-shard
-  # removes that CPU contention while staying fast via parallel shards.
-  # See verify-tests-slow-flaky note.
+  # test/dashboard/server.test.ts is the one suite that flakes on the 2-core
+  # ubuntu runner: its ~10 verify-job / search tests HANG and hit the 60s
+  # testTimeout (not a slow assertion) when the suite runs under memory/CPU
+  # pressure alongside the rest. It passes alone ("isolated"). So we run it on
+  # its OWN fresh runner, and the rest of the suite (which does not flake) runs
+  # separately. An earlier sharding+--no-file-parallelism attempt made it worse
+  # (one worker for all files accumulates memory). See verify-tests-slow-flaky.
   test:
-    name: Test (shard ${{ matrix.shard }}/3)
+    name: Test (suite, excl. dashboard/server)
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [1, 2, 3]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -48,8 +44,26 @@ jobs:
       - name: Build
         # Tests need dist/ + routeTree.gen.ts (see test-build-prerequisites note).
         run: npm run build
-      - name: Test (shard ${{ matrix.shard }}/3, serial within shard)
-        run: npm test -- --shard=${{ matrix.shard }}/3 --no-file-parallelism --reporter=dot
+      - name: Test (everything except dashboard/server)
+        run: npm test -- --exclude '**/dashboard/server.test.ts' --reporter=dot
+
+  test-server:
+    name: Test (dashboard/server, isolated)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - name: Install dependencies
+        run: npm install
+      - name: Build
+        run: npm run build
+      - name: Test (dashboard/server.test.ts on a fresh runner)
+        run: npm test -- test/dashboard/server.test.ts --reporter=dot
 
   ci:
     name: Typecheck, build, and package
