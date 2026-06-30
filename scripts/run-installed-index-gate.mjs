@@ -257,7 +257,7 @@ function renderEvidence(input) {
 - Installed executable: \`${appExecutable}\`
 - MEMORY_INDEX_SEARCH: ${result.runtime?.memoryIndexSearch ?? "unknown"}
 - Real A" path: dashboard-service read-only index search + index-writer writable reconcile owner.
-- Part B real 754 MB vault: operator-run on WHITEDRAGON; not run by Codex in this CI task.
+- Part B real 754 MB vault: operator-run on the local Windows box; not run by Codex in this CI task.
 
 ## Synthetic Vault
 
