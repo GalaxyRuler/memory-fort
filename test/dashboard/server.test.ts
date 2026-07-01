@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { access, mkdir, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { request } from "node:http";
 import { connect } from "node:net";
@@ -262,6 +262,21 @@ async function writeDashboardDist(root: string): Promise<string> {
 
 describe("dashboard server", () => {
   let tmp: string;
+
+  // This suite spins up REAL HTTP servers and issues REAL fetch()/http.request()
+  // calls over real loopback sockets (not mocked). On a noisy or cold shared CI
+  // runner, that real async work occasionally exceeds the global 60s testTimeout
+  // even when this file runs alone on its own dedicated runner (observed: a
+  // health-check test timed out at 60002ms — 2ms over). Give this suite explicit
+  // headroom instead of raising the global timeout for every test file. See the
+  // verify-tests-slow-flaky memory note.
+  beforeAll(() => {
+    vi.setConfig({ testTimeout: 120_000 });
+  });
+
+  afterAll(() => {
+    vi.setConfig({ testTimeout: 60_000 });
+  });
 
   beforeEach(async () => {
     tmp = await mkdtemp(join(tmpdir(), "dash-server-"));
