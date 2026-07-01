@@ -1,5 +1,19 @@
 # Codex handoff — Phase 3 cutover: make the index the default search path
 
+> ⛔ **DEFERRED TO PHASE 5 (decided 2026-07-01 after GPT-5.5 review + Claude code-verification).** The cutover as scoped here (flip the pure-lexical index to default) would **downgrade search quality**: `lexicalSearch` is pure FTS5 bm25, but legacy `runSearch` is a full **hybrid pipeline** — bm25 + graph spreading-activation + metadata scoring + RRF fusion + Voyage rerank + HyDE (see `src/retrieval/search.ts` imports). Flipping the default now drops all those signals. **Phase 5 rebuilds hybrid over the index (vectors + RRF), restoring quality with bounded memory — cut over THEN.** Meanwhile the index stays dormant (flag-OFF). The GPT-review findings below are kept for the Phase-5 cutover.
+>
+> **Verified UI/product gaps to fix as part of the Phase-5 cutover (GPT-5.5 review, confirmed vs code):**
+> - **Frontend doesn't surface the indexing state** — `src/dashboard-ui/components/SearchPage.tsx` empty-state (line ~112) shows "No results for X" whenever `results.length===0`, with NO check for `degraded`/`warnings`/index-status; `degraded`/`warnings` render only as a tiny inline text suffix. The backend ALREADY provides `degraded` + an `index` status object (`server.ts` ~824-861) — this is a pure frontend gap. During cold-index a user sees a false-negative "No results". Fix: distinct empty state ("No indexed results yet — still indexing") + a prominent "indexing, results incomplete" banner while `!index.ready`.
+> - **Backend collapses hard index-open failure into `currentState:"building"`** (`server.ts` ~757) — a broken index masquerades as "building forever" with a working-looking search box. Add a distinct `failed`/`repairing` state + a recovery/diagnostic UI (never silent legacy OOM fallback).
+> - **Silent ~corpus-size app-data growth** (real vault: 846 MB markdown → 1.42 GB index) conflicts with the "no database / everything is markdown" positioning. Add a diagnostics/status row: index path, size, readiness, skipped-file count, last error; disclose on first index build.
+> - **Discoverable rollback**: keep `MEMORY_INDEX_SEARCH=0` but surface a documented legacy opt-out from the degraded UI + README (an env var alone isn't a real rollback for a desktop user).
+> - **Result-quality acceptance gate** before default-on: golden expected-hits is too weak — define top-1/top-5 overlap vs legacy on representative queries (or explicitly accept the tradeoff). This is moot until Phase 5 makes the index path hybrid.
+> - **Pre-cutover gates**: needle-at-end cold-start UX test (visible incomplete-state, not "No results"), hard-failure UX test, long-session WAL/search/file-churn/shutdown soak.
+
+---
+
+> **(Original brief below — the flag-flip mechanics still apply when Phase 5 cutover happens, but ONLY after the index path is quality-competitive with legacy.)**
+
 > Self-contained brief. **Builds on merged Tasks 1–6** (main `ee2e0f2`). Phase 3 is feature-complete + gate-green on 4 targets + confirmed on the real 846 MB vault (Part B). The index currently ships **flag-OFF** (`MEMORY_INDEX_SEARCH`). This task **flips the default ON** so the index becomes the real `/api/search` path for users — the actual delivery of the OOM fix. **Legacy `loadSearchCorpus`/`runSearch` is KEPT** (reachable via opt-out) and removed in a **separate later task**, not here.
 
 ## Goal
