@@ -18,7 +18,16 @@ export default defineConfig({
     setupFiles: ["test/dashboard-ui/setup.ts"],
     passWithNoTests: true,
     reporters: ["default"],
-    hookTimeout: 60_000,
-    testTimeout: 60_000,
+    hookTimeout: 120_000,
+    // 60s was tight for test/dashboard/server.test.ts, which spins up real HTTP
+    // servers and issues real fetch()/http.request() calls over real loopback
+    // sockets (not mocked). On a noisy/cold shared CI runner that occasionally
+    // exceeds 60s even running alone on its own dedicated runner (observed:
+    // 60002ms, and repeated failures at exactly 60000ms). A per-file/per-suite
+    // override via vi.setConfig() in beforeAll does NOT take effect for
+    // testTimeout (verified: a beforeAll-scoped vi.setConfig({testTimeout:1000})
+    // failed to time out a 2s test) -- global config is the only lever that
+    // actually governs the enforced ceiling. See verify-tests-slow-flaky memory.
+    testTimeout: 120_000,
   },
 });
