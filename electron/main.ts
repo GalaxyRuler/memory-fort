@@ -12,6 +12,7 @@ import {
   type DashboardServiceMainRuntimeEnv,
   type DashboardServiceRuntimeEnv,
 } from "../src/dashboard/dashboard-service-supervisor.js";
+import { isIndexSearchEnabled } from "../src/index/env.js";
 
 // main heap is ~4GB-capped; dashboard server work runs in a utility process.
 
@@ -22,7 +23,8 @@ const isCapabilityTest = process.env["MEMORY_CAP_TEST"] === "1";
 const isCapabilityProbe = process.env["MEMORY_CAP_PROBE"] === "1";
 const isIndexConcurrencySpike = process.env["MEMORY_INDEX_SPIKE"] === "1";
 const isIndexGateProbe = process.env["MEMORY_INDEX_GATE_PROBE"] === "1";
-const gotLock = isCapabilityTest || isCapabilityProbe || isIndexConcurrencySpike || isIndexGateProbe || app.requestSingleInstanceLock();
+const isPhase5GateProbe = process.env["MEMORY_PHASE5_GATE_PROBE"] === "1";
+const gotLock = isCapabilityTest || isCapabilityProbe || isIndexConcurrencySpike || isIndexGateProbe || isPhase5GateProbe || app.requestSingleInstanceLock();
 if (!gotLock) {
   app.quit();
   process.exit(0);
@@ -40,7 +42,7 @@ async function createWindow(): Promise<void> {
   const indexWriterPath = join(appPath, "dist", "dashboard", "index-writer.mjs");
   const runtimeEnv = createMainRuntimeEnv(appPath, dashboardServicePath);
   console.info(`[memory-fort runtime main] ${JSON.stringify(runtimeEnv)}`);
-  if (isIndexSearchEnabled()) {
+  if (isIndexSearchEnabled(process.env)) {
     startIndexWriterSupervisor({
       appPath,
       vaultRoot,
@@ -97,10 +99,6 @@ async function createWindow(): Promise<void> {
   mainWindow.on("closed", () => {
     mainWindow = null;
   });
-}
-
-function isIndexSearchEnabled(): boolean {
-  return process.env["MEMORY_INDEX_SEARCH"] === "1";
 }
 
 function startIndexWriterSupervisor(opts: {
@@ -693,6 +691,49 @@ interface IndexGateReconcileResult {
   readonly filesSkipped: number;
 }
 
+interface Phase5GateUtilityRun {
+  readonly child: DashboardServiceChild;
+  readonly pid: number;
+  readonly ready: { readonly mode: "dashboard" | "writer"; readonly pid: number; readonly url?: string };
+  readonly exit: Promise<IndexSpikeExit>;
+}
+
+type Phase5GateDtype = "binary" | "int8" | "float32";
+
+interface Phase5GateResult {
+  readonly mode: "dashboard" | "writer";
+  readonly pid: number;
+  readonly dtype: Phase5GateDtype;
+  readonly binaryOversampleFactor: number | null;
+  readonly modelLoadMs: number;
+  readonly onnxThreads: {
+    readonly intraOpNumThreads: number;
+    readonly interOpNumThreads: number;
+  };
+  readonly stats: {
+    readonly current: IndexSpikeMemorySnapshot;
+    readonly peakRssBytes: number;
+    readonly eventLoopDelay: IndexSpikeEventLoopDelay;
+    readonly cpu?: {
+      readonly userMicros: number;
+      readonly systemMicros: number;
+      readonly totalMicros: number;
+      readonly elapsedMs: number;
+      readonly cpuPercent: number;
+    };
+    readonly threadCount?: number | null;
+  };
+  readonly metrics: Record<string, unknown>;
+}
+
+interface Phase5GateThresholds {
+  readonly searchP95Ms: number;
+  readonly nonSearchP95Ms: number;
+  readonly dashboardEventLoopP95Ms: number;
+  readonly combinedRssBytes: number;
+  readonly advisoryWriterDocsPerSecond: number;
+}
+
 async function runInstalledIndexGateProbe(): Promise<void> {
   const appPath = app.getAppPath();
   process.env["MEMORY_FORT_APP_PATH"] = appPath;
@@ -838,6 +879,363 @@ async function runInstalledIndexGateProbe(): Promise<void> {
       ...(service ? [waitForIndexSpikeExit(service.exit, 10_000)] : []),
     ]);
   }
+}
+
+async function runPhase5GateProbe(): Promise<void> {
+  const appPath = app.getAppPath();
+  process.env["MEMORY_FORT_APP_PATH"] = appPath;
+  process.env["MEMORY_PROCESS_STATS"] = "1";
+  const resultPath = requiredEnv("MEMORY_PHASE5_GATE_RESULT_JSON");
+  const dbPath = requiredEnv("MEMORY_PHASE5_GATE_DB_PATH");
+  const servicePath = join(appPath, "dist", "dashboard", "dashboard-service.mjs");
+  const writerPath = join(appPath, "dist", "dashboard", "index-writer.mjs");
+  const rowCount = readEnvInt("MEMORY_PHASE5_GATE_ROWS", 525_345);
+  const dim = readEnvInt("MEMORY_PHASE5_GATE_DIM", 384);
+  const durationMs = readEnvNumber("MEMORY_PHASE5_GATE_DURATION_MS", 20 * 60_000);
+  const cadenceMs = readEnvNumber("MEMORY_PHASE5_GATE_CADENCE_MS", 150);
+  const dtype = readPhase5GateDtype();
+  const binaryOversampleFactor = readPhase5GateBinaryOversampleFactor();
+  const thresholds = readPhase5GateThresholds(rowCount);
+  const startedAt = new Date().toISOString();
+  let dashboard: Phase5GateUtilityRun | null = null;
+  let writer: Phase5GateUtilityRun | null = null;
+  let wroteResult = false;
+
+  console.info(`[phase5-gate main] appPath=${appPath}`);
+  console.info(`[phase5-gate main] dbPath=${dbPath}`);
+  console.info(`[phase5-gate main] dtype=${dtype} binaryOversampleFactor=${binaryOversampleFactor}`);
+  console.info(`[phase5-gate main] servicePath=${servicePath}`);
+  console.info(`[phase5-gate main] writerPath=${writerPath}`);
+
+  try {
+    await deleteIndexGateDbFiles(dbPath);
+
+    dashboard = await forkPhase5GateUtility({
+      appPath,
+      entryPath: servicePath,
+      init: {
+        mode: "dashboard",
+        dbPath,
+        rowCount,
+        dim,
+        durationMs,
+        cadenceMs,
+        dtype,
+        binaryOversampleFactor,
+        seedDb: true,
+      },
+    });
+    writer = await forkPhase5GateUtility({
+      appPath,
+      entryPath: writerPath,
+      init: {
+        mode: "writer",
+        dbPath,
+        rowCount,
+        dim,
+        durationMs,
+        cadenceMs,
+        dtype,
+        binaryOversampleFactor,
+      },
+    });
+    const dashboardUrl = dashboard.ready.url;
+    if (!dashboardUrl) throw new Error("phase5 dashboard gate did not report a URL");
+
+    const writerDone = waitForPhase5GateDone(writer);
+    const httpStatsPromise = hammerPhase5GateHttp(dashboardUrl, writerDone, cadenceMs);
+    writer.child.postMessage({ type: "start" });
+    const writerResult = await writerDone;
+    const httpStats = await httpStatsPromise;
+    const dashboardDone = waitForPhase5GateDone(dashboard);
+    dashboard.child.postMessage({ type: "phase5-stop" });
+    const dashboardRawResult = await dashboardDone;
+    const dashboardResult: Phase5GateResult = {
+      ...dashboardRawResult,
+      metrics: {
+        ...dashboardRawResult.metrics,
+        search: httpStats.search,
+        nonSearchApi: httpStats.nonSearchApi,
+      },
+    };
+    const issues = evaluatePhase5Gate({ dashboard: dashboardResult, writer: writerResult, thresholds });
+    const mainRssBytes = process.memoryUsage().rss;
+    const combinedChildRssBytes = dashboardResult.stats.peakRssBytes + writerResult.stats.peakRssBytes;
+    const totalAppPeakRssBytes = mainRssBytes + combinedChildRssBytes;
+    const payload = {
+      generatedAt: new Date().toISOString(),
+      startedAt,
+      pass: issues.length === 0,
+      issues,
+      runtime: {
+        electron: process.versions.electron ?? null,
+        node: process.versions.node,
+        modules: process.versions.modules,
+        platform: process.platform,
+        arch: process.arch,
+        appPath,
+        servicePath,
+        writerPath,
+        packaged: !(process as NodeJS.Process & { readonly defaultApp?: boolean }).defaultApp,
+      },
+      config: {
+        rowCount,
+        dim,
+        durationMs,
+        cadenceMs,
+        dtype,
+        binaryOversampleFactor,
+        dbPath,
+      },
+      thresholds,
+      http: httpStats,
+      processes: {
+        dashboard: dashboardResult,
+        writer: writerResult,
+        main: {
+          pid: process.pid,
+          rssBytes: mainRssBytes,
+        },
+      },
+      rss: {
+        combinedDashboardWriterPeakBytes: combinedChildRssBytes,
+        totalAppPeakBytes: totalAppPeakRssBytes,
+      },
+    };
+    await mkdir(resolve(resultPath, ".."), { recursive: true });
+    await writeFile(resultPath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+    wroteResult = true;
+    console.info(`[phase5-gate main] wrote result ${resultPath}`);
+    if (issues.length > 0) throw new Error(`phase5 gate failed: ${issues.join("; ")}`);
+  } catch (error) {
+    if (!wroteResult) {
+      await mkdir(resolve(resultPath, ".."), { recursive: true });
+      await writeFile(
+        resultPath,
+        `${JSON.stringify({
+          generatedAt: new Date().toISOString(),
+          pass: false,
+          issues: [formatErrorForLog(error)],
+        }, null, 2)}\n`,
+        "utf8",
+      );
+    }
+    throw error;
+  } finally {
+    dashboard?.child.postMessage({ type: "shutdown" });
+    writer?.child.postMessage({ type: "shutdown" });
+    await Promise.allSettled([
+      ...(dashboard ? [waitForIndexSpikeExit(dashboard.exit, 10_000)] : []),
+      ...(writer ? [waitForIndexSpikeExit(writer.exit, 10_000)] : []),
+    ]);
+  }
+}
+
+async function forkPhase5GateUtility(opts: {
+  readonly appPath: string;
+  readonly entryPath: string;
+  readonly init: Record<string, unknown>;
+}): Promise<Phase5GateUtilityRun> {
+  const child = forkDashboardUtilityProcess(opts.entryPath, opts.appPath);
+  const pid = await waitForCapabilityProbePid(child, 10_000);
+  const exit = new Promise<IndexSpikeExit>((resolveExit) => {
+    child.once("exit", (code, signal) => {
+      resolveExit({ code, signal: signal ?? null });
+    });
+  });
+  const ready = waitForPhase5GateReady(child, 30 * 60_000);
+  child.postMessage(opts.init);
+  return { child, pid, ready: await ready, exit };
+}
+
+function waitForPhase5GateReady(
+  child: DashboardServiceChild,
+  timeoutMs: number,
+): Promise<{ readonly mode: "dashboard" | "writer"; readonly pid: number; readonly url?: string }> {
+  return waitForIndexSpikeMessage(child, timeoutMs, (payload) => {
+    if (isPhase5GateFailure(payload)) throw new Error(payload.error);
+    if (!isPhase5GateReady(payload)) return null;
+    return {
+      mode: payload.mode,
+      pid: payload.pid,
+      ...(typeof payload.url === "string" ? { url: payload.url } : {}),
+    };
+  });
+}
+
+function waitForPhase5GateDone(run: Phase5GateUtilityRun): Promise<Phase5GateResult> {
+  return waitForIndexSpikeMessage(run.child, 60 * 60_000, (payload) => {
+    if (isPhase5GateFailure(payload)) throw new Error(payload.error);
+    if (!isPhase5GateDone(payload)) return null;
+    return payload.result;
+  });
+}
+
+function isPhase5GateReady(
+  payload: unknown,
+): payload is {
+  readonly type: "phase5-gate-ready" | "phase5-spike-ready";
+  readonly mode: "dashboard" | "writer";
+  readonly pid: number;
+  readonly url?: string;
+} {
+  return (
+    typeof payload === "object" &&
+    payload !== null &&
+    ((payload as { type?: unknown }).type === "phase5-gate-ready" ||
+      (payload as { type?: unknown }).type === "phase5-spike-ready") &&
+    ((payload as { mode?: unknown }).mode === "dashboard" || (payload as { mode?: unknown }).mode === "writer") &&
+    typeof (payload as { pid?: unknown }).pid === "number"
+  );
+}
+
+function isPhase5GateDone(
+  payload: unknown,
+): payload is { readonly type: "phase5-gate-done" | "phase5-spike-done"; readonly result: Phase5GateResult } {
+  return (
+    typeof payload === "object" &&
+    payload !== null &&
+    ((payload as { type?: unknown }).type === "phase5-gate-done" ||
+      (payload as { type?: unknown }).type === "phase5-spike-done") &&
+    typeof (payload as { result?: unknown }).result === "object" &&
+    (payload as { result?: unknown }).result !== null
+  );
+}
+
+function isPhase5GateFailure(
+  payload: unknown,
+): payload is { readonly type: "phase5-gate-fail" | "phase5-spike-fail"; readonly error: string } {
+  return (
+    typeof payload === "object" &&
+    payload !== null &&
+    ((payload as { type?: unknown }).type === "phase5-gate-fail" ||
+      (payload as { type?: unknown }).type === "phase5-spike-fail") &&
+    typeof (payload as { error?: unknown }).error === "string"
+  );
+}
+
+async function hammerPhase5GateHttp(
+  baseUrl: string,
+  done: Promise<unknown>,
+  cadenceMs: number,
+): Promise<{ readonly search: IndexSpikeSearchStats; readonly nonSearchApi: IndexSpikeSearchStats }> {
+  let stopped = false;
+  done.then(
+    () => {
+      stopped = true;
+    },
+    () => {
+      stopped = true;
+    },
+  );
+
+  const searchSamples: number[] = [];
+  const nonSearchSamples: number[] = [];
+  let searchErrors = 0;
+  let nonSearchErrors = 0;
+  let iteration = 0;
+  while (!stopped) {
+    const query = `phase five local vector search ${iteration}`;
+    const searchUrl = new URL("/api/search", baseUrl);
+    searchUrl.searchParams.set("q", query);
+    searchUrl.searchParams.set("limit", "20");
+    const searchStarted = performance.now();
+    try {
+      const response = await fetchWithTimeout(searchUrl, 30_000);
+      await response.arrayBuffer();
+      if (!response.ok) searchErrors += 1;
+      searchSamples.push(performance.now() - searchStarted);
+    } catch {
+      searchErrors += 1;
+      searchSamples.push(performance.now() - searchStarted);
+    }
+
+    const nonSearchUrl = new URL("/api/non-search", baseUrl);
+    const nonSearchStarted = performance.now();
+    try {
+      const response = await fetchWithTimeout(nonSearchUrl, 10_000);
+      await response.arrayBuffer();
+      if (!response.ok) nonSearchErrors += 1;
+      nonSearchSamples.push(performance.now() - nonSearchStarted);
+    } catch {
+      nonSearchErrors += 1;
+      nonSearchSamples.push(performance.now() - nonSearchStarted);
+    }
+
+    iteration += 1;
+    await delayMs(Math.max(0, cadenceMs));
+  }
+
+  return {
+    search: summarizeSearchSamples(searchSamples, searchErrors),
+    nonSearchApi: summarizeSearchSamples(nonSearchSamples, nonSearchErrors),
+  };
+}
+
+function evaluatePhase5Gate(input: {
+  readonly dashboard: Phase5GateResult;
+  readonly writer: Phase5GateResult;
+  readonly thresholds: Phase5GateThresholds;
+}): string[] {
+  const issues: string[] = [];
+  const dtype = input.dashboard.dtype ?? input.writer.dtype ?? "unknown";
+  const search = input.dashboard.metrics["search"] as IndexSpikeSearchStats | undefined;
+  const knn = input.dashboard.metrics["knnService"] as IndexSpikeSearchStats | undefined;
+  const nonSearch = input.dashboard.metrics["nonSearchApi"] as IndexSpikeSearchStats | undefined;
+  const combinedRss = input.dashboard.stats.peakRssBytes + input.writer.stats.peakRssBytes;
+  if ((search?.count ?? 0) < 10) {
+    issues.push(`dashboard /api/search samples too low for dtype ${dtype}: ${String(search?.count ?? 0)}`);
+  }
+  if ((search?.errors ?? 0) > 0) {
+    issues.push(`dashboard /api/search errors for dtype ${dtype}: ${String(search?.errors)}`);
+  }
+  if ((knn?.count ?? 0) < 10) {
+    issues.push(`dashboard KNN samples too low for dtype ${dtype}: ${String(knn?.count ?? 0)}`);
+  }
+  if ((knn?.p95Ms ?? Number.POSITIVE_INFINITY) > input.thresholds.searchP95Ms) {
+    issues.push(`dashboard KNN p95 ${String(knn?.p95Ms)}ms for dtype ${dtype} exceeded ${input.thresholds.searchP95Ms}ms`);
+  }
+  if ((nonSearch?.errors ?? 0) > 0) {
+    issues.push(`dashboard non-search API errors for dtype ${dtype}: ${String(nonSearch?.errors)}`);
+  }
+  if ((nonSearch?.p95Ms ?? Number.POSITIVE_INFINITY) > input.thresholds.nonSearchP95Ms) {
+    issues.push(`dashboard non-search p95 ${String(nonSearch?.p95Ms)}ms for dtype ${dtype} exceeded ${input.thresholds.nonSearchP95Ms}ms`);
+  }
+  if (input.dashboard.stats.eventLoopDelay.p95Ms > input.thresholds.dashboardEventLoopP95Ms) {
+    issues.push(
+      `dashboard event-loop p95 ${input.dashboard.stats.eventLoopDelay.p95Ms}ms for dtype ${dtype} exceeded ${input.thresholds.dashboardEventLoopP95Ms}ms`,
+    );
+  }
+  if (combinedRss > input.thresholds.combinedRssBytes) {
+    issues.push(`combined dashboard+writer RSS ${combinedRss} for dtype ${dtype} exceeded ${input.thresholds.combinedRssBytes}`);
+  }
+  return issues;
+}
+
+function readPhase5GateThresholds(rowCount: number): Phase5GateThresholds {
+  const defaultWriterDocsPerSecond = rowCount / (22 * 60);
+  return {
+    searchP95Ms: readEnvNumber("MEMORY_PHASE5_GATE_SEARCH_P95_MS", 50),
+    nonSearchP95Ms: readEnvNumber("MEMORY_PHASE5_GATE_NON_SEARCH_P95_MS", 100),
+    dashboardEventLoopP95Ms: readEnvNumber("MEMORY_PHASE5_GATE_EVENT_LOOP_P95_MS", 50),
+    combinedRssBytes: readEnvNumber("MEMORY_PHASE5_GATE_COMBINED_RSS_BYTES", 1.5 * 1024 * 1024 * 1024),
+    advisoryWriterDocsPerSecond: readEnvNumber(
+      "MEMORY_PHASE5_GATE_ADVISORY_WRITER_DOCS_PER_SECOND",
+      readEnvNumber("MEMORY_PHASE5_GATE_MIN_WRITER_DOCS_PER_SECOND", defaultWriterDocsPerSecond),
+    ),
+  };
+}
+
+function readPhase5GateDtype(): Phase5GateDtype {
+  const dtype = process.env["MEMORY_PHASE5_GATE_DTYPE"]?.trim() || "binary";
+  if (dtype === "binary" || dtype === "int8" || dtype === "float32") return dtype;
+  throw new Error(`MEMORY_PHASE5_GATE_DTYPE must be binary, int8, or float32; got ${dtype}`);
+}
+
+function readPhase5GateBinaryOversampleFactor(): number {
+  const factor = readEnvInt("MEMORY_PHASE5_GATE_BINARY_OVERSAMPLE", 2);
+  if (factor <= 0) throw new Error(`MEMORY_PHASE5_GATE_BINARY_OVERSAMPLE must be positive; got ${factor}`);
+  return factor;
 }
 
 async function forkIndexGateUtility(opts: {
@@ -1710,6 +2108,7 @@ async function logCapabilityProbeTransition(probeDir: string, line: string): Pro
 }
 
 async function runCapabilityTest(): Promise<void> {
+  process.env["MEMORY_FORT_APP_PATH"] = app.getAppPath();
   console.info(
     `[cap-test] electron=${process.versions.electron ?? "unknown"} node=${process.versions.node} modules=${
       process.versions.modules
@@ -1718,6 +2117,9 @@ async function runCapabilityTest(): Promise<void> {
 
   const { assertFts5, assertVec0Knn, closeCapabilityDb, loadSqliteVec, openCapabilityDb } = await import(
     "../src/index/native/capability.js"
+  );
+  const { isPhase5ModelLfsPointer, runPhase5EmbedProbe } = await import(
+    "../src/dashboard/phase5-local-embedder.js"
   );
   let db: ReturnType<typeof openCapabilityDb>;
   try {
@@ -1728,19 +2130,46 @@ async function runCapabilityTest(): Promise<void> {
   }
 
   try {
-    runCapabilityProbe("CAP_FTS5", () => assertFts5(db));
-    runCapabilityProbe("CAP_VEC_KNN", () => {
+    await runCapabilityProbe("CAP_FTS5", () => assertFts5(db));
+    await runCapabilityProbe("CAP_VEC_KNN", () => {
       loadSqliteVec(db);
       assertVec0Knn(db);
+    });
+    if (process.env["MEMORY_CAP_EMBED_REQUIRED"] !== "1" && isPhase5ModelLfsPointer()) {
+      // Cheap CI lanes check out without `lfs: true`, so the model is a pointer
+      // stub. The strict lanes (installed gate, release) set the env and fail hard.
+      console.info("[cap-test] CAP_EMBED skipped lfs-pointer");
+      return;
+    }
+    await runCapabilityProbe("CAP_EMBED", async () => {
+      const result = await runPhase5EmbedProbe();
+      console.info(
+        `[cap-test] CAP_EMBED metrics ${JSON.stringify({
+          model: result.modelId,
+          revision: result.modelRevision,
+          dim: result.dimension,
+          loadTimeMs: result.loadTimeMs,
+          docsPerSecond: result.docsPerSecond,
+          queryP50Ms: result.queryP50Ms,
+          queryP95Ms: result.queryP95Ms,
+          rssBytes: result.rssBytes,
+          intraOpNumThreads: result.intraOpNumThreads,
+          interOpNumThreads: result.interOpNumThreads,
+          runtimeNativeFiles: result.runtimeNativeFiles.map((file) => file.path),
+        })}`
+      );
     });
   } finally {
     closeCapabilityDb(db);
   }
 }
 
-function runCapabilityProbe(label: "CAP_FTS5" | "CAP_VEC_KNN", probe: () => void): void {
+async function runCapabilityProbe(
+  label: "CAP_FTS5" | "CAP_VEC_KNN" | "CAP_EMBED",
+  probe: () => void | Promise<void>
+): Promise<void> {
   try {
-    probe();
+    await probe();
   } catch (error) {
     console.error(`[cap-test] ${label} FAIL ${formatErrorForLog(error)}`);
     throw error;
@@ -1801,6 +2230,16 @@ app
       } catch (error) {
         console.error(`[index-spike main] FAIL ${formatErrorForLog(error)}`);
         await writeIndexSpikeFailure(error);
+        app.exit(1);
+      }
+      return;
+    }
+    if (isPhase5GateProbe) {
+      try {
+        await runPhase5GateProbe();
+        app.exit(0);
+      } catch (error) {
+        console.error(`[phase5-gate main] FAIL ${formatErrorForLog(error)}`);
         app.exit(1);
       }
       return;

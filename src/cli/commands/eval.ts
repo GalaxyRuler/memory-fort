@@ -5,6 +5,7 @@ import {
 } from "../../eval/longmemeval/download.js";
 import { runEvalLongMemEval } from "./eval-longmemeval.js";
 import { runEvalDispatch } from "./eval-dispatch.js";
+import { runEvalPhase5RecallScaffold } from "./eval-phase5-recall.js";
 
 export interface EvalDownloadCliResult {
   stdout: string;
@@ -62,6 +63,42 @@ export function registerEvalCommand(program: Command): void {
     .action(async (opts: { gold?: string; json?: boolean }) => {
       try {
         const result = await runEvalDispatch(opts);
+        process.stdout.write(result.stdout);
+        process.stderr.write(result.stderr);
+        process.exit(result.exitCode);
+      } catch (error) {
+        console.error((error as Error).message);
+        process.exit(1);
+      }
+    });
+
+  const phase5Recall = evalCommand
+    .command("phase5-recall")
+    .description("Run Phase 5 real-vault recall harness utilities");
+
+  phase5Recall
+    .command("scaffold")
+    .description("Prepare the local index/backfill if requested, then write candidate judged queries")
+    .option("--vault <path>", "vault root (default: ~/.memory)")
+    .option("--gold <path...>", "gold JSONL files to seed candidates")
+    .option("--index-db <path>", "index DB path (default: OS app-data path for the vault)")
+    .option("--candidates <path>", "write candidate JSONL here")
+    .option("--markdown <path>", "write candidate Markdown here")
+    .option("--max-candidates <n>", "maximum candidate rows (default: 75)")
+    .option("--prepare-index", "run lexical reconcile and local bge-small vector backfill before scaffolding")
+    .option("--batch-size <n>", "vector backfill batch size (default: 16)")
+    .action(async (opts) => {
+      try {
+        const result = await runEvalPhase5RecallScaffold({
+          vault: opts.vault,
+          gold: opts.gold,
+          indexDb: opts.indexDb,
+          candidates: opts.candidates,
+          markdown: opts.markdown,
+          maxCandidates: opts.maxCandidates,
+          prepareIndex: opts.prepareIndex,
+          batchSize: opts.batchSize,
+        });
         process.stdout.write(result.stdout);
         process.stderr.write(result.stderr);
         process.exit(result.exitCode);

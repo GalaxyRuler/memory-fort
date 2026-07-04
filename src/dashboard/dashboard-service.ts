@@ -170,9 +170,18 @@ declare global {
 
 if (process.parentPort) {
   const parentPort = process.parentPort;
-  startDashboardService({ parentPort }).catch(async (error: unknown) => {
-    await appendDashboardServiceLog(undefined, error);
-    console.error(`[dashboard-service] ${(error as Error)?.message ?? String(error)}`);
-    process.exit(1);
-  });
+  if (process.env["MEMORY_PHASE5_GATE_PROBE"] === "1") {
+    import("./phase5-contention-spike.js")
+      .then(({ startPhase5DashboardGateProcess }) => startPhase5DashboardGateProcess(parentPort))
+      .catch((error: unknown) => {
+        console.error(`[dashboard-service phase5-gate] ${(error as Error)?.message ?? String(error)}`);
+        process.exit(1);
+      });
+  } else {
+    startDashboardService({ parentPort }).catch(async (error: unknown) => {
+      await appendDashboardServiceLog(undefined, error);
+      console.error(`[dashboard-service] ${(error as Error)?.message ?? String(error)}`);
+      process.exit(1);
+    });
+  }
 }

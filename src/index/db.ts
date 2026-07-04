@@ -3,13 +3,15 @@ import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { createRequire } from "node:module";
 import { homedir, platform } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { loadSqliteVec, type CapabilityDb } from "./native/capability.js";
 
 const require = createRequire(import.meta.url);
 const BetterSqlite3 = require("better-sqlite3") as BetterSqlite3Constructor;
 
-const SCHEMA_VERSION = "1";
+const SCHEMA_VERSION = "3";
 const TOKENIZER = "unicode61 remove_diacritics 2";
 const DEFAULT_BUSY_TIMEOUT_MS = 5_000;
+const VECTOR_DIMENSION = 384;
 
 // Used when the compiled Electron bundle cannot read sibling .sql assets.
 const INIT_MIGRATION_SQL = `CREATE TABLE IF NOT EXISTS files (
@@ -18,6 +20,14 @@ const INIT_MIGRATION_SQL = `CREATE TABLE IF NOT EXISTS files (
   sizeBytes INTEGER,
   mtimeMs INTEGER,
   contentHash TEXT,
+  frontmatterStatus TEXT,
+  frontmatterLifecycle TEXT,
+  frontmatterConfidence REAL,
+  frontmatterConfidenceJson TEXT,
+  frontmatterValidation TEXT,
+  frontmatterCreated TEXT,
+  frontmatterUpdated TEXT,
+  frontmatterObservedAt TEXT,
   generation INTEGER,
   lastSeenRunId INTEGER,
   errorState TEXT,
@@ -78,6 +88,54 @@ CREATE INDEX IF NOT EXISTS idx_chunks_generation ON chunks(generation);
 CREATE INDEX IF NOT EXISTS idx_files_generation ON files(generation);
 CREATE INDEX IF NOT EXISTS idx_files_hash ON files(contentHash);`;
 
+const VECTOR_MIGRATION_SQL = `CREATE TABLE IF NOT EXISTS embedding_profiles (
+  profileId TEXT PRIMARY KEY,
+  provider TEXT NOT NULL,
+  runtime TEXT NOT NULL,
+  runtimeVersion TEXT NOT NULL,
+  modelId TEXT NOT NULL,
+  modelRevision TEXT NOT NULL,
+  modelHash TEXT NOT NULL,
+  tokenizerHash TEXT NOT NULL,
+  pooling TEXT NOT NULL,
+  normalization TEXT NOT NULL,
+  dtype TEXT NOT NULL,
+  dimension INTEGER NOT NULL CHECK(dimension = 384),
+  prefixStrategy TEXT NOT NULL,
+  chunkerVersion TEXT NOT NULL,
+  payloadRecipe TEXT NOT NULL,
+  maxTokenPolicy TEXT NOT NULL,
+  fingerprintJson TEXT NOT NULL,
+  createdAt INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS chunk_vectors (
+  chunkRowid INTEGER NOT NULL REFERENCES chunks(rowid) ON DELETE CASCADE,
+  profileId TEXT NOT NULL REFERENCES embedding_profiles(profileId) ON DELETE CASCADE,
+  coarseRowid INTEGER NOT NULL UNIQUE,
+  generation INTEGER NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('pending', 'embedded', 'failed', 'skipped')),
+  embeddedPayloadHash TEXT,
+  failureReason TEXT,
+  updatedAt INTEGER NOT NULL,
+  PRIMARY KEY(chunkRowid, profileId)
+);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS chunk_vectors_bin USING vec0(embedding bit[384]);
+CREATE VIRTUAL TABLE IF NOT EXISTS chunk_vectors_i8 USING vec0(embedding int8[384]);
+
+CREATE TABLE IF NOT EXISTS vector_coverage (
+  profileId TEXT PRIMARY KEY REFERENCES embedding_profiles(profileId) ON DELETE CASCADE,
+  eligible INTEGER NOT NULL DEFAULT 0,
+  embedded INTEGER NOT NULL DEFAULT 0,
+  failed INTEGER NOT NULL DEFAULT 0,
+  skipped INTEGER NOT NULL DEFAULT 0,
+  updatedAt INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_chunk_vectors_profile_status ON chunk_vectors(profileId, status);
+CREATE INDEX IF NOT EXISTS idx_chunk_vectors_coarseRowid ON chunk_vectors(coarseRowid);`;
+
 export interface IndexDb {
   readonly path: string;
   readonly database: SqliteDatabase;
@@ -95,6 +153,7 @@ export interface OpenIndexDbOptions {
 
 export interface SqliteDatabase {
   exec(sql: string): void;
+  loadExtension(path: string, entrypoint?: string): void;
   pragma(sql: string, options?: { readonly simple?: boolean }): unknown;
   prepare<Params extends unknown[] = unknown[], Row = unknown>(sql: string): SqliteStatement<Params, Row>;
   close(): void;
@@ -135,6 +194,7 @@ export function openReadOnlyIndexDb(pathOrOptions?: string | OpenIndexDbOptions)
   const database = new BetterSqlite3(options.path, { readonly: true, fileMustExist: true });
 
   try {
+    loadIndexVectorExtension(options.path, database);
     database.pragma("foreign_keys = ON");
     database.pragma(`busy_timeout = ${options.busyTimeoutMs}`);
     assertSchema(database);
@@ -169,6 +229,7 @@ function openInitializedIndexDb(path: string, busyTimeoutMs: number): IndexDb {
     if (String(journalMode).toLowerCase() !== "wal") {
       throw new Error(`Failed to enable WAL for index database at ${path}; got ${String(journalMode)}`);
     }
+    loadIndexVectorExtension(path, database);
     database.pragma("foreign_keys = ON");
     database.pragma(`busy_timeout = ${busyTimeoutMs}`);
     migrate(database);
@@ -244,6 +305,7 @@ function migrate(database: SqliteDatabase): void {
   database.exec("BEGIN IMMEDIATE");
   try {
     database.exec(loadInitMigrationSql());
+    database.exec(loadVectorMigrationSql());
     database
       .prepare<[string]>(
         "INSERT INTO meta(key, value) VALUES ('schemaVersion', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
@@ -267,8 +329,17 @@ function assertSchema(database: SqliteDatabase): void {
     throw new IndexSchemaMismatchError(`Index tokenizer mismatch: expected ${TOKENIZER}, found ${String(tokenizer)}`);
   }
   assertSchemaObjects(database, "table", ["chunks", "chunks_fts", "files", "meta"]);
+  assertSchemaObjects(database, "table", [
+    "chunk_vectors",
+    "chunk_vectors_bin",
+    "chunk_vectors_i8",
+    "embedding_profiles",
+    "vector_coverage",
+  ]);
   assertSchemaObjects(database, "trigger", ["chunks_ad", "chunks_ai", "chunks_au"]);
   assertSchemaObjects(database, "index", [
+    "idx_chunk_vectors_coarseRowid",
+    "idx_chunk_vectors_profile_status",
     "idx_chunks_generation",
     "idx_chunks_relPath",
     "idx_chunks_relPath_ordinal",
@@ -307,6 +378,27 @@ function loadInitMigrationSql(): string {
   } catch {
     return INIT_MIGRATION_SQL;
   }
+}
+
+function loadVectorMigrationSql(): string {
+  try {
+    return readFileSync(new URL("./migrations/002_vectors.sql", import.meta.url), "utf8");
+  } catch {
+    return VECTOR_MIGRATION_SQL;
+  }
+}
+
+export function createVectorTablesSql(dimension = VECTOR_DIMENSION): string {
+  if (!Number.isInteger(dimension) || dimension <= 0 || dimension % 8 !== 0) {
+    throw new Error(`vector dimension must be a positive multiple of 8; got ${dimension}`);
+  }
+  return `
+CREATE VIRTUAL TABLE IF NOT EXISTS chunk_vectors_bin USING vec0(embedding bit[${dimension}]);
+CREATE VIRTUAL TABLE IF NOT EXISTS chunk_vectors_i8 USING vec0(embedding int8[${dimension}]);`;
+}
+
+function loadIndexVectorExtension(path: string, database: SqliteDatabase): void {
+  loadSqliteVec({ path, database: database as CapabilityDb["database"] });
 }
 
 class IndexSchemaMismatchError extends Error {

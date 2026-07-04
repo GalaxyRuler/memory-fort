@@ -17,7 +17,7 @@
 </p>
 
 Memory Fort gives every AI coding session a shared long-term memory: observations flow in automatically from Claude Code, Codex, Antigravity, Hermes, Pi, ChatGPT, and OpenCode.
-MCP integrations, including OpenClaw in v1, can log and recall memory on demand; search results include detailed provenance receipts explaining ranking decisions; a curated wiki of markdown pages grows over time; and retrieval (BM25 + semantic + graph) surfaces the right context at session start. No database. No external service. No API key to get started.
+MCP integrations, including OpenClaw in v1, can log and recall memory on demand; search results include detailed provenance receipts explaining ranking decisions; a curated wiki of markdown pages grows over time; and retrieval (BM25 + semantic + graph) surfaces the right context at session start. No database server. No external service. No API key to get started.
 
 Your memory is a folder of plain text files — a git repo, an Obsidian vault, and a typed knowledge graph all at once.
 
@@ -25,7 +25,7 @@ Your memory is a folder of plain text files — a git repo, an Obsidian vault, a
 
 ## Why Memory Fort?
 
-Memory Fort does not require a cloud account, a running database, or a paid API key to get started; its local vault and lexical search run from plain markdown files.
+Memory Fort does not require a cloud account, a running database server, or a paid API key to get started; its local vault and lexical search run from plain markdown files.
 
 - **Your data, your machine.** Everything lives under `~/.memory/` as markdown files you can read, edit, grep, and version-control.
 - **No vendor lock-in.** Open schema, plain text format, vault is just a git repo.
@@ -69,7 +69,7 @@ Interactive wizard asks ≤4 questions (all pre-defaulted), detects your install
 
 **Prefer a binary?** Download the desktop app (Windows `.exe`, macOS `.dmg`, Linux `.AppImage`) from the [Releases page](https://github.com/GalaxyRuler/memory-fort/releases) — no Node.js required. See [Desktop app](#desktop-app).
 
-**Prerequisites (npm/CLI install):** Node.js ≥ 20. Nothing else. No Docker, no database, no API key.
+**Prerequisites (npm/CLI install):** Node.js ≥ 20. Nothing else. No Docker, no database server, no API key.
 
 ```bash
 # Search immediately (no key needed)
@@ -88,6 +88,12 @@ memory-fort dashboard
 5. Add API keys from the dashboard only when using hosted providers; keys are stored outside the git-backed vault and are never written into `~/.memory/config.yaml`.
 6. Turn off clients you do not want Memory Fort to use. Turning a client off preserves its saved setup; `memory-fort disconnect <client>` removes the integration config.
 7. Run `memory-fort doctor` or `memory-fort verify` after connecting clients to confirm the vault, providers, dashboard, and integrations are healthy.
+
+### Search index and rollback
+
+Dashboard search uses a rebuildable local SQLite FTS index by default. The canonical memory remains markdown under `~/.memory/`; the index is an app-data cache used for bounded-memory search and can grow near the vault size. The Search page reports the index path, size, readiness, skipped-file count, and last error when results are incomplete or degraded.
+
+Set `MEMORY_INDEX_SEARCH=0` to use the legacy full-corpus search path and stop the index writer. Vectors are a separate opt-in: set `MEMORY_INDEX_VECTORS=1` only when you want the local bge-small vector backfill and hybrid search. The default cutover is lexical-only and does not start vector embedding.
 
 ---
 
@@ -388,7 +394,17 @@ The app is the same dashboard in a native window — it starts the local server 
 
 > **Browser blocks the download?** Chrome and other browsers sometimes refuse to download an unsigned `.exe` ("can't be downloaded securely"). Every installer is also published as a `.zip` (`MemoryFort-Setup-X.Y.Z.exe.zip`, etc.) — download that instead, then extract and run the installer inside.
 
-> **Unsigned installers.** The binaries are not code-signed, so the first launch triggers a warning — Windows SmartScreen ("More info → Run anyway") or macOS Gatekeeper (right-click → Open). This is expected; the app is open source (GPL-3.0) and free.
+> **Unsigned installers.** The binaries are not code-signed, so the first launch needs a one-time override. This is expected; the app is open source (GPL-3.0) and free.
+>
+> **Windows** — SmartScreen warning: "More info" → "Run anyway".
+>
+> **macOS** — Gatekeeper blocks the first launch (the dialog says *"MemoryFort" is damaged and can't be opened* or *Apple could not verify…*). Right-click → Open no longer bypasses this — [Apple removed that override in macOS 15 Sequoia](https://developer.apple.com/news/?id=saqachfa). After copying `MemoryFort.app` into `Applications`, clear the download quarantine flag in Terminal:
+>
+> ```bash
+> xattr -r -d com.apple.quarantine /Applications/MemoryFort.app
+> ```
+>
+> then launch it normally. Alternatively, try to open the app once, then look for **Open Anyway** under **System Settings → Privacy & Security** ([Apple's documented override flow](https://support.apple.com/guide/mac-help/open-a-mac-app-from-an-unknown-developer-mh40616/mac)) — but on macOS 26 Tahoe the "damaged" dialog for unsigned apps often comes with no Open Anyway button, so the `xattr` command is the reliable path. Only override Gatekeeper for software you trust.
 
 **Build it yourself:** `npm run electron:build` produces an installer for your current OS in `dist/electron-installer/`.
 

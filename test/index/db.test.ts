@@ -16,7 +16,7 @@ describe("openIndexDb", () => {
     tempDir = null;
   });
 
-  it("opens a WAL database with the v1 schema and FTS triggers", async () => {
+  it("opens a WAL database with the v3 schema, FTS triggers, vector tables, and file metadata columns", async () => {
     const { openIndexDb } = await import("../../src/index/db.js");
     tempDir = await mkdtemp(join(tmpdir(), "memory-index-db-"));
 
@@ -24,7 +24,7 @@ describe("openIndexDb", () => {
 
     expect(String(indexDb.database.pragma("journal_mode", { simple: true })).toLowerCase()).toBe("wal");
     expect(indexDb.database.prepare("SELECT value FROM meta WHERE key = 'schemaVersion'").get()).toEqual({
-      value: "1",
+      value: "3",
     });
     expect(indexDb.database.prepare("SELECT value FROM meta WHERE key = 'tokenizer'").get()).toEqual({
       value: "unicode61 remove_diacritics 2",
@@ -34,13 +34,47 @@ describe("openIndexDb", () => {
       .prepare("SELECT name FROM sqlite_master WHERE type IN ('table', 'virtual table') ORDER BY name")
       .all() as Array<{ name: string }>;
     expect(tableRows.map((row) => row.name)).toEqual(
-      expect.arrayContaining(["chunks", "chunks_fts", "files", "meta"]),
+      expect.arrayContaining([
+        "chunk_vectors",
+        "chunk_vectors_bin",
+        "chunk_vectors_i8",
+        "chunks",
+        "chunks_fts",
+        "embedding_profiles",
+        "files",
+        "meta",
+        "vector_coverage",
+      ]),
     );
+
+    const vectorSqlRows = indexDb.database
+      .prepare("SELECT name, sql FROM sqlite_master WHERE name IN ('chunk_vectors_bin', 'chunk_vectors_i8') ORDER BY name")
+      .all() as Array<{ name: string; sql: string }>;
+    expect(vectorSqlRows).toEqual([
+      expect.objectContaining({ name: "chunk_vectors_bin", sql: expect.stringContaining("bit[384]") }),
+      expect.objectContaining({ name: "chunk_vectors_i8", sql: expect.stringContaining("int8[384]") }),
+    ]);
 
     const triggerRows = indexDb.database
       .prepare("SELECT name FROM sqlite_master WHERE type = 'trigger' ORDER BY name")
       .all() as Array<{ name: string }>;
     expect(triggerRows.map((row) => row.name)).toEqual(["chunks_ad", "chunks_ai", "chunks_au"]);
+
+    const fileColumns = indexDb.database
+      .prepare("PRAGMA table_info(files)")
+      .all() as Array<{ name: string }>;
+    expect(fileColumns.map((row) => row.name)).toEqual(
+      expect.arrayContaining([
+        "frontmatterStatus",
+        "frontmatterLifecycle",
+        "frontmatterConfidence",
+        "frontmatterConfidenceJson",
+        "frontmatterValidation",
+        "frontmatterCreated",
+        "frontmatterUpdated",
+        "frontmatterObservedAt",
+      ]),
+    );
   });
 
   it("keeps chunks_fts consistent across insert/update/delete (no ghost rows)", async () => {
@@ -93,7 +127,7 @@ describe("openIndexDb", () => {
     const indexDb = track(openIndexDb(dbPath));
 
     expect(indexDb.database.prepare("SELECT value FROM meta WHERE key = 'schemaVersion'").get()).toEqual({
-      value: "1",
+      value: "3",
     });
     expect(() => indexDb.integrityCheck()).not.toThrow();
     expect(await readFile(dbPath, "utf8")).not.toBe("not a sqlite database");
@@ -101,8 +135,35 @@ describe("openIndexDb", () => {
     await expect(readFile(`${dbPath}-shm`, "utf8")).resolves.not.toBe("stale shm sidecar");
   });
 
+  it("drops and rebuilds a stale schema database", async () => {
+    const { openIndexDb } = await import("../../src/index/db.js");
+    tempDir = await mkdtemp(join(tmpdir(), "memory-index-db-"));
+    const dbPath = join(tempDir, "index.db");
+    const indexDb = track(openIndexDb(dbPath));
+
+    indexDb.database.prepare("INSERT INTO files(relPath, generation) VALUES('stale.md', 1)").run();
+    indexDb.database
+      .prepare("INSERT INTO meta(key, value) VALUES('schemaVersion', '1') ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+      .run();
+    closeTracked(indexDb);
+
+    const rebuilt = track(openIndexDb(dbPath));
+
+    expect(rebuilt.database.prepare("SELECT value FROM meta WHERE key = 'schemaVersion'").get()).toEqual({
+      value: "3",
+    });
+    expect(rebuilt.database.prepare("SELECT count(*) AS count FROM files").get()).toEqual({ count: 0 });
+    expect(() => rebuilt.integrityCheck()).not.toThrow();
+  });
+
   function track<T extends { close(): void }>(db: T): T {
     openDbs.push(db);
     return db;
+  }
+
+  function closeTracked<T extends { close(): void }>(db: T): void {
+    db.close();
+    const index = openDbs.indexOf(db);
+    if (index >= 0) openDbs.splice(index, 1);
   }
 });

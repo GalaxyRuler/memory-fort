@@ -311,4 +311,43 @@ describe("useSearch", () => {
       },
     });
   });
+
+  test("preserves index health metadata while normalizing results", async () => {
+    const response = {
+      ...makeSearchResponse(),
+      results: [],
+      index: {
+        enabled: true,
+        dbPath: "C:\\Memory\\index.db",
+        sizeBytes: 4096,
+        schemaVersion: "3",
+        chunkCount: 12,
+        filesSkipped: 1,
+        skippedFiles: [
+          {
+            relPath: "raw/oversized.md",
+            errorState: "too-large",
+            sizeBytes: 128000,
+          },
+        ],
+        lastCompleteReconcile: "2026-07-04T00:00:00.000Z",
+        currentState: "repairing",
+        lastError: "database disk image is malformed",
+        ready: false,
+      },
+    };
+    const fetchMock = vi.fn(
+      async (_input: RequestInfo | URL) => new Response(JSON.stringify(response), { status: 200 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { result } = renderHook(
+      () => useSearch({ query: "voyage", scope: "all", k: 12, noRerank: true }),
+      { wrapper: wrapperWithQueryClient },
+    );
+
+    await waitFor(() => {
+      expect(result.current.data?.index).toEqual(response.index);
+    });
+  });
 });

@@ -4,7 +4,14 @@ import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { openIndexDb, type IndexDb } from "../../src/index/db.js";
+import {
+  createEmbeddingProfileFingerprint,
+  ingestChunkVector,
+  type EmbedClient,
+  type EmbeddingProfileFingerprint,
+} from "../../src/index/embed.js";
 import { reconcileIndex } from "../../src/index/reconcile.js";
+import { lexicalSearch } from "../../src/index/search.js";
 
 describe("reconcileIndex", () => {
   const openDbs: IndexDb[] = [];
@@ -33,6 +40,62 @@ describe("reconcileIndex", () => {
       { relPath: "raw/capture.md", ordinal: 0, text: "# Capture\n\nalpha beta gamma" },
       { relPath: "wiki/page.md", ordinal: 0, text: "# Page\n\nwiki delta epsilon" },
     ]);
+    expect(() => indexDb.integrityCheck()).not.toThrow();
+  });
+
+  it("stores frontmatter status, lifecycle, confidence, validation, and dates on files", async () => {
+    const { vaultRoot, indexDb } = await createHarness();
+    await writeVaultFile(
+      vaultRoot,
+      "wiki/projects/metadata.md",
+      [
+        "---",
+        "title: Metadata Page",
+        "type: projects",
+        "status: superseded",
+        "lifecycle: proposed",
+        "confidence:",
+        "  extraction: 0.42",
+        "  validation: challenged",
+        "created: 2026-06-01",
+        "updated: 2026-07-01",
+        "observed_at: 2026-06-15",
+        "---",
+        "",
+        "# Metadata Page",
+        "",
+        "frontmatter metadata should be stored with the file row",
+      ].join("\n"),
+    );
+
+    await reconcileIndex(indexDb, vaultRoot);
+
+    expect(selectFileMetadata(indexDb, "wiki/projects/metadata.md")).toEqual({
+      frontmatterStatus: "superseded",
+      frontmatterLifecycle: "proposed",
+      frontmatterConfidence: 0.42,
+      frontmatterConfidenceJson: "{\"extraction\":0.42,\"validation\":\"challenged\"}",
+      frontmatterValidation: "challenged",
+      frontmatterCreated: "2026-06-01",
+      frontmatterUpdated: "2026-07-01",
+      frontmatterObservedAt: "2026-06-15",
+    });
+  });
+
+  it("skips dot-directory markdown backups under raw and wiki so they cannot be searched", async () => {
+    const { vaultRoot, indexDb } = await createHarness();
+    await writeVaultFile(vaultRoot, "raw/capture.md", "# Capture\n\nrawliveonly");
+    await writeVaultFile(vaultRoot, "raw/.history/capture.md", "# Raw Backup\n\nraw-backup-only-token");
+    await writeVaultFile(vaultRoot, "wiki/page.md", "# Page\n\nwikiliveonly");
+    await writeVaultFile(vaultRoot, "wiki/.history/wiki/page.md/2026-07-03T00-00-00-000Z.md", "# Wiki Backup\n\nwiki-backup-only-token");
+
+    const result = await reconcileIndex(indexDb, vaultRoot);
+
+    expect(result.filesIndexed).toBe(2);
+    expect(selectFilePaths(indexDb)).toEqual(["raw/capture.md", "wiki/page.md"]);
+    expect(lexicalSearch(indexDb, "rawliveonly").map((hit) => hit.relPath)).toEqual(["raw/capture.md"]);
+    expect(lexicalSearch(indexDb, "raw-backup-only-token")).toEqual([]);
+    expect(lexicalSearch(indexDb, "wiki-backup-only-token")).toEqual([]);
     expect(() => indexDb.integrityCheck()).not.toThrow();
   });
 
@@ -76,6 +139,89 @@ describe("reconcileIndex", () => {
     expect(selectFilePaths(indexDb)).toEqual(["wiki/page.md"]);
     expect(countChunks(indexDb, "raw/deleted.md")).toBe(0);
     expect(searchChunkTexts(indexDb, "ghostterm")).toEqual([]);
+    expect(() => indexDb.integrityCheck()).not.toThrow();
+  });
+
+  it("reclaims vec0 rows when tombstoning a deleted file with vectors", async () => {
+    const { vaultRoot, indexDb } = await createHarness();
+    await writeVaultFile(vaultRoot, "wiki/vectorized.md", "# Vectorized\n\nsemantic payload");
+    await reconcileIndex(indexDb, vaultRoot);
+    await ingestChunkVector({
+      database: indexDb.database,
+      chunkRowid: onlyChunkRowid(indexDb, "wiki/vectorized.md"),
+      profile: profileFingerprint(),
+      embedder: fakeEmbedder(vector(0)),
+    });
+    expect(countRows(indexDb, "chunk_vectors")).toBe(1);
+    expect(countRows(indexDb, "chunk_vectors_bin")).toBe(1);
+    expect(countRows(indexDb, "chunk_vectors_i8")).toBe(1);
+
+    await unlink(vaultPath(vaultRoot, "wiki/vectorized.md"));
+    await reconcileIndex(indexDb, vaultRoot);
+
+    expect(countRows(indexDb, "chunk_vectors")).toBe(0);
+    expect(countRows(indexDb, "chunk_vectors_bin")).toBe(0);
+    expect(countRows(indexDb, "chunk_vectors_i8")).toBe(0);
+    expect(() => indexDb.integrityCheck()).not.toThrow();
+  });
+
+  it("does not collide with stale vec0 rows when SQLite recycles a chunk rowid", async () => {
+    const { vaultRoot, indexDb } = await createHarness();
+    const profile = profileFingerprint();
+    await writeVaultFile(vaultRoot, "wiki/old.md", "# Old\n\nold vectorized payload");
+    await reconcileIndex(indexDb, vaultRoot);
+    const oldRowid = onlyChunkRowid(indexDb, "wiki/old.md");
+    await ingestChunkVector({
+      database: indexDb.database,
+      chunkRowid: oldRowid,
+      profile,
+      embedder: fakeEmbedder(vector(2)),
+    });
+    expect(countRows(indexDb, "chunk_vectors_bin")).toBe(1);
+    expect(countRows(indexDb, "chunk_vectors_i8")).toBe(1);
+
+    await unlink(vaultPath(vaultRoot, "wiki/old.md"));
+    await reconcileIndex(indexDb, vaultRoot);
+    await writeVaultFile(vaultRoot, "wiki/new.md", "# New\n\nnew vectorized payload");
+    await reconcileIndex(indexDb, vaultRoot);
+    const recycledRowid = onlyChunkRowid(indexDb, "wiki/new.md");
+
+    expect(recycledRowid).toBe(oldRowid);
+    expect(countRows(indexDb, "chunk_vectors")).toBe(0);
+    expect(countRows(indexDb, "chunk_vectors_bin")).toBe(0);
+    expect(countRows(indexDb, "chunk_vectors_i8")).toBe(0);
+    await expect(
+      ingestChunkVector({
+        database: indexDb.database,
+        chunkRowid: recycledRowid,
+        profile,
+        embedder: fakeEmbedder(vector(3)),
+      }),
+    ).resolves.toMatchObject({ status: "embedded", coarseRowid: recycledRowid });
+    expect(selectVectorRows(indexDb)).toEqual([{ chunkRowid: recycledRowid, coarseRowid: recycledRowid }]);
+    expect(countRows(indexDb, "chunk_vectors_bin")).toBe(1);
+    expect(countRows(indexDb, "chunk_vectors_i8")).toBe(1);
+    expect(() => indexDb.integrityCheck()).not.toThrow();
+  });
+
+  it("reclaims vec0 rows when replacing chunks for a changed file", async () => {
+    const { vaultRoot, indexDb } = await createHarness();
+    await writeVaultFile(vaultRoot, "wiki/changed.md", "# Changed\n\nold vectorized payload");
+    await reconcileIndex(indexDb, vaultRoot);
+    await ingestChunkVector({
+      database: indexDb.database,
+      chunkRowid: onlyChunkRowid(indexDb, "wiki/changed.md"),
+      profile: profileFingerprint(),
+      embedder: fakeEmbedder(vector(1)),
+    });
+
+    await writeVaultFile(vaultRoot, "wiki/changed.md", "# Changed\n\nnew lexical payload");
+    await reconcileIndex(indexDb, vaultRoot);
+
+    expect(countRows(indexDb, "chunk_vectors")).toBe(0);
+    expect(countRows(indexDb, "chunk_vectors_bin")).toBe(0);
+    expect(countRows(indexDb, "chunk_vectors_i8")).toBe(0);
+    expect(searchChunkTexts(indexDb, "new")).toEqual(["# Changed\n\nnew lexical payload"]);
     expect(() => indexDb.integrityCheck()).not.toThrow();
   });
 
@@ -261,6 +407,33 @@ describe("reconcileIndex", () => {
       .all();
   }
 
+  function selectFileMetadata(indexDb: IndexDb, relPath: string): {
+    frontmatterStatus: string | null;
+    frontmatterLifecycle: string | null;
+    frontmatterConfidence: number | null;
+    frontmatterConfidenceJson: string | null;
+    frontmatterValidation: string | null;
+    frontmatterCreated: string | null;
+    frontmatterUpdated: string | null;
+    frontmatterObservedAt: string | null;
+  } | undefined {
+    return indexDb.database
+      .prepare<[string], ReturnType<typeof selectFileMetadata>>(
+        `SELECT
+           frontmatterStatus,
+           frontmatterLifecycle,
+           frontmatterConfidence,
+           frontmatterConfidenceJson,
+           frontmatterValidation,
+           frontmatterCreated,
+           frontmatterUpdated,
+           frontmatterObservedAt
+         FROM files
+         WHERE relPath = ?`,
+      )
+      .get(relPath);
+  }
+
   function selectChunks(indexDb: IndexDb): Array<{ relPath: string; ordinal: number; text: string }> {
     return indexDb.database
       .prepare<[], { relPath: string; ordinal: number; text: string }>(
@@ -285,5 +458,58 @@ describe("reconcileIndex", () => {
         )
         .all(term)
     ).map((row) => row.text);
+  }
+
+  function onlyChunkRowid(indexDb: IndexDb, relPath: string): number {
+    return Number(
+      indexDb.database.prepare<[string], { rowid: number }>("SELECT rowid FROM chunks WHERE relPath = ?").get(relPath)?.rowid,
+    );
+  }
+
+  function countRows(indexDb: IndexDb, table: "chunk_vectors" | "chunk_vectors_bin" | "chunk_vectors_i8"): number {
+    return (indexDb.database.prepare(`SELECT count(*) AS count FROM ${table}`).get() as { count: number }).count;
+  }
+
+  function selectVectorRows(indexDb: IndexDb): Array<{ chunkRowid: number; coarseRowid: number }> {
+    return indexDb.database
+      .prepare<[], { chunkRowid: number; coarseRowid: number }>(
+        "SELECT chunkRowid, coarseRowid FROM chunk_vectors ORDER BY chunkRowid",
+      )
+      .all();
+  }
+
+  function profileFingerprint(
+    overrides: Partial<Omit<EmbeddingProfileFingerprint, "profileId">> = {},
+  ): EmbeddingProfileFingerprint {
+    return createEmbeddingProfileFingerprint({
+      provider: "local",
+      runtime: "onnxruntime-node",
+      runtimeVersion: "1.22.0",
+      modelId: "BAAI/bge-small-en-v1.5",
+      modelRevision: "refs/pr/5",
+      modelHash: "model-a",
+      tokenizerHash: "tokenizer-a",
+      pooling: "cls",
+      normalization: "l2",
+      dtype: "binary-int8",
+      dimension: 384,
+      prefixStrategy: "bge-passage",
+      chunkerVersion: "phase3-v1",
+      payloadRecipe: "heading-path-v1",
+      maxTokenPolicy: "truncate-512",
+      ...overrides,
+    });
+  }
+
+  function fakeEmbedder(next: Float32Array): EmbedClient {
+    return {
+      embed: async () => [next],
+    };
+  }
+
+  function vector(index: number): Float32Array {
+    const values = new Float32Array(384);
+    values[index] = 1;
+    return values;
   }
 });

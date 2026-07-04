@@ -15,6 +15,10 @@ import {
   openCapabilityDb,
   resolveSqliteVecBinary,
 } from "./capability.js";
+import {
+  getPhase5OnnxRuntimeNativeFiles,
+  runPhase5EmbedProbe,
+} from "../../dashboard/phase5-local-embedder.js";
 import type { DashboardServiceRuntimeEnv } from "../../dashboard/dashboard-service-supervisor.js";
 
 interface ParentPort {
@@ -108,6 +112,7 @@ async function runCapabilityProbe(port: ParentPort, init: ProbeInit): Promise<vo
   let db: CapabilityDb | null = null;
   let betterSqliteBinary: ProbeBinary | null = null;
   let sqliteVecBinary: ProbeBinary | null = null;
+  let onnxRuntimeBinaries: ProbeBinary[] = [];
   let exitCode = 0;
 
   try {
@@ -156,6 +161,9 @@ async function runCapabilityProbe(port: ParentPort, init: ProbeInit): Promise<vo
       await logger(`db path ${db.path}`);
       betterSqliteBinary = await describeBinary("better_sqlite3.node", resolveBetterSqliteNativeBinary(), logger);
       sqliteVecBinary = await describeBinary("sqlite-vec", resolveSqliteVecBinary(), logger);
+      onnxRuntimeBinaries = await Promise.all(
+        getPhase5OnnxRuntimeNativeFiles().map((file) => describeBinary("onnxruntime", file.path, logger)),
+      );
       const version = db.database.prepare<[], SqliteVersionRow>("select sqlite_version() as version").get()?.version;
       const compileOptions = db.database
         .prepare<[], CompileOptionRow>("pragma compile_options")
@@ -185,11 +193,30 @@ async function runCapabilityProbe(port: ParentPort, init: ProbeInit): Promise<vo
 
     await runStep(6, "runtime-path-guard", logger, async () => {
       if (!betterSqliteBinary || !sqliteVecBinary) throw new Error("native binary metadata was not collected");
-      assertRuntimePathGuard([betterSqliteBinary, sqliteVecBinary], init);
+      assertRuntimePathGuard([betterSqliteBinary, sqliteVecBinary, ...onnxRuntimeBinaries], init);
       await logger("runtime-path guard ok");
     });
 
     await logger("steps 1-6 ok");
+
+    await runStep(9, "embed", logger, async () => {
+      const result = await runPhase5EmbedProbe();
+      await logger(
+        `embed ok ${JSON.stringify({
+          model: result.modelId,
+          revision: result.modelRevision,
+          dim: result.dimension,
+          loadTimeMs: result.loadTimeMs,
+          docsPerSecond: result.docsPerSecond,
+          tokensPerSecond: result.tokensPerSecond,
+          queryP50Ms: result.queryP50Ms,
+          queryP95Ms: result.queryP95Ms,
+          rssBytes: result.rssBytes,
+          intraOpNumThreads: result.intraOpNumThreads,
+          interOpNumThreads: result.interOpNumThreads,
+        })}`
+      );
+    });
 
     if (phase === "write-hold") {
       await runStep(7, "restart-recover-write-hold", logger, async () => {

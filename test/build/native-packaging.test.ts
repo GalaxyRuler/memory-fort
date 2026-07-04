@@ -28,9 +28,15 @@ const SHIPPED_NATIVE_RUNTIME_ENTRIES = [
   "electron-main",
   "dashboard/dashboard-service",
   "dashboard/index-writer",
+  "dashboard/search-process",
   "dashboard/index-concurrency-spike",
   "index/native/capability-probe",
 ];
+
+const UNPACKAGED_DASHBOARD_ENTRY_EXCEPTIONS = new Set([
+  // Imported by dashboard-service; not forked or spawned as a standalone worker.
+  "dashboard/server",
+]);
 
 type ElectronBuilderConfig = {
   asar?: unknown;
@@ -56,6 +62,10 @@ function findConfigForEntry(entryName: string): TsdownConfigItem {
   const config = asTsdownConfigs().find((item) => Object.hasOwn(item.entry ?? {}, entryName));
   expect(config, `missing tsdown entry ${entryName}`).toBeDefined();
   return config as TsdownConfigItem;
+}
+
+function tsdownEntryNames(): string[] {
+  return asTsdownConfigs().flatMap((item) => Object.keys(item.entry ?? {}));
 }
 
 function hasStringExternal(externals: unknown[], external: string): boolean {
@@ -94,6 +104,23 @@ describe("native packaging contract", () => {
     // Mutation proof: remove any native files glob; the exact membership check fails for that runtime path.
     for (const requiredGlob of REQUIRED_NATIVE_FILE_GLOBS) {
       expect(stringFiles, `electron-builder files must include ${requiredGlob}`).toContain(requiredGlob);
+    }
+  });
+
+  it("ships every compiled dashboard worker entry in the Electron package", async () => {
+    const source = await readFile(resolve(process.cwd(), "electron-builder.yml"), "utf8");
+    const config = yaml.load(source, { schema: yaml.JSON_SCHEMA }) as ElectronBuilderConfig;
+    expect(Array.isArray(config.files)).toBe(true);
+    const stringFiles = (config.files as unknown[]).filter((entry): entry is string => typeof entry === "string");
+    const dashboardWorkerEntries = tsdownEntryNames()
+      .filter((entryName) => entryName.startsWith("dashboard/"))
+      .filter((entryName) => !UNPACKAGED_DASHBOARD_ENTRY_EXCEPTIONS.has(entryName))
+      .sort();
+
+    expect(dashboardWorkerEntries).toContain("dashboard/search-process");
+    for (const entryName of dashboardWorkerEntries) {
+      const distEntry = `dist/${entryName}.mjs`;
+      expect(stringFiles, `electron-builder files must include ${distEntry}`).toContain(distEntry);
     }
   });
 

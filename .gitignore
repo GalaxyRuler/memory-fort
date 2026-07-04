@@ -43,3 +43,6 @@ docs/adr/*
 !docs/release-evidence/
 docs/release-evidence/*
 !docs/release-evidence/*.md
+
+# derived eval artifacts (contain vault-derived content; regenerate via the recall scaffolder)
+var/

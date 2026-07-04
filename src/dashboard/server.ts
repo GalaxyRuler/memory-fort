@@ -1,4 +1,5 @@
 import { createServer as createHttpServer, type IncomingHttpHeaders, type IncomingMessage, type Server as HttpServer, type ServerResponse } from "node:http";
+import { existsSync, statSync } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import { basename, extname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13,6 +14,12 @@ import { isEntityWikiPath } from "../retrieval/wiki-paths.js";
 import { isIntentLabel, type IntentLabel } from "../retrieval/query-intent.js";
 import { openReadOnlyIndexDb, resolveIndexDbPath, type IndexDb } from "../index/db.js";
 import { lexicalSearch, type LexicalSearchResult } from "../index/search.js";
+import { isIndexSearchEnabled, isIndexVectorsEnabled } from "../index/env.js";
+import type { SearchCursorStatus, SearchExecutor } from "../index/vector-search.js";
+import {
+  UtilityProcessSearchExecutor,
+  resolveDefaultSearchProcessPath,
+} from "./utility-search-executor.js";
 import type { EmbedClient } from "../retrieval/refresh.js";
 import {
   createEmbedderFromConfig,
@@ -110,6 +117,7 @@ export interface ServerOptions {
   validateKeyImpl?: (provider: SecretProvider, key: string) => Promise<{ ok: boolean; message?: string }>;
   syncRunner?: () => Promise<SyncRunnerResult>;
   fullCorpusGate?: FullCorpusAdmissionGate;
+  searchExecutor?: SearchExecutor | null;
 }
 
 export interface SyncRunnerResult {
@@ -622,6 +630,7 @@ interface GraphFeedCacheEntry {
 interface DashboardIndexStatus {
   enabled: boolean;
   dbPath: string;
+  sizeBytes: number;
   schemaVersion: string | null;
   chunkCount: number;
   filesSkipped: number;
@@ -640,7 +649,7 @@ interface DashboardSkippedIndexFile {
 
 interface DashboardIndexSearchController {
   readonly dbPath: string;
-  search(query: string, page: IndexSearchPage): IndexSearchRouteResponse;
+  search(query: string, page: IndexSearchPage): Promise<IndexSearchRouteResponse>;
   status(): DashboardIndexStatus;
   close(): void;
 }
@@ -650,12 +659,14 @@ interface IndexSearchPage {
   readonly offset: number;
   readonly limit: number;
   readonly fetchLimit: number;
+  readonly cursorStatus?: "invalid";
 }
 
 type IndexSearchRouteResponse = SearchResponse & {
   readonly index: DashboardIndexStatus;
   readonly cursor: string | null;
   readonly nextCursor: string | null;
+  readonly cursorStatus?: SearchCursorStatus;
 };
 
 interface MetaValueRow {
@@ -702,20 +713,23 @@ function parseSearchIntent(value: string | null): IntentLabel | undefined {
 
 function parseIndexSearchPage(url: URL): IndexSearchPage {
   const limit = parseClampedInt(url.searchParams.get("limit") ?? url.searchParams.get("k"), 20, 1, 100);
-  const offset = parseIndexSearchCursor(url.searchParams.get("cursor"));
+  const cursor = url.searchParams.get("cursor")?.trim() || null;
+  const parsedCursor = parseIndexSearchCursor(cursor);
   return {
-    cursor: offset > 0 ? String(offset) : null,
-    offset,
+    cursor,
+    offset: parsedCursor.offset,
     limit,
-    fetchLimit: Math.min(100, offset + limit + 1),
+    fetchLimit: Math.min(100, parsedCursor.offset + limit + 1),
+    ...(parsedCursor.invalid ? { cursorStatus: "invalid" as const } : {}),
   };
 }
 
-function parseIndexSearchCursor(cursor: string | null): number {
-  if (!cursor) return 0;
+function parseIndexSearchCursor(cursor: string | null): { readonly offset: number; readonly invalid: boolean } {
+  if (!cursor) return { offset: 0, invalid: false };
+  if (!/^\d+$/.test(cursor)) return { offset: 0, invalid: true };
   const parsed = Number.parseInt(cursor, 10);
-  if (!Number.isFinite(parsed) || parsed < 0) return 0;
-  return Math.trunc(parsed);
+  if (!Number.isSafeInteger(parsed)) return { offset: 0, invalid: true };
+  return { offset: parsed, invalid: false };
 }
 
 function indexSearchDbPath(vaultRoot: string, env: NodeJS.ProcessEnv): string {
@@ -726,8 +740,15 @@ function indexSearchDbPath(vaultRoot: string, env: NodeJS.ProcessEnv): string {
 function createDashboardIndexSearchController(opts: {
   vaultRoot: string;
   env: NodeJS.ProcessEnv;
+  searchExecutor?: SearchExecutor | null;
 }): DashboardIndexSearchController {
   const dbPath = indexSearchDbPath(opts.vaultRoot, opts.env);
+  const vectorsEnabled = isIndexVectorsEnabled(opts.env);
+  const searchExecutor = vectorsEnabled
+    ? opts.searchExecutor === undefined
+      ? createDefaultIndexSearchExecutor({ vaultRoot: opts.vaultRoot, dbPath, env: opts.env })
+      : opts.searchExecutor
+    : null;
   let reader: IndexDb | null = null;
   let lastOpenError: string | null = null;
 
@@ -749,12 +770,13 @@ function createDashboardIndexSearchController(opts: {
       return {
         enabled: true,
         dbPath,
+        sizeBytes: indexDiskSizeBytes(dbPath),
         schemaVersion: null,
         chunkCount: 0,
         filesSkipped: 0,
         skippedFiles: [],
         lastCompleteReconcile: null,
-        currentState: "building",
+        currentState: existsSync(dbPath) ? "repairing" : "building",
         lastError: lastOpenError,
         ready: false,
       };
@@ -764,20 +786,59 @@ function createDashboardIndexSearchController(opts: {
 
   return {
     dbPath,
-    search: (query, page) => {
+    search: async (query, page) => {
       const started = Date.now();
       const db = getReader();
       if (!db) return indexingSearchResponse(query, page, started, currentStatus());
-      const results = lexicalSearch(db, query, { limit: page.fetchLimit });
       const status = readIndexStatus(db, lastOpenError);
+      if (searchExecutor) {
+        try {
+          const response = await searchExecutor.search({
+            query,
+            limit: page.limit,
+            cursor: page.cursor,
+          });
+          return { ...response, index: status };
+        } catch (error) {
+          const results = lexicalSearch(db, query, { limit: page.fetchLimit });
+          return indexSearchResponse(
+            query,
+            page,
+            results,
+            {
+              ...status,
+              lastError: error instanceof Error ? error.message : String(error),
+            },
+            started,
+            [`search process unavailable: ${error instanceof Error ? error.message : String(error)}`],
+          );
+        }
+      }
+      const results = lexicalSearch(db, query, { limit: page.fetchLimit });
       return indexSearchResponse(query, page, results, status, started);
     },
     status: currentStatus,
     close: () => {
+      searchExecutor?.close?.();
       reader?.close();
       reader = null;
     },
   };
+}
+
+function createDefaultIndexSearchExecutor(opts: {
+  vaultRoot: string;
+  dbPath: string;
+  env: NodeJS.ProcessEnv;
+}): SearchExecutor | null {
+  const forcedPath = opts.env["MEMORY_INDEX_SEARCH_PROCESS_PATH"]?.trim();
+  const searchProcessPath = forcedPath || resolveDefaultSearchProcessPath();
+  if (!searchProcessPath || !existsSync(searchProcessPath)) return null;
+  return new UtilityProcessSearchExecutor({
+    vaultRoot: opts.vaultRoot,
+    indexDbPath: opts.dbPath,
+    searchProcessPath,
+  });
 }
 
 function readIndexStatus(indexDb: IndexDb, lastOpenError: string | null): DashboardIndexStatus {
@@ -800,10 +861,15 @@ function readIndexStatus(indexDb: IndexDb, lastOpenError: string | null): Dashbo
       errorState: row.errorState,
       sizeBytes: row.sizeBytes,
     }] : []);
-  const ready = schemaVersion !== null && lastCompleteReconcile !== null && activeState !== "walking" && activeState !== "tombstoning";
+  const ready = schemaVersion !== null
+    && lastCompleteReconcile !== null
+    && activeState !== "walking"
+    && activeState !== "tombstoning"
+    && activeState !== "error";
   return {
     enabled: true,
     dbPath: indexDb.path,
+    sizeBytes: indexDiskSizeBytes(indexDb.path),
     schemaVersion,
     chunkCount,
     filesSkipped,
@@ -813,6 +879,19 @@ function readIndexStatus(indexDb: IndexDb, lastOpenError: string | null): Dashbo
     lastError,
     ready,
   };
+}
+
+function indexDiskSizeBytes(dbPath: string): number {
+  let total = 0;
+  for (const path of [dbPath, `${dbPath}-wal`, `${dbPath}-shm`]) {
+    try {
+      const info = statSync(path);
+      if (info.isFile()) total += info.size;
+    } catch {
+      // Missing sidecar files are normal before the first write or checkpoint.
+    }
+  }
+  return total;
 }
 
 function readIndexMeta(indexDb: IndexDb, key: string): string | null {
@@ -829,11 +908,12 @@ function indexingSearchResponse(
 ): IndexSearchRouteResponse {
   return {
     ...baseIndexSearchResponse(query, started),
-    warnings: ["indexing"],
+    warnings: [...(page.cursorStatus === "invalid" ? ["cursor-invalid"] : []), "indexing"],
     degraded: true,
     index: status,
-    cursor: page.cursor,
+    cursor: page.offset > 0 ? String(page.offset) : null,
     nextCursor: null,
+    ...(page.cursorStatus ? { cursorStatus: page.cursorStatus } : {}),
   };
 }
 
@@ -843,15 +923,17 @@ function indexSearchResponse(
   results: LexicalSearchResult[],
   status: DashboardIndexStatus,
   started: number,
+  extraWarnings: readonly string[] = [],
 ): IndexSearchRouteResponse {
   const pageResults = results.slice(page.offset, page.offset + page.limit);
   const nextOffset = page.offset + pageResults.length;
   const nextCursor = results.length > nextOffset ? String(nextOffset) : null;
+  const cursorWarnings = page.cursorStatus === "invalid" ? ["cursor-invalid"] : [];
   return {
     ...baseIndexSearchResponse(query, started),
     results: pageResults.map(indexSearchResultToSearchResult),
-    warnings: status.ready ? [] : ["indexing"],
-    degraded: !status.ready,
+    warnings: [...cursorWarnings, ...(status.ready ? [] : ["indexing"]), ...extraWarnings],
+    degraded: !status.ready || extraWarnings.length > 0 || cursorWarnings.length > 0,
     bm25Cache: {
       indexCacheHit: true,
       documentCount: status.chunkCount,
@@ -859,8 +941,9 @@ function indexSearchResponse(
       tokenCacheMisses: 0,
     },
     index: status,
-    cursor: page.cursor,
+    cursor: page.offset > 0 ? String(page.offset) : null,
     nextCursor,
+    ...(page.cursorStatus ? { cursorStatus: page.cursorStatus } : {}),
   };
 }
 
@@ -1036,8 +1119,8 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
   const writeSecretFn = opts.writeSecretImpl ?? defaultWriteSecret;
   const validateKeyFn = opts.validateKeyImpl ?? defaultValidateKey;
   const fullCorpusGate = opts.fullCorpusGate ?? defaultFullCorpusAdmissionGate;
-  const indexSearch = env["MEMORY_INDEX_SEARCH"] === "1"
-    ? createDashboardIndexSearchController({ vaultRoot: opts.vaultRoot, env })
+  const indexSearch = isIndexSearchEnabled(env)
+    ? createDashboardIndexSearchController({ vaultRoot: opts.vaultRoot, env, searchExecutor: opts.searchExecutor })
     : null;
   const PROVIDER_ENV: Record<string, string> = {
     voyage: "VOYAGE_API_KEY",
@@ -1585,6 +1668,7 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
         writeJson(res, indexSearch?.status() ?? {
           enabled: false,
           dbPath: indexSearchDbPath(opts.vaultRoot, env),
+          sizeBytes: indexDiskSizeBytes(indexSearchDbPath(opts.vaultRoot, env)),
           schemaVersion: null,
           chunkCount: 0,
           filesSkipped: 0,
@@ -1693,7 +1777,7 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
         }
         if (indexSearch) {
           try {
-            writeJson(res, indexSearch.search(query, parseIndexSearchPage(url)));
+            writeJson(res, await indexSearch.search(query, parseIndexSearchPage(url)));
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
             writeJsonError(res, 500, message);

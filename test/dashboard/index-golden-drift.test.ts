@@ -49,7 +49,7 @@ describe("dashboard golden query drift", () => {
     server = await createServer({
       vaultRoot,
       port: 0,
-      env: { ...process.env, MEMORY_INDEX_SEARCH: "0" },
+      env: { MEMORY_INDEX_SEARCH: "0" },
       voyageClient: null,
     });
     for (const golden of GOLDEN_QUERIES) {
@@ -64,8 +64,6 @@ describe("dashboard golden query drift", () => {
       vaultRoot,
       port: 0,
       env: {
-        ...process.env,
-        MEMORY_INDEX_SEARCH: "1",
         MEMORY_INDEX_DB_PATH: indexDbPath,
       },
       voyageClient: null,

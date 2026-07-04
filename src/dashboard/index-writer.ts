@@ -1,5 +1,12 @@
 import { openIndexDb, type IndexDb } from "../index/db.js";
+import { backfillVectors } from "../index/backfill.js";
+import {
+  createLocalBgeSmallEmbedClient,
+  type EmbedClient,
+  type EmbeddingProfileFingerprint,
+} from "../index/embed.js";
 import { reconcileIndex } from "../index/reconcile.js";
+import { isIndexVectorsEnabled } from "../index/env.js";
 import {
   defaultFullCorpusAdmissionGate,
   type FullCorpusAdmissionGate,
@@ -34,10 +41,17 @@ export interface IndexWriterOptions {
   parentPort: IndexWriterParentPort;
   openIndexDbImpl?: typeof openIndexDb;
   reconcileIndexImpl?: typeof reconcileIndex;
+  createVectorEmbedClientImpl?: () => Promise<VectorBackfillClient>;
+  backfillVectorsImpl?: typeof backfillVectors;
   fullCorpusGate?: FullCorpusAdmissionGate;
+  env?: NodeJS.ProcessEnv;
   setTimeout?: (handler: () => void, ms: number) => unknown;
   clearTimeout?: (handle: unknown) => void;
   exit?: (code: number) => void;
+}
+
+export interface VectorBackfillClient extends EmbedClient {
+  readonly profile: EmbeddingProfileFingerprint;
 }
 
 const DEFAULT_DEBOUNCE_MS = 2_000;
@@ -46,7 +60,10 @@ const DEFAULT_INTERVAL_MS = 60_000;
 export function startIndexWriter(opts: IndexWriterOptions): Promise<IndexWriterReady> {
   const openIndexDbImpl = opts.openIndexDbImpl ?? openIndexDb;
   const reconcileIndexImpl = opts.reconcileIndexImpl ?? reconcileIndex;
+  const createVectorEmbedClientImpl = opts.createVectorEmbedClientImpl ?? createLocalBgeSmallEmbedClient;
+  const backfillVectorsImpl = opts.backfillVectorsImpl ?? backfillVectors;
   const fullCorpusGate = opts.fullCorpusGate ?? defaultFullCorpusAdmissionGate;
+  const env = opts.env ?? process.env;
   const setTimer = opts.setTimeout ?? ((handler: () => void, ms: number) => setTimeout(handler, ms));
   const clearTimer = opts.clearTimeout ?? ((handle: unknown) => clearTimeout(handle as ReturnType<typeof setTimeout>));
   const exit = opts.exit ?? ((code) => process.exit(code));
@@ -55,6 +72,8 @@ export function startIndexWriter(opts: IndexWriterOptions): Promise<IndexWriterR
   let init: IndexWriterInit | null = null;
   let timer: unknown = null;
   let running: Promise<void> | null = null;
+  let runningAbort: AbortController | null = null;
+  let vectorClient: Promise<VectorBackfillClient> | null = null;
   let shuttingDown = false;
 
   function schedule(delayMs: number): void {
@@ -69,6 +88,8 @@ export function startIndexWriter(opts: IndexWriterOptions): Promise<IndexWriterR
 
   async function runOnce(): Promise<void> {
     if (!init || !indexDb || shuttingDown) return;
+    const abort = new AbortController();
+    runningAbort = abort;
     try {
       const admission = await fullCorpusGate.tryRunMaintenance(async () => {
         try {
@@ -76,6 +97,8 @@ export function startIndexWriter(opts: IndexWriterOptions): Promise<IndexWriterR
           const result = await reconcileIndexImpl(indexDb!, init!.vaultRoot, {
             onEvent: () => processStats.observe(),
           });
+          processStats.observe();
+          await runVectorBackfill(abort.signal);
           processStats.observe();
           checkpointWal(indexDb!);
           markReconcileCheckpoint(indexDb!);
@@ -98,6 +121,7 @@ export function startIndexWriter(opts: IndexWriterOptions): Promise<IndexWriterR
     } catch {
       // Error details are persisted into index meta and posted above.
     } finally {
+      if (runningAbort === abort) runningAbort = null;
       if (!shuttingDown && repeatIntervalMs(init) > 0) {
         schedule(repeatIntervalMs(init));
       }
@@ -111,11 +135,23 @@ export function startIndexWriter(opts: IndexWriterOptions): Promise<IndexWriterR
       clearTimer(timer);
       timer = null;
     }
+    runningAbort?.abort();
     processStats.close();
     await running;
     indexDb?.close();
     indexDb = null;
     exit(0);
+  }
+
+  async function runVectorBackfill(signal: AbortSignal): Promise<void> {
+    if (!indexDb || !isVectorBackfillEnabled(env)) return;
+    vectorClient ??= createVectorEmbedClientImpl();
+    const client = await vectorClient;
+    await backfillVectorsImpl(indexDb.database, {
+      embedder: client,
+      profile: client.profile,
+      signal,
+    });
   }
 
   async function start(message: IndexWriterInit): Promise<IndexWriterReady> {
@@ -202,6 +238,10 @@ function repeatIntervalMs(init: IndexWriterInit): number {
   return init.intervalMs ?? readEnvInt("MEMORY_INDEX_RECONCILE_INTERVAL_MS", DEFAULT_INTERVAL_MS);
 }
 
+function isVectorBackfillEnabled(env: NodeJS.ProcessEnv): boolean {
+  return isIndexVectorsEnabled(env);
+}
+
 function readEnvInt(name: string, fallback: number): number {
   const value = process.env[name];
   if (!value) return fallback;
@@ -241,8 +281,17 @@ const processWithParentPort = process as NodeJS.Process & { parentPort?: IndexWr
 
 if (processWithParentPort.parentPort) {
   const parentPort = processWithParentPort.parentPort;
-  startIndexWriter({ parentPort }).catch((error: unknown) => {
-    console.error(`[index-writer] ${(error as Error)?.message ?? String(error)}`);
-    process.exit(1);
-  });
+  if (process.env["MEMORY_PHASE5_GATE_PROBE"] === "1") {
+    import("./phase5-contention-spike.js")
+      .then(({ startPhase5WriterGateProcess }) => startPhase5WriterGateProcess(parentPort))
+      .catch((error: unknown) => {
+        console.error(`[index-writer phase5-gate] ${(error as Error)?.message ?? String(error)}`);
+        process.exit(1);
+      });
+  } else {
+    startIndexWriter({ parentPort }).catch((error: unknown) => {
+      console.error(`[index-writer] ${(error as Error)?.message ?? String(error)}`);
+      process.exit(1);
+    });
+  }
 }

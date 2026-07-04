@@ -5,6 +5,16 @@ import { relative, resolve, sep } from "node:path";
 
 import { chunkMarkdown, type ChunkMarkdownOptions } from "./chunk.js";
 import type { IndexDb, SqliteDatabase } from "./db.js";
+import { getConfidenceScore, getValidationState } from "../storage/confidence.js";
+import {
+  KNOWN_LIFECYCLE_STAGES,
+  parseFrontmatter,
+  type ConfidenceVector,
+  type Frontmatter,
+  type LifecycleStage,
+  type ValidationState,
+} from "../storage/frontmatter.js";
+import { isWikiDotDirectoryPath } from "../retrieval/wiki-paths.js";
 
 export interface ReconcileIndexResult {
   readonly filesIndexed: number;
@@ -48,6 +58,21 @@ interface MaxRunIdRow {
 
 interface RelPathRow {
   readonly relPath: string;
+}
+
+interface CoarseRowidRow {
+  readonly coarseRowid: number;
+}
+
+interface FileFrontmatterMetadata {
+  readonly frontmatterStatus: string | null;
+  readonly frontmatterLifecycle: LifecycleStage | null;
+  readonly frontmatterConfidence: number | null;
+  readonly frontmatterConfidenceJson: string | null;
+  readonly frontmatterValidation: ValidationState | null;
+  readonly frontmatterCreated: string | null;
+  readonly frontmatterUpdated: string | null;
+  readonly frontmatterObservedAt: string | null;
 }
 
 export async function reconcileIndex(
@@ -116,6 +141,7 @@ export async function reconcileIndex(
     }
 
     const generation = (existing?.generation ?? 0) + 1;
+    const frontmatterMetadata = extractFrontmatterMetadata(indexedContent.text);
     const fileChunks = chunkMarkdown(indexedContent.text, options.chunkOptions);
     if (fileChunks.length > maxChunksPerFile) {
       markFileSkipped(db, {
@@ -139,6 +165,7 @@ export async function reconcileIndex(
         sizeBytes: stats.size,
         mtimeMs,
         contentHash: indexedContent.contentHash,
+        frontmatterMetadata,
         generation,
         runId,
         chunks: fileChunks,
@@ -195,16 +222,41 @@ function markFileSkipped(
 ): void {
   db.exec("BEGIN IMMEDIATE");
   try {
-    db.prepare<[string, string, number, number, null, number, number, string, null, number]>(
+    db.prepare<[string, string, number, number, null, null, null, null, null, null, null, null, null, number, number, string, null, number]>(
       `INSERT INTO files(
-         relPath, kind, sizeBytes, mtimeMs, contentHash, generation, lastSeenRunId, errorState, indexedAt, lastErrorAt
+         relPath,
+         kind,
+         sizeBytes,
+         mtimeMs,
+         contentHash,
+         frontmatterStatus,
+         frontmatterLifecycle,
+         frontmatterConfidence,
+         frontmatterConfidenceJson,
+         frontmatterValidation,
+         frontmatterCreated,
+         frontmatterUpdated,
+         frontmatterObservedAt,
+         generation,
+         lastSeenRunId,
+         errorState,
+         indexedAt,
+         lastErrorAt
        )
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(relPath) DO UPDATE SET
          kind = excluded.kind,
          sizeBytes = excluded.sizeBytes,
          mtimeMs = excluded.mtimeMs,
          contentHash = NULL,
+         frontmatterStatus = NULL,
+         frontmatterLifecycle = NULL,
+         frontmatterConfidence = NULL,
+         frontmatterConfidenceJson = NULL,
+         frontmatterValidation = NULL,
+         frontmatterCreated = NULL,
+         frontmatterUpdated = NULL,
+         frontmatterObservedAt = NULL,
          generation = excluded.generation,
          lastSeenRunId = excluded.lastSeenRunId,
          errorState = excluded.errorState,
@@ -216,12 +268,21 @@ function markFileSkipped(
       input.sizeBytes,
       input.mtimeMs,
       null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
       input.generation,
       input.runId,
       input.errorState,
       null,
       Date.now(),
     );
+    deleteVectorRowsForRelPath(db, input.relPath);
     db.prepare<[string]>("DELETE FROM chunks WHERE relPath = ?").run(input.relPath);
     db.exec("COMMIT");
   } catch (error) {
@@ -255,6 +316,8 @@ async function* walkDirectory(root: string, dir: string, kind: "raw" | "wiki"): 
   entries.sort((a, b) => a.name.localeCompare(b.name));
   for (const entry of entries) {
     const absPath = resolve(dir, entry.name);
+    const relPath = normalizeRelPath(relative(root, absPath));
+    if (isExcludedDotDirectoryPath(relPath)) continue;
     if (entry.isDirectory()) {
       yield* walkDirectory(root, absPath, kind);
       continue;
@@ -262,10 +325,15 @@ async function* walkDirectory(root: string, dir: string, kind: "raw" | "wiki"): 
     if (!entry.isFile() || !entry.name.toLowerCase().endsWith(".md")) continue;
     yield {
       absPath,
-      relPath: normalizeRelPath(relative(root, absPath)),
+      relPath,
       kind,
     };
   }
+}
+
+function isExcludedDotDirectoryPath(relPath: string): boolean {
+  const normalized = relPath.replace(/\\/g, "/");
+  return isWikiDotDirectoryPath(normalized) || /^raw\/\.[^/]+(?:\/|$)/u.test(normalized);
 }
 
 function writeIndexedFile(
@@ -276,6 +344,7 @@ function writeIndexedFile(
     readonly sizeBytes: number;
     readonly mtimeMs: number;
     readonly contentHash: string;
+    readonly frontmatterMetadata: FileFrontmatterMetadata;
     readonly generation: number;
     readonly runId: number;
     readonly chunks: ReturnType<typeof chunkMarkdown>;
@@ -284,14 +353,39 @@ function writeIndexedFile(
 ): void {
   db.exec("BEGIN IMMEDIATE");
   try {
-    db.prepare<[string, string, number, number, string, number, number, number]>(
-      `INSERT INTO files(relPath, kind, sizeBytes, mtimeMs, contentHash, generation, lastSeenRunId, indexedAt)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    db.prepare<[string, string, number, number, string, string | null, LifecycleStage | null, number | null, string | null, ValidationState | null, string | null, string | null, string | null, number, number, number]>(
+      `INSERT INTO files(
+         relPath,
+         kind,
+         sizeBytes,
+         mtimeMs,
+         contentHash,
+         frontmatterStatus,
+         frontmatterLifecycle,
+         frontmatterConfidence,
+         frontmatterConfidenceJson,
+         frontmatterValidation,
+         frontmatterCreated,
+         frontmatterUpdated,
+         frontmatterObservedAt,
+         generation,
+         lastSeenRunId,
+         indexedAt
+       )
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(relPath) DO UPDATE SET
          kind = excluded.kind,
          sizeBytes = excluded.sizeBytes,
          mtimeMs = excluded.mtimeMs,
          contentHash = excluded.contentHash,
+         frontmatterStatus = excluded.frontmatterStatus,
+         frontmatterLifecycle = excluded.frontmatterLifecycle,
+         frontmatterConfidence = excluded.frontmatterConfidence,
+         frontmatterConfidenceJson = excluded.frontmatterConfidenceJson,
+         frontmatterValidation = excluded.frontmatterValidation,
+         frontmatterCreated = excluded.frontmatterCreated,
+         frontmatterUpdated = excluded.frontmatterUpdated,
+         frontmatterObservedAt = excluded.frontmatterObservedAt,
          generation = excluded.generation,
          lastSeenRunId = excluded.lastSeenRunId,
          errorState = NULL,
@@ -303,10 +397,19 @@ function writeIndexedFile(
       input.sizeBytes,
       input.mtimeMs,
       input.contentHash,
+      input.frontmatterMetadata.frontmatterStatus,
+      input.frontmatterMetadata.frontmatterLifecycle,
+      input.frontmatterMetadata.frontmatterConfidence,
+      input.frontmatterMetadata.frontmatterConfidenceJson,
+      input.frontmatterMetadata.frontmatterValidation,
+      input.frontmatterMetadata.frontmatterCreated,
+      input.frontmatterMetadata.frontmatterUpdated,
+      input.frontmatterMetadata.frontmatterObservedAt,
       input.generation,
       input.runId,
       Date.now(),
     );
+    deleteVectorRowsForRelPath(db, input.relPath);
     db.prepare<[string]>("DELETE FROM chunks WHERE relPath = ?").run(input.relPath);
     emit(options, { type: "fileChunksDeleted", runId: input.runId, relPath: input.relPath });
 
@@ -394,6 +497,7 @@ function tombstoneMissingFiles(db: SqliteDatabase, runId: number): number {
 function tombstoneFile(db: SqliteDatabase, relPath: string): void {
   db.exec("BEGIN IMMEDIATE");
   try {
+    deleteVectorRowsForRelPath(db, relPath);
     db.prepare<[string]>("DELETE FROM chunks WHERE relPath = ?").run(relPath);
     db.prepare<[string]>("DELETE FROM files WHERE relPath = ?").run(relPath);
     db.exec("COMMIT");
@@ -404,6 +508,21 @@ function tombstoneFile(db: SqliteDatabase, relPath: string): void {
       // Preserve the tombstone failure.
     }
     throw error;
+  }
+}
+
+function deleteVectorRowsForRelPath(db: SqliteDatabase, relPath: string): void {
+  const rowids = db
+    .prepare<[string], CoarseRowidRow>(
+      `SELECT cv.coarseRowid
+       FROM chunk_vectors cv
+       JOIN chunks c ON c.rowid = cv.chunkRowid
+       WHERE c.relPath = ?`,
+    )
+    .all(relPath);
+  for (const row of rowids) {
+    db.prepare<[bigint]>("DELETE FROM chunk_vectors_bin WHERE rowid = ?").run(BigInt(row.coarseRowid));
+    db.prepare<[bigint]>("DELETE FROM chunk_vectors_i8 WHERE rowid = ?").run(BigInt(row.coarseRowid));
   }
 }
 
@@ -418,6 +537,58 @@ function markRunFinished(db: SqliteDatabase, runId: number): void {
 
 function normalizeRelPath(path: string): string {
   return path.split(sep).join("/");
+}
+
+function extractFrontmatterMetadata(content: string): FileFrontmatterMetadata {
+  try {
+    const frontmatter = parseFrontmatter(content).frontmatter;
+    const confidence = readConfidence(frontmatter.confidence);
+    return {
+      frontmatterStatus: readString(frontmatter.status),
+      frontmatterLifecycle: readLifecycle(frontmatter.lifecycle),
+      frontmatterConfidence: confidence === undefined ? null : getConfidenceScore(confidence),
+      frontmatterConfidenceJson: confidence === undefined ? null : JSON.stringify(confidence),
+      frontmatterValidation: confidence === undefined ? null : getValidationState(confidence),
+      frontmatterCreated: readDate(frontmatter.created),
+      frontmatterUpdated: readDate(frontmatter.updated),
+      frontmatterObservedAt: readDate(frontmatter.observed_at),
+    };
+  } catch {
+    return emptyFrontmatterMetadata();
+  }
+}
+
+function emptyFrontmatterMetadata(): FileFrontmatterMetadata {
+  return {
+    frontmatterStatus: null,
+    frontmatterLifecycle: null,
+    frontmatterConfidence: null,
+    frontmatterConfidenceJson: null,
+    frontmatterValidation: null,
+    frontmatterCreated: null,
+    frontmatterUpdated: null,
+    frontmatterObservedAt: null,
+  };
+}
+
+function readString(value: unknown): string | null {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
+function readDate(value: unknown): string | null {
+  return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/u.test(value) ? value : null;
+}
+
+function readLifecycle(value: unknown): LifecycleStage | null {
+  return KNOWN_LIFECYCLE_STAGES.includes(value as never) ? value as LifecycleStage : null;
+}
+
+function readConfidence(value: Frontmatter["confidence"] | undefined): number | ConfidenceVector | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return Math.min(1, Math.max(0, value));
+  }
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+  return value;
 }
 
 function sha256(input: string): string {

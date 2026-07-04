@@ -6,3 +6,5 @@
 *.json text eol=lf
 *.yaml text eol=lf
 LICENSE text eol=lf
+*.onnx filter=lfs diff=lfs merge=lfs -text
+assets/embedding-models/** -text

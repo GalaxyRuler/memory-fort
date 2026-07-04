@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { SearchPage } from "../../../src/dashboard-ui/components/SearchPage.js";
-import type { SearchResult } from "../../../src/dashboard-ui/hooks/useSearch.js";
+import type { SearchIndexStatus, SearchResult } from "../../../src/dashboard-ui/hooks/useSearch.js";
 
 const routerState = vi.hoisted(() => ({
   search: {} as Record<string, unknown>,
@@ -104,6 +104,45 @@ function makeCrystalResult(): SearchResult {
   };
 }
 
+function makeIndexStatus(overrides: Partial<SearchIndexStatus> = {}): SearchIndexStatus {
+  return {
+    enabled: true,
+    dbPath: "C:\\Memory\\index.db",
+    sizeBytes: 4096,
+    schemaVersion: "3",
+    chunkCount: 12,
+    filesSkipped: 0,
+    skippedFiles: [],
+    lastCompleteReconcile: "2026-07-04T00:00:00.000Z",
+    currentState: "idle",
+    lastError: null,
+    ready: true,
+    ...overrides,
+  };
+}
+
+function mockZeroResultSearch({
+  degraded = false,
+  warnings = [],
+  index = makeIndexStatus(),
+}: {
+  degraded?: boolean;
+  warnings?: string[];
+  index?: SearchIndexStatus;
+} = {}): void {
+  routerState.search = { q: "needle" };
+  searchHook.useSearch.mockReturnValue({
+    data: {
+      results: [],
+      timings: { totalMs: 8 },
+      degraded,
+      warnings,
+      index,
+    },
+    isLoading: false,
+  });
+}
+
 describe("SearchPage", () => {
   beforeEach(() => {
     routerState.search = {};
@@ -152,6 +191,157 @@ describe("SearchPage", () => {
 
     expect(screen.getByText("Foo Project")).toBeInTheDocument();
     vi.useRealTimers();
+  });
+
+  test("shows indexing diagnostics instead of a false no-results state", () => {
+    routerState.search = { q: "needle" };
+    searchHook.useSearch.mockReturnValue({
+      data: {
+        results: [],
+        timings: { totalMs: 8 },
+        degraded: true,
+        warnings: ["indexing"],
+        index: {
+          enabled: true,
+          dbPath: "C:\\Memory\\index.db",
+          sizeBytes: 4096,
+          schemaVersion: "3",
+          chunkCount: 12,
+          filesSkipped: 2,
+          skippedFiles: [],
+          lastCompleteReconcile: null,
+          currentState: "building",
+          lastError: null,
+          ready: false,
+        },
+      },
+      isLoading: false,
+    });
+
+    render(<SearchPage />);
+
+    expect(screen.getByText("Indexing in progress")).toBeInTheDocument();
+    expect(screen.getByText("C:\\Memory\\index.db")).toBeInTheDocument();
+    expect(screen.getByText("4.0 KiB")).toBeInTheDocument();
+    expect(screen.getByText("building")).toBeInTheDocument();
+    expect(screen.getByText("2 skipped")).toBeInTheDocument();
+    expect(screen.getByText(/MEMORY_INDEX_SEARCH=0/)).toBeInTheDocument();
+    expect(screen.queryByText(/No results for/)).not.toBeInTheDocument();
+  });
+
+  test("shows degraded diagnostics when index search reports an error", () => {
+    routerState.search = { q: "needle" };
+    searchHook.useSearch.mockReturnValue({
+      data: {
+        results: [],
+        timings: { totalMs: 8 },
+        degraded: true,
+        warnings: ["search process unavailable: spawn failed"],
+        index: {
+          enabled: true,
+          dbPath: "C:\\Memory\\index.db",
+          sizeBytes: 0,
+          schemaVersion: null,
+          chunkCount: 0,
+          filesSkipped: 0,
+          skippedFiles: [],
+          lastCompleteReconcile: null,
+          currentState: "repairing",
+          lastError: "database disk image is malformed",
+          ready: false,
+        },
+      },
+      isLoading: false,
+    });
+
+    render(<SearchPage />);
+
+    expect(screen.getByText("Search index degraded")).toBeInTheDocument();
+    expect(screen.getByText("database disk image is malformed")).toBeInTheDocument();
+    expect(screen.queryByText(/No results for/)).not.toBeInTheDocument();
+  });
+
+  test.each([
+    [
+      "building",
+      makeIndexStatus({
+        ready: false,
+        currentState: "building",
+        lastCompleteReconcile: null,
+      }),
+      false,
+      ["indexing"],
+      "Indexing in progress",
+    ],
+    [
+      "repairing",
+      makeIndexStatus({
+        ready: false,
+        currentState: "repairing",
+        lastError: "database disk image is malformed",
+      }),
+      false,
+      [],
+      "Search index degraded",
+    ],
+    [
+      "error-after-success",
+      makeIndexStatus({
+        ready: true,
+        currentState: "error",
+        lastError: "last reconcile failed after a completed build",
+      }),
+      false,
+      [],
+      "Search index degraded",
+    ],
+    [
+      "backfilling",
+      makeIndexStatus({
+        ready: true,
+        currentState: "backfilling",
+      }),
+      false,
+      [],
+      "Indexing in progress",
+    ],
+    [
+      "degraded response",
+      makeIndexStatus(),
+      true,
+      [],
+      "Search index degraded",
+    ],
+    [
+      "warning response",
+      makeIndexStatus(),
+      false,
+      ["cursor-invalid"],
+      "Search index degraded",
+    ],
+  ])("shows the index notice instead of a false empty state for %s", (_label, index, degraded, warnings, title) => {
+    mockZeroResultSearch({ degraded, warnings, index });
+
+    render(<SearchPage />);
+
+    expect(screen.getByText(title)).toBeInTheDocument();
+    expect(screen.getByLabelText("Search index status")).toBeInTheDocument();
+    expect(screen.queryByText(/No results for/)).not.toBeInTheDocument();
+  });
+
+  test("shows no-results only when the index is positively healthy", () => {
+    mockZeroResultSearch({
+      index: makeIndexStatus({
+        ready: true,
+        currentState: "idle",
+        lastError: null,
+      }),
+    });
+
+    render(<SearchPage />);
+
+    expect(screen.getByText('No results for "needle".')).toBeInTheDocument();
+    expect(screen.queryByLabelText("Search index status")).not.toBeInTheDocument();
   });
 
   test("renders search results as a list instead of a listbox", () => {

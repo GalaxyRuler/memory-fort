@@ -45,3 +45,28 @@ Memory Fort ships `sqlite-vec` (`vec0`) as a SQLite loadable extension for nativ
 - License: Apache-2.0 OR MIT
 
 The vendored Windows ARM64 `vec0.dll` is built from the upstream sqlite-vec amalgamation. Its provenance and SHA-256 are recorded in `vendor/sqlite-vec/win32-arm64/manifest.json`.
+
+Memory Fort ships `onnxruntime-node` for local ONNX embedding runtime capability checks and the Phase 5 packaged contention gate.
+
+- Project: `onnxruntime-node` / ONNX Runtime
+- Author: Microsoft and contributors
+- Repository: https://github.com/microsoft/onnxruntime
+- NPM package: https://www.npmjs.com/package/onnxruntime-node
+- Version: 1.22.0
+- License: MIT
+- Retained notice: `vendor/notices/onnxruntime-node-LICENSE.txt`
+
+The npm package metadata declares MIT but the installed `onnxruntime-node` package does not include a LICENSE file, so Memory Fort retains the upstream ONNX Runtime MIT license text under `vendor/notices/`.
+
+Memory Fort ships `BAAI/bge-small-en-v1.5` ONNX model and tokenizer assets for the local default Phase 5 embedding gate.
+
+- Project: `BAAI/bge-small-en-v1.5`
+- Author: BAAI / FlagEmbedding contributors
+- Model repository: https://huggingface.co/BAAI/bge-small-en-v1.5
+- Upstream project: https://github.com/FlagOpen/FlagEmbedding
+- Model revision: `5c38ec7c405ec4b44b94cc5a9bb96e735b38267a`
+- License: MIT
+- Retained notice: `assets/embedding-models/bge-small-en-v1.5/LICENSE`
+- Asset manifest: `assets/embedding-models/bge-small-en-v1.5/manifest.json`
+
+The model card declares the model MIT-licensed. The Hugging Face model repository does not expose a raw `LICENSE` file at the model path, so Memory Fort vendors the upstream FlagEmbedding MIT license text next to the redistributed model bytes and pins it in the model manifest.

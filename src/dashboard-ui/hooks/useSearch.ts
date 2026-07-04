@@ -28,6 +28,7 @@ export interface SearchResponse {
   query: string;
   results: SearchResult[];
   warnings: string[];
+  index?: SearchIndexStatus;
   timings: {
     corpusMs: number;
     embedQueryMs: number;
@@ -41,6 +42,24 @@ export interface SearchResponse {
   degraded: boolean;
   hyde: { used: boolean; reason: string };
   corpusErrorCount: number;
+}
+
+export interface SearchIndexStatus {
+  enabled: boolean;
+  dbPath: string;
+  sizeBytes?: number;
+  schemaVersion: string | null;
+  chunkCount: number;
+  filesSkipped: number;
+  skippedFiles: Array<{
+    relPath: string;
+    errorState: string;
+    sizeBytes: number | null;
+  }>;
+  lastCompleteReconcile: string | null;
+  currentState: string;
+  lastError: string | null;
+  ready: boolean;
 }
 
 export interface UseSearchOptions {

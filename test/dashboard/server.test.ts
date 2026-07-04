@@ -818,6 +818,7 @@ describe("dashboard server", () => {
     const server = await createServer({
       vaultRoot: tmp,
       port: 0,
+      env: { MEMORY_INDEX_SEARCH: "0" },
       voyageClient: mockVoyageClient(),
     });
 
@@ -860,6 +861,7 @@ describe("dashboard server", () => {
     const server = await createServer({
       vaultRoot: tmp,
       port: 0,
+      env: { MEMORY_INDEX_SEARCH: "0" },
       voyageClient: null,
       fullCorpusGate,
     });
@@ -896,7 +898,7 @@ describe("dashboard server", () => {
     const server = await createServer({
       vaultRoot: tmp,
       port: 0,
-      env: { VOYAGE_API_KEY: "test-key" },
+      env: { MEMORY_INDEX_SEARCH: "0", VOYAGE_API_KEY: "test-key" },
       voyageClientFactory: () => voyageClient,
     });
 
@@ -919,6 +921,7 @@ describe("dashboard server", () => {
     const server = await createServer({
       vaultRoot: tmp,
       port: 0,
+      env: { MEMORY_INDEX_SEARCH: "0" },
       voyageClient: mockVoyageClient(),
     });
 
@@ -951,7 +954,12 @@ describe("dashboard server", () => {
 
   it("GET /api/search?q=foo works with null voyageClient in degraded mode", async () => {
     await writeSearchWiki(tmp);
-    const server = await createServer({ vaultRoot: tmp, port: 0, voyageClient: null });
+    const server = await createServer({
+      vaultRoot: tmp,
+      port: 0,
+      env: { MEMORY_INDEX_SEARCH: "0" },
+      voyageClient: null,
+    });
 
     try {
       const response = await fetch(`http://${server.host}:${server.port}/api/search?q=foo`);
@@ -969,6 +977,7 @@ describe("dashboard server", () => {
     const server = await createServer({
       vaultRoot: tmp,
       port: 0,
+      env: { MEMORY_INDEX_SEARCH: "0" },
       voyageClient: mockVoyageClient(),
     });
 

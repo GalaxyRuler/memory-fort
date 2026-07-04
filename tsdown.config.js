@@ -19,6 +19,8 @@ const nativeRuntimeExternals = [
   "better-sqlite3",
   "bindings",
   "file-uri-to-path",
+  "onnxruntime-node",
+  "onnxruntime-common",
   "sqlite-vec",
   /^sqlite-vec-.+$/,
 ];
@@ -102,7 +104,24 @@ export default defineConfig([
   },
   {
     ...common,
+    entry: { "dashboard/search-process": "src/dashboard/search-process.ts" },
+    clean: false,
+    outputOptions: {
+      codeSplitting: false,
+    },
+  },
+  {
+    ...common,
     entry: { "dashboard/index-concurrency-spike": "src/dashboard/index-concurrency-spike.ts" },
+    clean: false,
+    dts: false,
+    outputOptions: {
+      codeSplitting: false,
+    },
+  },
+  {
+    ...common,
+    entry: { "dashboard/phase5-contention-spike": "src/dashboard/phase5-contention-spike.ts" },
     clean: false,
     dts: false,
     outputOptions: {

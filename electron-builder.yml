@@ -24,11 +24,15 @@ files:
   # fails (workers not found → fail-soft → heavy work never runs).
   - dist/dashboard/dashboard-service.mjs
   - dist/dashboard/index-writer.mjs
+  - dist/dashboard/search-process.mjs
   - dist/dashboard/index-concurrency-spike.mjs
+  - dist/dashboard/phase5-contention-spike.mjs
   - dist/index/native/capability-probe.mjs
   - dist/dashboard/scheduled-vault-worker.mjs
   - dist/dashboard/verify-worker.mjs
   - dist/dashboard-ui/**
+  - LICENSE
+  - LICENSE-NOTICE.md
   - assets/memory_fort_icon_512.png
   # Phase 0a native-packaging design: these packages are intentionally
   # externalized in tsdown.config.js and copied into the unpacked app root when
@@ -38,7 +42,11 @@ files:
   - node_modules/file-uri-to-path/**
   - node_modules/sqlite-vec/**
   - node_modules/sqlite-vec-*/**
+  - node_modules/onnxruntime-node/**
+  - node_modules/onnxruntime-common/**
   - vendor/sqlite-vec/**
+  - vendor/notices/**
+  - assets/embedding-models/**
 
 # Disable asar so the Node HTTP server can serve dashboard-ui files normally
 # and native binaries can be loaded directly from app.getAppPath().

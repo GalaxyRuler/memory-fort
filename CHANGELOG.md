@@ -4,6 +4,23 @@ All notable changes to Memory Fort are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.0] - 2026-07-04
+
+### Added
+- **Bounded-memory search index (the fix for crashes on large vaults).** Dashboard search now runs on a local SQLite FTS5 index by default instead of loading the whole vault into memory — the app no longer runs out of memory opening or searching large vaults. The index lives in OS app-data (not inside the synced vault), builds in the background on first launch (search works while it builds), self-heals by rebuild on corruption, and can grow near the vault size on disk.
+- **Search ranking quality.** Index search matches relaxed terms, prefers curated wiki pages over raw session logs, aggregates results per page, and applies the same status/confidence/recency metadata scoring as the legacy path — measured at answer-finding parity with the previous search on a real vault.
+- **Search status UI.** The Search page now shows indexing/degraded state (no more false "No results" while the index builds or repairs) plus a diagnostics row: index path, size, readiness, skipped files, and last error.
+- **Optional local vector search (off by default).** `MEMORY_INDEX_VECTORS=1` enables a fully local semantic layer: a bundled bge-small-en-v1.5 ONNX model (MIT, runs on-device via ONNX Runtime — no data leaves the machine) embeds the vault in the background and hybrid lexical+vector search turns on when coverage completes. Off by default because the first full-vault embed takes many hours on CPU; the default experience is unaffected.
+- **Rollback switch.** `MEMORY_INDEX_SEARCH=0` returns to the legacy full-corpus search and stops the index writer (documented in the README).
+
+### Changed
+- **Installer size increased (~250 MB)** — the bundled embedding model and ONNX Runtime ship in the app so the optional vector search works fully offline.
+- **Installed native gate exercises the documented macOS first-launch path on macOS 26.** The gate's macOS lane records the `spctl` verdict as evidence, strips the quarantine xattr exactly as the README instructs users to, then launches the installed app — CI continuously proves the supported first-launch flow on current macOS.
+
+### Fixed
+- **Out-of-memory crash on large vaults** (see the search index above) — search memory is now bounded by results, not vault size.
+- **macOS first-launch instructions now match current macOS.** Right-click → Open no longer bypasses Gatekeeper (Apple removed that override in macOS 15 Sequoia), and on macOS 26 Tahoe an unsigned app typically shows only the "damaged and can't be opened" dialog with no "Open Anyway" offer. The documented path is now `xattr -r -d com.apple.quarantine /Applications/MemoryFort.app`, with System Settings → Privacy & Security → "Open Anyway" as the fallback when macOS offers it.
+
 ## [0.10.15] - 2026-06-26
 
 ### Changed

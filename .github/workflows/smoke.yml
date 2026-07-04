@@ -460,6 +460,7 @@ jobs:
           grep -F "[cap-test] electron=" "${RUNNER_TEMP}/electron-capability.log"
           grep -F "[cap-test] CAP_FTS5 ok" "${RUNNER_TEMP}/electron-capability.log"
           grep -F "[cap-test] CAP_VEC_KNN ok" "${RUNNER_TEMP}/electron-capability.log"
+          grep -E "\[cap-test\] CAP_EMBED (ok|skipped lfs-pointer)" "${RUNNER_TEMP}/electron-capability.log"
 
       - name: Electron native capability gate (macOS)
         if: runner.os == 'macOS'
@@ -476,6 +477,7 @@ jobs:
           grep -F "[cap-test] electron=" "${RUNNER_TEMP}/electron-capability.log"
           grep -F "[cap-test] CAP_FTS5 ok" "${RUNNER_TEMP}/electron-capability.log"
           grep -F "[cap-test] CAP_VEC_KNN ok" "${RUNNER_TEMP}/electron-capability.log"
+          grep -E "\[cap-test\] CAP_EMBED (ok|skipped lfs-pointer)" "${RUNNER_TEMP}/electron-capability.log"
 
       - name: Electron native capability gate (Windows)
         if: runner.os == 'Windows'
@@ -510,4 +512,7 @@ jobs:
           }
           if (-not $stdout.Contains("[cap-test] CAP_VEC_KNN ok")) {
             throw "missing CAP_VEC_KNN ok log"
+          }
+          if (-not ($stdout.Contains("[cap-test] CAP_EMBED ok") -or $stdout.Contains("[cap-test] CAP_EMBED skipped lfs-pointer"))) {
+            throw "missing CAP_EMBED ok log"
           }

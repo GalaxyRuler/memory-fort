@@ -10,6 +10,10 @@ const ALLOWLIST_PATHS = new Set([
   "LICENSE",
   "LICENSE-NOTICE.md",
   "package.json",
+  // Upstream-vendored public bge-small-en-v1.5 files (sha256-pinned in the
+  // model manifest); their 30K-wordpiece vocab contains common first names.
+  "assets/embedding-models/bge-small-en-v1.5/tokenizer.json",
+  "assets/embedding-models/bge-small-en-v1.5/vocab.txt",
 ]);
 
 const DENYLIST = [

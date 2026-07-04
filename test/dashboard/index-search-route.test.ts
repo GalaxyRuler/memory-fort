@@ -19,7 +19,12 @@ vi.mock("../../src/retrieval/corpus.js", async () => {
 import { createServer, type RunningServer } from "../../src/dashboard/server.js";
 import { startIndexWriter } from "../../src/dashboard/index-writer.js";
 import { openIndexDb, type IndexDb } from "../../src/index/db.js";
+import {
+  createEmbeddingProfileFingerprint,
+  type EmbeddingProfileFingerprint,
+} from "../../src/index/embed.js";
 import { reconcileIndex } from "../../src/index/reconcile.js";
+import type { SearchExecutor } from "../../src/index/vector-search.js";
 import { loadSearchCorpus } from "../../src/retrieval/corpus.js";
 
 class FakeParentPort extends EventEmitter {
@@ -46,15 +51,13 @@ describe("dashboard index search route", () => {
     vi.clearAllMocks();
   });
 
-  it("uses lexical index search when MEMORY_INDEX_SEARCH is enabled without loading the legacy corpus", async () => {
+  it("uses lexical index search by default without loading the legacy corpus", async () => {
     const { vaultRoot, indexDbPath } = await createIndexedVault();
 
     server = await createServer({
       vaultRoot,
       port: 0,
       env: {
-        ...process.env,
-        MEMORY_INDEX_SEARCH: "1",
         MEMORY_INDEX_DB_PATH: indexDbPath,
       },
       voyageClient: null,
@@ -75,8 +78,149 @@ describe("dashboard index search route", () => {
     expect(loadSearchCorpus).not.toHaveBeenCalled();
   });
 
-  it("uses the legacy search path when MEMORY_INDEX_SEARCH is not enabled", async () => {
+  it("serves default index search inline even when a vector executor is available", async () => {
+    const { vaultRoot, indexDbPath } = await createIndexedVault();
+    const searchExecutor = fakeSearchExecutor("lexical-plus-vector");
+
+    server = await createServer({
+      vaultRoot,
+      port: 0,
+      env: {
+        MEMORY_INDEX_DB_PATH: indexDbPath,
+      },
+      voyageClient: null,
+      searchExecutor,
+    });
+
+    const response = await fetch(`http://${server.host}:${server.port}/api/search?q=needle&limit=5`);
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(searchExecutor.search).not.toHaveBeenCalled();
+    expect(body.results).toEqual([
+      expect.objectContaining({
+        path: "wiki/indexed.md",
+        source: "index",
+      }),
+    ]);
+    expect(loadSearchCorpus).not.toHaveBeenCalled();
+  });
+
+  it("routes index search through the configured SearchExecutor only when vectors are opted in", async () => {
+    const { vaultRoot, indexDbPath } = await createIndexedVault();
+    const searchExecutor = fakeSearchExecutor("lexical-plus-vector");
+
+    server = await createServer({
+      vaultRoot,
+      port: 0,
+      env: {
+        MEMORY_INDEX_DB_PATH: indexDbPath,
+        MEMORY_INDEX_VECTORS: "1",
+      },
+      voyageClient: null,
+      searchExecutor,
+    });
+
+    const response = await fetch(`http://${server.host}:${server.port}/api/search?q=needle&limit=5`);
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(searchExecutor.search).toHaveBeenCalledWith({ query: "needle", limit: 5, cursor: null });
+    expect(body).toMatchObject({
+      query: "needle",
+      hybridMode: "lexical-plus-vector",
+      vectorState: "ready",
+      index: { ready: true },
+      results: [expect.objectContaining({ path: "wiki/vector.md", source: "vector" })],
+    });
+    expect(loadSearchCorpus).not.toHaveBeenCalled();
+  });
+
+  it("falls back to inline lexical search when vector opt-in has no search process binary", async () => {
+    const { vaultRoot, indexDbPath } = await createIndexedVault();
+
+    server = await createServer({
+      vaultRoot,
+      port: 0,
+      env: {
+        MEMORY_INDEX_DB_PATH: indexDbPath,
+        MEMORY_INDEX_VECTORS: "1",
+        MEMORY_INDEX_SEARCH_PROCESS_PATH: join(tempDir!, "missing-search-process.mjs"),
+      },
+      voyageClient: null,
+    });
+
+    const response = await fetch(`http://${server.host}:${server.port}/api/search?q=needle&limit=5`);
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({
+      query: "needle",
+      degraded: false,
+      results: [expect.objectContaining({ path: "wiki/indexed.md", source: "index" })],
+    });
+    expect(loadSearchCorpus).not.toHaveBeenCalled();
+  });
+
+  it("falls back to lexical index search when the vector SearchExecutor rejects without loading the legacy corpus", async () => {
+    const { vaultRoot, indexDbPath } = await createIndexedVault();
+    const searchExecutor = fakeSearchExecutor("lexical-plus-vector");
+    searchExecutor.search.mockRejectedValueOnce(new Error("vector executor offline"));
+
+    server = await createServer({
+      vaultRoot,
+      port: 0,
+      env: {
+        MEMORY_INDEX_DB_PATH: indexDbPath,
+        MEMORY_INDEX_VECTORS: "1",
+      },
+      voyageClient: null,
+      searchExecutor,
+    });
+
+    const response = await fetch(`http://${server.host}:${server.port}/api/search?q=needle&limit=5`);
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(searchExecutor.search).toHaveBeenCalledTimes(1);
+    expect(body).toMatchObject({
+      query: "needle",
+      degraded: true,
+      warnings: ["search process unavailable: vector executor offline"],
+      index: {
+        ready: true,
+        lastError: "vector executor offline",
+      },
+      results: [expect.objectContaining({ path: "wiki/indexed.md", source: "index" })],
+    });
+    expect(loadSearchCorpus).not.toHaveBeenCalled();
+  });
+
+  it("passes opaque index search cursors through to the configured SearchExecutor", async () => {
+    const { vaultRoot, indexDbPath } = await createIndexedVault();
+    const searchExecutor = fakeSearchExecutor("lexical-plus-vector");
+
+    server = await createServer({
+      vaultRoot,
+      port: 0,
+      env: {
+        MEMORY_INDEX_DB_PATH: indexDbPath,
+        MEMORY_INDEX_VECTORS: "1",
+      },
+      voyageClient: null,
+      searchExecutor,
+    });
+
+    const response = await fetch(`http://${server.host}:${server.port}/api/search?q=needle&limit=5&cursor=opaque-token`);
+
+    expect(response.status).toBe(200);
+    expect(searchExecutor.search).toHaveBeenCalledWith({ query: "needle", limit: 5, cursor: "opaque-token" });
+    expect(loadSearchCorpus).not.toHaveBeenCalled();
+  });
+
+  it("uses the legacy search path when MEMORY_INDEX_SEARCH explicitly opts out", async () => {
     const { vaultRoot } = await createVault();
+    const searchExecutor = fakeSearchExecutor("lexical-plus-vector");
     vi.mocked(loadSearchCorpus).mockResolvedValue({
       documents: [legacyDocument(vaultRoot)],
       errors: [],
@@ -87,8 +231,9 @@ describe("dashboard index search route", () => {
     server = await createServer({
       vaultRoot,
       port: 0,
-      env: { ...process.env, MEMORY_INDEX_SEARCH: "0" },
+      env: { MEMORY_INDEX_SEARCH: "0" },
       voyageClient: null,
+      searchExecutor,
     });
 
     const response = await fetch(`http://${server.host}:${server.port}/api/search?q=legacy&noHyde=true`);
@@ -97,6 +242,35 @@ describe("dashboard index search route", () => {
     expect(response.status).toBe(200);
     expect(body.results[0]?.path).toBe("wiki/legacy.md");
     expect(loadSearchCorpus).toHaveBeenCalledTimes(1);
+    expect(searchExecutor.search).not.toHaveBeenCalled();
+  });
+
+  it("reports disabled index status when MEMORY_INDEX_SEARCH opts out", async () => {
+    const { vaultRoot } = await createVault();
+    const indexDbPath = join(tempDir!, "disabled", "index.db");
+
+    server = await createServer({
+      vaultRoot,
+      port: 0,
+      env: {
+        MEMORY_INDEX_SEARCH: "0",
+        MEMORY_INDEX_DB_PATH: indexDbPath,
+      },
+      voyageClient: null,
+    });
+
+    const status = await fetch(`http://${server.host}:${server.port}/api/index-status`);
+    const statusBody = await status.json();
+
+    expect(status.status).toBe(200);
+    expect(statusBody).toMatchObject({
+      enabled: false,
+      dbPath: indexDbPath,
+      currentState: "disabled",
+      ready: false,
+      lastError: null,
+    });
+    expect(loadSearchCorpus).not.toHaveBeenCalled();
   });
 
   it("serves index search through the read connection while the writer owns an active WAL transaction", async () => {
@@ -137,8 +311,6 @@ describe("dashboard index search route", () => {
       vaultRoot,
       port: 0,
       env: {
-        ...process.env,
-        MEMORY_INDEX_SEARCH: "1",
         MEMORY_INDEX_DB_PATH: indexDbPath,
       },
       voyageClient: null,
@@ -163,8 +335,6 @@ describe("dashboard index search route", () => {
       vaultRoot,
       port: 0,
       env: {
-        ...process.env,
-        MEMORY_INDEX_SEARCH: "1",
         MEMORY_INDEX_DB_PATH: indexDbPath,
       },
       voyageClient: null,
@@ -197,6 +367,89 @@ describe("dashboard index search route", () => {
     expect(loadSearchCorpus).not.toHaveBeenCalled();
   });
 
+  it("reports repairing when the index DB exists but the read connection cannot open it", async () => {
+    const { vaultRoot } = await createVault();
+    const indexDbPath = join(tempDir!, "broken", "index.db");
+    await mkdir(dirname(indexDbPath), { recursive: true });
+    await writeFile(indexDbPath, "not a sqlite database", "utf8");
+
+    server = await createServer({
+      vaultRoot,
+      port: 0,
+      env: {
+        MEMORY_INDEX_DB_PATH: indexDbPath,
+      },
+      voyageClient: null,
+    });
+
+    const status = await fetch(`http://${server.host}:${server.port}/api/index-status`);
+    const statusBody = await status.json();
+    const search = await fetch(`http://${server.host}:${server.port}/api/search?q=needle&limit=5`);
+    const searchBody = await search.json();
+
+    expect(status.status).toBe(200);
+    expect(statusBody).toMatchObject({
+      enabled: true,
+      dbPath: indexDbPath,
+      currentState: "repairing",
+      ready: false,
+    });
+    expect(statusBody.lastError).toEqual(expect.any(String));
+    expect(search.status).toBe(200);
+    expect(searchBody).toMatchObject({
+      results: [],
+      warnings: ["indexing"],
+      degraded: true,
+      index: {
+        currentState: "repairing",
+        ready: false,
+      },
+    });
+    expect(loadSearchCorpus).not.toHaveBeenCalled();
+  });
+
+  it("treats an error reconcile state after a previous build as not ready", async () => {
+    const { vaultRoot, indexDbPath } = await createIndexedVault();
+    const indexDb = openIndexDb(indexDbPath);
+    openDbs.push(indexDb);
+    setMeta(indexDb, "activeReconcileState", "error");
+    setMeta(indexDb, "lastReconcileError", "disk image is malformed");
+    indexDb.close();
+    openDbs.pop();
+
+    server = await createServer({
+      vaultRoot,
+      port: 0,
+      env: {
+        MEMORY_INDEX_DB_PATH: indexDbPath,
+      },
+      voyageClient: null,
+    });
+
+    const status = await fetch(`http://${server.host}:${server.port}/api/index-status`);
+    const statusBody = await status.json();
+    const search = await fetch(`http://${server.host}:${server.port}/api/search?q=needle&limit=5`);
+    const searchBody = await search.json();
+
+    expect(status.status).toBe(200);
+    expect(statusBody).toMatchObject({
+      currentState: "error",
+      lastError: "disk image is malformed",
+      ready: false,
+    });
+    expect(search.status).toBe(200);
+    expect(searchBody).toMatchObject({
+      degraded: true,
+      warnings: ["indexing"],
+      index: {
+        currentState: "error",
+        lastError: "disk image is malformed",
+        ready: false,
+      },
+    });
+    expect(loadSearchCorpus).not.toHaveBeenCalled();
+  });
+
   it("reports skipped oversized files while serving the indexed remainder", async () => {
     const { vaultRoot } = await createVault();
     const indexDbPath = join(tempDir!, "index", "index.db");
@@ -212,8 +465,6 @@ describe("dashboard index search route", () => {
       vaultRoot,
       port: 0,
       env: {
-        ...process.env,
-        MEMORY_INDEX_SEARCH: "1",
         MEMORY_INDEX_DB_PATH: indexDbPath,
       },
       voyageClient: null,
@@ -256,8 +507,6 @@ describe("dashboard index search route", () => {
       vaultRoot,
       port: 0,
       env: {
-        ...process.env,
-        MEMORY_INDEX_SEARCH: "1",
         MEMORY_INDEX_DB_PATH: indexDbPath,
       },
       voyageClient: null,
@@ -276,6 +525,38 @@ describe("dashboard index search route", () => {
     expect(secondBody.results).toHaveLength(1);
     expect(secondBody.results[0].path).toBe("wiki/b.md");
     expect(secondBody.nextCursor).toBeNull();
+    expect(loadSearchCorpus).not.toHaveBeenCalled();
+  });
+
+  it("refreshes opaque cursors as invalid in the executor-absent lexical fallback", async () => {
+    const { vaultRoot, indexDbPath } = await createIndexedVaultWithPages([
+      ["wiki/a.md", "# A\n\nneedle alpha"],
+      ["wiki/b.md", "# B\n\nneedle beta"],
+    ]);
+    const opaqueCursor = Buffer.from(JSON.stringify({ hybridMode: "lexical-plus-vector" }), "utf8").toString("base64url");
+
+    server = await createServer({
+      vaultRoot,
+      port: 0,
+      env: {
+        MEMORY_INDEX_DB_PATH: indexDbPath,
+      },
+      voyageClient: null,
+      searchExecutor: null,
+    });
+
+    const response = await fetch(
+      `http://${server.host}:${server.port}/api/search?q=needle&limit=1&cursor=${opaqueCursor}`,
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.cursorStatus).toBe("invalid");
+    expect(body.cursor).toBeNull();
+    expect(body.warnings).toContain("cursor-invalid");
+    expect(body.results).toHaveLength(1);
+    expect(body.results[0].path).toBe("wiki/a.md");
+    expect(body.nextCursor).toBe("1");
     expect(loadSearchCorpus).not.toHaveBeenCalled();
   });
 
@@ -300,8 +581,15 @@ describe("dashboard index search route", () => {
 
     const ready = startIndexWriter({
       parentPort,
+      env: { MEMORY_INDEX_SEARCH: "0" },
       openIndexDbImpl: () => fakeDb,
       reconcileIndexImpl: async () => ({ filesIndexed: 1, filesTombstoned: 0, chunks: 1, filesSkipped: 0 }),
+      createVectorEmbedClientImpl: async () => {
+        throw new Error("vector embed client should not be created while index search is disabled");
+      },
+      backfillVectorsImpl: async () => {
+        throw new Error("vector backfill should not run while index search is disabled");
+      },
       exit: () => undefined,
     });
     parentPort.emit("message", {
@@ -313,6 +601,105 @@ describe("dashboard index search route", () => {
     await until(() => pragmas.includes("wal_checkpoint(TRUNCATE)"));
 
     expect(pragmas).toContain("wal_checkpoint(TRUNCATE)");
+  });
+
+  it("does not run vector backfill when index search is on but vectors are not opted in", async () => {
+    const parentPort = new FakeParentPort();
+    const calls: string[] = [];
+    const fakeDb = {
+      path: "C:/tmp/index.db",
+      database: {
+        exec: vi.fn(),
+        pragma: vi.fn((sql: string) => {
+          calls.push(sql);
+          return [];
+        }),
+        prepare: vi.fn(() => ({ run: vi.fn(), get: vi.fn(), all: vi.fn() })),
+        close: vi.fn(),
+      },
+      close: vi.fn(),
+      integrityCheck: vi.fn(),
+      rebuildFts: vi.fn(),
+    } as unknown as IndexDb;
+
+    const ready = startIndexWriter({
+      parentPort,
+      env: { MEMORY_INDEX_SEARCH: "1" },
+      openIndexDbImpl: () => fakeDb,
+      reconcileIndexImpl: async () => {
+        calls.push("reconcile");
+        return { filesIndexed: 1, filesTombstoned: 0, chunks: 1, filesSkipped: 0 };
+      },
+      createVectorEmbedClientImpl: async () => {
+        calls.push("create-vector-client");
+        return {
+          profile: profileFingerprint(),
+          embed: async () => [vector(0)],
+        };
+      },
+      backfillVectorsImpl: async () => {
+        calls.push("backfill");
+        return { cancelled: false, processed: 1, embedded: 1, reused: 0, failed: 0, stale: 0 };
+      },
+      exit: () => undefined,
+    });
+    parentPort.emit("message", {
+      vaultRoot: "C:/vault",
+      debounceMs: 0,
+      intervalMs: 0,
+    });
+    await ready;
+    await until(() => calls.includes("wal_checkpoint(TRUNCATE)"));
+
+    expect(calls).toEqual(["reconcile", "wal_checkpoint(TRUNCATE)"]);
+  });
+
+  it("runs vector backfill after lexical reconcile and before checkpoint when vectors are opted in", async () => {
+    const parentPort = new FakeParentPort();
+    const calls: string[] = [];
+    const fakeDb = {
+      path: "C:/tmp/index.db",
+      database: {
+        exec: vi.fn(),
+        pragma: vi.fn((sql: string) => {
+          calls.push(sql);
+          return [];
+        }),
+        prepare: vi.fn(() => ({ run: vi.fn(), get: vi.fn(), all: vi.fn() })),
+        close: vi.fn(),
+      },
+      close: vi.fn(),
+      integrityCheck: vi.fn(),
+      rebuildFts: vi.fn(),
+    } as unknown as IndexDb;
+
+    const ready = startIndexWriter({
+      parentPort,
+      env: { MEMORY_INDEX_VECTORS: "1" },
+      openIndexDbImpl: () => fakeDb,
+      reconcileIndexImpl: async () => {
+        calls.push("reconcile");
+        return { filesIndexed: 1, filesTombstoned: 0, chunks: 1, filesSkipped: 0 };
+      },
+      createVectorEmbedClientImpl: async () => ({
+        profile: profileFingerprint(),
+        embed: async () => [vector(0)],
+      }),
+      backfillVectorsImpl: async () => {
+        calls.push("backfill");
+        return { cancelled: false, processed: 1, embedded: 1, reused: 0, failed: 0, stale: 0 };
+      },
+      exit: () => undefined,
+    });
+    parentPort.emit("message", {
+      vaultRoot: "C:/vault",
+      debounceMs: 0,
+      intervalMs: 0,
+    });
+    await ready;
+    await until(() => calls.includes("wal_checkpoint(TRUNCATE)"));
+
+    expect(calls).toEqual(["reconcile", "backfill", "wal_checkpoint(TRUNCATE)"]);
   });
 
   async function createIndexedVault(): Promise<{ vaultRoot: string; indexDbPath: string }> {
@@ -369,6 +756,103 @@ describe("dashboard index search route", () => {
     };
   }
 
+  function fakeSearchExecutor(hybridMode: "lexical-only" | "lexical-plus-vector"): SearchExecutor & {
+    search: ReturnType<typeof vi.fn>;
+    close: ReturnType<typeof vi.fn>;
+  } {
+    return {
+      search: vi.fn(async (request: { query: string }) => ({
+        query: request.query,
+        results: [
+          {
+            path: "wiki/vector.md",
+            title: "Vector",
+            snippet: "semantic payload",
+            score: 1,
+            source: "vector",
+            sources: [{ source: "vector", rank: 1 }],
+            kind: "wiki" as const,
+            provenance: {
+              path: "wiki/vector.md",
+              kind: "wiki" as const,
+              dominantSource: "vector",
+              signals: [{ source: "vector", rank: 1 }],
+              confidence: null,
+              sourceFactCount: 0,
+              derivedFromCount: 0,
+              tier: "medium" as const,
+            },
+          },
+        ],
+        warnings: [],
+        timings: {
+          corpusMs: 0,
+          refreshMs: 0,
+          embedQueryMs: 0,
+          bm25Ms: 0,
+          vectorMs: 0,
+          exactMs: 0,
+          graphMs: 0,
+          graphSpreadMs: 0,
+          metadataMs: 0,
+          rrfMs: 0,
+          rerankMs: 0,
+          totalMs: 0,
+          intentClassification: {
+            label: "open-ended" as const,
+            confidence: 0.5,
+            method: "fallback" as const,
+            latencyMs: 0,
+          },
+        },
+        degraded: false,
+        hyde: { used: false, reason: "disabled-by-flag" as const },
+        corpusErrorCount: 0,
+        bm25Cache: {
+          indexCacheHit: true,
+          documentCount: 1,
+          tokenCacheHits: 0,
+          tokenCacheMisses: 0,
+        },
+        vectorState: "ready" as const,
+        vectorCoverage: { embeddedEligible: 1, totalEligible: 1 },
+        hybridMode,
+        cursor: null,
+        nextCursor: null,
+      })),
+      close: vi.fn(),
+    };
+  }
+
+  function profileFingerprint(
+    overrides: Partial<Omit<EmbeddingProfileFingerprint, "profileId">> = {},
+  ): EmbeddingProfileFingerprint {
+    return createEmbeddingProfileFingerprint({
+      provider: "local",
+      runtime: "onnxruntime-node",
+      runtimeVersion: "1.22.0",
+      modelId: "BAAI/bge-small-en-v1.5",
+      modelRevision: "refs/pr/5",
+      modelHash: "model-a",
+      tokenizerHash: "tokenizer-a",
+      pooling: "cls",
+      normalization: "l2",
+      dtype: "binary-int8",
+      dimension: 384,
+      prefixStrategy: "bge-passage",
+      chunkerVersion: "phase3-v1",
+      payloadRecipe: "heading-path-v1",
+      maxTokenPolicy: "truncate-512",
+      ...overrides,
+    });
+  }
+
+  function vector(index: number): Float32Array {
+    const values = new Float32Array(384);
+    values[index] = 1;
+    return values;
+  }
+
   async function until(predicate: () => boolean): Promise<void> {
     for (let attempt = 0; attempt < 20; attempt += 1) {
       if (predicate()) return;
@@ -381,5 +865,11 @@ describe("dashboard index search route", () => {
     const path = join(vaultRoot, ...relPath.split("/"));
     await mkdir(dirname(path), { recursive: true });
     await writeFile(path, content, "utf8");
+  }
+
+  function setMeta(indexDb: IndexDb, key: string, value: string): void {
+    indexDb.database
+      .prepare<[string, string]>("INSERT INTO meta(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+      .run(key, value);
   }
 });
