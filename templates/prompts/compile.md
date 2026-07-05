@@ -93,8 +93,18 @@ stated ONCE with durable intent justifies a core memory immediately — create a
 page at `wiki/preferences/<kebab-slug>.md` using `write_page`; the cross-session
 threshold applies to INFERRED preferences (behavior patterns never stated as a
 rule), not to explicit instructions. Inferred preferences still need 3+ sessions
-of evidence. Entity/knowledge pages are NOT core — when classifying a page that
-is about a project, tool, or event rather than the operator, use `semantic`.
+of evidence. Entity/knowledge pages are NOT core. For non-core pages, classify
+`cognitive_type` by CONTENT, never by default (Tulving via CoALA: semantic =
+"knowing that", procedural = "knowing how", episodic = events):
+- `procedural` — how-to knowledge: processes, methodologies, checklists,
+  protocols, workflows, best-practice patterns, policies the agent/operator
+  follows (most how-to lessons belong here).
+- `semantic` — facts and findings: gotchas ("X breaks when Y"), tool/library
+  references, system descriptions, audit findings, design constraints.
+- `episodic` — narratives of what happened: session/thread accounts tied to
+  specific events and dates.
+A lesson is NOT automatically procedural: a factual gotcha filed under
+lessons/ is `semantic`; a step-by-step method filed anywhere is `procedural`.
 
 Core memory frontmatter must include: `type: "preferences"`, `cognitive_type:
 "core"`, `source: "compile-execute"`, a `confidence` (0.9+ for multi-session or
