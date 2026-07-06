@@ -143,10 +143,28 @@ function resolveLink(
   idx: ReturnType<typeof buildResolutionIndex>,
 ): string | null {
   const clean = target.trim().replace(/\.md$/, "");
-  if (idx.byPath.has(clean)) return idx.byPath.get(clean)!;
-  const filenameMatch = idx.byFilename.get(clean);
+  // Relation targets are stored vault-root-relative ("wiki/lessons/x"), but the
+  // path index is keyed wiki-root-relative ("lessons/x"). Try both forms so a
+  // "wiki/"-prefixed relation resolves to the same page as a bare wikilink.
+  const pathCandidates = clean.startsWith("wiki/") ? [clean.slice(5), clean] : [clean];
+  for (const candidate of pathCandidates) {
+    if (idx.byPath.has(candidate)) return idx.byPath.get(candidate)!;
+  }
+  // Filename fallback keys on the final path segment, not the whole path.
+  const filename = clean.split("/").pop() ?? clean;
+  const filenameMatch = idx.byFilename.get(filename);
   if (filenameMatch && filenameMatch !== "AMBIGUOUS") return filenameMatch;
   return null;
+}
+
+/**
+ * True for relation targets that point outside the wiki page set by design.
+ * `raw/` provenance (derived_from) references raw observation files, which live
+ * outside wiki/ and are routinely pruned — a dangling raw pointer is expected,
+ * not a broken relation.
+ */
+function isNonWikiRelationTarget(target: string): boolean {
+  return target.trim().startsWith("raw/");
 }
 
 export function checkBrokenLinks(pages: WikiPage[]): LintIssue[] {
@@ -185,6 +203,7 @@ export function checkBrokenRelations(pages: WikiPage[]): LintIssue[] {
       for (const relationEntry of targets as unknown[]) {
         const target = readRelationTarget(relationEntry);
         if (!target) continue;
+        if (isNonWikiRelationTarget(target)) continue;
         if (resolveLink(target, idx) === null) {
           issues.push({
             category: "broken-relation",

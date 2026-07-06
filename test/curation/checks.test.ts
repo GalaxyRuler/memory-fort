@@ -260,6 +260,38 @@ describe("checkBrokenRelations", () => {
     expect(issues.length).toBe(1);
     expect(issues[0]!.message).toContain("ghost");
   });
+
+  it("resolves vault-root-relative (wiki/-prefixed) targets", () => {
+    const pages = [
+      page("lessons/a.md", {
+        type: "lessons",
+        title: "A",
+        created: "2026-05-21",
+        updated: "2026-05-21",
+        relations: { uses: ["wiki/lessons/b.md"] },
+      }),
+      page("lessons/b.md", {
+        type: "lessons",
+        title: "B",
+        created: "2026-05-21",
+        updated: "2026-05-21",
+      }),
+    ];
+    expect(checkBrokenRelations(pages)).toEqual([]);
+  });
+
+  it("ignores raw/ provenance targets (outside the wiki page set)", () => {
+    const pages = [
+      page("lessons/a.md", {
+        type: "lessons",
+        title: "A",
+        created: "2026-05-21",
+        updated: "2026-05-21",
+        relations: { derived_from: ["raw/2026-05-21/codex-abc.md"] },
+      }),
+    ];
+    expect(checkBrokenRelations(pages)).toEqual([]);
+  });
 });
 
 describe("checkOrphans", () => {
@@ -343,6 +375,26 @@ describe("checkOrphans", () => {
     ];
     const orphans = checkOrphans(pages).map((i) => i.page);
     expect(orphans).not.toContain("wiki/projects/b.md");
+  });
+
+  it("counts a wiki/-prefixed inbound relation (not an orphan)", () => {
+    const pages = [
+      page("lessons/a.md", {
+        type: "lessons",
+        title: "A",
+        created: "2026-05-21",
+        updated: "2026-05-21",
+        relations: { uses: ["wiki/tools/b.md"] },
+      }),
+      page("tools/b.md", {
+        type: "tools",
+        title: "B",
+        created: "2026-05-21",
+        updated: "2026-05-21",
+      }),
+    ];
+    const orphans = checkOrphans(pages).map((i) => i.page);
+    expect(orphans).not.toContain("wiki/tools/b.md");
   });
 });
 
