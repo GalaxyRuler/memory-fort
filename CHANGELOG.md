@@ -4,6 +4,14 @@ All notable changes to Memory Fort are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.1] - 2026-07-08
+
+### Fixed
+- **MCP search no longer falsely reports the dashboard offline on a cold start.** A freshly started MCP client (for example a dispatched subagent) could issue its first `search` before its connection to the dashboard was ready, so the request returned `Search dashboard offline` even though the dashboard was up — observed as the same query failing then succeeding on retry. `search` now retries the connection a few times with a short backoff before reporting the dashboard offline; only the connection attempt is retried, never a real backend error.
+- **`memory verify` no longer leaves orphan probe files that can wedge sync.** The `vault.read-write` check now removes its `raw/.verify-*.tmp` probe even when the check is interrupted (for example by a full disk), and `raw/*.tmp` is ignored in the vault `.gitignore`, so a leftover probe or an in-flight atomic-write temp can no longer keep the working tree dirty and pause auto-push.
+- **Compile assigns `cognitive_type` from observation content.** The compile prompt now applies a content-based `cognitive_type` rule rather than a fixed default.
+- **Lint resolves `wiki/`-prefixed relations and skips raw provenance.** Curation checks no longer flag `wiki/`-prefixed relation targets as broken and no longer treat raw-capture provenance as a lint target.
+
 ## [0.11.0] - 2026-07-04
 
 ### Added
