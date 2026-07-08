@@ -71,6 +71,9 @@ embeddings/*
 !embeddings/auto-heal.jsonl
 wiki/.audit/llm-debug-*.md
 claude-code-plugin/
+# Verify probes + in-flight atomic-write temps (never data; orphans wedge sync)
+raw/*.tmp
+raw/**/*.tmp
 `;
 
 const GITATTRIBUTES_CONTENT = `*.md text eol=lf

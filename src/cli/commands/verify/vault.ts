@@ -20,7 +20,6 @@ export async function checkVaultReadWrite(
     await mkdir(rawRoot, { recursive: true });
     await atomicWrite(probePath, content);
     const readBack = await readFile(probePath, "utf-8");
-    await unlink(probePath);
     if (readBack !== content) {
       return fail(
         "vault.read-write",
@@ -36,5 +35,10 @@ export async function checkVaultReadWrite(
       "run `memory init`",
       error instanceof Error ? error.message : String(error),
     );
+  } finally {
+    // Best-effort cleanup: an interrupted verify (e.g. disk-full) must never
+    // leave an orphan .verify-*.tmp probe in raw/, which would dirty the tree
+    // and wedge auto-push.
+    await unlink(probePath).catch(() => {});
   }
 }

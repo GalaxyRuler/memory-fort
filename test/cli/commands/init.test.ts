@@ -111,7 +111,13 @@ describe("runInit", () => {
     expect(gitignore).not.toContain(".gitattributes");
     expect(gitignore).toContain("claude-code-plugin/");
     expect(gitignore).not.toContain("embeddings/raw.*.jsonl");
-    expect(gitignore).not.toContain("raw/");
+    // raw/ observation data must never be ignored — only transient .tmp probes may be.
+    const rawRules = gitignore
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.startsWith("raw/"));
+    expect(rawRules.length).toBeGreaterThan(0);
+    for (const rule of rawRules) expect(rule).toMatch(/\.tmp$/);
     const gitattributes = await readFile(
       join(result.root, ".gitattributes"),
       "utf-8",

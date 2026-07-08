@@ -1135,6 +1135,58 @@ describe("memory.search MCP tool", () => {
     }
   });
 
+  it("retries a cold-start connect failure before giving up (subagent warmup)", async () => {
+    let calls = 0;
+    const fetchFn = vi.fn(async () => {
+      calls += 1;
+      if (calls < 3) throw new Error("ECONNREFUSED");
+      return {
+        ok: true,
+        json: async () => ({
+          query: "warmup",
+          results: [
+            {
+              path: "wiki/projects/memory-system.md",
+              title: "Memory System",
+              snippet: "s",
+              score: 0.5,
+              source: "bm25",
+              sources: [{ source: "bm25", rank: 1 }],
+            },
+          ],
+          warnings: [],
+          timings: { totalMs: 1, rerankMs: 0 },
+          degraded: false,
+        }),
+      } as Response;
+    }) as unknown as typeof fetch;
+
+    const result = await searchMemory(
+      { query: "warmup" },
+      { fetchFn, searchConnectDelayMs: 0, sleepFn: async () => {} },
+    );
+
+    expect(result.isError).toBeFalsy();
+    expect(fetchFn).toHaveBeenCalledTimes(3);
+    const parsed = JSON.parse(extractJsonFence(result.content[0]!.text));
+    expect(parsed.results[0].path).toBe("wiki/projects/memory-system.md");
+  });
+
+  it("reports the dashboard offline only after exhausting connect retries", async () => {
+    const fetchFn = vi.fn(async () => {
+      throw new Error("ECONNREFUSED");
+    }) as unknown as typeof fetch;
+
+    const result = await searchMemory(
+      { query: "warmup" },
+      { fetchFn, searchConnectAttempts: 4, searchConnectDelayMs: 0, sleepFn: async () => {} },
+    );
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0]!.text).toContain("Search dashboard offline");
+    expect(fetchFn).toHaveBeenCalledTimes(4);
+  });
+
   it("passes hyde_expansion through to the search API URL", async () => {
     const urls: string[] = [];
     const fetchFn = vi.fn(async (input) => {

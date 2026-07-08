@@ -313,6 +313,13 @@ export interface SearchDeps extends LogObservationDeps {
   dashboardUrl?: string;
   // Legacy alias retained for older MCP configs.
   vpsUrl?: string;
+  // Cold-start resilience: a freshly spawned MCP process (e.g. a dispatched
+  // subagent) can issue its first search before its connection to the dashboard
+  // is ready, so fetch() throws ECONNREFUSED/ECONNRESET. Retry the connect a few
+  // times before declaring the dashboard offline. Injectable for tests.
+  searchConnectAttempts?: number;
+  searchConnectDelayMs?: number;
+  sleepFn?: (ms: number) => Promise<void>;
 }
 
 interface ApiSearchResult {
@@ -364,6 +371,10 @@ const MAX_SEARCH_SNIPPET_LENGTH = 1_000;
 const MAX_SEARCH_SOURCE_LENGTH = 120;
 const MAX_SEARCH_WARNING_LENGTH = 300;
 const MAX_SEARCH_HYDE_PROMPT_LENGTH = 1_000;
+// Cold-start connect retry: total attempts and linear backoff base (ms).
+// Only the connect (thrown fetch) is retried, never an HTTP-level error.
+const SEARCH_CONNECT_ATTEMPTS = 3;
+const SEARCH_CONNECT_DELAY_MS = 150;
 
 export interface EmbeddingProviderPreflightOptions {
   configLoader?: () => Promise<MemoryConfig>;
@@ -393,11 +404,24 @@ export async function searchMemory(
 ): Promise<{ content: Array<{ type: "text"; text: string }>; isError?: boolean }> {
   const fetchFn = deps.fetchFn ?? fetch;
   const url = buildSearchUrl(deps.dashboardUrl ?? deps.vpsUrl ?? DEFAULT_SEARCH_BASE_URL, input);
+  const attempts = Math.max(1, Math.trunc(deps.searchConnectAttempts ?? SEARCH_CONNECT_ATTEMPTS));
+  const delayMs = Math.max(0, deps.searchConnectDelayMs ?? SEARCH_CONNECT_DELAY_MS);
+  const sleep = deps.sleepFn ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
 
-  let response: Response;
-  try {
-    response = await fetchFn(url);
-  } catch {
+  // Retry only the connect itself. A thrown fetch means the dashboard is not
+  // reachable yet (cold subagent connection / warming socket), which recovers
+  // on retry; an HTTP-level error (handled below) is a real backend failure and
+  // must not be retried here.
+  let response: Response | undefined;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      response = await fetchFn(url);
+      break;
+    } catch {
+      if (attempt < attempts) await sleep(delayMs * attempt);
+    }
+  }
+  if (!response) {
     return toolError(
       "Search dashboard offline. Try: (a) start `memory dashboard`, " +
         "(b) set the dashboard URL for this MCP server, " +
