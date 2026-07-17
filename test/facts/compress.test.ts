@@ -478,3 +478,73 @@ function promptAwareCompressionLLM(factory: (request: LLMRequest) => Array<Recor
     })),
   };
 }
+
+function truncatedCompressionLLM(reason: "length" | "filter"): LLMProvider {
+  return {
+    providerName: "ollama",
+    modelName: "llama3.2",
+    chat: vi.fn(async () => ({
+      model: "llama3.2",
+      finishReason: reason,
+      rawProviderName: "ollama",
+      tokensUsed: { prompt: 20, completion: 8, total: 28 },
+      content: [
+        "```json",
+        JSON.stringify({
+          facts: [{
+            title: "Partial",
+            facts: ["a truncated fact"],
+            narrative: "n",
+            concepts: ["c"],
+            files: [],
+            importance: 5,
+            type: "fact",
+          }],
+        }),
+        "```",
+      ].join("\n"),
+    })),
+  };
+}
+
+describe("compress truncation gate", () => {
+  it.each(["length", "filter"] as const)(
+    "throws instead of returning facts when finishReason=%s",
+    async (reason) => {
+      await expect(
+        compressSession({
+          rawText: "## [10:00:00] Prompt\nhello truncated world\n",
+          rawRelPath: "raw/2026-07-17/claude-code-x.md",
+          sessionId: "x",
+          observedAt: "2026-07-17T00:00:00.000Z",
+          llm: truncatedCompressionLLM(reason),
+        }),
+      ).rejects.toThrow(/truncated/);
+    },
+  );
+
+  it("runCompress leaves no fact file and no watermark when the response is truncated", async () => {
+    const root = await mkdtemp(join(tmpdir(), "memory-compress-trunc-"));
+    try {
+      const relPath = "raw/2026-07-17/session-trunc.md";
+      await mkdir(join(root, "raw", "2026-07-17"), { recursive: true });
+      await writeFile(join(root, relPath), "## [10:00:00] Prompt\nhello truncated world\n", "utf-8");
+
+      const result = await runCompress({
+        vaultRoot: root,
+        apply: true,
+        configLoader: async () => ({}),
+        llmFactory: () => truncatedCompressionLLM("length"),
+      });
+
+      expect(result.files.find((f) => f.path === relPath)?.outcome).toBe("failed");
+      // Conservation: neither the fact artifact nor the watermark may exist.
+      expect(existsSync(join(root, "facts", "2026-07-17", "session-trunc.json"))).toBe(false);
+      const state = await readCompileStateFile(root);
+      const compressed = (state as { compressed?: Record<string, unknown> }).compressed ?? {};
+      expect(compressed[relPath]).toBeUndefined();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});

@@ -96,6 +96,11 @@ export async function compressSessionWithUsage(opts: CompressSessionOptions): Pr
           env: opts.env,
         })
       : await opts.llm.chat(request);
+    if (response.finishReason === "length" || response.finishReason === "filter") {
+      throw new Error(
+        `memory compress: response truncated (finishReason=${response.finishReason}) for ${opts.rawRelPath} chunk ${chunk.originalIndex + 1}/${allChunks.length}; nothing persisted for this file`,
+      );
+    }
     partialFacts.push(...parseCompressedFacts({
       content: response.content,
       rawRelPath: opts.rawRelPath,
