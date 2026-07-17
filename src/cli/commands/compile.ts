@@ -828,7 +828,7 @@ function formatDrainProgress(pass: number, result: CompileResult): string {
   ].join(", ");
 }
 
-async function executeCompilePrompt(opts: CompileOptions & {
+export async function executeCompilePrompt(opts: CompileOptions & {
   root: string;
   prompt: string;
   hasRawContent: boolean;
@@ -893,6 +893,30 @@ async function executeCompilePrompt(opts: CompileOptions & {
     },
     env,
   });
+  if (response.finishReason === "length" || response.finishReason === "filter") {
+    const reason = `llm response truncated (finishReason=${response.finishReason}); watermark held, drain will retry`;
+    return {
+      mode: opts.plan ? "plan" : "execute",
+      rawInputConsumed: false,
+      applied: [],
+      proposed: [],
+      planned: [],
+      rejected: [{ path: "(response)", reason }],
+      outcomes: [{
+        path: "(response)",
+        outcome: "rejected",
+        reason,
+        contentPreserved: true,
+      }],
+      referencesStripped: 0,
+      prosePathLeaks: 0,
+      pagesRewritten: 0,
+      pagesUpdated: 0,
+      pagesUnchanged: 0,
+      factsExtracted: 0,
+      sessionsScanned: 0,
+    };
+  }
   const parsed = parseCompileOperationsBlock(response.content);
   if (!parsed.ok) {
     return {
