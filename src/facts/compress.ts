@@ -116,22 +116,32 @@ export async function compressSessionWithUsage(opts: CompressSessionOptions): Pr
         `memory compress: response truncated (finishReason=${response.finishReason}) for ${opts.rawRelPath} chunk ${chunk.originalIndex + 1}/${allChunks.length}; nothing persisted for this file`,
       );
     }
-    // Malformed output (no parseable facts JSON) is a provider failure, not a
-    // valid "zero facts" result — recording it as complete coverage would
-    // suppress this raw from compile with nothing extracted.
-    if (extractFactsArray(response.content) === null) {
+    // Malformed output is a provider failure, not a valid "zero facts" result —
+    // recording it as complete coverage would suppress this raw from compile
+    // with nothing extracted. Two malformed shapes are rejected: (a) no parseable
+    // facts array at all; (b) a non-empty facts array whose members do not
+    // survive normalization ({"facts":[{}]}, or a mix that silently drops some).
+    // A genuinely empty array ({"facts":[]}) is a valid "no facts here" result.
+    const rawArray = extractFactsArray(response.content);
+    if (rawArray === null) {
       throw new Error(
         `memory compress: response was not valid facts JSON for ${opts.rawRelPath} chunk ${chunk.originalIndex + 1}/${allChunks.length}; nothing persisted for this file`,
       );
     }
-    partialFacts.push(...parseCompressedFacts({
+    const chunkFacts = parseCompressedFacts({
       content: response.content,
       rawRelPath: opts.rawRelPath,
       sessionId: opts.sessionId,
       observedAt: opts.observedAt,
       compressedAt,
       ...(sampledChunks !== undefined ? { sampledChunks, totalChunks: allChunks.length } : {}),
-    }));
+    });
+    if (rawArray.length > 0 && chunkFacts.length < rawArray.length) {
+      throw new Error(
+        `memory compress: ${rawArray.length - chunkFacts.length} of ${rawArray.length} fact record(s) were unusable for ${opts.rawRelPath} chunk ${chunk.originalIndex + 1}/${allChunks.length}; nothing persisted for this file`,
+      );
+    }
+    partialFacts.push(...chunkFacts);
     tokensUsed = addTokenUsage(tokensUsed, response.tokensUsed);
   }
 
@@ -471,9 +481,13 @@ function titleSimilarity(left: string, right: string): number {
 }
 
 function titleTokens(value: string): string[] {
+  // Unicode letters/numbers, not just ASCII — an ASCII-only class tokenizes a
+  // non-Latin title (Arabic, CJK, Cyrillic) to the empty set, so two identical
+  // such titles never match and duplicate on every merge.
   return value
+    .normalize("NFKC")
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
     .split(/\s+/)
     .filter(Boolean);
 }

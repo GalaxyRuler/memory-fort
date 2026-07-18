@@ -3,7 +3,8 @@ import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CURRENT_COMPRESS_VERSION, compressSession } from "../../src/facts/compress.js";
+import { CURRENT_COMPRESS_VERSION, compressSession, mergeCompressedFacts } from "../../src/facts/compress.js";
+import type { CompressedFact } from "../../src/facts/store.js";
 import { runCompress } from "../../src/cli/commands/compress.js";
 import { readCompileStateFile, writeCompileStateFile } from "../../src/compile/state.js";
 import { readCompressedFactFile } from "../../src/facts/store.js";
@@ -507,6 +508,83 @@ function truncatedCompressionLLM(reason: "length" | "filter"): LLMProvider {
     })),
   };
 }
+
+describe("mergeCompressedFacts dedupes non-Latin titles", () => {
+  function fact(title: string): CompressedFact {
+    return {
+      title,
+      facts: [title],
+      narrative: title,
+      concepts: ["c"],
+      files: [],
+      importance: 5,
+      type: "fact",
+      sessionId: "s",
+      sourceRawPath: "raw/2026-07-17/x.md",
+      observedAt: "2026-07-17T00:00:00.000Z",
+      compressedAt: "2026-07-17T00:00:00.000Z",
+    } as CompressedFact;
+  }
+
+  it("collapses identical Arabic titles instead of accumulating duplicates", () => {
+    const merged = mergeCompressedFacts([fact("قرار المشروع"), fact("قرار المشروع"), fact("قرار المشروع")]);
+    expect(merged).toHaveLength(1);
+  });
+});
+
+describe("compress rejects unusable fact members (semantic-invalid, not just truncated)", () => {
+  function factsResponseLlm(content: string): LLMProvider {
+    return {
+      providerName: "ollama",
+      modelName: "llama3.2",
+      chat: vi.fn(async () => ({
+        model: "llama3.2",
+        finishReason: "stop" as const,
+        rawProviderName: "ollama",
+        content,
+      })),
+    };
+  }
+
+  it("throws when every fact member is empty ({\"facts\":[{}]}) instead of recording zero-fact coverage", async () => {
+    await expect(
+      compressSession({
+        rawText: "## [10:00:00] Prompt\nhello\n",
+        rawRelPath: "raw/2026-07-17/x.md",
+        sessionId: "x",
+        observedAt: "2026-07-17T00:00:00.000Z",
+        llm: factsResponseLlm("```json\n" + JSON.stringify({ facts: [{}] }) + "\n```"),
+      }),
+    ).rejects.toThrow(/unusable/);
+  });
+
+  it("throws when a mix of valid and invalid members would silently drop the invalid one", async () => {
+    const mixed = { facts: [
+      { title: "Real", facts: ["a"], narrative: "n", concepts: ["c"], files: [], importance: 5, type: "fact" },
+      {},
+    ] };
+    await expect(
+      compressSession({
+        rawText: "## [10:00:00] Prompt\nhello\n",
+        rawRelPath: "raw/2026-07-17/x.md",
+        sessionId: "x",
+        observedAt: "2026-07-17T00:00:00.000Z",
+        llm: factsResponseLlm("```json\n" + JSON.stringify(mixed) + "\n```"),
+      }),
+    ).rejects.toThrow(/unusable/);
+  });
+
+  it("allows a genuinely empty extraction ({\"facts\":[]})", async () => {
+    const facts = await compressSession({
+      rawText: "## [10:00:00] Prompt\nhello\n",
+      rawRelPath: "raw/2026-07-17/x.md",
+      sessionId: "x",
+      observedAt: "2026-07-17T00:00:00.000Z",
+      llm: factsResponseLlm("```json\n" + JSON.stringify({ facts: [] }) + "\n```"),
+    });
+    expect(facts).toEqual([]);
+  });
+});
 
 describe("compress truncation gate", () => {
   it.each(["length", "filter"] as const)(
