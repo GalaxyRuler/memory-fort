@@ -157,7 +157,7 @@ describe("postToolUseBody", () => {
     expect(Buffer.byteLength(calls[1].block, "utf-8")).toBeLessThan(1_200);
   });
 
-  it("runs auto-link after capture and logs failures without blocking the raw write", async () => {
+  it("does not run auto-link or auto-heal on the per-tool-call hot path (moved to session end)", async () => {
     const calls: string[] = [];
     await postToolUseBody(
       {
@@ -176,25 +176,21 @@ describe("postToolUseBody", () => {
         appendBlock: async () => {
           calls.push("append");
         },
-        autoLinkRawToWiki: async () => {
-          calls.push("auto-link");
-          throw new Error("linker unavailable");
-        },
-        appendErrorLog: async (line) => {
-          calls.push(`error:${line}`);
-        },
+        // These deps no longer exist on PostToolUseDeps; passing them must be a
+        // no-op (they moved to the Stop hook).
+        autoLinkRawToWiki: (async () => { calls.push("auto-link"); }) as never,
+        autoHealRaw: (async () => { calls.push("auto-heal"); }) as never,
         configLoader: async () => ({
           auto_link: { enabled: true, similarity_threshold: 0.75 },
+          auto_heal: { enabled: true },
         }),
         now: () => fixedNow,
-      },
+      } as never,
     );
 
-    expect(calls[0]).toBe("ensure");
-    expect(calls[1]).toBe("append");
-    expect(calls[2]).toBe("auto-link");
-    expect(calls[3]).toContain("auto-link failed");
-    expect(calls[3]).toContain("linker unavailable");
+    expect(calls).toEqual(["ensure", "append"]);
+    expect(calls).not.toContain("auto-link");
+    expect(calls).not.toContain("auto-heal");
   });
 
   it("uses metadata mode when tool is configured as metadata", async () => {
@@ -318,52 +314,4 @@ describe("postToolUseBody", () => {
     expect(calls.find(c => c.kind === "append").block).toContain("ToolUse: Write");
   });
 
-  it("runs capture-time auto-heal after the raw append when enabled", async () => {
-    const calls: string[] = [];
-    await postToolUseBody(
-      {
-        session_id: "abc",
-        cwd: "C:\\test",
-        tool_name: "Read",
-        tool_input: { path: "foo.md" },
-        tool_output: "file contents",
-      },
-      {
-        detectTool: () => "codex",
-        ensureRawSessionFile: async () => {
-          calls.push("ensure");
-          return "raw/2026-05-21/codex-abc.md";
-        },
-        appendBlock: async () => {
-          calls.push("append");
-        },
-        autoHealRaw: async (input) => {
-          calls.push(`auto-heal:${input.relPath}`);
-          return {
-            exitCode: 0,
-            enabled: true,
-            embedded: 1,
-            unchanged: 0,
-            skippedPending: 0,
-            skippedBudget: 0,
-            errors: [],
-            dailySpendUsd: 0.0001,
-            dailyBudgetUsd: 0.5,
-            nextReset: "2026-05-22T00:00:00.000Z",
-          };
-        },
-        configLoader: async () => ({
-          auto_heal: { enabled: true },
-          auto_link: { enabled: false },
-        }),
-        now: () => fixedNow,
-      },
-    );
-
-    expect(calls).toEqual([
-      "ensure",
-      "append",
-      "auto-heal:raw/2026-05-21/codex-abc.md",
-    ]);
-  });
 });

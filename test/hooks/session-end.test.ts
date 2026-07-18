@@ -63,4 +63,62 @@ describe("sessionEndBody", () => {
     expect(captured.sessionId).toBe("unknown");
     expect(captured.tool).toBe("codex");
   });
+
+  it("runs auto-link once for the session raw file and logs failures without throwing", async () => {
+    const calls: string[] = [];
+    await sessionEndBody(
+      { session_id: "abc", cwd: "C:\\test" },
+      {
+        detectTool: () => "codex",
+        ensureRawSessionFile: async () => {
+          calls.push("ensure");
+          return "raw/2026-05-21/codex-abc.md";
+        },
+        appendBlock: async () => {
+          calls.push("append");
+        },
+        autoLinkRawToWiki: (async (rawPath: string) => {
+          calls.push(`auto-link:${rawPath}`);
+          throw new Error("linker unavailable");
+        }) as never,
+        appendErrorLog: async (line: string) => {
+          calls.push(`error:${line}`);
+        },
+        configLoader: async () => ({ auto_link: { enabled: true, similarity_threshold: 0.75 } }),
+        now: () => fixedNow,
+      },
+    );
+    expect(calls[0]).toBe("ensure");
+    expect(calls[1]).toBe("append");
+    expect(calls[2]).toBe("auto-link:raw/2026-05-21/codex-abc.md");
+    expect(calls[3]).toContain("auto-link failed");
+    expect(calls[3]).toContain("linker unavailable");
+  });
+
+  it("runs auto-heal once after the session-end marker when enabled", async () => {
+    const calls: string[] = [];
+    await sessionEndBody(
+      { session_id: "abc", cwd: "C:\\test" },
+      {
+        detectTool: () => "codex",
+        ensureRawSessionFile: async () => {
+          calls.push("ensure");
+          return "raw/2026-05-21/codex-abc.md";
+        },
+        appendBlock: async () => {
+          calls.push("append");
+        },
+        autoHealRaw: (async (input: { relPath: string }) => {
+          calls.push(`auto-heal:${input.relPath}`);
+        }) as never,
+        configLoader: async () => ({ auto_heal: { enabled: true }, auto_link: { enabled: false } }),
+        now: () => fixedNow,
+      },
+    );
+    expect(calls).toEqual([
+      "ensure",
+      "append",
+      "auto-heal:raw/2026-05-21/codex-abc.md",
+    ]);
+  });
 });
