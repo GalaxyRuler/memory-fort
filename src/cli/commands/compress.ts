@@ -211,7 +211,9 @@ export async function runCompress(opts: CompressOptions = {}): Promise<CompressR
         facts: finalFacts.length,
         factPath,
         inputTokens: result.inputTokens,
-        chunksCompressed: result.chunksCompressed,
+        // On completion report full coverage, not just the final window, so the
+        // command result and formatter match the persisted artifact.
+        chunksCompressed: isComplete ? result.totalChunks : result.chunksCompressed,
         totalChunks: result.totalChunks,
         ...(!isComplete && result.sampledChunks !== undefined ? { sampledChunks: result.sampledChunks } : {}),
       });
