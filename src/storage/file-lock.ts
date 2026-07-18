@@ -57,9 +57,20 @@ async function tryAcquire(lockPath: string): Promise<boolean> {
     }
     return true;
   } catch (error) {
-    if (isCode(error, "EEXIST")) return false;
+    // EEXIST: lock held (POSIX + Windows). EPERM/EACCES: Windows returns these
+    // from an exclusive "wx" open while the lock file is in delete-pending state
+    // (another process's handle is still closing) — contention, not failure.
+    if (isLockContentionError(error)) return false;
     throw error;
   }
+}
+
+/**
+ * True for the errno codes an exclusive lock-file open raises under contention:
+ * EEXIST everywhere, plus EPERM/EACCES on Windows during a delete-pending race.
+ */
+export function isLockContentionError(error: unknown): boolean {
+  return isCode(error, "EEXIST") || isCode(error, "EPERM") || isCode(error, "EACCES");
 }
 
 async function breakIfStale(lockPath: string, staleMs: number): Promise<void> {

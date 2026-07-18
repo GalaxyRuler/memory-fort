@@ -3,7 +3,9 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { scheduleAutoPush, readPendingFile, isBusyPendingFileLockError } from "../../src/sync/auto-push.js";
+import { hostname } from "node:os";
+import { utimes } from "node:fs/promises";
+import { scheduleAutoPush, readPendingFile, writePendingFile } from "../../src/sync/auto-push.js";
 
 interface SpawnCall {
   cmd: string;
@@ -92,25 +94,16 @@ describe("scheduleAutoPush", () => {
     expect(existsSync(join(tmp, "errors.log"))).toBe(false);
   });
 
-  it("treats Windows lock EPERM on an existing pending lock as busy", async () => {
+  it("breaks a stale pending lock left by a dead process instead of wedging forever", async () => {
     const lockPath = join(tmp, ".auto-push-pending.lock");
-    await writeFile(lockPath, "locked");
+    // A dead holder: a pid that cannot be alive, with an old mtime (stale).
+    await writeFile(lockPath, JSON.stringify({ pid: 2 ** 30, host: hostname(), acquiredAt: "2020-01-01T00:00:00.000Z" }));
+    const past = new Date(Date.now() - 120_000);
+    await utimes(lockPath, past, past);
 
-    expect(isBusyPendingFileLockError(Object.assign(new Error("locked"), { code: "EPERM" }), lockPath)).toBe(true);
-  });
-
-  it("treats EPERM/EACCES as busy even when the lock file is gone (Windows delete-pending race)", () => {
-    const lockPath = join(tmp, ".auto-push-pending.lock"); // intentionally NOT created
-
-    expect(isBusyPendingFileLockError(Object.assign(new Error("x"), { code: "EPERM" }), lockPath)).toBe(true);
-    expect(isBusyPendingFileLockError(Object.assign(new Error("x"), { code: "EACCES" }), lockPath)).toBe(true);
-  });
-
-  it("does not treat unrelated errors as busy", () => {
-    const lockPath = join(tmp, ".auto-push-pending.lock");
-
-    expect(isBusyPendingFileLockError(Object.assign(new Error("x"), { code: "ENOSPC" }), lockPath)).toBe(false);
-    expect(isBusyPendingFileLockError(new Error("no code"), lockPath)).toBe(false);
+    const ok = await writePendingFile(tmp, { token: "t1", scheduledAt: new Date().toISOString(), debounceMs: 1 });
+    expect(ok).toBe(true); // previously: false forever — a killed hook disabled auto-push permanently
+    expect((await readPendingFile(tmp))?.token).toBe("t1");
   });
 
   it("adds the pending-lock + temp glob to .git/info/exclude so they never show as dirty", async () => {

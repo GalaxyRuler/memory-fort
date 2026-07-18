@@ -49,7 +49,13 @@ export async function runAutoPushWorker(opts: WorkerOptions): Promise<WorkerResu
       ? async () => ({ kind: "no-dirty-files" as const })
       : () => autoCommitRawsIfDirty({ memoryRoot: opts.memoryRoot, runner: makeRealCommandRunner(), now: nowFn }));
   const initialAutoCommit = await handleAutoCommit(opts.memoryRoot, autoCommitFn, nowFn, opts.logSink);
-  if (isSkippedAutoCommit(initialAutoCommit)) return { outcome: "offline", details: initialAutoCommit.reason };
+  if (isSkippedAutoCommit(initialAutoCommit)) {
+    // Nothing committable (held dirt) — record a pending push so status reflects
+    // the deferred replication, and leave the pending file so the next capture
+    // event re-arms a worker to retry once the tree is clean.
+    await updateSyncState(opts.memoryRoot, nowFn(), { pending_push_count: 1 });
+    return { outcome: "offline", details: initialAutoCommit.reason };
+  }
 
   const syncFn = opts.syncFn ?? (() => runSync({ memoryRoot: opts.memoryRoot }));
   try {
@@ -74,6 +80,10 @@ export async function runAutoPushWorker(opts: WorkerOptions): Promise<WorkerResu
     return { outcome: "pushed", details: `${pushedCommits} commits` };
   } catch (err) {
     if (err instanceof AutoPushSkipError) {
+      // Partial commit landed but the working tree stayed dirty (held files), so
+      // the push was refused. Record the pending push; the commit is durable in
+      // local git and the next capture event re-arms a retry.
+      await updateSyncState(opts.memoryRoot, nowFn(), { pending_push_count: 1 });
       return { outcome: "offline", details: err.message };
     }
 
@@ -147,32 +157,27 @@ async function handleAutoCommit(
       const redactedNote = autoCommit.redactedFiles?.length
         ? ` (redacted ${autoCommit.redactedFiles.length} secret-shaped file(s) in place)`
         : "";
+      const heldCount = (autoCommit.heldNonRaw?.length ?? 0) + (autoCommit.heldSecret?.length ?? 0);
+      const heldNote = heldCount > 0
+        ? ` (held back ${autoCommit.heldNonRaw?.length ?? 0} non-allowlisted + ${autoCommit.heldSecret?.length ?? 0} secret-shaped file(s); push deferred until the working tree is clean)`
+        : "";
       await writeLog(
         memoryRoot,
-        `[${nowIso}] auto-committed ${autoCommit.filesCount} vault system file(s) as ${autoCommit.commitSha.slice(0, 7)}${redactedNote}\n`,
+        `[${nowIso}] auto-committed ${autoCommit.filesCount} vault system file(s) as ${autoCommit.commitSha.slice(0, 7)}${redactedNote}${heldNote}\n`,
         logSink,
       );
       return "committed";
     }
-    case "skipped-non-raw-dirty": {
-      const shown = autoCommit.dirtyNonRawFiles.slice(0, 3).join(", ");
-      const suffix = autoCommit.dirtyNonRawFiles.length > 3 ? "..." : "";
+    case "nothing-committable": {
+      const held = [...autoCommit.heldNonRaw, ...autoCommit.heldSecret];
+      const shown = held.slice(0, 3).join(", ");
+      const suffix = held.length > 3 ? "..." : "";
       await writeLog(
         memoryRoot,
-        `[${nowIso}] auto-push skipped: non-raw dirty files present (run \`memory sync\` after committing: ${shown}${suffix})\n`,
+        `[${nowIso}] auto-push skipped: nothing committable — ${autoCommit.heldNonRaw.length} non-allowlisted, ${autoCommit.heldSecret.length} unredactable secret-shaped held (resolve then run \`memory sync\`: ${shown}${suffix})\n`,
         logSink,
       );
-      return { kind: "skipped", reason: "non-raw dirty tree" };
-    }
-    case "skipped-secret-shape": {
-      const shown = autoCommit.secretFiles.slice(0, 3).join(", ");
-      const suffix = autoCommit.secretFiles.length > 3 ? "..." : "";
-      await writeLog(
-        memoryRoot,
-        `[${nowIso}] auto-push skipped: secret-shaped auto-commit file(s) require manual redaction before commit (${shown}${suffix})\n`,
-        logSink,
-      );
-      return { kind: "skipped", reason: "secret-shaped auto-commit files" };
+      return { kind: "skipped", reason: `nothing committable (${autoCommit.heldNonRaw.length} non-raw, ${autoCommit.heldSecret.length} secret-shaped held)` };
     }
   }
 }

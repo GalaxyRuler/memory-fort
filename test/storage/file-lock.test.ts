@@ -3,7 +3,20 @@ import { existsSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { FileLockTimeoutError, withFileLock } from "../../src/storage/file-lock.js";
+import { FileLockTimeoutError, isLockContentionError, withFileLock } from "../../src/storage/file-lock.js";
+
+describe("isLockContentionError", () => {
+  it("treats EEXIST, EPERM, and EACCES as contention (Windows delete-pending parity)", () => {
+    expect(isLockContentionError(Object.assign(new Error("x"), { code: "EEXIST" }))).toBe(true);
+    expect(isLockContentionError(Object.assign(new Error("x"), { code: "EPERM" }))).toBe(true);
+    expect(isLockContentionError(Object.assign(new Error("x"), { code: "EACCES" }))).toBe(true);
+  });
+  it("does not treat unrelated errors as contention", () => {
+    expect(isLockContentionError(Object.assign(new Error("x"), { code: "ENOSPC" }))).toBe(false);
+    expect(isLockContentionError(new Error("no code"))).toBe(false);
+    expect(isLockContentionError(null)).toBe(false);
+  });
+});
 
 describe("withFileLock", () => {
   let dir: string;

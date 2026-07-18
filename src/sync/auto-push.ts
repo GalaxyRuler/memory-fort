@@ -1,10 +1,11 @@
 import { randomBytes } from "node:crypto";
-import { closeSync, existsSync, openSync, unlinkSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { appendFile, mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { spawn as realSpawn } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { atomicWrite } from "../storage/atomic-write.js";
+import { FileLockTimeoutError, withFileLock } from "../storage/file-lock.js";
 import { memoryRoot as defaultMemoryRoot } from "../storage/paths.js";
 
 export interface AutoPushOptions {
@@ -71,17 +72,19 @@ export async function readPendingFile(memoryRoot: string): Promise<PendingFile |
 export async function writePendingFile(memoryRoot: string, contents: PendingFile): Promise<boolean> {
   const path = pendingPath(memoryRoot);
   await mkdir(dirname(path), { recursive: true });
-  const releaseLock = tryAcquirePendingFileLock(`${path}.lock`);
-  if (!releaseLock) return false;
-
   try {
-    await atomicWrite(path, `${JSON.stringify(contents, null, 2)}\n`);
+    await withFileLock(
+      path,
+      async () => { await atomicWrite(path, `${JSON.stringify(contents, null, 2)}\n`); },
+      // Hook path must fail fast, never stall the host tool. A stale lock left by
+      // a killed hook is broken by withFileLock's pid-liveness check.
+      { timeoutMs: 250, pollMs: 50, staleMs: 30_000 },
+    );
     return true;
   } catch (err) {
+    if (err instanceof FileLockTimeoutError) return false;
     if ((err as NodeJS.ErrnoException).code === "ENOENT") return false;
     throw err;
-  } finally {
-    releaseLock();
   }
 }
 
@@ -99,37 +102,6 @@ function pendingPath(memoryRoot: string): string {
 
 async function writeLastScheduledFile(memoryRoot: string, scheduledAt: string): Promise<void> {
   await writeFile(join(memoryRoot, ".auto-push-last-scheduled"), `${scheduledAt}\n`, "utf-8");
-}
-
-function tryAcquirePendingFileLock(path: string): (() => void) | null {
-  let fd: number;
-  try {
-    fd = openSync(path, "wx");
-  } catch (err) {
-    if (isBusyPendingFileLockError(err, path)) return null;
-    throw err;
-  }
-
-  return () => {
-    closeSync(fd);
-    try {
-      unlinkSync(path);
-    } catch {
-      // Another process may have cleaned up a stale lock; the pending write is done.
-    }
-  };
-}
-
-export function isBusyPendingFileLockError(error: unknown, _lockPath: string): boolean {
-  if (typeof error !== "object" || error === null || !("code" in error)) return false;
-  const code = (error as NodeJS.ErrnoException).code;
-  // EEXIST: lock held by another process (POSIX + Windows).
-  // EPERM/EACCES: Windows returns these from an exclusive "wx" open when the
-  // lock is in delete-pending state (a handle is still closing). existsSync()
-  // reports false for such a file, so gating on existence misclassified this
-  // transient contention as a fatal error and threw "auto-push schedule
-  // failed". Treat it as busy and let the next scheduled run retry.
-  return code === "EEXIST" || code === "EPERM" || code === "EACCES";
 }
 
 async function ensureAutoPushIgnored(memoryRoot: string): Promise<void> {

@@ -12,9 +12,17 @@ export interface AutoCommitOptions {
 
 export type AutoCommitResult =
   | { kind: "no-dirty-files" }
-  | { kind: "committed"; filesCount: number; commitSha: string; redactedFiles?: string[] }
-  | { kind: "skipped-non-raw-dirty"; dirtyNonRawFiles: string[] }
-  | { kind: "skipped-secret-shape"; secretFiles: string[] };
+  | {
+      kind: "committed";
+      filesCount: number;
+      commitSha: string;
+      redactedFiles?: string[];
+      /** Dirty files outside the allowlist — left untouched; push may defer until resolved. */
+      heldNonRaw?: string[];
+      /** Files redaction could not clean — never committed. */
+      heldSecret?: string[];
+    }
+  | { kind: "nothing-committable"; heldNonRaw: string[]; heldSecret: string[] };
 
 interface DirtyFile {
   path: string;
@@ -30,22 +38,22 @@ export async function autoCommitRawsIfDirty(opts: AutoCommitOptions): Promise<Au
   const dirty = parseDirtyFiles(status.stdout);
   if (dirty.length === 0) return { kind: "no-dirty-files" };
 
-  const blocked = dirty.filter((file) => !file.isAutoCommitEligible).map((file) => file.path);
-  if (blocked.length > 0) {
-    return { kind: "skipped-non-raw-dirty", dirtyNonRawFiles: blocked };
+  // Partial commit: hold back only the offending files, never the whole batch.
+  // A stray non-allowlisted file (todo.md, a screenshot) or an unredactable
+  // secret used to skip replication of every clean capture indefinitely.
+  const heldNonRaw = dirty.filter((file) => !file.isAutoCommitEligible).map((file) => file.path);
+  const eligible = [...new Set(dirty.filter((file) => file.isAutoCommitEligible).map((file) => file.path))];
+  if (eligible.length === 0) {
+    return { kind: "nothing-committable", heldNonRaw, heldSecret: [] };
   }
-
-  const files = [...new Set(dirty.map((file) => file.path))];
 
   // Defense-in-depth: capture-time redaction can be bypassed (content from an
   // older client version on another machine, a future writer that forgets to
   // redact, or a newly-discovered key shape). Re-scan here and redact in place
-  // before committing rather than blocking — a single secret-shaped file must
-  // never wedge the whole auto-commit batch. Only files redaction still cannot
-  // clean are held back, so unknown shapes can't silently reach the remote.
-  const secretFiles = await findSecretFiles(opts.memoryRoot, files);
+  // before committing; only files redaction still cannot clean are held back.
+  const secretFiles = await findSecretFiles(opts.memoryRoot, eligible);
   const redactedFiles: string[] = [];
-  const unredactableFiles: string[] = [];
+  const heldSecret: string[] = [];
   for (const file of secretFiles) {
     const absolute = join(opts.memoryRoot, ...file.split("/"));
     let content: string;
@@ -56,14 +64,16 @@ export async function autoCommitRawsIfDirty(opts: AutoCommitOptions): Promise<Au
     }
     const cleaned = redactSecrets(content);
     if (containsSecretShape(cleaned)) {
-      unredactableFiles.push(file); // Redaction can't remove it — never commit.
+      heldSecret.push(file); // Redaction can't remove it — never commit.
       continue;
     }
     await atomicWrite(absolute, cleaned);
     redactedFiles.push(file);
   }
-  if (unredactableFiles.length > 0) {
-    return { kind: "skipped-secret-shape", secretFiles: unredactableFiles };
+
+  const files = eligible.filter((file) => !heldSecret.includes(file));
+  if (files.length === 0) {
+    return { kind: "nothing-committable", heldNonRaw, heldSecret };
   }
 
   const message = `chore: auto-capture ${files.length} vault system file(s)`;
@@ -71,7 +81,10 @@ export async function autoCommitRawsIfDirty(opts: AutoCommitOptions): Promise<Au
   if (add.exitCode !== 0) {
     throw new Error(`git add auto-commit files failed: ${add.stderr.trim() || add.stdout.trim()}`);
   }
-  const commit = await opts.runner.run("git", ["commit", "-m", message], { cwd: opts.memoryRoot });
+  // Pathspec commit: commits ONLY these paths. A bare `git commit` would sweep
+  // the whole index, so a file the user pre-staged (including a held or
+  // secret-shaped one) would ride along — this restricts the commit to `files`.
+  const commit = await opts.runner.run("git", ["commit", "-m", message, "--", ...files], { cwd: opts.memoryRoot });
   if (commit.exitCode !== 0) {
     throw new Error(`git commit auto-commit files failed: ${commit.stderr.trim() || commit.stdout.trim()}`);
   }
@@ -81,6 +94,8 @@ export async function autoCommitRawsIfDirty(opts: AutoCommitOptions): Promise<Au
     filesCount: files.length,
     commitSha: parseCommitSha(commit.stdout) ?? parseCommitSha(commit.stderr) ?? "",
     ...(redactedFiles.length > 0 ? { redactedFiles } : {}),
+    ...(heldNonRaw.length > 0 ? { heldNonRaw } : {}),
+    ...(heldSecret.length > 0 ? { heldSecret } : {}),
   };
 }
 

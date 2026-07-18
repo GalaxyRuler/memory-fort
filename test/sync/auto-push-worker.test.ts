@@ -194,8 +194,9 @@ describe("runAutoPushWorker", () => {
       myToken: "A",
       sleepFn,
       autoCommitFn: async () => ({
-        kind: "skipped-non-raw-dirty",
-        dirtyNonRawFiles: ["wiki/projects/foo.md"],
+        kind: "nothing-committable",
+        heldNonRaw: ["todo.md"],
+        heldSecret: [],
       }),
       syncFn: async () => {
         syncCalls += 1;
@@ -207,10 +208,13 @@ describe("runAutoPushWorker", () => {
       now,
     });
 
-    expect(result).toEqual({ outcome: "offline", details: "non-raw dirty tree" });
+    expect(result).toEqual({ outcome: "offline", details: "nothing committable (1 non-raw, 0 secret-shaped held)" });
     expect(syncCalls).toBe(0);
-    expect(logs.some((line) => line.includes("auto-push skipped: non-raw dirty files present"))).toBe(true);
-    expect(logs.some((line) => line.includes("wiki/projects/foo.md"))).toBe(true);
+    expect(logs.some((line) => line.includes("auto-push skipped: nothing committable"))).toBe(true);
+    expect(logs.some((line) => line.includes("todo.md"))).toBe(true);
+    // The deferred push is recorded so status does not read "in sync".
+    const state = JSON.parse(await readFile(join(tmp, ".sync-state.json"), "utf-8"));
+    expect(state.pending_push_count).toBe(1);
   });
 
   it("Worker skips push when dirty raw files contain secret-shaped content", async () => {
@@ -227,8 +231,9 @@ describe("runAutoPushWorker", () => {
       myToken: "A",
       sleepFn,
       autoCommitFn: async () => ({
-        kind: "skipped-secret-shape",
-        secretFiles: ["raw/2026-06-03/codex-secret.md"],
+        kind: "nothing-committable",
+        heldNonRaw: [],
+        heldSecret: ["raw/2026-06-03/codex-secret.md"],
       }),
       syncFn: async () => {
         syncCalls += 1;
@@ -240,9 +245,9 @@ describe("runAutoPushWorker", () => {
       now,
     });
 
-    expect(result).toEqual({ outcome: "offline", details: "secret-shaped auto-commit files" });
+    expect(result).toEqual({ outcome: "offline", details: "nothing committable (0 non-raw, 1 secret-shaped held)" });
     expect(syncCalls).toBe(0);
-    expect(logs.some((line) => line.includes("auto-push skipped: secret-shaped auto-commit file(s)"))).toBe(true);
+    expect(logs.some((line) => line.includes("auto-push skipped: nothing committable"))).toBe(true);
     expect(logs.some((line) => line.includes("raw/2026-06-03/codex-secret.md"))).toBe(true);
   });
 });

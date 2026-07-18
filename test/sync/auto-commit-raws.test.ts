@@ -61,7 +61,7 @@ describe("autoCommitRawsIfDirty", () => {
     expect(calls.map((call) => call.args.join(" "))).toEqual([
       "status --porcelain -uall",
       "add -- raw/2026-05-21/foo.md raw/2026-05-23/bar.md",
-      "commit -m chore: auto-capture 2 vault system file(s)",
+      "commit -m chore: auto-capture 2 vault system file(s) -- raw/2026-05-21/foo.md raw/2026-05-23/bar.md",
     ]);
   });
 
@@ -97,7 +97,7 @@ describe("autoCommitRawsIfDirty", () => {
     expect(calls.map((call) => call.args.join(" "))).toEqual([
       "status --porcelain -uall",
       "add -- raw/2026-05-21/foo.md log.md wiki/.audit/llm-2026-06-05.md embeddings/auto-heal.jsonl",
-      "commit -m chore: auto-capture 4 vault system file(s)",
+      "commit -m chore: auto-capture 4 vault system file(s) -- raw/2026-05-21/foo.md log.md wiki/.audit/llm-2026-06-05.md embeddings/auto-heal.jsonl",
     ]);
   });
 
@@ -218,7 +218,7 @@ describe("autoCommitRawsIfDirty", () => {
     expect(calls.map((call) => call.args.join(" "))).toEqual([
       "status --porcelain -uall",
       "add -- raw/2026-05-21/foo.md",
-      "commit -m chore: auto-capture 1 vault system file(s)",
+      "commit -m chore: auto-capture 1 vault system file(s) -- raw/2026-05-21/foo.md",
     ]);
   });
 
@@ -247,16 +247,37 @@ describe("autoCommitRawsIfDirty", () => {
     expect(calls.map((call) => call.args[0])).toEqual(["status", "add", "commit"]);
   });
 
-  it("skips when unknown top-level files are dirty", async () => {
-    const { runner, calls } = makeRunner(() => ({
-      stdout: " M crystals/2026-05-22.md\n M secrets.yaml\n M raw/foo.md\n",
-    }));
-
-    await expect(autoCommitRawsIfDirty({ memoryRoot: "/mem", runner })).resolves.toEqual({
-      kind: "skipped-non-raw-dirty",
-      dirtyNonRawFiles: ["crystals/2026-05-22.md", "secrets.yaml"],
+  it("commits the eligible subset via pathspec and holds non-allowlisted files", async () => {
+    const { runner, calls } = makeRunner((call) => {
+      if (call.args[0] === "status") return { stdout: " M crystals/2026-05-22.md\n M secrets.yaml\n M raw/foo.md\n" };
+      if (call.args[0] === "commit") return { stdout: "[main abc1234] chore: auto-capture 1 vault system file(s)\n" };
+      return {};
     });
 
-    expect(calls.map((call) => call.args.join(" "))).toEqual(["status --porcelain -uall"]);
+    const result = await autoCommitRawsIfDirty({ memoryRoot: "/mem", runner });
+    expect(result).toMatchObject({
+      kind: "committed",
+      filesCount: 1,
+      heldNonRaw: ["crystals/2026-05-22.md", "secrets.yaml"],
+    });
+
+    // Pathspec commit: ONLY the eligible file is committed, never the held files
+    // (even if the user pre-staged them, a bare `git commit` would sweep them).
+    const commitCall = calls.find((c) => c.args[0] === "commit")!;
+    expect(commitCall.args.slice(-2)).toEqual(["--", "raw/foo.md"]);
+    expect(commitCall.args).not.toContain("crystals/2026-05-22.md");
+    expect(commitCall.args).not.toContain("secrets.yaml");
+  });
+
+  it("returns nothing-committable (never touches git) when every dirty file is held", async () => {
+    const { runner, calls } = makeRunner(() => ({ stdout: " M crystals/x.md\n M secrets.yaml\n" }));
+
+    await expect(autoCommitRawsIfDirty({ memoryRoot: "/mem", runner })).resolves.toEqual({
+      kind: "nothing-committable",
+      heldNonRaw: ["crystals/x.md", "secrets.yaml"],
+      heldSecret: [],
+    });
+
+    expect(calls.map((call) => call.args[0])).toEqual(["status"]);
   });
 });
