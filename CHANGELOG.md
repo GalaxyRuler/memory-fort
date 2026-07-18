@@ -4,6 +4,17 @@ All notable changes to Memory Fort are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **Compress no longer silently loses session content.** Truncated LLM responses are rejected (the file is marked failed and its watermark held), and large sessions are compressed in resumable contiguous chunk windows instead of a fixed 8-chunk sample that permanently excluded the rest — coverage converges to 100% across passes, resumed windows merge (never overwrite) earlier facts, a chunking-config change safely restarts the file, and files compressed by the old lossy sampler are re-covered under the new format.
+- **Compile holds the watermark on a truncated response.** The main compile call now refuses `length`/`filter`-cut responses instead of applying a partial op list over raw whose operations were cut off.
+- **`raw/.compact-archive` no longer re-enters the pipeline.** Archived pre-compaction originals were re-consumed by compile and compress (paid duplicate processing) and leaked into the search corpus, graph, and dashboard raw index; all pipeline raw walkers now share one dot-entry-excluding walker. (The sniffer still reads the archive by design — it dedupes re-sniffed sessions against pre-compaction capture hashes.)
+- **Auto-link/auto-heal moved off the per-tool-call hot path** to the end-of-turn hook: the ~100 MB+ embeddings-store load per tool call is gone and the whole-file-rewrite race window is narrowed to once per turn. (It does not fully close the rewrite race; per-writer serialization remains a separate item.)
+- **Auto-push can no longer wedge silently, and can no longer over-commit.** The pending lock breaks stale locks left by a killed hook (previously it disabled auto-push permanently), with Windows delete-pending (`EPERM`/`EACCES`) contention parity; auto-commit commits the eligible+clean subset via a pathspec commit (a pre-staged held or secret-shaped file can never ride along) and holds back only the offending files instead of skipping the whole batch, recording a pending push so status reflects the deferred replication.
+- **MCP contract is honest.** `read_page` accepts the `wiki/`-prefixed paths that `search` returns; the dashboard URL is configurable (`dashboard.url` / `MEMORY_DASHBOARD_URL`) for both the stdio server and the ChatGPT bridge instead of hardcoding `:4410`; the search tool description matches the shipped SQLite index backend (no Voyage/rerank/HyDE claims); the offline error and the `git.remote` verify remediation point at real actions.
+- **Session-start injection is bounded.** One total character budget (`MEMORY_FORT_INJECTION_TOTAL_CHARS`, default 12000) across all sections with an in-budget trim marker and truncation (never wholesale dropping) of oversized high-priority sections, and the "what to remember" scan reads only recent day-directories (`MEMORY_FORT_REMEMBER_RAW_DAYS`, default 14) instead of the entire raw corpus.
+
 ## [0.11.1] - 2026-07-08
 
 ### Fixed
