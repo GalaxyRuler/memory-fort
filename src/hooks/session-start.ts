@@ -115,7 +115,7 @@ export async function sessionStartBody(
   for (const sec of fileSections) {
     try {
       const content = sec.confidenceAware
-        ? await confidenceAwareIndex({ indexFilePath: sec.path, readFile: readFn })
+        ? await confidenceAwareIndex({ indexFilePath: sec.path, memoryRoot: root, readFile: readFn })
         : await readFn(sec.path);
       const body = sec.tail ? lastLines(content, sec.tail) : content;
       sections.push({ label: sec.label, text: `\n--- ${sec.label} (${sec.path}) ---\n${body.trim()}\n`, priority: sec.priority });

@@ -116,6 +116,14 @@ export async function compressSessionWithUsage(opts: CompressSessionOptions): Pr
         `memory compress: response truncated (finishReason=${response.finishReason}) for ${opts.rawRelPath} chunk ${chunk.originalIndex + 1}/${allChunks.length}; nothing persisted for this file`,
       );
     }
+    // Malformed output (no parseable facts JSON) is a provider failure, not a
+    // valid "zero facts" result — recording it as complete coverage would
+    // suppress this raw from compile with nothing extracted.
+    if (extractFactsArray(response.content) === null) {
+      throw new Error(
+        `memory compress: response was not valid facts JSON for ${opts.rawRelPath} chunk ${chunk.originalIndex + 1}/${allChunks.length}; nothing persisted for this file`,
+      );
+    }
     partialFacts.push(...parseCompressedFacts({
       content: response.content,
       rawRelPath: opts.rawRelPath,
@@ -141,6 +149,27 @@ export async function compressSessionWithUsage(opts: CompressSessionOptions): Pr
   };
 }
 
+/**
+ * Extract the raw facts array from LLM output, or null when the output is
+ * MALFORMED (no JSON, unparseable JSON, or no facts array). Callers must treat
+ * null differently from a valid empty `{"facts":[]}` — writing "zero facts,
+ * fully covered" for garbage output silently suppresses the raw from compile.
+ */
+export function extractFactsArray(content: string): unknown[] | null {
+  const json = extractJsonObject(content);
+  if (!json) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(json);
+  } catch {
+    return null;
+  }
+  if (typeof parsed !== "object" || parsed === null || !Array.isArray((parsed as { facts?: unknown }).facts)) {
+    return null;
+  }
+  return (parsed as { facts: unknown[] }).facts;
+}
+
 export function parseCompressedFacts(opts: {
   content: string;
   rawRelPath: string;
@@ -150,17 +179,7 @@ export function parseCompressedFacts(opts: {
   sampledChunks?: number;
   totalChunks?: number;
 }): CompressedFact[] {
-  const json = extractJsonObject(opts.content);
-  if (!json) return [];
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(json);
-  } catch {
-    return [];
-  }
-  const values = typeof parsed === "object" && parsed !== null && Array.isArray((parsed as { facts?: unknown }).facts)
-    ? (parsed as { facts: unknown[] }).facts
-    : [];
+  const values = extractFactsArray(opts.content) ?? [];
   return values.map((value) => normalizeFact(value, opts)).filter((fact): fact is CompressedFact => fact !== null);
 }
 

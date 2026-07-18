@@ -1,8 +1,11 @@
+import { existsSync } from "node:fs";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runCompress } from "../../src/cli/commands/compress.js";
+import { runCompactRaw } from "../../src/cli/commands/compact-raw.js";
+import { formatToolUseBlock } from "../../src/hooks/raw-file.js";
 import { readCompileStateFile, readCompressedMap } from "../../src/compile/state.js";
 import { factFileRelPath } from "../../src/facts/store.js";
 import type { LLMProvider, LLMRequest } from "../../src/llm/types.js";
@@ -107,6 +110,71 @@ describe("compress resumable command", () => {
     expect(titles).toContain("chunk 5"); // a late window is present
   });
 
+  it("preserves facts extracted before compact-raw truncated their source content (merge on restart)", async () => {
+    // Audit finding 2 reproduction: a fact extracted from rich ToolUse output,
+    // then compact-raw truncates that output (bytes change, archive hidden from
+    // the walker) and a recompress restart used to OVERWRITE the fact file.
+    const compactRel = "raw/2026-07-16/session-compact.md";
+    await mkdir(join(root, "raw", "2026-07-16"), { recursive: true });
+    const bigBlock = formatToolUseBlock({
+      toolName: "Bash",
+      toolInput: { command: "generate" },
+      toolOutput: `${"y".repeat(2_000)} MIDDLE-ONLY-MARKER ${"y".repeat(2_000)}`,
+      now: new Date("2026-07-16T10:00:00.000Z"),
+      maxInputBytes: 8192,
+      maxOutputBytes: 8192,
+    });
+    await writeFile(join(root, compactRel), `session: session-compact\n${bigBlock}`, "utf-8");
+
+    const contentAwareLlm: LLMProvider = {
+      providerName: "ollama",
+      modelName: "llama3.2",
+      chat: vi.fn(async (request: LLMRequest) => {
+        const prompt = request.messages.at(-1)?.content ?? "";
+        const title = prompt.includes("MIDDLE-ONLY-MARKER") ? "Middle-only fact" : "Compacted fallback";
+        return {
+          model: "llama3.2",
+          finishReason: "stop" as const,
+          rawProviderName: "ollama",
+          content: [
+            "```json",
+            JSON.stringify({ facts: [{ title, facts: [title], narrative: title, concepts: ["c"], files: [], importance: 5 }] }),
+            "```",
+          ].join("\n"),
+        };
+      }),
+    };
+    const bigOpts = {
+      vaultRoot: root,
+      apply: true,
+      configLoader: async () => ({ llm: { provider: "ollama", model: "llama3.2" } }),
+      llmFactory: () => contentAwareLlm,
+      env: {},
+      now: new Date("2026-07-16T12:00:00.000Z"),
+      logger: () => undefined,
+    };
+
+    await runCompress(bigOpts);
+    const factRel = factFileRelPath(compactRel, "session-compact");
+    let factBytes = await readFile(join(root, ...factRel.split("/")), "utf-8");
+    expect(factBytes).toContain("Middle-only fact");
+
+    await runCompactRaw({
+      vaultRoot: root,
+      mode: "apply",
+      maxInputBytes: 100,
+      maxOutputBytes: 100,
+      commitVaultChange: vi.fn(async () => ({ kind: "no-changes" as const })) as never,
+    });
+    const liveAfter = await readFile(join(root, compactRel), "utf-8");
+    expect(liveAfter).not.toContain("MIDDLE-ONLY-MARKER"); // source content is gone from the live file
+
+    await runCompress(bigOpts); // bytes changed -> restart -> must MERGE, not overwrite
+    factBytes = await readFile(join(root, ...factRel.split("/")), "utf-8");
+    expect(factBytes).toContain("Middle-only fact"); // preserved
+    expect(factBytes).toContain("Compacted fallback"); // new content's fact also present
+  });
+
   it("restarts from chunk 0 when the chunking config changes between passes", async () => {
     await runCompress(opts(root));
     expect((await cursor()).chunkBytes).toBe(1_500);
@@ -115,6 +183,45 @@ describe("compress resumable command", () => {
     await runCompress(opts(root, changed));
     // New fingerprint recorded; the file was re-chunked, not resumed at the old cursor.
     expect((await cursor()).chunkBytes).toBe(3_000);
+  });
+
+  it("does NOT advance over earlier windows when the prior fact file is semantically corrupted (parseable but invalid facts)", async () => {
+    await runCompress(opts(root));
+    expect((await cursor()).chunkCursor).toBe(2);
+
+    // Parseable JSON with a facts array whose members are all invalid — the
+    // reader filters them to []. Resuming onto this would silently lose the
+    // first window's facts while advancing the cursor (audit finding 1).
+    const factRel = factFileRelPath(relPath, "session-a");
+    await writeFile(join(root, ...factRel.split("/")), JSON.stringify({ facts: [{}] }), "utf-8");
+
+    await runCompress(opts(root));
+
+    const titles = await factTitles();
+    expect(titles).toContain("chunk 1"); // restarted from 0 and re-extracted, not resumed onto garbage
+    expect((await cursor()).chunkCursor).toBe(2); // reprocessed [0,2), did not advance to 4
+  });
+
+  it("fails the file (no facts, no watermark) when a stop response is malformed instead of recording empty complete coverage", async () => {
+    const malformedLlm: LLMProvider = {
+      providerName: "ollama",
+      modelName: "llama3.2",
+      chat: vi.fn(async () => ({
+        model: "llama3.2",
+        finishReason: "stop" as const,
+        rawProviderName: "ollama",
+        content: "I could not produce JSON today, sorry!",
+      })),
+    };
+    const result = await runCompress({ ...opts(root), llmFactory: () => malformedLlm });
+
+    // Audit finding 3: this used to write an EMPTY fact file plus a completed v3
+    // watermark, which then suppressed the raw from compile as "fully covered".
+    expect(result.files.find((f) => f.path === relPath)?.outcome).toBe("failed");
+    const factRel = factFileRelPath(relPath, "session-a");
+    expect(existsSync(join(root, ...factRel.split("/")))).toBe(false);
+    expect((await cursor()).chunkCursor).toBeUndefined();
+    expect((await cursor()).bytes).toBeUndefined();
   });
 
   it("does NOT advance the cursor while dropping earlier windows when the prior fact file is malformed", async () => {

@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync } from "node:fs";
-import { readdir, readFile, stat } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { atomicWrite } from "../storage/atomic-write.js";
 import { listRawMarkdownFiles } from "../storage/raw-walker.js";

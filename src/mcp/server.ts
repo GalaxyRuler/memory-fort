@@ -265,7 +265,7 @@ const SearchInput = z.object({
   scope: z
     .enum(["wiki", "raw", "crystals", "all"])
     .optional()
-    .describe("Search scope (default: all)"),
+    .describe("NOT APPLIED by the default index backend — results span all scopes regardless"),
   k: z
     .number()
     .int()
@@ -278,35 +278,31 @@ const SearchInput = z.object({
     .min(0)
     .max(1)
     .optional()
-    .describe("Minimum score filter (0..1, default: 0)"),
+    .describe("NOT APPLIED by the default index backend — no score filtering happens"),
   no_rerank: z
     .boolean()
     .optional()
-    .describe("Skip Voyage rerank for faster but less accurate results"),
+    .describe("NOT APPLIED by the default index backend — there is no rerank stage to skip"),
   hyde_expansion: z
     .string()
     .optional()
-    .describe(
-      "Pre-computed HyDE expansion text — if you previously got a hyde_prompt_pending response, call back with the expanded text here",
-    ),
+    .describe("NOT APPLIED by the default index backend — HyDE expansion is not performed"),
   as_of: z
     .string()
     .optional()
-    .describe("ISO date — only return pages valid at this point in time"),
+    .describe("NOT APPLIED by the default index backend — temporal filtering does not happen"),
   agent_id: z
     .string()
     .optional()
-    .describe("Filter by agent identity (inclusive: untagged wiki pages always pass)"),
+    .describe("NOT APPLIED by the default index backend — identity filtering does not happen"),
   user_id: z
     .string()
     .optional()
-    .describe("Filter by user identity (inclusive: untagged wiki pages always pass)"),
+    .describe("NOT APPLIED by the default index backend — identity filtering does not happen"),
   identity_mode: z
     .enum(["inclusive", "strict"])
     .optional()
-    .describe(
-      "inclusive (default): untagged docs pass identity filtering. strict: untagged docs excluded.",
-    ),
+    .describe("NOT APPLIED by the default index backend — identity filtering does not happen"),
 });
 
 export type SearchInput = z.infer<typeof SearchInput>;
@@ -545,7 +541,7 @@ export function createServer(deps: SearchDeps = {}): McpServer {
     "search",
     {
       description:
-        "Search the user's memory system (wiki + raw observations). Default backend: a local SQLite FTS5 BM25 index with metadata scoring (confidence/status/recency), plus a local vector layer fused via RRF when it is enabled. Honored parameters: query, k. scope/min_score/as_of/no_rerank are accepted for forward-compatibility but not yet applied by the default index backend (the response notes when they were ignored). Returns ranked results with snippets and provenance metadata.",
+        "Search the user's memory system (wiki + raw observations). Default backend: a local SQLite FTS5 BM25 index with metadata scoring (confidence/status/recency), plus a local vector layer fused via RRF when it is enabled. Honored parameters: query, k. WARNING: scope, min_score, as_of, no_rerank, hyde_expansion, and identity filters are accepted for compatibility but SILENTLY IGNORED by the default index backend — do not rely on them for filtering. Returns ranked results with snippets and provenance metadata.",
       inputSchema: SearchInput.shape,
     },
     async (args) => searchMemory(args, deps),

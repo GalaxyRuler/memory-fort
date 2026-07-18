@@ -56,7 +56,12 @@ describe("feedback-loop round trip", () => {
     );
 
     const writes: string[] = [];
-    await sessionStartBody({}, { write: (text) => writes.push(text) });
+    // Anchor the clock to the observation date so the remember scan's recent-day
+    // window (default 14 days) includes the fixture regardless of the real date.
+    await sessionStartBody({}, {
+      write: (text) => writes.push(text),
+      now: () => new Date("2026-05-29T13:00:00.000Z"),
+    });
     expect(writes.join("")).toContain(token);
 
     const search = await runSearch({

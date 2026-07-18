@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
-import { readFile, readdir, stat } from "node:fs/promises";
-import { join, relative } from "node:path";
+import { readFile, stat } from "node:fs/promises";
+import { join } from "node:path";
 import { atomicWrite } from "../storage/atomic-write.js";
 import { listRawMarkdownFiles } from "../storage/raw-walker.js";
 import { withFileLock } from "../storage/file-lock.js";
@@ -276,4 +276,3 @@ async function pathSignature(path: string): Promise<string> {
     return "missing";
   }
 }
-

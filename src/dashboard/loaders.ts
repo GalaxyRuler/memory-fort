@@ -1061,6 +1061,8 @@ export async function loadRawIndex(vaultRoot: string): Promise<RawIndexEntry[]> 
     const files = [];
     for (const fileEntry of await readdir(datePath, { withFileTypes: true })) {
       if (!fileEntry.isFile()) continue;
+      // Dot files are system space (tmp probes, editor droppings) — never captures.
+      if (fileEntry.name.startsWith(".")) continue;
       const filePath = safeResolveUnder(datePath, fileEntry.name);
       if (!filePath) continue;
       const info = await stat(filePath);

@@ -54,6 +54,35 @@ describe("sessionStartBody", () => {
     await rm(tmp, { recursive: true, force: true });
   });
 
+  it("never reads outside a custom memoryRoot (index confidence lookups included)", async () => {
+    const customRoot = await mkdtemp(join(tmpdir(), "session-start-custom-"));
+    try {
+      await mkdir(join(customRoot, "wiki", "projects"), { recursive: true });
+      await writeFile(join(customRoot, "index.md"), "- [item](wiki/projects/item.md) — a linked page\n");
+      await writeFile(
+        join(customRoot, "wiki", "projects", "item.md"),
+        `---\ntype: projects\ntitle: item\nconfidence: 0.95\n---\n\nCustom vault page.\n`,
+      );
+      const readPaths: string[] = [];
+      await sessionStartBody({}, {
+        memoryRoot: customRoot,
+        readFile: async (p: string) => {
+          readPaths.push(p);
+          return (await import("node:fs/promises")).readFile(p, "utf-8");
+        },
+        write: () => undefined,
+        now: () => new Date("2026-07-18T00:00:00.000Z"),
+      });
+      // MEMORY_ROOT (the "default" vault, `tmp`) must never be touched when a
+      // custom root is injected — confidence lookups for index-linked pages
+      // previously fell back to the default vault.
+      expect(readPaths.length).toBeGreaterThan(0);
+      expect(readPaths.filter((p) => p.startsWith(tmp))).toEqual([]);
+    } finally {
+      await rm(customRoot, { recursive: true, force: true });
+    }
+  });
+
   it("emits schema + index + log sections when all present", async () => {
     const writes: string[] = [];
     await sessionStartBody(

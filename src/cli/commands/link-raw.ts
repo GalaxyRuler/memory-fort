@@ -1,6 +1,5 @@
-import { existsSync } from "node:fs";
-import { readFile, readdir } from "node:fs/promises";
-import { join, relative } from "node:path";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { listRawMarkdownFiles } from "../../storage/raw-walker.js";
 import {
   autoLinkRawToWiki,

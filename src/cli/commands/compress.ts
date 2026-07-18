@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
-import { readFile, readdir, stat } from "node:fs/promises";
-import { basename, join, relative } from "node:path";
+import { readFile, stat } from "node:fs/promises";
+import { basename, join } from "node:path";
 import { mutateCompileStateFile, readCompressedMap, readCompileStateFile, writeCompileStateFile } from "../../compile/state.js";
 import { createLLMFromConfig, getActiveLLMConfig, type LLMConfig } from "../../llm/factory.js";
 import { estimateLLMCostUsd } from "../../llm/pricing.js";
@@ -128,31 +128,29 @@ export async function runCompress(opts: CompressOptions = {}): Promise<CompressR
         ? (watermark!.chunkCursor ?? 0)
         : 0;
 
-      // Conservation (never advance over lost earlier windows): to resume, the
-      // prior fact artifact must exist AND parse to a facts array. If it is
-      // missing or malformed, restart from chunk 0 and overwrite instead of
-      // merging a resumed window onto nothing and advancing the cursor.
+      // Load the prior fact artifact with STRICT validation: it must parse AND
+      // every member of its facts array must survive the reader. A parseable
+      // file whose members are filtered out ({"facts":[{}]}) is corruption —
+      // resuming onto it would advance the cursor over lost earlier windows.
       let priorFacts: CompressedFact[] = [];
-      if (startChunk > 0) {
-        const priorAbs = join(root, ...factRelPath.split("/"));
-        let priorValid = false;
-        if (existsSync(priorAbs)) {
-          try {
-            const priorRaw = await readFile(priorAbs, "utf-8");
-            const parsed: unknown = JSON.parse(priorRaw);
-            if (parsed && typeof parsed === "object" && Array.isArray((parsed as { facts?: unknown }).facts)) {
-              priorFacts = readCompressedFactFile(priorRaw);
-              priorValid = true;
-            }
-          } catch {
-            // malformed prior fact file — fall through to restart
+      let priorValid = false;
+      const priorAbs = join(root, ...factRelPath.split("/"));
+      if (existsSync(priorAbs)) {
+        try {
+          const priorRaw = await readFile(priorAbs, "utf-8");
+          const parsed: unknown = JSON.parse(priorRaw);
+          if (parsed && typeof parsed === "object" && Array.isArray((parsed as { facts?: unknown }).facts)) {
+            const rawCount = (parsed as { facts: unknown[] }).facts.length;
+            priorFacts = readCompressedFactFile(priorRaw);
+            priorValid = priorFacts.length === rawCount;
+            if (!priorValid) priorFacts = [];
           }
-        }
-        if (!priorValid) {
-          startChunk = 0;
-          priorFacts = [];
+        } catch {
+          // malformed prior fact file — treated as absent
         }
       }
+      // Conservation: never resume without a strictly valid prior artifact.
+      if (startChunk > 0 && !priorValid) startChunk = 0;
 
       const result = await compressSessionWithUsage({
         rawText,
@@ -171,10 +169,22 @@ export async function runCompress(opts: CompressOptions = {}): Promise<CompressR
         startChunk,
       });
 
-      const mergedFacts = startChunk > 0
+      // Merge with a valid prior artifact on BOTH resume and restart. A restart
+      // (compaction changed the bytes, config changed the chunking) reprocesses
+      // the live content, but the prior facts may have been extracted from
+      // richer, since-compacted content — overwriting them would make those
+      // facts unreachable from every normal pipeline path (the archive copy is
+      // excluded by the raw walker). mergeCompressedFacts dedupes overlaps.
+      const mergedFacts = priorValid && priorFacts.length > 0
         ? mergeCompressedFacts([...priorFacts, ...result.facts])
         : result.facts;
       const isComplete = result.chunkCursor >= result.totalChunks;
+      // Completed files report full coverage and drop per-fact sampling markers
+      // left over from intermediate passes — a converged artifact must not read
+      // as partially sampled.
+      const finalFacts = isComplete
+        ? mergedFacts.map(({ sampledChunks: _s, totalChunks: _t, ...rest }) => rest as CompressedFact)
+        : mergedFacts;
       const factPath = await writeCompressedFactFile(root, {
         version: 1,
         sourceRawPath: raw.relPath,
@@ -182,12 +192,10 @@ export async function runCompress(opts: CompressOptions = {}): Promise<CompressR
         observedAt,
         compressedAt: (opts.now ?? new Date()).toISOString(),
         inputTokens: result.inputTokens,
-        chunksCompressed: result.chunksCompressed,
+        chunksCompressed: isComplete ? result.totalChunks : result.chunksCompressed,
         totalChunks: result.totalChunks,
-        // A completed file records no sampling flag (fully covered); a partial
-        // one carries it so diagnostics reflect the in-progress state.
         ...(!isComplete && result.sampledChunks !== undefined ? { sampledChunks: result.sampledChunks } : {}),
-        facts: mergedFacts,
+        facts: finalFacts,
       });
       compressed[raw.relPath] = {
         bytes: info.size,
@@ -200,7 +208,7 @@ export async function runCompress(opts: CompressOptions = {}): Promise<CompressR
       files.push({
         path: raw.relPath,
         outcome: "compressed",
-        facts: mergedFacts.length,
+        facts: finalFacts.length,
         factPath,
         inputTokens: result.inputTokens,
         chunksCompressed: result.chunksCompressed,

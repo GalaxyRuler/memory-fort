@@ -1,11 +1,9 @@
 import { stat } from "node:fs/promises";
 import { join, normalize } from "node:path";
-
 export interface ProposalCandidates {
   wikiPagePaths: string[];
   candidateRationale: string;
 }
-
 export interface ProposalGroundingStats {
   originalReferenceCount: number;
   strippedReferenceCount: number;
@@ -14,18 +12,15 @@ export interface ProposalGroundingStats {
   prosePathLeaksCount: number;
   prosePathLeakSamples: string[];
 }
-
 export interface ProposalObservation {
   relPath: string;
   relations?: Record<string, Array<{ target: string }>>;
   entities?: string[];
 }
-
 export interface FilterResult<T> {
   filtered: T[];
   stripped: T[];
 }
-
 export const MEMORY_CLI_SUBCOMMANDS = [
   "backfill",
   "backfill-source",
@@ -51,18 +46,15 @@ export const MEMORY_CLI_SUBCOMMANDS = [
   "search",
   "stats",
   "sync",
-  "sync-bootstrap",
   "tail-errors",
   "thread",
   "verify",
   "watch",
 ] as const;
-
 const MAX_CANDIDATES = 50;
 const ALLOWED_SHELL_COMMANDS = new Set(["git", "npm", "ssh", "scp", "curl", "cd", "ls", "cat"]);
 const MEMORY_SUBCOMMAND_SET = new Set<string>(MEMORY_CLI_SUBCOMMANDS);
 const BARE_MEMORY_PATH_PATTERN = /^(?:wiki|raw)\/[a-z0-9-]+\/\S+$/;
-
 export async function extractProposalCandidates(opts: {
   vaultRoot: string;
   observations: ProposalObservation[];
@@ -74,26 +66,22 @@ export async function extractProposalCandidates(opts: {
       counts.set(target, (counts.get(target) ?? 0) + 1);
     }
   }
-
   const existing: Array<{ path: string; count: number }> = [];
   for (const [path, count] of counts) {
     if (await vaultPathExists(opts.vaultRoot, path)) {
       existing.push({ path, count });
     }
   }
-
   const selected = existing
     .sort((a, b) => b.count - a.count || a.path.localeCompare(b.path))
     .slice(0, MAX_CANDIDATES)
     .map((item) => item.path)
     .sort((a, b) => a.localeCompare(b));
-
   return {
     wikiPagePaths: selected,
     candidateRationale: `${selected.length} existing wiki pages referenced by this cluster`,
   };
 }
-
 export async function filterWikiReferencesToExisting(
   vaultRoot: string,
   relationPaths: string[],
@@ -121,7 +109,6 @@ export async function filterWikiReferencesToExisting(
   }
   return { filtered, stripped };
 }
-
 export function filterStepCommands<T extends { command?: string; description: string }>(
   steps: T[],
 ): { steps: T[]; stripped: string[] } {
@@ -135,7 +122,6 @@ export function filterStepCommands<T extends { command?: string; description: st
   });
   return { steps: filtered, stripped };
 }
-
 export function stripProsePathLeaksFromText(value: string): { text: string; stripped: string[] } {
   const stripped: string[] = [];
   const kept = value
@@ -153,7 +139,6 @@ export function stripProsePathLeaksFromText(value: string): { text: string; stri
     stripped,
   };
 }
-
 export function filterProsePathLeaksFromStrings(values: string[]): FilterResult<string> {
   const filtered: string[] = [];
   const stripped: string[] = [];
@@ -166,7 +151,6 @@ export function filterProsePathLeaksFromStrings(values: string[]): FilterResult<
   }
   return { filtered, stripped };
 }
-
 export function emptyGroundingStats(): ProposalGroundingStats {
   return {
     originalReferenceCount: 0,
@@ -177,7 +161,6 @@ export function emptyGroundingStats(): ProposalGroundingStats {
     prosePathLeakSamples: [],
   };
 }
-
 export function groundingStatsFromStripped(input: {
   originalReferenceCount: number;
   stripped: string[];
@@ -192,23 +175,19 @@ export function groundingStatsFromStripped(input: {
     prosePathLeakSamples: [],
   };
 }
-
 export function formatCandidateList(candidates: ProposalCandidates): string {
   return candidates.wikiPagePaths.length > 0
     ? candidates.wikiPagePaths.map((path) => `- ${path}`).join("\n")
     : "- none";
 }
-
 export function formatMemoryCliList(): string {
   return MEMORY_CLI_SUBCOMMANDS.map((command) => `- memory ${command}`).join("\n");
 }
-
 function observationTargets(observation: ProposalObservation): string[] {
   const fromRelations = Object.values(observation.relations ?? {})
     .flatMap((edges) => edges.map((edge) => edge.target));
   return [...fromRelations, ...(observation.entities ?? [])];
 }
-
 function isAllowedCommand(command: string): boolean {
   const normalized = command.trim();
   if (normalized.length === 0) return false;
@@ -218,16 +197,13 @@ function isAllowedCommand(command: string): boolean {
   }
   return Boolean(name && ALLOWED_SHELL_COMMANDS.has(name));
 }
-
 function isBareMemoryPath(value: string): boolean {
   const trimmed = value.trim();
   return trimmed.length > 0 && !/\s/.test(trimmed) && BARE_MEMORY_PATH_PATTERN.test(trimmed);
 }
-
 function isWikiMarkdownPath(value: string): boolean {
   return value.startsWith("wiki/") && value.endsWith(".md") && !value.includes("..");
 }
-
 async function vaultPathExists(vaultRoot: string, relPath: string): Promise<boolean> {
   if (relPath.includes("..")) return false;
   const fullPath = join(vaultRoot, ...normalize(relPath).split(/[\\/]+/));
