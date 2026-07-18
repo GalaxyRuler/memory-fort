@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { runHook, type HookPayload } from "./error-handler.js";
 import { detectTool } from "./util/detect-tool.js";
 import {
@@ -6,7 +7,7 @@ import {
   currentProjectMemoryBlock,
   whatToRememberBlock,
 } from "./session-start-helpers.js";
-import { schemaPath, indexPath, logPath, memoryRoot } from "../storage/paths.js";
+import { memoryRoot } from "../storage/paths.js";
 import { isClientEnabled, loadMemoryConfig, type MemoryConfig } from "../storage/config.js";
 
 export interface SessionStartDeps {
@@ -16,6 +17,48 @@ export interface SessionStartDeps {
   maxInjectedChars?: number;
   detectTool?: typeof detectTool;
   configLoader?: (root: string) => Promise<MemoryConfig>;
+  now?: () => Date;
+}
+
+const HEADER = `[memory:session-start] context loading\n`;
+const TRUNCATION_SUFFIX = "\n[...truncated for budget]\n";
+
+function readTotalInjectionBudget(): number {
+  const raw = process.env["MEMORY_FORT_INJECTION_TOTAL_CHARS"];
+  const parsed = raw ? Number(raw) : NaN;
+  return Number.isFinite(parsed) && parsed >= 1000 ? Math.floor(parsed) : 12_000;
+}
+
+/**
+ * Fill by ascending priority within one total budget (header + trim marker
+ * included). A section that does not fit whole is truncated to the remaining
+ * space rather than dropped, so a high-priority section always contributes
+ * something. Sections are emitted in their original (display) order.
+ */
+export function applyInjectionBudget(
+  sections: Array<{ label: string; text: string; priority: number }>,
+  budget: number,
+): string {
+  const markerReserve = 120;
+  let remaining = budget - HEADER.length - markerReserve;
+  const rendered = new Map<number, string>();
+  const trimmed: string[] = [];
+  const byPriority = sections.map((section, index) => ({ ...section, index })).sort((a, b) => a.priority - b.priority);
+  for (const section of byPriority) {
+    if (section.text.length <= remaining) {
+      rendered.set(section.index, section.text);
+      remaining -= section.text.length;
+    } else if (remaining > 200) {
+      rendered.set(section.index, section.text.slice(0, remaining - TRUNCATION_SUFFIX.length) + TRUNCATION_SUFFIX);
+      trimmed.push(section.label);
+      remaining = 0;
+    } else {
+      trimmed.push(section.label);
+    }
+  }
+  const body = sections.map((_, index) => rendered.get(index) ?? "").join("");
+  const note = trimmed.length > 0 ? `[memory: trimmed ${trimmed.length} section(s): ${trimmed.join(", ")}]\n` : "";
+  return `${HEADER}${body}${note}`;
 }
 
 /**
@@ -36,55 +79,57 @@ export async function sessionStartBody(
     (async (p: string) => readFile(p, "utf-8"));
   const writeFn =
     deps.write ?? ((text: string) => process.stdout.write(text));
+  const nowFn = deps.now ?? (() => new Date());
+  const root = deps.memoryRoot ?? memoryRoot();
 
   if (await shouldSkipForDisabledClient(payload, deps)) return;
 
-  const parts: string[] = [];
-  parts.push(`[memory:session-start] context loading\n`);
+  const sections: Array<{ label: string; text: string; priority: number }> = [];
 
   try {
     const projectBlock = await currentProjectMemoryBlock({
       cwd: readPayloadCwd(payload),
-      memoryRoot: deps.memoryRoot ?? memoryRoot(),
+      memoryRoot: root,
       readFile: readFn,
       maxChars: deps.maxInjectedChars,
     });
     if (projectBlock && projectBlock.trim().length > 0) {
-      parts.push(`\n${projectBlock.trim()}\n`);
+      sections.push({ label: "project", text: `\n${projectBlock.trim()}\n`, priority: 1 });
     }
   } catch {
     // Project memory is opportunistic; preserve the legacy schema/index/log output.
   }
 
-  const sections: Array<{
+  const fileSections: Array<{
     label: string;
     path: string;
     tail?: number;
     confidenceAware?: boolean;
+    priority: number;
   }> = [
-    { label: "Schema", path: schemaPath() },
-    { label: "Index", path: indexPath(), confidenceAware: true },
-    { label: "Recent log", path: logPath(), tail: 20 },
+    { label: "Schema", path: join(root, "schema.md"), priority: 4 },
+    { label: "Index", path: join(root, "index.md"), confidenceAware: true, priority: 2 },
+    { label: "Recent log", path: join(root, "log.md"), tail: 20, priority: 5 },
   ];
 
-  for (const sec of sections) {
+  for (const sec of fileSections) {
     try {
       const content = sec.confidenceAware
         ? await confidenceAwareIndex({ indexFilePath: sec.path, readFile: readFn })
         : await readFn(sec.path);
       const body = sec.tail ? lastLines(content, sec.tail) : content;
-      parts.push(`\n--- ${sec.label} (${sec.path}) ---\n${body.trim()}\n`);
+      sections.push({ label: sec.label, text: `\n--- ${sec.label} (${sec.path}) ---\n${body.trim()}\n`, priority: sec.priority });
     } catch {
       // Missing file is normal on fresh installs; skip silently
     }
   }
 
-  const remember = await whatToRememberBlock({ readFile: readFn });
+  const remember = await whatToRememberBlock({ memoryRoot: root, readFile: readFn, now: nowFn() });
   if (remember.trim().length > 0) {
-    parts.push(`\n${remember}`);
+    sections.push({ label: "remember", text: `\n${remember}`, priority: 3 });
   }
 
-  writeFn(parts.join(""));
+  writeFn(applyInjectionBudget(sections, readTotalInjectionBudget()));
 }
 
 async function shouldSkipForDisabledClient(

@@ -8,7 +8,35 @@ import {
   resolveProjectForCwd,
   whatToRememberBlock,
 } from "../../src/hooks/session-start-helpers.js";
-import { sessionStartBody } from "../../src/hooks/session-start.js";
+import { applyInjectionBudget, sessionStartBody } from "../../src/hooks/session-start.js";
+
+describe("applyInjectionBudget", () => {
+  it("keeps total output within the budget including the trim marker", () => {
+    const sections = [
+      { label: "project", text: "P".repeat(50_000), priority: 1 },
+      { label: "Index", text: "I".repeat(50_000), priority: 2 },
+    ];
+    const out = applyInjectionBudget(sections, 5_000);
+    expect(out.length).toBeLessThanOrEqual(5_000);
+  });
+
+  it("truncates an oversized high-priority section instead of dropping it wholesale", () => {
+    const sections = [
+      { label: "project", text: `\nPROJECT_MARKER ${"x".repeat(50_000)}`, priority: 1 },
+      { label: "Recent log", text: "\nlog tail", priority: 5 },
+    ];
+    const out = applyInjectionBudget(sections, 5_000);
+    expect(out).toContain("PROJECT_MARKER"); // survived, truncated
+    expect(out).toContain("[...truncated for budget]");
+    expect(out).toContain("[memory: trimmed");
+  });
+
+  it("emits all sections whole when they fit", () => {
+    const out = applyInjectionBudget([{ label: "a", text: "short", priority: 1 }], 12_000);
+    expect(out).toContain("short");
+    expect(out).not.toContain("trimmed");
+  });
+});
 
 describe("sessionStartBody", () => {
   let tmp: string;
@@ -166,7 +194,10 @@ describe("sessionStartBody", () => {
     );
 
     const writes: string[] = [];
-    await sessionStartBody({}, { write: (text) => writes.push(text) });
+    await sessionStartBody({}, {
+      write: (text) => writes.push(text),
+      now: () => new Date("2026-05-29T00:00:00.000Z"),
+    });
 
     const all = writes.join("");
     expect(all).toContain("--- What you should remember");
@@ -368,7 +399,7 @@ describe("sessionStartBody", () => {
       ].join("\n"),
     );
 
-    const block = await whatToRememberBlock({ memoryRoot: tmp, maxPreferences: 1 });
+    const block = await whatToRememberBlock({ memoryRoot: tmp, maxPreferences: 1, now: new Date("2026-05-30T00:00:00.000Z") });
 
     expect(block).toContain("Operator Preferences");
     expect(block).toContain("PREFERENCE-FRESH-4-8");
@@ -417,9 +448,29 @@ describe("sessionStartBody", () => {
     await utimes(olderPath, new Date("2026-05-28T23:59:59.000Z"), new Date("2026-05-28T23:59:59.000Z"));
     await utimes(newerPath, new Date("2026-05-29T01:00:00.000Z"), new Date("2026-05-29T01:00:00.000Z"));
 
-    const block = await whatToRememberBlock({ memoryRoot: tmp, maxRecent: 2 });
+    const block = await whatToRememberBlock({ memoryRoot: tmp, maxRecent: 2, now: new Date("2026-05-30T00:00:00.000Z") });
 
     expect(block.indexOf("NEWEST-RECENT-4-8")).toBeLessThan(block.indexOf("OLDER-RECENT-4-8"));
+  });
+
+  it("only reads raw day-directories inside the recent window (cutoff <= date <= today)", async () => {
+    const readPaths: string[] = [];
+    for (const date of ["2020-01-01", "2026-07-10", "2999-01-01"]) {
+      await mkdir(join(tmp, "raw", date), { recursive: true });
+      await writeFile(
+        join(tmp, "raw", date, "s.md"),
+        `---\ntype: raw-session\ntitle: s\ncreated: ${date}\nupdated: ${date}\n---\n\n## [10:00:00] Observation\n\n_tags: project · confidence: 1_\n\nMARKER-${date}\n`,
+      );
+    }
+    await whatToRememberBlock({
+      memoryRoot: tmp,
+      now: new Date("2026-07-18T00:00:00.000Z"),
+      readFile: async (p: string) => { readPaths.push(p); return ""; },
+    });
+    // Old (>14d) and future-dated directories are never read; the recent one is.
+    expect(readPaths.some((p) => p.includes("2020-01-01"))).toBe(false);
+    expect(readPaths.some((p) => p.includes("2999-01-01"))).toBe(false);
+    expect(readPaths.some((p) => p.includes("2026-07-10"))).toBe(true);
   });
 });
 

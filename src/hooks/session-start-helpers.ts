@@ -19,6 +19,8 @@ export interface WhatToRememberOptions {
   maxPreferences?: number;
   maxRecent?: number;
   maxChars?: number;
+  now?: Date;
+  rawMaxAgeDays?: number;
 }
 
 export interface ResolveProjectForCwdOptions {
@@ -473,9 +475,17 @@ export async function whatToRememberBlock(
   const floor = injectionConfidenceFloor();
   const recentFloor = Math.max(floor, 0.7);
 
+  // Bound the raw scan to a recent window instead of reading every raw/ file on
+  // every session start (a full-corpus scan on a large, date-partitioned vault).
+  const now = opts.now ?? new Date();
+  const rawMaxAgeDays = opts.rawMaxAgeDays ?? readRememberRawDays();
+  const todayDate = now.toISOString().slice(0, 10);
+  // Inclusive window: today plus the previous (N-1) calendar days.
+  const cutoffDate = new Date(now.getTime() - (rawMaxAgeDays - 1) * 86_400_000).toISOString().slice(0, 10);
+
   const [wikiPreferences, rawObservations] = await Promise.all([
     collectPreferencePages({ root, readFile, readdir, maxChars, floor }),
-    collectRawObservations({ root, readFile, readdir, maxChars }),
+    collectRawObservations({ root, readFile, readdir, maxChars, cutoffDate, todayDate }),
   ]);
 
   const preferenceObservations = rawObservations.filter((entry) =>
@@ -554,6 +564,12 @@ function extractIndexedPagePath(line: string): string | null {
   return null;
 }
 
+function readRememberRawDays(): number {
+  const raw = process.env["MEMORY_FORT_REMEMBER_RAW_DAYS"];
+  const parsed = raw ? Number(raw) : NaN;
+  return Number.isFinite(parsed) && parsed >= 1 ? Math.floor(parsed) : 14;
+}
+
 export function injectionConfidenceFloor(): number {
   const raw = process.env["MEMORY_FORT_INJECTION_CONF_FLOOR"];
   if (!raw) return 0;
@@ -620,8 +636,19 @@ async function collectRawObservations(input: {
   readFile: (path: string) => Promise<string>;
   readdir: (path: string, options: { withFileTypes: true }) => Promise<Dirent[]>;
   maxChars: number;
+  cutoffDate: string;
+  todayDate: string;
 }): Promise<RememberEntry[]> {
-  const rawFiles = await listMarkdownFiles(join(input.root, "raw"), input.readdir, "raw");
+  const allRawFiles = await listMarkdownFiles(join(input.root, "raw"), input.readdir, "raw");
+  // Read only dated day-directories within [cutoff, today]; future-dated dirs
+  // (clock skew) are excluded, undated layouts stay eligible (they are rare and
+  // dropping them would lose captures). listMarkdownFiles only enumerates names,
+  // so this bounds the expensive per-file READS.
+  const rawFiles = allRawFiles.filter((relPath) => {
+    const date = relPath.split("/")[1] ?? "";
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return true;
+    return date >= input.cutoffDate && date <= input.todayDate;
+  });
   const entries: RememberEntry[] = [];
   for (const relPath of rawFiles) {
     let content: string;
