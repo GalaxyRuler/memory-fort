@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { readFile, stat } from "node:fs/promises";
+import { readFile, readdir, stat } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { mutateCompileStateFile, readCompressedMap, readCompileStateFile, writeCompileStateFile } from "../../compile/state.js";
 import { createLLMFromConfig, getActiveLLMConfig, type LLMConfig } from "../../llm/factory.js";
@@ -68,6 +68,26 @@ export interface CompressResult {
 }
 
 const DEFAULT_MAX_SESSIONS = 25;
+const MAX_COMPRESS_ATTEMPTS = 3;
+
+interface CompressQuarantineEntry {
+  attempts: number;
+  bytes: number;
+}
+
+function readCompressQuarantine(state: Record<string, unknown>): Record<string, CompressQuarantineEntry> {
+  const value = state["compressQuarantine"];
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const out: Record<string, CompressQuarantineEntry> = {};
+  for (const [path, entry] of Object.entries(value as Record<string, unknown>)) {
+    if (!entry || typeof entry !== "object") continue;
+    const rec = entry as Record<string, unknown>;
+    if (typeof rec["attempts"] === "number" && typeof rec["bytes"] === "number") {
+      out[path] = { attempts: rec["attempts"], bytes: rec["bytes"] };
+    }
+  }
+  return out;
+}
 
 export async function runCompress(opts: CompressOptions = {}): Promise<CompressResult> {
   const root = opts.vaultRoot ?? memoryRoot();
@@ -75,6 +95,11 @@ export async function runCompress(opts: CompressOptions = {}): Promise<CompressR
   const rawFiles = await listRawMarkdownFiles(root);
   const state = await readCompileStateFile(root);
   const compressed = readCompressedMap(state);
+  // A separate quarantine tally (NOT the coverage watermark, so it can never
+  // affect completeness): a file whose compression keeps failing is retried a
+  // bounded number of times, then skipped so the drain and later files proceed.
+  // Its raw is left uncovered, so compile handles it normally — no content lost.
+  const quarantine = readCompressQuarantine(state);
   const maxSessions = positiveInteger(opts.maxSessions, DEFAULT_MAX_SESSIONS);
   const files: CompressResult["files"] = [];
   let tokensUsed: LLMTokenUsage | undefined;
@@ -103,6 +128,16 @@ export async function runCompress(opts: CompressOptions = {}): Promise<CompressR
       && (watermark!.chunkTotal === undefined || (watermark!.chunkCursor ?? 0) >= watermark!.chunkTotal);
     if (complete) {
       files.push({ path: raw.relPath, outcome: "skipped", facts: 0, reason: "already compressed" });
+      continue;
+    }
+    const quarantined = quarantine[raw.relPath];
+    if (quarantined && quarantined.bytes === info.size && quarantined.attempts >= MAX_COMPRESS_ATTEMPTS) {
+      files.push({
+        path: raw.relPath,
+        outcome: "skipped",
+        facts: 0,
+        reason: `quarantined after ${quarantined.attempts} failed compress attempts — left for compile`,
+      });
       continue;
     }
     if (files.filter((file) => file.outcome === "compressed" || file.outcome === "planned" || file.outcome === "failed").length >= maxSessions) {
@@ -169,13 +204,19 @@ export async function runCompress(opts: CompressOptions = {}): Promise<CompressR
         startChunk,
       });
 
-      // Merge with a valid prior artifact on BOTH resume and restart. A restart
-      // (compaction changed the bytes, config changed the chunking) reprocesses
-      // the live content, but the prior facts may have been extracted from
-      // richer, since-compacted content — overwriting them would make those
-      // facts unreachable from every normal pipeline path (the archive copy is
-      // excluded by the raw walker). mergeCompressedFacts dedupes overlaps.
-      const mergedFacts = priorValid && priorFacts.length > 0
+      // Decide whether to preserve prior facts by MERGING, or discard them by
+      // overwriting. Preserve when:
+      //   - the bytes are unchanged (a resume, or a config-only re-chunk), OR
+      //   - the bytes changed but a compact-archive copy of this raw exists —
+      //     i.e. compaction truncated the source, so the prior facts may derive
+      //     from content that now lives only in the (walker-excluded) archive
+      //     and overwriting would make them unreachable.
+      // Do NOT preserve when the bytes changed with no archive lineage: that is
+      // a genuine in-place edit/deletion, and stale facts about removed content
+      // must not be retained forever with live-file provenance.
+      const preservePrior = priorValid && priorFacts.length > 0
+        && (bytesMatch || await hasCompactArchiveLineage(root, raw.relPath));
+      const mergedFacts = preservePrior
         ? mergeCompressedFacts([...priorFacts, ...result.facts])
         : result.facts;
       const isComplete = result.chunkCursor >= result.totalChunks;
@@ -218,13 +259,21 @@ export async function runCompress(opts: CompressOptions = {}): Promise<CompressR
         ...(!isComplete && result.sampledChunks !== undefined ? { sampledChunks: result.sampledChunks } : {}),
       });
       tokensUsed = addTokenUsage(tokensUsed, result.tokensUsed);
+      delete quarantine[raw.relPath]; // a successful pass clears the fail tally
     } catch (err) {
+      const prior = quarantine[raw.relPath];
+      const attempts = prior && prior.bytes === info.size ? prior.attempts + 1 : 1;
+      quarantine[raw.relPath] = { attempts, bytes: info.size };
       files.push({ path: raw.relPath, outcome: "failed", facts: 0, reason: errorMessage(err) });
     }
   }
 
   if (mode === "apply") {
-    await mutateCompileStateFile(root, (fresh) => ({ ...fresh, compressed }));
+    await mutateCompileStateFile(root, (fresh) => ({
+      ...fresh,
+      compressed,
+      ...(Object.keys(quarantine).length > 0 ? { compressQuarantine: quarantine } : { compressQuarantine: undefined }),
+    }));
   }
 
   return {
@@ -285,6 +334,29 @@ export function formatCompressResult(result: CompressResult): string {
   return `${lines.join("\n")}\n`;
 }
 
+
+/**
+ * True when compact-raw has archived a copy of this raw file — evidence that a
+ * byte change is compaction (source truncated, original preserved only in the
+ * walker-excluded archive) rather than an in-place edit/deletion. compact-raw
+ * archives to raw/.compact-archive/<date>/<original-relPath>.
+ */
+async function hasCompactArchiveLineage(root: string, rawRelPath: string): Promise<boolean> {
+  const archiveRoot = join(root, "raw", ".compact-archive");
+  if (!existsSync(archiveRoot)) return false;
+  let dates: string[];
+  try {
+    dates = await readdir(archiveRoot);
+  } catch {
+    return false;
+  }
+  // compact-raw strips the leading "raw/" before nesting under the date dir.
+  const relParts = rawRelPath.replace(/^raw\//, "").split("/");
+  for (const date of dates) {
+    if (existsSync(join(archiveRoot, date, ...relParts))) return true;
+  }
+  return false;
+}
 
 function readSessionId(rawText: string): string | null {
   return /^session:\s*"?([^"\n]+)"?\s*$/m.exec(rawText)?.[1]?.trim() ?? null;

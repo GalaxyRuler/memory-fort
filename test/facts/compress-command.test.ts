@@ -175,6 +175,82 @@ describe("compress resumable command", () => {
     expect(factBytes).toContain("Compacted fallback"); // new content's fact also present
   });
 
+  it("does NOT retain stale facts when the raw is edited in place with no compaction lineage", async () => {
+    // Audit finding N4: a genuine in-place edit (no compact-archive copy) must
+    // discard facts about removed content, not preserve them forever. Only
+    // compaction lineage justifies merge-on-restart.
+    const editRel = "raw/2026-07-16/session-edit.md";
+    await mkdir(join(root, "raw", "2026-07-16"), { recursive: true });
+    const contentAwareLlm: LLMProvider = {
+      providerName: "ollama",
+      modelName: "llama3.2",
+      chat: vi.fn(async (request: LLMRequest) => {
+        const prompt = request.messages.at(-1)?.content ?? "";
+        const title = prompt.includes("OLD-MARKER") ? "Old fact" : "New fact";
+        return {
+          model: "llama3.2",
+          finishReason: "stop" as const,
+          rawProviderName: "ollama",
+          content: ["```json", JSON.stringify({ facts: [{ title, facts: [title], narrative: title, concepts: ["c"], files: [], importance: 5 }] }), "```"].join("\n"),
+        };
+      }),
+    };
+    const editOpts = {
+      vaultRoot: root,
+      apply: true,
+      configLoader: async () => ({ llm: { provider: "ollama", model: "llama3.2" } }),
+      llmFactory: () => contentAwareLlm,
+      env: {},
+      now: new Date("2026-07-16T12:00:00.000Z"),
+      logger: () => undefined,
+    };
+
+    await writeFile(join(root, editRel), "session: session-edit\n## [10:00:00] Prompt\nOLD-MARKER content here\n", "utf-8");
+    await runCompress(editOpts);
+    const factRel = factFileRelPath(editRel, "session-edit");
+    expect(await readFile(join(root, ...factRel.split("/")), "utf-8")).toContain("Old fact");
+
+    // Edit in place (different bytes) WITHOUT compact-raw — no archive copy.
+    await writeFile(join(root, editRel), "session: session-edit\n## [10:00:00] Prompt\nNEW-MARKER only\n", "utf-8");
+    await runCompress(editOpts);
+
+    const after = await readFile(join(root, ...factRel.split("/")), "utf-8");
+    expect(after).toContain("New fact");
+    expect(after).not.toContain("Old fact"); // stale fact about removed content is dropped
+  });
+
+  it("quarantines a persistently-malformed file after N attempts instead of retrying forever", async () => {
+    // Audit finding N5: a file whose compression always fails held the cursor
+    // and was re-attempted every run (unbounded cost / drain wedge). It must be
+    // retried a bounded number of times, then skipped (left for compile).
+    const badRel = "raw/2026-07-17/session-bad.md";
+    await writeFile(join(root, badRel), "session: session-bad\n## [10:00:00] Prompt\nsome content\n", "utf-8");
+    const malformedLlm: LLMProvider = {
+      providerName: "ollama",
+      modelName: "llama3.2",
+      chat: vi.fn(async () => ({
+        model: "llama3.2",
+        finishReason: "stop" as const,
+        rawProviderName: "ollama",
+        content: "not json at all",
+      })),
+    };
+    const badOpts = { ...opts(root), llmFactory: () => malformedLlm };
+
+    // First three runs fail (retrying).
+    for (let i = 0; i < 3; i += 1) {
+      const r = await runCompress(badOpts);
+      expect(r.files.find((f) => f.path === badRel)?.outcome).toBe("failed");
+    }
+    // Fourth run: quarantined, not retried — no LLM call, distinct skip reason.
+    const chatBefore = (malformedLlm.chat as ReturnType<typeof vi.fn>).mock.calls.length;
+    const after = await runCompress(badOpts);
+    const entry = after.files.find((f) => f.path === badRel);
+    expect(entry?.outcome).toBe("skipped");
+    expect(entry?.reason).toContain("quarantined");
+    expect((malformedLlm.chat as ReturnType<typeof vi.fn>).mock.calls.length).toBe(chatBefore); // no further attempts
+  });
+
   it("restarts from chunk 0 when the chunking config changes between passes", async () => {
     await runCompress(opts(root));
     expect((await cursor()).chunkBytes).toBe(1_500);

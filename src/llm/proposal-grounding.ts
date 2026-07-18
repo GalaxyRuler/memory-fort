@@ -46,6 +46,7 @@ export const MEMORY_CLI_SUBCOMMANDS = [
   "search",
   "stats",
   "sync",
+  "sync-bootstrap",
   "tail-errors",
   "thread",
   "verify",
