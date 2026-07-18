@@ -7,6 +7,7 @@ import { estimateLLMCostUsd } from "../../llm/pricing.js";
 import type { LLMProvider, LLMTokenUsage } from "../../llm/types.js";
 import { loadMemoryConfig, type MemoryConfig } from "../../storage/config.js";
 import { memoryRoot } from "../../storage/paths.js";
+import { listRawMarkdownFiles } from "../../storage/raw-walker.js";
 import {
   CURRENT_COMPRESS_VERSION,
   DEFAULT_COMPRESS_CHUNK_THRESHOLD_BYTES,
@@ -64,8 +65,7 @@ const DEFAULT_MAX_SESSIONS = 25;
 export async function runCompress(opts: CompressOptions = {}): Promise<CompressResult> {
   const root = opts.vaultRoot ?? memoryRoot();
   const mode = opts.apply ? "apply" : "plan";
-  const rawRoot = join(root, "raw");
-  const rawFiles = await listRawFiles(root, rawRoot);
+  const rawFiles = await listRawMarkdownFiles(root);
   const state = await readCompileStateFile(root);
   const compressed = readCompressedMap(state);
   const maxSessions = positiveInteger(opts.maxSessions, DEFAULT_MAX_SESSIONS);
@@ -207,23 +207,6 @@ export function formatCompressResult(result: CompressResult): string {
   return `${lines.join("\n")}\n`;
 }
 
-async function listRawFiles(root: string, rawRoot: string): Promise<Array<{ fullPath: string; relPath: string }>> {
-  if (!existsSync(rawRoot)) return [];
-  const files: Array<{ fullPath: string; relPath: string }> = [];
-  async function walk(dir: string): Promise<void> {
-    const entries = await readdir(dir, { withFileTypes: true });
-    for (const entry of entries) {
-      const fullPath = join(dir, entry.name);
-      if (entry.isDirectory()) {
-        await walk(fullPath);
-      } else if (entry.isFile() && entry.name.endsWith(".md")) {
-        files.push({ fullPath, relPath: relative(root, fullPath).replace(/\\/g, "/") });
-      }
-    }
-  }
-  await walk(rawRoot);
-  return files.sort((a, b) => a.relPath.localeCompare(b.relPath));
-}
 
 function readSessionId(rawText: string): string | null {
   return /^session:\s*"?([^"\n]+)"?\s*$/m.exec(rawText)?.[1]?.trim() ?? null;

@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { readFile, readdir, stat } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { atomicWrite } from "../storage/atomic-write.js";
+import { listRawMarkdownFiles } from "../storage/raw-walker.js";
 import { withFileLock } from "../storage/file-lock.js";
 
 export interface CompileConsumedWatermark {
@@ -190,7 +191,8 @@ export async function summarizeCompilePending(
   vaultRoot: string,
   state: CompileStateFile,
 ): Promise<CompilePendingSummary> {
-  return summarizeCompilePendingFiles(await listRawMarkdownFileSizes(vaultRoot), readConsumedMap(state));
+  const rawFileSizes: RawFileSize[] = (await listRawMarkdownFiles(vaultRoot)).map((f) => ({ relPath: f.relPath, size: f.size }));
+  return summarizeCompilePendingFiles(rawFileSizes, readConsumedMap(state));
 }
 
 export function summarizeCompilePendingFiles(
@@ -254,27 +256,3 @@ async function pathSignature(path: string): Promise<string> {
   }
 }
 
-async function listRawMarkdownFileSizes(vaultRoot: string): Promise<RawFileSize[]> {
-  const rawRoot = join(vaultRoot, "raw");
-  if (!existsSync(rawRoot)) return [];
-  const files: RawFileSize[] = [];
-
-  async function walk(dir: string): Promise<void> {
-    const entries = await readdir(dir, { withFileTypes: true });
-    for (const entry of entries) {
-      const fullPath = join(dir, entry.name);
-      if (entry.isDirectory()) {
-        await walk(fullPath);
-      } else if (entry.isFile() && entry.name.endsWith(".md")) {
-        const info = await stat(fullPath);
-        files.push({
-          relPath: relative(vaultRoot, fullPath).replace(/\\/g, "/"),
-          size: info.size,
-        });
-      }
-    }
-  }
-
-  await walk(rawRoot);
-  return files.sort((a, b) => a.relPath.localeCompare(b.relPath));
-}

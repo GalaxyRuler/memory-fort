@@ -257,6 +257,9 @@ async function collectMarkdownFiles(
 
     entries.sort((a, b) => a.name.localeCompare(b.name));
     for (const entry of entries) {
+      // Dot entries under raw/ are system space (compact-raw's .compact-archive);
+      // never feed archived originals into the search corpus / graph.
+      if (topLevel === "raw" && entry.name.startsWith(".")) continue;
       const fullPath = join(dir, entry.name);
       const relPath = toVaultRelPath(vaultRoot, fullPath);
       if (entry.isDirectory()) {

@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { atomicWrite } from "../storage/atomic-write.js";
+import { listRawMarkdownFiles } from "../storage/raw-walker.js";
 import { redactSecrets } from "../privacy/redaction.js";
 import { parseFrontmatter, serializeFrontmatter, type Frontmatter } from "../storage/frontmatter.js";
 import { formatIsoDate, memoryRoot } from "../storage/paths.js";
@@ -97,7 +98,7 @@ export function renderRawSession(session: RawSession, hash?: string): string {
 }
 
 async function loadExistingRaw(root: string): Promise<ExistingRaw[]> {
-  const files = await listMarkdown(join(root, "raw"));
+  const files = (await listRawMarkdownFiles(root)).map((entry) => entry.fullPath);
   const existing: ExistingRaw[] = [];
   for (const fullPath of files) {
     const relPath = relative(root, fullPath).replace(/\\/g, "/");
@@ -116,22 +117,6 @@ async function loadExistingRaw(root: string): Promise<ExistingRaw[]> {
   return existing;
 }
 
-async function listMarkdown(root: string): Promise<string[]> {
-  const files: string[] = [];
-  async function walk(dir: string): Promise<void> {
-    if (!existsSync(dir)) return;
-    for (const entry of await readdir(dir, { withFileTypes: true })) {
-      const full = join(dir, entry.name);
-      if (entry.isDirectory()) await walk(full);
-      else if (entry.isFile() && entry.name.endsWith(".md")) {
-        const info = await stat(full);
-        if (info.isFile()) files.push(full);
-      }
-    }
-  }
-  await walk(root);
-  return files.sort();
-}
 
 function parseSessionDate(value: string, field: string): Date {
   const ms = Date.parse(value);

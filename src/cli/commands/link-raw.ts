@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { readFile, readdir } from "node:fs/promises";
 import { join, relative } from "node:path";
+import { listRawMarkdownFiles } from "../../storage/raw-walker.js";
 import {
   autoLinkRawToWiki,
   type AutoLinkMatch,
@@ -69,7 +70,7 @@ export async function runLinkRaw(opts: LinkRawOptions = {}): Promise<LinkRawResu
     opts.expectedEmbeddingDim ?? config.embedding?.dim,
   );
   const enabled = autoLink.enabled !== false;
-  const rawFiles = await listRawFiles(vaultRoot);
+  const rawFiles = await listRawMarkdownFiles(vaultRoot);
   const files: LinkRawFileResult[] = [];
   const orphanPaths: string[] = [];
 
@@ -152,24 +153,6 @@ export function formatLinkRawResult(result: LinkRawResult): string {
   return `${lines.join("\n")}\n`;
 }
 
-async function listRawFiles(vaultRoot: string): Promise<Array<{ fullPath: string; relPath: string }>> {
-  const rawRoot = join(vaultRoot, "raw");
-  if (!existsSync(rawRoot)) return [];
-  const files: Array<{ fullPath: string; relPath: string }> = [];
-  async function walk(dir: string): Promise<void> {
-    const entries = await readdir(dir, { withFileTypes: true });
-    for (const entry of entries) {
-      const fullPath = join(dir, entry.name);
-      if (entry.isDirectory()) {
-        await walk(fullPath);
-      } else if (entry.isFile() && entry.name.endsWith(".md")) {
-        files.push({ fullPath, relPath: relative(vaultRoot, fullPath).replace(/\\/g, "/") });
-      }
-    }
-  }
-  await walk(rawRoot);
-  return files.sort((a, b) => a.relPath.localeCompare(b.relPath));
-}
 
 async function isOrphanRaw(fullPath: string, relPath: string): Promise<boolean> {
   const parsed = parseFrontmatter(await readFile(fullPath, "utf-8"));

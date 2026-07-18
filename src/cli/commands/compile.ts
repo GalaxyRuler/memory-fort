@@ -26,6 +26,7 @@ import { type LLMProvider } from "../../llm/types.js";
 import { readRuntimePrompt } from "../../prompts/runtime.js";
 import { loadMemoryConfig, resolveCompileConfig, type MemoryConfig } from "../../storage/config.js";
 import { withFileLock } from "../../storage/file-lock.js";
+import { listRawMarkdownFiles } from "../../storage/raw-walker.js";
 import {
   memoryRoot,
 } from "../../storage/paths.js";
@@ -272,7 +273,9 @@ async function runCompileImpl(
   let noiseOnlySkipped = 0;
   let lowSignalQuarantined = 0;
 
-  const rawFiles = await listRawFiles(root, join(root, "raw"));
+  const rawFiles: RawCandidate[] = (await listRawMarkdownFiles(root))
+    .map((f) => ({ path: f.fullPath, relPath: f.relPath, mtimeMs: f.mtimeMs, size: f.size }))
+    .sort((a, b) => a.mtimeMs - b.mtimeMs || a.path.localeCompare(b.path));
   for (const candidate of rawFiles) {
     if (opts.excludeRawPaths?.has(candidate.relPath)) {
       rawFilesSkipped.push({
@@ -956,33 +959,6 @@ export async function executeCompilePrompt(opts: CompileOptions & {
   };
 }
 
-async function listRawFiles(vaultRoot: string, rawRoot: string): Promise<RawCandidate[]> {
-  if (!existsSync(rawRoot)) return [];
-  const files: RawCandidate[] = [];
-
-  async function walk(dir: string): Promise<void> {
-    const entries = await readdir(dir, { withFileTypes: true });
-    for (const entry of entries) {
-      const full = join(dir, entry.name);
-      if (entry.isDirectory()) {
-        await walk(full);
-      } else if (entry.isFile() && entry.name.endsWith(".md")) {
-        const info = await stat(full);
-        files.push({
-          path: full,
-          relPath: relativeVaultPath(vaultRoot, full),
-          mtimeMs: info.mtimeMs,
-          size: info.size,
-        });
-      }
-    }
-  }
-
-  await walk(rawRoot);
-  return files.sort(
-    (a, b) => a.mtimeMs - b.mtimeMs || a.path.localeCompare(b.path),
-  );
-}
 
 async function buildExistingPagesContext(vaultRoot: string, rawContent: string, maxBytes: number): Promise<string> {
   if (maxBytes === 0) return "(none)";

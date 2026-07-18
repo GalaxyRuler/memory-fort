@@ -634,6 +634,8 @@ async function countMarkdownFiles(root: string): Promise<number> {
   let count = 0;
   const entries = await readdir(root, { withFileTypes: true });
   for (const entry of entries) {
+    // Dot entries are system space (compact-archive, history, tmp) — never live content.
+    if (entry.name.startsWith(".")) continue;
     const full = join(root, entry.name);
     if (entry.isDirectory()) {
       count += await countMarkdownFiles(full);
@@ -1052,6 +1054,8 @@ export async function loadRawIndex(vaultRoot: string): Promise<RawIndexEntry[]> 
   const result: RawIndexEntry[] = [];
   for (const dateEntry of dateEntries) {
     if (!dateEntry.isDirectory()) continue;
+    // Skip system dot-directories (e.g. .compact-archive) — not real date rows.
+    if (dateEntry.name.startsWith(".")) continue;
     const datePath = safeResolveUnder(rawRoot, dateEntry.name);
     if (!datePath) continue;
     const files = [];
