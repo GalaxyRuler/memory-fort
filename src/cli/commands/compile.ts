@@ -16,6 +16,7 @@ import { filterRawText } from "../../compile/filter-raw.js";
 import { runFactConsolidation } from "../../compile/fact-consolidate.js";
 import { rebuildIndex, type RebuildIndexResult } from "../../compile/index.js";
 import { loadCompressedFacts } from "../../facts/store.js";
+import { CURRENT_COMPRESS_VERSION } from "../../facts/compress.js";
 import { chatWithAudit } from "../../llm/audit.js";
 import {
   createLLMFromConfig,
@@ -285,7 +286,12 @@ async function runCompileImpl(
       continue;
     }
     const compressedWatermark = compressedMap[candidate.relPath];
-    if (compressedWatermark && compressedWatermark.bytes >= candidate.size) {
+    const compressComplete = compressedWatermark !== undefined
+      && compressedWatermark.compressVersion === CURRENT_COMPRESS_VERSION
+      && compressedWatermark.bytes >= candidate.size
+      && (compressedWatermark.chunkTotal === undefined
+        || (compressedWatermark.chunkCursor ?? 0) >= compressedWatermark.chunkTotal);
+    if (compressComplete) {
       rawFilesSkipped.push({
         path: candidate.path,
         reason: "fully covered by compress — facts already extracted",

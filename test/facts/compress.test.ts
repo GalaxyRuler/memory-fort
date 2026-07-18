@@ -162,7 +162,7 @@ describe("memory fact compression", () => {
     expect(vi.mocked(llm.chat).mock.calls[0]![0].messages.at(-1)!.content).toContain(tailDecision);
   });
 
-  it("reaches late-session procedures and decisions through chunked compression and writes them to fact bytes", async () => {
+  it("reaches late-session content across resumed passes without losing earlier windows' facts", async () => {
     const rawRelPath = "raw/2026-05-31/codex-019e7f47-78c5-7cd1-9e07-f75bee00a752.md";
     await writeFileAt(rawRelPath, largeSession([
       "Opening WebView2 initialization notes.",
@@ -173,34 +173,36 @@ describe("memory fact compression", () => {
     const llm = promptAwareCompressionLLM((request) => {
       const prompt = request.messages.at(-1)?.content ?? "";
       const facts: Array<Record<string, unknown>> = [];
-      if (prompt.includes("Test-Driven Development")) {
-        facts.push(factBundle("Test-Driven Development", "procedure"));
-      }
-      if (prompt.includes("Systematic Debugging")) {
-        facts.push(factBundle("Systematic Debugging Process", "procedure"));
-      }
-      if (prompt.includes("Homelab Runner")) {
-        facts.push(factBundle("Homelab Runner Integration", "decision"));
-      }
+      if (prompt.includes("Test-Driven Development")) facts.push(factBundle("Test-Driven Development", "procedure"));
+      if (prompt.includes("Systematic Debugging")) facts.push(factBundle("Systematic Debugging Process", "procedure"));
+      if (prompt.includes("Homelab Runner")) facts.push(factBundle("Homelab Runner Integration", "decision"));
       if (facts.length === 0) facts.push(factBundle("Opening WebView2 initialization", "fact"));
       return facts;
     });
 
-    const result = await runCompress({
+    const opts = {
       vaultRoot: tmp,
       apply: true,
       configLoader: async () => ({
         llm: { provider: "ollama", model: "llama3.2" },
-        compress: { chunk_threshold_bytes: 8_000, max_chunks: 8 },
+        // Small windows so the late content only appears after several passes.
+        compress: { chunk_threshold_bytes: 8_000, max_chunks: 2 },
       }),
       llmFactory: () => llm,
       env: {},
       now: new Date("2026-05-31T12:00:00.000Z"),
       logger: () => undefined,
-    });
+    };
 
-    expect(result.summary.compressed).toBe(2);
-    const factPath = result.files.find((file) => file.path === rawRelPath)?.factPath;
+    // Drain to completion across passes; the file must converge and merge — every
+    // window's facts survive in the single fact file (conservation invariant).
+    let factPath: string | undefined;
+    for (let pass = 0; pass < 20; pass += 1) {
+      const result = await runCompress(opts);
+      const file = result.files.find((f) => f.path === rawRelPath);
+      factPath ??= file?.factPath;
+      if (file?.reason === "already compressed") break;
+    }
     expect(factPath).toBeDefined();
     const factBytes = await readFile(join(tmp, ...factPath!.split("/")), "utf-8");
     expect(factBytes).toContain("Test-Driven Development");
@@ -208,7 +210,7 @@ describe("memory fact compression", () => {
     expect(factBytes).toContain("Homelab Runner");
   });
 
-  it("samples a bounded number of chunks while recording and logging skipped coverage", async () => {
+  it("processes a bounded contiguous first window and logs the resumable remainder", async () => {
     await writeFileAt("raw/2026-05-31/session-a.md", largeSession([
       "FIRST_CHUNK_MARKER",
       "interior marker one",
@@ -222,7 +224,7 @@ describe("memory fact compression", () => {
       const prompt = request.messages.at(-1)?.content ?? "";
       if (prompt.includes("FIRST_CHUNK_MARKER")) return [factBundle("First chunk marker", "fact")];
       if (prompt.includes("LAST_CHUNK_MARKER")) return [factBundle("Last chunk marker", "fact")];
-      return [factBundle("Sampled interior marker", "fact")];
+      return [factBundle("Interior marker", "fact")];
     });
 
     const result = await runCompress({
@@ -238,16 +240,15 @@ describe("memory fact compression", () => {
       logger: (line) => logs.push(line),
     });
 
+    // The first pass covers the CONTIGUOUS front window [1..4], not a spread sample.
     expect(llm.chat).toHaveBeenCalledTimes(4);
-    expect(result.files[0]).toMatchObject({ sampledChunks: 4 });
     expect(result.files[0]?.totalChunks).toBeGreaterThan(4);
-    expect(logs.join("\n")).toContain("sampled 4/");
-    const factFile = JSON.parse(await readFile(join(tmp, "facts", "2026-05-31", "session-a.json"), "utf-8"));
-    expect(factFile.sampledChunks).toBe(4);
-    expect(factFile.totalChunks).toBeGreaterThan(4);
+    expect(logs.join("\n")).toContain("processing chunks 1-4");
     const prompts = vi.mocked(llm.chat).mock.calls.map((call) => call[0].messages.at(-1)!.content).join("\n");
+    // Front window includes the first chunk; the last chunk is beyond it and
+    // resumes on a later pass (proven by the multi-pass convergence test).
     expect(prompts).toContain("FIRST_CHUNK_MARKER");
-    expect(prompts).toContain("LAST_CHUNK_MARKER");
+    expect(prompts).not.toContain("LAST_CHUNK_MARKER");
   });
 
   it("redacts secrets found in deep chunks before sending them to the provider", async () => {

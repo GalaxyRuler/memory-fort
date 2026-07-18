@@ -7,11 +7,52 @@ import {
   compileStatePath,
   createCompilePendingSummaryCache,
   legacyCompileStatePath,
-  readCompilePendingSummary,
+  mutateCompileStateFile,
   readCompileStateFile,
+  readCompilePendingSummary,
+  readCompressedMap,
   summarizeCompilePending,
   writeCompileStateFile,
 } from "../../src/compile/state.js";
+
+describe("compress watermark cursor round-trip", () => {
+  let root: string;
+  beforeEach(async () => {
+    root = await mkdtemp(join(tmpdir(), "compile-state-cursor-"));
+  });
+  afterEach(async () => {
+    await rm(root, { recursive: true, force: true });
+  });
+
+  it("persists and reads back chunkCursor, chunkTotal, and chunkBytes", async () => {
+    await mutateCompileStateFile(root, (state) => ({
+      ...state,
+      compressed: {
+        "raw/2026-07-17/a.md": {
+          bytes: 100,
+          compressVersion: 3,
+          chunkCursor: 2,
+          chunkTotal: 5,
+          chunkBytes: 48000,
+        },
+      },
+    }));
+    const w = readCompressedMap(await readCompileStateFile(root))["raw/2026-07-17/a.md"]!;
+    expect(w.chunkCursor).toBe(2);
+    expect(w.chunkTotal).toBe(5);
+    expect(w.chunkBytes).toBe(48000);
+  });
+
+  it("treats chunkCursor:0 as present (start of a partial file)", async () => {
+    await mutateCompileStateFile(root, (state) => ({
+      ...state,
+      compressed: { "raw/x.md": { bytes: 10, compressVersion: 3, chunkCursor: 0, chunkTotal: 3, chunkBytes: 64 } },
+    }));
+    const w = readCompressedMap(await readCompileStateFile(root))["raw/x.md"]!;
+    expect(w.chunkCursor).toBe(0);
+    expect(w.chunkTotal).toBe(3);
+  });
+});
 
 describe("summarizeCompilePending", () => {
   let tmp: string;

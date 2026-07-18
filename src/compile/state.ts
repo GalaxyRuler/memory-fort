@@ -9,6 +9,16 @@ export interface CompileConsumedWatermark {
   bytes: number;
   lastObservationAt?: string;
   compressVersion?: number;
+  /**
+   * Compress-only resumable coverage. Present only while a file is partially
+   * compressed (a fixed sample was replaced by contiguous windows): the next
+   * chunk index to process, the total chunk count, and the maxBytesPerCall the
+   * chunking was computed with (a config fingerprint — a change restarts the
+   * file from chunk 0). Absent = fully covered.
+   */
+  chunkCursor?: number;
+  chunkTotal?: number;
+  chunkBytes?: number;
 }
 
 export interface CompileLastFilterStats {
@@ -235,9 +245,20 @@ function readWatermarkMap(value: unknown): Record<string, CompileConsumedWaterma
       ...(typeof record["compressVersion"] === "number" && Number.isInteger(record["compressVersion"]) && record["compressVersion"] > 0
         ? { compressVersion: record["compressVersion"] }
         : {}),
+      ...(isNonNegativeInt(record["chunkCursor"]) ? { chunkCursor: record["chunkCursor"] } : {}),
+      ...(isPositiveInt(record["chunkTotal"]) ? { chunkTotal: record["chunkTotal"] } : {}),
+      ...(isPositiveInt(record["chunkBytes"]) ? { chunkBytes: record["chunkBytes"] } : {}),
     };
   }
   return normalized;
+}
+
+function isPositiveInt(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value > 0;
+}
+
+function isNonNegativeInt(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0;
 }
 
 async function compilePendingSummaryCacheKey(vaultRoot: string): Promise<string> {

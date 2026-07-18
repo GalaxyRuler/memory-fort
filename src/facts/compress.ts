@@ -23,6 +23,8 @@ export interface CompressSessionOptions {
   env?: NodeJS.ProcessEnv;
   now?: Date;
   logger?: (line: string) => void;
+  /** Resume compression from this chunk index (contiguous window). Default 0. */
+  startChunk?: number;
 }
 
 export interface CompressSessionResult {
@@ -33,9 +35,16 @@ export interface CompressSessionResult {
   chunksCompressed: number;
   totalChunks: number;
   sampledChunks?: number;
+  /** Next chunk index to process next pass (== totalChunks when fully covered). */
+  chunkCursor: number;
+  /** The maxBytesPerCall this run chunked with — the resume fingerprint. */
+  chunkBytes: number;
 }
 
-export const CURRENT_COMPRESS_VERSION = 2;
+// v3: contiguous resumable windows replaced the fixed 8-chunk sample. Bumped so
+// lossy v2 watermarks (which marked files "complete" after sampling) are treated
+// as stale and re-covered under the new algorithm.
+export const CURRENT_COMPRESS_VERSION = 3;
 export const DEFAULT_COMPRESS_MAX_INPUT_BYTES = 48_000;
 export const DEFAULT_COMPRESS_CHUNK_THRESHOLD_BYTES = 48_000;
 export const DEFAULT_COMPRESS_MAX_CHUNKS = 8;
@@ -61,13 +70,19 @@ export async function compressSession(opts: CompressSessionOptions): Promise<Com
 export async function compressSessionWithUsage(opts: CompressSessionOptions): Promise<CompressSessionResult> {
   const config = resolveCompressConfig(opts);
   const allChunks = splitSessionIntoChunks(opts.rawText, config.maxBytesPerCall);
-  const selectedChunkIndexes = selectChunkIndexes(allChunks, config.maxChunks);
+  // Contiguous window [startChunk, startChunk + maxChunks). Each pass processes
+  // the next window and reports the cursor; the caller resumes from it. This
+  // replaces a fixed spread-sample that permanently excluded unsampled chunks.
+  const startChunk = Math.max(0, Math.min(opts.startChunk ?? 0, allChunks.length));
+  const endChunk = Math.min(allChunks.length, startChunk + config.maxChunks);
+  const selectedChunkIndexes = Array.from(
+    { length: endChunk - startChunk },
+    (_, offset) => startChunk + offset,
+  );
   const sampledChunks = selectedChunkIndexes.length < allChunks.length ? selectedChunkIndexes.length : undefined;
-  if (sampledChunks !== undefined) {
-    const skipped = allChunks.length - selectedChunkIndexes.length;
-    const indexes = selectedChunkIndexes.map((index) => index + 1).join(",");
+  if (endChunk < allChunks.length || startChunk > 0) {
     (opts.logger ?? console.warn)(
-      `memory compress: sampled ${selectedChunkIndexes.length}/${allChunks.length} chunks for ${opts.rawRelPath}; skipped ${skipped}; selected chunks ${indexes}`,
+      `memory compress: processing chunks ${startChunk + 1}-${endChunk} of ${allChunks.length} for ${opts.rawRelPath}; remainder resumes next pass`,
     );
   }
 
@@ -119,6 +134,8 @@ export async function compressSessionWithUsage(opts: CompressSessionOptions): Pr
     inputTokens,
     chunksCompressed: selectedChunkIndexes.length,
     totalChunks: allChunks.length,
+    chunkCursor: endChunk,
+    chunkBytes: config.maxBytesPerCall,
     ...(sampledChunks !== undefined ? { sampledChunks } : {}),
     ...(tokensUsed ? { tokensUsed } : {}),
   };
@@ -285,18 +302,32 @@ function buildCompressionRequest(opts: {
   };
 }
 
+/**
+ * The chunk-boundary fingerprint: chunk boundaries depend only on these three
+ * inputs, so the compress command stores this value and restarts a partial file
+ * from chunk 0 when it changes (a stale cursor would otherwise point into a
+ * different chunking). Shared here so the command computes it identically.
+ */
+export function resolveMaxBytesPerCall(config: {
+  maxInputBytes: number;
+  chunkThresholdBytes: number;
+  maxCallTokens: number;
+}): number {
+  const tokenSafeBytes = Math.max(1, config.maxCallTokens * 4);
+  return Math.max(1, Math.min(config.maxInputBytes, config.chunkThresholdBytes, tokenSafeBytes));
+}
+
 function resolveCompressConfig(opts: CompressSessionOptions): RuntimeCompressConfig {
   const maxInputBytes = positiveInteger(opts.maxInputBytes, DEFAULT_COMPRESS_MAX_INPUT_BYTES);
   const chunkThresholdBytes = positiveInteger(opts.chunkThresholdBytes, DEFAULT_COMPRESS_CHUNK_THRESHOLD_BYTES);
   const maxChunks = positiveInteger(opts.maxChunks, DEFAULT_COMPRESS_MAX_CHUNKS, 2);
   const maxCallTokens = positiveInteger(opts.maxCallTokens, DEFAULT_COMPRESS_MAX_CALL_TOKENS);
-  const tokenSafeBytes = Math.max(1, maxCallTokens * 4);
   return {
     maxInputBytes,
     chunkThresholdBytes,
     maxChunks,
     maxCallTokens,
-    maxBytesPerCall: Math.max(1, Math.min(maxInputBytes, chunkThresholdBytes, tokenSafeBytes)),
+    maxBytesPerCall: resolveMaxBytesPerCall({ maxInputBytes, chunkThresholdBytes, maxCallTokens }),
   };
 }
 
@@ -384,38 +415,8 @@ function splitByUtf8Bytes(text: string, maxBytes: number): string[] {
   return chunks;
 }
 
-function selectChunkIndexes(chunks: SessionChunk[], maxChunks: number): number[] {
-  const totalChunks = chunks.length;
-  if (totalChunks <= maxChunks) return Array.from({ length: totalChunks }, (_, index) => index);
-  const selected = new Set<number>([0, totalChunks - 1]);
-  const observationIndexes = chunks
-    .map((chunk, index) => /^## \[/m.test(chunk.text) ? index : -1)
-    .filter((index) => index >= 0);
-  for (const index of selectFromIndexes(observationIndexes, maxChunks - selected.size)) {
-    selected.add(index);
-  }
-  for (let slot = 0; slot < maxChunks; slot += 1) {
-    if (selected.size >= maxChunks) break;
-    selected.add(Math.round(slot * (totalChunks - 1) / (maxChunks - 1)));
-  }
-  for (let index = 0; selected.size < maxChunks && index < totalChunks; index += 1) {
-    selected.add(index);
-  }
-  return [...selected].sort((a, b) => a - b);
-}
 
-function selectFromIndexes(indexes: number[], limit: number): number[] {
-  if (limit <= 0 || indexes.length === 0) return [];
-  if (indexes.length <= limit) return indexes;
-  if (limit === 1) return [indexes[0]!];
-  const selected = new Set<number>();
-  for (let slot = 0; slot < limit; slot += 1) {
-    selected.add(indexes[Math.round(slot * (indexes.length - 1) / (limit - 1))]!);
-  }
-  return [...selected].sort((a, b) => a - b);
-}
-
-function mergeCompressedFacts(facts: CompressedFact[]): CompressedFact[] {
+export function mergeCompressedFacts(facts: CompressedFact[]): CompressedFact[] {
   const merged: CompressedFact[] = [];
   for (const fact of facts) {
     const existing = merged.find((candidate) => titleSimilarity(candidate.title, fact.title) >= 0.82);

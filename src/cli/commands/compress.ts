@@ -16,8 +16,15 @@ import {
   DEFAULT_COMPRESS_MAX_INPUT_BYTES,
   addTokenUsage,
   compressSessionWithUsage,
+  mergeCompressedFacts,
+  resolveMaxBytesPerCall,
 } from "../../facts/compress.js";
-import { writeCompressedFactFile } from "../../facts/store.js";
+import {
+  factFileRelPath,
+  readCompressedFactFile,
+  writeCompressedFactFile,
+  type CompressedFact,
+} from "../../facts/store.js";
 
 export interface CompressOptions {
   vaultRoot?: string;
@@ -81,10 +88,20 @@ export async function runCompress(opts: CompressOptions = {}): Promise<CompressR
     llm = (opts.llmFactory ?? createLLMFromConfig)(getActiveLLMConfig(config), env);
   }
 
+  const currentChunkBytes = resolveMaxBytesPerCall({
+    maxInputBytes: compressConfig.maxInputBytes,
+    chunkThresholdBytes: compressConfig.chunkThresholdBytes,
+    maxCallTokens: compressConfig.maxCallTokens,
+  });
+
   for (const raw of rawFiles) {
     const info = await stat(raw.fullPath);
     const watermark = compressed[raw.relPath];
-    if (watermark?.bytes === info.size && watermark.compressVersion === CURRENT_COMPRESS_VERSION) {
+    const versionMatches = watermark?.compressVersion === CURRENT_COMPRESS_VERSION;
+    const bytesMatch = watermark?.bytes === info.size;
+    const complete = versionMatches && bytesMatch
+      && (watermark!.chunkTotal === undefined || (watermark!.chunkCursor ?? 0) >= watermark!.chunkTotal);
+    if (complete) {
       files.push({ path: raw.relPath, outcome: "skipped", facts: 0, reason: "already compressed" });
       continue;
     }
@@ -101,6 +118,42 @@ export async function runCompress(opts: CompressOptions = {}): Promise<CompressR
       const rawText = await readFile(raw.fullPath, "utf-8");
       const sessionId = readSessionId(rawText) ?? basename(raw.relPath, ".md");
       const observedAt = observedAtFromRaw(raw.relPath, info.mtimeMs);
+      const factRelPath = factFileRelPath(raw.relPath, sessionId);
+
+      // Resume only when the file bytes AND the chunking fingerprint are
+      // unchanged — chunk boundaries derive from maxBytesPerCall, so a config
+      // change makes a stored cursor point into a different chunking.
+      let startChunk = versionMatches && bytesMatch
+        && watermark!.chunkBytes === currentChunkBytes
+        ? (watermark!.chunkCursor ?? 0)
+        : 0;
+
+      // Conservation (never advance over lost earlier windows): to resume, the
+      // prior fact artifact must exist AND parse to a facts array. If it is
+      // missing or malformed, restart from chunk 0 and overwrite instead of
+      // merging a resumed window onto nothing and advancing the cursor.
+      let priorFacts: CompressedFact[] = [];
+      if (startChunk > 0) {
+        const priorAbs = join(root, ...factRelPath.split("/"));
+        let priorValid = false;
+        if (existsSync(priorAbs)) {
+          try {
+            const priorRaw = await readFile(priorAbs, "utf-8");
+            const parsed: unknown = JSON.parse(priorRaw);
+            if (parsed && typeof parsed === "object" && Array.isArray((parsed as { facts?: unknown }).facts)) {
+              priorFacts = readCompressedFactFile(priorRaw);
+              priorValid = true;
+            }
+          } catch {
+            // malformed prior fact file — fall through to restart
+          }
+        }
+        if (!priorValid) {
+          startChunk = 0;
+          priorFacts = [];
+        }
+      }
+
       const result = await compressSessionWithUsage({
         rawText,
         rawRelPath: raw.relPath,
@@ -115,7 +168,13 @@ export async function runCompress(opts: CompressOptions = {}): Promise<CompressR
         env: opts.env,
         now: opts.now,
         logger: opts.logger,
+        startChunk,
       });
+
+      const mergedFacts = startChunk > 0
+        ? mergeCompressedFacts([...priorFacts, ...result.facts])
+        : result.facts;
+      const isComplete = result.chunkCursor >= result.totalChunks;
       const factPath = await writeCompressedFactFile(root, {
         version: 1,
         sourceRawPath: raw.relPath,
@@ -125,19 +184,28 @@ export async function runCompress(opts: CompressOptions = {}): Promise<CompressR
         inputTokens: result.inputTokens,
         chunksCompressed: result.chunksCompressed,
         totalChunks: result.totalChunks,
-        ...(result.sampledChunks !== undefined ? { sampledChunks: result.sampledChunks } : {}),
-        facts: result.facts,
+        // A completed file records no sampling flag (fully covered); a partial
+        // one carries it so diagnostics reflect the in-progress state.
+        ...(!isComplete && result.sampledChunks !== undefined ? { sampledChunks: result.sampledChunks } : {}),
+        facts: mergedFacts,
       });
-      compressed[raw.relPath] = { bytes: info.size, lastObservationAt: observedAt, compressVersion: CURRENT_COMPRESS_VERSION };
+      compressed[raw.relPath] = {
+        bytes: info.size,
+        lastObservationAt: observedAt,
+        compressVersion: CURRENT_COMPRESS_VERSION,
+        ...(isComplete
+          ? {}
+          : { chunkCursor: result.chunkCursor, chunkTotal: result.totalChunks, chunkBytes: result.chunkBytes }),
+      };
       files.push({
         path: raw.relPath,
         outcome: "compressed",
-        facts: result.facts.length,
+        facts: mergedFacts.length,
         factPath,
         inputTokens: result.inputTokens,
         chunksCompressed: result.chunksCompressed,
         totalChunks: result.totalChunks,
-        ...(result.sampledChunks !== undefined ? { sampledChunks: result.sampledChunks } : {}),
+        ...(!isComplete && result.sampledChunks !== undefined ? { sampledChunks: result.sampledChunks } : {}),
       });
       tokensUsed = addTokenUsage(tokensUsed, result.tokensUsed);
     } catch (err) {
