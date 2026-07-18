@@ -180,6 +180,13 @@ describe("readPage", () => {
     expect(text).toContain("windows, stability");
   });
 
+  it("accepts a wiki/-prefixed path so search results paste straight into read_page", async () => {
+    const direct = await readPage({ path: "projects/agentmemory.md" });
+    const prefixed = await readPage({ path: "wiki/projects/agentmemory.md" });
+    expect(prefixed.isError).toBeUndefined();
+    expect(prefixed.content[0]!.text).toBe(direct.content[0]!.text);
+  });
+
   it("bumps last_accessed without changing version when read through the MCP server", async () => {
     await writeFile(
       join(tmp, "wiki", "projects", "agentmemory.md"),
@@ -1127,7 +1134,7 @@ describe("memory.search MCP tool", () => {
       expect(result.isError).toBe(true);
       const text = textFromToolResult(result);
       expect(text).toContain("Search dashboard offline");
-      expect(text).toContain("dashboard URL");
+      expect(text).toContain("MEMORY_DASHBOARD_URL");
       expect(text).toContain("read_page");
       expect(text).toContain("list_pages");
     } finally {

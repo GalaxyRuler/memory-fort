@@ -63,7 +63,7 @@ export async function checkGitRemote(
     return fail(
       "git.remote",
       `git remote ${remoteName} reachable`,
-      "set `sync.remote_name` or run `memory sync-bootstrap --remote-name <name>`",
+      "set `sync.remote_name` in config.yaml to an existing remote, or add one with `git -C <vault> remote add <name> <url>` then run `memory sync`",
       error instanceof Error ? error.message : String(error),
     );
   }

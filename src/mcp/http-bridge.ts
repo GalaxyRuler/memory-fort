@@ -6,7 +6,7 @@ import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { secretsPath } from "../storage/paths.js";
 import { loadSecretsIntoEnv } from "../storage/secrets.js";
-import { createServer } from "./server.js";
+import { createServer, resolveDashboardBaseUrl } from "./server.js";
 import { loadBridgeTlsCert } from "./tls.js";
 
 const DEFAULT_PORT = 3100;
@@ -20,6 +20,9 @@ export async function startHttpBridge(port: number = DEFAULT_PORT): Promise<() =
   const streamableSessions = new Map<string, StreamableHTTPServerTransport>();
   const tlsCert = await loadBridgeTlsCert();
   const scheme = tlsCert ? "https" : "http";
+  // Resolve the dashboard URL once so the ChatGPT bridge honors the same
+  // env/config resolution as the stdio server instead of hardcoding :4410.
+  const dashboardUrl = await resolveDashboardBaseUrl();
 
   const handler = async (req: http.IncomingMessage, res: http.ServerResponse) => {
     try {
@@ -33,7 +36,7 @@ export async function startHttpBridge(port: number = DEFAULT_PORT): Promise<() =
 
       if (req.method === "GET" && url.pathname === "/sse") {
         const transport = new SSEServerTransport("/message", res);
-        const mcpServer = createServer();
+        const mcpServer = createServer({ dashboardUrl });
         await mcpServer.connect(transport);
         activeTransports.set(transport.sessionId, transport);
         res.on("close", () => {
@@ -77,7 +80,7 @@ export async function startHttpBridge(port: number = DEFAULT_PORT): Promise<() =
             };
           },
         });
-        const mcpServer = createServer();
+        const mcpServer = createServer({ dashboardUrl });
         await mcpServer.connect(transport);
         await transport.handleRequest(req, res);
         return;

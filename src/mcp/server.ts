@@ -123,11 +123,14 @@ export async function readPage(
   deps: ReadPageDeps = {},
 ): Promise<{ content: Array<{ type: "text"; text: string }>; isError?: boolean }> {
   const readFn = deps.readFile ?? readFile;
+  // Search results return vault-relative paths (wiki/references/x.md); accept
+  // those directly so `search` output pastes straight into `read_page`.
+  const relPath = input.path.replace(/^wiki\//, "");
   if (
-    input.path.includes("..") ||
-    input.path.startsWith("/") ||
-    /^[A-Z]:/.test(input.path) ||
-    isWikiDotDirectoryPath(`wiki/${input.path}`)
+    relPath.includes("..") ||
+    relPath.startsWith("/") ||
+    /^[A-Z]:/.test(relPath) ||
+    isWikiDotDirectoryPath(`wiki/${relPath}`)
   ) {
     return {
       content: [
@@ -140,7 +143,7 @@ export async function readPage(
     };
   }
 
-  const fullPath = join(wikiDir(), input.path);
+  const fullPath = join(wikiDir(), relPath);
   if (!existsSync(fullPath)) {
     return {
       content: [{ type: "text", text: `Page not found: ${input.path}` }],
@@ -150,7 +153,7 @@ export async function readPage(
 
   const content = await readFn(fullPath, "utf-8");
   const { frontmatter, body } = parseFrontmatter(content);
-  await bumpLastAccessed(`wiki/${input.path}`, deps.now?.() ?? new Date(), content).catch(() => undefined);
+  await bumpLastAccessed(`wiki/${relPath}`, deps.now?.() ?? new Date(), content).catch(() => undefined);
   return {
     content: [
       {
@@ -355,6 +358,28 @@ interface ApiSearchResponse {
 }
 
 const DEFAULT_SEARCH_BASE_URL = "http://127.0.0.1:4410/memory";
+
+/**
+ * Resolve the dashboard base URL: MEMORY_DASHBOARD_URL env > config.dashboard.url
+ * > config.vps.host > the default loopback:4410. The stdio server previously
+ * hardcoded 4410, so it could never reach a dashboard that port-fell-back to
+ * 4411-4419, and the offline error told users to set a URL that had no effect.
+ */
+export async function resolveDashboardBaseUrl(): Promise<string> {
+  const envUrl = process.env["MEMORY_DASHBOARD_URL"]?.trim();
+  if (envUrl) return trimTrailingSlash(envUrl);
+  try {
+    const config = await loadMemoryConfig(memoryRoot());
+    const configured = config.dashboard?.url?.trim();
+    if (configured) return trimTrailingSlash(configured);
+    const host = config.vps?.host?.trim();
+    if (host) return `https://${host}/memory`;
+  } catch {
+    // Unreadable config: fall through to the default loopback URL.
+  }
+  return DEFAULT_SEARCH_BASE_URL;
+}
+
 const DEFAULT_SEARCH_RESULT_LIMIT = 10;
 const MAX_SEARCH_RESULT_LIMIT = 50;
 const MAX_SEARCH_SIGNALS = 10;
@@ -423,8 +448,8 @@ export async function searchMemory(
   }
   if (!response) {
     return toolError(
-      "Search dashboard offline. Try: (a) start `memory dashboard`, " +
-        "(b) set the dashboard URL for this MCP server, " +
+      "Search dashboard offline. Try: (a) open the MemoryFort app or run `memory dashboard`, " +
+        "(b) if it runs elsewhere, set dashboard.url in config.yaml or the MEMORY_DASHBOARD_URL env var, " +
         "(c) use memory.read_page or memory.list_pages for offline browsing.",
     );
   }
@@ -520,7 +545,7 @@ export function createServer(deps: SearchDeps = {}): McpServer {
     "search",
     {
       description:
-        "Search the user's memory system (wiki + raw observations). Uses BM25 + Voyage embeddings + rerank + graph + metadata signals fused via RRF. Returns ranked results with snippets and provenance metadata. If query is short (≤5 words) AND no BM25 hits exist, the response includes a 'hyde_prompt_pending' field with a HyDE prompt the LLM can expand and re-submit via the 'hyde_expansion' parameter for better semantic matches.",
+        "Search the user's memory system (wiki + raw observations). Default backend: a local SQLite FTS5 BM25 index with metadata scoring (confidence/status/recency), plus a local vector layer fused via RRF when it is enabled. Honored parameters: query, k. scope/min_score/as_of/no_rerank are accepted for forward-compatibility but not yet applied by the default index backend (the response notes when they were ignored). Returns ranked results with snippets and provenance metadata.",
       inputSchema: SearchInput.shape,
     },
     async (args) => searchMemory(args, deps),
@@ -588,19 +613,22 @@ if (process.argv[1]?.endsWith("mcp-server.mjs")) {
   // Layer provider keys from the out-of-vault secrets file UNDER real env vars
   // so dashboard-entered keys are available to search/embeddings. Real env wins.
   loadSecretsIntoEnv(secretsPath());
-  const server = createServer();
-  const transport = new StdioServerTransport();
-  embeddingProviderPreflight()
-    .then((warnings) => {
-      for (const warning of warnings) console.error(`[memory-mcp] warning: ${warning}`);
-    })
-    .catch((err: unknown) => {
-      console.error(`[memory-mcp] warning: preflight failed: ${(err as Error).message}`);
+  void (async () => {
+    const dashboardUrl = await resolveDashboardBaseUrl();
+    const server = createServer({ dashboardUrl });
+    const transport = new StdioServerTransport();
+    embeddingProviderPreflight()
+      .then((warnings) => {
+        for (const warning of warnings) console.error(`[memory-mcp] warning: ${warning}`);
+      })
+      .catch((err: unknown) => {
+        console.error(`[memory-mcp] warning: preflight failed: ${(err as Error).message}`);
+      });
+    server.connect(transport).catch((err: unknown) => {
+      console.error(`[memory-mcp] fatal: ${(err as Error).message}`);
+      process.exit(1);
     });
-  server.connect(transport).catch((err: unknown) => {
-    console.error(`[memory-mcp] fatal: ${(err as Error).message}`);
-    process.exit(1);
-  });
+  })();
 }
 
 function isToolName(value: unknown): value is ToolName {
