@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { mkdir, readdir, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { memoryRoot } from "../../../storage/paths.js";
 
 export type RuntimeScriptTarget = "hooks" | "plugin-scripts";
@@ -98,9 +98,9 @@ export async function ensurePluginScriptLaunchers(
 }
 
 export function resolvePackageRoot(startDir?: string): string {
-  let dir =
-    startDir ??
-    dirname(new URL(import.meta.url).pathname).replace(/^\/(\w):/, "$1:");
+  // fileURLToPath decodes %20 etc.; bare URL.pathname breaks installs under
+  // paths with spaces (e.g. Windows "Jane Doe" profiles).
+  let dir = startDir ?? dirname(fileURLToPath(import.meta.url));
   for (let i = 0; i < 10; i++) {
     if (existsSync(join(dir, "package.json"))) return dir;
     const parent = dirname(dir);
