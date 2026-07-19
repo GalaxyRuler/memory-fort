@@ -31,6 +31,13 @@ describe("runDisconnect", () => {
       OPENCODE_CONFIG_DIR: process.env["OPENCODE_CONFIG_DIR"],
       MEMORY_VSCODE_USER_DIR: process.env["MEMORY_VSCODE_USER_DIR"],
       MEMORY_VSCODE_EXTENSION_DIR: process.env["MEMORY_VSCODE_EXTENSION_DIR"],
+      // ChatGPT bridge PID/cert roots (otherwise full disconnect hits real home)
+      MEMORY_CHATGPT_BRIDGE_CERT_DIR: process.env["MEMORY_CHATGPT_BRIDGE_CERT_DIR"],
+      MEMORY_CHATGPT_BRIDGE_PID_PATH: process.env["MEMORY_CHATGPT_BRIDGE_PID_PATH"],
+      APPDATA: process.env["APPDATA"],
+      LOCALAPPDATA: process.env["LOCALAPPDATA"],
+      XDG_CONFIG_HOME: process.env["XDG_CONFIG_HOME"],
+      XDG_RUNTIME_DIR: process.env["XDG_RUNTIME_DIR"],
     };
     process.env["MEMORY_ROOT"] = memDir;
     process.env["MEMORY_REPO_DIR"] = join(tmp, "repo");
@@ -45,7 +52,14 @@ describe("runDisconnect", () => {
     process.env["OPENCODE_CONFIG_DIR"] = join(tmp, ".config", "opencode");
     process.env["MEMORY_VSCODE_USER_DIR"] = join(tmp, "Code", "User");
     process.env["MEMORY_VSCODE_EXTENSION_DIR"] = join(tmp, "extensions");
+    process.env["MEMORY_CHATGPT_BRIDGE_CERT_DIR"] = join(tmp, "chatgpt-bridge-cert");
+    process.env["MEMORY_CHATGPT_BRIDGE_PID_PATH"] = join(tmp, "chatgpt-bridge.pid");
+    process.env["APPDATA"] = join(tmp, "AppData", "Roaming");
+    process.env["LOCALAPPDATA"] = join(tmp, "AppData", "Local");
+    process.env["XDG_CONFIG_HOME"] = join(tmp, "xdg-config");
+    process.env["XDG_RUNTIME_DIR"] = join(tmp, "xdg-runtime");
     await mkdir(join(tmp, "repo", "dist", "hooks"), { recursive: true });
+    await mkdir(join(tmp, "xdg-runtime"), { recursive: true });
     await writeFile(join(tmp, "repo", "package.json"), "{}\n");
     await runInit({ sourceRepoDir: process.cwd() });
   });

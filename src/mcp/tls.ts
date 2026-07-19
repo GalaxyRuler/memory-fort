@@ -93,8 +93,13 @@ export async function trustBridgeCert(): Promise<{ trusted: boolean; message: st
 
 /**
  * Remove the bridge cert from the OS trust store.
+ * No-ops when cert.pem is absent so tests / partial installs never touch the
+ * real OS trust store for a cert we did not materialize in this environment.
  */
 export async function untrustBridgeCert(): Promise<void> {
+  const certPath = join(chatgptBridgeCertDir(), "cert.pem");
+  if (!existsSync(certPath)) return;
+
   if (process.platform === "win32") {
     try {
       await execFileAsync("certutil", ["-delstore", "-user", "Root", "Memory Fort Bridge"]);

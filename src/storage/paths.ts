@@ -135,8 +135,11 @@ export function secretsPath(): string {
 /**
  * Directory containing the self-signed TLS cert+key for the ChatGPT bridge.
  * Stored outside the vault so private keys never enter git.
+ * Override with MEMORY_CHATGPT_BRIDGE_CERT_DIR for tests / isolated installs.
  */
 export function chatgptBridgeCertDir(): string {
+  const override = process.env["MEMORY_CHATGPT_BRIDGE_CERT_DIR"]?.trim();
+  if (override) return override;
   const appData = process.env["APPDATA"]; // Windows
   if (appData) return join(appData, "memory-fort", "chatgpt-bridge-cert");
   if (process.platform === "darwin") {
@@ -151,8 +154,11 @@ export function chatgptBridgeCertDir(): string {
  * Path to the PID file for the running ChatGPT bridge process.
  * Deliberately OUTSIDE the git-backed vault so it never blocks auto-commit.
  * Uses LOCALAPPDATA on Windows, XDG_RUNTIME_DIR or /tmp elsewhere.
+ * Override with MEMORY_CHATGPT_BRIDGE_PID_PATH for tests / isolated installs.
  */
 export function chatgptBridgePidPath(): string {
+  const override = process.env["MEMORY_CHATGPT_BRIDGE_PID_PATH"]?.trim();
+  if (override) return override;
   const localAppData = process.env["LOCALAPPDATA"]; // Windows
   if (localAppData) return join(localAppData, "memory-fort", "chatgpt-bridge.pid");
   const xdgRuntime = process.env["XDG_RUNTIME_DIR"];
