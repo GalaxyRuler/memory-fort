@@ -283,4 +283,27 @@ describe("proposal ledger", () => {
     await writeFile(resolvedProposalsPath(tmp), "not json", "utf-8");
     expect(await isProposalResolved(tmp, operation)).toBe(false);
   });
+
+  it("serializes concurrent recordProposalResolved so both entries survive", async () => {
+    const opA = {
+      kind: "rewrite_page",
+      path: "wiki/projects/a.md",
+      body: "Body A.",
+    };
+    const opB = {
+      kind: "rewrite_page",
+      path: "wiki/projects/b.md",
+      body: "Body B.",
+    };
+
+    await Promise.all([
+      recordProposalResolved(tmp, opA, "approved", { path: "wiki/projects/a.md" }),
+      recordProposalResolved(tmp, opB, "rejected", { path: "wiki/projects/b.md" }),
+    ]);
+
+    const ledger = await readResolvedProposals(tmp);
+    expect(Object.keys(ledger)).toHaveLength(2);
+    expect(await isProposalResolved(tmp, opA)).toBe(true);
+    expect(await isProposalResolved(tmp, opB)).toBe(true);
+  });
 });

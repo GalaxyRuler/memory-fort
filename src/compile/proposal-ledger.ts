@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { atomicWrite } from "../storage/atomic-write.js";
+import { withFileLock } from "../storage/file-lock.js";
 
 /**
  * Ledger of human-resolved compile proposals. Once an operation has been
@@ -156,14 +157,41 @@ export async function readResolvedProposals(vaultRoot: string): Promise<Record<s
   }
 }
 
+async function writeResolvedProposals(
+  vaultRoot: string,
+  resolved: Record<string, ResolvedProposalEntry>,
+): Promise<void> {
+  await atomicWrite(
+    resolvedProposalsPath(vaultRoot),
+    `${JSON.stringify({ resolved }, null, 2)}\n`,
+  );
+}
+
+/**
+ * Serialize ledger read-modify-write (promote/reject + migration) so concurrent
+ * dashboard resolutions cannot clobber each other's entries.
+ */
+async function mutateResolvedProposals<T>(
+  vaultRoot: string,
+  mutator: (resolved: Record<string, ResolvedProposalEntry>) => T | Promise<T>,
+): Promise<T> {
+  return withFileLock(resolvedProposalsPath(vaultRoot), async () => {
+    const resolved = await readResolvedProposals(vaultRoot);
+    const result = await mutator(resolved);
+    await writeResolvedProposals(vaultRoot, resolved);
+    return result;
+  });
+}
+
 export async function isProposalResolved(vaultRoot: string, operation: unknown): Promise<boolean> {
-  const resolved = await readResolvedProposals(vaultRoot);
   const canonicalKey = hashCompileOperationForLedger(operation);
   const lookupKeys = new Set(ledgerLookupKeysForOperation(operation));
 
+  // Fast path: read without lock when no migration write is needed.
+  const snapshot = await readResolvedProposals(vaultRoot);
   let matchedEntry: ResolvedProposalEntry | undefined;
   let matchedKey: string | undefined;
-  for (const [key, entry] of Object.entries(resolved)) {
+  for (const [key, entry] of Object.entries(snapshot)) {
     if (lookupKeys.has(key) || entry.stableKey === canonicalKey) {
       matchedEntry = entry;
       matchedKey = key;
@@ -171,23 +199,30 @@ export async function isProposalResolved(vaultRoot: string, operation: unknown):
     }
   }
   if (!matchedEntry || matchedKey === undefined) return false;
+  if (matchedKey === canonicalKey && matchedEntry.stableKey === canonicalKey) return true;
 
-  // Migrate legacy map keys / missing stableKey onto the canonical form.
-  if (matchedKey !== canonicalKey || matchedEntry.stableKey !== canonicalKey) {
-    for (const key of lookupKeys) {
-      if (key !== canonicalKey) delete resolved[key];
+  // Migrate legacy map keys / missing stableKey onto the canonical form under lock.
+  return mutateResolvedProposals(vaultRoot, (resolved) => {
+    let entry: ResolvedProposalEntry | undefined;
+    let key: string | undefined;
+    for (const [k, e] of Object.entries(resolved)) {
+      if (lookupKeys.has(k) || e.stableKey === canonicalKey) {
+        entry = e;
+        key = k;
+        break;
+      }
     }
-    if (matchedKey !== canonicalKey) delete resolved[matchedKey];
+    if (!entry || key === undefined) return false;
+    for (const lookupKey of lookupKeys) {
+      if (lookupKey !== canonicalKey) delete resolved[lookupKey];
+    }
+    if (key !== canonicalKey) delete resolved[key];
     resolved[canonicalKey] = {
-      ...matchedEntry,
+      ...entry,
       stableKey: canonicalKey,
     };
-    await atomicWrite(
-      resolvedProposalsPath(vaultRoot),
-      `${JSON.stringify({ resolved }, null, 2)}\n`,
-    );
-  }
-  return true;
+    return true;
+  });
 }
 
 export async function recordProposalResolved(
@@ -196,7 +231,6 @@ export async function recordProposalResolved(
   action: ResolvedProposalEntry["action"],
   opts: { now?: Date; path?: string } = {},
 ): Promise<void> {
-  const resolved = await readResolvedProposals(vaultRoot);
   const canonicalKey = hashCompileOperationForLedger(operation);
   const entry: ResolvedProposalEntry = {
     action,
@@ -204,17 +238,15 @@ export async function recordProposalResolved(
     stableKey: canonicalKey,
     ...(opts.path ? { path: opts.path } : {}),
   };
-  // Drop legacy alias keys so the ledger migrates toward the canonical hash.
-  for (const key of ledgerLookupKeysForOperation(operation)) {
-    if (key !== canonicalKey) delete resolved[key];
-  }
-  // Also drop any prior entry that only carried this stableKey under another map key.
-  for (const [key, existing] of Object.entries(resolved)) {
-    if (key !== canonicalKey && existing.stableKey === canonicalKey) delete resolved[key];
-  }
-  resolved[canonicalKey] = entry;
-  await atomicWrite(
-    resolvedProposalsPath(vaultRoot),
-    `${JSON.stringify({ resolved }, null, 2)}\n`,
-  );
+  await mutateResolvedProposals(vaultRoot, (resolved) => {
+    // Drop legacy alias keys so the ledger migrates toward the canonical hash.
+    for (const key of ledgerLookupKeysForOperation(operation)) {
+      if (key !== canonicalKey) delete resolved[key];
+    }
+    // Also drop any prior entry that only carried this stableKey under another map key.
+    for (const [key, existing] of Object.entries(resolved)) {
+      if (key !== canonicalKey && existing.stableKey === canonicalKey) delete resolved[key];
+    }
+    resolved[canonicalKey] = entry;
+  });
 }
