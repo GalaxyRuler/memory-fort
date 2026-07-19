@@ -235,6 +235,17 @@ describe("autoCommitRawsIfDirty", () => {
     });
   });
 
+  it("does not treat package lockfiles as transient artifacts", async () => {
+    const { runner } = makeRunner(() => ({
+      stdout: "?? yarn.lock\n?? Gemfile.lock\n?? raw/x.md.lock\n",
+    }));
+
+    await expect(autoCommitRawsIfDirty({ memoryRoot: "/mem", runner })).resolves.toEqual({
+      kind: "skipped-non-raw-dirty",
+      dirtyNonRawFiles: ["yarn.lock", "Gemfile.lock"],
+    });
+  });
+
   it("commits when wiki/ is dirty (system-managed)", async () => {
     const { runner, calls } = makeRunner((call) => {
       if (call.args[0] === "status") return { stdout: " M wiki/projects/foo.md\n M raw/2026-05-21/foo.md\n" };

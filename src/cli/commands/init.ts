@@ -74,8 +74,10 @@ claude-code-plugin/
 # Verify probes + in-flight atomic-write temps (never data; orphans wedge sync)
 raw/*.tmp
 raw/**/*.tmp
-# withRawFileLock sidecars (raw, config, embeddings, etc.)
-**/*.lock
+# withFileLock/withRawFileLock sidecars: <file-with-ext>.lock
+# (not package lockfiles like yarn.lock / Gemfile.lock / Cargo.lock)
+**/*.*.lock
+.auto-push-pending.lock
 `;
 
 const GITATTRIBUTES_CONTENT = `*.md text eol=lf

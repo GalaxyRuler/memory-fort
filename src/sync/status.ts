@@ -160,10 +160,13 @@ function parseDirtyFiles(output: string): string[] {
 }
 
 function isTransientVaultArtifact(path: string): boolean {
-  const name = path.split("/").at(-1) ?? path;
+  const name = path.replace(/\\/g, "/").split("/").at(-1) ?? path;
+  // withFileLock creates `${targetPath}.lock` for files that already have an
+  // extension (foo.md.lock, config.yaml.lock, .sync-state.json.lock). Do not
+  // treat package lockfiles (yarn.lock, Gemfile.lock, Cargo.lock) as transient.
   return (
-    name.endsWith(".lock")
-    || name === ".auto-push-pending.lock"
+    name === ".auto-push-pending.lock"
+    || /\.[^./]+\.lock$/.test(name)
     || /\.\d+\.\d+\.[0-9a-fA-F-]+\.tmp$/.test(name)
   );
 }

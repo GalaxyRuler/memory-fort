@@ -131,4 +131,27 @@ describe("getSyncStatus", () => {
 
     await expect(readSyncStateFile(tmp)).resolves.toEqual(await defaultSyncStateFile());
   });
+
+  it("getSyncStatus ignores withFileLock sidecars but not package lockfiles", async () => {
+    const runner = makeRunner((call) =>
+      call.args.includes("--porcelain")
+        ? {
+          stdout: [
+            "?? raw/2026-05-21/foo.md.lock",
+            "?? config.yaml.lock",
+            "?? .sync-state.json.lock",
+            "?? .auto-push-pending.lock",
+            " M scripts/yarn.lock",
+            "?? Gemfile.lock",
+            "",
+          ].join("\n"),
+        }
+        : { stdout: "0\t0\n" },
+    );
+
+    const status = await getSyncStatus(ctx(runner));
+
+    expect(status.state).toBe("dirty");
+    expect(status.dirtyFiles).toEqual(["scripts/yarn.lock", "Gemfile.lock"]);
+  });
 });
