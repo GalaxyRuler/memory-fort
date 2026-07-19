@@ -55,11 +55,48 @@ export function canonicalizeCompileOperationForLedger(operation: unknown): unkno
   return operation;
 }
 
+function rawHashCompileOperationForLedger(operation: unknown): string {
+  return createHash("sha256").update(JSON.stringify(operation)).digest("hex").slice(0, 32);
+}
+
 export function hashCompileOperationForLedger(operation: unknown): string {
-  return createHash("sha256")
-    .update(JSON.stringify(canonicalizeCompileOperationForLedger(operation)))
-    .digest("hex")
-    .slice(0, 32);
+  return rawHashCompileOperationForLedger(canonicalizeCompileOperationForLedger(operation));
+}
+
+/**
+ * Keys that may identify this operation in a ledger file, including pre-upgrade
+ * hashes that used raw JSON.stringify without frontmatter normalization.
+ */
+export function ledgerLookupKeysForOperation(operation: unknown): string[] {
+  const keys = new Set<string>();
+  keys.add(hashCompileOperationForLedger(operation));
+  keys.add(rawHashCompileOperationForLedger(operation));
+  // Pre-canonical ledgers stored rewrite/write without frontmatter: {}.
+  const stripped = stripEmptyFrontmatterForLegacyLookup(operation);
+  if (stripped !== undefined) {
+    keys.add(rawHashCompileOperationForLedger(stripped));
+  }
+  return [...keys];
+}
+
+function stripEmptyFrontmatterForLegacyLookup(operation: unknown): unknown | undefined {
+  if (typeof operation !== "object" || operation === null || Array.isArray(operation)) {
+    return undefined;
+  }
+  const record = operation as Record<string, unknown>;
+  if (
+    (record.kind !== "rewrite_page" && record.kind !== "write_page")
+    || typeof record.path !== "string"
+    || typeof record.body !== "string"
+  ) {
+    return undefined;
+  }
+  if (!Object.prototype.hasOwnProperty.call(record, "frontmatter")) return undefined;
+  const fm = record.frontmatter;
+  const empty = typeof fm === "object" && fm !== null && !Array.isArray(fm)
+    && Object.keys(fm as object).length === 0;
+  if (!empty) return undefined;
+  return { kind: record.kind, path: record.path, body: record.body };
 }
 
 export async function readResolvedProposals(vaultRoot: string): Promise<Record<string, ResolvedProposalEntry>> {
@@ -75,7 +112,7 @@ export async function readResolvedProposals(vaultRoot: string): Promise<Record<s
 
 export async function isProposalResolved(vaultRoot: string, operation: unknown): Promise<boolean> {
   const resolved = await readResolvedProposals(vaultRoot);
-  return hashCompileOperationForLedger(operation) in resolved;
+  return ledgerLookupKeysForOperation(operation).some((key) => key in resolved);
 }
 
 export async function recordProposalResolved(
@@ -85,11 +122,17 @@ export async function recordProposalResolved(
   opts: { now?: Date; path?: string } = {},
 ): Promise<void> {
   const resolved = await readResolvedProposals(vaultRoot);
-  resolved[hashCompileOperationForLedger(operation)] = {
+  const entry: ResolvedProposalEntry = {
     action,
     resolvedAt: (opts.now ?? new Date()).toISOString(),
     ...(opts.path ? { path: opts.path } : {}),
   };
+  const canonicalKey = hashCompileOperationForLedger(operation);
+  // Drop legacy alias keys so the ledger migrates toward the canonical hash.
+  for (const key of ledgerLookupKeysForOperation(operation)) {
+    if (key !== canonicalKey) delete resolved[key];
+  }
+  resolved[canonicalKey] = entry;
   await atomicWrite(
     resolvedProposalsPath(vaultRoot),
     `${JSON.stringify({ resolved }, null, 2)}\n`,

@@ -517,7 +517,7 @@ async function runCompileImpl(
   const execution = opts.execute
     ? await executeCompilePrompt({ ...opts, root, prompt, hasRawContent: rawContentBlocks.length > 0 })
     : undefined;
-  const watermarksAdvanced = await maybeAdvanceWatermarks({
+  const { advanced: watermarksAdvanced, contentAdvanced } = await maybeAdvanceWatermarks({
     root,
     watermarkMode,
     plan: opts.plan,
@@ -534,7 +534,11 @@ async function runCompileImpl(
     }
     lowSignalQuarantined = committedLowSignalQuarantines.length;
   }
-  if (watermarksAdvanced.length > 0) {
+  // Only clear the ops journal when content-bearing included watermarks advance.
+  // Noise-only skips can advance watermarks while content raw stays frozen
+  // (e.g. mixed applied+proposed); clearing early drops the replay guard and
+  // can re-run non-idempotent applied ops (append_log) on the next pass.
+  if (contentAdvanced.length > 0) {
     await clearOpsJournal(root);
   }
   if (rawFilterEnabled && filterStats.filesFiltered > 0) {
@@ -1047,10 +1051,11 @@ async function maybeAdvanceWatermarks(opts: {
   execution?: CompileResult["execution"];
   includedWatermarks: IncludedRawWatermark[];
   noiseOnlyWatermarks?: IncludedRawWatermark[];
-}): Promise<string[]> {
-  if (opts.watermarkMode !== "gated") return [];
-  if (opts.plan) return [];
+}): Promise<{ advanced: string[]; contentAdvanced: string[] }> {
+  if (opts.watermarkMode !== "gated") return { advanced: [], contentAdvanced: [] };
+  if (opts.plan) return { advanced: [], contentAdvanced: [] };
   const advanced: IncludedRawWatermark[] = [];
+  const contentAdvanced: IncludedRawWatermark[] = [];
   if (opts.execute && opts.noiseOnlyWatermarks && opts.noiseOnlyWatermarks.length > 0) {
     advanced.push(...opts.noiseOnlyWatermarks);
   }
@@ -1070,8 +1075,9 @@ async function maybeAdvanceWatermarks(opts: {
     )
   ) {
     advanced.push(...opts.includedWatermarks);
+    contentAdvanced.push(...opts.includedWatermarks);
   }
-  if (advanced.length === 0) return [];
+  if (advanced.length === 0) return { advanced: [], contentAdvanced: [] };
 
   await mutateCompileStateFile(opts.root, (state) => {
     const consumed = readConsumedMap(state);
@@ -1083,7 +1089,10 @@ async function maybeAdvanceWatermarks(opts: {
     }
     return { ...state, consumed };
   });
-  return advanced.map((item) => item.relPath);
+  return {
+    advanced: advanced.map((item) => item.relPath),
+    contentAdvanced: contentAdvanced.map((item) => item.relPath),
+  };
 }
 
 async function resetConsumedWatermarks(

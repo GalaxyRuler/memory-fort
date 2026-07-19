@@ -79,6 +79,47 @@ describe("proposal ledger", () => {
     }));
   });
 
+  it("recognizes pre-canonical ledger keys without frontmatter", async () => {
+    const { createHash } = await import("node:crypto");
+    const { mkdir, writeFile } = await import("node:fs/promises");
+    const { dirname } = await import("node:path");
+    // Simulate a vault that resolved the op before frontmatter canonicalization.
+    const legacyKey = createHash("sha256")
+      .update(JSON.stringify(operation))
+      .digest("hex")
+      .slice(0, 32);
+    const path = resolvedProposalsPath(tmp);
+    await mkdir(dirname(path), { recursive: true });
+    await writeFile(
+      path,
+      `${JSON.stringify({
+        resolved: {
+          [legacyKey]: {
+            action: "approved",
+            resolvedAt: "2026-06-10T00:00:00.000Z",
+            path: "wiki/projects/example.md",
+          },
+        },
+      }, null, 2)}\n`,
+    );
+
+    expect(await isProposalResolved(tmp, operation)).toBe(true);
+    expect(await isProposalResolved(tmp, {
+      ...operation,
+      frontmatter: {},
+    })).toBe(true);
+
+    // Re-recording migrates the entry onto the canonical key.
+    await recordProposalResolved(tmp, { ...operation, frontmatter: {} }, "approved", {
+      now: new Date("2026-06-11T00:00:00Z"),
+    });
+    const ledger = JSON.parse(await readFile(path, "utf-8"));
+    expect(ledger.resolved[legacyKey]).toBeUndefined();
+    expect(ledger.resolved[hashCompileOperationForLedger(operation)]).toMatchObject({
+      action: "approved",
+    });
+  });
+
   it("does not mark a different operation as resolved", async () => {
     await recordProposalResolved(tmp, operation, "rejected");
     expect(await isProposalResolved(tmp, { ...operation, body: "Different body." })).toBe(false);
