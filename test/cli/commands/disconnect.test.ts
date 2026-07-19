@@ -34,6 +34,7 @@ describe("runDisconnect", () => {
       // ChatGPT bridge PID/cert roots (otherwise full disconnect hits real home)
       MEMORY_CHATGPT_BRIDGE_CERT_DIR: process.env["MEMORY_CHATGPT_BRIDGE_CERT_DIR"],
       MEMORY_CHATGPT_BRIDGE_PID_PATH: process.env["MEMORY_CHATGPT_BRIDGE_PID_PATH"],
+      MEMORY_CHATGPT_SKIP_OS_TRUST_STORE: process.env["MEMORY_CHATGPT_SKIP_OS_TRUST_STORE"],
       APPDATA: process.env["APPDATA"],
       LOCALAPPDATA: process.env["LOCALAPPDATA"],
       XDG_CONFIG_HOME: process.env["XDG_CONFIG_HOME"],
@@ -54,6 +55,9 @@ describe("runDisconnect", () => {
     process.env["MEMORY_VSCODE_EXTENSION_DIR"] = join(tmp, "extensions");
     process.env["MEMORY_CHATGPT_BRIDGE_CERT_DIR"] = join(tmp, "chatgpt-bridge-cert");
     process.env["MEMORY_CHATGPT_BRIDGE_PID_PATH"] = join(tmp, "chatgpt-bridge.pid");
+    // Production untrust still runs by cert name when PEM is missing; tests
+    // must not mutate the developer/CI OS trust store.
+    process.env["MEMORY_CHATGPT_SKIP_OS_TRUST_STORE"] = "1";
     process.env["APPDATA"] = join(tmp, "AppData", "Roaming");
     process.env["LOCALAPPDATA"] = join(tmp, "AppData", "Local");
     process.env["XDG_CONFIG_HOME"] = join(tmp, "xdg-config");

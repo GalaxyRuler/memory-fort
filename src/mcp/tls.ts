@@ -93,12 +93,15 @@ export async function trustBridgeCert(): Promise<{ trusted: boolean; message: st
 
 /**
  * Remove the bridge cert from the OS trust store.
- * No-ops when cert.pem is absent so tests / partial installs never touch the
- * real OS trust store for a cert we did not materialize in this environment.
+ * Always attempts name-based removal even when cert.pem is gone (certutil /
+ * security delete by CN, not PEM path) so uninstall still cleans a previously
+ * trusted root after the files were deleted or the cert dir moved.
+ *
+ * Tests set MEMORY_CHATGPT_SKIP_OS_TRUST_STORE=1 to avoid mutating the host
+ * trust store; PID/cert file paths stay isolated via MEMORY_CHATGPT_BRIDGE_*.
  */
 export async function untrustBridgeCert(): Promise<void> {
-  const certPath = join(chatgptBridgeCertDir(), "cert.pem");
-  if (!existsSync(certPath)) return;
+  if (process.env["MEMORY_CHATGPT_SKIP_OS_TRUST_STORE"] === "1") return;
 
   if (process.platform === "win32") {
     try {
