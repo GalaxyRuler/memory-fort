@@ -5,6 +5,7 @@ import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { memoryRoot, logPath } from "../../../storage/paths.js";
 import { atomicWrite, atomicAppend } from "../../../storage/atomic-write.js";
+import { ensurePluginScriptLaunchers } from "./materialize-runtime-scripts.js";
 
 export interface InstallAntigravityOptions {
   /** Override ~/.gemini/antigravity/ (default). */
@@ -15,6 +16,8 @@ export interface InstallAntigravityOptions {
   antigravityVersion?: string | null;
   /** For tests. */
   now?: Date;
+  /** Built package root containing dist/hooks (tests / portable installs). */
+  repoDir?: string;
 }
 
 export interface InstallAntigravityResult {
@@ -57,6 +60,14 @@ export async function installAntigravity(
   const pluginDir = join(antigravityDir, "plugins", "memory");
 
   const log: string[] = [];
+
+  const materialized = await ensurePluginScriptLaunchers({
+    repoDir: opts.repoDir,
+    generatedBy: "memory install antigravity",
+  });
+  log.push(
+    `materialized ${materialized.written.length} plugin script launchers under ${materialized.pluginScriptsDir}`,
+  );
 
   let existing: Record<string, unknown> = {};
   let configCreated = false;

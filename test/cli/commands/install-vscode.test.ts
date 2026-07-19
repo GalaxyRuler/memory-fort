@@ -5,6 +5,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { runInit } from "../../../src/cli/commands/init.js";
 import { installVsCode, resolveVsCodeUserDir } from "../../../src/cli/commands/install/vscode.js";
+import { seedBuiltHooks } from "./install/seed-built-hooks.js";
 
 describe("installVsCode", () => {
   let tmp: string;
@@ -15,6 +16,7 @@ describe("installVsCode", () => {
   let origMem: string | undefined;
   let origUserDir: string | undefined;
   let origAppData: string | undefined;
+  let origRepo: string | undefined;
 
   beforeEach(async () => {
     tmp = await mkdtemp(join(tmpdir(), "install-vscode-"));
@@ -22,10 +24,14 @@ describe("installVsCode", () => {
     userDir = join(tmp, "Code", "User");
     workspaceDir = join(tmp, "workspace");
     extensionDir = join(tmp, "extensions");
+    const repoDir = join(tmp, "repo");
+    await seedBuiltHooks(repoDir);
     origMem = process.env["MEMORY_ROOT"];
     origUserDir = process.env["MEMORY_VSCODE_USER_DIR"];
     origAppData = process.env["APPDATA"];
+    origRepo = process.env["MEMORY_REPO_DIR"];
     process.env["MEMORY_ROOT"] = memDir;
+    process.env["MEMORY_REPO_DIR"] = repoDir;
     await runInit({ sourceRepoDir: process.cwd() });
   });
 
@@ -36,6 +42,8 @@ describe("installVsCode", () => {
     else process.env["MEMORY_VSCODE_USER_DIR"] = origUserDir;
     if (origAppData === undefined) delete process.env["APPDATA"];
     else process.env["APPDATA"] = origAppData;
+    if (origRepo === undefined) delete process.env["MEMORY_REPO_DIR"];
+    else process.env["MEMORY_REPO_DIR"] = origRepo;
     await rm(tmp, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
   });
 

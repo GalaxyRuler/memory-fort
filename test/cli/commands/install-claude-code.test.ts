@@ -26,6 +26,8 @@ describe("installClaudeCode", () => {
       "post-tool-use",
       "pre-compact",
       "session-end",
+      "mcp-server",
+      "opencode-event",
     ]) {
       await writeFile(join(repoDir, "dist", "hooks", `${hook}.mjs`), "// stub\n");
     }

@@ -4,12 +4,15 @@ import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { memoryRoot, logPath } from "../../../storage/paths.js";
 import { atomicWrite, atomicAppend } from "../../../storage/atomic-write.js";
+import { ensurePluginScriptLaunchers } from "./materialize-runtime-scripts.js";
 
 export interface InstallCodexOptions {
   /** Override `~/.codex/` (default: homedir + '.codex'). */
   codexDir?: string;
   /** For tests. */
   now?: Date;
+  /** Built package root containing dist/hooks (tests / portable installs). */
+  repoDir?: string;
 }
 
 export interface InstallCodexResult {
@@ -115,6 +118,15 @@ export async function installCodex(
   const log: string[] = [];
   let existing = "";
   let configCreated = false;
+
+  const materialized = await ensurePluginScriptLaunchers({
+    repoDir: opts.repoDir,
+    generatedBy: "memory install codex",
+  });
+  log.push(
+    `materialized ${materialized.written.length} plugin script launchers under ${materialized.pluginScriptsDir}`,
+  );
+
   if (existsSync(configPath)) {
     existing = await readFile(configPath, "utf-8");
   } else {

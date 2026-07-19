@@ -5,22 +5,28 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runInstallPi } from "../../../src/cli/commands/install/pi.js";
 import { runUninstall } from "../../../src/cli/commands/uninstall.js";
+import { seedBuiltHooks } from "./install/seed-built-hooks.js";
 
 describe("runInstallPi", () => {
   let tmp: string;
   let memDir: string;
   let piDir: string;
+  let repoDir: string;
   let envBefore: Record<string, string | undefined>;
 
   beforeEach(async () => {
     tmp = await mkdtemp(join(tmpdir(), "install-pi-"));
     memDir = join(tmp, ".memory");
     piDir = join(tmp, ".pi");
+    repoDir = join(tmp, "repo");
+    await seedBuiltHooks(repoDir);
     envBefore = {
       MEMORY_ROOT: process.env["MEMORY_ROOT"],
       MEMORY_PI_DIR: process.env["MEMORY_PI_DIR"],
+      MEMORY_REPO_DIR: process.env["MEMORY_REPO_DIR"],
     };
     process.env["MEMORY_ROOT"] = memDir;
+    process.env["MEMORY_REPO_DIR"] = repoDir;
   });
 
   afterEach(async () => {
@@ -36,6 +42,7 @@ describe("runInstallPi", () => {
 
     expect(result.configCreated).toBe(true);
     expect(existsSync(result.configPath)).toBe(true);
+    expect(existsSync(join(memDir, "hooks", "session-start.mjs"))).toBe(true);
     const content = await readFile(result.configPath, "utf-8");
     expect(content).toContain("# === BEGIN memory-system");
     expect(content).toContain("session_start:");

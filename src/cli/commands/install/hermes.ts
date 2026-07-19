@@ -5,10 +5,13 @@ import { join } from "node:path";
 import { atomicAppend, atomicWrite } from "../../../storage/atomic-write.js";
 import { logPath, memoryRoot } from "../../../storage/paths.js";
 import { stripPriorBlock } from "./codex.js";
+import { ensureVaultHookScripts } from "./materialize-runtime-scripts.js";
 
 export interface InstallHermesOptions {
   hermesDir?: string;
   now?: Date;
+  /** Built package root containing dist/hooks (tests / portable installs). */
+  repoDir?: string;
 }
 
 export interface InstallHermesResult {
@@ -29,6 +32,14 @@ export async function runInstallHermes(
   const log: string[] = [];
   let existing = "";
   let configCreated = false;
+
+  const materialized = await ensureVaultHookScripts({
+    repoDir: opts.repoDir,
+    generatedBy: "memory install hermes",
+  });
+  log.push(
+    `materialized ${materialized.written.length} vault hook launchers under ${materialized.hooksDir}`,
+  );
 
   if (existsSync(configPath)) {
     existing = await readFile(configPath, "utf-8");

@@ -7,6 +7,7 @@ import { isAbsolute, join } from "node:path";
 import { runInit } from "../../../src/cli/commands/init.js";
 import { installAntigravity } from "../../../src/cli/commands/install/antigravity.js";
 import { parseFrontmatter } from "../../../src/storage/frontmatter.js";
+import { seedBuiltHooks } from "./install/seed-built-hooks.js";
 
 describe("installAntigravity", () => {
   let tmp: string;
@@ -14,14 +15,19 @@ describe("installAntigravity", () => {
   let antigravityDir: string;
   let origMem: string | undefined;
   let origAntigravity: string | undefined;
+  let origRepo: string | undefined;
 
   beforeEach(async () => {
     tmp = await mkdtemp(join(tmpdir(), "instag-"));
     memDir = join(tmp, ".memory");
     antigravityDir = join(tmp, ".gemini", "antigravity");
+    const repoDir = join(tmp, "repo");
+    await seedBuiltHooks(repoDir);
     origMem = process.env["MEMORY_ROOT"];
     origAntigravity = process.env["MEMORY_ANTIGRAVITY_DIR"];
+    origRepo = process.env["MEMORY_REPO_DIR"];
     process.env["MEMORY_ROOT"] = memDir;
+    process.env["MEMORY_REPO_DIR"] = repoDir;
     await runInit({ sourceRepoDir: process.cwd() });
   });
 
@@ -30,6 +36,8 @@ describe("installAntigravity", () => {
     else process.env["MEMORY_ROOT"] = origMem;
     if (origAntigravity === undefined) delete process.env["MEMORY_ANTIGRAVITY_DIR"];
     else process.env["MEMORY_ANTIGRAVITY_DIR"] = origAntigravity;
+    if (origRepo === undefined) delete process.env["MEMORY_REPO_DIR"];
+    else process.env["MEMORY_REPO_DIR"] = origRepo;
     await rm(tmp, { recursive: true, force: true });
   });
 

@@ -6,6 +6,12 @@ import {
   claudeDesktopConfigPath,
   mcpServerPath,
 } from "../../../storage/paths.js";
+import { ensurePluginScriptLaunchers } from "./materialize-runtime-scripts.js";
+
+export interface InstallClaudeDesktopOptions {
+  /** Built package root containing dist/hooks (tests / portable installs). */
+  repoDir?: string;
+}
 
 export interface InstallClaudeDesktopResult {
   configPath: string;
@@ -15,11 +21,21 @@ export interface InstallClaudeDesktopResult {
   log: string[];
 }
 
-export async function runInstallClaudeDesktop(): Promise<InstallClaudeDesktopResult> {
+export async function runInstallClaudeDesktop(
+  opts: InstallClaudeDesktopOptions = {},
+): Promise<InstallClaudeDesktopResult> {
   const configPath = claudeDesktopConfigPath();
   let existingConfig: Record<string, unknown> = {};
   let configCreated = false;
   const log: string[] = [];
+
+  const materialized = await ensurePluginScriptLaunchers({
+    repoDir: opts.repoDir,
+    generatedBy: "memory install claude-desktop",
+  });
+  log.push(
+    `materialized ${materialized.written.length} plugin script launchers under ${materialized.pluginScriptsDir}`,
+  );
 
   if (existsSync(configPath)) {
     const raw = await readFile(configPath, "utf-8");

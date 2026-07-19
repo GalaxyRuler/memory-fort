@@ -4,10 +4,13 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { atomicAppend, atomicWrite } from "../../../storage/atomic-write.js";
 import { logPath, memoryRoot } from "../../../storage/paths.js";
+import { ensureVaultHookScripts } from "./materialize-runtime-scripts.js";
 
 export interface InstallOpenCodeOptions {
   opencodeDir?: string;
   now?: Date;
+  /** Built package root containing dist/hooks (tests / portable installs). */
+  repoDir?: string;
 }
 
 export interface InstallOpenCodeResult {
@@ -122,6 +125,14 @@ export async function runInstallOpenCode(
   const log: string[] = [];
   let existingConfig: Record<string, unknown> = {};
   let configCreated = false;
+
+  const materialized = await ensureVaultHookScripts({
+    repoDir: opts.repoDir,
+    generatedBy: "memory install opencode",
+  });
+  log.push(
+    `materialized ${materialized.written.length} vault hook launchers under ${materialized.hooksDir}`,
+  );
 
   if (existsSync(configPath)) {
     const raw = await readFile(configPath, "utf-8");

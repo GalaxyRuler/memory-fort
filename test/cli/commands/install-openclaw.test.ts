@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runInstallOpenClaw } from "../../../src/cli/commands/install/openclaw.js";
 import { runUninstall } from "../../../src/cli/commands/uninstall.js";
+import { seedBuiltHooks } from "./install/seed-built-hooks.js";
 
 describe("runInstallOpenClaw", () => {
   let tmp: string;
@@ -16,11 +17,15 @@ describe("runInstallOpenClaw", () => {
     tmp = await mkdtemp(join(tmpdir(), "install-openclaw-"));
     memDir = join(tmp, ".memory");
     openclawDir = join(tmp, ".openclaw");
+    const repoDir = join(tmp, "repo");
+    await seedBuiltHooks(repoDir);
     envBefore = {
       MEMORY_ROOT: process.env["MEMORY_ROOT"],
       MEMORY_OPENCLAW_DIR: process.env["MEMORY_OPENCLAW_DIR"],
+      MEMORY_REPO_DIR: process.env["MEMORY_REPO_DIR"],
     };
     process.env["MEMORY_ROOT"] = memDir;
+    process.env["MEMORY_REPO_DIR"] = repoDir;
   });
 
   afterEach(async () => {
@@ -36,6 +41,7 @@ describe("runInstallOpenClaw", () => {
 
     expect(result.configCreated).toBe(true);
     expect(existsSync(result.configPath)).toBe(true);
+    expect(existsSync(join(memDir, "hooks", "mcp-server.mjs"))).toBe(true);
     const content = JSON.parse(await readFile(result.configPath, "utf-8"));
     expect(content.mcpServers.memory.command).toBe("node");
     expect(content.mcpServers.memory.args).toEqual([

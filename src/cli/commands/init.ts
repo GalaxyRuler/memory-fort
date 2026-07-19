@@ -71,6 +71,8 @@ embeddings/*
 !embeddings/auto-heal.jsonl
 wiki/.audit/llm-debug-*.md
 claude-code-plugin/
+# Generated hook/MCP launchers (machine-local file:// imports; recreated by install)
+hooks/
 # Verify probes + in-flight atomic-write temps (never data; orphans wedge sync)
 raw/*.tmp
 raw/**/*.tmp

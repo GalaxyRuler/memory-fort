@@ -153,5 +153,22 @@ function parseDirtyFiles(output: string): string[] {
     .map((line) => line.trim())
     .filter((line) => line.length > 0)
     .map((line) => line.replace(/^([ MADRCU?!]{1,2})\s+/, ""))
-    .map((line) => line.includes(" -> ") ? line.split(" -> ").at(-1)! : line);
+    .map((line) => line.includes(" -> ") ? line.split(" -> ").at(-1)! : line)
+    // Generated launchers (materializeRuntimeScripts) and other non-data
+    // artifacts must not keep getSyncStatus()/auto-push dirty when gitignore
+    // was written before hooks/ existed (runInit preserves existing .gitignore).
+    .filter((path) => !isTransientVaultArtifact(path));
+}
+
+function isTransientVaultArtifact(path: string): boolean {
+  const normalized = path.replace(/\\/g, "/");
+  if (normalized === "hooks" || normalized.startsWith("hooks/")) return true;
+  if (normalized === "claude-code-plugin" || normalized.startsWith("claude-code-plugin/")) {
+    return true;
+  }
+  const name = normalized.split("/").at(-1) ?? normalized;
+  return (
+    name === ".auto-push-pending.lock"
+    || /\.\d+\.\d+\.[0-9a-fA-F-]+\.tmp$/.test(name)
+  );
 }

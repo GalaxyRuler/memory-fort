@@ -131,4 +131,38 @@ describe("getSyncStatus", () => {
 
     await expect(readSyncStateFile(tmp)).resolves.toEqual(await defaultSyncStateFile());
   });
+
+  it("getSyncStatus ignores generated hooks/ and claude-code-plugin launchers", async () => {
+    const runner = makeRunner((call) =>
+      call.args.includes("--porcelain")
+        ? {
+          stdout: [
+            "?? hooks/session-start.mjs",
+            "?? hooks/mcp-server.mjs",
+            "?? claude-code-plugin/scripts/mcp-server.mjs",
+            " M wiki/foo.md",
+            "",
+          ].join("\n"),
+        }
+        : { stdout: "0\t0\n" },
+    );
+
+    const status = await getSyncStatus(ctx(runner));
+
+    expect(status.state).toBe("dirty");
+    expect(status.dirtyFiles).toEqual(["wiki/foo.md"]);
+  });
+
+  it("getSyncStatus is clean when only generated launchers are untracked", async () => {
+    const runner = makeRunner((call) =>
+      call.args.includes("--porcelain")
+        ? { stdout: "?? hooks/session-start.mjs\n?? claude-code-plugin/scripts/x.mjs\n" }
+        : { stdout: "0\t0\n" },
+    );
+
+    const status = await getSyncStatus(ctx(runner));
+
+    expect(status.state).toBe("clean");
+    expect(status.dirtyFiles).toEqual([]);
+  });
 });

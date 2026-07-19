@@ -4,6 +4,7 @@ import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runInstallClaudeDesktop } from "../../../src/cli/commands/install/claude-desktop.js";
+import { seedBuiltHooks } from "./install/seed-built-hooks.js";
 
 describe("runInstallClaudeDesktop", () => {
   let tmp: string;
@@ -11,15 +12,20 @@ describe("runInstallClaudeDesktop", () => {
   let claudeDesktopDir: string;
   let origMem: string | undefined;
   let origClaudeDesktop: string | undefined;
+  let origRepo: string | undefined;
 
   beforeEach(async () => {
     tmp = await mkdtemp(join(tmpdir(), "install-claude-desktop-"));
     memDir = join(tmp, ".memory");
     claudeDesktopDir = join(tmp, "Claude");
+    const repoDir = join(tmp, "repo");
+    await seedBuiltHooks(repoDir);
     origMem = process.env["MEMORY_ROOT"];
     origClaudeDesktop = process.env["MEMORY_CLAUDE_DESKTOP_DIR"];
+    origRepo = process.env["MEMORY_REPO_DIR"];
     process.env["MEMORY_ROOT"] = memDir;
     process.env["MEMORY_CLAUDE_DESKTOP_DIR"] = claudeDesktopDir;
+    process.env["MEMORY_REPO_DIR"] = repoDir;
   });
 
   afterEach(async () => {
@@ -27,6 +33,8 @@ describe("runInstallClaudeDesktop", () => {
     else process.env["MEMORY_ROOT"] = origMem;
     if (origClaudeDesktop === undefined) delete process.env["MEMORY_CLAUDE_DESKTOP_DIR"];
     else process.env["MEMORY_CLAUDE_DESKTOP_DIR"] = origClaudeDesktop;
+    if (origRepo === undefined) delete process.env["MEMORY_REPO_DIR"];
+    else process.env["MEMORY_REPO_DIR"] = origRepo;
     await rm(tmp, { recursive: true, force: true });
   });
 

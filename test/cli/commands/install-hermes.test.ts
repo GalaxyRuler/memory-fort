@@ -5,17 +5,21 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runInstallHermes } from "../../../src/cli/commands/install/hermes.js";
 import { runUninstall } from "../../../src/cli/commands/uninstall.js";
+import { seedBuiltHooks } from "./install/seed-built-hooks.js";
 
 describe("runInstallHermes", () => {
   let tmp: string;
   let memDir: string;
   let hermesDir: string;
+  let repoDir: string;
   let envBefore: Record<string, string | undefined>;
 
   beforeEach(async () => {
     tmp = await mkdtemp(join(tmpdir(), "install-hermes-"));
     memDir = join(tmp, ".memory");
     hermesDir = join(tmp, ".hermes");
+    repoDir = join(tmp, "repo");
+    await seedBuiltHooks(repoDir);
     envBefore = {
       MEMORY_ROOT: process.env["MEMORY_ROOT"],
       MEMORY_HERMES_DIR: process.env["MEMORY_HERMES_DIR"],
@@ -32,10 +36,12 @@ describe("runInstallHermes", () => {
   });
 
   it("installs a sentinel block in config.yaml", async () => {
-    const result = await runInstallHermes({ hermesDir });
+    const result = await runInstallHermes({ hermesDir, repoDir });
 
     expect(result.configCreated).toBe(true);
     expect(existsSync(result.configPath)).toBe(true);
+    expect(existsSync(join(memDir, "hooks", "session-start.mjs"))).toBe(true);
+    expect(existsSync(join(memDir, "hooks", "mcp-server.mjs"))).toBe(true);
     const content = await readFile(result.configPath, "utf-8");
     expect(content).toContain("# === BEGIN memory-system");
     expect(content).toContain("on_session_start:");
@@ -45,8 +51,8 @@ describe("runInstallHermes", () => {
   });
 
   it("replaces the prior block on re-install instead of duplicating it", async () => {
-    await runInstallHermes({ hermesDir });
-    const result = await runInstallHermes({ hermesDir });
+    await runInstallHermes({ hermesDir, repoDir });
+    const result = await runInstallHermes({ hermesDir, repoDir });
 
     expect(result.priorBlockReplaced).toBe(true);
     const content = await readFile(result.configPath, "utf-8");
@@ -58,7 +64,7 @@ describe("runInstallHermes", () => {
     const before = "theme: dark\nmodel: hermes-3\n\n";
     await mkdir(hermesDir, { recursive: true });
     await writeFile(configPath, before);
-    await runInstallHermes({ hermesDir });
+    await runInstallHermes({ hermesDir, repoDir });
 
     const result = await runUninstall("hermes", { hermesDir });
 
@@ -69,7 +75,7 @@ describe("runInstallHermes", () => {
   it("respects MEMORY_HERMES_DIR when no option is provided", async () => {
     process.env["MEMORY_HERMES_DIR"] = hermesDir;
 
-    const result = await runInstallHermes();
+    const result = await runInstallHermes({ repoDir });
 
     expect(result.configPath).toBe(join(hermesDir, "config.yaml"));
     expect(existsSync(result.configPath)).toBe(true);
@@ -80,7 +86,7 @@ describe("runInstallHermes", () => {
     await mkdir(hermesDir, { recursive: true });
     await writeFile(configPath, "model: hermes-3\ntelemetry:\n  enabled: false\n");
 
-    await runInstallHermes({ hermesDir });
+    await runInstallHermes({ hermesDir, repoDir });
 
     const content = await readFile(configPath, "utf-8");
     expect(content).toContain("model: hermes-3\n");
