@@ -197,6 +197,7 @@ describe("autoCommitRawsIfDirty", () => {
           stdout: [
             " M raw/2026-05-21/foo.md",
             "?? .auto-push-pending.lock",
+            "?? raw/2026-05-21/foo.md.lock",
             "?? .auto-push-pending.32484.1781980629235.a9733669-381e-420b-82ba-f842b13f6b3d.tmp",
             "?? config.yaml.123.456.abcd-ef01.tmp",
             "",
@@ -224,7 +225,8 @@ describe("autoCommitRawsIfDirty", () => {
 
   it("returns no-dirty-files when only transient artifacts are dirty", async () => {
     const { runner } = makeRunner(() => ({
-      stdout: "?? .auto-push-pending.lock\n?? .auto-push-pending.1.2.abcd-ef01.tmp\n",
+      stdout:
+        "?? .auto-push-pending.lock\n?? .auto-push-pending.1.2.abcd-ef01.tmp\n?? raw/x.md.lock\n",
     }));
 
     await expect(autoCommitRawsIfDirty({ memoryRoot: "/mem", runner })).resolves.toEqual({

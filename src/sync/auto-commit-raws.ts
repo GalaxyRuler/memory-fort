@@ -49,22 +49,26 @@ export async function autoCommitRawsIfDirty(opts: AutoCommitOptions): Promise<Au
   const unredactableFiles: string[] = [];
   for (const file of secretFiles) {
     const absolute = join(opts.memoryRoot, ...file.split("/"));
-    try {
-      // Serialize with raw append/frontmatter writers when this path is a live
-      // session file; re-read under the lock so concurrent appends are kept.
-      await withRawFileLock(absolute, async () => {
-        const content = await readFile(absolute, "utf-8");
-        const cleaned = redactSecrets(content);
-        if (containsSecretShape(cleaned)) {
-          unredactableFiles.push(file); // Redaction can't remove it — never commit.
-          return;
-        }
-        await atomicWrite(absolute, cleaned);
-        redactedFiles.push(file);
-      });
-    } catch {
-      continue; // Deleted/unreadable between scan and now — nothing to redact.
-    }
+    // Serialize with raw append/frontmatter writers when this path is a live
+    // session file; re-read under the lock so concurrent appends are kept.
+    // Only the read-missing race is skipped; lock/write failures must not
+    // fall through to git add of the unredacted secret.
+    await withRawFileLock(absolute, async () => {
+      let content: string;
+      try {
+        content = await readFile(absolute, "utf-8");
+      } catch (err) {
+        if (isNotFoundError(err)) return; // Deleted between scan and now.
+        throw err;
+      }
+      const cleaned = redactSecrets(content);
+      if (containsSecretShape(cleaned)) {
+        unredactableFiles.push(file); // Redaction can't remove it — never commit.
+        return;
+      }
+      await atomicWrite(absolute, cleaned);
+      redactedFiles.push(file);
+    });
   }
   if (unredactableFiles.length > 0) {
     return { kind: "skipped-secret-shape", secretFiles: unredactableFiles };
@@ -103,12 +107,24 @@ function parseDirtyFiles(output: string): DirtyFile[] {
 }
 
 // Internal artifacts that are never committable and must never block or count
-// as dirt: the auto-push pending lock and atomic-write temp files
+// as dirt: the auto-push pending lock, per-raw-file session locks
+// (`*.md.lock` from withRawFileLock), and atomic-write temp files
 // (`<name>.<pid>.<ts>.<uuid>.tmp`). They appear transiently in
 // `git status -uall` and previously tripped the "non-raw dirty" skip.
 function isTransientArtifact(path: string): boolean {
   const name = path.split("/").at(-1) ?? path;
-  return name === ".auto-push-pending.lock" || /\.\d+\.\d+\.[0-9a-fA-F-]+\.tmp$/.test(name);
+  return (
+    name === ".auto-push-pending.lock"
+    || name.endsWith(".md.lock")
+    || /\.\d+\.\d+\.[0-9a-fA-F-]+\.tmp$/.test(name)
+  );
+}
+
+function isNotFoundError(error: unknown): boolean {
+  return typeof error === "object"
+    && error !== null
+    && "code" in error
+    && (error as { code?: unknown }).code === "ENOENT";
 }
 
 function isAutoCommitEligiblePath(path: string): boolean {
