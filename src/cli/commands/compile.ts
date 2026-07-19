@@ -1054,21 +1054,19 @@ async function maybeAdvanceWatermarks(opts: {
   if (opts.execute && opts.noiseOnlyWatermarks && opts.noiseOnlyWatermarks.length > 0) {
     advanced.push(...opts.noiseOnlyWatermarks);
   }
-  // Advance when ops landed on the live wiki, or when every staged path was
-  // already human-resolved (no *new* inbox proposals). Fresh proposals alone
-  // must not consume the raw cursor — reject/ignore would skip those bytes.
+  // Advance only when this batch stages no *new* proposals. Applied-only or
+  // already-resolved-only batches are fine; a mixed applied+proposed batch
+  // must not consume the raw cursor (rejected drafts would lose those bytes).
   // Noise-only skips above still advance separately.
   if (
     opts.execution
     && opts.execution.mode === "execute"
     && opts.execution.rawInputConsumed !== false
     && opts.includedWatermarks.length > 0
+    && opts.execution.proposed.length === 0
     && (
       opts.execution.applied.length > 0
-      || (
-        (opts.execution.resolvedConsumed?.length ?? 0) > 0
-        && opts.execution.proposed.length === 0
-      )
+      || (opts.execution.resolvedConsumed?.length ?? 0) > 0
     )
   ) {
     advanced.push(...opts.includedWatermarks);
