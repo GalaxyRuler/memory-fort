@@ -176,8 +176,12 @@ describe("runUninstall", () => {
     await runUninstall("claude-code");
 
     await expect(readFile(settingsPath, "utf-8")).resolves.toBe(before);
-    expect(existsSync(join(memDir, "claude-code-plugin"))).toBe(false);
+    // Claude-specific plugin metadata is removed...
+    expect(existsSync(join(memDir, "claude-code-plugin", "hooks"))).toBe(false);
+    expect(existsSync(join(memDir, "claude-code-plugin", ".mcp.json"))).toBe(false);
     expect(existsSync(join(memDir, ".claude-plugin", "marketplace.json"))).toBe(false);
+    // ...but shared scripts stay for Codex / Desktop / VS Code / Antigravity MCP.
+    expect(existsSync(join(memDir, "claude-code-plugin", "scripts", "mcp-server.mjs"))).toBe(true);
   });
 
   it("uninstalls Claude Code plugin cache before removing plugin files", async () => {
@@ -204,7 +208,8 @@ describe("runUninstall", () => {
       ["plugin", "uninstall", "memory@memory-local"],
       ["plugin", "marketplace", "remove", "memory-local"],
     ]);
-    expect(existsSync(join(memDir, "claude-code-plugin"))).toBe(false);
+    expect(existsSync(join(memDir, "claude-code-plugin", "hooks"))).toBe(false);
+    expect(existsSync(join(memDir, "claude-code-plugin", "scripts"))).toBe(true);
     expect(existsSync(join(memDir, ".claude-plugin", "marketplace.json"))).toBe(false);
   });
 
@@ -224,7 +229,8 @@ describe("runUninstall", () => {
 
     expect(result.exitCode).toBe(0);
     expect(result.actions.some((action) => action.includes("claude CLI not found"))).toBe(true);
-    expect(existsSync(join(memDir, "claude-code-plugin"))).toBe(false);
+    expect(existsSync(join(memDir, "claude-code-plugin", "hooks"))).toBe(false);
+    expect(existsSync(join(memDir, "claude-code-plugin", "scripts", "mcp-server.mjs"))).toBe(true);
     expect(existsSync(join(memDir, ".claude-plugin", "marketplace.json"))).toBe(false);
   });
 
@@ -235,6 +241,22 @@ describe("runUninstall", () => {
 
     expect(result.dryRun).toBe(true);
     expect(existsSync(install.pluginDir)).toBe(true);
+    expect(result.actions.some((action) => action.includes("would preserve") && action.includes("scripts"))).toBe(
+      true,
+    );
     await expect(lstat(join(memDir, ".claude-plugin", "marketplace.json"))).resolves.toBeDefined();
+  });
+
+  it("preserves shared scripts when Codex was installed before Claude uninstall", async () => {
+    await installClaudeCode({ claudePluginCli: false });
+    await installCodex({ codexDir: join(tmp, ".codex") });
+    const mcpLauncher = join(memDir, "claude-code-plugin", "scripts", "mcp-server.mjs");
+    expect(existsSync(mcpLauncher)).toBe(true);
+
+    await runUninstall("claude-code");
+
+    expect(existsSync(mcpLauncher)).toBe(true);
+    const codexConfig = await readFile(join(tmp, ".codex", "config.toml"), "utf-8");
+    expect(codexConfig).toContain("mcp-server.mjs");
   });
 });

@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,16 +9,62 @@ import { installCodex } from "../../../src/cli/commands/install/codex.js";
 
 describe("runDisconnect", () => {
   let tmp: string;
+  let memDir: string;
   let envBefore: Record<string, string | undefined>;
 
   beforeEach(async () => {
     tmp = await mkdtemp(join(tmpdir(), "disconnect-"));
+    memDir = join(tmp, ".memory");
+    // Mirror uninstall.test.ts isolation: full-client disconnect must never
+    // touch real ~/.claude, VS Code, etc.
     envBefore = {
       MEMORY_ROOT: process.env["MEMORY_ROOT"],
+      MEMORY_REPO_DIR: process.env["MEMORY_REPO_DIR"],
+      MEMORY_CLAUDE_DIR: process.env["MEMORY_CLAUDE_DIR"],
+      MEMORY_CLAUDE_DESKTOP_DIR: process.env["MEMORY_CLAUDE_DESKTOP_DIR"],
       MEMORY_CODEX_DIR: process.env["MEMORY_CODEX_DIR"],
+      MEMORY_ANTIGRAVITY_DIR: process.env["MEMORY_ANTIGRAVITY_DIR"],
+      MEMORY_HERMES_DIR: process.env["MEMORY_HERMES_DIR"],
+      MEMORY_PI_DIR: process.env["MEMORY_PI_DIR"],
+      MEMORY_OPENCLAW_DIR: process.env["MEMORY_OPENCLAW_DIR"],
+      MEMORY_OPENCODE_DIR: process.env["MEMORY_OPENCODE_DIR"],
+      OPENCODE_CONFIG_DIR: process.env["OPENCODE_CONFIG_DIR"],
+      MEMORY_VSCODE_USER_DIR: process.env["MEMORY_VSCODE_USER_DIR"],
+      MEMORY_VSCODE_EXTENSION_DIR: process.env["MEMORY_VSCODE_EXTENSION_DIR"],
+      // ChatGPT bridge PID/cert roots (otherwise full disconnect hits real home)
+      MEMORY_CHATGPT_BRIDGE_CERT_DIR: process.env["MEMORY_CHATGPT_BRIDGE_CERT_DIR"],
+      MEMORY_CHATGPT_BRIDGE_PID_PATH: process.env["MEMORY_CHATGPT_BRIDGE_PID_PATH"],
+      MEMORY_CHATGPT_SKIP_OS_TRUST_STORE: process.env["MEMORY_CHATGPT_SKIP_OS_TRUST_STORE"],
+      APPDATA: process.env["APPDATA"],
+      LOCALAPPDATA: process.env["LOCALAPPDATA"],
+      XDG_CONFIG_HOME: process.env["XDG_CONFIG_HOME"],
+      XDG_RUNTIME_DIR: process.env["XDG_RUNTIME_DIR"],
     };
-    process.env["MEMORY_ROOT"] = join(tmp, ".memory");
+    process.env["MEMORY_ROOT"] = memDir;
+    process.env["MEMORY_REPO_DIR"] = join(tmp, "repo");
+    process.env["MEMORY_CLAUDE_DIR"] = join(tmp, ".claude");
+    process.env["MEMORY_CLAUDE_DESKTOP_DIR"] = join(tmp, "Claude");
     process.env["MEMORY_CODEX_DIR"] = join(tmp, ".codex");
+    process.env["MEMORY_ANTIGRAVITY_DIR"] = join(tmp, ".gemini", "antigravity");
+    process.env["MEMORY_HERMES_DIR"] = join(tmp, ".hermes");
+    process.env["MEMORY_PI_DIR"] = join(tmp, ".pi");
+    process.env["MEMORY_OPENCLAW_DIR"] = join(tmp, ".openclaw");
+    process.env["MEMORY_OPENCODE_DIR"] = join(tmp, ".config", "opencode");
+    process.env["OPENCODE_CONFIG_DIR"] = join(tmp, ".config", "opencode");
+    process.env["MEMORY_VSCODE_USER_DIR"] = join(tmp, "Code", "User");
+    process.env["MEMORY_VSCODE_EXTENSION_DIR"] = join(tmp, "extensions");
+    process.env["MEMORY_CHATGPT_BRIDGE_CERT_DIR"] = join(tmp, "chatgpt-bridge-cert");
+    process.env["MEMORY_CHATGPT_BRIDGE_PID_PATH"] = join(tmp, "chatgpt-bridge.pid");
+    // Production untrust still runs by cert name when PEM is missing; tests
+    // must not mutate the developer/CI OS trust store.
+    process.env["MEMORY_CHATGPT_SKIP_OS_TRUST_STORE"] = "1";
+    process.env["APPDATA"] = join(tmp, "AppData", "Roaming");
+    process.env["LOCALAPPDATA"] = join(tmp, "AppData", "Local");
+    process.env["XDG_CONFIG_HOME"] = join(tmp, "xdg-config");
+    process.env["XDG_RUNTIME_DIR"] = join(tmp, "xdg-runtime");
+    await mkdir(join(tmp, "repo", "dist", "hooks"), { recursive: true });
+    await mkdir(join(tmp, "xdg-runtime"), { recursive: true });
+    await writeFile(join(tmp, "repo", "package.json"), "{}\n");
     await runInit({ sourceRepoDir: process.cwd() });
   });
 
@@ -26,7 +73,7 @@ describe("runDisconnect", () => {
       if (value === undefined) delete process.env[key];
       else process.env[key] = value;
     }
-    await rm(tmp, { recursive: true, force: true });
+    await rm(tmp, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
   });
 
   it("disconnects one selected client by running the matching uninstaller", async () => {
@@ -51,5 +98,39 @@ describe("runDisconnect", () => {
     expect(result.exitCode).toBe(0);
     expect(result.clients[0]).toMatchObject({ client: "codex", ok: true });
     expect(result.clients[0]?.detail).toContain("not installed");
+  });
+
+  it("preserves shared scripts after disconnecting every known client", async () => {
+    // Workspace-scoped VS Code (and similar) may still reference launchers even
+    // after user-level configs are removed; do not auto-delete scripts/.
+    const scriptsDir = join(memDir, "claude-code-plugin", "scripts");
+    await mkdir(scriptsDir, { recursive: true });
+    await writeFile(join(scriptsDir, "mcp-server.mjs"), "// launcher\n");
+
+    const result = await runDisconnect();
+
+    expect(result.exitCode).toBe(0);
+    expect(existsSync(join(scriptsDir, "mcp-server.mjs"))).toBe(true);
+  });
+
+  it("preserves shared scripts when only one client is disconnected", async () => {
+    const scriptsDir = join(memDir, "claude-code-plugin", "scripts");
+    await mkdir(scriptsDir, { recursive: true });
+    await writeFile(join(scriptsDir, "mcp-server.mjs"), "// launcher\n");
+
+    await runDisconnect({ client: "codex" });
+
+    expect(existsSync(join(scriptsDir, "mcp-server.mjs"))).toBe(true);
+  });
+
+  it("preserves shared scripts on full disconnect scoped to a VS Code workspace", async () => {
+    const scriptsDir = join(memDir, "claude-code-plugin", "scripts");
+    await mkdir(scriptsDir, { recursive: true });
+    await writeFile(join(scriptsDir, "mcp-server.mjs"), "// launcher\n");
+
+    const result = await runDisconnect({ workspace: join(tmp, "some-workspace") });
+
+    expect(result.exitCode).toBe(0);
+    expect(existsSync(join(scriptsDir, "mcp-server.mjs"))).toBe(true);
   });
 });

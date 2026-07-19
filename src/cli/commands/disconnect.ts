@@ -47,6 +47,11 @@ export async function runDisconnect(
     if (client === "antigravity") antigravityResult = clientResult;
   }
 
+  // Intentionally do NOT delete ~/.memory/claude-code-plugin/scripts here.
+  // Full disconnect only removes user-level client configs we know about;
+  // workspace-scoped VS Code installs (and similar) may still reference those
+  // launchers. Operators can remove scripts manually if desired.
+
   return {
     clients,
     exitCode: clients.every((client) => client.ok) ? 0 : 1,
