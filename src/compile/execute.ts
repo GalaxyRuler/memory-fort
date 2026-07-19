@@ -1116,27 +1116,18 @@ async function rewriteExistingKnowledgePageUpdate(opts: {
       };
     }
     if (synthesis.outcome === "staged-for-review") {
-      // Prefer ledger check against the proposal body (promote/reject stores
-      // that rewrite_page op). Falling back to opts.operation for hash match
-      // when the proposal file is missing or unreadable.
-      let staged: StageCompileProposalResult;
-      if (synthesis.proposedPath) {
-        const ledgerOp = await readCompileOpFromProposalFile(
-          opts.vaultRoot,
-          synthesis.proposedPath,
-        ) ?? opts.operation;
-        staged = {
-          path: synthesis.proposedPath,
-          alreadyResolved: await isProposalResolved(opts.vaultRoot, ledgerOp),
-        };
-      } else {
-        staged = await stageCompileProposal(
+      // Prefer synthesis.proposalAlreadyResolved (ledger checked before write).
+      const staged: StageCompileProposalResult = synthesis.proposedPath
+        ? {
+            path: synthesis.proposedPath,
+            alreadyResolved: synthesis.proposalAlreadyResolved === true,
+          }
+        : await stageCompileProposal(
           opts.vaultRoot,
           opts.operation,
           opts.now,
           "narrative synthesis staged for review",
         );
-      }
       return {
         handled: true,
         outcome: "staged-for-review",
