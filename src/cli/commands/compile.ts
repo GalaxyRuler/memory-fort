@@ -916,6 +916,7 @@ export async function executeCompilePrompt(opts: CompileOptions & {
       return {
         ...result,
         rawInputConsumed: false,
+        resolvedConsumed: [],
       };
     }
     // Nothing to consolidate — fall through to prompt-based raw execution.
@@ -966,6 +967,7 @@ export async function executeCompilePrompt(opts: CompileOptions & {
       rawInputConsumed: false,
       applied: [],
       proposed: [],
+      resolvedConsumed: [],
       planned: [],
       rejected: [{ path: "(response)", reason }],
       outcomes: [{
