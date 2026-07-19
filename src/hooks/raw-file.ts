@@ -1,13 +1,31 @@
-import { stat } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { readFile, stat } from "node:fs/promises";
 import { TextDecoder } from "node:util";
 import { rawSessionFile } from "../storage/paths.js";
 import { redactSecrets } from "../privacy/redaction.js";
 import { atomicAppend, atomicWrite } from "../storage/atomic-write.js";
+import { withFileLock } from "../storage/file-lock.js";
 import {
+  parseFrontmatter,
   serializeFrontmatter,
   type Frontmatter,
 } from "../storage/frontmatter.js";
 import type { ToolName } from "../storage/paths.js";
+
+/** Shared lock options for raw session writers (append + frontmatter RMW). */
+const RAW_FILE_LOCK = { timeoutMs: 15_000, staleMs: 60_000 } as const;
+
+/**
+ * Serialize multi-process access to a raw session file.
+ * Use for appends and any full-file rewrite so concurrent hooks cannot
+ * interleave or clobber each other.
+ */
+export async function withRawFileLock<T>(
+  absolutePath: string,
+  operation: () => Promise<T>,
+): Promise<T> {
+  return withFileLock(absolutePath, operation, RAW_FILE_LOCK);
+}
 
 /**
  * Format HH:MM:SS in UTC (matches the YYYY-MM-DD UTC convention
@@ -215,7 +233,15 @@ export async function ensureRawSessionFile(input: {
     `session: ${input.sessionId}\n`,
     `session: "${input.sessionId}"\n`,
   );
-  await writeFn(path, header);
+  // Custom write/exists deps (tests) skip the lock; production path serializes create.
+  if (input.exists !== undefined || input.write !== undefined) {
+    await writeFn(path, header);
+    return path;
+  }
+  await withRawFileLock(path, async () => {
+    if (await defaultExists(path)) return;
+    await writeFn(path, header);
+  });
   return path;
 }
 
@@ -224,6 +250,9 @@ export async function ensureRawSessionFile(input: {
  * responsible for calling ensureRawSessionFile first (or
  * accepting the cheap cost of doing it again — append creates
  * the file if missing, but without frontmatter that's a defect).
+ *
+ * Production appends take a per-file lock so concurrent auto-link /
+ * consolidate frontmatter rewrites cannot erase mid-session appends.
  */
 export async function appendBlock(input: {
   tool: ToolName;
@@ -236,7 +265,43 @@ export async function appendBlock(input: {
   const now = input.now ?? new Date();
   const path = rawSessionFile(input.tool, input.sessionId, now, input.vaultRoot);
   const appendFn = input.append ?? atomicAppend;
-  await appendFn(path, input.block);
+  if (input.append !== undefined) {
+    await appendFn(path, input.block);
+    return;
+  }
+  await withRawFileLock(path, async () => {
+    await appendFn(path, input.block);
+  });
+}
+
+export type MutateRawFrontmatterResult = "updated" | "skipped" | "missing";
+
+/**
+ * Read-modify-write raw markdown frontmatter under the session lock.
+ *
+ * Always re-reads under the lock and preserves the **latest body** so
+ * concurrent appends that landed after a match/scan are not erased when
+ * only frontmatter (e.g. relations) is being updated.
+ *
+ * `update` receives the latest frontmatter + body. Return `null` to skip
+ * the write (e.g. relations already present).
+ */
+export async function mutateRawFrontmatter(
+  absolutePath: string,
+  update: (frontmatter: Frontmatter, body: string) => Frontmatter | null,
+): Promise<MutateRawFrontmatterResult> {
+  return withRawFileLock(absolutePath, async () => {
+    if (!existsSync(absolutePath)) return "missing";
+    const content = await readFile(absolutePath, "utf-8");
+    const parsed = parseFrontmatter(content);
+    const nextFrontmatter = update(parsed.frontmatter, parsed.body);
+    if (nextFrontmatter === null) return "skipped";
+    await atomicWrite(
+      absolutePath,
+      serializeFrontmatter(nextFrontmatter, parsed.body),
+    );
+    return "updated";
+  });
 }
 
 function safeJsonStringify(value: unknown): string {

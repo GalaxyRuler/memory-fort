@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { withRawFileLock } from "../hooks/raw-file.js";
 import { containsSecretShape, redactSecrets } from "../privacy/redaction.js";
 import { atomicWrite } from "../storage/atomic-write.js";
 import type { CommandRunner } from "./git-remote.js";
@@ -48,19 +49,22 @@ export async function autoCommitRawsIfDirty(opts: AutoCommitOptions): Promise<Au
   const unredactableFiles: string[] = [];
   for (const file of secretFiles) {
     const absolute = join(opts.memoryRoot, ...file.split("/"));
-    let content: string;
     try {
-      content = await readFile(absolute, "utf-8");
+      // Serialize with raw append/frontmatter writers when this path is a live
+      // session file; re-read under the lock so concurrent appends are kept.
+      await withRawFileLock(absolute, async () => {
+        const content = await readFile(absolute, "utf-8");
+        const cleaned = redactSecrets(content);
+        if (containsSecretShape(cleaned)) {
+          unredactableFiles.push(file); // Redaction can't remove it — never commit.
+          return;
+        }
+        await atomicWrite(absolute, cleaned);
+        redactedFiles.push(file);
+      });
     } catch {
       continue; // Deleted/unreadable between scan and now — nothing to redact.
     }
-    const cleaned = redactSecrets(content);
-    if (containsSecretShape(cleaned)) {
-      unredactableFiles.push(file); // Redaction can't remove it — never commit.
-      continue;
-    }
-    await atomicWrite(absolute, cleaned);
-    redactedFiles.push(file);
   }
   if (unredactableFiles.length > 0) {
     return { kind: "skipped-secret-shape", secretFiles: unredactableFiles };

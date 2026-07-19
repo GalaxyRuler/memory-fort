@@ -52,7 +52,9 @@ describe("autoLinkRawToWiki", () => {
         strategy: "embedding",
       }),
     ]);
-    const parsed = parseFrontmatter(await readFile(join(tmp, "raw", "2026-06-03", "codex-1.md"), "utf-8"));
+    const rawPath = join(tmp, "raw", "2026-06-03", "codex-1.md");
+    const rawContent = await readFile(rawPath, "utf-8");
+    const parsed = parseFrontmatter(rawContent);
     expect(parsed.frontmatter.relations?.mentions).toEqual([
       expect.objectContaining({
         target: "wiki/projects/memory-system.md",
@@ -64,6 +66,8 @@ describe("autoLinkRawToWiki", () => {
         },
       }),
     ]);
+    // Body from the original raw fixture is preserved through frontmatter rewrite.
+    expect(rawContent).toContain("We implemented Memory System graph coverage with hooks.");
   });
 
   it("does not write a relation when the best embedding match is below threshold", async () => {
