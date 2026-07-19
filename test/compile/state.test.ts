@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -41,6 +41,25 @@ describe("compress watermark cursor round-trip", () => {
     expect(w.chunkCursor).toBe(2);
     expect(w.chunkTotal).toBe(5);
     expect(w.chunkBytes).toBe(48000);
+  });
+
+  it("pending summary counts a same-size in-place edit as pending, agreeing with the content-aware compile gate", async () => {
+    const rel = "raw/2026-07-17/edited.md";
+    await mkdir(join(root, "raw", "2026-07-17"), { recursive: true });
+    await writeFile(join(root, rel), "BBBB same size", "utf-8");
+    const info = await stat(join(root, rel));
+    const summary = await summarizeCompilePending(root, {
+      consumed: {
+        [rel]: {
+          bytes: info.size,          // size matches...
+          mtimeMs: info.mtimeMs - 5_000, // ...but the file was modified since consumption
+          sourceHash: "stale",
+          lastObservationAt: "2026-07-17T00:00:00.000Z",
+        },
+      },
+    });
+    expect(summary.filesFullyDrained).toBe(0);
+    expect(summary.filesWithPendingTail).toBe(1); // pending, matching runCompile's re-include
   });
 
   it("treats chunkCursor:0 as present (start of a partial file)", async () => {

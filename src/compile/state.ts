@@ -80,6 +80,7 @@ interface CompilePendingSummaryCacheEntry {
 interface RawFileSize {
   relPath: string;
   size: number;
+  mtimeMs?: number;
 }
 
 const DEFAULT_PENDING_SUMMARY_CACHE_TTL_MS = 1_000;
@@ -212,7 +213,7 @@ export async function summarizeCompilePending(
   vaultRoot: string,
   state: CompileStateFile,
 ): Promise<CompilePendingSummary> {
-  const rawFileSizes: RawFileSize[] = (await listRawMarkdownFiles(vaultRoot)).map((f) => ({ relPath: f.relPath, size: f.size }));
+  const rawFileSizes: RawFileSize[] = (await listRawMarkdownFiles(vaultRoot)).map((f) => ({ relPath: f.relPath, size: f.size, mtimeMs: f.mtimeMs }));
   return summarizeCompilePendingFiles(rawFileSizes, readConsumedMap(state));
 }
 
@@ -229,7 +230,15 @@ export function summarizeCompilePendingFiles(
       summary.filesUnseen += 1;
       continue;
     }
-    if (file.size === watermark.bytes) {
+    // "Fully drained" requires size AND (when recorded) mtime identity — the
+    // compile gate is content-aware, so a same-size in-place edit is pending,
+    // not drained. This summary stays read-free (dashboard polls it), so a
+    // mtime bump with unchanged content conservatively reads as pending here;
+    // the compile gate resolves it by hash without paying an LLM call.
+    const mtimeMatches = watermark.mtimeMs === undefined
+      || file.mtimeMs === undefined
+      || watermark.mtimeMs === file.mtimeMs;
+    if (file.size === watermark.bytes && mtimeMatches) {
       summary.filesFullyDrained += 1;
       continue;
     }

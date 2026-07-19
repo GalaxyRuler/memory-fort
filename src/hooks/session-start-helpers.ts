@@ -639,16 +639,29 @@ async function collectRawObservations(input: {
   cutoffDate: string;
   todayDate: string;
 }): Promise<RememberEntry[]> {
-  const allRawFiles = await listMarkdownFiles(join(input.root, "raw"), input.readdir, "raw");
-  // Read only dated day-directories within [cutoff, today]; future-dated dirs
-  // (clock skew) are excluded, undated layouts stay eligible (they are rare and
-  // dropping them would lose captures). listMarkdownFiles only enumerates names,
-  // so this bounds the expensive per-file READS.
-  const rawFiles = allRawFiles.filter((relPath) => {
-    const date = relPath.split("/")[1] ?? "";
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return true;
-    return date >= input.cutoffDate && date <= input.todayDate;
-  });
+  // Enumerate only day-directories within [cutoff, today] — the filter runs at
+  // the top-level raw/ walk BEFORE descending, so both directory enumeration
+  // and file reads are bounded by the window (not just reads). Future-dated
+  // dirs (clock skew) are excluded; undated layouts stay eligible (rare, and
+  // dropping them would lose captures).
+  const rawRoot = join(input.root, "raw");
+  let topEntries: Dirent[] = [];
+  try {
+    topEntries = await input.readdir(rawRoot, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  const rawFiles: string[] = [];
+  for (const entry of topEntries) {
+    if (entry.name.startsWith(".")) continue;
+    if (entry.isDirectory()) {
+      const isDated = /^\d{4}-\d{2}-\d{2}$/.test(entry.name);
+      if (isDated && (entry.name < input.cutoffDate || entry.name > input.todayDate)) continue;
+      rawFiles.push(...await listMarkdownFiles(join(rawRoot, entry.name), input.readdir, `raw/${entry.name}`));
+    } else if (entry.name.endsWith(".md")) {
+      rawFiles.push(`raw/${entry.name}`);
+    }
+  }
   const entries: RememberEntry[] = [];
   for (const relPath of rawFiles) {
     let content: string;

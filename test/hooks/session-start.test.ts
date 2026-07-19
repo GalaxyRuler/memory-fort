@@ -482,6 +482,26 @@ describe("sessionStartBody", () => {
     expect(block.indexOf("NEWEST-RECENT-4-8")).toBeLessThan(block.indexOf("OLDER-RECENT-4-8"));
   });
 
+  it("never descends into out-of-window day-directories (enumeration bounded, not just reads)", async () => {
+    const { readdir: realReaddir } = await import("node:fs/promises");
+    for (const date of ["2020-01-01", "2026-07-10"]) {
+      await mkdir(join(tmp, "raw", date), { recursive: true });
+      await writeFile(join(tmp, "raw", date, "s.md"), "## [10:00:00] Observation\n\n_tags: project · confidence: 1_\n\nx\n");
+    }
+    const descended: string[] = [];
+    await whatToRememberBlock({
+      memoryRoot: tmp,
+      now: new Date("2026-07-18T12:00:00.000Z"),
+      readdir: (async (path: string, o: { withFileTypes: true }) => {
+        descended.push(String(path).replace(/\\/g, "/"));
+        return realReaddir(path, o);
+      }) as never,
+    });
+    expect(descended.some((p) => p.endsWith("/raw"))).toBe(true); // top-level listed
+    expect(descended.some((p) => p.includes("2026-07-10"))).toBe(true); // in-window descended
+    expect(descended.some((p) => p.includes("2020-01-01"))).toBe(false); // out-of-window NEVER descended
+  });
+
   it("only reads raw day-directories inside the recent window (cutoff <= date <= today)", async () => {
     const readPaths: string[] = [];
     for (const date of ["2020-01-01", "2026-07-10", "2999-01-01"]) {
