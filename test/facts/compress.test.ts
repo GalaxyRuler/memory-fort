@@ -530,6 +530,18 @@ describe("mergeCompressedFacts dedupes non-Latin titles", () => {
     const merged = mergeCompressedFacts([fact("قرار المشروع"), fact("قرار المشروع"), fact("قرار المشروع")]);
     expect(merged).toHaveLength(1);
   });
+
+  it("treats an omitted type and the literal 'fact' type as one identity (no double-count)", () => {
+    const untyped = { ...fact("Same title"), type: undefined } as unknown as CompressedFact;
+    const generic = { ...fact("Same title"), type: "fact" } as CompressedFact;
+    expect(mergeCompressedFacts([untyped, generic])).toHaveLength(1);
+  });
+
+  it("keeps distinct substantive types separate even with identical titles", () => {
+    const decision = { ...fact("Memory retention policy"), type: "decision" } as CompressedFact;
+    const lesson = { ...fact("Memory retention policy"), type: "lesson" } as CompressedFact;
+    expect(mergeCompressedFacts([decision, lesson])).toHaveLength(2);
+  });
 });
 
 describe("compress rejects unusable fact members (semantic-invalid, not just truncated)", () => {

@@ -10,22 +10,26 @@ headless checks live here. Do not put project-specific profile details in Homela
 
 The full suite **is** container-equivalent. OS-specific code (Windows registry,
 scheduled tasks, `.lnk` shortcuts, VS Code / APPDATA paths) is tested through injected
-`platform` / `execFile` parameters and tmpdir-scoped env vars, not real syscalls, so all
-317 test files pass on Linux once the build generates `dist/` and
+`platform` / `execFile` parameters and tmpdir-scoped env vars, not real syscalls, so the
+full suite passes on Linux once the build generates `dist/` and
 `src/dashboard-ui/routeTree.gen.ts`. This supersedes the earlier note that no
-container-equivalent full-suite profile was possible.
+container-equivalent full-suite profile was possible. Verified 2026-07-19 on the VPS at
+branch tip: 356 files / 2309 tests.
 
 Lane shape:
 
 - class `container`, hardware `cpu`, image `node:22-bookworm` (engines require Node `>=22`)
-- network `bridge`, used only for `npm ci` against the public npm registry
-- commands: `npm ci` -> `npm run build` -> `npm run typecheck` (+ `typecheck:ui`) ->
-  `npm test -- --reporter=dot`
+- network `bridge`, used only for `npm install` against the public npm registry
+- commands: `npm install --no-audit --no-fund` -> `npm run build` -> `npm run typecheck`
+  (+ `typecheck:ui`) -> `npm test -- --reporter=dot`. Install is `npm install`, NOT
+  `npm ci`: the Windows-generated lockfile omits Linux's electron-builder optional
+  subtree, so `npm ci` hard-fails on Linux (see the `install` note in the profile and
+  the `electron-builder-lockfile-linux` project memory).
 
 ### Live gate is open
 
 `liveExecution.allowed` is `true` and `dryRunOnly` is `false` — the project owner
-approved a live VPS Docker run with bridge networking for `npm ci`. Before each live
+approved a live VPS Docker run with bridge networking for `npm install`. Before each live
 dispatch, confirm the selected runner (`vps`) is healthy; its dispatch-health overlay
 goes stale past 72h and must be re-probed:
 

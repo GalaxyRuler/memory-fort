@@ -445,15 +445,23 @@ function splitByUtf8Bytes(text: string, maxBytes: number): string[] {
 }
 
 
+/** Omitted type and the literal "fact" are the same generic identity. */
+function normalizedFactType(type: string | undefined): string {
+  return type && type !== "fact" ? type : "fact";
+}
+
 export function mergeCompressedFacts(facts: CompressedFact[]): CompressedFact[] {
   const merged: CompressedFact[] = [];
   for (const fact of facts) {
-    // Identity is a similar title AND the same type. A near-identical title
-    // across different types (a `decision` vs a `lesson`) is a DISTINCT fact —
-    // merging on title alone collapsed them and silently dropped the newer
-    // type. Same-type near-duplicates (the real dedup target) still merge.
+    // Identity is a similar title AND the same NORMALIZED type. A near-identical
+    // title across different substantive types (a `decision` vs a `lesson`) is a
+    // DISTINCT fact — merging on title alone collapsed them and dropped the
+    // newer type. But the generic type is written two equivalent ways (omitted
+    // vs the literal "fact"), so those must normalize to one identity or the
+    // same generic fact double-counts across passes.
     const existing = merged.find((candidate) =>
-      candidate.type === fact.type && titleSimilarity(candidate.title, fact.title) >= 0.82);
+      normalizedFactType(candidate.type) === normalizedFactType(fact.type)
+      && titleSimilarity(candidate.title, fact.title) >= 0.82);
     if (!existing) {
       merged.push({ ...fact });
       continue;

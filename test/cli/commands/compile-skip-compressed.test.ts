@@ -68,6 +68,33 @@ describe("compile skips fully-compressed files", () => {
     expect(skipped!.reason).toContain("compress");
   });
 
+  it("does NOT let a stale compress watermark (wrong mtime) suppress a since-edited raw", async () => {
+    const rawContent = "---\nsource: test\n---\nEdited observation content!";
+    await writeFile(join(root, "raw", "session-edited.md"), rawContent);
+
+    // A current-version, full-size compress watermark whose recorded mtime does
+    // NOT match the live file — i.e. the raw was edited after compression.
+    await writeCompileStateFile(root, {
+      consumed: {},
+      compressed: {
+        "raw/session-edited.md": {
+          bytes: Buffer.byteLength(rawContent),
+          compressVersion: CURRENT_COMPRESS_VERSION,
+          mtimeMs: 1,
+          sourceHash: "stale-hash-of-the-pre-edit-content",
+        },
+      },
+    });
+
+    const result = await runCompile({ vaultRoot: root, plan: true, since: "1970-01-01" });
+
+    const skipped = result.rawFilesSkipped?.find(
+      (s: { path: string; reason: string }) =>
+        s.path.replace(/\\/g, "/").includes("raw/session-edited.md"),
+    );
+    expect(skipped?.reason ?? "").not.toContain("compress"); // compile must process it, not suppress
+  });
+
   it("re-compiles a file whose compressed watermark is a stale (older) version", async () => {
     // The old sampling compressor (v2) marked files 'complete' after sampling
     // only a few chunks; a stale-version watermark must NOT suppress compile, so

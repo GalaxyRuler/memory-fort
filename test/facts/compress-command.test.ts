@@ -182,6 +182,74 @@ describe("compress resumable command", () => {
     expect(factBytes).toContain("Compacted fallback"); // new content's fact also present
   });
 
+  it("re-compresses a same-BYTE-LENGTH in-place edit instead of reporting 'already compressed'", async () => {
+    // Audit N1 (the original content-blind-watermark killer): a same-size edit
+    // used to read as complete via the size-only watermark and get suppressed.
+    const rel = "raw/2026-07-17/session-sz.md";
+    await writeFile(join(root, rel), "session: session-sz\n## [10:00:00] Prompt\nOLD-MARKER x\n", "utf-8");
+    const echo: LLMProvider = {
+      providerName: "ollama", modelName: "llama3.2",
+      chat: vi.fn(async (req: LLMRequest) => {
+        const title = (req.messages.at(-1)?.content ?? "").includes("OLD-MARKER") ? "Old fact" : "New fact";
+        return { model: "llama3.2", finishReason: "stop" as const, rawProviderName: "ollama",
+          content: ["```json", JSON.stringify({ facts: [{ title, facts: [title], narrative: title, concepts: ["c"], files: [], importance: 5 }] }), "```"].join("\n") };
+      }),
+    };
+    const o = { ...opts(root), llmFactory: () => echo };
+    await runCompress(o);
+    const factRel = factFileRelPath(rel, "session-sz");
+    expect(await readFile(join(root, ...factRel.split("/")), "utf-8")).toContain("Old fact");
+
+    // Overwrite with the SAME byte length, different content, bumped mtime.
+    await new Promise((r) => setTimeout(r, 10));
+    await writeFile(join(root, rel), "session: session-sz\n## [10:00:00] Prompt\nNEW-MARKER x\n", "utf-8");
+    const r2 = await runCompress(o);
+    expect(r2.files.find((f) => f.path === rel)?.outcome).toBe("compressed"); // NOT "skipped/already compressed"
+    const after = await readFile(join(root, ...factRel.split("/")), "utf-8");
+    expect(after).toContain("New fact");
+    expect(after).not.toContain("Old fact");
+  });
+
+  it("compaction lineage expires: a later unrelated edit after compaction discards stale facts (N2)", async () => {
+    const rel = "raw/2026-07-16/session-lin.md";
+    await mkdir(join(root, "raw", "2026-07-16"), { recursive: true });
+    const block = formatToolUseBlock({
+      toolName: "Bash", toolInput: { command: "x" },
+      toolOutput: `${"y".repeat(2_000)} MIDDLE-ONLY-MARKER ${"y".repeat(2_000)}`,
+      now: new Date("2026-07-16T10:00:00.000Z"), maxInputBytes: 8192, maxOutputBytes: 8192,
+    });
+    await writeFile(join(root, rel), `session: session-lin\n${block}`, "utf-8");
+    const aware: LLMProvider = {
+      providerName: "ollama", modelName: "llama3.2",
+      chat: vi.fn(async (req: LLMRequest) => {
+        const p = req.messages.at(-1)?.content ?? "";
+        const title = p.includes("MIDDLE-ONLY-MARKER") ? "Middle fact" : p.includes("FINAL-EDIT") ? "Final fact" : "Compacted fallback";
+        return { model: "llama3.2", finishReason: "stop" as const, rawProviderName: "ollama",
+          content: ["```json", JSON.stringify({ facts: [{ title, facts: [title], narrative: title, concepts: ["c"], files: [], importance: 5 }] }), "```"].join("\n") };
+      }),
+    };
+    // Large single-window config so the first pass sees the whole block and
+    // extracts "Middle fact" (not a tiny-chunk sample that misses the middle).
+    const o = {
+      vaultRoot: root, apply: true,
+      configLoader: async () => ({ llm: { provider: "ollama", model: "llama3.2" } }),
+      llmFactory: () => aware, env: {}, now: new Date("2026-07-16T12:00:00.000Z"), logger: () => undefined,
+    };
+    await runCompress(o);                                      // extract "Middle fact"
+    await runCompactRaw({ vaultRoot: root, mode: "apply", maxInputBytes: 100, maxOutputBytes: 100, commitVaultChange: vi.fn(async () => ({ kind: "no-changes" as const })) as never });
+    await runCompress(o);                                      // compaction restart: preserve "Middle fact"
+    const factRel = factFileRelPath(rel, "session-lin");
+    expect(await readFile(join(root, ...factRel.split("/")), "utf-8")).toContain("Middle fact");
+
+    // Later UNRELATED edit (archive still exists from the compaction).
+    await new Promise((r) => setTimeout(r, 10));
+    await writeFile(join(root, rel), "session: session-lin\n## [10:00:00] Prompt\nFINAL-EDIT only\n", "utf-8");
+    await runCompress(o);
+    const after = await readFile(join(root, ...factRel.split("/")), "utf-8");
+    expect(after).toContain("Final fact");
+    expect(after).not.toContain("Middle fact"); // stale fact NOT retained forever
+  });
+
   it("does NOT retain stale facts when the raw is edited in place with no compaction lineage", async () => {
     // Audit finding N4: a genuine in-place edit (no compact-archive copy) must
     // discard facts about removed content, not preserve them forever. Only

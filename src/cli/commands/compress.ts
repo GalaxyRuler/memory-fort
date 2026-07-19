@@ -1,7 +1,8 @@
+import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { readFile, readdir, stat } from "node:fs/promises";
 import { basename, join } from "node:path";
-import { mutateCompileStateFile, readCompressedMap, readCompileStateFile, writeCompileStateFile } from "../../compile/state.js";
+import { mutateCompileStateFile, readCompressedMap, readCompileStateFile, writeCompileStateFile, type CompileConsumedWatermark } from "../../compile/state.js";
 import { createLLMFromConfig, getActiveLLMConfig, type LLMConfig } from "../../llm/factory.js";
 import { estimateLLMCostUsd } from "../../llm/pricing.js";
 import type { LLMProvider, LLMTokenUsage } from "../../llm/types.js";
@@ -70,9 +71,14 @@ export interface CompressResult {
 const DEFAULT_MAX_SESSIONS = 25;
 const MAX_COMPRESS_ATTEMPTS = 3;
 
+function sha256(content: string): string {
+  return createHash("sha256").update(content, "utf-8").digest("hex");
+}
+
 interface CompressQuarantineEntry {
   attempts: number;
   bytes: number;
+  mtimeMs?: number;
 }
 
 function readCompressQuarantine(state: Record<string, unknown>): Record<string, CompressQuarantineEntry> {
@@ -83,7 +89,11 @@ function readCompressQuarantine(state: Record<string, unknown>): Record<string, 
     if (!entry || typeof entry !== "object") continue;
     const rec = entry as Record<string, unknown>;
     if (typeof rec["attempts"] === "number" && typeof rec["bytes"] === "number") {
-      out[path] = { attempts: rec["attempts"], bytes: rec["bytes"] };
+      out[path] = {
+        attempts: rec["attempts"],
+        bytes: rec["bytes"],
+        ...(typeof rec["mtimeMs"] === "number" ? { mtimeMs: rec["mtimeMs"] } : {}),
+      };
     }
   }
   return out;
@@ -100,6 +110,9 @@ export async function runCompress(opts: CompressOptions = {}): Promise<CompressR
   // bounded number of times, then skipped so the drain and later files proceed.
   // Its raw is left uncovered, so compile handles it normally — no content lost.
   const quarantine = readCompressQuarantine(state);
+  // One-time enrichment of legacy size-only watermarks with mtime+hash (no LLM
+  // cost) so future passes are cheap and same-size edits become detectable.
+  const watermarkUpgrades: Record<string, CompileConsumedWatermark> = {};
   const maxSessions = positiveInteger(opts.maxSessions, DEFAULT_MAX_SESSIONS);
   const files: CompressResult["files"] = [];
   let tokensUsed: LLMTokenUsage | undefined;
@@ -124,14 +137,31 @@ export async function runCompress(opts: CompressOptions = {}): Promise<CompressR
     const watermark = compressed[raw.relPath];
     const versionMatches = watermark?.compressVersion === CURRENT_COMPRESS_VERSION;
     const bytesMatch = watermark?.bytes === info.size;
-    const complete = versionMatches && bytesMatch
-      && (watermark!.chunkTotal === undefined || (watermark!.chunkCursor ?? 0) >= watermark!.chunkTotal);
-    if (complete) {
-      files.push({ path: raw.relPath, outcome: "skipped", facts: 0, reason: "already compressed" });
-      continue;
+    const cursorComplete = watermark !== undefined
+      && (watermark.chunkTotal === undefined || (watermark.chunkCursor ?? 0) >= watermark.chunkTotal);
+    if (versionMatches && bytesMatch && cursorComplete) {
+      // Same version+size+cursor. Confirm CONTENT identity before skipping —
+      // size alone misses a same-length in-place edit (conservation hole).
+      if (watermark!.mtimeMs === info.mtimeMs) {
+        files.push({ path: raw.relPath, outcome: "skipped", facts: 0, reason: "already compressed" });
+        continue;
+      }
+      // mtime differs (edit, OR a git checkout that only bumps mtime) or the
+      // watermark predates hashing: read + hash to disambiguate.
+      const currentHash = sha256(await readFile(raw.fullPath, "utf-8"));
+      if (watermark!.sourceHash === undefined || watermark!.sourceHash === currentHash) {
+        // Unchanged content (or a legacy watermark we won't pay to recompile):
+        // enrich with mtime+hash so the next pass is cheap and a future
+        // same-size edit is caught, then treat as complete.
+        watermarkUpgrades[raw.relPath] = { ...watermark!, mtimeMs: info.mtimeMs, sourceHash: currentHash };
+        files.push({ path: raw.relPath, outcome: "skipped", facts: 0, reason: "already compressed" });
+        continue;
+      }
+      // sourceHash present AND differs → genuine same-size content change → reprocess.
     }
     const quarantined = quarantine[raw.relPath];
-    if (quarantined && quarantined.bytes === info.size && quarantined.attempts >= MAX_COMPRESS_ATTEMPTS) {
+    if (quarantined && quarantined.attempts >= MAX_COMPRESS_ATTEMPTS
+      && quarantined.bytes === info.size && quarantined.mtimeMs === info.mtimeMs) {
       files.push({
         path: raw.relPath,
         outcome: "skipped",
@@ -151,14 +181,22 @@ export async function runCompress(opts: CompressOptions = {}): Promise<CompressR
     if (!llm) throw new Error("memory compress: LLM is required in apply mode");
     try {
       const rawText = await readFile(raw.fullPath, "utf-8");
+      const currentHash = sha256(rawText);
+      // Content identity, not size: a same-length in-place edit has bytesMatch
+      // true but changed content. Legacy watermarks without a sourceHash fall
+      // back to size (append-only assumption).
+      const sourceUnchanged = watermark?.sourceHash !== undefined
+        ? watermark.sourceHash === currentHash
+        : bytesMatch;
       const sessionId = readSessionId(rawText) ?? basename(raw.relPath, ".md");
       const observedAt = observedAtFromRaw(raw.relPath, info.mtimeMs);
       const factRelPath = factFileRelPath(raw.relPath, sessionId);
 
-      // Resume only when the file bytes AND the chunking fingerprint are
-      // unchanged — chunk boundaries derive from maxBytesPerCall, so a config
-      // change makes a stored cursor point into a different chunking.
-      let startChunk = versionMatches && bytesMatch
+      // Resume only when the content is unchanged AND the chunking fingerprint
+      // matches — chunk boundaries derive from maxBytesPerCall, so a config
+      // change makes a stored cursor point into a different chunking, and a
+      // content edit invalidates the cursor entirely.
+      let startChunk = versionMatches && bytesMatch && sourceUnchanged
         && watermark!.chunkBytes === currentChunkBytes
         ? (watermark!.chunkCursor ?? 0)
         : 0;
@@ -207,15 +245,16 @@ export async function runCompress(opts: CompressOptions = {}): Promise<CompressR
       // Decide whether to preserve prior facts by MERGING, or discard them by
       // overwriting. Preserve when:
       //   - the bytes are unchanged (a resume, or a config-only re-chunk), OR
-      //   - the bytes changed but a compact-archive copy of this raw exists —
-      //     i.e. compaction truncated the source, so the prior facts may derive
-      //     from content that now lives only in the (walker-excluded) archive
-      //     and overwriting would make them unreachable.
-      // Do NOT preserve when the bytes changed with no archive lineage: that is
-      // a genuine in-place edit/deletion, and stale facts about removed content
-      // must not be retained forever with live-file provenance.
+      //   - an archive copy exists whose content hash equals the PRIOR
+      //     watermark's sourceHash — i.e. this change is a compaction of exactly
+      //     the content the prior facts were extracted from, now living only in
+      //     the (walker-excluded) archive.
+      // Binding to the prior source hash (not mere archive existence) is what
+      // stops a later unrelated edit from preserving stale facts forever: after
+      // a compaction the watermark's sourceHash advances to the compacted
+      // content, so a subsequent edit's prior hash matches no archive copy.
       const preservePrior = priorValid && priorFacts.length > 0
-        && (bytesMatch || await hasCompactArchiveLineage(root, raw.relPath));
+        && ((bytesMatch && sourceUnchanged) || await archiveHasSourceHash(root, raw.relPath, watermark?.sourceHash));
       const mergedFacts = preservePrior
         ? mergeCompressedFacts([...priorFacts, ...result.facts])
         : result.facts;
@@ -240,6 +279,8 @@ export async function runCompress(opts: CompressOptions = {}): Promise<CompressR
       });
       compressed[raw.relPath] = {
         bytes: info.size,
+        mtimeMs: info.mtimeMs,
+        sourceHash: sha256(rawText),
         lastObservationAt: observedAt,
         compressVersion: CURRENT_COMPRESS_VERSION,
         ...(isComplete
@@ -262,13 +303,21 @@ export async function runCompress(opts: CompressOptions = {}): Promise<CompressR
       delete quarantine[raw.relPath]; // a successful pass clears the fail tally
     } catch (err) {
       const prior = quarantine[raw.relPath];
-      const attempts = prior && prior.bytes === info.size ? prior.attempts + 1 : 1;
-      quarantine[raw.relPath] = { attempts, bytes: info.size };
+      // Reset the tally when the source changed (size OR mtime) — a corrected
+      // file is a new source version and deserves fresh attempts.
+      const sameSource = prior && prior.bytes === info.size && prior.mtimeMs === info.mtimeMs;
+      const attempts = sameSource ? prior!.attempts + 1 : 1;
+      quarantine[raw.relPath] = { attempts, bytes: info.size, mtimeMs: info.mtimeMs };
       files.push({ path: raw.relPath, outcome: "failed", facts: 0, reason: errorMessage(err) });
     }
   }
 
   if (mode === "apply") {
+    // Apply legacy-watermark enrichments (no LLM cost) for files skipped as
+    // already-complete this pass.
+    for (const [path, wm] of Object.entries(watermarkUpgrades)) {
+      if (compressed[path] !== undefined) compressed[path] = wm;
+    }
     await mutateCompileStateFile(root, (fresh) => ({
       ...fresh,
       compressed,
@@ -336,12 +385,17 @@ export function formatCompressResult(result: CompressResult): string {
 
 
 /**
- * True when compact-raw has archived a copy of this raw file — evidence that a
- * byte change is compaction (source truncated, original preserved only in the
- * walker-excluded archive) rather than an in-place edit/deletion. compact-raw
- * archives to raw/.compact-archive/<date>/<original-relPath>.
+ * True when compact-raw archived a copy of this raw file whose content hash
+ * equals `targetHash` (the prior watermark's sourceHash — the content the prior
+ * facts were extracted from). This proves the current byte change is a
+ * compaction of exactly that source version, so the prior facts should be
+ * preserved. Existence alone is NOT enough: after a compaction the watermark's
+ * sourceHash advances, so a later unrelated edit's prior hash matches no archive
+ * copy and its stale facts are correctly discarded. compact-raw archives to
+ * raw/.compact-archive/<date>/<original-relPath> (leading "raw/" stripped).
  */
-async function hasCompactArchiveLineage(root: string, rawRelPath: string): Promise<boolean> {
+async function archiveHasSourceHash(root: string, rawRelPath: string, targetHash: string | undefined): Promise<boolean> {
+  if (!targetHash) return false;
   const archiveRoot = join(root, "raw", ".compact-archive");
   if (!existsSync(archiveRoot)) return false;
   let dates: string[];
@@ -350,10 +404,15 @@ async function hasCompactArchiveLineage(root: string, rawRelPath: string): Promi
   } catch {
     return false;
   }
-  // compact-raw strips the leading "raw/" before nesting under the date dir.
   const relParts = rawRelPath.replace(/^raw\//, "").split("/");
   for (const date of dates) {
-    if (existsSync(join(archiveRoot, date, ...relParts))) return true;
+    const candidate = join(archiveRoot, date, ...relParts);
+    if (!existsSync(candidate)) continue;
+    try {
+      if (sha256(await readFile(candidate, "utf-8")) === targetHash) return true;
+    } catch {
+      // unreadable archive copy — ignore
+    }
   }
   return false;
 }

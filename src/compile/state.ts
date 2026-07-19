@@ -19,6 +19,17 @@ export interface CompileConsumedWatermark {
   chunkCursor?: number;
   chunkTotal?: number;
   chunkBytes?: number;
+  /**
+   * Content identity of the consumed source. `bytes` alone cannot detect a
+   * same-length in-place edit (which then reads as "already done" and is
+   * suppressed from compile — a conservation hole). `mtimeMs` is the cheap
+   * change signal (any normal edit bumps it); `sourceHash` (sha256 of the
+   * consumed content) disambiguates when mtime changed but content did not
+   * (e.g. a git checkout) and binds compaction lineage to a specific source
+   * version. Optional for back-compat: absent = legacy size-only behavior.
+   */
+  mtimeMs?: number;
+  sourceHash?: string;
 }
 
 export interface CompileLastFilterStats {
@@ -248,6 +259,8 @@ function readWatermarkMap(value: unknown): Record<string, CompileConsumedWaterma
       ...(isNonNegativeInt(record["chunkCursor"]) ? { chunkCursor: record["chunkCursor"] } : {}),
       ...(isPositiveInt(record["chunkTotal"]) ? { chunkTotal: record["chunkTotal"] } : {}),
       ...(isPositiveInt(record["chunkBytes"]) ? { chunkBytes: record["chunkBytes"] } : {}),
+      ...(typeof record["mtimeMs"] === "number" && Number.isFinite(record["mtimeMs"]) ? { mtimeMs: record["mtimeMs"] } : {}),
+      ...(typeof record["sourceHash"] === "string" && record["sourceHash"].length > 0 ? { sourceHash: record["sourceHash"] } : {}),
     };
   }
   return normalized;

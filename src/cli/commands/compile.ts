@@ -290,7 +290,12 @@ async function runCompileImpl(
       && compressedWatermark.compressVersion === CURRENT_COMPRESS_VERSION
       && compressedWatermark.bytes >= candidate.size
       && (compressedWatermark.chunkTotal === undefined
-        || (compressedWatermark.chunkCursor ?? 0) >= compressedWatermark.chunkTotal);
+        || (compressedWatermark.chunkCursor ?? 0) >= compressedWatermark.chunkTotal)
+      // Don't let a stale compress watermark suppress a since-edited raw. When
+      // the watermark records an mtime (new format), it must match the live
+      // file; a same-size edit bumps mtime and so is no longer "covered".
+      // Legacy watermarks without mtime keep the size-only behavior.
+      && (compressedWatermark.mtimeMs === undefined || compressedWatermark.mtimeMs === candidate.mtimeMs);
     if (compressComplete) {
       rawFilesSkipped.push({
         path: candidate.path,
