@@ -27,9 +27,20 @@ export function resolvedProposalsPath(vaultRoot: string): string {
 }
 
 /**
+ * Frontmatter fields rewritten by normalizeFrontmatter/groundOperation on every
+ * stage (dates, etc.). Including them in the ledger key makes a human-resolved
+ * proposal look "fresh" after a day boundary even when body/path are identical.
+ */
+const VOLATILE_FRONTMATTER_KEYS = new Set([
+  "created",
+  "updated",
+]);
+
+/**
  * Normalize operations to the same shape `readOperation` / dashboard
  * promote-reject produce, so ledger keys match across stage vs resolve.
- * (rewrite_page/write_page without frontmatter become frontmatter: {}.)
+ * (rewrite_page/write_page without frontmatter become frontmatter: {};
+ * compile-managed volatile fields are omitted from the key.)
  */
 export function canonicalizeCompileOperationForLedger(operation: unknown): unknown {
   if (typeof operation !== "object" || operation === null || Array.isArray(operation)) {
@@ -41,18 +52,28 @@ export function canonicalizeCompileOperationForLedger(operation: unknown): unkno
     && typeof record.path === "string"
     && typeof record.body === "string"
   ) {
+    const frontmatter = typeof record.frontmatter === "object"
+      && record.frontmatter !== null
+      && !Array.isArray(record.frontmatter)
+      ? stripVolatileFrontmatter(record.frontmatter as Record<string, unknown>)
+      : {};
     return {
       kind: record.kind,
       path: record.path,
       body: record.body,
-      frontmatter: typeof record.frontmatter === "object"
-        && record.frontmatter !== null
-        && !Array.isArray(record.frontmatter)
-        ? record.frontmatter
-        : {},
+      frontmatter,
     };
   }
   return operation;
+}
+
+function stripVolatileFrontmatter(frontmatter: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(frontmatter)) {
+    if (VOLATILE_FRONTMATTER_KEYS.has(key)) continue;
+    out[key] = value;
+  }
+  return out;
 }
 
 function rawHashCompileOperationForLedger(operation: unknown): string {

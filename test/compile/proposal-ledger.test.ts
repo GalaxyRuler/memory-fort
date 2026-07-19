@@ -120,6 +120,52 @@ describe("proposal ledger", () => {
     });
   });
 
+  it("ignores created/updated frontmatter when hashing proposals", async () => {
+    await recordProposalResolved(
+      tmp,
+      {
+        kind: "rewrite_page",
+        path: "wiki/projects/example.md",
+        body: "Example body.",
+        frontmatter: {
+          type: "projects",
+          title: "Example",
+          created: "2026-06-10",
+          updated: "2026-06-10",
+          confidence: 0.4,
+        },
+      },
+      "rejected",
+      { now: new Date("2026-06-10T12:00:00Z") },
+    );
+
+    // Same proposal restaged a day later after normalizeFrontmatter rewrote dates.
+    expect(await isProposalResolved(tmp, {
+      kind: "rewrite_page",
+      path: "wiki/projects/example.md",
+      body: "Example body.",
+      frontmatter: {
+        type: "projects",
+        title: "Example",
+        created: "2026-06-11",
+        updated: "2026-06-11",
+        confidence: 0.4,
+      },
+    })).toBe(true);
+
+    expect(hashCompileOperationForLedger({
+      kind: "rewrite_page",
+      path: "wiki/projects/example.md",
+      body: "Example body.",
+      frontmatter: { type: "projects", title: "Example", created: "2026-06-10", updated: "2026-06-10", confidence: 0.4 },
+    })).toBe(hashCompileOperationForLedger({
+      kind: "rewrite_page",
+      path: "wiki/projects/example.md",
+      body: "Example body.",
+      frontmatter: { type: "projects", title: "Example", created: "2026-06-11", updated: "2026-06-11", confidence: 0.4 },
+    }));
+  });
+
   it("does not mark a different operation as resolved", async () => {
     await recordProposalResolved(tmp, operation, "rejected");
     expect(await isProposalResolved(tmp, { ...operation, body: "Different body." })).toBe(false);
