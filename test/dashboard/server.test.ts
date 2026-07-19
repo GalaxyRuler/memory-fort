@@ -840,6 +840,8 @@ describe("dashboard server", () => {
         hyde: expect.any(Object),
         corpusErrorCount: expect.any(Number),
         bm25Cache: expect.any(Object),
+        searchBackend: "legacy",
+        ignoredParams: expect.any(Array),
       });
       expect(body.results.length).toBeGreaterThan(0);
     } finally {
