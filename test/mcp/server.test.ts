@@ -2,7 +2,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtemp, rm, mkdir, writeFile, readFile, readdir } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { logObservation, readPage, listPages, createServer, searchMemory, embeddingProviderPreflight } from "../../src/mcp/server.js";
@@ -178,6 +178,19 @@ describe("readPage", () => {
     expect(text).toContain("**Type:** projects");
     expect(text).toContain("Body content");
     expect(text).toContain("windows, stability");
+  });
+
+  it("every forward-compat search param is documented as NOT APPLIED by the default index backend", () => {
+    const src = readFileSync(new URL("../../src/mcp/server.ts", import.meta.url), "utf-8");
+    const schema = src.slice(src.indexOf("const SearchInput = z.object"), src.indexOf("export type SearchInput"));
+    // These are accepted for forward-compat but dropped by the default index
+    // path (dashboard /api/search short-circuits to the index backend, which
+    // reads only q/k/cursor). Their descriptions must say so, not imply they work.
+    for (const field of ["scope", "min_score", "no_rerank", "hyde_expansion", "as_of", "agent_id", "user_id", "identity_mode"]) {
+      const decl = schema.slice(schema.indexOf(`${field}:`));
+      const describeText = decl.slice(0, decl.indexOf("),") + 2);
+      expect(describeText, `${field} description`).toMatch(/NOT APPLIED/);
+    }
   });
 
   it("accepts a wiki/-prefixed path so search results paste straight into read_page", async () => {

@@ -612,6 +612,20 @@ describe("dashboard loaders", () => {
     expect(entries[1]?.files).toHaveLength(2);
   });
 
+  it("loadRawIndex excludes the .compact-archive dot-directory and nested dot files", async () => {
+    await mkdir(join(tmp, "raw", "2026-05-21"), { recursive: true });
+    await mkdir(join(tmp, "raw", ".compact-archive", "2026-05-21"), { recursive: true });
+    await writeFile(join(tmp, "raw", "2026-05-21", "visible.md"), "visible\n");
+    await writeFile(join(tmp, "raw", "2026-05-21", ".hidden.md"), "hidden\n");
+    await writeFile(join(tmp, "raw", ".compact-archive", "2026-05-21", "archived.md"), "archived\n");
+
+    const entries = await loadRawIndex(tmp);
+
+    // No bogus .compact-archive date row, and the nested dot file is not listed.
+    expect(entries.map((entry) => entry.date)).toEqual(["2026-05-21"]);
+    expect(entries[0]?.files.map((f) => f.filename)).toEqual(["visible.md"]);
+  });
+
   it("loadRawCaptureEvents emits one event per raw file with source and mtime", async () => {
     await writeRawCapture("2026-05-01", "claude-code-agent-sub.md", "2026-06-04T08:00:00.000Z");
     await writeRawCapture("2026-06-04", "codex-main.md", "2026-06-04T09:00:00.000Z");

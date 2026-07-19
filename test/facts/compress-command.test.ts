@@ -97,13 +97,20 @@ describe("compress resumable command", () => {
     w = await cursor();
     expect(w.chunkCursor).toBe(4);
 
-    // Drain to completion.
+    // Drain to completion, capturing the pass that actually completes the file.
+    let completing: { chunksCompressed?: number; totalChunks?: number } | undefined;
     for (let i = 0; i < 10; i += 1) {
       const r = await runCompress(opts(root));
-      if (r.files.find((f) => f.path === relPath)?.reason === "already compressed") break;
+      const entry = r.files.find((f) => f.path === relPath);
+      if (entry?.reason === "already compressed") break;
+      if (entry?.outcome === "compressed") completing = entry;
     }
     w = await cursor();
     expect(w.chunkCursor).toBeUndefined(); // complete: cursor fields cleared
+
+    // F8: the completing pass's RESULT reports full coverage, not just the last
+    // window (the CLI formatter reads this).
+    expect(completing?.chunksCompressed).toBe(completing?.totalChunks);
 
     const titles = await factTitles();
     expect(titles).toContain("chunk 1"); // first window survived all the merges
