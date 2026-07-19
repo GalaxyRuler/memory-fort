@@ -370,20 +370,58 @@ async function uninstallClaudeCode(opts: RunUninstallOptions): Promise<Uninstall
   let removed = false;
   const cacheRemoved = await uninstallClaudeCodePluginCache(opts, actions);
   const settingsRemoved = await removeClaudeCodeSettings(opts, actions);
-  const pluginRemoved = await removePathIfPresent(
-    join(memoryRoot(), "claude-code-plugin"),
-    opts,
-    actions,
-  );
+  // Do NOT delete claude-code-plugin/scripts — Codex, Claude Desktop, VS Code,
+  // and Antigravity MCP point at those launchers as shared runtime entrypoints.
+  // Only remove Claude-Code-specific plugin metadata under that tree.
+  const pluginMetadataRemoved = await removeClaudeCodePluginMetadata(opts, actions);
   const marketplacePath = join(memoryRoot(), ".claude-plugin", "marketplace.json");
   const marketplaceRemoved = await removePathIfPresent(marketplacePath, opts, actions);
   if (!opts.dryRun && marketplaceRemoved) {
     await removeDirIfEmpty(dirname(marketplacePath));
   }
 
-  removed = cacheRemoved || settingsRemoved || pluginRemoved || marketplaceRemoved;
+  removed = cacheRemoved || settingsRemoved || pluginMetadataRemoved || marketplaceRemoved;
   if (!removed) actions.push("not installed: Claude Code memory plugin settings/files missing");
   return result("claude-code", opts, actions, removed);
+}
+
+/**
+ * Remove Claude Code plugin manifests/hooks/MCP config while preserving
+ * `claude-code-plugin/scripts/` for other clients that share those launchers.
+ */
+async function removeClaudeCodePluginMetadata(
+  opts: RunUninstallOptions,
+  actions: string[],
+): Promise<boolean> {
+  const pluginDir = join(memoryRoot(), "claude-code-plugin");
+  if (!existsSync(pluginDir)) return false;
+
+  const claudeOnlyPaths = [
+    join(pluginDir, "hooks"),
+    join(pluginDir, ".claude-plugin"),
+    join(pluginDir, ".mcp.json"),
+  ];
+
+  let removedAny = false;
+  for (const path of claudeOnlyPaths) {
+    if (await removePathIfPresent(path, opts, actions)) removedAny = true;
+  }
+
+  // If the tree only has scripts/ (or is empty), leave scripts in place and
+  // note that for operators. Do not rm -rf the whole plugin dir.
+  if (opts.dryRun) {
+    actions.push(
+      `would preserve ${join(pluginDir, "scripts")} (shared MCP/hook launchers for other clients)`,
+    );
+  } else if (existsSync(join(pluginDir, "scripts"))) {
+    actions.push(
+      `preserved ${join(pluginDir, "scripts")} (shared MCP/hook launchers for other clients)`,
+    );
+  } else if (removedAny) {
+    await removeDirIfEmpty(pluginDir);
+  }
+
+  return removedAny;
 }
 
 async function uninstallClaudeCodePluginCache(
