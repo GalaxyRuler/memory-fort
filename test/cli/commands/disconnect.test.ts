@@ -45,7 +45,6 @@ describe("runDisconnect", () => {
     expect(result.clients).toEqual([
       expect.objectContaining({ client: "codex", ok: true }),
     ]);
-    expect(result.sharedRuntimeCleanup).toBeUndefined();
     await expect(readFile(codexConfig, "utf-8")).resolves.toBe(before);
   });
 
@@ -57,7 +56,9 @@ describe("runDisconnect", () => {
     expect(result.clients[0]?.detail).toContain("not installed");
   });
 
-  it("removes shared plugin scripts after disconnecting every client", async () => {
+  it("preserves shared scripts after disconnecting every known client", async () => {
+    // Workspace-scoped VS Code (and similar) may still reference launchers even
+    // after user-level configs are removed; do not auto-delete scripts/.
     const scriptsDir = join(memDir, "claude-code-plugin", "scripts");
     await mkdir(scriptsDir, { recursive: true });
     await writeFile(join(scriptsDir, "mcp-server.mjs"), "// launcher\n");
@@ -65,8 +66,7 @@ describe("runDisconnect", () => {
     const result = await runDisconnect();
 
     expect(result.exitCode).toBe(0);
-    expect(result.sharedRuntimeCleanup?.some((line) => line.includes("scripts"))).toBe(true);
-    expect(existsSync(join(scriptsDir, "mcp-server.mjs"))).toBe(false);
+    expect(existsSync(join(scriptsDir, "mcp-server.mjs"))).toBe(true);
   });
 
   it("preserves shared scripts when only one client is disconnected", async () => {
@@ -87,7 +87,6 @@ describe("runDisconnect", () => {
     const result = await runDisconnect({ workspace: join(tmp, "some-workspace") });
 
     expect(result.exitCode).toBe(0);
-    expect(result.sharedRuntimeCleanup).toBeUndefined();
     expect(existsSync(join(scriptsDir, "mcp-server.mjs"))).toBe(true);
   });
 });

@@ -1,9 +1,5 @@
 import { CLIENTS, type ClientName } from "./client-status.js";
-import {
-  removeSharedPluginScripts,
-  runUninstall,
-  type RunUninstallOptions,
-} from "./uninstall.js";
+import { runUninstall, type RunUninstallOptions } from "./uninstall.js";
 
 export interface DisconnectOptions extends RunUninstallOptions {
   all?: boolean;
@@ -19,15 +15,12 @@ export interface DisconnectClientResult {
 export interface DisconnectResult {
   clients: DisconnectClientResult[];
   exitCode: number;
-  /** Present when shared launchers were cleaned up after a full disconnect. */
-  sharedRuntimeCleanup?: string[];
 }
 
 export async function runDisconnect(
   opts: DisconnectOptions = {},
 ): Promise<DisconnectResult> {
   const targets = opts.client ? [opts.client] : CLIENTS;
-  const disconnectingAll = opts.client === undefined || opts.all === true;
   const clients: DisconnectClientResult[] = [];
   let antigravityResult: DisconnectClientResult | null = null;
 
@@ -54,33 +47,19 @@ export async function runDisconnect(
     if (client === "antigravity") antigravityResult = clientResult;
   }
 
-  let sharedRuntimeCleanup: string[] | undefined;
-  // Full client list / --all: no remaining installer still points at scripts/.
-  // Skip when --workspace is set: uninstall vscode only removes that workspace
-  // MCP config, while user-level or other workspaces may still need launchers.
-  if (
-    disconnectingAll
-    && targets.length >= CLIENTS.length
-    && !(opts.workspace && opts.workspace.trim().length > 0)
-  ) {
-    sharedRuntimeCleanup = await removeSharedPluginScripts(opts);
-  }
+  // Intentionally do NOT delete ~/.memory/claude-code-plugin/scripts here.
+  // Full disconnect only removes user-level client configs we know about;
+  // workspace-scoped VS Code installs (and similar) may still reference those
+  // launchers. Operators can remove scripts manually if desired.
 
   return {
     clients,
     exitCode: clients.every((client) => client.ok) ? 0 : 1,
-    ...(sharedRuntimeCleanup && sharedRuntimeCleanup.length > 0
-      ? { sharedRuntimeCleanup }
-      : {}),
   };
 }
 
 export function formatDisconnectResult(result: DisconnectResult): string {
-  const lines = result.clients.map(
-    (client) => `${client.ok ? "ok" : "fail"} ${client.client.padEnd(18)} ${client.detail}`,
-  );
-  if (result.sharedRuntimeCleanup && result.sharedRuntimeCleanup.length > 0) {
-    lines.push(`ok shared-runtime   ${result.sharedRuntimeCleanup.join("; ")}`);
-  }
-  return `${lines.join("\n")}\n`;
+  return `${result.clients
+    .map((client) => `${client.ok ? "ok" : "fail"} ${client.client.padEnd(18)} ${client.detail}`)
+    .join("\n")}\n`;
 }
