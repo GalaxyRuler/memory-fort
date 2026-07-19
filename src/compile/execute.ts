@@ -1116,14 +1116,27 @@ async function rewriteExistingKnowledgePageUpdate(opts: {
       };
     }
     if (synthesis.outcome === "staged-for-review") {
-      const staged = synthesis.proposedPath
-        ? { path: synthesis.proposedPath, alreadyResolved: false }
-        : await stageCompileProposal(
+      // Prefer ledger check against the proposal body (promote/reject stores
+      // that rewrite_page op). Falling back to opts.operation for hash match
+      // when the proposal file is missing or unreadable.
+      let staged: StageCompileProposalResult;
+      if (synthesis.proposedPath) {
+        const ledgerOp = await readCompileOpFromProposalFile(
+          opts.vaultRoot,
+          synthesis.proposedPath,
+        ) ?? opts.operation;
+        staged = {
+          path: synthesis.proposedPath,
+          alreadyResolved: await isProposalResolved(opts.vaultRoot, ledgerOp),
+        };
+      } else {
+        staged = await stageCompileProposal(
           opts.vaultRoot,
           opts.operation,
           opts.now,
           "narrative synthesis staged for review",
         );
+      }
       return {
         handled: true,
         outcome: "staged-for-review",
@@ -1480,6 +1493,20 @@ function normalizeContent(text: string): string {
 interface StageCompileProposalResult {
   path: string;
   alreadyResolved: boolean;
+}
+
+async function readCompileOpFromProposalFile(
+  vaultRoot: string,
+  proposalRelPath: string,
+): Promise<CompileOperation | null> {
+  const fullPath = join(vaultRoot, ...proposalRelPath.replace(/\\/g, "/").split("/"));
+  if (!existsSync(fullPath)) return null;
+  try {
+    const parsed = parseCompileOperationBlock(await readFile(fullPath, "utf-8"));
+    return parsed.ok ? parsed.operation : null;
+  } catch {
+    return null;
+  }
 }
 
 async function recordProposalStage(
