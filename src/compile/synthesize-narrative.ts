@@ -9,7 +9,7 @@ import { parseFrontmatter, serializeFrontmatter, type Frontmatter } from "../sto
 import { kebabCase } from "../storage/slug.js";
 import type { ConsolidationFact } from "./filter-noise.js";
 import { assessClaimSupport } from "./faithfulness.js";
-import { isProposalResolved } from "./proposal-ledger.js";
+import { hashCompileOperationForLedger, isProposalResolved } from "./proposal-ledger.js";
 
 export const NARRATIVE_KNOWLEDGE_TYPES = [
   "projects",
@@ -348,7 +348,9 @@ export async function stageNarrativeReview(
   };
   // Do not restage a proposal the human already approved/rejected (ledger).
   if (await isProposalResolved(vaultRoot, compileOp)) {
-    if (existsSync(fullPath)) await rm(fullPath, { force: true }).catch(() => undefined);
+    // Only remove the proposed file when it is this same op — an unrelated
+    // pending draft (newer review, basename collision) must stay for humans.
+    if (existsSync(fullPath)) await removeProposedDraftIfSameOp(fullPath, compileOp);
     return { path: proposedRelPath, alreadyResolved: true };
   }
   await mkdir(dirname(fullPath), { recursive: true });
@@ -386,6 +388,29 @@ export async function stageNarrativeReview(
   return { path: proposedRelPath, alreadyResolved: false };
 }
 
+/**
+ * Remove a compile-proposed draft only when its compile-op matches `compileOp`.
+ * Leaves unrelated pending drafts (different review / basename collision) intact.
+ */
+export async function removeProposedDraftIfSameOp(
+  fullPath: string,
+  compileOp: unknown,
+): Promise<boolean> {
+  try {
+    const text = await readFile(fullPath, "utf-8");
+    const block = /```compile-op\s*([\s\S]*?)```/m.exec(text)?.[1];
+    if (!block) return false;
+    const parsed = JSON.parse(block) as unknown;
+    if (hashCompileOperationForLedger(parsed) !== hashCompileOperationForLedger(compileOp)) {
+      return false;
+    }
+    await rm(fullPath, { force: true });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Stable fingerprint of review metadata for no-body narrative proposal packets. */
 export function hashNarrativeReviewPacket(record: Record<string, unknown>): string {
   const contradicted = Array.isArray(record.contradicted_claims)
@@ -396,6 +421,8 @@ export function hashNarrativeReviewPacket(record: Record<string, unknown>): stri
     : [];
   // Prefer source content/paths over positional f_N ids — filterNoiseForPage
   // reassigns f_0.. per batch, so different raws can share the same ids.
+  // Omit run-volatile timestamps (observedAt/compressedAt) so synthetic facts
+  // from makeSyntheticCompressedFacts do not re-key every compile pass.
   const payload = {
     reason: typeof record.reason === "string" ? record.reason.trim() : "",
     contradicted_claims: [...contradicted].sort(),
@@ -418,7 +445,6 @@ function extractReviewSourceFacts(facts: unknown): Array<Record<string, string>>
         sourceRawPath?: unknown;
         sessionId?: unknown;
         facts?: unknown;
-        observedAt?: unknown;
       };
     };
     const nested = row.fact && typeof row.fact === "object" ? row.fact : undefined;
@@ -429,7 +455,6 @@ function extractReviewSourceFacts(facts: unknown): Array<Record<string, string>>
         : "";
     const sourceRawPath = typeof nested?.sourceRawPath === "string" ? nested.sourceRawPath.trim() : "";
     const sessionId = typeof nested?.sessionId === "string" ? nested.sessionId.trim() : "";
-    const observedAt = typeof nested?.observedAt === "string" ? nested.observedAt.trim() : "";
     const factLines = Array.isArray(nested?.facts)
       ? nested.facts.filter((line): line is string => typeof line === "string").map((line) => line.trim()).filter(Boolean)
       : [];
@@ -444,7 +469,6 @@ function extractReviewSourceFacts(facts: unknown): Array<Record<string, string>>
       ...(narrative ? { narrative } : {}),
       ...(sourceRawPath ? { sourceRawPath } : {}),
       ...(sessionId ? { sessionId } : {}),
-      ...(observedAt ? { observedAt } : {}),
       ...(factLines.length > 0 ? { facts: factLines.slice().sort().join("\n") } : {}),
     });
   }

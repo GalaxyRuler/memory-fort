@@ -302,6 +302,118 @@ describe("synthesizeNarrative", () => {
     }));
   });
 
+  it("ignores observedAt when fingerprinting review source facts", async () => {
+    const { hashNarrativeReviewPacket } = await import("../../src/compile/synthesize-narrative.js");
+    const manyClaims = Array.from({ length: 10 }, (_, i) => `Shared claim ${i}.`);
+    const reason = "too many contradicted claims for automatic rewrite";
+    const baseFacts = facts().map((fact, index) => ({
+      ...fact,
+      fact_id: `f_${index}`,
+      fact: {
+        ...fact.fact,
+        narrative: `Stable narrative ${index}`,
+        sourceRawPath: "raw/2026-06-01/session.md",
+        sessionId: "session",
+        observedAt: "2026-06-01T10:00:00.000Z",
+      },
+    }));
+    const laterFacts = baseFacts.map((fact) => ({
+      ...fact,
+      fact: {
+        ...fact.fact,
+        observedAt: "2026-06-02T10:00:00.000Z",
+      },
+    }));
+
+    expect(hashNarrativeReviewPacket({
+      reason,
+      contradicted_claims: manyClaims,
+      net_new_facts: [],
+      facts: baseFacts,
+    })).toBe(hashNarrativeReviewPacket({
+      reason,
+      contradicted_claims: manyClaims,
+      net_new_facts: [],
+      facts: laterFacts,
+    }));
+  });
+
+  it("does not delete an unrelated pending draft when a resolved review re-runs", async () => {
+    const { recordProposalResolved } = await import("../../src/compile/proposal-ledger.js");
+    const { hashNarrativeReviewPacket, NARRATIVE_REVIEW_KEY_FIELD } = await import(
+      "../../src/compile/synthesize-narrative.js"
+    );
+    const manyClaims = Array.from({ length: 10 }, (_, i) => `Claim A${i}.`);
+    const pageBody = [
+      "Memory System captures raw observations.",
+      "",
+      "## 2026-05-30 update",
+      "",
+      "- Phase 3 retrieval is planned.",
+      "- [[docs/ROADMAP]] tracks the rollout.",
+    ].join("\n");
+    const reason = "too many contradicted claims for automatic rewrite";
+    const reviewKey = hashNarrativeReviewPacket({
+      reason,
+      contradicted_claims: manyClaims,
+      net_new_facts: [],
+      facts: facts(),
+    });
+
+    await recordProposalResolved(
+      tmp,
+      {
+        kind: "rewrite_page",
+        path: "wiki/projects/memory-system.md",
+        body: pageBody.trim(),
+        frontmatter: { [NARRATIVE_REVIEW_KEY_FIELD]: reviewKey },
+      },
+      "rejected",
+    );
+
+    // Unrelated pending draft already in the basename slot (different body/key).
+    await mkdir(join(tmp, "wiki", "compile-proposed"), { recursive: true });
+    await writeFile(
+      join(tmp, "wiki", "compile-proposed", "memory-system.md"),
+      [
+        "---",
+        "type: references",
+        "title: other draft",
+        "---",
+        "",
+        "```compile-op",
+        JSON.stringify({
+          kind: "rewrite_page",
+          path: "wiki/projects/memory-system.md",
+          body: "A different pending narrative rewrite.",
+          frontmatter: { [NARRATIVE_REVIEW_KEY_FIELD]: "other-pending-key" },
+        }, null, 2),
+        "```",
+        "",
+      ].join("\n"),
+      "utf-8",
+    );
+
+    const result = await synthesizeNarrative({
+      vaultRoot: tmp,
+      pageRelPath: "wiki/projects/memory-system.md",
+      facts: facts(),
+      llm: fakeNarrativeLLM({
+        detect: { contradicted_claims: manyClaims, net_new_facts: [] },
+        body: "unused",
+      }),
+      now: new Date("2026-06-01T10:00:00.000Z"),
+    });
+
+    expect(result).toMatchObject({
+      proposed: false,
+      proposalAlreadyResolved: true,
+    });
+    const stillThere = await readFile(join(tmp, "wiki", "compile-proposed", "memory-system.md"), "utf-8");
+    expect(stillThere).toContain("A different pending narrative rewrite.");
+    expect(stillThere).toContain("other-pending-key");
+  });
+
   it("omits proposedPath when the narrative proposal was already resolved", async () => {
     const { recordProposalResolved } = await import("../../src/compile/proposal-ledger.js");
     const body = ["Memory System detail.", "", "- structured bullet"].join("\n");
