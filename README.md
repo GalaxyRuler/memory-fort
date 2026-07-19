@@ -95,6 +95,12 @@ Dashboard search uses a rebuildable local SQLite FTS index by default. The canon
 
 Set `MEMORY_INDEX_SEARCH=0` to use the legacy full-corpus search path and stop the index writer. Vectors are a separate opt-in: set `MEMORY_INDEX_VECTORS=1` only when you want the local bge-small vector backfill and hybrid search. The default cutover is lexical-only and does not start vector embedding.
 
+### Tuning knobs
+
+- `MEMORY_DASHBOARD_URL` — where the MCP server and ChatGPT bridge reach the dashboard when it is not on the default `http://127.0.0.1:4410/memory` (resolution order: this variable, then `dashboard.url` in `config.yaml`, then `vps.host`, then the default).
+- `MEMORY_FORT_INJECTION_TOTAL_CHARS` — total character budget for the session-start context injection across all sections (default `12000`; oversized high-priority sections are truncated, never dropped).
+- `MEMORY_FORT_REMEMBER_RAW_DAYS` — how many recent day-directories the session-start "what to remember" scan reads (default `14`, inclusive of today).
+
 ---
 
 ## How it works

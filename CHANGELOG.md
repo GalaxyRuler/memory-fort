@@ -4,7 +4,7 @@ All notable changes to Memory Fort are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.12.0] - 2026-07-19
 
 ### Fixed
 - **Compress no longer silently loses session content.** Truncated OR malformed LLM responses are rejected (the file is marked failed and its watermark held — garbage output, or a response whose fact members are all unusable, can no longer be recorded as "zero facts, fully covered"), and large sessions are compressed in resumable contiguous chunk windows instead of a fixed 8-chunk sample that permanently excluded the rest. The compress watermark now records content identity (mtime + a sha256 of the source), so a **same-byte-length in-place edit** is re-compressed and re-compiled instead of being skipped as "already compressed"; a chunking-config change safely restarts the file; a resume requires a strictly valid prior fact artifact (a corrupted one restarts from chunk 0 rather than advancing over lost windows); restarts merge with previously extracted facts **only when the change is a compaction of exactly that source version** (archive content-hash lineage), so a genuine later edit discards stale facts instead of retaining them forever; identical non-Latin (e.g. Arabic) titles and the two spellings of the generic fact type dedupe correctly; and files compressed by the old lossy sampler are re-covered under the new format.
