@@ -153,5 +153,17 @@ function parseDirtyFiles(output: string): string[] {
     .map((line) => line.trim())
     .filter((line) => line.length > 0)
     .map((line) => line.replace(/^([ MADRCU?!]{1,2})\s+/, ""))
-    .map((line) => line.includes(" -> ") ? line.split(" -> ").at(-1)! : line);
+    .map((line) => line.includes(" -> ") ? line.split(" -> ").at(-1)! : line)
+    // Ignore in-flight raw session locks (withRawFileLock) so a crashed hook
+    // or mid-write sync does not report the vault as dirty forever.
+    .filter((path) => !isTransientVaultArtifact(path));
+}
+
+function isTransientVaultArtifact(path: string): boolean {
+  const name = path.split("/").at(-1) ?? path;
+  return (
+    name.endsWith(".md.lock")
+    || name === ".auto-push-pending.lock"
+    || /\.\d+\.\d+\.[0-9a-fA-F-]+\.tmp$/.test(name)
+  );
 }
