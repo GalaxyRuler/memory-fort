@@ -26,8 +26,40 @@ export function resolvedProposalsPath(vaultRoot: string): string {
   return join(vaultRoot, "var", "compile", "resolved-proposals.json");
 }
 
+/**
+ * Normalize operations to the same shape `readOperation` / dashboard
+ * promote-reject produce, so ledger keys match across stage vs resolve.
+ * (rewrite_page/write_page without frontmatter become frontmatter: {}.)
+ */
+export function canonicalizeCompileOperationForLedger(operation: unknown): unknown {
+  if (typeof operation !== "object" || operation === null || Array.isArray(operation)) {
+    return operation;
+  }
+  const record = operation as Record<string, unknown>;
+  if (
+    (record.kind === "rewrite_page" || record.kind === "write_page")
+    && typeof record.path === "string"
+    && typeof record.body === "string"
+  ) {
+    return {
+      kind: record.kind,
+      path: record.path,
+      body: record.body,
+      frontmatter: typeof record.frontmatter === "object"
+        && record.frontmatter !== null
+        && !Array.isArray(record.frontmatter)
+        ? record.frontmatter
+        : {},
+    };
+  }
+  return operation;
+}
+
 export function hashCompileOperationForLedger(operation: unknown): string {
-  return createHash("sha256").update(JSON.stringify(operation)).digest("hex").slice(0, 32);
+  return createHash("sha256")
+    .update(JSON.stringify(canonicalizeCompileOperationForLedger(operation)))
+    .digest("hex")
+    .slice(0, 32);
 }
 
 export async function readResolvedProposals(vaultRoot: string): Promise<Record<string, ResolvedProposalEntry>> {

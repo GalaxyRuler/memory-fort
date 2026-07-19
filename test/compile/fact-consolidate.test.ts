@@ -169,12 +169,15 @@ describe("fact-first compile consolidation", () => {
     });
     expect(first.proposed).toEqual(["wiki/compile-proposed/memory-system.md"]);
 
+    // Dashboard records via parseCompileOperationBlock (frontmatter: {}); ledger
+    // must match that canonical shape even if stage omits the field.
     await recordProposalResolved(
       tmp,
       {
         kind: "rewrite_page",
         path: "wiki/projects/memory-system.md",
         body: body.trim(),
+        frontmatter: {},
       },
       "rejected",
       { now: new Date("2026-05-31T12:05:00.000Z") },

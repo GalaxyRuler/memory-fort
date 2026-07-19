@@ -48,6 +48,37 @@ describe("proposal ledger", () => {
     });
   });
 
+  it("treats rewrite_page without frontmatter as the same as frontmatter: {}", async () => {
+    // Dashboard promote/reject records via parseCompileOperationBlock which
+    // always includes frontmatter: {}; stage paths must match that key.
+    await recordProposalResolved(
+      tmp,
+      {
+        kind: "rewrite_page",
+        path: "wiki/projects/example.md",
+        body: "Example body.",
+        frontmatter: {},
+      },
+      "rejected",
+    );
+
+    expect(await isProposalResolved(tmp, {
+      kind: "rewrite_page",
+      path: "wiki/projects/example.md",
+      body: "Example body.",
+    })).toBe(true);
+    expect(hashCompileOperationForLedger({
+      kind: "rewrite_page",
+      path: "wiki/projects/example.md",
+      body: "Example body.",
+    })).toBe(hashCompileOperationForLedger({
+      kind: "rewrite_page",
+      path: "wiki/projects/example.md",
+      body: "Example body.",
+      frontmatter: {},
+    }));
+  });
+
   it("does not mark a different operation as resolved", async () => {
     await recordProposalResolved(tmp, operation, "rejected");
     expect(await isProposalResolved(tmp, { ...operation, body: "Different body." })).toBe(false);

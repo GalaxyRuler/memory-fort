@@ -319,10 +319,13 @@ export async function stageNarrativeReview(
     ...record,
   };
   delete reviewMetadata.body;
+  // Match readOperation / dashboard promote-reject shape (frontmatter: {} when
+  // omitted) so the proposal ledger key is stable across stage and resolve.
   const compileOp = {
     kind: "rewrite_page" as const,
     path: pageRelPath,
     body: proposedBody,
+    frontmatter: {},
   };
   // Do not restage a proposal the human already approved/rejected (ledger).
   if (await isProposalResolved(vaultRoot, compileOp)) {
