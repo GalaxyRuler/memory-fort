@@ -43,6 +43,13 @@ export interface StageNarrativeReviewResult {
   alreadyResolved: boolean;
 }
 
+/**
+ * Proposal-only frontmatter field: fingerprints no-body safety-gate reviews so
+ * distinct claim/fact sets do not share a ledger key. Stripped on apply so it
+ * never lands on the wiki page.
+ */
+export const NARRATIVE_REVIEW_KEY_FIELD = "narrative_review_key";
+
 export interface SynthesizeNarrativeOptions {
   vaultRoot: string;
   pageRelPath: string;
@@ -313,8 +320,9 @@ export async function stageNarrativeReview(
   if (!sourceFullPath || !existsSync(sourceFullPath)) throw new Error(`narrative review source missing: ${pageRelPath}`);
   const current = parseFrontmatter(await readFile(sourceFullPath, "utf-8"));
   const record = asRecord(packet);
-  const proposedBody = typeof record.body === "string" && record.body.trim().length > 0
-    ? normalizeBody(record.body)
+  const hasExplicitBody = typeof record.body === "string" && record.body.trim().length > 0;
+  const proposedBody = hasExplicitBody
+    ? normalizeBody(record.body as string)
     : normalizeBody(current.body);
   const reason = typeof record.reason === "string" && record.reason.trim().length > 0
     ? record.reason.trim()
@@ -324,13 +332,19 @@ export async function stageNarrativeReview(
     ...record,
   };
   delete reviewMetadata.body;
-  // Match readOperation / dashboard promote-reject shape (frontmatter: {} when
-  // omitted) so the proposal ledger key is stable across stage and resolve.
+  // Match readOperation / dashboard promote-reject shape. When the packet has no
+  // body (e.g. ≥10 contradicted-claims safety gate), proposedBody is the current
+  // page text — fold a review fingerprint into frontmatter so distinct claim/fact
+  // sets do not share one ledger key. Apply strips this field before writing.
+  const frontmatter: Record<string, unknown> = {};
+  if (!hasExplicitBody) {
+    frontmatter[NARRATIVE_REVIEW_KEY_FIELD] = hashNarrativeReviewPacket(record);
+  }
   const compileOp = {
     kind: "rewrite_page" as const,
     path: pageRelPath,
     body: proposedBody,
-    frontmatter: {},
+    frontmatter,
   };
   // Do not restage a proposal the human already approved/rejected (ledger).
   if (await isProposalResolved(vaultRoot, compileOp)) {
@@ -370,6 +384,35 @@ export async function stageNarrativeReview(
     ),
   );
   return { path: proposedRelPath, alreadyResolved: false };
+}
+
+/** Stable fingerprint of review metadata for no-body narrative proposal packets. */
+export function hashNarrativeReviewPacket(record: Record<string, unknown>): string {
+  const contradicted = Array.isArray(record.contradicted_claims)
+    ? record.contradicted_claims.filter((item): item is string => typeof item === "string")
+    : [];
+  const netNew = Array.isArray(record.net_new_facts)
+    ? record.net_new_facts.filter((item): item is string => typeof item === "string")
+    : [];
+  const factIds = extractReviewFactIds(record.facts);
+  const payload = {
+    reason: typeof record.reason === "string" ? record.reason.trim() : "",
+    contradicted_claims: [...contradicted].sort(),
+    net_new_facts: [...netNew].sort(),
+    fact_ids: factIds,
+  };
+  return createHash("sha256").update(JSON.stringify(payload)).digest("hex").slice(0, 32);
+}
+
+function extractReviewFactIds(facts: unknown): string[] {
+  if (!Array.isArray(facts)) return [];
+  const ids: string[] = [];
+  for (const item of facts) {
+    if (typeof item !== "object" || item === null) continue;
+    const factId = (item as { fact_id?: unknown }).fact_id;
+    if (typeof factId === "string" && factId.trim().length > 0) ids.push(factId.trim());
+  }
+  return [...new Set(ids)].sort();
 }
 
 export async function moveToArchive(vaultRoot: string, relPath: string, archiveDate: string): Promise<{ from: string; to: string }> {

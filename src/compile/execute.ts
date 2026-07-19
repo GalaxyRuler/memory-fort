@@ -14,7 +14,7 @@ import { extractEntityFacts } from "./fact-extract.js";
 import { filterNoiseForPage } from "./filter-noise.js";
 import { operationKey, readAppliedOperationKeys, recordAppliedOperation } from "./ops-journal.js";
 import { isProposalResolved } from "./proposal-ledger.js";
-import { synthesizeNarrative } from "./synthesize-narrative.js";
+import { NARRATIVE_REVIEW_KEY_FIELD, synthesizeNarrative } from "./synthesize-narrative.js";
 import type { CompressedFact } from "../facts/store.js";
 
 export type CompileOperation =
@@ -1622,16 +1622,25 @@ function hasHighConfidence(operation: CompileOperation): boolean {
 
 function normalizeFrontmatter(input: Record<string, unknown>, relPath: string, now: Date): Frontmatter {
   const date = now.toISOString().slice(0, 10);
+  // Drop proposal-only ledger fields before they can land on wiki pages.
+  const { [NARRATIVE_REVIEW_KEY_FIELD]: _reviewKey, ...pageFrontmatter } = input;
+  void _reviewKey;
   return {
-    ...input,
-    type: typeof input.type === "string" ? input.type as Frontmatter["type"] : "references",
-    title: typeof input.title === "string" && input.title.trim().length > 0 ? input.title : basename(relPath, ".md"),
-    created: typeof input.created === "string" ? input.created : date,
+    ...pageFrontmatter,
+    type: typeof pageFrontmatter.type === "string" ? pageFrontmatter.type as Frontmatter["type"] : "references",
+    title: typeof pageFrontmatter.title === "string" && pageFrontmatter.title.trim().length > 0
+      ? pageFrontmatter.title
+      : basename(relPath, ".md"),
+    created: typeof pageFrontmatter.created === "string" ? pageFrontmatter.created : date,
     updated: date,
-    status: input.status === "archived" || input.status === "superseded" ? input.status : "active",
-    lifecycle: input.lifecycle === "proposed" ? "proposed" : "consolidated",
+    status: pageFrontmatter.status === "archived" || pageFrontmatter.status === "superseded"
+      ? pageFrontmatter.status
+      : "active",
+    lifecycle: pageFrontmatter.lifecycle === "proposed" ? "proposed" : "consolidated",
     source: "compile-execute",
-    cognitive_type: typeof input.cognitive_type === "string" ? input.cognitive_type as Frontmatter["cognitive_type"] : "semantic",
+    cognitive_type: typeof pageFrontmatter.cognitive_type === "string"
+      ? pageFrontmatter.cognitive_type as Frontmatter["cognitive_type"]
+      : "semantic",
   };
 }
 

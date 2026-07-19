@@ -187,6 +187,81 @@ describe("synthesizeNarrative", () => {
     expect(await readdir(join(tmp, "wiki", "compile-proposed"))).toEqual(["memory-system.md"]);
   });
 
+  it("does not treat distinct no-body safety-gate reviews as the same ledger key", async () => {
+    const { recordProposalResolved } = await import("../../src/compile/proposal-ledger.js");
+    const { hashNarrativeReviewPacket, NARRATIVE_REVIEW_KEY_FIELD } = await import(
+      "../../src/compile/synthesize-narrative.js"
+    );
+    const manyClaimsA = Array.from({ length: 10 }, (_, i) => `Claim A${i}.`);
+    const manyClaimsB = Array.from({ length: 10 }, (_, i) => `Claim B${i}.`);
+    const pageBody = [
+      "Memory System captures raw observations.",
+      "",
+      "## 2026-05-30 update",
+      "",
+      "- Phase 3 retrieval is planned.",
+      "- [[docs/ROADMAP]] tracks the rollout.",
+    ].join("\n");
+
+    // Resolve only the first safety-gate fingerprint (claims A).
+    await recordProposalResolved(
+      tmp,
+      {
+        kind: "rewrite_page",
+        path: "wiki/projects/memory-system.md",
+        body: pageBody.trim(),
+        frontmatter: {
+          [NARRATIVE_REVIEW_KEY_FIELD]: hashNarrativeReviewPacket({
+            reason: "too many contradicted claims for automatic rewrite",
+            contradicted_claims: manyClaimsA,
+            net_new_facts: [],
+            facts: facts(),
+          }),
+        },
+      },
+      "rejected",
+    );
+
+    const resolvedAgain = await synthesizeNarrative({
+      vaultRoot: tmp,
+      pageRelPath: "wiki/projects/memory-system.md",
+      facts: facts(),
+      llm: fakeNarrativeLLM({
+        detect: { contradicted_claims: manyClaimsA, net_new_facts: [] },
+        body: "unused",
+      }),
+      now: new Date("2026-06-01T10:00:00.000Z"),
+    });
+    expect(resolvedAgain).toMatchObject({
+      proposed: false,
+      proposalAlreadyResolved: true,
+    });
+
+    const differentClaims = await synthesizeNarrative({
+      vaultRoot: tmp,
+      pageRelPath: "wiki/projects/memory-system.md",
+      facts: facts(),
+      llm: fakeNarrativeLLM({
+        detect: { contradicted_claims: manyClaimsB, net_new_facts: ["Something new."] },
+        body: "unused",
+      }),
+      now: new Date("2026-06-01T10:00:00.000Z"),
+    });
+    expect(differentClaims).toMatchObject({
+      outcome: "staged-for-review",
+      proposed: true,
+      proposedPath: "wiki/compile-proposed/memory-system.md",
+    });
+    const proposal = await readFile(join(tmp, "wiki", "compile-proposed", "memory-system.md"), "utf-8");
+    expect(proposal).toContain(NARRATIVE_REVIEW_KEY_FIELD);
+    expect(proposal).toContain(hashNarrativeReviewPacket({
+      reason: "too many contradicted claims for automatic rewrite",
+      contradicted_claims: manyClaimsB,
+      net_new_facts: ["Something new."],
+      facts: facts(),
+    }));
+  });
+
   it("omits proposedPath when the narrative proposal was already resolved", async () => {
     const { recordProposalResolved } = await import("../../src/compile/proposal-ledger.js");
     const body = ["Memory System detail.", "", "- structured bullet"].join("\n");
