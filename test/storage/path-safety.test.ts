@@ -31,6 +31,14 @@ describe("path-safety", () => {
     expect(resolveStrictChild(parent, "../secrets.md")).toBeNull();
   });
 
+  it("rejects Windows-normalized spaced/trailing-dot traversal segments", () => {
+    // On Windows, trailing spaces/dots are stripped so ".. " → ".."
+    expect(parseSafeRelativeSegments("projects/.. /secrets.md")).toBeNull();
+    expect(parseSafeRelativeSegments("projects/.. /.. /secrets.md")).toBeNull();
+    expect(parseSafeRelativeSegments("projects/. /foo.md")).toBeNull();
+    expect(resolveStrictChild(parent, "projects/.. /.. /secrets.md")).toBeNull();
+  });
+
   it("rejects absolute POSIX paths", () => {
     expect(parseSafeRelativeSegments("/etc/passwd")).toBeNull();
     expect(resolveStrictChild(parent, "/etc/passwd")).toBeNull();

@@ -19,17 +19,30 @@ export function isStrictChild(parent: string, child: string): boolean {
 }
 
 /**
+ * Windows strips trailing spaces and dots from path components before resolve.
+ * Normalize so `.. ` / `. ` cannot bypass exact `.` / `..` checks.
+ */
+export function win32NormalizeSegment(segment: string): string {
+  return segment.replace(/[ .]+$/g, "");
+}
+
+/**
  * Filename segment check: block traversal and path separators / controls, but
  * allow spaces and other normal filesystem characters used by Obsidian vaults.
  */
 export function isAllowedRelativeSegment(segment: string): boolean {
   if (segment.length === 0) return false;
-  if (segment === "." || segment === "..") return false;
   // Drive-letter prefixes (C: or C:foo) — never valid vault-relative segments.
   if (/^[a-zA-Z]:/.test(segment)) return false;
   if (segment.includes("/") || segment.includes("\\")) return false;
   // C0 controls + DEL + NUL
   if (/[\u0000-\u001f\u007f]/.test(segment)) return false;
+
+  const normalized = win32NormalizeSegment(segment);
+  if (normalized.length === 0) return false;
+  if (normalized === "." || normalized === "..") return false;
+  // Also reject any segment that is only dots/spaces (after normalize empty).
+  // Reject embedded `..` as a full segment after normalize only.
   return true;
 }
 
