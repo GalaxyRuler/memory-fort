@@ -16,6 +16,7 @@ import {
 } from "../hooks/raw-file.js";
 import { parseFrontmatter, serializeFrontmatter } from "../storage/frontmatter.js";
 import { atomicWrite } from "../storage/atomic-write.js";
+import { resolveStrictChild } from "../storage/path-safety.js";
 import { commitVaultChange as defaultCommitVaultChange } from "../sync/commit-vault-change.js";
 import { isWikiDotDirectoryPath } from "../retrieval/wiki-paths.js";
 import { isNarrativeKnowledgePagePath } from "../compile/synthesize-narrative.js";
@@ -123,12 +124,7 @@ export async function readPage(
   deps: ReadPageDeps = {},
 ): Promise<{ content: Array<{ type: "text"; text: string }>; isError?: boolean }> {
   const readFn = deps.readFile ?? readFile;
-  if (
-    input.path.includes("..") ||
-    input.path.startsWith("/") ||
-    /^[A-Z]:/.test(input.path) ||
-    isWikiDotDirectoryPath(`wiki/${input.path}`)
-  ) {
+  if (isWikiDotDirectoryPath(`wiki/${input.path}`)) {
     return {
       content: [
         {
@@ -140,7 +136,18 @@ export async function readPage(
     };
   }
 
-  const fullPath = join(wikiDir(), input.path);
+  const fullPath = resolveStrictChild(wikiDir(), input.path);
+  if (fullPath === null) {
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Invalid path: ${input.path} (must be relative under wiki/)`,
+        },
+      ],
+      isError: true,
+    };
+  }
   if (!existsSync(fullPath)) {
     return {
       content: [{ type: "text", text: `Page not found: ${input.path}` }],

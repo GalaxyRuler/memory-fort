@@ -215,6 +215,18 @@ describe("readPage", () => {
     expect(result.isError).toBe(true);
   });
 
+  it("rejects lowercase Windows drive paths", async () => {
+    const result = await readPage({ path: "c:/Users/victim/.ssh/id_rsa" });
+    expect(result.isError).toBe(true);
+    expect(result.content[0]!.text).toContain("Invalid path");
+  });
+
+  it("rejects root-relative backslash paths", async () => {
+    const result = await readPage({ path: "\\Windows\\system32\\secret.md" });
+    expect(result.isError).toBe(true);
+    expect(result.content[0]!.text).toContain("Invalid path");
+  });
+
   it("rejects wiki dot-directory pages", async () => {
     const result = await readPage({ path: ".audit/llm-2026-05-29.md" });
     expect(result.isError).toBe(true);
