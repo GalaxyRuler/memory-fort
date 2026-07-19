@@ -15,12 +15,38 @@ describe("runDisconnect", () => {
   beforeEach(async () => {
     tmp = await mkdtemp(join(tmpdir(), "disconnect-"));
     memDir = join(tmp, ".memory");
+    // Mirror uninstall.test.ts isolation: full-client disconnect must never
+    // touch real ~/.claude, VS Code, etc.
     envBefore = {
       MEMORY_ROOT: process.env["MEMORY_ROOT"],
+      MEMORY_REPO_DIR: process.env["MEMORY_REPO_DIR"],
+      MEMORY_CLAUDE_DIR: process.env["MEMORY_CLAUDE_DIR"],
+      MEMORY_CLAUDE_DESKTOP_DIR: process.env["MEMORY_CLAUDE_DESKTOP_DIR"],
       MEMORY_CODEX_DIR: process.env["MEMORY_CODEX_DIR"],
+      MEMORY_ANTIGRAVITY_DIR: process.env["MEMORY_ANTIGRAVITY_DIR"],
+      MEMORY_HERMES_DIR: process.env["MEMORY_HERMES_DIR"],
+      MEMORY_PI_DIR: process.env["MEMORY_PI_DIR"],
+      MEMORY_OPENCLAW_DIR: process.env["MEMORY_OPENCLAW_DIR"],
+      MEMORY_OPENCODE_DIR: process.env["MEMORY_OPENCODE_DIR"],
+      OPENCODE_CONFIG_DIR: process.env["OPENCODE_CONFIG_DIR"],
+      MEMORY_VSCODE_USER_DIR: process.env["MEMORY_VSCODE_USER_DIR"],
+      MEMORY_VSCODE_EXTENSION_DIR: process.env["MEMORY_VSCODE_EXTENSION_DIR"],
     };
     process.env["MEMORY_ROOT"] = memDir;
+    process.env["MEMORY_REPO_DIR"] = join(tmp, "repo");
+    process.env["MEMORY_CLAUDE_DIR"] = join(tmp, ".claude");
+    process.env["MEMORY_CLAUDE_DESKTOP_DIR"] = join(tmp, "Claude");
     process.env["MEMORY_CODEX_DIR"] = join(tmp, ".codex");
+    process.env["MEMORY_ANTIGRAVITY_DIR"] = join(tmp, ".gemini", "antigravity");
+    process.env["MEMORY_HERMES_DIR"] = join(tmp, ".hermes");
+    process.env["MEMORY_PI_DIR"] = join(tmp, ".pi");
+    process.env["MEMORY_OPENCLAW_DIR"] = join(tmp, ".openclaw");
+    process.env["MEMORY_OPENCODE_DIR"] = join(tmp, ".config", "opencode");
+    process.env["OPENCODE_CONFIG_DIR"] = join(tmp, ".config", "opencode");
+    process.env["MEMORY_VSCODE_USER_DIR"] = join(tmp, "Code", "User");
+    process.env["MEMORY_VSCODE_EXTENSION_DIR"] = join(tmp, "extensions");
+    await mkdir(join(tmp, "repo", "dist", "hooks"), { recursive: true });
+    await writeFile(join(tmp, "repo", "package.json"), "{}\n");
     await runInit({ sourceRepoDir: process.cwd() });
   });
 
@@ -29,7 +55,7 @@ describe("runDisconnect", () => {
       if (value === undefined) delete process.env[key];
       else process.env[key] = value;
     }
-    await rm(tmp, { recursive: true, force: true });
+    await rm(tmp, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
   });
 
   it("disconnects one selected client by running the matching uninstaller", async () => {
