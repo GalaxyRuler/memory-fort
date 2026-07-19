@@ -864,6 +864,7 @@ async function executeCompilePrompt(opts: CompileOptions & {
       rawInputConsumed: false,
       applied: [],
       proposed: [],
+      resolvedConsumed: [],
       planned: [],
       rejected: [],
       outcomes: [],
@@ -900,6 +901,7 @@ async function executeCompilePrompt(opts: CompileOptions & {
       rawInputConsumed: true,
       applied: [],
       proposed: [],
+      resolvedConsumed: [],
       planned: [],
       rejected: [{ path: "(response)", reason: parsed.reason }],
       outcomes: [{
@@ -1052,16 +1054,22 @@ async function maybeAdvanceWatermarks(opts: {
   if (opts.execute && opts.noiseOnlyWatermarks && opts.noiseOnlyWatermarks.length > 0) {
     advanced.push(...opts.noiseOnlyWatermarks);
   }
-  // Only advance when at least one op was applied to the live wiki.
-  // Staging proposals (compile-proposed/) must not consume the raw cursor:
-  // rejecting or ignoring the inbox would permanently skip those raw bytes
-  // until --reset-watermark. Noise-only skips above still advance separately.
+  // Advance when ops landed on the live wiki, or when every staged path was
+  // already human-resolved (no *new* inbox proposals). Fresh proposals alone
+  // must not consume the raw cursor — reject/ignore would skip those bytes.
+  // Noise-only skips above still advance separately.
   if (
     opts.execution
     && opts.execution.mode === "execute"
     && opts.execution.rawInputConsumed !== false
-    && opts.execution.applied.length > 0
     && opts.includedWatermarks.length > 0
+    && (
+      opts.execution.applied.length > 0
+      || (
+        (opts.execution.resolvedConsumed?.length ?? 0) > 0
+        && opts.execution.proposed.length === 0
+      )
+    )
   ) {
     advanced.push(...opts.includedWatermarks);
   }

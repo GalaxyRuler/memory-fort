@@ -77,6 +77,12 @@ export interface ApplyCompileOperationsOptions {
 export interface ApplyCompileOperationsResult {
   applied: string[];
   proposed: string[];
+  /**
+   * Ops that would have staged a proposal but were already human-resolved
+   * (approved/rejected). These must not re-open the inbox and should allow
+   * raw watermark advance when no *new* proposals were staged.
+   */
+  resolvedConsumed: string[];
   planned: string[];
   rejected: Array<{ path: string; reason: string }>;
   outcomes: CompileOperationOutcome[];
@@ -101,6 +107,7 @@ export type CompileOperationOutcomeKind =
   | "merged"
   | "skipped: no new content"
   | "skipped: already applied"
+  | "skipped: proposal already resolved"
   | "rejected";
 
 export type CompileOperationConversion = "write->append: target already existed";
@@ -232,6 +239,7 @@ export async function applyCompileOperations(
   const result: ApplyCompileOperationsResult = {
     applied: [],
     proposed: [],
+    resolvedConsumed: [],
     planned: [],
     rejected: [],
     outcomes: [],
@@ -298,7 +306,11 @@ export async function applyCompileOperations(
         result.pagesRewritten += 1;
         result.pagesUpdated += 1;
       } else if (deterministicRewrite.outcome === "staged-for-review") {
-        result.proposed.push(deterministicRewrite.proposedPath);
+        if (deterministicRewrite.alreadyResolved) {
+          result.resolvedConsumed.push(deterministicRewrite.proposedPath);
+        } else {
+          result.proposed.push(deterministicRewrite.proposedPath);
+        }
       } else if (deterministicRewrite.outcome === "skipped: no new content") {
         result.applied.push(relPath);
         result.pagesUnchanged += 1;
@@ -325,14 +337,7 @@ export async function applyCompileOperations(
 
     const steering = await steerExistingPageOperation(opts.vaultRoot, grounded.operation, now);
     if (steering.stage) {
-      const proposedPath = await stageCompileProposal(opts.vaultRoot, grounded.operation, now, steering.reason);
-      result.proposed.push(proposedPath);
-      result.outcomes.push({
-        path: relPath,
-        outcome: "staged-for-review",
-        reason: steering.reason,
-        contentPreserved: true,
-      });
+      await recordProposalStage(result, opts.vaultRoot, grounded.operation, now, steering.reason, relPath);
       continue;
     }
     if (steering.skipped) {
@@ -375,15 +380,7 @@ export async function applyCompileOperations(
       continue;
     }
     if (rewriteGuard.stage) {
-      const reason = rewriteGuard.reason;
-      const proposedPath = await stageCompileProposal(opts.vaultRoot, operationToApply, now, reason);
-      result.proposed.push(proposedPath);
-      result.outcomes.push({
-        path: relPath,
-        outcome: "staged-for-review",
-        reason,
-        contentPreserved: true,
-      });
+      await recordProposalStage(result, opts.vaultRoot, operationToApply, now, rewriteGuard.reason, relPath);
       continue;
     }
 
@@ -392,15 +389,7 @@ export async function applyCompileOperations(
     // becoming canonical from a single raw source.
     if (!hasHighConfidence(grounded.operation)) {
       const reason = preparedOperation.stageReason ?? "low confidence";
-      const proposedPath = await stageCompileProposal(opts.vaultRoot, operationToApply, now, reason);
-      result.proposed.push(proposedPath);
-      result.outcomes.push({
-        path: relPath,
-        outcome: "staged-for-review",
-        reason,
-        ...(converted ? { converted } : {}),
-        contentPreserved: true,
-      });
+      await recordProposalStage(result, opts.vaultRoot, operationToApply, now, reason, relPath, converted);
       continue;
     }
 
@@ -997,6 +986,7 @@ async function rewriteExistingKnowledgePageUpdate(opts: {
       outcome: "staged-for-review";
       reason: string;
       proposedPath: string;
+      alreadyResolved?: boolean;
       tokensUsed?: LLMTokenUsage;
       extractionTokensUsed?: LLMTokenUsage;
       factsExtracted?: number;
@@ -1015,7 +1005,7 @@ async function rewriteExistingKnowledgePageUpdate(opts: {
 
   let incoming = operationIncomingContent(opts.operation);
   if (!opts.llm) {
-    const proposedPath = await stageCompileProposal(
+    const staged = await stageCompileProposal(
       opts.vaultRoot,
       opts.operation,
       opts.now,
@@ -1025,7 +1015,8 @@ async function rewriteExistingKnowledgePageUpdate(opts: {
       handled: true,
       outcome: "staged-for-review",
       reason: "knowledge-page update requires rewrite LLM",
-      proposedPath,
+      proposedPath: staged.path,
+      alreadyResolved: staged.alreadyResolved,
       referencesStripped: 0,
       prosePathLeaks: 0,
     };
@@ -1047,7 +1038,7 @@ async function rewriteExistingKnowledgePageUpdate(opts: {
     extractionTokensUsed = extraction.tokensUsed;
     sessionsScanned = 1;
     if (extraction.truncated) {
-      const proposedPath = await stageCompileProposal(
+      const staged = await stageCompileProposal(
         opts.vaultRoot,
         opts.operation,
         opts.now,
@@ -1057,7 +1048,8 @@ async function rewriteExistingKnowledgePageUpdate(opts: {
         handled: true,
         outcome: "staged-for-review",
         reason: "fact extraction truncated by LLM",
-        proposedPath,
+        proposedPath: staged.path,
+        alreadyResolved: staged.alreadyResolved,
         extractionTokensUsed,
         factsExtracted,
         sessionsScanned,
@@ -1124,11 +1116,20 @@ async function rewriteExistingKnowledgePageUpdate(opts: {
       };
     }
     if (synthesis.outcome === "staged-for-review") {
+      const staged = synthesis.proposedPath
+        ? { path: synthesis.proposedPath, alreadyResolved: false }
+        : await stageCompileProposal(
+          opts.vaultRoot,
+          opts.operation,
+          opts.now,
+          "narrative synthesis staged for review",
+        );
       return {
         handled: true,
         outcome: "staged-for-review",
         reason: synthesis.reason ?? "narrative synthesis staged for review",
-        proposedPath: synthesis.proposedPath ?? await stageCompileProposal(opts.vaultRoot, opts.operation, opts.now, "narrative synthesis staged for review"),
+        proposedPath: staged.path,
+        alreadyResolved: staged.alreadyResolved,
         extractionTokensUsed,
         factsExtracted,
         sessionsScanned,
@@ -1147,12 +1148,13 @@ async function rewriteExistingKnowledgePageUpdate(opts: {
     };
   } catch (error) {
     const reason = `knowledge-page narrative synthesis failed: ${error instanceof Error ? error.message : String(error)}`;
-    const proposedPath = await stageCompileProposal(opts.vaultRoot, opts.operation, opts.now, reason);
+    const staged = await stageCompileProposal(opts.vaultRoot, opts.operation, opts.now, reason);
     return {
       handled: true,
       outcome: "staged-for-review",
       reason,
-      proposedPath,
+      proposedPath: staged.path,
+      alreadyResolved: staged.alreadyResolved,
       extractionTokensUsed,
       factsExtracted,
       sessionsScanned,
@@ -1475,12 +1477,48 @@ function normalizeContent(text: string): string {
     .toLowerCase();
 }
 
+interface StageCompileProposalResult {
+  path: string;
+  alreadyResolved: boolean;
+}
+
+async function recordProposalStage(
+  result: ApplyCompileOperationsResult,
+  vaultRoot: string,
+  operation: CompileOperation,
+  now: Date,
+  reason: string,
+  outcomePath: string,
+  converted?: CompileOperationConversion,
+): Promise<void> {
+  const staged = await stageCompileProposal(vaultRoot, operation, now, reason);
+  if (staged.alreadyResolved) {
+    result.resolvedConsumed.push(staged.path);
+    result.outcomes.push({
+      path: outcomePath,
+      outcome: "skipped: proposal already resolved",
+      reason: "proposal already approved or rejected",
+      contentPreserved: true,
+      ...(converted ? { converted } : {}),
+    });
+    return;
+  }
+  result.proposed.push(staged.path);
+  result.outcomes.push({
+    path: outcomePath,
+    outcome: "staged-for-review",
+    reason,
+    contentPreserved: true,
+    ...(converted ? { converted } : {}),
+  });
+}
+
 async function stageCompileProposal(
   vaultRoot: string,
   operation: CompileOperation,
   now: Date,
   reason: string,
-): Promise<string> {
+): Promise<StageCompileProposalResult> {
   const target = compileOperationPath(operation);
   const slug = kebabCase(basename(target, ".md")) || "compile-proposal";
   const relPath = `wiki/compile-proposed/${slug}.md`;
@@ -1488,7 +1526,7 @@ async function stageCompileProposal(
   // A proposal the user already approved or rejected must not resurface in
   // the inbox — long drains regenerate identical low-confidence operations.
   if (await isProposalResolved(vaultRoot, operation)) {
-    return relPath;
+    return { path: relPath, alreadyResolved: true };
   }
   await atomicWrite(
     fullPath,
@@ -1515,7 +1553,7 @@ async function stageCompileProposal(
       ].join("\n"),
     ),
   );
-  return relPath;
+  return { path: relPath, alreadyResolved: false };
 }
 
 async function appendText(fullPath: string, text: string): Promise<void> {
