@@ -5,22 +5,28 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runInstall } from "../../../src/cli/commands/install.js";
 import type { VerifyResult } from "../../../src/cli/commands/verify.js";
+import { seedBuiltHooks } from "./install/seed-built-hooks.js";
 
 describe("runInstall", () => {
   let tmp: string;
   let origMem: string | undefined;
   let origClaudeDesktop: string | undefined;
   let origOpenCode: string | undefined;
+  let origRepo: string | undefined;
   let logSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(async () => {
     tmp = await mkdtemp(join(tmpdir(), "install-command-"));
+    const repoDir = join(tmp, "repo");
+    await seedBuiltHooks(repoDir);
     origMem = process.env["MEMORY_ROOT"];
     origClaudeDesktop = process.env["MEMORY_CLAUDE_DESKTOP_DIR"];
     origOpenCode = process.env["MEMORY_OPENCODE_DIR"];
+    origRepo = process.env["MEMORY_REPO_DIR"];
     process.env["MEMORY_ROOT"] = join(tmp, ".memory");
     process.env["MEMORY_CLAUDE_DESKTOP_DIR"] = join(tmp, "Claude");
     process.env["MEMORY_OPENCODE_DIR"] = join(tmp, ".config", "opencode");
+    process.env["MEMORY_REPO_DIR"] = repoDir;
     await mkdir(join(tmp, ".memory"), { recursive: true });
     await writeFile(join(tmp, ".memory", "log.md"), "");
     logSpy = vi.spyOn(console, "log").mockImplementation(() => undefined);
@@ -34,6 +40,8 @@ describe("runInstall", () => {
     else process.env["MEMORY_CLAUDE_DESKTOP_DIR"] = origClaudeDesktop;
     if (origOpenCode === undefined) delete process.env["MEMORY_OPENCODE_DIR"];
     else process.env["MEMORY_OPENCODE_DIR"] = origOpenCode;
+    if (origRepo === undefined) delete process.env["MEMORY_REPO_DIR"];
+    else process.env["MEMORY_REPO_DIR"] = origRepo;
     await rm(tmp, { recursive: true, force: true });
   });
 

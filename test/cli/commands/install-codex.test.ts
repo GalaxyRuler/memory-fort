@@ -8,6 +8,7 @@ import {
   installCodex,
   stripPriorBlock,
 } from "../../../src/cli/commands/install/codex.js";
+import { seedBuiltHooks } from "./install/seed-built-hooks.js";
 
 describe("stripPriorBlock", () => {
   it("returns original content when no marker present", () => {
@@ -39,14 +40,19 @@ describe("installCodex", () => {
   let codexDir: string;
   let origMem: string | undefined;
   let origCodex: string | undefined;
+  let origRepo: string | undefined;
 
   beforeEach(async () => {
     tmp = await mkdtemp(join(tmpdir(), "instcdx-"));
     memDir = join(tmp, ".memory");
     codexDir = join(tmp, ".codex");
+    const repoDir = join(tmp, "repo");
+    await seedBuiltHooks(repoDir);
     origMem = process.env["MEMORY_ROOT"];
     origCodex = process.env["MEMORY_CODEX_DIR"];
+    origRepo = process.env["MEMORY_REPO_DIR"];
     process.env["MEMORY_ROOT"] = memDir;
+    process.env["MEMORY_REPO_DIR"] = repoDir;
     await runInit({ sourceRepoDir: process.cwd() });
   });
 
@@ -55,6 +61,8 @@ describe("installCodex", () => {
     else process.env["MEMORY_ROOT"] = origMem;
     if (origCodex === undefined) delete process.env["MEMORY_CODEX_DIR"];
     else process.env["MEMORY_CODEX_DIR"] = origCodex;
+    if (origRepo === undefined) delete process.env["MEMORY_REPO_DIR"];
+    else process.env["MEMORY_REPO_DIR"] = origRepo;
     await rm(tmp, { recursive: true, force: true });
   });
 
@@ -62,6 +70,9 @@ describe("installCodex", () => {
     const result = await installCodex({ codexDir });
     expect(result.configCreated).toBe(true);
     expect(existsSync(result.codexConfigPath)).toBe(true);
+    expect(
+      existsSync(join(memDir, "claude-code-plugin", "scripts", "mcp-server.mjs")),
+    ).toBe(true);
     const content = await readFile(result.codexConfigPath, "utf-8");
     expect(content).toContain("# === BEGIN memory-system");
     expect(content).toContain("[[hooks.SessionStart]]");

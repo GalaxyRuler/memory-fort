@@ -8,6 +8,7 @@ import {
   runInstallOpenCode,
 } from "../../../src/cli/commands/install/opencode.js";
 import { runUninstall } from "../../../src/cli/commands/uninstall.js";
+import { seedBuiltHooks } from "./install/seed-built-hooks.js";
 
 function posixPath(path: string): string {
   return path.replace(/\\/g, "/");
@@ -25,11 +26,7 @@ describe("runInstallOpenCode", () => {
     memDir = join(tmp, ".memory");
     repoDir = join(tmp, "repo");
     opencodeDir = join(tmp, ".config", "opencode");
-    await mkdir(join(memDir, "hooks"), { recursive: true });
-    await mkdir(repoDir, { recursive: true });
-    await writeFile(join(repoDir, "package.json"), "{}");
-    await writeFile(join(memDir, "hooks", "mcp-server.mjs"), "// mcp stub\n");
-    await writeFile(join(memDir, "hooks", "opencode-event.mjs"), "// event stub\n");
+    await seedBuiltHooks(repoDir);
 
     envBefore = {
       MEMORY_ROOT: process.env["MEMORY_ROOT"],

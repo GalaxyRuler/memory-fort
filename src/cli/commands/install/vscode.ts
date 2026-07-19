@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { mcpServerPath, logPath } from "../../../storage/paths.js";
 import { atomicWrite, atomicAppend } from "../../../storage/atomic-write.js";
+import { ensurePluginScriptLaunchers } from "./materialize-runtime-scripts.js";
 
 export interface InstallVsCodeOptions {
   /** Override VS Code user profile dir (default: %APPDATA%/Code/User on Windows). */
@@ -16,6 +17,8 @@ export interface InstallVsCodeOptions {
   extensionDir?: string;
   /** Override source repo root containing vscode-extension/. */
   sourceRepoDir?: string;
+  /** Built package root containing dist/hooks (defaults to sourceRepoDir / discovery). */
+  repoDir?: string;
   now?: Date;
 }
 
@@ -102,6 +105,14 @@ export async function installVsCode(
   });
   let existing: Record<string, unknown> = {};
   let configCreated = false;
+
+  const materialized = await ensurePluginScriptLaunchers({
+    repoDir: opts.repoDir ?? opts.sourceRepoDir,
+    generatedBy: "memory install vscode",
+  });
+  log.push(
+    `materialized ${materialized.written.length} plugin script launchers under ${materialized.pluginScriptsDir}`,
+  );
 
   if (existsSync(configPath)) {
     const raw = await readFile(configPath, "utf-8");

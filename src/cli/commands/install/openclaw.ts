@@ -4,9 +4,12 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { atomicWrite } from "../../../storage/atomic-write.js";
 import { memoryRoot } from "../../../storage/paths.js";
+import { ensureVaultHookScripts } from "./materialize-runtime-scripts.js";
 
 export interface InstallOpenClawOptions {
   openclawDir?: string;
+  /** Built package root containing dist/hooks (tests / portable installs). */
+  repoDir?: string;
 }
 
 export interface InstallOpenClawResult {
@@ -28,6 +31,14 @@ export async function runInstallOpenClaw(
   let existingConfig: Record<string, unknown> = {};
   let configCreated = false;
   const log: string[] = [];
+
+  const materialized = await ensureVaultHookScripts({
+    repoDir: opts.repoDir,
+    generatedBy: "memory install openclaw",
+  });
+  log.push(
+    `materialized ${materialized.written.length} vault hook launchers under ${materialized.hooksDir}`,
+  );
 
   if (existsSync(configPath)) {
     const raw = await readFile(configPath, "utf-8");
