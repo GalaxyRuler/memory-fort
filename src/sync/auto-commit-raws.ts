@@ -103,7 +103,13 @@ function parseDirtyFiles(output: string): DirtyFile[] {
 // (`<name>.<pid>.<ts>.<uuid>.tmp`). They appear transiently in
 // `git status -uall` and previously tripped the "non-raw dirty" skip.
 function isTransientArtifact(path: string): boolean {
-  const name = path.split("/").at(-1) ?? path;
+  const normalized = path.replace(/\\/g, "/");
+  // Generated client launchers (materializeRuntimeScripts); not vault data.
+  if (normalized === "hooks" || normalized.startsWith("hooks/")) return true;
+  if (normalized === "claude-code-plugin" || normalized.startsWith("claude-code-plugin/")) {
+    return true;
+  }
+  const name = normalized.split("/").at(-1) ?? normalized;
   return name === ".auto-push-pending.lock" || /\.\d+\.\d+\.[0-9a-fA-F-]+\.tmp$/.test(name);
 }
 
