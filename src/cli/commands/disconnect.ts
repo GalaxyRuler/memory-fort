@@ -56,7 +56,13 @@ export async function runDisconnect(
 
   let sharedRuntimeCleanup: string[] | undefined;
   // Full client list / --all: no remaining installer still points at scripts/.
-  if (disconnectingAll && targets.length >= CLIENTS.length) {
+  // Skip when --workspace is set: uninstall vscode only removes that workspace
+  // MCP config, while user-level or other workspaces may still need launchers.
+  if (
+    disconnectingAll
+    && targets.length >= CLIENTS.length
+    && !(opts.workspace && opts.workspace.trim().length > 0)
+  ) {
     sharedRuntimeCleanup = await removeSharedPluginScripts(opts);
   }
 

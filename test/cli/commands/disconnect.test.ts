@@ -78,4 +78,16 @@ describe("runDisconnect", () => {
 
     expect(existsSync(join(scriptsDir, "mcp-server.mjs"))).toBe(true);
   });
+
+  it("preserves shared scripts on full disconnect scoped to a VS Code workspace", async () => {
+    const scriptsDir = join(memDir, "claude-code-plugin", "scripts");
+    await mkdir(scriptsDir, { recursive: true });
+    await writeFile(join(scriptsDir, "mcp-server.mjs"), "// launcher\n");
+
+    const result = await runDisconnect({ workspace: join(tmp, "some-workspace") });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.sharedRuntimeCleanup).toBeUndefined();
+    expect(existsSync(join(scriptsDir, "mcp-server.mjs"))).toBe(true);
+  });
 });
