@@ -234,6 +234,15 @@ export async function runInstall(
   }
 }
 
+/** Shared launcher trees materializeRuntimeScripts recreates (rm + rewrite). */
+function plannedVaultHookDirs(): string[] {
+  const root = memoryRoot();
+  return [
+    join(root, "hooks"),
+    join(root, "claude-code-plugin", "scripts"),
+  ];
+}
+
 export function planInstallWrites(
   platform: string,
   opts: Pick<RunInstallOptions, "workspace" | "vscodeExtensionDir"> = {},
@@ -254,7 +263,8 @@ export function planInstallWrites(
     }
     case "codex": {
       const codexDir = process.env["MEMORY_CODEX_DIR"] ?? join(homedir(), ".codex");
-      return [join(codexDir, "config.toml"), logPath()];
+      // materialize: claude-code-plugin/scripts (shared MCP/hook launchers)
+      return [join(codexDir, "config.toml"), ...plannedVaultHookDirs().slice(1), logPath()];
     }
     case "antigravity": {
       const antigravityDir =
@@ -263,33 +273,41 @@ export function planInstallWrites(
       return [
         join(antigravityDir, "mcp_config.json"),
         join(antigravityDir, "plugins", "memory"),
+        ...plannedVaultHookDirs().slice(1),
         logPath(),
       ];
     }
     case "hermes": {
       const hermesDir = process.env["MEMORY_HERMES_DIR"] ?? join(homedir(), ".hermes");
-      return [join(hermesDir, "config.yaml"), logPath()];
+      // materialize: ~/.memory/hooks (session + MCP launchers)
+      return [join(hermesDir, "config.yaml"), plannedVaultHookDirs()[0]!, logPath()];
     }
     case "pi": {
       const piDir = process.env["MEMORY_PI_DIR"] ?? join(homedir(), ".pi");
-      return [join(piDir, "config.yaml"), logPath()];
+      return [join(piDir, "config.yaml"), plannedVaultHookDirs()[0]!, logPath()];
     }
     case "openclaw": {
       const openclawDir = process.env["MEMORY_OPENCLAW_DIR"] ?? join(homedir(), ".openclaw");
-      return [join(openclawDir, "openclaw.json")];
+      return [join(openclawDir, "openclaw.json"), plannedVaultHookDirs()[0]!];
     }
     case "opencoven":
       return [];
     case "opencode": {
       const dir = opencodeConfigDir();
-      return [opencodeConfigPath(dir), opencodePluginPath(dir), logPath()];
+      return [
+        opencodeConfigPath(dir),
+        opencodePluginPath(dir),
+        plannedVaultHookDirs()[0]!,
+        logPath(),
+      ];
     }
     case "claude-desktop":
-      return [claudeDesktopConfigPath()];
+      return [claudeDesktopConfigPath(), plannedVaultHookDirs()[1]!];
     case "vscode":
       return [
         vscodeMcpConfigPath({ workspace: opts.workspace }),
         join(vscodeExtensionDir(opts.vscodeExtensionDir), "memory-fort.memory"),
+        plannedVaultHookDirs()[1]!,
         logPath(),
       ];
     case "chatgpt":
