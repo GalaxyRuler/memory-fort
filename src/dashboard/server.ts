@@ -763,6 +763,18 @@ function hasNonEmptyParam(url: URL, key: string): boolean {
   return value !== null && value.trim().length > 0;
 }
 
+/**
+ * Label the backend from what actually served the query.
+ * Env MEMORY_INDEX_VECTORS alone is not enough: executor absence or hybrid
+ * coverage fallbacks still return pure lexical results.
+ */
+export function deriveIndexSearchBackend(body: SearchResponse): SearchBackend {
+  const hybridMode = (body as { hybridMode?: unknown }).hybridMode;
+  if (hybridMode === "lexical-plus-vector") return "index-hybrid";
+  return "index-lexical";
+}
+
+/** @deprecated Prefer deriveIndexSearchBackend(body) for honest labels. */
 export function resolveIndexSearchBackend(env: NodeJS.ProcessEnv = process.env): SearchBackend {
   return isIndexVectorsEnabled(env) ? "index-hybrid" : "index-lexical";
 }
@@ -770,10 +782,10 @@ export function resolveIndexSearchBackend(env: NodeJS.ProcessEnv = process.env):
 function annotateIndexSearchResponse(
   body: SearchResponse,
   url: URL,
-  env: NodeJS.ProcessEnv,
+  _env?: NodeJS.ProcessEnv,
 ): SearchResponse {
   const ignoredParams = collectIndexIgnoredSearchParams(url);
-  const searchBackend = resolveIndexSearchBackend(env);
+  const searchBackend = deriveIndexSearchBackend(body);
   // Do not push ignored-params into `warnings`: the Search UI treats any
   // warning as index-health degradation and hides the normal empty state.
   // Clients that care about contract honesty should read `ignoredParams`.
