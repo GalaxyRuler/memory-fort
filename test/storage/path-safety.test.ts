@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import {
   isStrictChild,
   parseSafeRelativeSegments,
@@ -7,7 +7,9 @@ import {
 } from "../../src/storage/path-safety.js";
 
 describe("path-safety", () => {
-  const parent = join("/tmp", "vault", "wiki");
+  // resolve() so the fixture is drive-qualified on Windows (a bare /tmp parent
+  // resolves with the cwd drive and join() would not match).
+  const parent = resolve("/tmp", "vault", "wiki");
 
   it("accepts simple relative wiki paths", () => {
     expect(parseSafeRelativeSegments("projects/foo.md")).toEqual(["projects", "foo.md"]);
