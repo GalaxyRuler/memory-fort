@@ -241,8 +241,9 @@ describe("autoCommitRawsIfDirty", () => {
     }));
 
     await expect(autoCommitRawsIfDirty({ memoryRoot: "/mem", runner })).resolves.toEqual({
-      kind: "skipped-non-raw-dirty",
-      dirtyNonRawFiles: ["yarn.lock", "Gemfile.lock"],
+      kind: "nothing-committable",
+      heldNonRaw: ["yarn.lock", "Gemfile.lock"],
+      heldSecret: [],
     });
   });
 

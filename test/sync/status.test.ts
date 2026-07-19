@@ -142,11 +142,9 @@ describe("getSyncStatus", () => {
             "?? claude-code-plugin/scripts/mcp-server.mjs",
             " M wiki/foo.md",
             "",
-          ].join("
-"),
+          ].join("\n"),
         }
-        : { stdout: "0	0
-" },
+        : { stdout: "0\t0\n" },
     );
 
     const status = await getSyncStatus(ctx(runner));
@@ -158,11 +156,8 @@ describe("getSyncStatus", () => {
   it("getSyncStatus is clean when only generated launchers are untracked", async () => {
     const runner = makeRunner((call) =>
       call.args.includes("--porcelain")
-        ? { stdout: "?? hooks/session-start.mjs
-?? claude-code-plugin/scripts/x.mjs
-" }
-        : { stdout: "0	0
-" },
+        ? { stdout: "?? hooks/session-start.mjs\n?? claude-code-plugin/scripts/x.mjs\n" }
+        : { stdout: "0\t0\n" },
     );
 
     const status = await getSyncStatus(ctx(runner));
@@ -183,32 +178,14 @@ describe("getSyncStatus", () => {
             " M scripts/yarn.lock",
             "?? Gemfile.lock",
             "",
-          ].join("
-"),
+          ].join("\n"),
         }
-        : { stdout: "0	0
-" },
+        : { stdout: "0\t0\n" },
     );
 
     const status = await getSyncStatus(ctx(runner));
 
     expect(status.state).toBe("dirty");
     expect(status.dirtyFiles).toEqual(["scripts/yarn.lock", "Gemfile.lock"]);
-  });});
-
-  it("getSyncStatus is clean when only generated launchers are untracked", async () => {
-    const runner = makeRunner((call) =>
-      call.args.includes("--porcelain")
-        ? { stdout: "?? hooks/session-start.mjs\n?? claude-code-plugin/scripts/x.mjs\n" }
-        : { stdout: "0\t0\n" },
-    );
-
-    const status = await getSyncStatus(ctx(runner));
-
-    expect(status.state).toBe("clean");
-    expect(status.dirtyFiles).toEqual([]);
-=======
-    expect(status.dirtyFiles).toEqual(["scripts/yarn.lock", "Gemfile.lock"]);
->>>>>>> pr/18
   });
 });
