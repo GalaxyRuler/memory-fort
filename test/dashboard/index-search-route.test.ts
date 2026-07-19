@@ -68,6 +68,8 @@ describe("dashboard index search route", () => {
 
     expect(response.status).toBe(200);
     expect(body.query).toBe("needle");
+    expect(body.searchBackend).toBe("index-lexical");
+    expect(body.ignoredParams).toEqual([]);
     expect(body.results).toEqual([
       expect.objectContaining({
         path: "wiki/indexed.md",
@@ -76,6 +78,31 @@ describe("dashboard index search route", () => {
       }),
     ]);
     expect(loadSearchCorpus).not.toHaveBeenCalled();
+  });
+
+  it("reports ignored advanced params on the index search path", async () => {
+    const { vaultRoot, indexDbPath } = await createIndexedVault();
+
+    server = await createServer({
+      vaultRoot,
+      port: 0,
+      env: {
+        MEMORY_INDEX_DB_PATH: indexDbPath,
+      },
+      voyageClient: null,
+    });
+
+    const response = await fetch(
+      `http://${server.host}:${server.port}/api/search?q=needle&scope=wiki&minScore=0.5&as_of=2026-01-01`,
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.searchBackend).toBe("index-lexical");
+    expect(body.ignoredParams).toEqual(["scope", "minScore", "as_of"]);
+    expect(body.warnings).toEqual(
+      expect.arrayContaining([expect.stringMatching(/^ignored-params:/)]),
+    );
   });
 
   it("serves default index search inline even when a vector executor is available", async () => {

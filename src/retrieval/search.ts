@@ -139,6 +139,12 @@ export interface HydeStatus {
   promptEmitted?: string;
 }
 
+/** Which retrieval stack produced this response (honest contract for clients). */
+export type SearchBackend =
+  | "legacy"
+  | "index-lexical"
+  | "index-hybrid";
+
 export interface SearchResponse {
   query: string;
   results: SearchResult[];
@@ -148,6 +154,17 @@ export interface SearchResponse {
   hyde: HydeStatus;
   corpusErrorCount: number;
   bm25Cache: Bm25CacheStats;
+  /**
+   * Retrieval backend that handled this query.
+   * Index mode (default since 0.11) is lexical FTS (+ optional vectors);
+   * many legacy filters are not applied — see `ignoredParams`.
+   */
+  searchBackend?: SearchBackend;
+  /**
+   * Request parameters that were present but not applied by the active backend.
+   * Empty/absent when all requested filters were honored (or not supplied).
+   */
+  ignoredParams?: string[];
 }
 
 interface VectorScore {

@@ -6,7 +6,15 @@ import { fileURLToPath } from "node:url";
 import { type VerifyResult, type VerifyRole } from "../cli/commands/verify.js";
 import { runVerifyInChild } from "./verify-worker.js";
 import { detectRole } from "../cli/commands/verify/role.js";
-import { createSearchRuntimeCache, runSearch, type Bm25CacheStats, type SearchResponse, type SearchResult, type SearchTimings } from "../retrieval/search.js";
+import {
+  createSearchRuntimeCache,
+  runSearch,
+  type Bm25CacheStats,
+  type SearchBackend,
+  type SearchResponse,
+  type SearchResult,
+  type SearchTimings,
+} from "../retrieval/search.js";
 import { parseAsOf } from "../retrieval/temporal-filter.js";
 import { handlePostObservation, handleGetPages } from "./api-handlers.js";
 import { loadSearchCorpus, type SearchScope } from "../retrieval/corpus.js";
@@ -721,6 +729,60 @@ function parseIndexSearchPage(url: URL): IndexSearchPage {
     limit,
     fetchLimit: Math.min(100, parsedCursor.offset + limit + 1),
     ...(parsedCursor.invalid ? { cursorStatus: "invalid" as const } : {}),
+  };
+}
+
+/**
+ * Query params accepted by the legacy multi-signal path but not applied by the
+ * default SQLite FTS index backend. Only list params that were actually
+ * requested with a non-default value so agents get an honest contract.
+ */
+export function collectIndexIgnoredSearchParams(url: URL): string[] {
+  const ignored: string[] = [];
+  const scope = url.searchParams.get("scope");
+  if (scope !== null && scope !== "" && scope !== "all") ignored.push("scope");
+
+  const minScore = url.searchParams.get("minScore");
+  if (minScore !== null && minScore !== "" && minScore !== "0") ignored.push("minScore");
+
+  // MCP always sends noRerank; only flag when the client explicitly wants rerank.
+  if (url.searchParams.get("noRerank") === "false") ignored.push("noRerank");
+
+  if (hasNonEmptyParam(url, "hydeExpansion")) ignored.push("hydeExpansion");
+  if (url.searchParams.get("noHyde") === "true") ignored.push("noHyde");
+  if (hasNonEmptyParam(url, "intent")) ignored.push("intent");
+  if (hasNonEmptyParam(url, "as_of")) ignored.push("as_of");
+  if (hasNonEmptyParam(url, "agent_id")) ignored.push("agent_id");
+  if (hasNonEmptyParam(url, "user_id")) ignored.push("user_id");
+  if (url.searchParams.get("identity_mode") === "strict") ignored.push("identity_mode");
+  return ignored;
+}
+
+function hasNonEmptyParam(url: URL, key: string): boolean {
+  const value = url.searchParams.get(key);
+  return value !== null && value.trim().length > 0;
+}
+
+export function resolveIndexSearchBackend(env: NodeJS.ProcessEnv = process.env): SearchBackend {
+  return isIndexVectorsEnabled(env) ? "index-hybrid" : "index-lexical";
+}
+
+function annotateIndexSearchResponse(
+  body: SearchResponse,
+  url: URL,
+  env: NodeJS.ProcessEnv,
+): SearchResponse {
+  const ignoredParams = collectIndexIgnoredSearchParams(url);
+  const searchBackend = resolveIndexSearchBackend(env);
+  const warnings = [...body.warnings];
+  if (ignoredParams.length > 0) {
+    warnings.push(`ignored-params:${ignoredParams.join(",")}`);
+  }
+  return {
+    ...body,
+    searchBackend,
+    ignoredParams,
+    warnings,
   };
 }
 
@@ -1777,7 +1839,8 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
         }
         if (indexSearch) {
           try {
-            writeJson(res, await indexSearch.search(query, parseIndexSearchPage(url)));
+            const indexBody = await indexSearch.search(query, parseIndexSearchPage(url));
+            writeJson(res, annotateIndexSearchResponse(indexBody, url, env));
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
             writeJsonError(res, 500, message);
@@ -1821,7 +1884,11 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
             refreshEmbeddings: false,
             runtimeCache: searchRuntimeCache,
           }));
-          writeJson(res, result);
+          writeJson(res, {
+            ...result,
+            searchBackend: "legacy" as const,
+            ignoredParams: [],
+          });
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
           writeJsonError(res, 500, message);

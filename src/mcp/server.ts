@@ -348,6 +348,8 @@ interface ApiSearchResponse {
   warnings?: unknown;
   timings?: unknown;
   degraded?: unknown;
+  searchBackend?: unknown;
+  ignoredParams?: unknown;
   hyde?: {
     reason?: unknown;
     promptEmitted?: unknown;
@@ -520,7 +522,7 @@ export function createServer(deps: SearchDeps = {}): McpServer {
     "search",
     {
       description:
-        "Search the user's memory system (wiki + raw observations). Uses BM25 + Voyage embeddings + rerank + graph + metadata signals fused via RRF. Returns ranked results with snippets and provenance metadata. If query is short (≤5 words) AND no BM25 hits exist, the response includes a 'hyde_prompt_pending' field with a HyDE prompt the LLM can expand and re-submit via the 'hyde_expansion' parameter for better semantic matches.",
+        "Search the user's memory system (wiki + raw observations). Default dashboard backend (since 0.11) is a local SQLite FTS index (lexical; optional vectors if MEMORY_INDEX_VECTORS=1). Responses include search_backend and ignored_params when advanced filters (scope, min_score, as_of, identity, HyDE, rerank) are not applied by that backend. Legacy multi-signal search (BM25 + embeddings + graph + RRF + optional Voyage rerank/HyDE) runs only when MEMORY_INDEX_SEARCH=0. Returns ranked results with snippets and provenance.",
       inputSchema: SearchInput.shape,
     },
     async (args) => searchMemory(args, deps),
@@ -752,10 +754,22 @@ function isSafeNonNegativeInteger(value: unknown): value is number {
 }
 
 function formatSearchToolResponse(body: ApiSearchResponse, results: ApiSearchResultWithPath[]): string {
+  const ignoredParams = normalizeStringArray(
+    body.ignoredParams,
+    MAX_SEARCH_WARNING_COUNT,
+    MAX_SEARCH_WARNING_LENGTH,
+    MAX_SEARCH_WARNINGS_INSPECTED,
+  );
+  const searchBackend =
+    typeof body.searchBackend === "string"
+      ? sanitizeString(body.searchBackend, MAX_SEARCH_SOURCE_LENGTH, "unknown")
+      : undefined;
   const result = {
     query: sanitizeString(body.query, MAX_SEARCH_QUERY_LENGTH, ""),
     result_count: results.length,
     degraded: body.degraded === true,
+    ...(searchBackend ? { search_backend: searchBackend } : {}),
+    ...(ignoredParams.length > 0 ? { ignored_params: ignoredParams } : {}),
     warnings: normalizeStringArray(
       body.warnings,
       MAX_SEARCH_WARNING_COUNT,

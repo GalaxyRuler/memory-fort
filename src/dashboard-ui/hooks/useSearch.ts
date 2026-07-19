@@ -42,6 +42,10 @@ export interface SearchResponse {
   degraded: boolean;
   hyde: { used: boolean; reason: string };
   corpusErrorCount: number;
+  /** Active retrieval backend (index-lexical / index-hybrid / legacy). */
+  searchBackend?: string;
+  /** Params present in the request but not applied by the active backend. */
+  ignoredParams?: string[];
 }
 
 export interface SearchIndexStatus {
