@@ -25,8 +25,8 @@ export function isStrictChild(parent: string, child: string): boolean {
 export function isAllowedRelativeSegment(segment: string): boolean {
   if (segment.length === 0) return false;
   if (segment === "." || segment === "..") return false;
-  // Drive-letter segment alone (defensive; join would not treat as absolute).
-  if (/^[a-zA-Z]:$/.test(segment)) return false;
+  // Drive-letter prefixes (C: or C:foo) — never valid vault-relative segments.
+  if (/^[a-zA-Z]:/.test(segment)) return false;
   if (segment.includes("/") || segment.includes("\\")) return false;
   // C0 controls + DEL + NUL
   if (/[\u0000-\u001f\u007f]/.test(segment)) return false;
@@ -44,14 +44,11 @@ export function parseSafeRelativeSegments(relativePath: string): string[] | null
   if (relativePath.includes("\0")) return null;
 
   // Explicit absolute / drive checks (including lowercase Windows drives).
+  // Also reject drive-relative forms like "C:tools/git.md" (no slash after
+  // the colon) — path.resolve treats those as cwd-on-drive, not vault-relative.
   if (isAbsolute(relativePath)) return null;
-  if (/^[a-zA-Z]:[\\/]/.test(relativePath)) return null;
+  if (/^[a-zA-Z]:/.test(relativePath)) return null;
   if (relativePath.startsWith("/") || relativePath.startsWith("\\")) return null;
-  // Reject ".." as a path component even when encoded in multi-segment form.
-  if (relativePath.includes("..")) {
-    // Allow filenames that merely contain two dots (e.g. "file..md") but not
-    // segment traversal. Check after split below for true ".." segments.
-  }
 
   const normalized = relativePath.replace(/\\/g, "/");
   const segments = normalized.split("/").filter((segment) => segment.length > 0);
@@ -61,6 +58,8 @@ export function parseSafeRelativeSegments(relativePath: string): string[] | null
     if (!isAllowedRelativeSegment(segment)) return null;
     // Explicit: ".." must never pass even if we loosen other rules later.
     if (segment === "..") return null;
+    // Reject drive-letter prefixes inside any segment (C:foo).
+    if (/^[a-zA-Z]:/.test(segment)) return null;
   }
   // Reject any remaining ".." substring that is a whole segment only —
   // `foo/../bar` already failed; bare `../x` failed absolute-style checks.

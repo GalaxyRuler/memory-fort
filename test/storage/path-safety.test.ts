@@ -42,6 +42,12 @@ describe("path-safety", () => {
     expect(resolveStrictChild(parent, "c:\\Users\\x\\file.md")).toBeNull();
   });
 
+  it("rejects drive-relative prefixes without a slash (C:foo)", () => {
+    expect(parseSafeRelativeSegments("C:tools/git.md")).toBeNull();
+    expect(parseSafeRelativeSegments("c:foo.md")).toBeNull();
+    expect(resolveStrictChild(parent, "C:tools/git.md")).toBeNull();
+  });
+
   it("rejects root-relative backslash paths", () => {
     expect(parseSafeRelativeSegments("\\Windows\\system32\\x.md")).toBeNull();
   });
