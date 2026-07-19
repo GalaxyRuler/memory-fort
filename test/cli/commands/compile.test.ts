@@ -288,6 +288,18 @@ describe("runCompile", () => {
     }
     const large = join(root, "raw", "2026-05-21", "z-large.md");
     await writeFile(large, "L".repeat(100));
+    // Corroborating raw paths so multi-source write_page applies (not stages).
+    // Fully consume them so they do not compete for the fair-allocation budget.
+    const aBody = "corroboration-a\n";
+    const bBody = "corroboration-b\n";
+    await writeFile(join(root, "raw", "2026-05-21", "manual-a.md"), aBody);
+    await writeFile(join(root, "raw", "2026-05-21", "manual-b.md"), bBody);
+    await writeCompileState({
+      consumed: {
+        "raw/2026-05-21/manual-a.md": { bytes: Buffer.byteLength(aBody, "utf-8") },
+        "raw/2026-05-21/manual-b.md": { bytes: Buffer.byteLength(bBody, "utf-8") },
+      },
+    });
 
     await runCompile({
       vaultRoot: root,
@@ -405,24 +417,44 @@ describe("runCompile", () => {
   it("advances the watermark after execute and only sends an appended tail on the next run", async () => {
     const rawPath = join(root, "raw", "2026-05-21", "manual-a.md");
     await writeFile(rawPath, "first observation\n");
+    // Second raw must exist on disk: grounding strips missing derived_from refs,
+    // and multi-source confidence is required for write_page to apply (not stage).
+    // Mark b fully consumed so it does not re-enter the included set after pass 1.
+    const bBody = "corroboration\n";
+    await writeFile(join(root, "raw", "2026-05-21", "manual-b.md"), bBody);
+    await writeCompileState({
+      consumed: {
+        "raw/2026-05-21/manual-b.md": {
+          bytes: Buffer.byteLength(bBody, "utf-8"),
+        },
+      },
+    });
     const llm = fakeExecuteLLMWith(({ prompt }) => [{
       kind: "write_page",
       path: "wiki/lessons/watermark.md",
       frontmatter: {
         type: "lessons",
         title: "Watermark",
-        relations: { derived_from: ["raw/2026-05-21/manual-a.md"] },
+        relations: {
+          derived_from: [
+            "raw/2026-05-21/manual-a.md",
+            "raw/2026-05-21/manual-b.md",
+          ],
+        },
       },
       body: prompt.includes("second observation") ? "Second only." : "First only.",
     }]);
 
-    await runCompile({
+    const first = await runCompile({
       vaultRoot: root,
       execute: true,
       configLoader: async () => ({ llm: { provider: "ollama", model: "llama3.2" } }),
       llmFactory: () => llm,
       env: {},
     });
+    expect(first.execution?.applied).toContain("wiki/lessons/watermark.md");
+    expect(first.watermarksAdvanced).toContain("raw/2026-05-21/manual-a.md");
+
     await writeFile(rawPath, "first observation\nsecond observation\n");
 
     const second = await runCompile({
@@ -438,6 +470,47 @@ describe("runCompile", () => {
     const state = await readCompileState();
     expect(state.consumed["raw/2026-05-21/manual-a.md"].bytes)
       .toBe(Buffer.byteLength("first observation\nsecond observation\n", "utf-8"));
+  });
+
+  it("does not advance the watermark when execute only stages proposals", async () => {
+    const rawPath = join(root, "raw", "2026-05-21", "manual-a.md");
+    const body = "single-source observation that should stage not apply\n";
+    await writeFile(rawPath, body);
+
+    // One derived_from raw ref fails multi-source confidence → staged-for-review.
+    const result = await runCompile({
+      vaultRoot: root,
+      execute: true,
+      configLoader: async () => ({ llm: { provider: "ollama", model: "llama3.2" } }),
+      llmFactory: () => fakeExecuteLLMWith(() => [{
+        kind: "write_page",
+        path: "wiki/lessons/staged-only.md",
+        frontmatter: {
+          type: "lessons",
+          title: "Staged Only",
+          relations: { derived_from: ["raw/2026-05-21/manual-a.md"] },
+        },
+        body: "Should land in compile-proposed only.",
+      }]),
+      env: {},
+    });
+
+    expect(result.execution?.applied).toEqual([]);
+    expect(result.execution?.proposed.length).toBeGreaterThan(0);
+    expect(result.watermarksAdvanced).toEqual([]);
+    const state = await readCompileState();
+    expect(state.consumed ?? {}).not.toHaveProperty("raw/2026-05-21/manual-a.md");
+
+    // Same raw bytes remain eligible on the next run (not permanently skipped).
+    const second = await runCompile({
+      vaultRoot: root,
+      execute: true,
+      configLoader: async () => ({ llm: { provider: "ollama", model: "llama3.2" } }),
+      llmFactory: () => fakeExecuteLLM(),
+      env: {},
+    });
+    expect(second.rawFilesIncluded).toContain(rawPath);
+    expect(second.prompt).toContain("single-source observation");
   });
 
   it("does not advance raw watermarks when execute consolidates compressed facts instead of the raw prompt", async () => {
@@ -542,6 +615,17 @@ describe("runCompile", () => {
   it("advances only to bytes included when raw content is capped", async () => {
     const rawPath = join(root, "raw", "2026-05-21", "manual-a.md");
     await writeFile(rawPath, "abcdefghij");
+    // Corroborating source exists for multi-source apply, but is already fully
+    // consumed so it does not steal budget from the file under test.
+    const bBody = "corroboration\n";
+    await writeFile(join(root, "raw", "2026-05-21", "manual-b.md"), bBody);
+    await writeCompileState({
+      consumed: {
+        "raw/2026-05-21/manual-b.md": {
+          bytes: Buffer.byteLength(bBody, "utf-8"),
+        },
+      },
+    });
 
     await runCompile({
       vaultRoot: root,
@@ -564,6 +648,15 @@ describe("runCompile", () => {
   it("drains compile passes until no raw files remain", async () => {
     const rawPath = join(root, "raw", "2026-05-21", "manual-a.md");
     await writeFile(rawPath, "abcdefghij");
+    const bBody = "corroboration\n";
+    await writeFile(join(root, "raw", "2026-05-21", "manual-b.md"), bBody);
+    await writeCompileState({
+      consumed: {
+        "raw/2026-05-21/manual-b.md": {
+          bytes: Buffer.byteLength(bBody, "utf-8"),
+        },
+      },
+    });
     const progress: string[] = [];
 
     const result = await runCompileDrain({
@@ -719,7 +812,13 @@ function fakeExecuteLLMWhenRawPresent(): LLMProvider {
       frontmatter: {
         type: "lessons",
         title: "Compile Drain",
-        relations: { derived_from: ["raw/2026-05-21/manual-a.md"] },
+        relations: {
+          // Dual raw refs (files must exist) so the op applies and watermarks advance.
+          derived_from: [
+            "raw/2026-05-21/manual-a.md",
+            "raw/2026-05-21/manual-b.md",
+          ],
+        },
       },
       body: `Compile drain body: ${rawSlice}`,
     }];
