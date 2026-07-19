@@ -100,7 +100,8 @@ describe("dashboard index search route", () => {
     expect(response.status).toBe(200);
     expect(body.searchBackend).toBe("index-lexical");
     expect(body.ignoredParams).toEqual(["scope", "minScore", "as_of"]);
-    expect(body.warnings).toEqual(
+    // Contract fields stay out of health warnings (SearchPage empty-state).
+    expect(body.warnings ?? []).not.toEqual(
       expect.arrayContaining([expect.stringMatching(/^ignored-params:/)]),
     );
   });

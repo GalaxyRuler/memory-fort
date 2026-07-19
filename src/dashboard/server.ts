@@ -774,15 +774,13 @@ function annotateIndexSearchResponse(
 ): SearchResponse {
   const ignoredParams = collectIndexIgnoredSearchParams(url);
   const searchBackend = resolveIndexSearchBackend(env);
-  const warnings = [...body.warnings];
-  if (ignoredParams.length > 0) {
-    warnings.push(`ignored-params:${ignoredParams.join(",")}`);
-  }
+  // Do not push ignored-params into `warnings`: the Search UI treats any
+  // warning as index-health degradation and hides the normal empty state.
+  // Clients that care about contract honesty should read `ignoredParams`.
   return {
     ...body,
     searchBackend,
     ignoredParams,
-    warnings,
   };
 }
 
