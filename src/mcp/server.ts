@@ -357,6 +357,8 @@ interface ApiSearchResponse {
   warnings?: unknown;
   timings?: unknown;
   degraded?: unknown;
+  searchBackend?: unknown;
+  ignoredParams?: unknown;
   hyde?: {
     reason?: unknown;
     promptEmitted?: unknown;
@@ -551,7 +553,7 @@ export function createServer(deps: SearchDeps = {}): McpServer {
     "search",
     {
       description:
-        "Search the user's memory system (wiki + raw observations). Default backend: a local SQLite FTS5 BM25 index with metadata scoring (confidence/status/recency), plus a local vector layer fused via RRF when it is enabled. Honored parameters: query, k. WARNING: scope, min_score, as_of, no_rerank, hyde_expansion, and identity filters are accepted for compatibility but SILENTLY IGNORED by the default index backend — do not rely on them for filtering. Returns ranked results with snippets and provenance metadata.",
+        "Search the user's memory system (wiki + raw observations). Default dashboard backend (since 0.11) is a local SQLite FTS index (lexical; optional vectors if MEMORY_INDEX_VECTORS=1). Responses include search_backend and ignored_params when advanced filters (scope, min_score, as_of, identity, HyDE, rerank) are not applied by that backend. Legacy multi-signal search (BM25 + embeddings + graph + RRF + optional Voyage rerank/HyDE) runs only when MEMORY_INDEX_SEARCH=0. Returns ranked results with snippets and provenance.",
       inputSchema: SearchInput.shape,
     },
     async (args) => searchMemory(args, deps),
@@ -786,10 +788,22 @@ function isSafeNonNegativeInteger(value: unknown): value is number {
 }
 
 function formatSearchToolResponse(body: ApiSearchResponse, results: ApiSearchResultWithPath[]): string {
+  const ignoredParams = normalizeStringArray(
+    body.ignoredParams,
+    MAX_SEARCH_WARNING_COUNT,
+    MAX_SEARCH_WARNING_LENGTH,
+    MAX_SEARCH_WARNINGS_INSPECTED,
+  );
+  const searchBackend =
+    typeof body.searchBackend === "string"
+      ? sanitizeString(body.searchBackend, MAX_SEARCH_SOURCE_LENGTH, "unknown")
+      : undefined;
   const result = {
     query: sanitizeString(body.query, MAX_SEARCH_QUERY_LENGTH, ""),
     result_count: results.length,
     degraded: body.degraded === true,
+    ...(searchBackend ? { search_backend: searchBackend } : {}),
+    ...(ignoredParams.length > 0 ? { ignored_params: ignoredParams } : {}),
     warnings: normalizeStringArray(
       body.warnings,
       MAX_SEARCH_WARNING_COUNT,
