@@ -16,8 +16,18 @@ describe("path-safety", () => {
     expect(isStrictChild(parent, resolved!)).toBe(true);
   });
 
+  it("accepts Obsidian-style filenames with spaces", () => {
+    expect(parseSafeRelativeSegments("projects/My Project.md")).toEqual([
+      "projects",
+      "My Project.md",
+    ]);
+    const resolved = resolveStrictChild(parent, "projects/My Project.md");
+    expect(resolved).toBe(join(parent, "projects", "My Project.md"));
+  });
+
   it("rejects .. traversal", () => {
     expect(parseSafeRelativeSegments("../secrets.md")).toBeNull();
+    expect(parseSafeRelativeSegments("projects/../../etc/passwd")).toBeNull();
     expect(resolveStrictChild(parent, "../secrets.md")).toBeNull();
   });
 
@@ -36,9 +46,8 @@ describe("path-safety", () => {
     expect(parseSafeRelativeSegments("\\Windows\\system32\\x.md")).toBeNull();
   });
 
-  it("rejects unsafe segment characters", () => {
-    expect(parseSafeRelativeSegments("projects/foo bar.md")).toBeNull();
-    expect(parseSafeRelativeSegments("projects/foo;rm.md")).toBeNull();
+  it("rejects control characters in segments", () => {
+    expect(parseSafeRelativeSegments("projects/foo\nbar.md")).toBeNull();
   });
 
   it("rejects empty and null-byte paths", () => {
