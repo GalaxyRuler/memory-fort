@@ -63,6 +63,9 @@ describe("runDisconnect", () => {
     process.env["XDG_CONFIG_HOME"] = join(tmp, "xdg-config");
     process.env["XDG_RUNTIME_DIR"] = join(tmp, "xdg-runtime");
     await mkdir(join(tmp, "repo", "dist", "hooks"), { recursive: true });
+    // Uninstall re-materializes launchers for remaining clients; the source
+    // dir must hold at least one built hook or materializeRuntimeScripts throws.
+    await writeFile(join(tmp, "repo", "dist", "hooks", "session-start.mjs"), "// stub\n");
     await mkdir(join(tmp, "xdg-runtime"), { recursive: true });
     await writeFile(join(tmp, "repo", "package.json"), "{}\n");
     await runInit({ sourceRepoDir: process.cwd() });

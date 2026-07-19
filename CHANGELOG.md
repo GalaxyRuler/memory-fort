@@ -4,6 +4,18 @@ All notable changes to Memory Fort are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.1] - 2026-07-20
+
+Community release — all six fixes contributed by [@tynamite](https://github.com/tynamite) (PRs #15–#20). Thank you!
+
+### Fixed
+- **Install materializes vault hook launchers for every client** (#15). Generated `hooks/` and `claude-code-plugin/` launcher scripts are (re)written for all configured clients on install, and both directories are treated as transient (never committed, never counted as vault dirt).
+- **Strict path containment for MCP `read_page` and maintenance commands** (#16). Wiki-relative paths are resolved through a strict-child check (`resolveStrictChild`), so `..`, absolute, drive-qualified, and Windows-8.3/short-name tricks cannot escape the vault. `wiki/`-prefixed paths from `search` results still resolve.
+- **Compile only advances raw watermarks when its ops are applied or resolved** (#17). A compile pass whose proposals were all rejected no longer advances the consumed watermark over unconsumed raw, and the ops journal is pruned per-advanced-raw instead of cleared wholesale.
+- **Raw appends and frontmatter rewrites are serialized under a file lock** (#18). Concurrent hook writers (append vs whole-file frontmatter rewrite) can no longer interleave and clobber captured content — closing the rewrite race that 0.12.0 only narrowed. Capture stays fail-open: if the lock cannot be acquired, the append happens without it rather than dropping the observation. Lock sidecar files are ignored by sync status and auto-commit (package lockfiles like `yarn.lock` are not).
+- **Uninstalling one client keeps shared MCP scripts** (#19). Removing Claude Code no longer deletes launcher scripts still referenced by other installed clients.
+- **Search responses report their backend and ignored parameters** (#20). Dashboard `/api/search` and the MCP `search` tool now include `search_backend` (`index` or `legacy`) and `ignored_params` listing any accepted-but-not-applied filters (scope, min_score, as_of, identity, HyDE, rerank), so callers can tell exactly which knobs did nothing instead of relying on documentation.
+
 ## [0.12.0] - 2026-07-19
 
 ### Fixed
