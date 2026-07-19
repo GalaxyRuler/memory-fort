@@ -1,11 +1,7 @@
-import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { mutateRawFrontmatter } from "../hooks/raw-file.js";
 import { atomicWrite } from "../storage/atomic-write.js";
-import {
-  parseFrontmatter,
-  serializeFrontmatter,
-  type Frontmatter,
-} from "../storage/frontmatter.js";
+import { serializeFrontmatter } from "../storage/frontmatter.js";
 import {
   loadSearchCorpus,
   type SearchDocument,
@@ -90,7 +86,8 @@ export async function runConsolidatePlan(
     for (const plan of plans) {
       if (!plan.willWrite) continue;
       const observation = observations.find((doc) => doc.relPath === plan.observation)!;
-      await writeObservationRelations(observation, plan.proposedRelations);
+      const wrote = await writeObservationRelations(observation, plan.proposedRelations);
+      if (!wrote) continue; // raw missing/skipped — do not inflate updated counts
       updated += 1;
       newEdges += plan.proposedRelations.length;
     }
@@ -149,14 +146,14 @@ function toProposedRelation(match: ConsolidationMention): ProposedRelation {
 async function writeObservationRelations(
   observation: SearchDocument,
   proposed: ProposedRelation[],
-): Promise<void> {
-  const content = await readFile(observation.fullPath, "utf-8");
-  const parsed = parseFrontmatter(content);
-  const nextFrontmatter: Frontmatter = {
-    ...parsed.frontmatter,
+): Promise<boolean> {
+  // Lock + re-read body so concurrent hook appends are not erased when we
+  // only need to attach consolidation relations to frontmatter.
+  const outcome = await mutateRawFrontmatter(observation.fullPath, (frontmatter) => ({
+    ...frontmatter,
     relations: writeRelations(buildRelationMap(proposed)),
-  };
-  await atomicWrite(observation.fullPath, serializeFrontmatter(nextFrontmatter, parsed.body));
+  }));
+  return outcome === "updated";
 }
 
 function buildRelationMap(proposed: ProposedRelation[]): RelationMap {

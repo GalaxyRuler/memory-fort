@@ -142,9 +142,11 @@ describe("getSyncStatus", () => {
             "?? claude-code-plugin/scripts/mcp-server.mjs",
             " M wiki/foo.md",
             "",
-          ].join("\n"),
+          ].join("
+"),
         }
-        : { stdout: "0\t0\n" },
+        : { stdout: "0	0
+" },
     );
 
     const status = await getSyncStatus(ctx(runner));
@@ -152,6 +154,47 @@ describe("getSyncStatus", () => {
     expect(status.state).toBe("dirty");
     expect(status.dirtyFiles).toEqual(["wiki/foo.md"]);
   });
+
+  it("getSyncStatus is clean when only generated launchers are untracked", async () => {
+    const runner = makeRunner((call) =>
+      call.args.includes("--porcelain")
+        ? { stdout: "?? hooks/session-start.mjs
+?? claude-code-plugin/scripts/x.mjs
+" }
+        : { stdout: "0	0
+" },
+    );
+
+    const status = await getSyncStatus(ctx(runner));
+
+    expect(status.state).toBe("clean");
+    expect(status.dirtyFiles).toEqual([]);
+  });
+
+  it("getSyncStatus ignores withFileLock sidecars but not package lockfiles", async () => {
+    const runner = makeRunner((call) =>
+      call.args.includes("--porcelain")
+        ? {
+          stdout: [
+            "?? raw/2026-05-21/foo.md.lock",
+            "?? config.yaml.lock",
+            "?? .sync-state.json.lock",
+            "?? .auto-push-pending.lock",
+            " M scripts/yarn.lock",
+            "?? Gemfile.lock",
+            "",
+          ].join("
+"),
+        }
+        : { stdout: "0	0
+" },
+    );
+
+    const status = await getSyncStatus(ctx(runner));
+
+    expect(status.state).toBe("dirty");
+    expect(status.dirtyFiles).toEqual(["scripts/yarn.lock", "Gemfile.lock"]);
+  });});
 
   it("getSyncStatus is clean when only generated launchers are untracked", async () => {
     const runner = makeRunner((call) =>
@@ -164,5 +207,8 @@ describe("getSyncStatus", () => {
 
     expect(status.state).toBe("clean");
     expect(status.dirtyFiles).toEqual([]);
+=======
+    expect(status.dirtyFiles).toEqual(["scripts/yarn.lock", "Gemfile.lock"]);
+>>>>>>> pr/18
   });
 });

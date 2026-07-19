@@ -12,7 +12,9 @@ import {
   truncateMiddle,
   ensureRawSessionFile,
   appendBlock,
+  mutateRawFrontmatter,
 } from "../../src/hooks/raw-file.js";
+import { parseFrontmatter } from "../../src/storage/frontmatter.js";
 
 describe("raw-file formatters", () => {
   const t = new Date(Date.UTC(2026, 4, 21, 9, 8, 7));
@@ -210,5 +212,54 @@ describe("raw-file I/O", () => {
     expect(content).toContain("type: raw-session");
     expect(content).toContain("## [09:00:00] Prompt");
     expect(content).toContain("hello");
+  });
+
+  it("mutateRawFrontmatter re-reads body under lock so concurrent appends are kept", async () => {
+    const t = new Date(Date.UTC(2026, 4, 21));
+    const path = await ensureRawSessionFile({
+      tool: "claude-code",
+      sessionId: "lock-race",
+      cwd: "/tmp",
+      now: t,
+    });
+    await appendBlock({
+      tool: "claude-code",
+      sessionId: "lock-race",
+      block: "\n## [09:00:00] Prompt\n\nfirst block\n",
+      now: t,
+    });
+
+    // Simulate another writer appending while a frontmatter-only rewrite runs:
+    // mutate re-reads under lock, so the late append survives.
+    const mutatePromise = mutateRawFrontmatter(path, (fm) => ({
+      ...fm,
+      tags: ["linked"],
+    }));
+    await appendBlock({
+      tool: "claude-code",
+      sessionId: "lock-race",
+      block: "\n## [09:00:01] Prompt\n\nsecond block must survive\n",
+      now: t,
+    });
+    await expect(mutatePromise).resolves.toBe("updated");
+
+    const content = await readFile(path, "utf-8");
+    const parsed = parseFrontmatter(content);
+    expect(parsed.frontmatter.tags).toEqual(["linked"]);
+    expect(content).toContain("first block");
+    expect(content).toContain("second block must survive");
+  });
+
+  it("mutateRawFrontmatter skips when updater returns null", async () => {
+    const t = new Date(Date.UTC(2026, 4, 21));
+    const path = await ensureRawSessionFile({
+      tool: "manual",
+      sessionId: "skip-me",
+      cwd: "/tmp",
+      now: t,
+    });
+    const before = await readFile(path, "utf-8");
+    await expect(mutateRawFrontmatter(path, () => null)).resolves.toBe("skipped");
+    await expect(readFile(path, "utf-8")).resolves.toBe(before);
   });
 });

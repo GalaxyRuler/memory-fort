@@ -10,8 +10,8 @@ import {
 } from "../retrieval/embedding-health.js";
 import { readRelations, writeRelations, type RelationEdge, type RelationMap } from "../retrieval/relations.js";
 import { isEntityWikiPath } from "../retrieval/wiki-paths.js";
-import { atomicWrite } from "../storage/atomic-write.js";
-import { parseFrontmatter, serializeFrontmatter } from "../storage/frontmatter.js";
+import { mutateRawFrontmatter } from "../hooks/raw-file.js";
+import { parseFrontmatter } from "../storage/frontmatter.js";
 import { memoryRoot as defaultMemoryRoot } from "../storage/paths.js";
 
 export type AutoLinkStrategy = "embedding" | "title";
@@ -110,17 +110,34 @@ export async function autoLinkRawToWiki(
   const matches = matchResult.matches;
 
   if (opts.apply && matches.length > 0) {
-    const nextRelations = addMentionEdges(relations, matches, {
-      sessionId: typeof parsed.frontmatter.session === "string" ? parsed.frontmatter.session : sessionFromRawPath(relPath),
-      capturedAt: (opts.now ?? new Date()).toISOString(),
+    // Match scan may be slow; rewrite under lock and re-read body so concurrent
+    // hook appends are not erased by a stale full-file snapshot.
+    const sessionId =
+      typeof parsed.frontmatter.session === "string"
+        ? parsed.frontmatter.session
+        : sessionFromRawPath(relPath);
+    const capturedAt = (opts.now ?? new Date()).toISOString();
+    const outcome = await mutateRawFrontmatter(fullPath, (latestFm, _body) => {
+      const latestRelations = readRelations(latestFm.relations, relPath);
+      if (hasAnyRelation(latestRelations)) return null;
+      return {
+        ...latestFm,
+        relations: writeRelations(
+          addMentionEdges(latestRelations, matches, { sessionId, capturedAt }),
+        ),
+      };
     });
-    await atomicWrite(
-      fullPath,
-      serializeFrontmatter({
-        ...parsed.frontmatter,
-        relations: writeRelations(nextRelations),
-      }, parsed.body),
-    );
+    if (outcome === "skipped") {
+      return {
+        path: relPath,
+        linked: [],
+        skipped: true,
+        reason: "raw already has relations",
+      };
+    }
+    if (outcome === "missing") {
+      return { path: relPath, linked: [], skipped: true, reason: "raw file not found" };
+    }
   }
 
   return {

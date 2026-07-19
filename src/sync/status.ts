@@ -154,9 +154,10 @@ function parseDirtyFiles(output: string): string[] {
     .filter((line) => line.length > 0)
     .map((line) => line.replace(/^([ MADRCU?!]{1,2})\s+/, ""))
     .map((line) => line.includes(" -> ") ? line.split(" -> ").at(-1)! : line)
-    // Generated launchers (materializeRuntimeScripts) and other non-data
-    // artifacts must not keep getSyncStatus()/auto-push dirty when gitignore
-    // was written before hooks/ existed (runInit preserves existing .gitignore).
+    // Generated launchers (materializeRuntimeScripts), in-flight raw session
+    // locks (withRawFileLock), and other non-data artifacts must not keep
+    // getSyncStatus()/auto-push dirty (a crashed hook or a gitignore written
+    // before hooks/ existed would otherwise report the vault dirty forever).
     .filter((path) => !isTransientVaultArtifact(path));
 }
 
@@ -167,8 +168,12 @@ function isTransientVaultArtifact(path: string): boolean {
     return true;
   }
   const name = normalized.split("/").at(-1) ?? normalized;
+  // withFileLock creates `${targetPath}.lock` for files that already have an
+  // extension (foo.md.lock, config.yaml.lock, .sync-state.json.lock). Do not
+  // treat package lockfiles (yarn.lock, Gemfile.lock, Cargo.lock) as transient.
   return (
     name === ".auto-push-pending.lock"
+    || /\.[^./]+\.lock$/.test(name)
     || /\.\d+\.\d+\.[0-9a-fA-F-]+\.tmp$/.test(name)
   );
 }
