@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   appendFile,
   mkdir,
@@ -152,6 +152,14 @@ interface IncludedRawWatermark {
   relPath: string;
   bytes: number;
   lastObservationAt: string;
+  mtimeMs?: number;
+  /** sha256 of the consumed prefix [0, bytes) — distinguishes an append (prefix
+   * unchanged, tail-read) from an in-place edit (prefix changed, recompile). */
+  sourceHash?: string;
+}
+
+function sha256(buf: Buffer): string {
+  return createHash("sha256").update(buf).digest("hex");
 }
 
 interface EligibleRaw {
@@ -305,16 +313,42 @@ async function runCompileImpl(
     }
     let startByte = 0;
     const watermark = watermarkMode === "gated" ? consumed[candidate.relPath] : undefined;
+    let content: Buffer | undefined;
     if (watermarkMode === "gated" && watermark) {
-      if (candidate.size === watermark.bytes) {
-        rawFilesSkipped.push({
-          path: candidate.path,
-          reason: "already consumed to watermark",
-        });
+      const mtimeUnchanged = watermark.mtimeMs !== undefined && watermark.mtimeMs === candidate.mtimeMs;
+      if (candidate.size === watermark.bytes && (mtimeUnchanged || watermark.sourceHash === undefined)) {
+        // Fully consumed and unchanged (mtime fast-path), or a legacy watermark
+        // we can't content-check without a stored hash — keep the append-only
+        // skip either way.
+        rawFilesSkipped.push({ path: candidate.path, reason: "already consumed to watermark" });
         continue;
       }
-      startByte = candidate.size < watermark.bytes ? 0 : watermark.bytes;
-    } else if (candidate.mtimeMs < sinceDate.getTime()) {
+      if (candidate.size < watermark.bytes) {
+        startByte = 0; // shrank → recompile from 0
+      } else if (mtimeUnchanged) {
+        startByte = watermark.bytes; // trusted append → tail-read
+      } else {
+        // mtime changed (an edit, or a git checkout that only bumped mtime) and
+        // we have a prior prefix hash: read + compare the consumed prefix.
+        try {
+          content = await readFile(candidate.path);
+        } catch (err) {
+          rawFilesSkipped.push({ path: candidate.path, reason: `read failed: ${(err as Error).message}` });
+          continue;
+        }
+        const prefixHash = sha256(content.subarray(0, Math.min(content.length, watermark.bytes)));
+        if (prefixHash === watermark.sourceHash) {
+          // Consumed prefix unchanged → an append (or a no-op touch).
+          if (candidate.size === watermark.bytes) {
+            rawFilesSkipped.push({ path: candidate.path, reason: "already consumed to watermark" });
+            continue;
+          }
+          startByte = watermark.bytes;
+        } else {
+          startByte = 0; // consumed prefix edited in place → recompile from 0
+        }
+      }
+    } else if (!watermark && candidate.mtimeMs < sinceDate.getTime()) {
       rawFilesSkipped.push({
         path: candidate.path,
         reason: "before since cutoff",
@@ -322,15 +356,16 @@ async function runCompileImpl(
       continue;
     }
 
-    let content: Buffer;
-    try {
-      content = await readFile(candidate.path);
-    } catch (err) {
-      rawFilesSkipped.push({
-        path: candidate.path,
-        reason: `read failed: ${(err as Error).message}`,
-      });
-      continue;
+    if (content === undefined) {
+      try {
+        content = await readFile(candidate.path);
+      } catch (err) {
+        rawFilesSkipped.push({
+          path: candidate.path,
+          reason: `read failed: ${(err as Error).message}`,
+        });
+        continue;
+      }
     }
 
     const tail = content.subarray(startByte);
@@ -443,6 +478,8 @@ async function runCompileImpl(
           relPath: raw.candidate.relPath,
           bytes: raw.cursor,
           lastObservationAt,
+          mtimeMs: raw.candidate.mtimeMs,
+          sourceHash: sha256(raw.content.subarray(0, raw.cursor)),
         });
         noiseOnlySkipped += 1;
         continue;
@@ -452,6 +489,8 @@ async function runCompileImpl(
           relPath: raw.candidate.relPath,
           bytes: raw.cursor,
           lastObservationAt,
+          mtimeMs: raw.candidate.mtimeMs,
+          sourceHash: sha256(raw.content.subarray(0, raw.cursor)),
         });
         pendingLowSignalQuarantines.push({
           relPath: raw.candidate.relPath,
@@ -468,6 +507,8 @@ async function runCompileImpl(
       relPath: raw.candidate.relPath,
       bytes: raw.cursor,
       lastObservationAt,
+      mtimeMs: raw.candidate.mtimeMs,
+      sourceHash: sha256(raw.content.subarray(0, raw.cursor)),
     });
     rawContentBlocks.push(
       `### ${raw.candidate.path}\n\n\`\`\`markdown\n${text}\n\`\`\``,
@@ -1080,6 +1121,8 @@ async function maybeAdvanceWatermarks(opts: {
       consumed[included.relPath] = {
         bytes: included.bytes,
         lastObservationAt: included.lastObservationAt,
+        ...(included.mtimeMs !== undefined ? { mtimeMs: included.mtimeMs } : {}),
+        ...(included.sourceHash !== undefined ? { sourceHash: included.sourceHash } : {}),
       };
     }
     return { ...state, consumed };

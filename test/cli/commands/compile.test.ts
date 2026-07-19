@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   mkdir,
   readFile,
@@ -400,6 +401,55 @@ describe("runCompile", () => {
       { path: rawPath, reason: "already consumed to watermark" },
     ]);
     expect(result.prompt).not.toContain(content);
+  });
+
+  it("re-includes a fully-consumed raw edited in place to the SAME byte length (content-hashed watermark)", async () => {
+    const rawPath = join(root, "raw", "2026-05-21", "manual-b.md");
+    const oldContent = "AAAAAAAAAAAA edited later";
+    await writeFile(rawPath, oldContent);
+    await writeCompileState({
+      consumed: {
+        "raw/2026-05-21/manual-b.md": {
+          bytes: Buffer.byteLength(oldContent, "utf-8"),
+          mtimeMs: 1, // stale; the live file's mtime will differ after the edit
+          sourceHash: createHash("sha256").update(Buffer.from(oldContent, "utf-8")).digest("hex"),
+          lastObservationAt: "2026-05-21T10:00:00.000Z",
+        },
+      },
+    });
+    // Same byte length, different content.
+    const newContent = "BBBBBBBBBBBB edited later";
+    expect(newContent.length).toBe(oldContent.length);
+    await writeFile(rawPath, newContent);
+
+    const result = await runCompile({ vaultRoot: root });
+
+    expect(result.rawFilesSkipped?.some((s) => s.path === rawPath)).toBe(false);
+    expect(result.rawFilesIncluded).toContain(rawPath);
+    expect(result.prompt).toContain(newContent);
+  });
+
+  it("still skips a fully-consumed raw whose content hash matches (a no-op touch / git checkout mtime bump)", async () => {
+    const rawPath = join(root, "raw", "2026-05-21", "manual-c.md");
+    const content = "unchanged content, only mtime moved";
+    await writeFile(rawPath, content);
+    await writeCompileState({
+      consumed: {
+        "raw/2026-05-21/manual-c.md": {
+          bytes: Buffer.byteLength(content, "utf-8"),
+          mtimeMs: 1, // stale mtime forces the hash check
+          sourceHash: createHash("sha256").update(Buffer.from(content, "utf-8")).digest("hex"),
+          lastObservationAt: "2026-05-21T10:00:00.000Z",
+        },
+      },
+    });
+
+    const result = await runCompile({ vaultRoot: root });
+
+    expect(result.rawFilesIncluded).toEqual([]);
+    expect(result.rawFilesSkipped).toEqual([
+      { path: rawPath, reason: "already consumed to watermark" },
+    ]);
   });
 
   it("advances the watermark after execute and only sends an appended tail on the next run", async () => {
