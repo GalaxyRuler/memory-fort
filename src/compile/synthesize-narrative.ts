@@ -394,25 +394,61 @@ export function hashNarrativeReviewPacket(record: Record<string, unknown>): stri
   const netNew = Array.isArray(record.net_new_facts)
     ? record.net_new_facts.filter((item): item is string => typeof item === "string")
     : [];
-  const factIds = extractReviewFactIds(record.facts);
+  // Prefer source content/paths over positional f_N ids — filterNoiseForPage
+  // reassigns f_0.. per batch, so different raws can share the same ids.
   const payload = {
     reason: typeof record.reason === "string" ? record.reason.trim() : "",
     contradicted_claims: [...contradicted].sort(),
     net_new_facts: [...netNew].sort(),
-    fact_ids: factIds,
+    source_facts: extractReviewSourceFacts(record.facts),
   };
   return createHash("sha256").update(JSON.stringify(payload)).digest("hex").slice(0, 32);
 }
 
-function extractReviewFactIds(facts: unknown): string[] {
+function extractReviewSourceFacts(facts: unknown): Array<Record<string, string>> {
   if (!Array.isArray(facts)) return [];
-  const ids: string[] = [];
+  const rows: Array<Record<string, string>> = [];
   for (const item of facts) {
     if (typeof item !== "object" || item === null) continue;
-    const factId = (item as { fact_id?: unknown }).fact_id;
-    if (typeof factId === "string" && factId.trim().length > 0) ids.push(factId.trim());
+    const row = item as {
+      fact_id?: unknown;
+      text?: unknown;
+      fact?: {
+        narrative?: unknown;
+        sourceRawPath?: unknown;
+        sessionId?: unknown;
+        facts?: unknown;
+        observedAt?: unknown;
+      };
+    };
+    const nested = row.fact && typeof row.fact === "object" ? row.fact : undefined;
+    const narrative = typeof nested?.narrative === "string"
+      ? nested.narrative.trim()
+      : typeof row.text === "string"
+        ? row.text.trim()
+        : "";
+    const sourceRawPath = typeof nested?.sourceRawPath === "string" ? nested.sourceRawPath.trim() : "";
+    const sessionId = typeof nested?.sessionId === "string" ? nested.sessionId.trim() : "";
+    const observedAt = typeof nested?.observedAt === "string" ? nested.observedAt.trim() : "";
+    const factLines = Array.isArray(nested?.facts)
+      ? nested.facts.filter((line): line is string => typeof line === "string").map((line) => line.trim()).filter(Boolean)
+      : [];
+    if (!narrative && !sourceRawPath && !sessionId && factLines.length === 0) {
+      // Fall back to positional id only when no stable source content exists.
+      if (typeof row.fact_id === "string" && row.fact_id.trim().length > 0) {
+        rows.push({ fact_id: row.fact_id.trim() });
+      }
+      continue;
+    }
+    rows.push({
+      ...(narrative ? { narrative } : {}),
+      ...(sourceRawPath ? { sourceRawPath } : {}),
+      ...(sessionId ? { sessionId } : {}),
+      ...(observedAt ? { observedAt } : {}),
+      ...(factLines.length > 0 ? { facts: factLines.slice().sort().join("\n") } : {}),
+    });
   }
-  return [...new Set(ids)].sort();
+  return rows.sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
 }
 
 export async function moveToArchive(vaultRoot: string, relPath: string, archiveDate: string): Promise<{ from: string; to: string }> {

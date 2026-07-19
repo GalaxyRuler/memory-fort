@@ -262,6 +262,46 @@ describe("synthesizeNarrative", () => {
     }));
   });
 
+  it("distinguishes no-body reviews that share claim lists but differ in source facts", async () => {
+    const { hashNarrativeReviewPacket } = await import("../../src/compile/synthesize-narrative.js");
+    const manyClaims = Array.from({ length: 10 }, (_, i) => `Shared claim ${i}.`);
+    const reason = "too many contradicted claims for automatic rewrite";
+    const factsA = facts().map((fact, index) => ({
+      ...fact,
+      fact_id: `f_${index}`,
+      fact: {
+        ...fact.fact,
+        narrative: `Source A narrative ${index}`,
+        sourceRawPath: `raw/2026-06-01/session-a.md`,
+        sessionId: "session-a",
+      },
+      text: `Source A narrative ${index}`,
+    }));
+    const factsB = facts().map((fact, index) => ({
+      ...fact,
+      fact_id: `f_${index}`,
+      fact: {
+        ...fact.fact,
+        narrative: `Source B narrative ${index}`,
+        sourceRawPath: `raw/2026-06-02/session-b.md`,
+        sessionId: "session-b",
+      },
+      text: `Source B narrative ${index}`,
+    }));
+
+    expect(hashNarrativeReviewPacket({
+      reason,
+      contradicted_claims: manyClaims,
+      net_new_facts: [],
+      facts: factsA,
+    })).not.toBe(hashNarrativeReviewPacket({
+      reason,
+      contradicted_claims: manyClaims,
+      net_new_facts: [],
+      facts: factsB,
+    }));
+  });
+
   it("omits proposedPath when the narrative proposal was already resolved", async () => {
     const { recordProposalResolved } = await import("../../src/compile/proposal-ledger.js");
     const body = ["Memory System detail.", "", "- structured bullet"].join("\n");

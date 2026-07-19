@@ -16,6 +16,11 @@ export interface ResolvedProposalEntry {
   action: "approved" | "rejected";
   resolvedAt: string;
   path?: string;
+  /**
+   * Date-stable identity (volatile frontmatter stripped). Lets restages with
+   * new created/updated match ledger entries recorded under older hash schemes.
+   */
+  stableKey?: string;
 }
 
 interface LedgerFile {
@@ -86,23 +91,21 @@ export function hashCompileOperationForLedger(operation: unknown): string {
 
 /**
  * Keys that may identify this operation in a ledger file, including pre-upgrade
- * hashes that used raw JSON.stringify without frontmatter normalization.
+ * hashes (raw JSON, empty frontmatter, full frontmatter with created/updated).
  */
 export function ledgerLookupKeysForOperation(operation: unknown): string[] {
   const keys = new Set<string>();
   keys.add(hashCompileOperationForLedger(operation));
   keys.add(rawHashCompileOperationForLedger(operation));
-  // Pre-canonical ledgers stored rewrite/write without frontmatter: {}.
-  const stripped = stripEmptyFrontmatterForLegacyLookup(operation);
-  if (stripped !== undefined) {
-    keys.add(rawHashCompileOperationForLedger(stripped));
+  for (const variant of legacyWriteRewriteShapes(operation)) {
+    keys.add(rawHashCompileOperationForLedger(variant));
   }
   return [...keys];
 }
 
-function stripEmptyFrontmatterForLegacyLookup(operation: unknown): unknown | undefined {
+function legacyWriteRewriteShapes(operation: unknown): unknown[] {
   if (typeof operation !== "object" || operation === null || Array.isArray(operation)) {
-    return undefined;
+    return [];
   }
   const record = operation as Record<string, unknown>;
   if (
@@ -110,14 +113,36 @@ function stripEmptyFrontmatterForLegacyLookup(operation: unknown): unknown | und
     || typeof record.path !== "string"
     || typeof record.body !== "string"
   ) {
-    return undefined;
+    return [];
   }
-  if (!Object.prototype.hasOwnProperty.call(record, "frontmatter")) return undefined;
-  const fm = record.frontmatter;
-  const empty = typeof fm === "object" && fm !== null && !Array.isArray(fm)
-    && Object.keys(fm as object).length === 0;
-  if (!empty) return undefined;
-  return { kind: record.kind, path: record.path, body: record.body };
+  const variants: unknown[] = [
+    // Pre-frontmatter-normalization: no frontmatter property
+    { kind: record.kind, path: record.path, body: record.body },
+    // After frontmatter:{} default, before volatile strip
+    { kind: record.kind, path: record.path, body: record.body, frontmatter: {} },
+  ];
+  const fm = typeof record.frontmatter === "object"
+    && record.frontmatter !== null
+    && !Array.isArray(record.frontmatter)
+    ? record.frontmatter as Record<string, unknown>
+    : null;
+  if (fm) {
+    // Full frontmatter including created/updated (common groundOperation shape)
+    variants.push({
+      kind: record.kind,
+      path: record.path,
+      body: record.body,
+      frontmatter: { ...fm },
+    });
+    // Same with volatile fields removed (intermediate / current canonical body)
+    variants.push({
+      kind: record.kind,
+      path: record.path,
+      body: record.body,
+      frontmatter: stripVolatileFrontmatter(fm),
+    });
+  }
+  return variants;
 }
 
 export async function readResolvedProposals(vaultRoot: string): Promise<Record<string, ResolvedProposalEntry>> {
@@ -133,7 +158,36 @@ export async function readResolvedProposals(vaultRoot: string): Promise<Record<s
 
 export async function isProposalResolved(vaultRoot: string, operation: unknown): Promise<boolean> {
   const resolved = await readResolvedProposals(vaultRoot);
-  return ledgerLookupKeysForOperation(operation).some((key) => key in resolved);
+  const canonicalKey = hashCompileOperationForLedger(operation);
+  const lookupKeys = new Set(ledgerLookupKeysForOperation(operation));
+
+  let matchedEntry: ResolvedProposalEntry | undefined;
+  let matchedKey: string | undefined;
+  for (const [key, entry] of Object.entries(resolved)) {
+    if (lookupKeys.has(key) || entry.stableKey === canonicalKey) {
+      matchedEntry = entry;
+      matchedKey = key;
+      break;
+    }
+  }
+  if (!matchedEntry || matchedKey === undefined) return false;
+
+  // Migrate legacy map keys / missing stableKey onto the canonical form.
+  if (matchedKey !== canonicalKey || matchedEntry.stableKey !== canonicalKey) {
+    for (const key of lookupKeys) {
+      if (key !== canonicalKey) delete resolved[key];
+    }
+    if (matchedKey !== canonicalKey) delete resolved[matchedKey];
+    resolved[canonicalKey] = {
+      ...matchedEntry,
+      stableKey: canonicalKey,
+    };
+    await atomicWrite(
+      resolvedProposalsPath(vaultRoot),
+      `${JSON.stringify({ resolved }, null, 2)}\n`,
+    );
+  }
+  return true;
 }
 
 export async function recordProposalResolved(
@@ -143,15 +197,20 @@ export async function recordProposalResolved(
   opts: { now?: Date; path?: string } = {},
 ): Promise<void> {
   const resolved = await readResolvedProposals(vaultRoot);
+  const canonicalKey = hashCompileOperationForLedger(operation);
   const entry: ResolvedProposalEntry = {
     action,
     resolvedAt: (opts.now ?? new Date()).toISOString(),
+    stableKey: canonicalKey,
     ...(opts.path ? { path: opts.path } : {}),
   };
-  const canonicalKey = hashCompileOperationForLedger(operation);
   // Drop legacy alias keys so the ledger migrates toward the canonical hash.
   for (const key of ledgerLookupKeysForOperation(operation)) {
     if (key !== canonicalKey) delete resolved[key];
+  }
+  // Also drop any prior entry that only carried this stableKey under another map key.
+  for (const [key, existing] of Object.entries(resolved)) {
+    if (key !== canonicalKey && existing.stableKey === canonicalKey) delete resolved[key];
   }
   resolved[canonicalKey] = entry;
   await atomicWrite(

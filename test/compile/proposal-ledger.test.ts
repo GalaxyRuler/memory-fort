@@ -166,6 +166,106 @@ describe("proposal ledger", () => {
     }));
   });
 
+  it("matches and migrates legacy map keys that included created/updated", async () => {
+    const { createHash } = await import("node:crypto");
+    const { mkdir, writeFile } = await import("node:fs/promises");
+    const { dirname } = await import("node:path");
+    const day1 = {
+      kind: "rewrite_page",
+      path: "wiki/projects/example.md",
+      body: "Example body.",
+      frontmatter: {
+        type: "projects",
+        title: "Example",
+        created: "2026-06-10",
+        updated: "2026-06-10",
+        confidence: 0.4,
+      },
+    };
+    const day2 = {
+      ...day1,
+      frontmatter: {
+        ...day1.frontmatter,
+        created: "2026-06-11",
+        updated: "2026-06-11",
+      },
+    };
+    const legacyDatedKey = createHash("sha256")
+      .update(JSON.stringify(day1))
+      .digest("hex")
+      .slice(0, 32);
+    const path = resolvedProposalsPath(tmp);
+    await mkdir(dirname(path), { recursive: true });
+    // Pre-volatile-strip ledger: map key is the dated raw hash only.
+    await writeFile(
+      path,
+      `${JSON.stringify({
+        resolved: {
+          [legacyDatedKey]: {
+            action: "rejected",
+            resolvedAt: "2026-06-10T12:00:00.000Z",
+            path: "wiki/projects/example.md",
+          },
+        },
+      }, null, 2)}\n`,
+    );
+
+    // Same-day restage still finds the dated key, then migrates to stableKey.
+    expect(await isProposalResolved(tmp, day1)).toBe(true);
+    let ledger = JSON.parse(await readFile(path, "utf-8"));
+    expect(ledger.resolved[legacyDatedKey]).toBeUndefined();
+    expect(ledger.resolved[hashCompileOperationForLedger(day1)]).toMatchObject({
+      action: "rejected",
+      stableKey: hashCompileOperationForLedger(day1),
+    });
+
+    // After migration, a day-boundary restage matches via stableKey / canonical.
+    expect(await isProposalResolved(tmp, day2)).toBe(true);
+    ledger = JSON.parse(await readFile(path, "utf-8"));
+    expect(ledger.resolved[hashCompileOperationForLedger(day2)]).toMatchObject({
+      action: "rejected",
+    });
+  });
+
+  it("matches legacy entries that only store stableKey under an old map key", async () => {
+    const { createHash } = await import("node:crypto");
+    const { mkdir, writeFile } = await import("node:fs/promises");
+    const { dirname } = await import("node:path");
+    const day2 = {
+      kind: "rewrite_page",
+      path: "wiki/projects/example.md",
+      body: "Example body.",
+      frontmatter: {
+        type: "projects",
+        title: "Example",
+        created: "2026-06-11",
+        updated: "2026-06-11",
+        confidence: 0.4,
+      },
+    };
+    const stable = hashCompileOperationForLedger(day2);
+    const orphanKey = createHash("sha256").update("orphan-legacy-key").digest("hex").slice(0, 32);
+    const path = resolvedProposalsPath(tmp);
+    await mkdir(dirname(path), { recursive: true });
+    await writeFile(
+      path,
+      `${JSON.stringify({
+        resolved: {
+          [orphanKey]: {
+            action: "approved",
+            resolvedAt: "2026-06-10T12:00:00.000Z",
+            stableKey: stable,
+          },
+        },
+      }, null, 2)}\n`,
+    );
+
+    expect(await isProposalResolved(tmp, day2)).toBe(true);
+    const ledger = JSON.parse(await readFile(path, "utf-8"));
+    expect(ledger.resolved[orphanKey]).toBeUndefined();
+    expect(ledger.resolved[stable]).toMatchObject({ action: "approved", stableKey: stable });
+  });
+
   it("does not mark a different operation as resolved", async () => {
     await recordProposalResolved(tmp, operation, "rejected");
     expect(await isProposalResolved(tmp, { ...operation, body: "Different body." })).toBe(false);
