@@ -16,6 +16,7 @@ import {
 } from "../hooks/raw-file.js";
 import { parseFrontmatter, serializeFrontmatter } from "../storage/frontmatter.js";
 import { atomicWrite } from "../storage/atomic-write.js";
+import { resolveStrictChild } from "../storage/path-safety.js";
 import { commitVaultChange as defaultCommitVaultChange } from "../sync/commit-vault-change.js";
 import { isWikiDotDirectoryPath } from "../retrieval/wiki-paths.js";
 import { isNarrativeKnowledgePagePath } from "../compile/synthesize-narrative.js";
@@ -126,12 +127,7 @@ export async function readPage(
   // Search results return vault-relative paths (wiki/references/x.md); accept
   // those directly so `search` output pastes straight into `read_page`.
   const relPath = input.path.replace(/^wiki\//, "");
-  if (
-    relPath.includes("..") ||
-    relPath.startsWith("/") ||
-    /^[A-Z]:/.test(relPath) ||
-    isWikiDotDirectoryPath(`wiki/${relPath}`)
-  ) {
+  if (isWikiDotDirectoryPath(`wiki/${relPath}`)) {
     return {
       content: [
         {
@@ -143,7 +139,21 @@ export async function readPage(
     };
   }
 
-  const fullPath = join(wikiDir(), relPath);
+  // Strict containment (PR #16): every segment validated, final path must
+  // resolve strictly under wiki/ — covers lowercase drives, drive-relative
+  // forms, and Windows trailing-dot/space normalization tricks.
+  const fullPath = resolveStrictChild(wikiDir(), relPath);
+  if (fullPath === null) {
+    return {
+      content: [
+        {
+          type: "text",
+          text: `Invalid path: ${input.path} (must be relative under wiki/)`,
+        },
+      ],
+      isError: true,
+    };
+  }
   if (!existsSync(fullPath)) {
     return {
       content: [{ type: "text", text: `Page not found: ${input.path}` }],

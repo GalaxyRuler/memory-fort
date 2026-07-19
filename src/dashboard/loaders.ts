@@ -24,6 +24,7 @@ import { getConfidenceScore } from "../storage/confidence.js";
 import { loadMemoryConfig } from "../storage/config.js";
 import { parseFrontmatter, serializeFrontmatter } from "../storage/frontmatter.js";
 import type { ConfidenceVector, Frontmatter, LifecycleStage } from "../storage/frontmatter.js";
+import { parseSafeRelativeSegments, resolveStrictChild } from "../storage/path-safety.js";
 import type { VaultWriteCapability } from "../sync/vault-capability.js";
 
 export interface DashboardStatus {
@@ -1565,7 +1566,8 @@ export function validateMaintenancePaths(
   for (const p of paths) {
     if (typeof p !== "string") return { ok: false, message: "each path must be a string" };
     if (!p.endsWith(".md")) return { ok: false, message: `path must end with .md: ${p}` };
-    if (p.includes("..") || p.startsWith("/") || p.startsWith("\\")) {
+    // Reject traversal / absolute / drive-qualified paths up front (POSIX + Windows).
+    if (parseSafeRelativeSegments(p) === null) {
       return { ok: false, message: `path traversal not allowed: ${p}` };
     }
     validated.push(p);
@@ -1578,8 +1580,10 @@ export async function deleteMaintenancePages(
   paths: string[],
 ): Promise<{ affected: number; paths: string[] }> {
   const successPaths: string[] = [];
+  const wikiRoot = join(vaultRoot, "wiki");
   for (const p of paths) {
-    const fullPath = join(vaultRoot, "wiki", p);
+    const fullPath = resolveStrictChild(wikiRoot, p);
+    if (fullPath === null) continue;
     try {
       await unlink(fullPath);
       successPaths.push(p);
@@ -1598,9 +1602,13 @@ export async function archiveMaintenancePages(
   paths: string[],
 ): Promise<{ affected: number; paths: string[] }> {
   const movedPaths: string[] = [];
+  const wikiRoot = join(vaultRoot, "wiki");
   for (const p of paths) {
-    const source = join(vaultRoot, "wiki", p);
-    const target = join(vaultRoot, "wiki", "_archive", p);
+    const source = resolveStrictChild(wikiRoot, p);
+    if (source === null) continue;
+    // Archive destination under wiki/_archive/<rel> must also stay contained.
+    const target = resolveStrictChild(wikiRoot, `_archive/${p.replace(/\\/g, "/")}`);
+    if (target === null) continue;
     try {
       await mkdir(dirname(target), { recursive: true });
       await rename(source, target);
@@ -1620,8 +1628,10 @@ export async function recurateMaintenancePages(
   paths: string[],
 ): Promise<{ affected: number; paths: string[] }> {
   const updatedPaths: string[] = [];
+  const wikiRoot = join(vaultRoot, "wiki");
   for (const p of paths) {
-    const fullPath = join(vaultRoot, "wiki", p);
+    const fullPath = resolveStrictChild(wikiRoot, p);
+    if (fullPath === null) continue;
     try {
       const content = await readFile(fullPath, "utf-8");
       const { frontmatter, body } = parseFrontmatter(content);
