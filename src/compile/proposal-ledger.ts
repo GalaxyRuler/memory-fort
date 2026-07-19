@@ -46,7 +46,8 @@ const VOLATILE_FRONTMATTER_KEYS = new Set([
  * Normalize operations to the same shape `readOperation` / dashboard
  * promote-reject produce, so ledger keys match across stage vs resolve.
  * (rewrite_page/write_page without frontmatter become frontmatter: {};
- * compile-managed volatile fields are omitted from the key.)
+ * compile-managed volatile fields are omitted from the key;
+ * append_page dated "## YYYY-MM-DD update" headings are date-stable.)
  */
 export function canonicalizeCompileOperationForLedger(operation: unknown): unknown {
   if (typeof operation !== "object" || operation === null || Array.isArray(operation)) {
@@ -70,7 +71,27 @@ export function canonicalizeCompileOperationForLedger(operation: unknown): unkno
       frontmatter,
     };
   }
+  if (
+    record.kind === "append_page"
+    && typeof record.path === "string"
+    && typeof record.section === "string"
+  ) {
+    return {
+      kind: "append_page",
+      path: record.path,
+      // datedUpdateSection uses ## YYYY-MM-DD update; strip the date so a
+      // day-boundary restage of the same prose still hits the ledger.
+      section: normalizeDatedAppendSection(record.section),
+    };
+  }
   return operation;
+}
+
+/** Match `datedUpdateSection` / `## 2026-06-10 update` headings for stable hashing. */
+const DATED_APPEND_HEADING_RE = /^## \d{4}-\d{2}-\d{2} update\s*\r?\n+/i;
+
+export function normalizeDatedAppendSection(section: string): string {
+  return section.replace(DATED_APPEND_HEADING_RE, "## <date> update\n\n");
 }
 
 function stripVolatileFrontmatter(frontmatter: Record<string, unknown>): Record<string, unknown> {

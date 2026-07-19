@@ -284,6 +284,36 @@ describe("proposal ledger", () => {
     expect(await isProposalResolved(tmp, operation)).toBe(false);
   });
 
+  it("ignores dated ## YYYY-MM-DD update headings on append_page proposals", async () => {
+    await recordProposalResolved(
+      tmp,
+      {
+        kind: "append_page",
+        path: "wiki/projects/example.md",
+        section: "## 2026-06-10 update\n\nNet-new prose about Example.\n",
+      },
+      "rejected",
+      { now: new Date("2026-06-10T12:00:00Z") },
+    );
+
+    // Same append restaged after UTC day boundary with a new dated heading.
+    expect(await isProposalResolved(tmp, {
+      kind: "append_page",
+      path: "wiki/projects/example.md",
+      section: "## 2026-06-11 update\n\nNet-new prose about Example.\n",
+    })).toBe(true);
+
+    expect(hashCompileOperationForLedger({
+      kind: "append_page",
+      path: "wiki/projects/example.md",
+      section: "## 2026-06-10 update\n\nNet-new prose about Example.\n",
+    })).toBe(hashCompileOperationForLedger({
+      kind: "append_page",
+      path: "wiki/projects/example.md",
+      section: "## 2026-06-11 update\n\nNet-new prose about Example.\n",
+    }));
+  });
+
   it("does not match review-keyed ops to unkeyed legacy body-only entries", async () => {
     const { createHash } = await import("node:crypto");
     const { mkdir, writeFile } = await import("node:fs/promises");
