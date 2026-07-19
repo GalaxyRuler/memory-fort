@@ -198,6 +198,7 @@ describe("autoCommitRawsIfDirty", () => {
             " M raw/2026-05-21/foo.md",
             "?? .auto-push-pending.lock",
             "?? raw/2026-05-21/foo.md.lock",
+            "?? config.yaml.lock",
             "?? .auto-push-pending.32484.1781980629235.a9733669-381e-420b-82ba-f842b13f6b3d.tmp",
             "?? config.yaml.123.456.abcd-ef01.tmp",
             "",

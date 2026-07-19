@@ -162,7 +162,7 @@ function parseDirtyFiles(output: string): string[] {
 function isTransientVaultArtifact(path: string): boolean {
   const name = path.split("/").at(-1) ?? path;
   return (
-    name.endsWith(".md.lock")
+    name.endsWith(".lock")
     || name === ".auto-push-pending.lock"
     || /\.\d+\.\d+\.[0-9a-fA-F-]+\.tmp$/.test(name)
   );

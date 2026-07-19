@@ -107,15 +107,15 @@ function parseDirtyFiles(output: string): DirtyFile[] {
 }
 
 // Internal artifacts that are never committable and must never block or count
-// as dirt: the auto-push pending lock, per-raw-file session locks
-// (`*.md.lock` from withRawFileLock), and atomic-write temp files
+// as dirt: the auto-push pending lock, withRawFileLock sidecars (`*.lock` for
+// raw/md/config/etc.), and atomic-write temp files
 // (`<name>.<pid>.<ts>.<uuid>.tmp`). They appear transiently in
 // `git status -uall` and previously tripped the "non-raw dirty" skip.
 function isTransientArtifact(path: string): boolean {
   const name = path.split("/").at(-1) ?? path;
   return (
     name === ".auto-push-pending.lock"
-    || name.endsWith(".md.lock")
+    || name.endsWith(".lock")
     || /\.\d+\.\d+\.[0-9a-fA-F-]+\.tmp$/.test(name)
   );
 }

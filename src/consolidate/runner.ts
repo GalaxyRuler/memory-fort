@@ -86,7 +86,8 @@ export async function runConsolidatePlan(
     for (const plan of plans) {
       if (!plan.willWrite) continue;
       const observation = observations.find((doc) => doc.relPath === plan.observation)!;
-      await writeObservationRelations(observation, plan.proposedRelations);
+      const wrote = await writeObservationRelations(observation, plan.proposedRelations);
+      if (!wrote) continue; // raw missing/skipped — do not inflate updated counts
       updated += 1;
       newEdges += plan.proposedRelations.length;
     }
@@ -145,13 +146,14 @@ function toProposedRelation(match: ConsolidationMention): ProposedRelation {
 async function writeObservationRelations(
   observation: SearchDocument,
   proposed: ProposedRelation[],
-): Promise<void> {
+): Promise<boolean> {
   // Lock + re-read body so concurrent hook appends are not erased when we
   // only need to attach consolidation relations to frontmatter.
-  await mutateRawFrontmatter(observation.fullPath, (frontmatter) => ({
+  const outcome = await mutateRawFrontmatter(observation.fullPath, (frontmatter) => ({
     ...frontmatter,
     relations: writeRelations(buildRelationMap(proposed)),
   }));
+  return outcome === "updated";
 }
 
 function buildRelationMap(proposed: ProposedRelation[]): RelationMap {

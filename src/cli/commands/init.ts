@@ -74,9 +74,8 @@ claude-code-plugin/
 # Verify probes + in-flight atomic-write temps (never data; orphans wedge sync)
 raw/*.tmp
 raw/**/*.tmp
-# Per-raw session locks from withRawFileLock (append/frontmatter writers)
-raw/*.md.lock
-raw/**/*.md.lock
+# withRawFileLock sidecars (raw, config, embeddings, etc.)
+**/*.lock
 `;
 
 const GITATTRIBUTES_CONTENT = `*.md text eol=lf
