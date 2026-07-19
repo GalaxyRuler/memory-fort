@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,15 +9,17 @@ import { installCodex } from "../../../src/cli/commands/install/codex.js";
 
 describe("runDisconnect", () => {
   let tmp: string;
+  let memDir: string;
   let envBefore: Record<string, string | undefined>;
 
   beforeEach(async () => {
     tmp = await mkdtemp(join(tmpdir(), "disconnect-"));
+    memDir = join(tmp, ".memory");
     envBefore = {
       MEMORY_ROOT: process.env["MEMORY_ROOT"],
       MEMORY_CODEX_DIR: process.env["MEMORY_CODEX_DIR"],
     };
-    process.env["MEMORY_ROOT"] = join(tmp, ".memory");
+    process.env["MEMORY_ROOT"] = memDir;
     process.env["MEMORY_CODEX_DIR"] = join(tmp, ".codex");
     await runInit({ sourceRepoDir: process.cwd() });
   });
@@ -42,6 +45,7 @@ describe("runDisconnect", () => {
     expect(result.clients).toEqual([
       expect.objectContaining({ client: "codex", ok: true }),
     ]);
+    expect(result.sharedRuntimeCleanup).toBeUndefined();
     await expect(readFile(codexConfig, "utf-8")).resolves.toBe(before);
   });
 
@@ -51,5 +55,27 @@ describe("runDisconnect", () => {
     expect(result.exitCode).toBe(0);
     expect(result.clients[0]).toMatchObject({ client: "codex", ok: true });
     expect(result.clients[0]?.detail).toContain("not installed");
+  });
+
+  it("removes shared plugin scripts after disconnecting every client", async () => {
+    const scriptsDir = join(memDir, "claude-code-plugin", "scripts");
+    await mkdir(scriptsDir, { recursive: true });
+    await writeFile(join(scriptsDir, "mcp-server.mjs"), "// launcher\n");
+
+    const result = await runDisconnect();
+
+    expect(result.exitCode).toBe(0);
+    expect(result.sharedRuntimeCleanup?.some((line) => line.includes("scripts"))).toBe(true);
+    expect(existsSync(join(scriptsDir, "mcp-server.mjs"))).toBe(false);
+  });
+
+  it("preserves shared scripts when only one client is disconnected", async () => {
+    const scriptsDir = join(memDir, "claude-code-plugin", "scripts");
+    await mkdir(scriptsDir, { recursive: true });
+    await writeFile(join(scriptsDir, "mcp-server.mjs"), "// launcher\n");
+
+    await runDisconnect({ client: "codex" });
+
+    expect(existsSync(join(scriptsDir, "mcp-server.mjs"))).toBe(true);
   });
 });

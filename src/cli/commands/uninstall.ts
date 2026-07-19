@@ -409,6 +409,8 @@ async function removeClaudeCodePluginMetadata(
 
   // If the tree only has scripts/ (or is empty), leave scripts in place and
   // note that for operators. Do not rm -rf the whole plugin dir.
+  // Full cleanup of scripts happens via removeSharedPluginScripts() when
+  // disconnect --all (or equivalent) has removed every client config.
   if (opts.dryRun) {
     actions.push(
       `would preserve ${join(pluginDir, "scripts")} (shared MCP/hook launchers for other clients)`,
@@ -422,6 +424,45 @@ async function removeClaudeCodePluginMetadata(
   }
 
   return removedAny;
+}
+
+/**
+ * Remove shared launcher tree after every client that might reference it has
+ * been disconnected. Safe to call after `disconnect --all` / full client list.
+ */
+export async function removeSharedPluginScripts(
+  opts: RunUninstallOptions = {},
+): Promise<string[]> {
+  const pluginDir = join(memoryRoot(), "claude-code-plugin");
+  const scriptsDir = join(pluginDir, "scripts");
+  const actions: string[] = [];
+  if (!existsSync(scriptsDir) && !existsSync(pluginDir)) return actions;
+
+  if (existsSync(scriptsDir)) {
+    if (opts.dryRun) {
+      actions.push(`would remove ${scriptsDir} (no remaining client references)`);
+    } else {
+      await rm(scriptsDir, { recursive: true, force: true });
+      actions.push(`remove ${scriptsDir} (no remaining client references)`);
+    }
+  }
+
+  if (!opts.dryRun) {
+    await removeDirIfEmpty(pluginDir);
+    // Parent may still hold empty dirs only — best-effort.
+    if (existsSync(pluginDir)) {
+      try {
+        const entries = await readdir(pluginDir);
+        if (entries.length === 0) await rmdir(pluginDir);
+      } catch {
+        // ignore
+      }
+    }
+  } else if (existsSync(pluginDir)) {
+    actions.push(`would remove empty ${pluginDir} if no other files remain`);
+  }
+
+  return actions;
 }
 
 async function uninstallClaudeCodePluginCache(

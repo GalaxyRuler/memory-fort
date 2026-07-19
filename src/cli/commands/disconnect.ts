@@ -1,5 +1,9 @@
 import { CLIENTS, type ClientName } from "./client-status.js";
-import { runUninstall, type RunUninstallOptions } from "./uninstall.js";
+import {
+  removeSharedPluginScripts,
+  runUninstall,
+  type RunUninstallOptions,
+} from "./uninstall.js";
 
 export interface DisconnectOptions extends RunUninstallOptions {
   all?: boolean;
@@ -15,12 +19,15 @@ export interface DisconnectClientResult {
 export interface DisconnectResult {
   clients: DisconnectClientResult[];
   exitCode: number;
+  /** Present when shared launchers were cleaned up after a full disconnect. */
+  sharedRuntimeCleanup?: string[];
 }
 
 export async function runDisconnect(
   opts: DisconnectOptions = {},
 ): Promise<DisconnectResult> {
   const targets = opts.client ? [opts.client] : CLIENTS;
+  const disconnectingAll = opts.client === undefined || opts.all === true;
   const clients: DisconnectClientResult[] = [];
   let antigravityResult: DisconnectClientResult | null = null;
 
@@ -47,14 +54,27 @@ export async function runDisconnect(
     if (client === "antigravity") antigravityResult = clientResult;
   }
 
+  let sharedRuntimeCleanup: string[] | undefined;
+  // Full client list / --all: no remaining installer still points at scripts/.
+  if (disconnectingAll && targets.length >= CLIENTS.length) {
+    sharedRuntimeCleanup = await removeSharedPluginScripts(opts);
+  }
+
   return {
     clients,
     exitCode: clients.every((client) => client.ok) ? 0 : 1,
+    ...(sharedRuntimeCleanup && sharedRuntimeCleanup.length > 0
+      ? { sharedRuntimeCleanup }
+      : {}),
   };
 }
 
 export function formatDisconnectResult(result: DisconnectResult): string {
-  return `${result.clients
-    .map((client) => `${client.ok ? "ok" : "fail"} ${client.client.padEnd(18)} ${client.detail}`)
-    .join("\n")}\n`;
+  const lines = result.clients.map(
+    (client) => `${client.ok ? "ok" : "fail"} ${client.client.padEnd(18)} ${client.detail}`,
+  );
+  if (result.sharedRuntimeCleanup && result.sharedRuntimeCleanup.length > 0) {
+    lines.push(`ok shared-runtime   ${result.sharedRuntimeCleanup.join("; ")}`);
+  }
+  return `${lines.join("\n")}\n`;
 }
