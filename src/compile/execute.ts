@@ -1116,11 +1116,27 @@ async function rewriteExistingKnowledgePageUpdate(opts: {
       };
     }
     if (synthesis.outcome === "staged-for-review") {
-      // Prefer synthesis.proposalAlreadyResolved (ledger checked before write).
+      // Resolved ledger hits omit proposedPath (no draft file). Do not fall
+      // through to stageCompileProposal — that would restage a fresh proposal.
+      if (synthesis.proposalAlreadyResolved === true) {
+        // No draft file exists; path is diagnostic only for resolvedConsumed.
+        return {
+          handled: true,
+          outcome: "staged-for-review",
+          reason: synthesis.reason ?? "proposal already approved or rejected",
+          proposedPath: `wiki/compile-proposed/${basename(target.path)}`,
+          alreadyResolved: true,
+          extractionTokensUsed,
+          factsExtracted,
+          sessionsScanned,
+          referencesStripped: 0,
+          prosePathLeaks: 0,
+        };
+      }
       const staged: StageCompileProposalResult = synthesis.proposedPath
         ? {
             path: synthesis.proposedPath,
-            alreadyResolved: synthesis.proposalAlreadyResolved === true,
+            alreadyResolved: false,
           }
         : await stageCompileProposal(
           opts.vaultRoot,

@@ -147,16 +147,11 @@ export async function synthesizeNarrative(opts: SynthesizeNarrativeOptions): Pro
       net_new_facts: detect.net_new_facts,
       facts: opts.facts,
     }, opts.now);
-    return {
-      outcome: "staged-for-review",
-      path: opts.pageRelPath,
-      proposed: !staged.alreadyResolved,
-      proposedPath: staged.path,
-      proposalAlreadyResolved: staged.alreadyResolved,
+    return stagedReviewResult(opts.pageRelPath, staged, {
       reason: "too many contradicted claims for automatic rewrite",
       llmCalls,
       tokensUsed,
-    };
+    });
   }
 
   const synthResponse = await opts.llm.chat({
@@ -193,16 +188,7 @@ export async function synthesizeNarrative(opts: SynthesizeNarrativeOptions): Pro
         body: synth.body,
         facts: opts.facts,
       }, opts.now);
-      return {
-        outcome: "staged-for-review",
-        path: opts.pageRelPath,
-        proposed: !staged.alreadyResolved,
-        proposedPath: staged.path,
-        proposalAlreadyResolved: staged.alreadyResolved,
-        reason,
-        llmCalls,
-        tokensUsed,
-      };
+      return stagedReviewResult(opts.pageRelPath, staged, { reason, llmCalls, tokensUsed });
     }
   }
 
@@ -214,16 +200,11 @@ export async function synthesizeNarrative(opts: SynthesizeNarrativeOptions): Pro
       body,
       facts: opts.facts,
     }, opts.now);
-    return {
-      outcome: "staged-for-review",
-      path: opts.pageRelPath,
-      proposed: !staged.alreadyResolved,
-      proposedPath: staged.path,
-      proposalAlreadyResolved: staged.alreadyResolved,
+    return stagedReviewResult(opts.pageRelPath, staged, {
       reason: validation.reason,
       llmCalls,
       tokensUsed,
-    };
+    });
   }
   const wikilinkCheck = validateWikilinkRetention(parsed.body, body);
   if (!wikilinkCheck.ok) {
@@ -232,16 +213,11 @@ export async function synthesizeNarrative(opts: SynthesizeNarrativeOptions): Pro
       body,
       facts: opts.facts,
     }, opts.now);
-    return {
-      outcome: "staged-for-review",
-      path: opts.pageRelPath,
-      proposed: !staged.alreadyResolved,
-      proposedPath: staged.path,
-      proposalAlreadyResolved: staged.alreadyResolved,
+    return stagedReviewResult(opts.pageRelPath, staged, {
       reason: wikilinkCheck.reason,
       llmCalls,
       tokensUsed,
-    };
+    });
   }
   if (narrativeEquivalent(parsed.body, body)) {
     return { outcome: "unchanged", path: opts.pageRelPath, proposed: false, llmCalls, tokensUsed };
@@ -277,6 +253,35 @@ export function validateNarrativeBody(body: string): { ok: true } | { ok: false;
   if (/```/u.test(normalized)) return { ok: false, reason: "narrative body must not contain code fences" };
   if (/^\s*\|.+\|\s*$/mu.test(normalized)) return { ok: false, reason: "narrative body must not contain tables" };
   return { ok: true };
+}
+
+/** Build a staged-review result; omit proposedPath when the ledger already resolved it. */
+function stagedReviewResult(
+  pageRelPath: string,
+  staged: StageNarrativeReviewResult,
+  opts: { reason: string; llmCalls: number; tokensUsed?: LLMTokenUsage },
+): SynthesisResult {
+  if (staged.alreadyResolved) {
+    return {
+      outcome: "staged-for-review",
+      path: pageRelPath,
+      proposed: false,
+      proposalAlreadyResolved: true,
+      reason: opts.reason,
+      llmCalls: opts.llmCalls,
+      tokensUsed: opts.tokensUsed,
+    };
+  }
+  return {
+    outcome: "staged-for-review",
+    path: pageRelPath,
+    proposed: true,
+    proposedPath: staged.path,
+    proposalAlreadyResolved: false,
+    reason: opts.reason,
+    llmCalls: opts.llmCalls,
+    tokensUsed: opts.tokensUsed,
+  };
 }
 
 export async function archivePageVersion(

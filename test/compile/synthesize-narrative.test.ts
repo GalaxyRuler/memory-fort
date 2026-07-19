@@ -187,6 +187,40 @@ describe("synthesizeNarrative", () => {
     expect(await readdir(join(tmp, "wiki", "compile-proposed"))).toEqual(["memory-system.md"]);
   });
 
+  it("omits proposedPath when the narrative proposal was already resolved", async () => {
+    const { recordProposalResolved } = await import("../../src/compile/proposal-ledger.js");
+    const body = ["Memory System detail.", "", "- structured bullet"].join("\n");
+    await recordProposalResolved(
+      tmp,
+      {
+        kind: "rewrite_page",
+        path: "wiki/projects/memory-system.md",
+        body: body.trim(),
+        frontmatter: {},
+      },
+      "rejected",
+    );
+
+    const result = await synthesizeNarrative({
+      vaultRoot: tmp,
+      pageRelPath: "wiki/projects/memory-system.md",
+      facts: facts(),
+      llm: fakeNarrativeLLM({
+        detect: { contradicted_claims: [], net_new_facts: ["New detail."] },
+        body,
+      }),
+      now: new Date("2026-06-01T10:00:00.000Z"),
+    });
+
+    expect(result).toMatchObject({
+      outcome: "staged-for-review",
+      proposed: false,
+      proposalAlreadyResolved: true,
+    });
+    expect(result.proposedPath).toBeUndefined();
+    expect(existsSync(join(tmp, "wiki", "compile-proposed", "memory-system.md"))).toBe(false);
+  });
+
   it("stages the page for review when prose makes unsupported claims", async () => {
     await writeFileAt("wiki/projects/famtree.md", serializeFrontmatter({
       type: "projects",

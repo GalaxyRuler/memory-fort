@@ -295,12 +295,13 @@ function emptyRefreshApplyResult(
   target: string,
   mode: CurateResult["mode"],
   reason: string,
-  outcome: "skipped: no new content" | "staged-for-review",
+  outcome: "skipped: no new content" | "staged-for-review" | "skipped: proposal already resolved",
   metrics: Partial<Pick<ApplyCompileOperationsResult, "sessionsScanned" | "factsExtracted" | "extractionTokensUsed">> = {},
 ): ApplyCompileOperationsResult {
   return {
     applied: [],
     proposed: [],
+    resolvedConsumed: [],
     planned: mode === "plan" ? [target] : [],
     rejected: [],
     outcomes: [{
@@ -313,7 +314,7 @@ function emptyRefreshApplyResult(
     prosePathLeaks: 0,
     pagesRewritten: 0,
     pagesUpdated: 0,
-    pagesUnchanged: outcome === "skipped: no new content" ? 1 : 0,
+    pagesUnchanged: outcome === "skipped: no new content" || outcome === "skipped: proposal already resolved" ? 1 : 0,
     factsExtracted: metrics.factsExtracted ?? 0,
     sessionsScanned: metrics.sessionsScanned ?? 0,
     ...(metrics.extractionTokensUsed ? { extractionTokensUsed: metrics.extractionTokensUsed } : {}),
@@ -325,6 +326,29 @@ function refreshSynthesisResult(
   synthesis: Awaited<ReturnType<typeof synthesizeNarrative>>,
   metrics: Partial<Pick<ApplyCompileOperationsResult, "sessionsScanned" | "factsExtracted" | "extractionTokensUsed">> = {},
 ): ApplyCompileOperationsResult {
+  if (synthesis.proposalAlreadyResolved) {
+    return {
+      applied: [],
+      proposed: [],
+      resolvedConsumed: [],
+      planned: [],
+      rejected: [],
+      outcomes: [{
+        path: target,
+        outcome: "skipped: proposal already resolved",
+        reason: synthesis.reason ?? "proposal already approved or rejected",
+        contentPreserved: true,
+      }],
+      referencesStripped: 0,
+      prosePathLeaks: 0,
+      pagesRewritten: 0,
+      pagesUpdated: 0,
+      pagesUnchanged: 1,
+      factsExtracted: metrics.factsExtracted ?? 0,
+      sessionsScanned: metrics.sessionsScanned ?? 0,
+      ...(metrics.extractionTokensUsed ? { extractionTokensUsed: metrics.extractionTokensUsed } : {}),
+    };
+  }
   const outcome = synthesis.outcome === "rewritten"
     ? "rewritten"
     : synthesis.outcome === "unchanged"
@@ -332,7 +356,9 @@ function refreshSynthesisResult(
       : "staged-for-review";
   return {
     applied: synthesis.outcome === "rewritten" ? [target] : [],
-    proposed: synthesis.proposedPath ? [synthesis.proposedPath] : [],
+    // Only real fresh proposals — never proposedPath when proposed === false.
+    proposed: synthesis.proposed && synthesis.proposedPath ? [synthesis.proposedPath] : [],
+    resolvedConsumed: [],
     planned: [],
     rejected: [],
     outcomes: [{
