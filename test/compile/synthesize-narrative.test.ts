@@ -187,6 +187,267 @@ describe("synthesizeNarrative", () => {
     expect(await readdir(join(tmp, "wiki", "compile-proposed"))).toEqual(["memory-system.md"]);
   });
 
+  it("does not treat distinct no-body safety-gate reviews as the same ledger key", async () => {
+    const { recordProposalResolved } = await import("../../src/compile/proposal-ledger.js");
+    const { hashNarrativeReviewPacket, NARRATIVE_REVIEW_KEY_FIELD } = await import(
+      "../../src/compile/synthesize-narrative.js"
+    );
+    const manyClaimsA = Array.from({ length: 10 }, (_, i) => `Claim A${i}.`);
+    const manyClaimsB = Array.from({ length: 10 }, (_, i) => `Claim B${i}.`);
+    const pageBody = [
+      "Memory System captures raw observations.",
+      "",
+      "## 2026-05-30 update",
+      "",
+      "- Phase 3 retrieval is planned.",
+      "- [[docs/ROADMAP]] tracks the rollout.",
+    ].join("\n");
+
+    // Resolve only the first safety-gate fingerprint (claims A).
+    await recordProposalResolved(
+      tmp,
+      {
+        kind: "rewrite_page",
+        path: "wiki/projects/memory-system.md",
+        body: pageBody.trim(),
+        frontmatter: {
+          [NARRATIVE_REVIEW_KEY_FIELD]: hashNarrativeReviewPacket({
+            reason: "too many contradicted claims for automatic rewrite",
+            contradicted_claims: manyClaimsA,
+            net_new_facts: [],
+            facts: facts(),
+          }),
+        },
+      },
+      "rejected",
+    );
+
+    const resolvedAgain = await synthesizeNarrative({
+      vaultRoot: tmp,
+      pageRelPath: "wiki/projects/memory-system.md",
+      facts: facts(),
+      llm: fakeNarrativeLLM({
+        detect: { contradicted_claims: manyClaimsA, net_new_facts: [] },
+        body: "unused",
+      }),
+      now: new Date("2026-06-01T10:00:00.000Z"),
+    });
+    expect(resolvedAgain).toMatchObject({
+      proposed: false,
+      proposalAlreadyResolved: true,
+    });
+
+    const differentClaims = await synthesizeNarrative({
+      vaultRoot: tmp,
+      pageRelPath: "wiki/projects/memory-system.md",
+      facts: facts(),
+      llm: fakeNarrativeLLM({
+        detect: { contradicted_claims: manyClaimsB, net_new_facts: ["Something new."] },
+        body: "unused",
+      }),
+      now: new Date("2026-06-01T10:00:00.000Z"),
+    });
+    expect(differentClaims).toMatchObject({
+      outcome: "staged-for-review",
+      proposed: true,
+      proposedPath: "wiki/compile-proposed/memory-system.md",
+    });
+    const proposal = await readFile(join(tmp, "wiki", "compile-proposed", "memory-system.md"), "utf-8");
+    expect(proposal).toContain(NARRATIVE_REVIEW_KEY_FIELD);
+    expect(proposal).toContain(hashNarrativeReviewPacket({
+      reason: "too many contradicted claims for automatic rewrite",
+      contradicted_claims: manyClaimsB,
+      net_new_facts: ["Something new."],
+      facts: facts(),
+    }));
+  });
+
+  it("distinguishes no-body reviews that share claim lists but differ in source facts", async () => {
+    const { hashNarrativeReviewPacket } = await import("../../src/compile/synthesize-narrative.js");
+    const manyClaims = Array.from({ length: 10 }, (_, i) => `Shared claim ${i}.`);
+    const reason = "too many contradicted claims for automatic rewrite";
+    const factsA = facts().map((fact, index) => ({
+      ...fact,
+      fact_id: `f_${index}`,
+      fact: {
+        ...fact.fact,
+        narrative: `Source A narrative ${index}`,
+        sourceRawPath: `raw/2026-06-01/session-a.md`,
+        sessionId: "session-a",
+      },
+      text: `Source A narrative ${index}`,
+    }));
+    const factsB = facts().map((fact, index) => ({
+      ...fact,
+      fact_id: `f_${index}`,
+      fact: {
+        ...fact.fact,
+        narrative: `Source B narrative ${index}`,
+        sourceRawPath: `raw/2026-06-02/session-b.md`,
+        sessionId: "session-b",
+      },
+      text: `Source B narrative ${index}`,
+    }));
+
+    expect(hashNarrativeReviewPacket({
+      reason,
+      contradicted_claims: manyClaims,
+      net_new_facts: [],
+      facts: factsA,
+    })).not.toBe(hashNarrativeReviewPacket({
+      reason,
+      contradicted_claims: manyClaims,
+      net_new_facts: [],
+      facts: factsB,
+    }));
+  });
+
+  it("ignores observedAt when fingerprinting review source facts", async () => {
+    const { hashNarrativeReviewPacket } = await import("../../src/compile/synthesize-narrative.js");
+    const manyClaims = Array.from({ length: 10 }, (_, i) => `Shared claim ${i}.`);
+    const reason = "too many contradicted claims for automatic rewrite";
+    const baseFacts = facts().map((fact, index) => ({
+      ...fact,
+      fact_id: `f_${index}`,
+      fact: {
+        ...fact.fact,
+        narrative: `Stable narrative ${index}`,
+        sourceRawPath: "raw/2026-06-01/session.md",
+        sessionId: "session",
+        observedAt: "2026-06-01T10:00:00.000Z",
+      },
+    }));
+    const laterFacts = baseFacts.map((fact) => ({
+      ...fact,
+      fact: {
+        ...fact.fact,
+        observedAt: "2026-06-02T10:00:00.000Z",
+      },
+    }));
+
+    expect(hashNarrativeReviewPacket({
+      reason,
+      contradicted_claims: manyClaims,
+      net_new_facts: [],
+      facts: baseFacts,
+    })).toBe(hashNarrativeReviewPacket({
+      reason,
+      contradicted_claims: manyClaims,
+      net_new_facts: [],
+      facts: laterFacts,
+    }));
+  });
+
+  it("does not delete an unrelated pending draft when a resolved review re-runs", async () => {
+    const { recordProposalResolved } = await import("../../src/compile/proposal-ledger.js");
+    const { hashNarrativeReviewPacket, NARRATIVE_REVIEW_KEY_FIELD } = await import(
+      "../../src/compile/synthesize-narrative.js"
+    );
+    const manyClaims = Array.from({ length: 10 }, (_, i) => `Claim A${i}.`);
+    const pageBody = [
+      "Memory System captures raw observations.",
+      "",
+      "## 2026-05-30 update",
+      "",
+      "- Phase 3 retrieval is planned.",
+      "- [[docs/ROADMAP]] tracks the rollout.",
+    ].join("\n");
+    const reason = "too many contradicted claims for automatic rewrite";
+    const reviewKey = hashNarrativeReviewPacket({
+      reason,
+      contradicted_claims: manyClaims,
+      net_new_facts: [],
+      facts: facts(),
+    });
+
+    await recordProposalResolved(
+      tmp,
+      {
+        kind: "rewrite_page",
+        path: "wiki/projects/memory-system.md",
+        body: pageBody.trim(),
+        frontmatter: { [NARRATIVE_REVIEW_KEY_FIELD]: reviewKey },
+      },
+      "rejected",
+    );
+
+    // Unrelated pending draft already in the basename slot (different body/key).
+    await mkdir(join(tmp, "wiki", "compile-proposed"), { recursive: true });
+    await writeFile(
+      join(tmp, "wiki", "compile-proposed", "memory-system.md"),
+      [
+        "---",
+        "type: references",
+        "title: other draft",
+        "---",
+        "",
+        "```compile-op",
+        JSON.stringify({
+          kind: "rewrite_page",
+          path: "wiki/projects/memory-system.md",
+          body: "A different pending narrative rewrite.",
+          frontmatter: { [NARRATIVE_REVIEW_KEY_FIELD]: "other-pending-key" },
+        }, null, 2),
+        "```",
+        "",
+      ].join("\n"),
+      "utf-8",
+    );
+
+    const result = await synthesizeNarrative({
+      vaultRoot: tmp,
+      pageRelPath: "wiki/projects/memory-system.md",
+      facts: facts(),
+      llm: fakeNarrativeLLM({
+        detect: { contradicted_claims: manyClaims, net_new_facts: [] },
+        body: "unused",
+      }),
+      now: new Date("2026-06-01T10:00:00.000Z"),
+    });
+
+    expect(result).toMatchObject({
+      proposed: false,
+      proposalAlreadyResolved: true,
+    });
+    const stillThere = await readFile(join(tmp, "wiki", "compile-proposed", "memory-system.md"), "utf-8");
+    expect(stillThere).toContain("A different pending narrative rewrite.");
+    expect(stillThere).toContain("other-pending-key");
+  });
+
+  it("omits proposedPath when the narrative proposal was already resolved", async () => {
+    const { recordProposalResolved } = await import("../../src/compile/proposal-ledger.js");
+    const body = ["Memory System detail.", "", "- structured bullet"].join("\n");
+    await recordProposalResolved(
+      tmp,
+      {
+        kind: "rewrite_page",
+        path: "wiki/projects/memory-system.md",
+        body: body.trim(),
+        frontmatter: {},
+      },
+      "rejected",
+    );
+
+    const result = await synthesizeNarrative({
+      vaultRoot: tmp,
+      pageRelPath: "wiki/projects/memory-system.md",
+      facts: facts(),
+      llm: fakeNarrativeLLM({
+        detect: { contradicted_claims: [], net_new_facts: ["New detail."] },
+        body,
+      }),
+      now: new Date("2026-06-01T10:00:00.000Z"),
+    });
+
+    expect(result).toMatchObject({
+      outcome: "staged-for-review",
+      proposed: false,
+      proposalAlreadyResolved: true,
+    });
+    expect(result.proposedPath).toBeUndefined();
+    expect(existsSync(join(tmp, "wiki", "compile-proposed", "memory-system.md"))).toBe(false);
+  });
+
   it("stages the page for review when prose makes unsupported claims", async () => {
     await writeFileAt("wiki/projects/famtree.md", serializeFrontmatter({
       type: "projects",

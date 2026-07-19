@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runFactConsolidation } from "../../src/compile/fact-consolidate.js";
+import { recordProposalResolved } from "../../src/compile/proposal-ledger.js";
 import { parseFrontmatter, serializeFrontmatter } from "../../src/storage/frontmatter.js";
 import type { LLMProvider, LLMRequest, LLMResponse } from "../../src/llm/types.js";
 
@@ -148,6 +149,58 @@ describe("fact-first compile consolidation", () => {
     expect(llm.chat).toHaveBeenCalledTimes(3);
     expect(result.summary.llmCalls).toBe(3);
     expect(result.proposed).toEqual(["wiki/compile-proposed/memory-system.md"]);
+  });
+
+  it("does not re-queue already-resolved narrative proposals", async () => {
+    await writeFact("facts/2026-05-31/a.json", fact("a", 8));
+    await writeFact("facts/2026-05-31/b.json", fact("b", 7));
+    await writeFact("facts/2026-05-31/c.json", fact("c", 6));
+    const body = "Memory System is backed by Supabase and all e2e tests pass.";
+    const llm = fakeSectionPatchLLM(body, {
+      faithfulness: { unsupported_claims: ["backed by Supabase", "all e2e tests pass"] },
+    });
+
+    const first = await runFactConsolidation({
+      vaultRoot: tmp,
+      llm,
+      maxCalls: 1,
+      now: new Date("2026-05-31T12:00:00.000Z"),
+      faithfulnessCheck: true,
+    });
+    expect(first.proposed).toEqual(["wiki/compile-proposed/memory-system.md"]);
+
+    // Dashboard records via parseCompileOperationBlock (frontmatter: {}); ledger
+    // must match that canonical shape even if stage omits the field.
+    await recordProposalResolved(
+      tmp,
+      {
+        kind: "rewrite_page",
+        path: "wiki/projects/memory-system.md",
+        body: body.trim(),
+        frontmatter: {},
+      },
+      "rejected",
+      { now: new Date("2026-05-31T12:05:00.000Z") },
+    );
+
+    const second = await runFactConsolidation({
+      vaultRoot: tmp,
+      llm: fakeSectionPatchLLM(body, {
+        faithfulness: { unsupported_claims: ["backed by Supabase", "all e2e tests pass"] },
+      }),
+      maxCalls: 1,
+      now: new Date("2026-05-31T12:10:00.000Z"),
+      faithfulnessCheck: true,
+    });
+
+    expect(second.proposed).toEqual([]);
+    expect(second.applied).toEqual([]);
+    expect(second.outcomes).toEqual([
+      expect.objectContaining({
+        path: "wiki/projects/memory-system.md",
+        outcome: "skipped: proposal already resolved",
+      }),
+    ]);
   });
 
   async function writePage(relPath: string, title: string, body: string, type = "projects"): Promise<void> {

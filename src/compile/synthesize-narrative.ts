@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, writeFile, rename, readdir } from "node:fs/promises";
+import { mkdir, readFile, writeFile, rename, readdir, rm } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import type { LLMProvider, LLMTokenUsage } from "../llm/types.js";
 import { readRelations, writeRelations, type RelationMap } from "../retrieval/relations.js";
@@ -9,6 +9,7 @@ import { parseFrontmatter, serializeFrontmatter, type Frontmatter } from "../sto
 import { kebabCase } from "../storage/slug.js";
 import type { ConsolidationFact } from "./filter-noise.js";
 import { assessClaimSupport } from "./faithfulness.js";
+import { hashCompileOperationForLedger, isProposalResolved } from "./proposal-ledger.js";
 
 export const NARRATIVE_KNOWLEDGE_TYPES = [
   "projects",
@@ -31,9 +32,23 @@ export interface SynthesisResult {
   proposed: boolean;
   llmCalls: number;
   proposedPath?: string;
+  /** True when stageNarrativeReview skipped restaging a ledger-resolved op. */
+  proposalAlreadyResolved?: boolean;
   reason?: string;
   tokensUsed?: LLMTokenUsage;
 }
+
+export interface StageNarrativeReviewResult {
+  path: string;
+  alreadyResolved: boolean;
+}
+
+/**
+ * Proposal-only frontmatter field: fingerprints no-body safety-gate reviews so
+ * distinct claim/fact sets do not share a ledger key. Stripped on apply so it
+ * never lands on the wiki page.
+ */
+export const NARRATIVE_REVIEW_KEY_FIELD = "narrative_review_key";
 
 export interface SynthesizeNarrativeOptions {
   vaultRoot: string;
@@ -133,21 +148,17 @@ export async function synthesizeNarrative(opts: SynthesizeNarrativeOptions): Pro
     return { outcome: "unchanged", path: opts.pageRelPath, proposed: false, llmCalls, tokensUsed };
   }
   if (detect.contradicted_claims.length >= 10) {
-    const proposedPath = await stageNarrativeReview(opts.vaultRoot, opts.pageRelPath, {
+    const staged = await stageNarrativeReview(opts.vaultRoot, opts.pageRelPath, {
       reason: "too many contradicted claims for automatic rewrite",
       contradicted_claims: detect.contradicted_claims,
       net_new_facts: detect.net_new_facts,
       facts: opts.facts,
     }, opts.now);
-    return {
-      outcome: "staged-for-review",
-      path: opts.pageRelPath,
-      proposed: true,
-      proposedPath,
+    return stagedReviewResult(opts.pageRelPath, staged, {
       reason: "too many contradicted claims for automatic rewrite",
       llmCalls,
       tokensUsed,
-    };
+    });
   }
 
   const synthResponse = await opts.llm.chat({
@@ -179,33 +190,41 @@ export async function synthesizeNarrative(opts: SynthesizeNarrativeOptions): Pro
     llmCalls += 1;
     if (!verdict.supported) {
       const reason = `unsupported claims: ${verdict.unsupportedClaims.join("; ")}`;
-      const proposedPath = await stageNarrativeReview(opts.vaultRoot, opts.pageRelPath, {
+      const staged = await stageNarrativeReview(opts.vaultRoot, opts.pageRelPath, {
         reason,
         body: synth.body,
         facts: opts.facts,
       }, opts.now);
-      return { outcome: "staged-for-review", path: opts.pageRelPath, proposed: true, proposedPath, reason, llmCalls, tokensUsed };
+      return stagedReviewResult(opts.pageRelPath, staged, { reason, llmCalls, tokensUsed });
     }
   }
 
   const body = normalizeBody(synth.body);
   const validation = validateNarrativeBody(body);
   if (!validation.ok) {
-    const proposedPath = await stageNarrativeReview(opts.vaultRoot, opts.pageRelPath, {
+    const staged = await stageNarrativeReview(opts.vaultRoot, opts.pageRelPath, {
       reason: validation.reason,
       body,
       facts: opts.facts,
     }, opts.now);
-    return { outcome: "staged-for-review", path: opts.pageRelPath, proposed: true, proposedPath, reason: validation.reason, llmCalls, tokensUsed };
+    return stagedReviewResult(opts.pageRelPath, staged, {
+      reason: validation.reason,
+      llmCalls,
+      tokensUsed,
+    });
   }
   const wikilinkCheck = validateWikilinkRetention(parsed.body, body);
   if (!wikilinkCheck.ok) {
-    const proposedPath = await stageNarrativeReview(opts.vaultRoot, opts.pageRelPath, {
+    const staged = await stageNarrativeReview(opts.vaultRoot, opts.pageRelPath, {
       reason: wikilinkCheck.reason,
       body,
       facts: opts.facts,
     }, opts.now);
-    return { outcome: "staged-for-review", path: opts.pageRelPath, proposed: true, proposedPath, reason: wikilinkCheck.reason, llmCalls, tokensUsed };
+    return stagedReviewResult(opts.pageRelPath, staged, {
+      reason: wikilinkCheck.reason,
+      llmCalls,
+      tokensUsed,
+    });
   }
   if (narrativeEquivalent(parsed.body, body)) {
     return { outcome: "unchanged", path: opts.pageRelPath, proposed: false, llmCalls, tokensUsed };
@@ -243,6 +262,35 @@ export function validateNarrativeBody(body: string): { ok: true } | { ok: false;
   return { ok: true };
 }
 
+/** Build a staged-review result; omit proposedPath when the ledger already resolved it. */
+function stagedReviewResult(
+  pageRelPath: string,
+  staged: StageNarrativeReviewResult,
+  opts: { reason: string; llmCalls: number; tokensUsed?: LLMTokenUsage },
+): SynthesisResult {
+  if (staged.alreadyResolved) {
+    return {
+      outcome: "staged-for-review",
+      path: pageRelPath,
+      proposed: false,
+      proposalAlreadyResolved: true,
+      reason: opts.reason,
+      llmCalls: opts.llmCalls,
+      tokensUsed: opts.tokensUsed,
+    };
+  }
+  return {
+    outcome: "staged-for-review",
+    path: pageRelPath,
+    proposed: true,
+    proposedPath: staged.path,
+    proposalAlreadyResolved: false,
+    reason: opts.reason,
+    llmCalls: opts.llmCalls,
+    tokensUsed: opts.tokensUsed,
+  };
+}
+
 export async function archivePageVersion(
   vaultRoot: string,
   pageRelPath: string,
@@ -264,7 +312,7 @@ export async function stageNarrativeReview(
   pageRelPath: string,
   packet: unknown,
   now: Date = new Date(),
-): Promise<string> {
+): Promise<StageNarrativeReviewResult> {
   const proposedRelPath = `wiki/compile-proposed/${basename(pageRelPath)}`;
   const fullPath = safeResolveUnder(vaultRoot, proposedRelPath);
   if (!fullPath) throw new Error(`invalid proposed path for ${pageRelPath}`);
@@ -272,8 +320,9 @@ export async function stageNarrativeReview(
   if (!sourceFullPath || !existsSync(sourceFullPath)) throw new Error(`narrative review source missing: ${pageRelPath}`);
   const current = parseFrontmatter(await readFile(sourceFullPath, "utf-8"));
   const record = asRecord(packet);
-  const proposedBody = typeof record.body === "string" && record.body.trim().length > 0
-    ? normalizeBody(record.body)
+  const hasExplicitBody = typeof record.body === "string" && record.body.trim().length > 0;
+  const proposedBody = hasExplicitBody
+    ? normalizeBody(record.body as string)
     : normalizeBody(current.body);
   const reason = typeof record.reason === "string" && record.reason.trim().length > 0
     ? record.reason.trim()
@@ -283,6 +332,27 @@ export async function stageNarrativeReview(
     ...record,
   };
   delete reviewMetadata.body;
+  // Match readOperation / dashboard promote-reject shape. When the packet has no
+  // body (e.g. ≥10 contradicted-claims safety gate), proposedBody is the current
+  // page text — fold a review fingerprint into frontmatter so distinct claim/fact
+  // sets do not share one ledger key. Apply strips this field before writing.
+  const frontmatter: Record<string, unknown> = {};
+  if (!hasExplicitBody) {
+    frontmatter[NARRATIVE_REVIEW_KEY_FIELD] = hashNarrativeReviewPacket(record);
+  }
+  const compileOp = {
+    kind: "rewrite_page" as const,
+    path: pageRelPath,
+    body: proposedBody,
+    frontmatter,
+  };
+  // Do not restage a proposal the human already approved/rejected (ledger).
+  if (await isProposalResolved(vaultRoot, compileOp)) {
+    // Only remove the proposed file when it is this same op — an unrelated
+    // pending draft (newer review, basename collision) must stay for humans.
+    if (existsSync(fullPath)) await removeProposedDraftIfSameOp(fullPath, compileOp);
+    return { path: proposedRelPath, alreadyResolved: true };
+  }
   await mkdir(dirname(fullPath), { recursive: true });
   await atomicWrite(
     fullPath,
@@ -303,11 +373,7 @@ export async function stageNarrativeReview(
         `Reason: ${reason}`,
         "",
         "```compile-op",
-        stringifyFencedJson({
-          kind: "rewrite_page",
-          path: pageRelPath,
-          body: proposedBody,
-        }),
+        stringifyFencedJson(compileOp),
         "```",
         "",
         "Review metadata:",
@@ -319,7 +385,94 @@ export async function stageNarrativeReview(
       ].join("\n"),
     ),
   );
-  return proposedRelPath;
+  return { path: proposedRelPath, alreadyResolved: false };
+}
+
+/**
+ * Remove a compile-proposed draft only when its compile-op matches `compileOp`.
+ * Leaves unrelated pending drafts (different review / basename collision) intact.
+ */
+export async function removeProposedDraftIfSameOp(
+  fullPath: string,
+  compileOp: unknown,
+): Promise<boolean> {
+  try {
+    const text = await readFile(fullPath, "utf-8");
+    const block = /```compile-op\s*([\s\S]*?)```/m.exec(text)?.[1];
+    if (!block) return false;
+    const parsed = JSON.parse(block) as unknown;
+    if (hashCompileOperationForLedger(parsed) !== hashCompileOperationForLedger(compileOp)) {
+      return false;
+    }
+    await rm(fullPath, { force: true });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Stable fingerprint of review metadata for no-body narrative proposal packets. */
+export function hashNarrativeReviewPacket(record: Record<string, unknown>): string {
+  const contradicted = Array.isArray(record.contradicted_claims)
+    ? record.contradicted_claims.filter((item): item is string => typeof item === "string")
+    : [];
+  const netNew = Array.isArray(record.net_new_facts)
+    ? record.net_new_facts.filter((item): item is string => typeof item === "string")
+    : [];
+  // Prefer source content/paths over positional f_N ids — filterNoiseForPage
+  // reassigns f_0.. per batch, so different raws can share the same ids.
+  // Omit run-volatile timestamps (observedAt/compressedAt) so synthetic facts
+  // from makeSyntheticCompressedFacts do not re-key every compile pass.
+  const payload = {
+    reason: typeof record.reason === "string" ? record.reason.trim() : "",
+    contradicted_claims: [...contradicted].sort(),
+    net_new_facts: [...netNew].sort(),
+    source_facts: extractReviewSourceFacts(record.facts),
+  };
+  return createHash("sha256").update(JSON.stringify(payload)).digest("hex").slice(0, 32);
+}
+
+function extractReviewSourceFacts(facts: unknown): Array<Record<string, string>> {
+  if (!Array.isArray(facts)) return [];
+  const rows: Array<Record<string, string>> = [];
+  for (const item of facts) {
+    if (typeof item !== "object" || item === null) continue;
+    const row = item as {
+      fact_id?: unknown;
+      text?: unknown;
+      fact?: {
+        narrative?: unknown;
+        sourceRawPath?: unknown;
+        sessionId?: unknown;
+        facts?: unknown;
+      };
+    };
+    const nested = row.fact && typeof row.fact === "object" ? row.fact : undefined;
+    const narrative = typeof nested?.narrative === "string"
+      ? nested.narrative.trim()
+      : typeof row.text === "string"
+        ? row.text.trim()
+        : "";
+    const sourceRawPath = typeof nested?.sourceRawPath === "string" ? nested.sourceRawPath.trim() : "";
+    const sessionId = typeof nested?.sessionId === "string" ? nested.sessionId.trim() : "";
+    const factLines = Array.isArray(nested?.facts)
+      ? nested.facts.filter((line): line is string => typeof line === "string").map((line) => line.trim()).filter(Boolean)
+      : [];
+    if (!narrative && !sourceRawPath && !sessionId && factLines.length === 0) {
+      // Fall back to positional id only when no stable source content exists.
+      if (typeof row.fact_id === "string" && row.fact_id.trim().length > 0) {
+        rows.push({ fact_id: row.fact_id.trim() });
+      }
+      continue;
+    }
+    rows.push({
+      ...(narrative ? { narrative } : {}),
+      ...(sourceRawPath ? { sourceRawPath } : {}),
+      ...(sessionId ? { sessionId } : {}),
+      ...(factLines.length > 0 ? { facts: factLines.slice().sort().join("\n") } : {}),
+    });
+  }
+  return rows.sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
 }
 
 export async function moveToArchive(vaultRoot: string, relPath: string, archiveDate: string): Promise<{ from: string; to: string }> {

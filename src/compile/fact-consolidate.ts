@@ -137,6 +137,20 @@ export async function runFactConsolidation(opts: FactConsolidationOptions): Prom
       });
       continue;
     }
+    // Already-resolved narrative reviews omit proposedPath and must not enter
+    // `proposed` — executeCompilePrompt treats proposed.length > 0 as work and
+    // returns rawInputConsumed:false, which would shadow raw compile forever
+    // after the human resolved the draft.
+    if (result.proposalAlreadyResolved || result.proposed === false) {
+      pagesUnchanged += 1;
+      outcomes.push({
+        path: candidate.page.relPath,
+        outcome: "skipped: proposal already resolved",
+        reason: result.reason ?? "proposal already approved or rejected",
+        contentPreserved: true,
+      });
+      continue;
+    }
     if (result.proposedPath) proposed.push(result.proposedPath);
     outcomes.push({
       path: candidate.page.relPath,

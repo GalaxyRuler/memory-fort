@@ -10,7 +10,7 @@ import {
 } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
 import { applyCompileOperations, parseCompileOperationsBlock, type ApplyCompileOperationsResult } from "../../compile/execute.js";
-import { clearOpsJournal } from "../../compile/ops-journal.js";
+import { pruneOpsJournalForAdvancedRaws } from "../../compile/ops-journal.js";
 import { condenseIndex } from "../../compile/condense-index.js";
 import { filterRawText } from "../../compile/filter-raw.js";
 import { runFactConsolidation } from "../../compile/fact-consolidate.js";
@@ -570,9 +570,15 @@ async function runCompileImpl(
   }
 
   const execution = opts.execute
-    ? await executeCompilePrompt({ ...opts, root, prompt, hasRawContent: rawContentBlocks.length > 0 })
+    ? await executeCompilePrompt({
+      ...opts,
+      root,
+      prompt,
+      hasRawContent: rawContentBlocks.length > 0,
+      sourceRaws: includedWatermarks.map((item) => item.relPath),
+    })
     : undefined;
-  const watermarksAdvanced = await maybeAdvanceWatermarks({
+  const { advanced: watermarksAdvanced, contentAdvanced } = await maybeAdvanceWatermarks({
     root,
     watermarkMode,
     plan: opts.plan,
@@ -589,8 +595,11 @@ async function runCompileImpl(
     }
     lowSignalQuarantined = committedLowSignalQuarantines.length;
   }
-  if (watermarksAdvanced.length > 0) {
-    await clearOpsJournal(root);
+  // Prune only journal entries whose source raws fully advanced. Global clear
+  // on any content advance dropped replay guards for stalled batches
+  // (applied + proposed) when an unrelated raw advanced later.
+  if (contentAdvanced.length > 0) {
+    await pruneOpsJournalForAdvancedRaws(root, contentAdvanced);
   }
   if (rawFilterEnabled && filterStats.filesFiltered > 0) {
     await persistLastFilterStats(root, filterStats);
@@ -887,6 +896,7 @@ export async function executeCompilePrompt(opts: CompileOptions & {
   root: string;
   prompt: string;
   hasRawContent: boolean;
+  sourceRaws?: readonly string[];
 }): Promise<CompileResult["execution"]> {
   const env = opts.env ?? process.env;
   const config = await (opts.configLoader ?? (() => loadMemoryConfig(opts.root)))();
@@ -919,6 +929,7 @@ export async function executeCompilePrompt(opts: CompileOptions & {
       rawInputConsumed: false,
       applied: [],
       proposed: [],
+      resolvedConsumed: [],
       planned: [],
       rejected: [],
       outcomes: [],
@@ -979,6 +990,7 @@ export async function executeCompilePrompt(opts: CompileOptions & {
       rawInputConsumed: true,
       applied: [],
       proposed: [],
+      resolvedConsumed: [],
       planned: [],
       rejected: [{ path: "(response)", reason: parsed.reason }],
       outcomes: [{
@@ -1003,6 +1015,7 @@ export async function executeCompilePrompt(opts: CompileOptions & {
     rewriteLLM: opts.plan ? undefined : llm,
     extractFacts: false,
     journal: !opts.plan,
+    sourceRaws: opts.sourceRaws,
   });
   return {
     mode: opts.plan ? "plan" : "execute",
@@ -1097,23 +1110,33 @@ async function maybeAdvanceWatermarks(opts: {
   execution?: CompileResult["execution"];
   includedWatermarks: IncludedRawWatermark[];
   noiseOnlyWatermarks?: IncludedRawWatermark[];
-}): Promise<string[]> {
-  if (opts.watermarkMode !== "gated") return [];
-  if (opts.plan) return [];
+}): Promise<{ advanced: string[]; contentAdvanced: string[] }> {
+  if (opts.watermarkMode !== "gated") return { advanced: [], contentAdvanced: [] };
+  if (opts.plan) return { advanced: [], contentAdvanced: [] };
   const advanced: IncludedRawWatermark[] = [];
+  const contentAdvanced: IncludedRawWatermark[] = [];
   if (opts.execute && opts.noiseOnlyWatermarks && opts.noiseOnlyWatermarks.length > 0) {
     advanced.push(...opts.noiseOnlyWatermarks);
   }
+  // Advance only when this batch stages no *new* proposals. Applied-only or
+  // already-resolved-only batches are fine; a mixed applied+proposed batch
+  // must not consume the raw cursor (rejected drafts would lose those bytes).
+  // Noise-only skips above still advance separately.
   if (
     opts.execution
     && opts.execution.mode === "execute"
     && opts.execution.rawInputConsumed !== false
-    && opts.execution.applied.length + opts.execution.proposed.length > 0
     && opts.includedWatermarks.length > 0
+    && opts.execution.proposed.length === 0
+    && (
+      opts.execution.applied.length > 0
+      || (opts.execution.resolvedConsumed?.length ?? 0) > 0
+    )
   ) {
     advanced.push(...opts.includedWatermarks);
+    contentAdvanced.push(...opts.includedWatermarks);
   }
-  if (advanced.length === 0) return [];
+  if (advanced.length === 0) return { advanced: [], contentAdvanced: [] };
 
   await mutateCompileStateFile(opts.root, (state) => {
     const consumed = readConsumedMap(state);
@@ -1127,7 +1150,10 @@ async function maybeAdvanceWatermarks(opts: {
     }
     return { ...state, consumed };
   });
-  return advanced.map((item) => item.relPath);
+  return {
+    advanced: advanced.map((item) => item.relPath),
+    contentAdvanced: contentAdvanced.map((item) => item.relPath),
+  };
 }
 
 async function resetConsumedWatermarks(
