@@ -284,6 +284,48 @@ describe("proposal ledger", () => {
     expect(await isProposalResolved(tmp, operation)).toBe(false);
   });
 
+  it("does not match review-keyed ops to unkeyed legacy body-only entries", async () => {
+    const { createHash } = await import("node:crypto");
+    const { mkdir, writeFile } = await import("node:fs/promises");
+    const { dirname } = await import("node:path");
+    const body = "Unchanged page body.";
+    const unkeyed = {
+      kind: "rewrite_page",
+      path: "wiki/projects/example.md",
+      body,
+    };
+    const legacyKey = createHash("sha256")
+      .update(JSON.stringify(unkeyed))
+      .digest("hex")
+      .slice(0, 32);
+    const path = resolvedProposalsPath(tmp);
+    await mkdir(dirname(path), { recursive: true });
+    await writeFile(
+      path,
+      `${JSON.stringify({
+        resolved: {
+          [legacyKey]: {
+            action: "rejected",
+            resolvedAt: "2026-06-10T12:00:00.000Z",
+          },
+        },
+      }, null, 2)}\n`,
+    );
+
+    const keyed = {
+      kind: "rewrite_page",
+      path: "wiki/projects/example.md",
+      body,
+      frontmatter: {
+        narrative_review_key: "distinct-claims-fingerprint",
+      },
+    };
+    // Distinct safety-gate review must not be suppressed by the unkeyed legacy entry.
+    expect(await isProposalResolved(tmp, keyed)).toBe(false);
+    // The original unkeyed shape still resolves.
+    expect(await isProposalResolved(tmp, unkeyed)).toBe(true);
+  });
+
   it("serializes concurrent recordProposalResolved so both entries survive", async () => {
     const opA = {
       kind: "rewrite_page",

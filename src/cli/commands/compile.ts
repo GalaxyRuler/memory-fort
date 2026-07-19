@@ -10,7 +10,7 @@ import {
 } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
 import { applyCompileOperations, parseCompileOperationsBlock, type ApplyCompileOperationsResult } from "../../compile/execute.js";
-import { clearOpsJournal } from "../../compile/ops-journal.js";
+import { pruneOpsJournalForAdvancedRaws } from "../../compile/ops-journal.js";
 import { condenseIndex } from "../../compile/condense-index.js";
 import { filterRawText } from "../../compile/filter-raw.js";
 import { runFactConsolidation } from "../../compile/fact-consolidate.js";
@@ -515,7 +515,13 @@ async function runCompileImpl(
   }
 
   const execution = opts.execute
-    ? await executeCompilePrompt({ ...opts, root, prompt, hasRawContent: rawContentBlocks.length > 0 })
+    ? await executeCompilePrompt({
+      ...opts,
+      root,
+      prompt,
+      hasRawContent: rawContentBlocks.length > 0,
+      sourceRaws: includedWatermarks.map((item) => item.relPath),
+    })
     : undefined;
   const { advanced: watermarksAdvanced, contentAdvanced } = await maybeAdvanceWatermarks({
     root,
@@ -534,12 +540,11 @@ async function runCompileImpl(
     }
     lowSignalQuarantined = committedLowSignalQuarantines.length;
   }
-  // Only clear the ops journal when content-bearing included watermarks advance.
-  // Noise-only skips can advance watermarks while content raw stays frozen
-  // (e.g. mixed applied+proposed); clearing early drops the replay guard and
-  // can re-run non-idempotent applied ops (append_log) on the next pass.
+  // Prune only journal entries whose source raws fully advanced. Global clear
+  // on any content advance dropped replay guards for stalled batches
+  // (applied + proposed) when an unrelated raw advanced later.
   if (contentAdvanced.length > 0) {
-    await clearOpsJournal(root);
+    await pruneOpsJournalForAdvancedRaws(root, contentAdvanced);
   }
   if (rawFilterEnabled && filterStats.filesFiltered > 0) {
     await persistLastFilterStats(root, filterStats);
@@ -836,6 +841,7 @@ async function executeCompilePrompt(opts: CompileOptions & {
   root: string;
   prompt: string;
   hasRawContent: boolean;
+  sourceRaws?: readonly string[];
 }): Promise<CompileResult["execution"]> {
   const env = opts.env ?? process.env;
   const config = await (opts.configLoader ?? (() => loadMemoryConfig(opts.root)))();
@@ -930,6 +936,7 @@ async function executeCompilePrompt(opts: CompileOptions & {
     rewriteLLM: opts.plan ? undefined : llm,
     extractFacts: false,
     journal: !opts.plan,
+    sourceRaws: opts.sourceRaws,
   });
   return {
     mode: opts.plan ? "plan" : "execute",

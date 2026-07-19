@@ -72,6 +72,8 @@ export interface ApplyCompileOperationsOptions {
   rewriteMaxBytes?: number;
   extractFacts?: boolean;
   journal?: boolean;
+  /** Raw rel-paths that fed this apply batch (scoped ops-journal prune). */
+  sourceRaws?: readonly string[];
 }
 
 export interface ApplyCompileOperationsResult {
@@ -330,7 +332,9 @@ export async function applyCompileOperations(
         contentPreserved: true,
       });
       if (opts.journal && !opts.plan && deterministicRewrite.outcome === "rewritten") {
-        await recordAppliedOperation(opts.vaultRoot, preparedOperation.operation);
+        await recordAppliedOperation(opts.vaultRoot, preparedOperation.operation, {
+          sourceRaws: opts.sourceRaws,
+        });
       }
       continue;
     }
@@ -410,7 +414,9 @@ export async function applyCompileOperations(
         contentPreserved: true,
       });
       if (opts.journal && !opts.plan && applied.outcome !== "skipped: no new content") {
-        await recordAppliedOperation(opts.vaultRoot, preparedOperation.operation);
+        await recordAppliedOperation(opts.vaultRoot, preparedOperation.operation, {
+          sourceRaws: opts.sourceRaws,
+        });
       }
     } else {
       result.rejected.push({ path: relPath, reason: applied.reason });

@@ -90,9 +90,14 @@ export function hashCompileOperationForLedger(operation: unknown): string {
   return rawHashCompileOperationForLedger(canonicalizeCompileOperationForLedger(operation));
 }
 
+/** Proposal-only identity field for no-body narrative safety-gate reviews. */
+const NARRATIVE_REVIEW_KEY = "narrative_review_key";
+
 /**
  * Keys that may identify this operation in a ledger file, including pre-upgrade
  * hashes (raw JSON, empty frontmatter, full frontmatter with created/updated).
+ * Review-keyed ops never alias to unkeyed {kind,path,body} shapes — that would
+ * suppress distinct later safety-gate reviews of the same page body.
  */
 export function ledgerLookupKeysForOperation(operation: unknown): string[] {
   const keys = new Set<string>();
@@ -102,6 +107,12 @@ export function ledgerLookupKeysForOperation(operation: unknown): string[] {
     keys.add(rawHashCompileOperationForLedger(variant));
   }
   return [...keys];
+}
+
+function hasNarrativeReviewKey(frontmatter: Record<string, unknown> | null): boolean {
+  if (!frontmatter) return false;
+  const key = frontmatter[NARRATIVE_REVIEW_KEY];
+  return typeof key === "string" && key.trim().length > 0;
 }
 
 function legacyWriteRewriteShapes(operation: unknown): unknown[] {
@@ -116,17 +127,34 @@ function legacyWriteRewriteShapes(operation: unknown): unknown[] {
   ) {
     return [];
   }
+  const fm = typeof record.frontmatter === "object"
+    && record.frontmatter !== null
+    && !Array.isArray(record.frontmatter)
+    ? record.frontmatter as Record<string, unknown>
+    : null;
+  // Keyed narrative reviews must not match pre-fingerprint unkeyed ledger entries.
+  if (hasNarrativeReviewKey(fm)) {
+    return [
+      {
+        kind: record.kind,
+        path: record.path,
+        body: record.body,
+        frontmatter: { ...fm! },
+      },
+      {
+        kind: record.kind,
+        path: record.path,
+        body: record.body,
+        frontmatter: stripVolatileFrontmatter(fm!),
+      },
+    ];
+  }
   const variants: unknown[] = [
     // Pre-frontmatter-normalization: no frontmatter property
     { kind: record.kind, path: record.path, body: record.body },
     // After frontmatter:{} default, before volatile strip
     { kind: record.kind, path: record.path, body: record.body, frontmatter: {} },
   ];
-  const fm = typeof record.frontmatter === "object"
-    && record.frontmatter !== null
-    && !Array.isArray(record.frontmatter)
-    ? record.frontmatter as Record<string, unknown>
-    : null;
   if (fm) {
     // Full frontmatter including created/updated (common groundOperation shape)
     variants.push({

@@ -7,6 +7,7 @@ import {
   clearOpsJournal,
   operationKey,
   opsJournalPath,
+  pruneOpsJournalForAdvancedRaws,
   readAppliedOperationKeys,
   recordAppliedOperation,
 } from "../../src/compile/ops-journal.js";
@@ -49,6 +50,19 @@ describe("ops journal", () => {
     await clearOpsJournal(root);
     expect(existsSync(opsJournalPath(root))).toBe(false);
     expect((await readAppliedOperationKeys(root)).size).toBe(0);
+  });
+
+  it("prunes only journal entries whose source raws fully advanced", async () => {
+    const stalled = { kind: "append_log", line: "stalled batch" } as CompileOperation;
+    const finished = { kind: "append_log", line: "finished batch" } as CompileOperation;
+    await recordAppliedOperation(root, stalled, { sourceRaws: ["raw/2026-06-01/a.md"] });
+    await recordAppliedOperation(root, finished, { sourceRaws: ["raw/2026-06-01/b.md"] });
+
+    await pruneOpsJournalForAdvancedRaws(root, ["raw/2026-06-01/b.md"]);
+
+    const keys = await readAppliedOperationKeys(root);
+    expect(keys.has(operationKey(stalled))).toBe(true);
+    expect(keys.has(operationKey(finished))).toBe(false);
   });
 
   it("skips malformed journal lines instead of throwing", async () => {
