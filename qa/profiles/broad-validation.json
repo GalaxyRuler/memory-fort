@@ -12,12 +12,13 @@
     "dryRunOnly": false,
     "containerImage": "node:22-bookworm",
     "networkMode": "bridge",
-    "networkJustification": "npm ci requires the public npm registry to install dependencies; node_modules is not pre-staged. No other network access is needed once install completes.",
+    "networkJustification": "npm install requires the public npm registry to install dependencies; node_modules is not pre-staged. No other network access is needed once install completes.",
     "shell": "/bin/bash",
     "commands": [
       {
         "name": "install",
-        "run": "npm ci"
+        "run": "npm install --no-audit --no-fund",
+        "note": "npm install, NOT npm ci: the committed package-lock.json is generated on the Windows dev machine and, per npm's cross-platform optional-dependency handling, omits the Linux ideal-tree entries for electron-builder's optional electron-builder-squirrel-windows subtree (app-builder-lib, @electron/*, etc.). npm ci hard-fails on Linux with 'Missing ... from lock file'; a lock regenerated on Linux would then fail npm ci on Windows (it drops the Windows-only entries). npm install reconciles per-platform without a frozen lock. The squirrel-windows subtree is only used for Windows installer packaging (electron-builder), never by this build/typecheck/test lane. Verified 2026-07-19 on the VPS (Linux x86_64, Node 22.22): install+build+typecheck+typecheck:ui green, full suite 356 files / 2309 tests passed."
       },
       {
         "name": "build",
