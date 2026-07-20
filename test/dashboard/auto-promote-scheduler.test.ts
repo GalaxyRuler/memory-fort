@@ -402,7 +402,9 @@ describe("auto-promote scheduler", () => {
     expect(firstRunner).toHaveBeenCalledOnce();
 
     // Same vault, different spelling (trailing separator + case) — not due.
-    const variant = `${tmp.toUpperCase()}\\`;
+    // Case-folding applies only on win32 (case-insensitive fs); a trailing
+    // separator is a safe spelling variant on every platform.
+    const variant = process.platform === "win32" ? `${tmp.toUpperCase()}\\` : `${tmp}/`;
     const secondFactory = vi.fn(() => handle);
     const secondRunner = vi.fn(async () => undefined);
     await createAutoPromoteScheduler({ vaultRoot: variant, configLoader, intervalFactory: secondFactory, runner: secondRunner });
