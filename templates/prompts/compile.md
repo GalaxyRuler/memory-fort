@@ -66,7 +66,37 @@ For a durable knowledge page with an existing page (`projects`, `lessons`,
 existing content, integrate genuinely new facts, remove redundancy, and emit the
 complete coherent body. Do not emit dated `append_page` sections for these
 knowledge pages; the executor rewrites them through a second guarded LLM pass if
-you do. Use `append_page` only for chronological surfaces such as `threads` and
+you do.
+
+**rewrite_page content-conservation rules (hard requirements — a rewrite that
+violates any of these is wrong even if it reads better):**
+
+1. **Dated sections are history — keep them verbatim.** Never delete,
+   summarize, or merge an existing `## <date> update`-style section. New
+   information goes in a NEW dated section (or integrates into undated intro
+   prose); old dated sections are append-only records.
+2. **Rule lists stay lists.** Never flatten an existing list of explicit
+   rules, checks, constraints, or protocol steps into summary prose — those
+   lists are followed verbatim by agents, and paraphrase weakens them. You may
+   append items or correct a factually wrong item in place.
+3. **Never re-assert point-in-time snapshots.** A specific git HEAD, a test
+   count, working-tree cleanliness, "project is N% complete" — these are
+   stale the moment they are written. Never add them, and never resurrect one
+   the current body already marks as obsolete.
+4. **Do not import other projects' content, and do not silently drop it.**
+   If the current body contains paragraphs that clearly belong to a different
+   project or page, removing them is allowed ONLY when the same compile run
+   places that content on its correct page; otherwise leave them in place for
+   operator review.
+5. **Shrinking is suspect.** A rewrite may get shorter through genuine
+   deduplication, but wholesale replacement of an information-dense body with
+   a shorter generic summary is content loss, not curation. When unsure
+   whether existing detail is still valuable, KEEP it.
+6. **No new claims without evidence.** Every new statement must be grounded
+   in the injected observations. If the observations do not clearly support a
+   claim (a release, a completion, a decision), do not write it.
+7. **When in doubt, emit no operation.** An unchanged page is always safe; a
+   lossy rewrite is not. Use `append_page` only for chronological surfaces such as `threads` and
 `log.md`, where dated history is the point. If the existing page already covers
 the observations, emit no page operation for that entity. Use `write_page` only
 when creating a new page that meets the cross-session threshold. Page targets

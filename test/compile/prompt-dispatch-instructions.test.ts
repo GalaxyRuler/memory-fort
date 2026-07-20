@@ -22,6 +22,22 @@ describe("compile prompt template", () => {
     expect(template).toContain("valid_to");
   });
 
+  it("carries the rewrite_page content-conservation hard rules", async () => {
+    const template = await readFile(
+      join(__dirname, "../../templates/prompts/compile.md"),
+      "utf-8",
+    );
+    // Each rule targets a rejection class observed in a real proposal batch
+    // (2026-07-20: 13 of 16 staged rewrites were lossy).
+    expect(template).toContain("content-conservation rules");
+    expect(template).toContain("Dated sections are history");
+    expect(template).toContain("Rule lists stay lists");
+    expect(template).toContain("Never re-assert point-in-time snapshots");
+    expect(template).toContain("do not silently drop it");
+    expect(template).toContain("Shrinking is suspect");
+    expect(template).toContain("When in doubt, emit no operation");
+  });
+
   it("warns that DISPUTE/SUPERSEDE are staged for review", async () => {
     const template = await readFile(
       join(__dirname, "../../templates/prompts/compile.md"),
