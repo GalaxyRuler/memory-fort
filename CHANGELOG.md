@@ -4,13 +4,24 @@ All notable changes to Memory Fort are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.13.0] - 2026-07-21
+
+An adversarial audit of the v0.12.1–v0.12.3 arc surfaced fourteen findings; this release fixes them and ships one new feature.
 
 ### Added
-- **Prompt-driven retrieval.** The first prompt of each session now triggers an automatic memory search: the UserPromptSubmit hook queries the dashboard's bounded index search with the prompt text and injects the top curated wiki hits (never raw session echoes or operational surfaces) as agent context. Best-effort by design — a missing dashboard, timeout, or short prompt silently skips retrieval and never delays capture. Kill switch: `MEMORY_PROMPT_RETRIEVAL=0`.
+- **Prompt-driven retrieval.** The first prompt of each session triggers an automatic memory search: the UserPromptSubmit hook queries the dashboard's bounded index search with the prompt text and injects the top curated wiki hits (never raw session echoes or operational surfaces) as agent context. Best-effort — a missing dashboard, timeout, or short prompt silently skips retrieval and never delays capture. Privacy: the prompt is only ever sent to a **loopback** dashboard unless `MEMORY_PROMPT_RETRIEVAL_REMOTE=1` (a configured `vps.host` cannot silently receive prompt text). First-prompt detection is an atomic marker claim, so concurrent hook firings retrieve exactly once. Kill switch: `MEMORY_PROMPT_RETRIEVAL=0`.
 
-### Changed
-- **Compile's `rewrite_page` prompt now carries seven hard content-conservation rules** (dated sections verbatim, rule lists stay lists, no point-in-time snapshots, no silent cross-project drops, shrinkage is suspect, no ungrounded claims, no-op when unsure) — derived from a staged-proposal batch where 13 of 16 rewrites were lossy.
+### Fixed
+- **Scheduler: a hung child can no longer wedge every future task.** Spawned vault workers get a hard deadline (killed and reported on expiry); `close()` quiesces the heartbeat so nothing runs or writes after teardown; the error log being unwritable can no longer surface as an unhandled rejection.
+- **Scheduler: cross-process safety.** The due-check and last-run stamp are one atomic claim under a cross-process file lock — two dashboards on one vault run a due task once; a gate-busy skip releases its claim. Vault state keys are canonicalized (case/separator/trailing-slash variants share one history).
+- **Claude Desktop capture imports sessions, not the app's plumbing.** The sniffer reads only the session directories (`logs/` telemetry dropped — hourly imports were rewriting ~0.9 GB/day of `main.log` noise), accepts only `.json`/`.jsonl`, skips files with no session signal (plugin manifests, configs), disambiguates same-basename files by source-path hash, and skips writes whose rendered content is unchanged.
+- **The 8 GB re-exec guard now covers the real heavy CLI shapes** — `eval-retrieval` and `provider reindex-/rebless-embeddings` (full-corpus loads) re-exec under the raised heap; `curate --refresh` correctly does not (its reads are per-page and byte-capped).
+- **`memory verify` can no longer fall back into the all-corpus OOM lane.** The local search fallback (`--offline`, dashboard starting, empty index) queries the small curated wiki scope only.
+- **Narrative-thread freshness ages against the wall clock.** With a stalled compile, the previous reference point (newest wiki raw ref) froze together with the numerator, so a dead pipeline read "pass" forever. Future-dated references are ignored.
+- **Thread proposal dedupe requires meaningful coverage** (at least two shared observations and a majority of the cluster) before skipping, and reads object-form relation targets — one broad thread can no longer starve all future proposals.
+- **The "dated sections verbatim" rule is executor-enforced.** A compile rewrite that deletes or rewords an existing dated update block is staged for review even when anchor coverage holds. Operator-directed `memory curate` consolidation is explicitly exempt — merging dated bloat is its purpose.
+- **Content-loss acknowledgments bind to the reviewed content.** `content_loss_reviewed` now requires a matching `content_loss_reviewed_hash`; any later edit re-arms the guard instead of being suppressed forever.
+- **Two graph metrics label themselves as loaded-slice diagnostics** (salient-anchor rate, suggested threads) — the feed's byte-budgeted raw slice spans days, not the stated window.
 
 ## [0.12.3] - 2026-07-20
 
