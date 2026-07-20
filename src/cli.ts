@@ -1335,7 +1335,8 @@ program
   .command("watch")
   .description("Run live capture watchers for supported local clients")
   .option("--clients <list>", "comma-separated clients to watch")
-  .action(async (opts: { clients?: string }) => {
+  .option("--once", "single catch-up pass instead of watching continuously")
+  .action(async (opts: { clients?: string; once?: boolean }) => {
     const shutdown = new Promise<void>((resolve) => {
       process.once("SIGINT", resolve);
       process.once("SIGTERM", resolve);
@@ -1343,6 +1344,7 @@ program
     try {
       const result = await runWatch({
         clients: opts.clients,
+        once: opts.once,
         shutdown,
         onStatus: (line) => process.stderr.write(`${line}\n`),
       });

@@ -76,19 +76,44 @@ describe("runWatch", () => {
     expect(started).toEqual(["claude-desktop"]);
     expect(result.skipped).toEqual([]);
   });
+
+  it("once mode imports via list() with a trailing since window", async () => {
+    const seenSince: Date[] = [];
+    const sniffer = fakeWatchSniffer("claude-desktop", {
+      source: "claude-desktop",
+      sessionId: "desktop-catchup",
+      startedAt: "2026-05-26T12:00:00.000Z",
+      updatedAt: "2026-05-26T12:00:00.000Z",
+      body: "catch-up capture",
+    }, [], seenSince);
+
+    const result = await runWatch({
+      sniffers: [sniffer],
+      once: true,
+      now: new Date("2026-05-26T12:00:00.000Z"),
+    });
+
+    expect(result.captured).toBe(1);
+    expect(seenSince[0]?.toISOString()).toBe("2026-05-24T12:00:00.000Z");
+  });
 });
 
 function fakeWatchSniffer(
   name: string,
   session: RawSession,
   started: string[] = [],
+  seenSince: Date[] = [],
 ): Sniffer {
   return {
     name,
     available: async () => true,
-    list: async function* () {},
-    watch(handler: (session: RawSession) => void): Closable {
+    // once mode imports via list(); the live path still uses watch().
+    list: async function* (opts) {
       started.push(name);
+      if (opts.since) seenSince.push(opts.since);
+      yield session;
+    },
+    watch(handler: (session: RawSession) => void): Closable {
       queueMicrotask(() => handler(session));
       return { close: () => undefined };
     },

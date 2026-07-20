@@ -53,6 +53,36 @@ describe("curationContentLossCheck", () => {
     expect(result.detail).toContain("wiki/projects/memory-fort.md");
   });
 
+  it("clears the warning when the loss is marked reviewed at or after the snapshot", async () => {
+    await writeFileAt("wiki/projects/memory-fort.md", page(
+      "Memory Fort keeps a generic summary.",
+      { content_loss_reviewed: "2026-06-01T00:00:00.000Z" },
+    ));
+    await writeFileAt("wiki/.history/wiki/projects/memory-fort.md/2026-05-31T12-00-00-000Z.md", page(
+      "Memory Fort used [[tools/codex]] and Codex Desktop.",
+      { relations: { uses: ["wiki/tools/codex.md"] } },
+    ));
+
+    const result = await curationContentLossCheck.run({ vaultRoot: tmp, now: () => new Date("2026-06-01") });
+
+    expect(result).toMatchObject({ id: "curation.content-loss", status: "pass" });
+  });
+
+  it("re-arms when a rewrite lands after the reviewed marker", async () => {
+    await writeFileAt("wiki/projects/memory-fort.md", page(
+      "Memory Fort keeps a generic summary.",
+      { content_loss_reviewed: "2026-05-30T00:00:00.000Z" },
+    ));
+    await writeFileAt("wiki/.history/wiki/projects/memory-fort.md/2026-05-31T12-00-00-000Z.md", page(
+      "Memory Fort used [[tools/codex]] and Codex Desktop.",
+      { relations: { uses: ["wiki/tools/codex.md"] } },
+    ));
+
+    const result = await curationContentLossCheck.run({ vaultRoot: tmp, now: () => new Date("2026-06-01") });
+
+    expect(result).toMatchObject({ id: "curation.content-loss", status: "warn" });
+  });
+
   it("does not warn for structural entity labels when link and code anchors survive", async () => {
     await writeFileAt("wiki/projects/memory-fort.md", page(
       "Memory Fort keeps [[tools/codex]] and `src/index.ts` anchors.",
@@ -82,7 +112,10 @@ describe("curationContentLossCheck", () => {
   }
 });
 
-function page(body: string, extraFrontmatter: { relations?: Record<string, string[]> } = {}): string {
+function page(
+  body: string,
+  extraFrontmatter: { relations?: Record<string, string[]>; content_loss_reviewed?: string } = {},
+): string {
   const relationLines = extraFrontmatter.relations
     ? [
         "relations:",
@@ -92,6 +125,9 @@ function page(body: string, extraFrontmatter: { relations?: Record<string, strin
         ]),
       ]
     : [];
+  if (extraFrontmatter.content_loss_reviewed) {
+    relationLines.push(`content_loss_reviewed: "${extraFrontmatter.content_loss_reviewed}"`);
+  }
   return [
     "---",
     "type: projects",

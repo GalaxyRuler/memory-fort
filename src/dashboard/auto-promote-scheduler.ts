@@ -14,7 +14,8 @@ import {
 } from "../compile/state.js";
 import { runProcedurePropose } from "../cli/commands/procedure.js";
 import { runThreadPropose } from "../cli/commands/thread.js";
-import { loadMemoryConfig, resolveCompileConfig, type MemoryConfig, type ResolvedCompileConfig } from "../storage/config.js";
+import { runWatch } from "../cli/commands/watch.js";
+import { isClientEnabled, loadMemoryConfig, resolveCompileConfig, type MemoryConfig, type ResolvedCompileConfig } from "../storage/config.js";
 import type { VaultWriteCapability } from "../sync/vault-capability.js";
 import { defaultFullCorpusAdmissionGate, type FullCorpusAdmissionGate } from "./full-corpus-admission.js";
 
@@ -32,6 +33,7 @@ export interface AutoPromoteSchedulerOptions {
   autoPromoteRunner?: () => Promise<void>;
   writeCapability?: VaultWriteCapability;
   fullCorpusGate?: FullCorpusAdmissionGate;
+  sniffRunner?: () => Promise<void>;
   now?: () => Date;
 }
 
@@ -71,6 +73,9 @@ const CADENCE_MS = {
   daily: 24 * 60 * 60 * 1000,
   weekly: 7 * 24 * 60 * 60 * 1000,
 } as const;
+
+/** Cadence of the scheduled once-mode watcher sniff (claude-desktop capture). */
+const SNIFF_CADENCE_MS = 60 * 60 * 1000;
 
 /**
  * How often the scheduler wakes up to check whether any task's cadence has
@@ -135,7 +140,11 @@ export async function createAutoPromoteScheduler(
   const autoPromoteCadenceMs = autoPromote.cadence === "manual" ? null : CADENCE_MS[autoPromote.cadence];
   const compileEnabled = compile.scheduled && compileCadenceMs !== null;
   const autoPromoteEnabled = autoPromote.enabled && autoPromoteCadenceMs !== null;
-  if (!compileEnabled && !autoPromoteEnabled) {
+  // Watcher-based capture (claude-desktop) has no resident process of its own:
+  // the standalone `memory watch` dies with its terminal/reboot and nothing
+  // restarts it. The resident dashboard runs an hourly once-mode catch-up.
+  const sniffEnabled = isClientEnabled(config, "claude-desktop");
+  if (!compileEnabled && !autoPromoteEnabled && !sniffEnabled) {
     return { close: () => undefined };
   }
 
@@ -161,6 +170,14 @@ export async function createAutoPromoteScheduler(
     }
   };
 
+  const runSniffTask = async (): Promise<void> => {
+    if (opts.sniffRunner) {
+      await opts.sniffRunner();
+    } else {
+      await runScheduledVaultTaskInChild(opts.vaultRoot, "sniff");
+    }
+  };
+
   // Attempt one task: skip quietly when the gate is busy (stays due, retried
   // next heartbeat); stamp after any actual attempt — success or failure — so
   // a crashing task retries at its cadence instead of hot-looping.
@@ -183,6 +200,9 @@ export async function createAutoPromoteScheduler(
       }
       if (autoPromoteEnabled && await isSchedulerTaskDue(opts.vaultRoot, "auto-promote", autoPromoteCadenceMs!, now())) {
         await attemptTask("auto-promote", "auto-promote", runAutoPromoteTask);
+      }
+      if (sniffEnabled && await isSchedulerTaskDue(opts.vaultRoot, "sniff", SNIFF_CADENCE_MS, now())) {
+        await attemptTask("sniff", "sniff", runSniffTask);
       }
     } finally {
       running = false;
@@ -283,7 +303,7 @@ export async function runAutoPromoteOnce(vaultRoot: string): Promise<void> {
   }
 }
 
-export type ScheduledVaultTaskKind = "compile" | "auto-promote" | "vault";
+export type ScheduledVaultTaskKind = "compile" | "auto-promote" | "vault" | "sniff";
 
 /**
  * Run a scheduled vault task in-process. This loads/processes the entire raw/
@@ -302,6 +322,12 @@ export async function runScheduledVaultTask(
     await runScheduledCompileOnce(vaultRoot, scheduledCompileRunnerOptions(compile));
   } else if (kind === "auto-promote") {
     await runAutoPromoteOnce(vaultRoot);
+  } else if (kind === "sniff") {
+    // Single-pass catch-up capture for watcher-based clients. The standalone
+    // `memory watch` process dies with its terminal/reboot and nothing
+    // restarted it (observed: claude-desktop captures dead for 5 weeks) — a
+    // scheduled once-mode sniff from the resident dashboard closes that gap.
+    await runWatch({ clients: ["claude-desktop"], once: true });
   } else {
     await runScheduledVaultTasksOnce(vaultRoot, {
       compileRunner: () => runScheduledCompileOnce(vaultRoot, scheduledCompileRunnerOptions(compile)),

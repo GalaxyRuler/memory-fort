@@ -11,6 +11,8 @@ export interface WatchRunnerOptions {
   now?: Date;
   once?: boolean;
   onceTimeoutMs?: number;
+  /** once mode: import sessions whose source files changed within this window (default 48h). */
+  onceSinceMs?: number;
   shutdown?: Promise<void>;
   statusIntervalMs?: number;
   onStatus?: (line: string) => void;
@@ -37,18 +39,37 @@ export async function runWatchRunner(
     logPath,
   };
   const closers: Closable[] = [];
-  let resolveFirstCapture: (() => void) | undefined;
-  const firstCapture = new Promise<void>((resolve) => {
-    resolveFirstCapture = resolve;
-  });
 
   const capture = async (sniffer: Sniffer, session: RawSession): Promise<void> => {
     const relPath = rawSessionRelPath(session);
     await atomicWrite(join(root, ...relPath.split("/")), renderRawSession(session));
     result.captured++;
     await appendWatchLog(logPath, `captured ${sniffer.name} ${session.sessionId} -> ${relPath}`);
-    resolveFirstCapture?.();
   };
+
+  // once mode is a catch-up IMPORT, not a live watch: it lists sessions whose
+  // source changed within the window and captures them. The previous
+  // implementation armed the fs-event watcher and raced a 1s timer — a
+  // catch-up pass could only ever capture 0 unless a file happened to change
+  // during that second (observed as a permanently idle claude-desktop lane).
+  if (opts.once) {
+    const since = new Date(now.getTime() - (opts.onceSinceMs ?? 48 * 60 * 60 * 1000));
+    for (const sniffer of opts.sniffers) {
+      if (selected.size > 0 && !selected.has(sniffer.name)) continue;
+      if (!(await sniffer.available())) {
+        result.skipped.push({ sniffer: sniffer.name, reason: "unavailable" });
+        await appendWatchLog(logPath, `skipped ${sniffer.name}: unavailable`);
+        continue;
+      }
+      result.started.push(sniffer.name);
+      await appendWatchLog(logPath, `started ${sniffer.name} (once, since ${since.toISOString()})`);
+      for await (const session of sniffer.list({ since })) {
+        await capture(sniffer, session);
+      }
+    }
+    await appendWatchLog(logPath, `stopped watch: captured ${result.captured}`);
+    return result;
+  }
 
   for (const sniffer of opts.sniffers) {
     if (selected.size > 0 && !selected.has(sniffer.name)) {
@@ -85,16 +106,6 @@ export async function runWatchRunner(
   }, opts.statusIntervalMs ?? 30_000);
 
   try {
-    if (opts.once) {
-      if (result.started.length > 0) {
-        await Promise.race([
-          firstCapture,
-          new Promise((resolve) => setTimeout(resolve, opts.onceTimeoutMs ?? 1000)),
-        ]);
-      }
-      return result;
-    }
-
     await (opts.shutdown ?? new Promise<void>(() => undefined));
     return result;
   } finally {

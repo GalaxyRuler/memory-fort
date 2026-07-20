@@ -39,12 +39,12 @@ describe("auto-promote scheduler", () => {
     const intervalFactory = vi.fn();
     await createAutoPromoteScheduler({
       vaultRoot: tmp,
-      configLoader: async () => ({ auto_promote: { enabled: false, cadence: "weekly" }, compile: { scheduled: false } }),
+      configLoader: async () => ({ auto_promote: { enabled: false, cadence: "weekly" }, compile: { scheduled: false }, clients: { "claude-desktop": false } }),
       intervalFactory,
     });
     await createAutoPromoteScheduler({
       vaultRoot: tmp,
-      configLoader: async () => ({ auto_promote: { enabled: true, cadence: "manual" }, compile: { scheduled: false } }),
+      configLoader: async () => ({ auto_promote: { enabled: true, cadence: "manual" }, compile: { scheduled: false }, clients: { "claude-desktop": false } }),
       intervalFactory,
     });
 
@@ -93,7 +93,7 @@ describe("auto-promote scheduler", () => {
     const intervalFactory = vi.fn();
     await createAutoPromoteScheduler({
       vaultRoot: tmp,
-      configLoader: async () => ({}),
+      configLoader: async () => ({ clients: { "claude-desktop": false } }),
       intervalFactory,
       compileRunner: vi.fn(async () => undefined),
     });
@@ -320,6 +320,56 @@ describe("auto-promote scheduler", () => {
     // was silently starved whenever compile claimed the tick.
     expect(compileRunner).toHaveBeenCalledOnce();
     expect(autoPromoteRunner).toHaveBeenCalledOnce();
+  });
+
+  it("runs the hourly watcher sniff and honors its persisted stamp", async () => {
+    const handle = Symbol("interval") as unknown as NodeJS.Timeout;
+    const configLoader = async () => ({ auto_promote: { enabled: false, cadence: "manual" }, compile: { scheduled: false } });
+
+    const firstFactory = vi.fn(() => handle);
+    const sniffRunner = vi.fn(async () => undefined);
+    await createAutoPromoteScheduler({ vaultRoot: tmp, configLoader, intervalFactory: firstFactory, sniffRunner });
+    await fireHeartbeat(firstFactory);
+    expect(sniffRunner).toHaveBeenCalledOnce();
+
+    // Within the hour — not due again, even on a fresh scheduler instance.
+    const secondFactory = vi.fn(() => handle);
+    const secondSniff = vi.fn(async () => undefined);
+    await createAutoPromoteScheduler({ vaultRoot: tmp, configLoader, intervalFactory: secondFactory, sniffRunner: secondSniff });
+    await fireHeartbeat(secondFactory);
+    expect(secondSniff).not.toHaveBeenCalled();
+
+    // After the hourly cadence elapses it runs again.
+    const thirdFactory = vi.fn(() => handle);
+    const thirdSniff = vi.fn(async () => undefined);
+    await createAutoPromoteScheduler({
+      vaultRoot: tmp,
+      configLoader,
+      intervalFactory: thirdFactory,
+      sniffRunner: thirdSniff,
+      now: () => new Date(Date.now() + 61 * 60 * 1000),
+    });
+    await fireHeartbeat(thirdFactory);
+    expect(thirdSniff).toHaveBeenCalledOnce();
+  });
+
+  it("does not run the sniff when claude-desktop is disabled in config", async () => {
+    const handle = Symbol("interval") as unknown as NodeJS.Timeout;
+    const intervalFactory = vi.fn(() => handle);
+    const sniffRunner = vi.fn(async () => undefined);
+    await createAutoPromoteScheduler({
+      vaultRoot: tmp,
+      configLoader: async () => ({
+        auto_promote: { enabled: false, cadence: "manual" },
+        compile: { scheduled: false },
+        clients: { "claude-desktop": false },
+      }),
+      intervalFactory,
+      sniffRunner,
+    });
+
+    expect(intervalFactory).not.toHaveBeenCalled();
+    expect(sniffRunner).not.toHaveBeenCalled();
   });
 
   it("does not stamp a gate-busy skip — the task stays due for the next heartbeat", async () => {

@@ -9,7 +9,7 @@
 import { runScheduledVaultTask, type ScheduledVaultTaskKind } from "./auto-promote-scheduler.js";
 import { runAutoHealTick } from "../retrieval/auto-heal.js";
 
-const SCHEDULED_KINDS: ScheduledVaultTaskKind[] = ["compile", "auto-promote", "vault"];
+const SCHEDULED_KINDS: ScheduledVaultTaskKind[] = ["compile", "auto-promote", "vault", "sniff"];
 
 function isScheduledKind(value: string | undefined): value is ScheduledVaultTaskKind {
   return value !== undefined && (SCHEDULED_KINDS as string[]).includes(value);

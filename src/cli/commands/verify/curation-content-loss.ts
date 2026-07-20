@@ -80,6 +80,17 @@ export async function analyzeCurationRewriteAnchors(vaultRoot: string): Promise<
     const canonicalPath = join(vaultRoot, ...canonical.split("/"));
     if (!existsSync(canonicalPath)) continue;
     const current = parseFrontmatter(await readFile(canonicalPath, "utf-8"));
+    // A human-reviewed loss stops warning: `content_loss_reviewed` at or after
+    // the flagged snapshot's timestamp means the diff was inspected and the
+    // real losses restored (or deemed intentional). A LATER rewrite creates a
+    // newer snapshot and re-arms the guard.
+    const reviewedRaw = current.frontmatter["content_loss_reviewed"];
+    // js-yaml auto-coerces unquoted YYYY-MM-DD to a Date — accept both.
+    const reviewed = reviewedRaw instanceof Date ? reviewedRaw.toISOString() : reviewedRaw;
+    const snapshotStamp = relative(historyRoot, historyFile).replace(/\\/g, "/").split("/").at(-1)?.replace(/\.md$/, "");
+    if (typeof reviewed === "string" && snapshotStamp && reviewed.replace(/[:.]/g, "-") >= snapshotStamp) {
+      continue;
+    }
     const history = parseFrontmatter(await readFile(historyFile, "utf-8"));
     const coverages = factAnchorCoverage({
       previousFrontmatter: history.frontmatter,

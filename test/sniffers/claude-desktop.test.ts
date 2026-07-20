@@ -26,6 +26,23 @@ describe("ClaudeDesktopSniffer", () => {
     await expect(sniffer.available()).resolves.toBe(true);
   });
 
+  it("never lists files at the Claude dir root — only session/log dirs", async () => {
+    await mkdir(join(claudeDir, "logs"), { recursive: true });
+    await mkdir(join(claudeDir, "claude-code-sessions"), { recursive: true });
+    // Root files include credential-adjacent material (oauth:tokenCache) and
+    // app resources; a root walk once imported 1282 junk files into the vault.
+    await writeFile(join(claudeDir, "claude_desktop_config.json"), '{"oauth:tokenCache":"secret-blob"}');
+    await writeFile(join(claudeDir, "buddy-tokens.json"), '{"tokens-today":{}}');
+    await writeFile(join(claudeDir, "logs", "main.log"), '{"sessionId":"log-1","timestamp":"2026-05-25T08:00:00.000Z","content":"log line"}\n');
+    await writeFile(join(claudeDir, "claude-code-sessions", "cc-1.jsonl"), '{"sessionId":"cc-1","timestamp":"2026-05-25T08:00:00.000Z","content":"cc line"}\n');
+
+    const sniffer = new ClaudeDesktopSniffer({ claudeDir });
+    const sessions: string[] = [];
+    for await (const session of sniffer.list({})) sessions.push(session.sessionId);
+
+    expect(sessions.sort()).toEqual(["cc-1", "log-1"]);
+  });
+
   it("parses Claude Desktop JSONL sessions into raw markdown sections", async () => {
     const sessionFile = join(claudeDir, "local-agent-mode-sessions", "desktop-1.jsonl");
     await mkdir(join(claudeDir, "local-agent-mode-sessions"), { recursive: true });

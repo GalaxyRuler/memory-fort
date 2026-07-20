@@ -91,10 +91,14 @@ export class ClaudeDesktopSniffer implements Sniffer {
   }
 
   private candidateDirs(): string[] {
+    // Session/log dirs ONLY — never the Claude dir root. A root walk sweeps
+    // app resources (fonts, lockfiles, Cache/, leveldb) and credential-adjacent
+    // files (claude_desktop_config.json with its oauth:tokenCache blob) into
+    // the vault: observed as a 1282-file junk import including token material.
     return uniquePaths([
-      this.claudeDir,
       join(this.claudeDir, "logs"),
       join(this.claudeDir, "local-agent-mode-sessions"),
+      join(this.claudeDir, "claude-code-sessions"),
     ]);
   }
 }
