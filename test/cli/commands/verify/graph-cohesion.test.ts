@@ -40,7 +40,7 @@ describe("graphCohesionCheck", () => {
     const result = await graphCohesionCheck.run({ vaultRoot: "/vault", now: () => new Date() });
 
     expect(mockLoadGraphFeed).toHaveBeenCalledWith("/vault", "all");
-    expect(mockLoadSearchCorpus).toHaveBeenCalledWith({ vaultRoot: "/vault", scope: "wiki" });
+    expect(mockLoadSearchCorpus).toHaveBeenCalledWith({ vaultRoot: "/vault", scope: "wiki", omitBodies: true });
     expect(mockComputeGraphHealth).toHaveBeenCalledWith({
       feed: { nodes: [], edges: [], unresolvedTargets: [] },
       wikiPages: [],
