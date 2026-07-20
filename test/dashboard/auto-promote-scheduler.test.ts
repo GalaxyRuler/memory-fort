@@ -16,11 +16,24 @@ describe("auto-promote scheduler", () => {
 
   beforeEach(async () => {
     tmp = await mkdtemp(join(tmpdir(), "auto-promote-scheduler-"));
+    process.env["MEMORY_SCHEDULER_STATE_PATH"] = join(tmp, "scheduler-state.json");
   });
 
   afterEach(async () => {
-    await rm(tmp, { recursive: true, force: true });
+    delete process.env["MEMORY_SCHEDULER_STATE_PATH"];
+    // A heartbeat's state-stamp write can still be settling; retry the rmdir.
+    await rm(tmp, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
   });
+
+  const HEARTBEAT_MS = 15 * 60 * 1000;
+
+  async function fireHeartbeat(intervalFactory: { mock: { calls: Array<[() => void, number]> } }): Promise<void> {
+    intervalFactory.mock.calls[0]![0]();
+    // The heartbeat chain ends in an fsync-backed state write — real disk
+    // I/O, so yield real time (setImmediate turns complete in microseconds
+    // and lose the race).
+    await new Promise((resolve) => setTimeout(resolve, 300));
+  }
 
   it("does not register an interval when disabled or manual", async () => {
     const intervalFactory = vi.fn();
@@ -69,8 +82,8 @@ describe("auto-promote scheduler", () => {
       runner,
     });
 
-    expect(intervalFactory).toHaveBeenCalledWith(expect.any(Function), 7 * 24 * 60 * 60 * 1000);
-    intervalFactory.mock.calls[0]![0]();
+    expect(intervalFactory).toHaveBeenCalledWith(expect.any(Function), HEARTBEAT_MS);
+    await fireHeartbeat(intervalFactory);
     expect(runner).toHaveBeenCalledOnce();
     scheduler.close();
     expect(clearIntervalFactory).toHaveBeenCalledWith(handle);
@@ -101,8 +114,8 @@ describe("auto-promote scheduler", () => {
       compileRunner,
     });
 
-    expect(intervalFactory).toHaveBeenCalledWith(expect.any(Function), 24 * 60 * 60 * 1000);
-    intervalFactory.mock.calls[0]![0]();
+    expect(intervalFactory).toHaveBeenCalledWith(expect.any(Function), HEARTBEAT_MS);
+    await fireHeartbeat(intervalFactory);
     expect(compileRunner).toHaveBeenCalledOnce();
     scheduler.close();
     expect(clearIntervalFactory).toHaveBeenCalledWith(handle);
@@ -159,7 +172,7 @@ describe("auto-promote scheduler", () => {
       compileRunner,
     });
 
-    intervalFactory.mock.calls[0]![0]();
+    await fireHeartbeat(intervalFactory);
 
     expect(compileRunner).toHaveBeenCalledWith({ execute: true });
   });
@@ -189,7 +202,7 @@ describe("auto-promote scheduler", () => {
       compileRunner,
     });
 
-    intervalFactory.mock.calls[0]![0]();
+    await fireHeartbeat(intervalFactory);
 
     expect(compileRunner).toHaveBeenCalledWith({
       execute: true,
@@ -247,6 +260,90 @@ describe("auto-promote scheduler", () => {
     await runAutoPromoteOnce(tmp);
 
     await expect(readFile(join(tmp, "errors.log"), "utf-8")).resolves.toContain("auto-promote scheduler failed:");
+  });
+
+  it("persists last-run across scheduler instances so restarts do not reset the cadence", async () => {
+    const handle = Symbol("interval") as unknown as NodeJS.Timeout;
+    const configLoader = async () => ({ auto_promote: { enabled: true, cadence: "daily" }, compile: { scheduled: false } });
+
+    const firstFactory = vi.fn(() => handle);
+    const firstRunner = vi.fn(async () => undefined);
+    await createAutoPromoteScheduler({ vaultRoot: tmp, configLoader, intervalFactory: firstFactory, runner: firstRunner });
+    await fireHeartbeat(firstFactory);
+    expect(firstRunner).toHaveBeenCalledOnce();
+
+    // Simulate an app restart: brand-new scheduler, same persisted state.
+    const secondFactory = vi.fn(() => handle);
+    const secondRunner = vi.fn(async () => undefined);
+    await createAutoPromoteScheduler({ vaultRoot: tmp, configLoader, intervalFactory: secondFactory, runner: secondRunner });
+    await fireHeartbeat(secondFactory);
+    expect(secondRunner).not.toHaveBeenCalled();
+
+    // Once the cadence has elapsed, the task is due again.
+    const thirdFactory = vi.fn(() => handle);
+    const thirdRunner = vi.fn(async () => undefined);
+    await createAutoPromoteScheduler({
+      vaultRoot: tmp,
+      configLoader,
+      intervalFactory: thirdFactory,
+      runner: thirdRunner,
+      now: () => new Date(Date.now() + 25 * 60 * 60 * 1000),
+    });
+    await fireHeartbeat(thirdFactory);
+    expect(thirdRunner).toHaveBeenCalledOnce();
+  });
+
+  it("runs compile and auto-promote in the same heartbeat when both are due", async () => {
+    const handle = Symbol("interval") as unknown as NodeJS.Timeout;
+    const intervalFactory = vi.fn(() => handle);
+    const compileRunner = vi.fn(async () => ({
+      rawFilesIncluded: [],
+      rawFilesSkipped: [],
+      outputPath: "var/compile/scheduled-compile-prompt.md",
+      rawRemaining: 0,
+    }));
+    const autoPromoteRunner = vi.fn(async () => undefined);
+    await createAutoPromoteScheduler({
+      vaultRoot: tmp,
+      configLoader: async () => ({
+        auto_promote: { enabled: true, cadence: "daily" },
+        compile: { scheduled: true, cadence: "daily" },
+      }),
+      intervalFactory,
+      compileRunner,
+      autoPromoteRunner,
+    });
+
+    await fireHeartbeat(intervalFactory);
+
+    // The old per-task intervals shared one re-entrancy flag, so auto-promote
+    // was silently starved whenever compile claimed the tick.
+    expect(compileRunner).toHaveBeenCalledOnce();
+    expect(autoPromoteRunner).toHaveBeenCalledOnce();
+  });
+
+  it("does not stamp a gate-busy skip — the task stays due for the next heartbeat", async () => {
+    const handle = Symbol("interval") as unknown as NodeJS.Timeout;
+    const intervalFactory = vi.fn(() => handle);
+    const runner = vi.fn(async () => undefined);
+    const gate = createFullCorpusAdmissionGate();
+    // Hold the gate with a long-running search so maintenance is refused.
+    let releaseSearch: () => void = () => undefined;
+    void gate.runSearch(() => new Promise<void>((resolve) => { releaseSearch = resolve; }));
+    await createAutoPromoteScheduler({
+      vaultRoot: tmp,
+      configLoader: async () => ({ auto_promote: { enabled: true, cadence: "daily" }, compile: { scheduled: false } }),
+      intervalFactory,
+      runner,
+      fullCorpusGate: gate,
+    });
+
+    await fireHeartbeat(intervalFactory);
+    expect(runner).not.toHaveBeenCalled();
+
+    releaseSearch();
+    await fireHeartbeat(intervalFactory);
+    expect(runner).toHaveBeenCalledOnce();
   });
 });
 

@@ -77,6 +77,25 @@ describe("retrieval graph signal", () => {
     ]);
   });
 
+  it("buildGraph uses load-time wikilinkTargets when the body was omitted", () => {
+    const a = doc("wiki/projects/a.md", {
+      body: "",
+      wikilinkTargets: ["b"],
+    });
+    const b = doc("wiki/projects/b.md");
+
+    const graph = buildGraph([a, b]);
+
+    expect(graph.edges).toEqual([
+      {
+        fromPath: "wiki/projects/a.md",
+        toPath: "wiki/projects/b.md",
+        kind: "wikilink",
+        relationType: null,
+      },
+    ]);
+  });
+
   it("buildGraph resolves ambiguous filenames as unresolved", () => {
     const a = doc("wiki/projects/foo.md");
     const b = doc("wiki/lessons/foo.md");

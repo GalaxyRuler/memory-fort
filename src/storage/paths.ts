@@ -133,6 +133,26 @@ export function secretsPath(): string {
 }
 
 /**
+ * Path to the persisted scheduler last-run state (per vault, per task).
+ * OUTSIDE the vault (operational state, never synced) — and persisted at all
+ * because setInterval-based cadences reset on every app restart: a dashboard
+ * that restarts more often than daily would otherwise never run its daily
+ * tasks. Override with MEMORY_SCHEDULER_STATE_PATH for tests.
+ */
+export function schedulerStatePath(): string {
+  const override = process.env["MEMORY_SCHEDULER_STATE_PATH"]?.trim();
+  if (override) return override;
+  const appData = process.env["APPDATA"]; // Windows
+  if (appData) return join(appData, "memory-fort", "scheduler-state.json");
+  if (process.platform === "darwin") {
+    return join(homedir(), "Library", "Application Support", "memory-fort", "scheduler-state.json");
+  }
+  const xdg = process.env["XDG_CONFIG_HOME"];
+  if (xdg && xdg.trim().length > 0) return join(xdg, "memory-fort", "scheduler-state.json");
+  return join(homedir(), ".config", "memory-fort", "scheduler-state.json");
+}
+
+/**
  * Directory containing the self-signed TLS cert+key for the ChatGPT bridge.
  * Stored outside the vault so private keys never enter git.
  * Override with MEMORY_CHATGPT_BRIDGE_CERT_DIR for tests / isolated installs.

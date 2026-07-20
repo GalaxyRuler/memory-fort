@@ -66,6 +66,40 @@ describe("thread commands", () => {
     expect(formatThreadProposeResult(result)).toContain("References stripped: 0 (avg 0.0 per proposal)");
   });
 
+  it("skips clusters already represented by an existing thread without calling the LLM", async () => {
+    await writeMarkdown(
+      "wiki/threads/settings-arc.md",
+      [
+        "---",
+        "type: threads",
+        "title: Settings Arc",
+        "relations:",
+        "  mentions:",
+        "    - raw/2026-05-21/codex-1.md",
+        "---",
+        "",
+        "Existing narrative covering the settings work.",
+        "",
+      ].join("\n"),
+    );
+    const llm = fakeLLM("memory-fort-settings");
+
+    const result = await runThreadPropose({
+      vaultRoot: tmp,
+      apply: false,
+      days: 30,
+      maxProposals: 1,
+      now: new Date("2026-05-28T12:00:00.000Z"),
+      configLoader: async () => ({ llm: { provider: "ollama", model: "llama3.2" } }),
+      llmFactory: () => llm,
+      env: {},
+    });
+
+    expect(result.proposed).toBe(0);
+    expect(result.skipped[0]?.reason).toBe("already represented by an existing thread or draft");
+    expect(llm.chat).not.toHaveBeenCalled();
+  });
+
   it("applies proposals to wiki/threads-proposed and handles slug collisions", async () => {
     await writeMarkdown(
       "wiki/threads-proposed/memory-fort-settings.md",

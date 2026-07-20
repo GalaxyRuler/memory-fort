@@ -47,7 +47,9 @@ export async function runDiscoverThreads(opts: DiscoverThreadsOptions = {}): Pro
   const vaultRoot = opts.vaultRoot ?? defaultMemoryRoot();
   const mode = opts.mode ?? "plan";
   const now = opts.now ?? new Date();
-  const corpus = await loadSearchCorpus({ vaultRoot, scope: "all" });
+  // omitBodies: clustering reads relations + load-time-extracted wikilinks,
+  // never bodies — a full-body load OOMs the CLI on a multi-GB vault.
+  const corpus = await loadSearchCorpus({ vaultRoot, scope: "all", omitBodies: true });
   const graph = buildGraph(corpus.documents);
   const adjacency = buildWikiAdjacency(graph.edges);
   const clusters = detectCommunities(adjacency, {

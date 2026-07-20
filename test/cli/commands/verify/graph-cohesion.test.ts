@@ -82,7 +82,7 @@ describe("graphCohesionCheck", () => {
       label: "graph cohesion: graph.confidence-coverage, graph.agent-attribution in fail",
       status: "fail",
       detail: "graph.confidence-coverage, graph.agent-attribution",
-      suggestedFix: "open the dashboard Graph Health panel",
+      suggestedFix: "run `memory thread propose --apply --auto-promote`, then `memory thread promote <slug>` for reviewed drafts; details in the dashboard Graph Health panel",
     });
   });
 });

@@ -50,6 +50,12 @@ export interface SearchDocument {
     originalKey: string | null;
   } | null;
   body: string;
+  /**
+   * Wikilink targets extracted from the body. Populated only on omitBodies
+   * loads, where `body` is "" — graph builders read this instead of re-scanning
+   * the (dropped) body, so a body-free load produces the same edge set.
+   */
+  wikilinkTargets?: string[];
   snippetSource: string;
   created: string | null;
   observedAt: string | null;
@@ -82,6 +88,14 @@ export interface LoadCorpusOptions {
    * relations, and canonicalization are unaffected.
    */
   omitBodies?: boolean;
+  /**
+   * Retain at most this many characters of each document body (prefix).
+   * For callers that only need a short excerpt (thread propose's LLM snippet)
+   * — bounds retained memory like omitBodies without dropping the excerpt.
+   * Ignored when omitBodies is set. Wikilink targets are still extracted from
+   * the full body so graph edges are unaffected.
+   */
+  bodyMaxChars?: number;
 }
 
 export interface LoadCorpusResult {
@@ -159,7 +173,7 @@ export async function loadSearchCorpus(
   const loaded = await Promise.all(
     selected.map(async (file) => {
       try {
-        return { document: await loadDocument(file, opts.omitBodies === true) };
+        return { document: await loadDocument(file, opts.omitBodies === true, opts.bodyMaxChars) };
       } catch (error) {
         return {
           error: {
@@ -312,7 +326,11 @@ function isCrystalDocument(document: SearchDocument): boolean {
   return document.kind === "crystal" || document.type === "crystal" || document.type === "crystals";
 }
 
-async function loadDocument(file: MarkdownFile, omitBody = false): Promise<SearchDocument> {
+async function loadDocument(
+  file: MarkdownFile,
+  omitBody = false,
+  bodyMaxChars?: number,
+): Promise<SearchDocument> {
   const [content, info] = await Promise.all([
     readFile(file.fullPath, "utf-8"),
     stat(file.fullPath),
@@ -362,7 +380,10 @@ async function loadDocument(file: MarkdownFile, omitBody = false): Promise<Searc
     // and identity (agent_id/user_id) filters read it for every doc kind.
     rawFrontmatter: canonical?.rawFrontmatter ?? (frontmatter as Record<string, unknown>),
     importedFrom: readImportedFrom(frontmatter.imported_from),
-    body: omitBody ? "" : (canonical?.body ?? parsed.body),
+    body: retainedBody(canonical?.body ?? parsed.body, omitBody, bodyMaxChars),
+    ...(omitBody || bodyMaxChars !== undefined
+      ? { wikilinkTargets: extractWikilinkTargets(canonical?.body ?? parsed.body) }
+      : {}),
     snippetSource: firstNonEmptyLine(parsed.body),
     created: readDate(frontmatter.created),
     observedAt: readDate(frontmatter.observed_at),
@@ -587,6 +608,35 @@ function parseRawIdentity(filename: string): {
     source: "unknown",
     session: filename.includes("-") ? filename.slice(filename.indexOf("-") + 1) : filename,
   };
+}
+
+function retainedBody(fullBody: string, omitBody: boolean, bodyMaxChars?: number): string {
+  if (omitBody) return "";
+  if (bodyMaxChars !== undefined && fullBody.length > bodyMaxChars) {
+    // slice() keeps a reference to the parent string's backing store in V8;
+    // an explicit copy lets the multi-MB original be collected.
+    return sliceToOwnedString(fullBody.slice(0, bodyMaxChars));
+  }
+  return fullBody;
+}
+
+// Force an owned copy of a V8 sliced string (see retainedBody).
+function sliceToOwnedString(sliced: string): string {
+  return Buffer.from(sliced, "utf-8").toString("utf-8");
+}
+
+const WIKILINK_PATTERN = /\[\[([^\]\n]+)\]\]/g;
+const SAFE_WIKILINK_TARGET = /^[A-Za-z0-9._/ -]+$/;
+
+/** Extract `[[target]]` wikilink targets from a document body (unsafe targets skipped). */
+export function extractWikilinkTargets(body: string): string[] {
+  const targets: string[] = [];
+  for (const match of body.matchAll(WIKILINK_PATTERN)) {
+    const target = match[1]?.trim() ?? "";
+    if (!SAFE_WIKILINK_TARGET.test(target)) continue;
+    targets.push(target);
+  }
+  return targets;
 }
 
 function firstNonEmptyLine(body: string): string {

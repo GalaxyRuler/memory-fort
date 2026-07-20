@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { readFile, rm } from "node:fs/promises";
+import { readdir, readFile, rm } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { Command } from "commander";
 import {
@@ -86,7 +86,9 @@ export async function runThreadPropose(
   const config = await (opts.configLoader ?? (() => loadMemoryConfig(opts.vaultRoot)))();
   const llmConfig = getActiveLLMConfig(config);
   const llm = (opts.llmFactory ?? createLLMFromConfig)(llmConfig, env);
-  const corpus = await loadSearchCorpus({ vaultRoot: opts.vaultRoot, scope: "raw" });
+  // bodyMaxChars: the LLM snippet uses only the first 500 body chars (see
+  // toRawObservationRef); retaining full bodies OOMs on a multi-GB raw pool.
+  const corpus = await loadSearchCorpus({ vaultRoot: opts.vaultRoot, scope: "raw", bodyMaxChars: 1000 });
   const observations = corpus.documents
     .filter((document) => document.kind === "raw")
     .filter((document) => isWithinLastDays(documentDate(document), days, now))
@@ -103,7 +105,16 @@ export async function runThreadPropose(
   let referencesStripped = 0;
   const writtenReviewPaths: string[] = [];
 
+  // Skip clusters an existing thread or draft already represents BEFORE the
+  // LLM call — a scheduled daily propose would otherwise re-propose the same
+  // clusters every run, piling up duplicate drafts and paying for each one.
+  const existingThreadRawRefs = await loadExistingThreadRawRefs(opts.vaultRoot);
+
   for (const [clusterIndex, cluster] of selected.entries()) {
+    if (isClusterAlreadyThreaded(cluster, existingThreadRawRefs)) {
+      skipped.push({ clusterIndex, reason: "already represented by an existing thread or draft" });
+      continue;
+    }
     const proposalResult = await proposeThread({ llm, vaultRoot: opts.vaultRoot, cluster, env });
     if (!proposalResult.ok) {
       skipped.push(formatSkippedProposal(clusterIndex, proposalResult, env));
@@ -509,6 +520,46 @@ function formatThreadRunAudit(input: {
       cognitive_type: "semantic",
     },
     `${lines.join("\n")}\n`,
+  );
+}
+
+/**
+ * Raw-observation reference sets of every existing thread page and draft.
+ * Used to skip re-proposing clusters that are already narrativized.
+ */
+async function loadExistingThreadRawRefs(vaultRoot: string): Promise<Array<Set<string>>> {
+  const sets: Array<Set<string>> = [];
+  for (const dir of ["threads", "threads-proposed"]) {
+    const root = join(vaultRoot, "wiki", dir);
+    if (!existsSync(root)) continue;
+    for (const entry of await readdir(root)) {
+      if (!entry.endsWith(".md")) continue;
+      try {
+        const parsed = parseFrontmatter(await readFile(join(root, entry), "utf-8"));
+        const relations = parsed.frontmatter.relations;
+        if (typeof relations !== "object" || relations === null) continue;
+        const refs = new Set<string>();
+        for (const targets of Object.values(relations as Record<string, unknown>)) {
+          if (!Array.isArray(targets)) continue;
+          for (const target of targets) {
+            if (typeof target === "string" && target.startsWith("raw/")) refs.add(target);
+          }
+        }
+        if (refs.size > 0) sets.push(refs);
+      } catch {
+        // Unreadable/malformed page — cannot claim coverage, skip it.
+      }
+    }
+  }
+  return sets;
+}
+
+function isClusterAlreadyThreaded(
+  cluster: { observations: Array<{ relPath: string }> },
+  existing: Array<Set<string>>,
+): boolean {
+  return existing.some((refs) =>
+    cluster.observations.some((observation) => refs.has(observation.relPath)),
   );
 }
 

@@ -1,5 +1,5 @@
 import { basename } from "node:path";
-import type { SearchDocument } from "./corpus.js";
+import { extractWikilinkTargets, type SearchDocument } from "./corpus.js";
 
 export type EdgeKind = "relation" | "wikilink";
 
@@ -49,8 +49,6 @@ type Resolution =
   | { path: string }
   | { path: null; reason: "ambiguous-filename" | "not-found" };
 
-const WIKILINK_PATTERN = /\[\[([^\]\n]+)\]\]/g;
-const SAFE_WIKILINK_TARGET = /^[A-Za-z0-9._/ -]+$/;
 const DEFAULT_DECAY = 0.6;
 const DEFAULT_INHIBITION_LAMBDA = 0.15;
 const DEFAULT_EPSILON = 0.01;
@@ -123,9 +121,7 @@ export function buildGraph(documents: SearchDocument[]): SearchGraph {
       }
     }
 
-    for (const match of document.body.matchAll(WIKILINK_PATTERN)) {
-      const target = match[1]?.trim() ?? "";
-      if (!SAFE_WIKILINK_TARGET.test(target)) continue;
+    for (const target of document.wikilinkTargets ?? extractWikilinkTargets(document.body)) {
       addTarget(document.relPath, target, "wikilink", null);
     }
   }

@@ -602,33 +602,68 @@ export function metricNarrativeThreadCoverage(input: GraphHealthInput): MetricRe
     };
   }
 
-  const rawNodes = input.feed.nodes.filter((node) => node.kind === "raw");
-  const rawWindow = trailingRawWindow(input, rawNodes, NARRATIVE_THREAD_WINDOW_DAYS);
-  if (rawWindow.nodes.length === 0) {
+  // Universe: raw observations that ANY live wiki page references, derived
+  // from wiki relations rather than the graph feed's raw nodes. The feed's
+  // raw slice is byte-budgeted (64MB ≈ a handful of days at real capture
+  // volume), so a feed-based "30-day window" silently shrank to that slice
+  // and every thread reference missed it — coverage pinned at 0 regardless
+  // of curation. Wiki relations are complete, cheap, and already loaded.
+  const collectWindowRawRefs = (
+    pages: WikiHealthPage[],
+    isInWindow: (day: string) => boolean,
+  ): Set<string> => {
+    const refs = new Set<string>();
+    for (const page of pages) {
+      for (const relations of Object.values(page.relations ?? {})) {
+        for (const relation of relations) {
+          const day = dateFromPath(relation.target);
+          if (day && relation.target.startsWith("raw/") && isInWindow(day)) {
+            refs.add(relation.target);
+          }
+        }
+      }
+    }
+    return refs;
+  };
+
+  const allWikiPages = graphHealthWikiPages(input);
+  const allRawRefDays: string[] = [];
+  for (const page of allWikiPages) {
+    for (const relations of Object.values(page.relations ?? {})) {
+      for (const relation of relations) {
+        const day = relation.target.startsWith("raw/") ? dateFromPath(relation.target) : null;
+        if (day) allRawRefDays.push(day);
+      }
+    }
+  }
+  const upperDay = inputDay(input.now) ?? maxDateOnly(allRawRefDays);
+  if (!upperDay) {
     return {
       id: "graph.narrative-thread-coverage",
       label: "Narrative thread coverage",
       value: null,
       threshold: { warn: 50, fail: 25, rule: "pass >= 50%, warn >= 25%, fail < 25%" },
       status: "n/a",
-      detail: "no raw observations in window",
+      detail: "no wiki-referenced raw observations in window",
       topOffenders: [],
     };
   }
-
-  const rawWindowPaths = new Set(rawWindow.nodes.map((node) => node.path));
-  const referencedRawPaths = new Set<string>();
-  for (const page of threadPages) {
-    for (const relations of Object.values(page.relations ?? {})) {
-      for (const relation of relations) {
-        if (rawWindowPaths.has(relation.target)) {
-          referencedRawPaths.add(relation.target);
-        }
-      }
-    }
+  const isInWindow = (day: string) => isWithinTrailingDays(day, upperDay, NARRATIVE_THREAD_WINDOW_DAYS);
+  const knownRawPaths = collectWindowRawRefs(allWikiPages, isInWindow);
+  if (knownRawPaths.size === 0) {
+    return {
+      id: "graph.narrative-thread-coverage",
+      label: "Narrative thread coverage",
+      value: null,
+      threshold: { warn: 50, fail: 25, rule: "pass >= 50%, warn >= 25%, fail < 25%" },
+      status: "n/a",
+      detail: "no wiki-referenced raw observations in window",
+      topOffenders: [],
+    };
   }
+  const referencedRawPaths = collectWindowRawRefs(threadPages, isInWindow);
 
-  const coverage = (referencedRawPaths.size / rawWindow.nodes.length) * 100;
+  const coverage = (referencedRawPaths.size / knownRawPaths.size) * 100;
   const value = round(coverage, 2);
 
   return {
@@ -638,7 +673,7 @@ export function metricNarrativeThreadCoverage(input: GraphHealthInput): MetricRe
     unit: "%",
     threshold: { warn: 50, fail: 25, rule: "pass >= 50%, warn >= 25%, fail < 25%" },
     status: coverage < 25 ? "fail" : coverage < 50 ? "warn" : "pass",
-    detail: `${referencedRawPaths.size}/${rawWindow.nodes.length} raw observations referenced by ${threadPages.length} thread(s) in trailing ${rawWindow.days}-day window ending ${rawWindow.upperDay} (${coverage.toFixed(1)}%)`,
+    detail: `${referencedRawPaths.size}/${knownRawPaths.size} wiki-referenced raw observations covered by ${threadPages.length} thread(s) in trailing ${NARRATIVE_THREAD_WINDOW_DAYS}-day window ending ${upperDay} (${coverage.toFixed(1)}%)`,
     topOffenders: [],
   };
 }

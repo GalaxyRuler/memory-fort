@@ -135,6 +135,40 @@ describe("retrieval corpus loader", () => {
     expect(doc.sizeBytes).toBeGreaterThan(0);
   });
 
+  it("omitBodies extracts wikilink targets so graph edges survive a body-free load", async () => {
+    await writeMarkdown(
+      tmp,
+      "wiki/projects/foo.md",
+      frontmatterPage(
+        { type: "projects", title: "Foo" },
+        "Relates to [[bar]] and [[lessons/baz]] but not [[un|safe]].\n",
+      ),
+    );
+
+    const withBodies = await loadSearchCorpus({ vaultRoot: tmp, scope: "wiki" });
+    const bodyFree = await loadSearchCorpus({ vaultRoot: tmp, scope: "wiki", omitBodies: true });
+
+    expect(withBodies.documents[0]!.wikilinkTargets).toBeUndefined();
+    expect(bodyFree.documents[0]!.wikilinkTargets).toEqual(["bar", "lessons/baz"]);
+  });
+
+  it("bodyMaxChars retains a bounded body prefix and full-body wikilinks", async () => {
+    await writeMarkdown(
+      tmp,
+      "raw/2026-05-22/codex-long.md",
+      frontmatterPage(
+        { title: "Long" },
+        `${"x".repeat(50)} then a tail with [[late-link]] beyond the prefix.\n`,
+      ),
+    );
+
+    const result = await loadSearchCorpus({ vaultRoot: tmp, scope: "raw", bodyMaxChars: 20 });
+
+    const doc = result.documents[0]!;
+    expect(doc.body).toBe(`\n${"x".repeat(19)}`);
+    expect(doc.wikilinkTargets).toEqual(["late-link"]);
+  });
+
   it("Scope filter: wiki returns only wiki documents", async () => {
     await writeMixedVault(tmp);
 

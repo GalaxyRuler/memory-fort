@@ -1,6 +1,8 @@
 import { spawn } from "node:child_process";
-import { appendFile } from "node:fs/promises";
-import { join } from "node:path";
+import { appendFile, mkdir, readFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { atomicWrite } from "../storage/atomic-write.js";
+import { schedulerStatePath } from "../storage/paths.js";
 import { resolveWorkerPath } from "./worker-paths.js";
 import { runCompile, runCompileDrain, type CompileDrainResult, type CompileResult } from "../cli/commands/compile.js";
 import {
@@ -30,6 +32,7 @@ export interface AutoPromoteSchedulerOptions {
   autoPromoteRunner?: () => Promise<void>;
   writeCapability?: VaultWriteCapability;
   fullCorpusGate?: FullCorpusAdmissionGate;
+  now?: () => Date;
 }
 
 export interface DashboardCompileRunnerOptions {
@@ -69,6 +72,49 @@ const CADENCE_MS = {
   weekly: 7 * 24 * 60 * 60 * 1000,
 } as const;
 
+/**
+ * How often the scheduler wakes up to check whether any task's cadence has
+ * elapsed. Cadences are measured against a PERSISTED per-task last-run stamp,
+ * not process uptime: a plain daily setInterval never fired on a dashboard
+ * that restarts more often than daily, and two same-cadence intervals with a
+ * shared re-entrancy flag starved whichever registered second (observed as
+ * thread/procedure proposals silently never running).
+ */
+const SCHEDULER_HEARTBEAT_MS = 15 * 60 * 1000;
+
+type SchedulerState = Record<string, Record<string, string>>;
+
+async function readSchedulerState(): Promise<SchedulerState> {
+  try {
+    const raw = await readFile(schedulerStatePath(), "utf-8");
+    const parsed = JSON.parse(raw) as unknown;
+    return typeof parsed === "object" && parsed !== null ? (parsed as SchedulerState) : {};
+  } catch {
+    return {};
+  }
+}
+
+async function isSchedulerTaskDue(
+  vaultRoot: string,
+  task: string,
+  cadenceMs: number,
+  now: Date,
+): Promise<boolean> {
+  const last = (await readSchedulerState())[vaultRoot]?.[task];
+  if (!last) return true; // Never ran (or state lost) — catch up now.
+  const lastMs = Date.parse(last);
+  if (!Number.isFinite(lastMs)) return true;
+  return now.getTime() - lastMs >= cadenceMs;
+}
+
+async function stampSchedulerRun(vaultRoot: string, task: string, now: Date): Promise<void> {
+  const path = schedulerStatePath();
+  const state = await readSchedulerState();
+  (state[vaultRoot] ??= {})[task] = now.toISOString();
+  await mkdir(dirname(path), { recursive: true });
+  await atomicWrite(path, `${JSON.stringify(state, null, 2)}\n`);
+}
+
 export async function createAutoPromoteScheduler(
   opts: AutoPromoteSchedulerOptions,
 ): Promise<AutoPromoteScheduler> {
@@ -85,60 +131,67 @@ export async function createAutoPromoteScheduler(
     return { close: () => undefined };
   }
 
-  if (compile.scheduled && compile.cadence !== "manual") {
-    intervals.push(intervalFactory(() => {
-      if (running) return;
-      running = true;
-      void fullCorpusGate.tryRunMaintenance(async () => {
-        // Default: isolate the full-corpus compile in a child process so its
-        // multi-GB peak never touches the dashboard/app heap. An injected runner
-        // (tests) runs in-process.
-        if (opts.compileRunner) {
-          await opts.compileRunner(scheduledCompileRunnerOptions(compile));
-        } else {
-          await runScheduledVaultTaskInChild(opts.vaultRoot, "compile");
-        }
-      })
-        .catch((error) => logSchedulerFailure(opts.vaultRoot, "compile scheduler failed", error))
-        .finally(() => {
-          running = false;
-        });
-    }, CADENCE_MS[compile.cadence]));
-  }
-
-  if (autoPromote.enabled && autoPromote.cadence !== "manual") {
-    intervals.push(intervalFactory(() => {
-      if (running) return;
-      running = true;
-      void fullCorpusGate.tryRunMaintenance(async () => {
-        const injectedAuto = opts.autoPromoteRunner ?? opts.runner;
-        if (opts.compileRunner || injectedAuto) {
-          // Injected (tests): keep the previous in-process behaviour.
-          const autoRunner = injectedAuto ?? (() => runAutoPromoteOnce(opts.vaultRoot));
-          if (compile.scheduled) {
-            await runScheduledVaultTasksOnce(opts.vaultRoot, {
-              compileRunner: opts.compileRunner
-                ? () => opts.compileRunner!(scheduledCompileRunnerOptions(compile))
-                : () => runScheduledCompileOnce(opts.vaultRoot, scheduledCompileRunnerOptions(compile)),
-              autoPromoteRunner: autoRunner,
-            });
-          } else {
-            await autoRunner().catch((error) => logSchedulerFailure(opts.vaultRoot, "auto-promote scheduler failed", error));
-          }
-        } else {
-          // Default: isolate the full-corpus work in a child process.
-          await runScheduledVaultTaskInChild(opts.vaultRoot, compile.scheduled ? "vault" : "auto-promote")
-            .catch((error) => logSchedulerFailure(opts.vaultRoot, "auto-promote scheduler failed", error));
-        }
-      }).finally(() => {
-          running = false;
-        });
-    }, CADENCE_MS[autoPromote.cadence]));
-  }
-
-  if (intervals.length === 0) {
+  const compileCadenceMs = compile.cadence === "manual" ? null : CADENCE_MS[compile.cadence];
+  const autoPromoteCadenceMs = autoPromote.cadence === "manual" ? null : CADENCE_MS[autoPromote.cadence];
+  const compileEnabled = compile.scheduled && compileCadenceMs !== null;
+  const autoPromoteEnabled = autoPromote.enabled && autoPromoteCadenceMs !== null;
+  if (!compileEnabled && !autoPromoteEnabled) {
     return { close: () => undefined };
   }
+
+  const now = opts.now ?? (() => new Date());
+
+  const runCompileTask = async (): Promise<void> => {
+    // Default: isolate the full-corpus compile in a child process so its
+    // multi-GB peak never touches the dashboard/app heap. An injected runner
+    // (tests) runs in-process.
+    if (opts.compileRunner) {
+      await opts.compileRunner(scheduledCompileRunnerOptions(compile));
+    } else {
+      await runScheduledVaultTaskInChild(opts.vaultRoot, "compile");
+    }
+  };
+
+  const runAutoPromoteTask = async (): Promise<void> => {
+    const injectedAuto = opts.autoPromoteRunner ?? opts.runner;
+    if (injectedAuto) {
+      await injectedAuto();
+    } else {
+      await runScheduledVaultTaskInChild(opts.vaultRoot, "auto-promote");
+    }
+  };
+
+  // Attempt one task: skip quietly when the gate is busy (stays due, retried
+  // next heartbeat); stamp after any actual attempt — success or failure — so
+  // a crashing task retries at its cadence instead of hot-looping.
+  const attemptTask = async (task: string, label: string, run: () => Promise<void>): Promise<void> => {
+    try {
+      const admission = await fullCorpusGate.tryRunMaintenance(run);
+      if (!admission.started) return;
+    } catch (error) {
+      await logSchedulerFailure(opts.vaultRoot, `${label} scheduler failed`, error);
+    }
+    await stampSchedulerRun(opts.vaultRoot, task, now());
+  };
+
+  const heartbeat = async (): Promise<void> => {
+    if (running) return;
+    running = true;
+    try {
+      if (compileEnabled && await isSchedulerTaskDue(opts.vaultRoot, "compile", compileCadenceMs!, now())) {
+        await attemptTask("compile", "compile", runCompileTask);
+      }
+      if (autoPromoteEnabled && await isSchedulerTaskDue(opts.vaultRoot, "auto-promote", autoPromoteCadenceMs!, now())) {
+        await attemptTask("auto-promote", "auto-promote", runAutoPromoteTask);
+      }
+    } finally {
+      running = false;
+    }
+  };
+
+  intervals.push(intervalFactory(() => {
+    void heartbeat();
+  }, SCHEDULER_HEARTBEAT_MS));
 
   return {
     close: () => {

@@ -579,13 +579,14 @@ describe("graph health metrics", () => {
   ] as const)(
     "classifies narrative thread coverage %i/%i as %s",
     (referenced, totalRaw, status, expectedValue) => {
-      const rawPaths = Array.from({ length: totalRaw }, (_, index) => `raw/episode-${index}.md`);
+      const rawPaths = Array.from({ length: totalRaw }, (_, index) => `raw/2026-06-01/episode-${index}.md`);
       const result = metricNarrativeThreadCoverage(
         graphInput({
-          feed: graphFeed({
-            nodes: rawPaths.map((path) => node(path, { kind: "raw" })),
-          }),
+          now: "2026-06-01",
           wikiPages: [
+            wikiPage("wiki/projects/p.md", {
+              relations: { mentions: rawPaths.map((target) => ({ target })) },
+            }),
             wikiPage("wiki/threads/phase.md", {
               relations: {
                 mentions: rawPaths.slice(0, referenced).map((target) => ({ target })),
@@ -597,27 +598,61 @@ describe("graph health metrics", () => {
 
       expect(result.status).toBe(status);
       expect(result.value).toBe(expectedValue);
-      expect(result.detail).toContain(`${referenced}/${totalRaw} raw observations`);
+      expect(result.detail).toContain(`${referenced}/${totalRaw} wiki-referenced raw observations`);
     },
   );
+
+  it("counts only wiki-referenced raw observations in the denominator", () => {
+    // Observations no wiki page references (capture noise) must not dilute
+    // coverage — and the universe must NOT come from the byte-budgeted feed.
+    const result = metricNarrativeThreadCoverage(
+      graphInput({
+        now: "2026-06-01",
+        wikiPages: [
+          wikiPage("wiki/threads/live.md", {
+            relations: { mentions: [{ target: "raw/2026-06-01/covered.md" }] },
+          }),
+        ],
+      }),
+    );
+
+    expect(result.status).toBe("pass");
+    expect(result.value).toBe(100);
+    expect(result.detail).toContain("1/1 wiki-referenced raw observations");
+  });
+
+  it("returns n/a when no wiki page references raw in the window", () => {
+    const result = metricNarrativeThreadCoverage(
+      graphInput({
+        now: "2026-06-01",
+        wikiPages: [wikiPage("wiki/threads/live.md", { relations: {} })],
+      }),
+    );
+
+    expect(result.status).toBe("n/a");
+    expect(result.detail).toBe("no wiki-referenced raw observations in window");
+  });
 
   it("calculates narrative thread coverage over the trailing 30-day raw window", () => {
     const result = metricNarrativeThreadCoverage(
       graphInput({
-        feed: graphFeed({
-          nodes: [
-            node("raw/2026-04-01-old-referenced.md", { kind: "raw", created: "2026-04-01" }),
-            node("raw/2026-05-03-window-unreferenced.md", { kind: "raw", created: "2026-05-03" }),
-            node("raw/2026-05-15-window-unreferenced.md", { kind: "raw", created: "2026-05-15" }),
-            node("raw/2026-06-01-window-referenced.md", { kind: "raw", created: "2026-06-01" }),
-          ],
-        }),
+        now: "2026-06-01",
         wikiPages: [
+          wikiPage("wiki/projects/p.md", {
+            relations: {
+              mentions: [
+                { target: "raw/2026-04-01/old-referenced.md" },
+                { target: "raw/2026-05-03/window-unreferenced.md" },
+                { target: "raw/2026-05-15/window-unreferenced.md" },
+                { target: "raw/2026-06-01/window-referenced.md" },
+              ],
+            },
+          }),
           wikiPage("wiki/threads/live.md", {
             relations: {
               mentions: [
-                { target: "raw/2026-04-01-old-referenced.md" },
-                { target: "raw/2026-06-01-window-referenced.md" },
+                { target: "raw/2026-04-01/old-referenced.md" },
+                { target: "raw/2026-06-01/window-referenced.md" },
               ],
             },
           }),
@@ -627,26 +662,17 @@ describe("graph health metrics", () => {
 
     expect(result.status).toBe("warn");
     expect(result.value).toBeCloseTo(33.33, 2);
-    expect(result.detail).toContain("1/3 raw observations referenced by 1 thread");
+    expect(result.detail).toContain("1/3 wiki-referenced raw observations covered by 1 thread");
     expect(result.detail).toContain("trailing 30-day window");
     expect(result.detail).toContain("ending 2026-06-01");
   });
 
-  it("returns n/a for narrative thread coverage when the trailing raw window is empty", () => {
+  it("returns n/a for narrative thread coverage when raw references carry no dates", () => {
     const result = metricNarrativeThreadCoverage(
       graphInput({
-        feed: graphFeed({
-          nodes: [
-            node("raw/unknown-date.md", { kind: "raw", created: null, updated: null }),
-          ],
-        }),
         wikiPages: [
           wikiPage("wiki/threads/live.md", {
-            relations: {
-              mentions: [
-                { target: "raw/unknown-date.md" },
-              ],
-            },
+            relations: { mentions: [{ target: "raw/unknown-date.md" }] },
           }),
         ],
       }),
@@ -654,25 +680,18 @@ describe("graph health metrics", () => {
 
     expect(result.status).toBe("n/a");
     expect(result.value).toBeNull();
-    expect(result.detail).toBe("no raw observations in window");
+    expect(result.detail).toBe("no wiki-referenced raw observations in window");
   });
 
   it("ignores non-raw targets and archived threads for narrative thread coverage", () => {
     const result = metricNarrativeThreadCoverage(
       graphInput({
-        feed: graphFeed({
-          nodes: [
-            node("raw/one.md", { kind: "raw" }),
-            node("raw/two.md", { kind: "raw" }),
-            node("raw/three.md", { kind: "raw" }),
-            node("raw/four.md", { kind: "raw" }),
-          ],
-        }),
+        now: "2026-06-01",
         wikiPages: [
           wikiPage("wiki/threads/live.md", {
             relations: {
               mentions: [
-                { target: "raw/one.md" },
+                { target: "raw/2026-06-01/one.md" },
                 { target: "wiki/decisions/one.md" },
               ],
             },
@@ -680,8 +699,17 @@ describe("graph health metrics", () => {
           wikiPage("wiki/archive/threads/old.md", {
             relations: {
               mentions: [
-                { target: "raw/two.md" },
-                { target: "raw/three.md" },
+                { target: "raw/2026-06-01/two.md" },
+                { target: "raw/2026-06-01/three.md" },
+              ],
+            },
+          }),
+          wikiPage("wiki/projects/p.md", {
+            relations: {
+              mentions: [
+                { target: "raw/2026-06-01/two.md" },
+                { target: "raw/2026-06-01/three.md" },
+                { target: "raw/2026-06-01/four.md" },
               ],
             },
           }),
@@ -691,32 +719,27 @@ describe("graph health metrics", () => {
 
     expect(result.status).toBe("warn");
     expect(result.value).toBe(25);
-    expect(result.detail).toContain("1/4 raw observations referenced by 1 thread");
+    expect(result.detail).toContain("1/4 wiki-referenced raw observations covered by 1 thread");
   });
 
   it("excludes proposed thread drafts from narrative thread coverage", () => {
     const result = metricNarrativeThreadCoverage(
       graphInput({
-        feed: graphFeed({
-          nodes: [
-            node("raw/one.md", { kind: "raw" }),
-            node("raw/two.md", { kind: "raw" }),
-          ],
-        }),
+        now: "2026-06-01",
         wikiPages: [
           wikiPage("wiki/threads/live.md", {
-            relations: { mentions: [{ target: "raw/one.md" }] },
+            relations: { mentions: [{ target: "raw/2026-06-01/one.md" }] },
           }),
           wikiPage("wiki/threads-proposed/draft.md", {
             lifecycle: "proposed",
-            relations: { mentions: [{ target: "raw/two.md" }] },
+            relations: { mentions: [{ target: "raw/2026-06-01/two.md" }] },
           }),
         ],
       }),
     );
 
     expect(result.value).toBe(50);
-    expect(result.detail).toContain("1/2 raw observations referenced by 1 thread");
+    expect(result.detail).toContain("1/2 wiki-referenced raw observations covered by 1 thread");
   });
 });
 

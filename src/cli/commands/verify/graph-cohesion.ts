@@ -26,7 +26,7 @@ export const graphCohesionCheck: CheckDescriptor = {
       return fail(
         "graph.cohesion",
         `graph cohesion: ${failingIds} in fail`,
-        "open the dashboard Graph Health panel",
+        "run `memory thread propose --apply --auto-promote`, then `memory thread promote <slug>` for reviewed drafts; details in the dashboard Graph Health panel",
         failingIds,
       );
     }
