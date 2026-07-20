@@ -85,7 +85,11 @@ describe("discover-threads command", () => {
       wikiPages: corpus.documents,
       now: new Date("2026-06-03T12:00:00.000Z"),
     });
-    expect(report.metrics.find((metric) => metric.id === "graph.narrative-thread-coverage")?.value).toBe(100);
+    const metric = report.metrics.find((m) => m.id === "graph.narrative-thread-coverage");
+    // Freshness semantics: value = age (days) of the newest live-thread raw ref.
+    expect(metric?.status).toBe("pass");
+    expect(metric?.value).toBe(0);
+    expect(metric?.detail).toContain("threads cover 3/3 wiki-referenced raw");
   });
 
   async function writeMarkdown(relPath: string, content: string): Promise<void> {

@@ -4,6 +4,17 @@ All notable changes to Memory Fort are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.3] - 2026-07-20
+
+### Fixed
+- **Scheduled vault tasks actually run now.** The daily compile and auto-promote (thread/procedure proposal) schedulers measured their cadence from process uptime (`setInterval`), so any dashboard that restarts more often than daily never ran them — and when a 24h uptime did happen, a shared re-entrancy flag let compile starve auto-promote entirely (observed: thread proposals silently dead for 53 days). The scheduler now persists per-task last-run stamps outside the vault and a 15-minute heartbeat runs each due task sequentially; a busy admission gate leaves the task due for the next heartbeat, and a failing task retries at its cadence instead of hot-looping.
+- **`memory watch --once` performs a real catch-up import.** Once mode used to arm the file watcher and wait one second for a live event — a catch-up pass could only ever capture zero. It now imports sessions whose sources changed in a trailing 48-hour window, and the dashboard runs it hourly for Claude Desktop so watcher-based capture no longer depends on a terminal window staying open.
+- **The Claude Desktop sniffer no longer sweeps the whole app directory.** Its file walk included the Claude data root, importing app resources (fonts, lockfiles, caches) and credential-adjacent files (the `oauth:tokenCache` blob in `claude_desktop_config.json`) into the vault. It now scans only the session and log directories (`logs/`, `local-agent-mode-sessions/`, and the newer `claude-code-sessions/`).
+- **Full-corpus CLI commands no longer crash on large vaults.** `memory consolidate`, `procedure`, `refresh`, and `rebless` re-exec under a raised heap (the same 8GB ceiling the dashboard's vault workers use); verify's coverage checks (episodic relations, graph cohesion, source provenance) and thread discovery/proposal load the corpus without retaining bodies (`omitBodies`/`bodyMaxChars`, with wikilinks extracted at load so graph edges are unchanged), and verify's search check queries the running dashboard's bounded index search before falling back to the local pipeline.
+- **Narrative-thread health measures pipeline freshness, not unreachable coverage.** The old metric compared thread references against the graph feed's byte-budgeted raw slice (~days of data at real capture volume), so it reported 0% forever regardless of curation. It now reports the age of the newest live-thread raw reference (pass ≤ 30d, warn ≤ 60d, fail > 60d) — exactly the signal that catches a dead proposal pipeline — with window coverage kept as informational detail. Verify's remediation names the actual commands.
+- **Thread proposal skips clusters an existing thread or draft already represents** — before the LLM call, so a scheduled daily propose cannot pile up duplicate drafts or pay for re-proposals.
+- **Curation content-loss warnings can be resolved.** A reviewed historical rewrite is acknowledged with `content_loss_reviewed` frontmatter (at or after the flagged snapshot's timestamp); a later rewrite re-arms the guard.
+
 ## [0.12.2] - 2026-07-20
 
 ### Fixed
