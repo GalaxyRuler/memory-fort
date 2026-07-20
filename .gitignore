@@ -46,3 +46,4 @@ docs/release-evidence/*
 
 # derived eval artifacts (contain vault-derived content; regenerate via the recall scaffolder)
 var/
+dev/
