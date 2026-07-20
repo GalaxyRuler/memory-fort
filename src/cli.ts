@@ -83,11 +83,18 @@ import { formatWatchResult, runWatch } from "./cli/commands/watch.js";
 import { memoryRoot, secretsPath } from "./storage/paths.js";
 import { applyApprovedSupersedeProposal } from "./compile/approve-supersede.js";
 import { resolve as resolvePath } from "node:path";
+import { reexecHeavy, shouldReexecHeavy } from "./cli/heavy-reexec.js";
 import { loadSecretsIntoEnv } from "./storage/secrets.js";
 
 // Layer provider keys from the out-of-vault secrets file UNDER real env vars
 // so dashboard-entered keys are available to every CLI command. Real env wins.
 loadSecretsIntoEnv(secretsPath());
+
+// Full-corpus subcommands re-exec under a raised heap (see heavy-reexec.ts) —
+// at the default old-space they OOM on a multi-GB vault before any output.
+if (shouldReexecHeavy(process.argv)) {
+  process.exit(reexecHeavy(process.argv));
+}
 
 const program = new Command();
 
