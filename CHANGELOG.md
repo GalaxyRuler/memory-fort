@@ -4,6 +4,14 @@ All notable changes to Memory Fort are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Prompt-driven retrieval.** The first prompt of each session now triggers an automatic memory search: the UserPromptSubmit hook queries the dashboard's bounded index search with the prompt text and injects the top curated wiki hits (never raw session echoes or operational surfaces) as agent context. Best-effort by design — a missing dashboard, timeout, or short prompt silently skips retrieval and never delays capture. Kill switch: `MEMORY_PROMPT_RETRIEVAL=0`.
+
+### Changed
+- **Compile's `rewrite_page` prompt now carries seven hard content-conservation rules** (dated sections verbatim, rule lists stay lists, no point-in-time snapshots, no silent cross-project drops, shrinkage is suspect, no ungrounded claims, no-op when unsure) — derived from a staged-proposal batch where 13 of 16 rewrites were lossy.
+
 ## [0.12.3] - 2026-07-20
 
 ### Fixed
