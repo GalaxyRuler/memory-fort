@@ -650,30 +650,51 @@ export function metricNarrativeThreadCoverage(input: GraphHealthInput): MetricRe
   }
   const isInWindow = (day: string) => isWithinTrailingDays(day, upperDay, NARRATIVE_THREAD_WINDOW_DAYS);
   const knownRawPaths = collectWindowRawRefs(allWikiPages, isInWindow);
-  if (knownRawPaths.size === 0) {
+  const referencedRawPaths = collectWindowRawRefs(threadPages, isInWindow);
+
+  // Health = freshness, not blanket coverage. A %-of-all-referenced-raw bar
+  // is unreachable at automated capture volume (one-off provenance refs can
+  // never all live in narratives) and read as a permanent false alarm. What
+  // IS actionable — and what actually broke for 53 days — is the thread
+  // pipeline going dead: no live thread referencing any recent observation.
+  // Age of the newest live-thread raw reference catches exactly that.
+  const threadRefDays: string[] = [];
+  for (const page of threadPages) {
+    for (const relations of Object.values(page.relations ?? {})) {
+      for (const relation of relations) {
+        const day = relation.target.startsWith("raw/") ? dateFromPath(relation.target) : null;
+        if (day) threadRefDays.push(day);
+      }
+    }
+  }
+  const newestThreadRefDay = maxDateOnly(threadRefDays);
+  const coverage = knownRawPaths.size > 0 ? (referencedRawPaths.size / knownRawPaths.size) * 100 : 0;
+  const coverageInfo = knownRawPaths.size > 0
+    ? `threads cover ${referencedRawPaths.size}/${knownRawPaths.size} wiki-referenced raw in trailing ${NARRATIVE_THREAD_WINDOW_DAYS}d (${coverage.toFixed(1)}%)`
+    : `no wiki-referenced raw in trailing ${NARRATIVE_THREAD_WINDOW_DAYS}d`;
+  if (!newestThreadRefDay) {
     return {
       id: "graph.narrative-thread-coverage",
-      label: "Narrative thread coverage",
+      label: "Narrative thread freshness",
       value: null,
-      threshold: { warn: 50, fail: 25, rule: "pass >= 50%, warn >= 25%, fail < 25%" },
-      status: "n/a",
-      detail: "no wiki-referenced raw observations in window",
+      threshold: { warn: 30, fail: 60, rule: "pass <= 30d, warn <= 60d, fail > 60d since a live thread referenced fresh raw" },
+      status: "fail",
+      detail: `live threads reference no dated raw observations; ${coverageInfo}`,
       topOffenders: [],
     };
   }
-  const referencedRawPaths = collectWindowRawRefs(threadPages, isInWindow);
-
-  const coverage = (referencedRawPaths.size / knownRawPaths.size) * 100;
-  const value = round(coverage, 2);
+  const ageDays = Math.max(0, Math.round(
+    (Date.parse(`${upperDay}T00:00:00Z`) - Date.parse(`${newestThreadRefDay}T00:00:00Z`)) / (24 * 60 * 60 * 1000),
+  ));
 
   return {
     id: "graph.narrative-thread-coverage",
-    label: "Narrative thread coverage",
-    value,
-    unit: "%",
-    threshold: { warn: 50, fail: 25, rule: "pass >= 50%, warn >= 25%, fail < 25%" },
-    status: coverage < 25 ? "fail" : coverage < 50 ? "warn" : "pass",
-    detail: `${referencedRawPaths.size}/${knownRawPaths.size} wiki-referenced raw observations covered by ${threadPages.length} thread(s) in trailing ${NARRATIVE_THREAD_WINDOW_DAYS}-day window ending ${upperDay} (${coverage.toFixed(1)}%)`,
+    label: "Narrative thread freshness",
+    value: ageDays,
+    unit: "days",
+    threshold: { warn: 30, fail: 60, rule: "pass <= 30d, warn <= 60d, fail > 60d since a live thread referenced fresh raw" },
+    status: ageDays > 60 ? "fail" : ageDays > 30 ? "warn" : "pass",
+    detail: `newest live-thread raw reference is ${ageDays}d old (${newestThreadRefDay}, ${threadPages.length} thread(s)); ${coverageInfo}`,
     topOffenders: [],
   };
 }
