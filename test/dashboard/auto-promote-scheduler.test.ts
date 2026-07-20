@@ -27,12 +27,28 @@ describe("auto-promote scheduler", () => {
 
   const HEARTBEAT_MS = 15 * 60 * 1000;
 
-  async function fireHeartbeat(intervalFactory: { mock: { calls: Array<[() => void, number]> } }): Promise<void> {
+  async function fireHeartbeat(
+    intervalFactory: { mock: { calls: Array<[() => void, number]> } },
+    until?: () => boolean,
+  ): Promise<void> {
     intervalFactory.mock.calls[0]![0]();
-    // The heartbeat chain ends in an fsync-backed state write — real disk
-    // I/O, so yield real time (setImmediate turns complete in microseconds
-    // and lose the race).
-    await new Promise((resolve) => setTimeout(resolve, 300));
+    // The heartbeat chain ends in fsync-backed, lock-guarded state writes —
+    // real disk I/O whose latency varies wildly under full-suite load. Poll
+    // for the expected condition; fall back to a generous fixed window for
+    // negative assertions.
+    const deadline = Date.now() + 5000;
+    if (until) {
+      while (Date.now() < deadline) {
+        if (until()) {
+          // One extra tick lets the stamp write settle after the runner call.
+          await new Promise((resolve) => setTimeout(resolve, 150));
+          return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 800));
   }
 
   it("does not register an interval when disabled or manual", async () => {
@@ -269,7 +285,7 @@ describe("auto-promote scheduler", () => {
     const firstFactory = vi.fn(() => handle);
     const firstRunner = vi.fn(async () => undefined);
     await createAutoPromoteScheduler({ vaultRoot: tmp, configLoader, intervalFactory: firstFactory, runner: firstRunner });
-    await fireHeartbeat(firstFactory);
+    await fireHeartbeat(firstFactory, () => firstRunner.mock.calls.length > 0);
     expect(firstRunner).toHaveBeenCalledOnce();
 
     // Simulate an app restart: brand-new scheduler, same persisted state.
@@ -289,7 +305,7 @@ describe("auto-promote scheduler", () => {
       runner: thirdRunner,
       now: () => new Date(Date.now() + 25 * 60 * 60 * 1000),
     });
-    await fireHeartbeat(thirdFactory);
+    await fireHeartbeat(thirdFactory, () => thirdRunner.mock.calls.length > 0);
     expect(thirdRunner).toHaveBeenCalledOnce();
   });
 
@@ -314,7 +330,10 @@ describe("auto-promote scheduler", () => {
       autoPromoteRunner,
     });
 
-    await fireHeartbeat(intervalFactory);
+    await fireHeartbeat(
+      intervalFactory,
+      () => compileRunner.mock.calls.length > 0 && autoPromoteRunner.mock.calls.length > 0,
+    );
 
     // The old per-task intervals shared one re-entrancy flag, so auto-promote
     // was silently starved whenever compile claimed the tick.
@@ -329,7 +348,7 @@ describe("auto-promote scheduler", () => {
     const firstFactory = vi.fn(() => handle);
     const sniffRunner = vi.fn(async () => undefined);
     await createAutoPromoteScheduler({ vaultRoot: tmp, configLoader, intervalFactory: firstFactory, sniffRunner });
-    await fireHeartbeat(firstFactory);
+    await fireHeartbeat(firstFactory, () => sniffRunner.mock.calls.length > 0);
     expect(sniffRunner).toHaveBeenCalledOnce();
 
     // Within the hour — not due again, even on a fresh scheduler instance.
@@ -349,7 +368,7 @@ describe("auto-promote scheduler", () => {
       sniffRunner: thirdSniff,
       now: () => new Date(Date.now() + 61 * 60 * 1000),
     });
-    await fireHeartbeat(thirdFactory);
+    await fireHeartbeat(thirdFactory, () => thirdSniff.mock.calls.length > 0);
     expect(thirdSniff).toHaveBeenCalledOnce();
   });
 

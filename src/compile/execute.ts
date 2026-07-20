@@ -74,6 +74,12 @@ export interface ApplyCompileOperationsOptions {
   journal?: boolean;
   /** Raw rel-paths that fed this apply batch (scoped ops-journal prune). */
   sourceRaws?: readonly string[];
+  /**
+   * Operator-directed consolidation (memory curate) exists precisely to merge
+   * dated bloat sections into clean prose — exempt it from the dated-section
+   * conservation guard that blocks AUTONOMOUS compile rewrites.
+   */
+  allowDatedSectionConsolidation?: boolean;
 }
 
 export interface ApplyCompileOperationsResult {
@@ -371,7 +377,7 @@ export async function applyCompileOperations(
     const converted = conversion.converted;
 
     const rewriteGuard = operationToApply.kind === "rewrite_page"
-      ? await guardRewriteOperation(opts.vaultRoot, operationToApply, now)
+      ? await guardRewriteOperation(opts.vaultRoot, operationToApply, now, opts.allowDatedSectionConsolidation === true)
       : { ok: true as const, stage: false as const };
     if (!rewriteGuard.ok) {
       result.rejected.push({ path: relPath, reason: rewriteGuard.reason });
@@ -1230,6 +1236,7 @@ async function guardRewriteOperation(
   vaultRoot: string,
   operation: Extract<CompileOperation, { kind: "rewrite_page" }>,
   _now: Date,
+  allowDatedSectionConsolidation = false,
 ): Promise<
   | { ok: true; stage: false }
   | { ok: true; stage: true; reason: string }
@@ -1261,7 +1268,7 @@ async function guardRewriteOperation(
   // reworks one is content loss even when anchor coverage holds (the prompt's
   // "dated sections verbatim" rule, enforced — prose rules alone were ignored
   // in 13 of 16 observed staged rewrites).
-  const lostDated = missingDatedSections(parsed.body, operation.body);
+  const lostDated = allowDatedSectionConsolidation ? [] : missingDatedSections(parsed.body, operation.body);
   if (lostDated.length > 0) {
     return {
       ok: true,

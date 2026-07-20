@@ -84,6 +84,7 @@ export async function runCurate(opts: CurateOptions = {}): Promise<CurateResult>
       },
     };
     const applied = await applyCompileOperations({
+      allowDatedSectionConsolidation: true,
       vaultRoot: root,
       operations: [withConfidence],
       plan: mode === "plan",
