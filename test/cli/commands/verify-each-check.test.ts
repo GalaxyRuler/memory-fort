@@ -129,6 +129,43 @@ describe("verify checks", () => {
     expect(result.label).toContain("returned 1 results in 47ms");
   });
 
+  it("search check delegates to the dashboard /api/search when reachable", async () => {
+    const requested: string[] = [];
+    const result = await checkSearch({
+      vaultRoot: tmp,
+      dashboardUrl: "https://example.test/memory",
+      fetchFn: async (input) => {
+        requested.push(String(input));
+        return new Response(
+          JSON.stringify({
+            query: "memory fort",
+            results: [{ path: "wiki/projects/memory-fort.md" }],
+            timings: { totalMs: 12 },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      },
+    });
+
+    expect(result.status).toBe("pass");
+    expect(result.label).toContain("returned 1 results in 12ms");
+    expect(requested[0]).toContain("https://example.test/memory/api/search");
+  });
+
+  it("search check falls back to the local pipeline when the dashboard search fails", async () => {
+    const result = await checkSearch({
+      vaultRoot: tmp,
+      dashboardUrl: "https://example.test/memory",
+      fetchFn: async () => {
+        throw new Error("connect ECONNREFUSED");
+      },
+    });
+
+    // Empty fixture vault → the local legacy pipeline runs and returns 0 results.
+    expect(result.status).toBe("fail");
+    expect(result.label).toContain("0 results");
+  });
+
   it("episodic relation coverage warns below thirty percent", async () => {
     await writeRawObservation("raw/2026-05-26/linked.md", ["wiki/projects/memory-fort.md"]);
     await writeRawObservation("raw/2026-05-26/orphan-a.md", []);

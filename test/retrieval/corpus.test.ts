@@ -112,6 +112,29 @@ describe("retrieval corpus loader", () => {
     });
   });
 
+  it("omitBodies drops document bodies but keeps metadata and relations", async () => {
+    await writeMarkdown(
+      tmp,
+      "raw/2026-05-22/codex-linked.md",
+      frontmatterPage(
+        {
+          title: "Linked",
+          relations: { relates_to: ["wiki/projects/foo.md"] },
+        },
+        "A large episodic body that must not be retained.\n",
+      ),
+    );
+
+    const result = await loadSearchCorpus({ vaultRoot: tmp, scope: "raw", omitBodies: true });
+
+    expect(result.documents).toHaveLength(1);
+    const doc = result.documents[0]!;
+    expect(doc.body).toBe("");
+    expect(doc.relations.relates_to).toEqual([{ target: "wiki/projects/foo.md" }]);
+    expect(doc.title).toBe("Linked");
+    expect(doc.sizeBytes).toBeGreaterThan(0);
+  });
+
   it("Scope filter: wiki returns only wiki documents", async () => {
     await writeMixedVault(tmp);
 

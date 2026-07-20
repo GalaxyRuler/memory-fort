@@ -74,6 +74,14 @@ export interface LoadCorpusOptions {
    * still reports the true on-disk total.
    */
   maxRawBytes?: number;
+  /**
+   * Skip retaining document bodies (metadata/relations-only load). Callers that
+   * never read `body` — verify's coverage checks — set this so a multi-GB raw
+   * pool cannot anchor the heap; `snippetSource` (first non-empty line) is
+   * still kept. Files are still fully read and parsed, so frontmatter,
+   * relations, and canonicalization are unaffected.
+   */
+  omitBodies?: boolean;
 }
 
 export interface LoadCorpusResult {
@@ -151,7 +159,7 @@ export async function loadSearchCorpus(
   const loaded = await Promise.all(
     selected.map(async (file) => {
       try {
-        return { document: await loadDocument(file) };
+        return { document: await loadDocument(file, opts.omitBodies === true) };
       } catch (error) {
         return {
           error: {
@@ -304,7 +312,7 @@ function isCrystalDocument(document: SearchDocument): boolean {
   return document.kind === "crystal" || document.type === "crystal" || document.type === "crystals";
 }
 
-async function loadDocument(file: MarkdownFile): Promise<SearchDocument> {
+async function loadDocument(file: MarkdownFile, omitBody = false): Promise<SearchDocument> {
   const [content, info] = await Promise.all([
     readFile(file.fullPath, "utf-8"),
     stat(file.fullPath),
@@ -354,7 +362,7 @@ async function loadDocument(file: MarkdownFile): Promise<SearchDocument> {
     // and identity (agent_id/user_id) filters read it for every doc kind.
     rawFrontmatter: canonical?.rawFrontmatter ?? (frontmatter as Record<string, unknown>),
     importedFrom: readImportedFrom(frontmatter.imported_from),
-    body: canonical?.body ?? parsed.body,
+    body: omitBody ? "" : (canonical?.body ?? parsed.body),
     snippetSource: firstNonEmptyLine(parsed.body),
     created: readDate(frontmatter.created),
     observedAt: readDate(frontmatter.observed_at),

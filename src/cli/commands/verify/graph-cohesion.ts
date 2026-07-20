@@ -11,7 +11,7 @@ export const graphCohesionCheck: CheckDescriptor = {
   run: async (ctx) => {
     const [feed, corpus] = await Promise.all([
       loadGraphFeed(ctx.vaultRoot, "all"),
-      loadSearchCorpus({ vaultRoot: ctx.vaultRoot, scope: "wiki" }),
+      loadSearchCorpus({ vaultRoot: ctx.vaultRoot, scope: "wiki", omitBodies: true }),
     ]);
     const report = computeGraphHealth({
       feed,

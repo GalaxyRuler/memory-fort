@@ -14,7 +14,9 @@ export const episodicRelationsCoverageCheck: CheckDescriptor = {
 export async function checkEpisodicRelations(
   ctx: VerifyCheckContext,
 ): Promise<VerifyCheckResult> {
-  const corpus = await loadSearchCorpus({ vaultRoot: ctx.vaultRoot, scope: "raw" });
+  // omitBodies: this check only reads kind + relations; retaining every raw
+  // body OOMs the CLI on a multi-GB vault.
+  const corpus = await loadSearchCorpus({ vaultRoot: ctx.vaultRoot, scope: "raw", omitBodies: true });
   const observations = corpus.documents.filter((doc) => doc.kind === "raw");
   if (observations.length === 0) {
     return pass("episodic.relations.coverage", "no episodic memories found");

@@ -4,6 +4,11 @@ All notable changes to Memory Fort are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.2] - 2026-07-20
+
+### Fixed
+- **`memory verify` no longer runs out of memory on a large vault.** On a vault with a multi-GB `raw/` pool the CLI crashed with `FATAL ERROR: Reached heap limit` at the default Node heap before printing a single check. Two causes, both fixed: the episodic-relation, graph-cohesion, and source-provenance checks retained the full text body of every document they scanned (only metadata and relations are read — bodies are now dropped at load), and the search-pipeline check ran the legacy full-corpus search in-process (it now queries the running dashboard's bounded index search first, falling back to the local pipeline only when the dashboard is unreachable or its index has no results yet). Verified on a 1.1 GB vault: verify now completes at the default heap with identical check results.
+
 ## [0.12.1] - 2026-07-20
 
 Community release — all six fixes contributed by [@tynamite](https://github.com/tynamite) (PRs #15–#20). Thank you!

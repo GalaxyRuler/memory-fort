@@ -20,7 +20,7 @@ export const sourceFieldCheck: CheckDescriptor = {
 };
 
 export async function checkSourceField(ctx: VerifyCheckContext): Promise<VerifyCheckResult> {
-  const corpus = await loadSearchCorpus({ vaultRoot: ctx.vaultRoot, scope: "wiki" });
+  const corpus = await loadSearchCorpus({ vaultRoot: ctx.vaultRoot, scope: "wiki", omitBodies: true });
   const live = corpus.documents.filter(
     (document) =>
       !document.relPath.startsWith("wiki/archive/") &&
