@@ -1,7 +1,8 @@
 import { spawn } from "node:child_process";
 import { appendFile, mkdir, readFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { atomicWrite } from "../storage/atomic-write.js";
+import { withFileLock } from "../storage/file-lock.js";
 import { schedulerStatePath } from "../storage/paths.js";
 import { resolveWorkerPath } from "./worker-paths.js";
 import { runCompile, runCompileDrain, type CompileDrainResult, type CompileResult } from "../cli/commands/compile.js";
@@ -89,9 +90,18 @@ const SCHEDULER_HEARTBEAT_MS = 15 * 60 * 1000;
 
 type SchedulerState = Record<string, Record<string, string>>;
 
-async function readSchedulerState(): Promise<SchedulerState> {
+/**
+ * One state key per vault regardless of how the caller spelled the path —
+ * separator, case, or trailing-slash variants must not fork stamp histories.
+ */
+function canonicalVaultKey(vaultRoot: string): string {
+  const resolved = resolve(vaultRoot).replace(/[\\/]+$/, "");
+  return process.platform === "win32" ? resolved.toLowerCase() : resolved;
+}
+
+async function readSchedulerState(statePath: string): Promise<SchedulerState> {
   try {
-    const raw = await readFile(schedulerStatePath(), "utf-8");
+    const raw = await readFile(statePath, "utf-8");
     const parsed = JSON.parse(raw) as unknown;
     return typeof parsed === "object" && parsed !== null ? (parsed as SchedulerState) : {};
   } catch {
@@ -99,25 +109,61 @@ async function readSchedulerState(): Promise<SchedulerState> {
   }
 }
 
-async function isSchedulerTaskDue(
-  vaultRoot: string,
-  task: string,
-  cadenceMs: number,
-  now: Date,
-): Promise<boolean> {
-  const last = (await readSchedulerState())[vaultRoot]?.[task];
+function isTaskDueIn(state: SchedulerState, vaultKey: string, task: string, cadenceMs: number, now: Date): boolean {
+  const last = state[vaultKey]?.[task];
   if (!last) return true; // Never ran (or state lost) — catch up now.
   const lastMs = Date.parse(last);
   if (!Number.isFinite(lastMs)) return true;
   return now.getTime() - lastMs >= cadenceMs;
 }
 
-async function stampSchedulerRun(vaultRoot: string, task: string, now: Date): Promise<void> {
-  const path = schedulerStatePath();
-  const state = await readSchedulerState();
-  (state[vaultRoot] ??= {})[task] = now.toISOString();
-  await mkdir(dirname(path), { recursive: true });
-  await atomicWrite(path, `${JSON.stringify(state, null, 2)}\n`);
+async function writeSchedulerState(statePath: string, state: SchedulerState): Promise<void> {
+  await mkdir(dirname(statePath), { recursive: true });
+  await atomicWrite(statePath, `${JSON.stringify(state, null, 2)}\n`);
+}
+
+/**
+ * Atomically re-check dueness and stamp the claim under the cross-process file
+ * lock, so two dashboard processes on the same vault cannot both observe a
+ * task as due and run the same expensive job. Returns the prior stamp when the
+ * claim succeeded (for rollback on a gate-busy skip), or null when not due.
+ */
+async function claimSchedulerTask(
+  statePath: string,
+  vaultKey: string,
+  task: string,
+  cadenceMs: number,
+  now: Date,
+): Promise<{ prior: string | undefined; stamped: string } | null> {
+  return withFileLock(statePath, async () => {
+    const state = await readSchedulerState(statePath);
+    if (!isTaskDueIn(state, vaultKey, task, cadenceMs, now)) return null;
+    const prior = state[vaultKey]?.[task];
+    const stamped = now.toISOString();
+    (state[vaultKey] ??= {})[task] = stamped;
+    await writeSchedulerState(statePath, state);
+    return { prior, stamped };
+  }, { timeoutMs: 10_000, staleMs: 60_000 });
+}
+
+/** Roll a claim back (gate was busy — the task must stay due). */
+async function releaseSchedulerClaim(
+  statePath: string,
+  vaultKey: string,
+  task: string,
+  claim: { prior: string | undefined; stamped: string },
+): Promise<void> {
+  await withFileLock(statePath, async () => {
+    const state = await readSchedulerState(statePath);
+    // Only undo our own stamp — another process may have claimed since.
+    if (state[vaultKey]?.[task] !== claim.stamped) return;
+    if (claim.prior === undefined) {
+      delete state[vaultKey]![task];
+    } else {
+      state[vaultKey]![task] = claim.prior;
+    }
+    await writeSchedulerState(statePath, state);
+  }, { timeoutMs: 10_000, staleMs: 60_000 });
 }
 
 export async function createAutoPromoteScheduler(
@@ -178,32 +224,41 @@ export async function createAutoPromoteScheduler(
     }
   };
 
-  // Attempt one task: skip quietly when the gate is busy (stays due, retried
-  // next heartbeat); stamp after any actual attempt — success or failure — so
-  // a crashing task retries at its cadence instead of hot-looping.
-  const attemptTask = async (task: string, label: string, run: () => Promise<void>): Promise<void> => {
+  // Captured at construction so a heartbeat that outlives close() (or a test
+  // fixture teardown that restores env vars) can never write to a DIFFERENT
+  // state file than the one it claimed against.
+  const statePath = schedulerStatePath();
+  const vaultKey = canonicalVaultKey(opts.vaultRoot);
+  let closed = false;
+
+  // Attempt one task. The due-check + stamp happen atomically under the
+  // cross-process file lock (claim), so concurrent dashboards run a due task
+  // once. A gate-busy skip releases the claim (stays due for the next
+  // heartbeat); a failure keeps it, so a crashing task retries at its cadence
+  // instead of hot-looping.
+  const attemptTask = async (task: string, label: string, cadenceMs: number, run: () => Promise<void>): Promise<void> => {
+    if (closed) return;
     try {
+      const claim = await claimSchedulerTask(statePath, vaultKey, task, cadenceMs, now());
+      if (claim === null) return;
       const admission = await fullCorpusGate.tryRunMaintenance(run);
-      if (!admission.started) return;
+      if (!admission.started && !closed) {
+        await releaseSchedulerClaim(statePath, vaultKey, task, claim);
+      }
     } catch (error) {
-      await logSchedulerFailure(opts.vaultRoot, `${label} scheduler failed`, error);
+      // Nothing in a heartbeat may escape as an unhandled rejection — not the
+      // task, not the state lock, not a torn-down state directory.
+      if (!closed) await logSchedulerFailure(opts.vaultRoot, `${label} scheduler failed`, error);
     }
-    await stampSchedulerRun(opts.vaultRoot, task, now());
   };
 
   const heartbeat = async (): Promise<void> => {
-    if (running) return;
+    if (running || closed) return;
     running = true;
     try {
-      if (compileEnabled && await isSchedulerTaskDue(opts.vaultRoot, "compile", compileCadenceMs!, now())) {
-        await attemptTask("compile", "compile", runCompileTask);
-      }
-      if (autoPromoteEnabled && await isSchedulerTaskDue(opts.vaultRoot, "auto-promote", autoPromoteCadenceMs!, now())) {
-        await attemptTask("auto-promote", "auto-promote", runAutoPromoteTask);
-      }
-      if (sniffEnabled && await isSchedulerTaskDue(opts.vaultRoot, "sniff", SNIFF_CADENCE_MS, now())) {
-        await attemptTask("sniff", "sniff", runSniffTask);
-      }
+      if (compileEnabled) await attemptTask("compile", "compile", compileCadenceMs!, runCompileTask);
+      if (autoPromoteEnabled) await attemptTask("auto-promote", "auto-promote", autoPromoteCadenceMs!, runAutoPromoteTask);
+      if (sniffEnabled) await attemptTask("sniff", "sniff", SNIFF_CADENCE_MS, runSniffTask);
     } finally {
       running = false;
     }
@@ -215,6 +270,7 @@ export async function createAutoPromoteScheduler(
 
   return {
     close: () => {
+      closed = true;
       for (const interval of intervals) clearIntervalFactory(interval);
     },
   };
@@ -345,10 +401,13 @@ function defaultVaultWorkerPath(): string {
  * peak lives and dies in the child, isolated from the dashboard/app heap.
  * Resolves when the child exits 0; rejects on spawn error or non-zero exit.
  */
+/** A child that never exits must not wedge every future heartbeat. */
+const SCHEDULED_CHILD_TIMEOUT_MS = 60 * 60 * 1000;
+
 export function runScheduledVaultTaskInChild(
   vaultRoot: string,
   kind: ScheduledVaultTaskKind,
-  opts: { spawnFn?: typeof spawn; workerPath?: string } = {},
+  opts: { spawnFn?: typeof spawn; workerPath?: string; timeoutMs?: number } = {},
 ): Promise<void> {
   const spawnFn = opts.spawnFn ?? spawn;
   const workerPath = opts.workerPath ?? defaultVaultWorkerPath();
@@ -357,10 +416,29 @@ export function runScheduledVaultTaskInChild(
       stdio: "ignore",
       windowsHide: true,
     });
-    child.once("error", rejectPromise);
+    let timedOut = false;
+    const deadline = setTimeout(() => {
+      timedOut = true;
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        // Already gone.
+      }
+    }, opts.timeoutMs ?? SCHEDULED_CHILD_TIMEOUT_MS);
+    deadline.unref?.();
+    child.once("error", (error) => {
+      clearTimeout(deadline);
+      rejectPromise(error);
+    });
     child.once("exit", (code) => {
-      if (code === 0) resolvePromise();
-      else rejectPromise(new Error(`scheduled vault worker (${kind}) exited with code ${code ?? "unknown"}`));
+      clearTimeout(deadline);
+      if (timedOut) {
+        rejectPromise(new Error(`scheduled vault worker (${kind}) timed out and was killed`));
+      } else if (code === 0) {
+        resolvePromise();
+      } else {
+        rejectPromise(new Error(`scheduled vault worker (${kind}) exited with code ${code ?? "unknown"}`));
+      }
     });
   });
 }
@@ -431,13 +509,18 @@ function compileBytesReduced(result: CompileResult): number {
 }
 
 async function logSchedulerFailure(vaultRoot: string, label: string, error: unknown): Promise<void> {
-  await appendFile(
-    join(vaultRoot, "errors.log"),
-    `[${new Date().toISOString()}] ${label}: ${
-      error instanceof Error ? error.message : String(error)
-    }\n`,
-    "utf-8",
-  );
+  try {
+    await appendFile(
+      join(vaultRoot, "errors.log"),
+      `[${new Date().toISOString()}] ${label}: ${
+        error instanceof Error ? error.message : String(error)
+      }\n`,
+      "utf-8",
+    );
+  } catch {
+    // The error log itself being unwritable (vault gone, teardown race) must
+    // never escalate into an unhandled heartbeat rejection.
+  }
 }
 
 function countRemainingRawFiles(skipped: CompileResult["rawFilesSkipped"]): number {

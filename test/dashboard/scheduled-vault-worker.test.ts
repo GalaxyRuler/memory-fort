@@ -41,6 +41,26 @@ describe("runScheduledVaultTaskInChild", () => {
     ).rejects.toThrow(/exited with code 1/);
   });
 
+  it("kills and rejects a child that never exits so heartbeats cannot wedge", async () => {
+    const killed: string[] = [];
+    const child = new EventEmitter() as EventEmitter & { kill: (signal?: string) => void };
+    child.kill = (signal?: string) => {
+      killed.push(signal ?? "SIGTERM");
+      // A killed process eventually emits exit — simulate that.
+      queueMicrotask(() => child.emit("exit", null));
+    };
+    const spawnFn = vi.fn(() => child); // never emits exit on its own
+
+    await expect(
+      runScheduledVaultTaskInChild("/vault", "compile", {
+        spawnFn: spawnFn as never,
+        workerPath: "/w/scheduled-vault-worker.mjs",
+        timeoutMs: 30,
+      }),
+    ).rejects.toThrow(/timed out and was killed/);
+    expect(killed).toEqual(["SIGKILL"]);
+  });
+
   it("isolates the auto-heal tick in a child, passing the reconcile flag", async () => {
     const { spawnFn, calls } = fakeSpawn(0);
     await runAutoHealTickInChild("/vault", true, {

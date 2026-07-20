@@ -26,21 +26,33 @@ describe("ClaudeDesktopSniffer", () => {
     await expect(sniffer.available()).resolves.toBe(true);
   });
 
-  it("never lists files at the Claude dir root — only session/log dirs", async () => {
+  it("imports only session dirs — never the Claude root, logs/, or signal-less JSON", async () => {
     await mkdir(join(claudeDir, "logs"), { recursive: true });
-    await mkdir(join(claudeDir, "claude-code-sessions"), { recursive: true });
+    await mkdir(join(claudeDir, "claude-code-sessions", "nested"), { recursive: true });
+    await mkdir(join(claudeDir, "local-agent-mode-sessions", "skills-plugin"), { recursive: true });
     // Root files include credential-adjacent material (oauth:tokenCache) and
-    // app resources; a root walk once imported 1282 junk files into the vault.
+    // app resources; a root walk once imported 1282 junk files into the vault,
+    // and hourly logs/ imports rewrote ~0.9GB/day of telemetry.
     await writeFile(join(claudeDir, "claude_desktop_config.json"), '{"oauth:tokenCache":"secret-blob"}');
     await writeFile(join(claudeDir, "buddy-tokens.json"), '{"tokens-today":{}}');
     await writeFile(join(claudeDir, "logs", "main.log"), '{"sessionId":"log-1","timestamp":"2026-05-25T08:00:00.000Z","content":"log line"}\n');
+    // Signal-less JSON inside a session dir (plugin manifest) must be skipped.
+    await writeFile(join(claudeDir, "local-agent-mode-sessions", "skills-plugin", "manifest.json"), '{"name":"skills","version":"1.0.0"}');
     await writeFile(join(claudeDir, "claude-code-sessions", "cc-1.jsonl"), '{"sessionId":"cc-1","timestamp":"2026-05-25T08:00:00.000Z","content":"cc line"}\n');
+    // Same basename in different dirs must not collapse onto one capture id.
+    await writeFile(join(claudeDir, "claude-code-sessions", "nested", "session.jsonl"), '{"timestamp":"2026-05-25T09:00:00.000Z","role":"user","content":"nested a"}\n');
+    await writeFile(join(claudeDir, "local-agent-mode-sessions", "session.jsonl"), '{"timestamp":"2026-05-25T09:00:00.000Z","role":"user","content":"top b"}\n');
 
     const sniffer = new ClaudeDesktopSniffer({ claudeDir });
     const sessions: string[] = [];
     for await (const session of sniffer.list({})) sessions.push(session.sessionId);
 
-    expect(sessions.sort()).toEqual(["cc-1", "log-1"]);
+    expect(sessions).toContain("cc-1");
+    expect(sessions).not.toContain("log-1");
+    expect(sessions.join(",")).not.toContain("manifest");
+    const fallbackIds = sessions.filter((id) => id.startsWith("session-"));
+    expect(fallbackIds).toHaveLength(2);
+    expect(new Set(fallbackIds).size).toBe(2);
   });
 
   it("parses Claude Desktop JSONL sessions into raw markdown sections", async () => {
@@ -86,9 +98,9 @@ describe("ClaudeDesktopSniffer", () => {
   });
 
   it("filters supported session files by mtime and honors limit", async () => {
-    await mkdir(join(claudeDir, "logs"), { recursive: true });
-    const oldFile = join(claudeDir, "logs", "old.jsonl");
-    const newFile = join(claudeDir, "logs", "new.jsonl");
+    await mkdir(join(claudeDir, "local-agent-mode-sessions"), { recursive: true });
+    const oldFile = join(claudeDir, "local-agent-mode-sessions", "old.jsonl");
+    const newFile = join(claudeDir, "local-agent-mode-sessions", "new.jsonl");
     await writeJsonl(oldFile, [entry("old", "2026-05-20T00:00:00.000Z")]);
     await writeJsonl(newFile, [entry("new", "2026-05-25T00:00:00.000Z")]);
     await utimes(oldFile, new Date("2026-05-20T00:00:00.000Z"), new Date("2026-05-20T00:00:00.000Z"));
@@ -104,7 +116,7 @@ describe("ClaudeDesktopSniffer", () => {
   });
 
   it("watches supported files and emits reparsed sessions on file growth", async () => {
-    const logsDir = join(claudeDir, "logs");
+    const logsDir = join(claudeDir, "local-agent-mode-sessions");
     await mkdir(logsDir, { recursive: true });
     const sessionFile = join(logsDir, "live.jsonl");
     await writeJsonl(sessionFile, [entry("live", "2026-05-26T10:00:00.000Z")]);

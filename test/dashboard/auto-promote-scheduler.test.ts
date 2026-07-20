@@ -372,6 +372,42 @@ describe("auto-promote scheduler", () => {
     expect(sniffRunner).not.toHaveBeenCalled();
   });
 
+  it("keys stamps by canonical vault path — spelling variants share one history", async () => {
+    const handle = Symbol("interval") as unknown as NodeJS.Timeout;
+    const configLoader = async () => ({ auto_promote: { enabled: true, cadence: "daily" }, compile: { scheduled: false } });
+
+    const firstFactory = vi.fn(() => handle);
+    const firstRunner = vi.fn(async () => undefined);
+    await createAutoPromoteScheduler({ vaultRoot: tmp, configLoader, intervalFactory: firstFactory, runner: firstRunner });
+    await fireHeartbeat(firstFactory);
+    expect(firstRunner).toHaveBeenCalledOnce();
+
+    // Same vault, different spelling (trailing separator + case) — not due.
+    const variant = `${tmp.toUpperCase()}\\`;
+    const secondFactory = vi.fn(() => handle);
+    const secondRunner = vi.fn(async () => undefined);
+    await createAutoPromoteScheduler({ vaultRoot: variant, configLoader, intervalFactory: secondFactory, runner: secondRunner });
+    await fireHeartbeat(secondFactory);
+    expect(secondRunner).not.toHaveBeenCalled();
+  });
+
+  it("does not run tasks after close()", async () => {
+    const handle = Symbol("interval") as unknown as NodeJS.Timeout;
+    const intervalFactory = vi.fn(() => handle);
+    const runner = vi.fn(async () => undefined);
+    const scheduler = await createAutoPromoteScheduler({
+      vaultRoot: tmp,
+      configLoader: async () => ({ auto_promote: { enabled: true, cadence: "daily" }, compile: { scheduled: false } }),
+      intervalFactory,
+      runner,
+    });
+
+    scheduler.close();
+    await fireHeartbeat(intervalFactory);
+
+    expect(runner).not.toHaveBeenCalled();
+  });
+
   it("does not stamp a gate-busy skip — the task stays due for the next heartbeat", async () => {
     const handle = Symbol("interval") as unknown as NodeJS.Timeout;
     const intervalFactory = vi.fn(() => handle);

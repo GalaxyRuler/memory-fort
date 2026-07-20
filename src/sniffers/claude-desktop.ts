@@ -1,6 +1,7 @@
+import { createHash } from "node:crypto";
 import { existsSync, watch, type FSWatcher } from "node:fs";
 import { readdir, readFile, stat } from "node:fs/promises";
-import { basename, extname, join } from "node:path";
+import { basename, extname, join, relative } from "node:path";
 import { claudeDesktopConfigDir } from "../storage/paths.js";
 import { formatTimestamp } from "../hooks/raw-file.js";
 import type { Closable, ListOpts, RawSession, Sniffer } from "./types.js";
@@ -32,7 +33,12 @@ export class ClaudeDesktopSniffer implements Sniffer {
     for (const filePath of await listSupportedFiles(this.candidateDirs())) {
       const fileStat = await stat(filePath);
       if (opts.since && fileStat.mtime < opts.since) continue;
-      yield await parseClaudeDesktopSession(filePath, fileStat.mtime);
+      const session = await parseClaudeDesktopSession(filePath, fileStat.mtime, this.claudeDir);
+      // A real session carries a session identifier or timestamped events.
+      // JSON that parses but has neither (plugin manifests, configs, package
+      // metadata) is app plumbing, not memory.
+      if (!hasSessionSignal(session)) continue;
+      yield session;
       yielded++;
       if (opts.limit !== undefined && yielded >= opts.limit) break;
     }
@@ -57,7 +63,9 @@ export class ClaudeDesktopSniffer implements Sniffer {
             const previous = seenMtime.get(filePath);
             if (previous === fileStat.mtimeMs) return;
             seenMtime.set(filePath, fileStat.mtimeMs);
-            handler(await parseClaudeDesktopSession(filePath, fileStat.mtime));
+            const session = await parseClaudeDesktopSession(filePath, fileStat.mtime, this.claudeDir);
+            if (!hasSessionSignal(session)) return;
+            handler(session);
           } catch {
             // The file may still be moving or locked by Claude Desktop.
             // A later change event will retry the parse.
@@ -91,12 +99,11 @@ export class ClaudeDesktopSniffer implements Sniffer {
   }
 
   private candidateDirs(): string[] {
-    // Session/log dirs ONLY — never the Claude dir root. A root walk sweeps
-    // app resources (fonts, lockfiles, Cache/, leveldb) and credential-adjacent
-    // files (claude_desktop_config.json with its oauth:tokenCache blob) into
-    // the vault: observed as a 1282-file junk import including token material.
+    // Session dirs ONLY — never the Claude dir root (a root walk once swept
+    // 1282 junk files including the oauth:tokenCache blob into the vault) and
+    // never logs/ (app/MCP telemetry, not conversations — importing it hourly
+    // rewrote ~0.9GB/day of main.log noise into the synced vault).
     return uniquePaths([
-      join(this.claudeDir, "logs"),
       join(this.claudeDir, "local-agent-mode-sessions"),
       join(this.claudeDir, "claude-code-sessions"),
     ]);
@@ -106,6 +113,7 @@ export class ClaudeDesktopSniffer implements Sniffer {
 export async function parseClaudeDesktopSession(
   filePath: string,
   fallbackDate: Date = new Date(),
+  rootDir?: string,
 ): Promise<RawSession> {
   const raw = await readFile(filePath, "utf-8");
   const entries = parseEntries(raw, extname(filePath).toLowerCase());
@@ -113,10 +121,13 @@ export async function parseClaudeDesktopSession(
   const sections: string[] = [];
   let sessionId: string | undefined;
   let cwd: string | undefined;
+  let sawExplicitTimestamp = false;
 
   for (const entry of entries) {
     const event = normalizeEvent(entry);
-    const timestamp = timestampFrom(event) ?? fallbackDate;
+    const explicit = timestampFrom(event);
+    if (explicit) sawExplicitTimestamp = true;
+    const timestamp = explicit ?? fallbackDate;
     timestamps.push(timestamp);
     sessionId ??= stringField(event, "sessionId") ??
       stringField(event, "session_id") ??
@@ -129,10 +140,15 @@ export async function parseClaudeDesktopSession(
 
   const startedAt = earliestDate(timestamps) ?? fallbackDate;
   const updatedAt = latestDate(timestamps) ?? fallbackDate;
-  const fallbackSessionId = basename(filePath).replace(/\.(jsonl|json|log|txt)$/i, "");
+  // Same-basename files in different nested session dirs must not collapse
+  // onto one capture path: disambiguate the fallback id with a hash of the
+  // source-relative path.
+  const stem = basename(filePath).replace(/\.(jsonl|json|log|txt)$/i, "");
+  const relSource = rootDir ? relative(rootDir, filePath).replace(/\\/g, "/") : basename(filePath);
+  const pathTag = createHash("sha1").update(relSource).digest("hex").slice(0, 8);
   return {
     source: "claude-desktop",
-    sessionId: sessionId ?? fallbackSessionId,
+    sessionId: sessionId ?? `${stem}-${pathTag}`,
     startedAt: startedAt.toISOString(),
     updatedAt: updatedAt.toISOString(),
     cwd,
@@ -143,8 +159,15 @@ export async function parseClaudeDesktopSession(
     rawSource: {
       filePath,
       entryCount: entries.length,
+      sessionSignal: sessionId !== undefined || sawExplicitTimestamp,
     },
   };
+}
+
+/** True when the parse found a session identifier or timestamped events. */
+export function hasSessionSignal(session: RawSession): boolean {
+  const rawSource = session.rawSource as { sessionSignal?: boolean } | undefined;
+  return rawSource?.sessionSignal === true;
 }
 
 async function listSupportedFiles(roots: string[]): Promise<string[]> {
@@ -162,7 +185,9 @@ async function listSupportedFiles(roots: string[]): Promise<string[]> {
 }
 
 function isSupportedSessionFile(filePath: string): boolean {
-  return /\.(jsonl|json|log|txt)$/i.test(filePath);
+  // Session transcripts are JSON/JSONL. .log/.txt under the session dirs are
+  // telemetry or licenses — never conversations.
+  return /\.(jsonl|json)$/i.test(filePath);
 }
 
 function parseEntries(raw: string, extension: string): unknown[] {

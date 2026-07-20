@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { atomicAppend, atomicWrite } from "../storage/atomic-write.js";
 import { formatIsoDate, memoryRoot } from "../storage/paths.js";
@@ -42,7 +43,16 @@ export async function runWatchRunner(
 
   const capture = async (sniffer: Sniffer, session: RawSession): Promise<void> => {
     const relPath = rawSessionRelPath(session);
-    await atomicWrite(join(root, ...relPath.split("/")), renderRawSession(session));
+    const target = join(root, ...relPath.split("/"));
+    const content = renderRawSession(session);
+    // Idempotent re-imports: an unchanged source must not rewrite (and dirty
+    // for sync) the existing capture on every scheduled pass.
+    try {
+      if (await readFile(target, "utf-8") === content) return;
+    } catch {
+      // Missing or unreadable target — proceed with the write.
+    }
+    await atomicWrite(target, content);
     result.captured++;
     await appendWatchLog(logPath, `captured ${sniffer.name} ${session.sessionId} -> ${relPath}`);
   };
