@@ -1257,7 +1257,57 @@ async function guardRewriteOperation(
   if (!coverage.ok) {
     return { ok: true, stage: true, reason: "rewrite drops salient anchors - review for content loss" };
   }
+  // Dated update sections are append-only history: a rewrite that deletes or
+  // reworks one is content loss even when anchor coverage holds (the prompt's
+  // "dated sections verbatim" rule, enforced — prose rules alone were ignored
+  // in 13 of 16 observed staged rewrites).
+  const lostDated = missingDatedSections(parsed.body, operation.body);
+  if (lostDated.length > 0) {
+    return {
+      ok: true,
+      stage: true,
+      reason: `rewrite drops or alters dated history section(s): ${lostDated.join(", ")} - review for content loss`,
+    };
+  }
   return { ok: true, stage: false };
+}
+
+/**
+ * Extract `## <YYYY-MM-DD ...>` sections and report the headings whose content
+ * is missing or changed in the next body (whitespace-insensitive compare).
+ */
+export function missingDatedSections(previousBody: string, nextBody: string): string[] {
+  const previous = datedSections(previousBody);
+  const next = datedSections(nextBody);
+  const lost: string[] = [];
+  for (const [heading, content] of previous) {
+    if (next.get(heading) !== content) lost.push(heading);
+  }
+  return lost;
+}
+
+function datedSections(body: string): Map<string, string> {
+  const sections = new Map<string, string>();
+  const lines = body.split(/\r?\n/);
+  let heading: string | null = null;
+  let buffer: string[] = [];
+  const flush = () => {
+    if (heading !== null) sections.set(heading, normalizeContent(buffer.join("\n")));
+    heading = null;
+    buffer = [];
+  };
+  for (const line of lines) {
+    if (/^##\s/.test(line)) {
+      flush();
+      if (/^##\s+\S*\d{4}-\d{2}-\d{2}/.test(line)) {
+        heading = line.trim();
+      }
+      continue;
+    }
+    if (heading !== null) buffer.push(line);
+  }
+  flush();
+  return sections;
 }
 
 async function steerExistingPageOperation(

@@ -627,27 +627,12 @@ export function metricNarrativeThreadCoverage(input: GraphHealthInput): MetricRe
   };
 
   const allWikiPages = graphHealthWikiPages(input);
-  const allRawRefDays: string[] = [];
-  for (const page of allWikiPages) {
-    for (const relations of Object.values(page.relations ?? {})) {
-      for (const relation of relations) {
-        const day = relation.target.startsWith("raw/") ? dateFromPath(relation.target) : null;
-        if (day) allRawRefDays.push(day);
-      }
-    }
-  }
-  const upperDay = inputDay(input.now) ?? maxDateOnly(allRawRefDays);
-  if (!upperDay) {
-    return {
-      id: "graph.narrative-thread-coverage",
-      label: "Narrative thread coverage",
-      value: null,
-      threshold: { warn: 50, fail: 25, rule: "pass >= 50%, warn >= 25%, fail < 25%" },
-      status: "n/a",
-      detail: "no wiki-referenced raw observations in window",
-      topOffenders: [],
-    };
-  }
+  // Freshness must age against the WALL CLOCK, never against the newest wiki
+  // raw reference: with a stalled compile that reference freezes too, so both
+  // sides of the comparison would stop moving and a dead pipeline would read
+  // "pass" forever. (Verified: an aged fixture reported pass/0d against its
+  // own frozen refs but fail/200d against the real clock.)
+  const upperDay = inputDay(input.now) ?? new Date().toISOString().slice(0, 10);
   const isInWindow = (day: string) => isWithinTrailingDays(day, upperDay, NARRATIVE_THREAD_WINDOW_DAYS);
   const knownRawPaths = collectWindowRawRefs(allWikiPages, isInWindow);
   const referencedRawPaths = collectWindowRawRefs(threadPages, isInWindow);
@@ -663,7 +648,8 @@ export function metricNarrativeThreadCoverage(input: GraphHealthInput): MetricRe
     for (const relations of Object.values(page.relations ?? {})) {
       for (const relation of relations) {
         const day = relation.target.startsWith("raw/") ? dateFromPath(relation.target) : null;
-        if (day) threadRefDays.push(day);
+        // Future-dated (misdated) references must not fake freshness.
+        if (day && day <= upperDay) threadRefDays.push(day);
       }
     }
   }

@@ -642,9 +642,10 @@ describe("graph health metrics", () => {
     expect(result.detail).toContain("threads cover 1/3 wiki-referenced raw in trailing 30d (33.3%)");
   });
 
-  it("returns n/a for narrative thread coverage when raw references carry no dates", () => {
+  it("fails when thread raw references carry no dates (cannot prove freshness)", () => {
     const result = metricNarrativeThreadCoverage(
       graphInput({
+        now: "2026-06-01",
         wikiPages: [
           wikiPage("wiki/threads/live.md", {
             relations: { mentions: [{ target: "raw/unknown-date.md" }] },
@@ -653,9 +654,49 @@ describe("graph health metrics", () => {
       }),
     );
 
-    expect(result.status).toBe("n/a");
+    expect(result.status).toBe("fail");
     expect(result.value).toBeNull();
-    expect(result.detail).toBe("no wiki-referenced raw observations in window");
+    expect(result.detail).toContain("live threads reference no dated raw observations");
+  });
+
+  it("ages against the wall clock when no reference time is injected", () => {
+    // A stalled pipeline must not freeze both sides of the comparison: with
+    // only old references and NO injected now, the metric must age them
+    // against the real current day and fail.
+    const result = metricNarrativeThreadCoverage(
+      graphInput({
+        wikiPages: [
+          wikiPage("wiki/threads/live.md", {
+            relations: { mentions: [{ target: "raw/2026-01-01/old.md" }] },
+          }),
+        ],
+      }),
+    );
+
+    expect(result.status).toBe("fail");
+    expect(typeof result.value).toBe("number");
+    expect(result.value as number).toBeGreaterThan(60);
+  });
+
+  it("ignores future-dated raw references when computing freshness", () => {
+    const result = metricNarrativeThreadCoverage(
+      graphInput({
+        now: "2026-06-01",
+        wikiPages: [
+          wikiPage("wiki/threads/live.md", {
+            relations: {
+              mentions: [
+                { target: "raw/2027-01-01/misdated.md" },
+                { target: "raw/2026-03-01/real.md" },
+              ],
+            },
+          }),
+        ],
+      }),
+    );
+
+    expect(result.status).toBe("fail");
+    expect(result.value).toBe(92);
   });
 
   it("ignores archived threads for narrative thread freshness", () => {

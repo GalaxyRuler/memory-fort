@@ -541,8 +541,15 @@ async function loadExistingThreadRawRefs(vaultRoot: string): Promise<Array<Set<s
         const refs = new Set<string>();
         for (const targets of Object.values(relations as Record<string, unknown>)) {
           if (!Array.isArray(targets)) continue;
-          for (const target of targets) {
-            if (typeof target === "string" && target.startsWith("raw/")) refs.add(target);
+          for (const entry of targets) {
+            // Relation targets come in both supported forms: "raw/..." and
+            // { target: "raw/..." } edge objects.
+            const target = typeof entry === "string"
+              ? entry
+              : typeof entry === "object" && entry !== null && typeof (entry as { target?: unknown }).target === "string"
+                ? (entry as { target: string }).target
+                : null;
+            if (target?.startsWith("raw/")) refs.add(target);
           }
         }
         if (refs.size > 0) sets.push(refs);
@@ -558,9 +565,16 @@ function isClusterAlreadyThreaded(
   cluster: { observations: Array<{ relPath: string }> },
   existing: Array<Set<string>>,
 ): boolean {
-  return existing.some((refs) =>
-    cluster.observations.some((observation) => refs.has(observation.relPath)),
-  );
+  // "Already represented" needs MEANINGFUL coverage by one existing thread:
+  // at least two shared observations AND at least half the cluster. A single
+  // shared observation must not starve proposals — one broad thread touching
+  // a common observation would otherwise suppress every future cluster.
+  const total = cluster.observations.length;
+  if (total === 0) return false;
+  return existing.some((refs) => {
+    const shared = cluster.observations.filter((observation) => refs.has(observation.relPath)).length;
+    return shared >= 2 && shared * 2 >= total;
+  });
 }
 
 function uniqueProposalSlug(vaultRoot: string, proposedSlug: string): string {

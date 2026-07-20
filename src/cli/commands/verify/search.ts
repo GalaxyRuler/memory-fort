@@ -87,7 +87,13 @@ async function runDefaultSearch(
 async function runLocalSearch(vaultRoot: string): Promise<SearchResponse> {
   return runRetrievalSearch({
     query: "memory fort",
-    scope: "all",
+    // wiki scope: the local pipeline retains bodies, and an all-scope load on
+    // a multi-GB raw pool is exactly the OOM this check's dashboard-first path
+    // exists to avoid. Verifying the pipeline against the (small) curated wiki
+    // corpus answers the same question — "does search return results" —
+    // without the fallback being able to kill the process (`--offline`, a
+    // starting dashboard, or an empty index all land here).
+    scope: "wiki",
     k: 5,
     noRerank: true,
     noHyde: true,

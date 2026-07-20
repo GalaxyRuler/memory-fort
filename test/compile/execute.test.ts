@@ -558,7 +558,7 @@ describe("compile execute operations", () => {
     expect(parseFrontmatter(archived).body).toContain("fact delta");
   });
 
-  it("applies a shorter rewrite when salient relation and link anchors are preserved", async () => {
+  it("applies a shorter rewrite when anchors and dated history are preserved", async () => {
     await writeFileAt("wiki/projects/memory-fort.md", page(
       "projects",
       "Memory Fort",
@@ -568,8 +568,53 @@ describe("compile execute operations", () => {
         "## 2026-05-30 update",
         "",
         "Memory Fort integrates with [[tools/codex]]. Codex Desktop uses Memory Fort.",
+      ].join("\n"),
+    ));
+    await writeFileAt("wiki/tools/codex.md", page("tools", "Codex", "Codex Desktop."));
+
+    const result = await applyCompileOperations({
+      vaultRoot: tmp,
+      now: new Date("2026-05-31T12:00:00.000Z"),
+      operations: [{
+        kind: "rewrite_page",
+        path: "wiki/projects/memory-fort.md",
+        frontmatter: {
+          confidence: 0.9,
+          relations: { uses: ["wiki/tools/codex.md"] },
+        },
+        body: [
+          "Memory Fort integrates with [[tools/codex]] and stores durable memory for Codex Desktop.",
+          "",
+          "## 2026-05-30 update",
+          "",
+          "Memory Fort integrates with [[tools/codex]]. Codex Desktop uses Memory Fort.",
+          "",
+          "## 2026-05-31 update",
+          "",
+          "Memory Fort verified against Codex Desktop again.",
+        ].join("\n"),
+      }],
+    });
+
+    expect(result.outcomes).toContainEqual({
+      path: "wiki/projects/memory-fort.md",
+      outcome: "rewritten",
+      contentPreserved: true,
+    });
+    expect(result.proposed).toEqual([]);
+    expect(await readFile(join(tmp, "wiki", "projects", "memory-fort.md"), "utf-8"))
+      .toContain("Memory Fort integrates with [[tools/codex]]");
+    expect(existsSync(join(tmp, "wiki", ".history", "wiki", "projects", "memory-fort.md", "2026-05-31T12-00-00-000Z.md"))).toBe(true);
+  });
+
+  it("stages a rewrite that deletes a dated history section even with anchors intact", async () => {
+    await writeFileAt("wiki/projects/memory-fort.md", page(
+      "projects",
+      "Memory Fort",
+      [
+        "Memory Fort integrates with [[tools/codex]] and stores durable memory for Codex Desktop.",
         "",
-        "## 2026-05-31 update",
+        "## 2026-05-30 update",
         "",
         "Memory Fort integrates with [[tools/codex]]. Codex Desktop uses Memory Fort.",
       ].join("\n"),
@@ -590,15 +635,10 @@ describe("compile execute operations", () => {
       }],
     });
 
-    expect(result.outcomes).toContainEqual({
-      path: "wiki/projects/memory-fort.md",
-      outcome: "rewritten",
-      contentPreserved: true,
-    });
-    expect(result.proposed).toEqual([]);
-    expect(await readFile(join(tmp, "wiki", "projects", "memory-fort.md"), "utf-8"))
-      .toContain("Memory Fort integrates with [[tools/codex]]");
-    expect(existsSync(join(tmp, "wiki", ".history", "wiki", "projects", "memory-fort.md", "2026-05-31T12-00-00-000Z.md"))).toBe(true);
+    expect(result.proposed).toHaveLength(1);
+    const staged = result.outcomes.find((outcome) => outcome.outcome === "staged-for-review");
+    expect(staged?.reason).toContain("dated history section");
+    expect(staged?.reason).toContain("2026-05-30");
   });
 
   it("stages a rewrite that drops a prior relation anchor", async () => {

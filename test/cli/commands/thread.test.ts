@@ -66,7 +66,9 @@ describe("thread commands", () => {
     expect(formatThreadProposeResult(result)).toContain("References stripped: 0 (avg 0.0 per proposal)");
   });
 
-  it("skips clusters already represented by an existing thread without calling the LLM", async () => {
+  it("skips clusters meaningfully covered by an existing thread without calling the LLM", async () => {
+    // Two of the three cluster observations (majority) already narrativized —
+    // covered, skip before the LLM call. Object-form relation targets count.
     await writeMarkdown(
       "wiki/threads/settings-arc.md",
       [
@@ -75,7 +77,8 @@ describe("thread commands", () => {
         "title: Settings Arc",
         "relations:",
         "  mentions:",
-        "    - raw/2026-05-21/codex-1.md",
+        "    - target: raw/2026-05-21/codex-1.md",
+        "    - raw/2026-05-22/codex-2.md",
         "---",
         "",
         "Existing narrative covering the settings work.",
@@ -98,6 +101,37 @@ describe("thread commands", () => {
     expect(result.proposed).toBe(0);
     expect(result.skipped[0]?.reason).toBe("already represented by an existing thread or draft");
     expect(llm.chat).not.toHaveBeenCalled();
+  });
+
+  it("does not starve a cluster that shares only one observation with a thread", async () => {
+    await writeMarkdown(
+      "wiki/threads/settings-arc.md",
+      [
+        "---",
+        "type: threads",
+        "title: Settings Arc",
+        "relations:",
+        "  mentions:",
+        "    - raw/2026-05-21/codex-1.md",
+        "---",
+        "",
+        "Existing narrative touching one shared observation.",
+        "",
+      ].join("\n"),
+    );
+
+    const result = await runThreadPropose({
+      vaultRoot: tmp,
+      apply: false,
+      days: 30,
+      maxProposals: 1,
+      now: new Date("2026-05-28T12:00:00.000Z"),
+      configLoader: async () => ({ llm: { provider: "ollama", model: "llama3.2" } }),
+      llmFactory: () => fakeLLM("memory-fort-settings"),
+      env: {},
+    });
+
+    expect(result.proposed).toBe(1);
   });
 
   it("applies proposals to wiki/threads-proposed and handles slug collisions", async () => {
