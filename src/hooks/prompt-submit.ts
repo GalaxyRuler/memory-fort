@@ -1,4 +1,4 @@
-import { stat, readFile } from "node:fs/promises";
+import { open, stat, readFile } from "node:fs/promises";
 import { runHook, type HookPayload } from "./error-handler.js";
 import { detectTool } from "./util/detect-tool.js";
 import {
@@ -46,8 +46,8 @@ export async function promptSubmitBody(
   const now = nowFn();
 
   const sessionPath = await ensureFn({ tool, sessionId, cwd, now });
-  // Detect "first prompt of this session" BEFORE appending the block below.
-  const firstPrompt = await isFirstPrompt(sessionPath);
+  // Claim "first prompt of this session" BEFORE appending the block below.
+  const firstPrompt = await claimFirstPrompt(sessionPath);
   await appendFn({
     tool,
     sessionId,
@@ -63,11 +63,37 @@ export async function promptSubmitBody(
   }
 }
 
+function isLoopbackUrl(baseUrl: string): boolean {
+  try {
+    const { hostname } = new URL(baseUrl);
+    return hostname === "127.0.0.1" || hostname === "localhost" || hostname === "::1" || hostname === "[::1]";
+  } catch {
+    return false;
+  }
+}
+
 /** Session files start tiny; anything past this already saw its first prompt. */
 const FIRST_PROMPT_MAX_SCAN_BYTES = 32 * 1024;
 const RETRIEVAL_TIMEOUT_MS = 1500;
 const RETRIEVAL_RESULTS = 3;
 const RETRIEVAL_SNIPPET_CHARS = 220;
+
+/**
+ * Atomically claim the first prompt: an exclusive-create marker next to the
+ * session file means exactly ONE concurrent hook wins (two racing submissions
+ * used to both retrieve). The `.lock` suffix keeps it sync-transient. The
+ * content check below still guards sessions that predate the marker.
+ */
+async function claimFirstPrompt(sessionPath: string): Promise<boolean> {
+  const marker = `${sessionPath}.first-prompt.lock`;
+  try {
+    const handle = await open(marker, "wx");
+    await handle.close();
+  } catch {
+    return false; // Already claimed (or marker unwritable) — not first.
+  }
+  return isFirstPrompt(sessionPath);
+}
 
 async function isFirstPrompt(sessionPath: string): Promise<boolean> {
   try {
@@ -91,6 +117,11 @@ async function emitPromptRetrieval(prompt: string, deps: PromptSubmitDeps): Prom
   if (env["MEMORY_PROMPT_RETRIEVAL"]?.trim() === "0") return;
   try {
     const baseUrl = await resolveDashboardUrl(undefined);
+    // Privacy boundary: the raw prompt text goes into this request. Without an
+    // explicit opt-in it may only ever reach a loopback dashboard — a
+    // configured vps.host would otherwise silently receive every first prompt
+    // (and log it, since the query rides in the URL).
+    if (!isLoopbackUrl(baseUrl) && env["MEMORY_PROMPT_RETRIEVAL_REMOTE"]?.trim() !== "1") return;
     const query = prompt.replace(/\s+/g, " ").trim().slice(0, 300);
     if (query.length < 8) return; // Too short to retrieve anything meaningful.
     const response = await (deps.fetchFn ?? fetch)(

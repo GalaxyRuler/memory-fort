@@ -162,7 +162,7 @@ export function metricSalientEpisodeAnchorRate(input: GraphHealthInput): MetricR
     unit: "%",
     threshold: { warn: 75, fail: 50, rule: "pass >= 75%, warn >= 50%, fail < 50%" },
     status: statusBelow(value, 75, 50),
-    detail: `${anchored.length}/${salient.length} salient recent raw observations have semantic anchors (importance >= ${SALIENT_IMPORTANCE_THRESHOLD}, trailing ${rawWindow.days}-day window ending ${rawWindow.upperDay})`,
+    detail: `${anchored.length}/${salient.length} salient recent raw observations have semantic anchors (importance >= ${SALIENT_IMPORTANCE_THRESHOLD}, trailing ${rawWindow.days}-day window ending ${rawWindow.upperDay}; loaded-slice diagnostic — the feed's raw slice is byte-budgeted and may span fewer days)`,
     topOffenders: oldestNodes(salient.filter((node) => !anchoredRaw.has(node.path)), 5).map((node) => ({
       path: node.path,
       value: readImportance(node),
@@ -703,7 +703,7 @@ export function metricSuggestedThreadCount(input: GraphHealthInput): MetricResul
     unit: "count",
     threshold: { rule: "informational relation clusters not yet represented by live threads" },
     status: "pass",
-    detail: `${clusters.length} relation-graph cluster(s) could become thread proposals`,
+    detail: `${clusters.length} relation-graph cluster(s) could become thread proposals (loaded-slice diagnostic — clusters outside the byte-budgeted feed slice are not counted)`,
     topOffenders: clusters.slice(0, 5).map((cluster) => ({
       value: cluster.members.length,
       note: cluster.members.join(", "),

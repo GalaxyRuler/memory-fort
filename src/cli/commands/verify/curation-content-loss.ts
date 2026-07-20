@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { readFile, readdir } from "node:fs/promises";
 import { join, relative } from "node:path";
@@ -89,7 +90,13 @@ export async function analyzeCurationRewriteAnchors(vaultRoot: string): Promise<
     const reviewed = reviewedRaw instanceof Date ? reviewedRaw.toISOString() : reviewedRaw;
     const snapshotStamp = relative(historyRoot, historyFile).replace(/\\/g, "/").split("/").at(-1)?.replace(/\.md$/, "");
     if (typeof reviewed === "string" && snapshotStamp && reviewed.replace(/[:.]/g, "-") >= snapshotStamp) {
-      continue;
+      // The acknowledgment binds to the REVIEWED content: a later edit that
+      // does not produce a new history snapshot must re-arm the guard, or a
+      // permanent marker could paper over the next real loss.
+      const reviewedHash = current.frontmatter["content_loss_reviewed_hash"];
+      if (typeof reviewedHash === "string" && reviewedHash === reviewedContentHash(current.body)) {
+        continue;
+      }
     }
     const history = parseFrontmatter(await readFile(historyFile, "utf-8"));
     const coverages = factAnchorCoverage({
@@ -106,6 +113,11 @@ export async function analyzeCurationRewriteAnchors(vaultRoot: string): Promise<
     });
   }
   return analyses.sort((a, b) => a.path.localeCompare(b.path));
+}
+
+/** Whitespace-insensitive hash of a page body, for content_loss_reviewed_hash. */
+export function reviewedContentHash(body: string): string {
+  return createHash("sha256").update(body.replace(/\s+/g, " ").trim()).digest("hex");
 }
 
 async function listMarkdownFiles(root: string): Promise<string[]> {
