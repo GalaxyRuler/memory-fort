@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "baseline": {
+    "version": "0.13.0",
+    "commit": "adb94d79abebef1c772a8ddd8c4e0c6ce8da6539",
+    "measuredAt": "2026-07-23"
+  },
+  "retrieval": {
+    "minimumQuestionCount": 12,
+    "requiredCategories": ["fact", "causal", "temporal", "dependency", "provenance"],
+    "minimumRecallWithGraph": { "5": 1, "10": 1 },
+    "minimumMrrWithGraph": 0.84,
+    "minimumGraphLift": { "5": 0, "10": 0 },
+    "graphLiftConsistencyTolerance": 0.0001
+  },
+  "dispatch": {
+    "minimumTotal": 10,
+    "minimumAccuracy": 1,
+    "minimumCategoryAccuracy": 1,
+    "requiredCategories": ["duplicate", "contradiction", "supersession", "novel", "noop"]
+  }
+}

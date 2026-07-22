@@ -1,44 +1,56 @@
 name: Release (desktop binaries)
 
-# Builds the Electron desktop app for Windows, macOS, and Linux, then attaches
-# the installers to a GitHub Release. Triggered by pushing a version tag
-# (e.g. `git tag v0.8.7 && git push origin v0.8.7`), or run manually.
+# A release has three phases: run the same quality gates as CI, package every
+# platform without publishing, then validate and publish the complete set from
+# one job. A failed upload leaves only a draft release, never a partial public one.
 on:
   push:
     tags:
       - "v*"
   workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing version tag to validate, package, and publish
+        required: true
+        type: string
 
 permissions:
-  contents: write # needed to create the release and upload installers
+  contents: read
 
 jobs:
+  quality:
+    uses: ./.github/workflows/quality-gates.yml
+    with:
+      ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.sha }}
+
   build:
-    name: Build ${{ matrix.os }}
+    name: Package ${{ matrix.os }}
+    needs: quality
     runs-on: ${{ matrix.os }}
     strategy:
-      fail-fast: false # one platform failing must not block the others
+      fail-fast: false
       matrix:
         os:
           - windows-latest
           - macos-latest
           - ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+      RELEASE_REF: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.sha }}
 
     steps:
-      - name: Checkout
+      - name: Checkout release ref
         uses: actions/checkout@v4
         with:
+          ref: ${{ env.RELEASE_REF }}
           lfs: true
-
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: "24"
           cache: npm
-
       - name: Install dependencies
         run: npm install
-
       - name: Verify Electron toolchain versions
         shell: bash
         run: |
@@ -46,52 +58,105 @@ jobs:
           test "$(node -p "require('./node_modules/electron-builder/package.json').version")" = "26.15.5"
           test "$(node -p "require('./node_modules/@electron/rebuild/package.json').version")" = "4.0.4"
           npx electron-builder --version
-
       - name: Rebuild Electron native modules
         run: npm run electron:rebuild
-
       - name: Build (CLI + dashboard UI + electron main)
         run: npm run build
-
-      - name: Package and publish desktop app
-        # electron-builder defaults to the host OS target, so each matrix leg
-        # produces its own installer (.exe / .dmg / .AppImage).
-        run: npx electron-builder --publish always
+      - name: Package desktop app without publishing
+        run: npx electron-builder --publish never
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # No Apple Developer cert in CI — skip signing instead of failing.
           CSC_IDENTITY_AUTO_DISCOVERY: false
-
-      # Browsers (Chrome SmartScreen heuristic) block direct downloads of
-      # unsigned installers. Ship a .zip of each installer alongside the raw
-      # file so the download is not blocked; the raw installers + latest*.yml
-      # stay for the electron-updater feed. The .zip only fixes the download
-      # block — the unsigned installer still warns on run (signing is the only
-      # fix for that, and is intentionally never done).
-      - name: Zip installer for browser-safe download (Windows)
+      - name: Zip installers (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $exe = Get-ChildItem dist/electron-installer/*.exe | Select-Object -First 1
-          if (-not $exe) { throw "No .exe installer found to zip" }
-          $zip = "$($exe.FullName).zip"
-          Compress-Archive -Path $exe.FullName -DestinationPath $zip -Force
-          gh release upload ${{ github.ref_name }} $zip --clobber
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Zip installer for browser-safe download (macOS / Linux)
+          $installers = @(Get-ChildItem -LiteralPath dist/electron-installer -Filter *.exe)
+          if ($installers.Count -eq 0) { throw "No .exe installer found to zip" }
+          foreach ($installer in $installers) {
+            Compress-Archive -LiteralPath $installer.FullName -DestinationPath "$($installer.FullName).zip" -Force
+          }
+      - name: Zip installers (macOS / Linux)
         if: runner.os != 'Windows'
         shell: bash
         run: |
           cd dist/electron-installer
           shopt -s nullglob
-          found=0
-          for f in *.dmg *.AppImage; do
-            found=1
-            zip -q "$f.zip" "$f"
-            gh release upload "${{ github.ref_name }}" "$f.zip" --clobber
+          installers=( *.dmg *.AppImage )
+          if [ "${#installers[@]}" -eq 0 ]; then
+            echo "No .dmg or .AppImage installer found to zip" >&2
+            exit 1
+          fi
+          for installer in "${installers[@]}"; do
+            zip -q "$installer.zip" "$installer"
           done
-          if [ "$found" -eq 0 ]; then echo "No .dmg/.AppImage installer found to zip" >&2; exit 1; fi
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Create platform artifact manifest
+        shell: bash
+        run: |
+          version="$(node -p "require('./package.json').version")"
+          commit="$(git rev-parse HEAD)"
+          node scripts/release/create-desktop-artifact-manifest.mjs \
+            --directory dist/electron-installer \
+            --platform "$RUNNER_OS" \
+            --tag "$RELEASE_TAG" \
+            --version "$version" \
+            --commit "$commit"
+      - name: Upload validated package inputs
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ runner.os }}
+          if-no-files-found: error
+          retention-days: 7
+          path: |
+            dist/electron-installer/*.exe
+            dist/electron-installer/*.dmg
+            dist/electron-installer/*.AppImage
+            dist/electron-installer/*.zip
+            dist/electron-installer/latest*.yml
+            dist/electron-installer/*.blockmap
+            dist/electron-installer/artifact-manifest-*.json
+
+  publish:
+    name: Validate and publish complete desktop release
+    needs: [quality, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+      RELEASE_REF: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.sha }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout release ref
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_REF }}
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Download every platform artifact
+        uses: actions/download-artifact@v4
+        with:
+          pattern: desktop-*
+          path: release-artifacts
+      - name: Validate complete artifact set
+        run: node scripts/release/validate-desktop-artifacts.mjs --root release-artifacts --tag "$RELEASE_TAG"
+      - name: Publish complete release
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "Release $RELEASE_TAG already exists; refusing to mutate it" >&2
+            exit 1
+          fi
+          mapfile -d '' files < <(find release-artifacts -type f ! -name 'artifact-manifest-*.json' -print0)
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "No release files found" >&2
+            exit 1
+          fi
+          gh release create "$RELEASE_TAG" --verify-tag --generate-notes --draft
+          if ! gh release upload "$RELEASE_TAG" "${files[@]}"; then
+            echo "Upload failed; $RELEASE_TAG remains a non-public draft for inspection" >&2
+            exit 1
+          fi
+          gh release edit "$RELEASE_TAG" --draft=false

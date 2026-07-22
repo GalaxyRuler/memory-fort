@@ -1,0 +1,128 @@
+name: Quality gates
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: Exact commit or tag to validate
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test (suite, excl. dashboard/server)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - name: Install dependencies
+        run: npm install
+      - name: Build
+        run: npm run build
+      - name: Test (everything except dashboard/server)
+        run: npm test -- --exclude '**/dashboard/server.test.ts' --reporter=dot
+
+  test-server:
+    name: Test (dashboard/server, isolated)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - name: Install dependencies
+        run: npm install
+      - name: Build
+        run: npm run build
+      - name: Test (dashboard/server.test.ts on a fresh runner)
+        run: npm test -- test/dashboard/server.test.ts --reporter=dot
+
+  static-and-eval:
+    name: Typecheck, build, SDKs, and blocking evals
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - name: Install dependencies
+        run: npm install
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Build
+        run: npm run build
+      - name: Typecheck UI
+        run: npm run typecheck:ui
+      - name: Scan for leaks
+        run: npm run scan:leaks
+      - name: Eval — retrieval (blocking thresholds)
+        shell: bash
+        run: |
+          report="${RUNNER_TEMP}/retrieval-eval.json"
+          set +e
+          node --max-old-space-size=512 dist/cli.mjs eval-retrieval \
+            --json \
+            --gold qa/graph-aware-gold.jsonl \
+            --corpus qa/fixtures/graph-aware-vault \
+            > "$report"
+          eval_status=$?
+          set -e
+          if [ "$eval_status" -gt 1 ]; then
+            echo "retrieval evaluator failed with status $eval_status" >&2
+            exit "$eval_status"
+          fi
+          node scripts/ci-eval-summary.mjs < "$report"
+          node scripts/assert-eval-thresholds.mjs \
+            --kind retrieval \
+            --report "$report" \
+            --thresholds qa/eval-thresholds.json
+      - name: Eval — dispatch policy (blocking thresholds)
+        shell: bash
+        run: |
+          report="${RUNNER_TEMP}/dispatch-eval.json"
+          node dist/cli.mjs eval dispatch --json > "$report"
+          node scripts/ci-eval-summary.mjs < "$report"
+          node scripts/assert-eval-thresholds.mjs \
+            --kind dispatch \
+            --report "$report" \
+            --thresholds qa/eval-thresholds.json
+      - name: SDK (TypeScript) — install + typecheck + test + build
+        run: |
+          cd packages/sdk
+          npm install
+          npx tsc --noEmit
+          npx vitest run --reporter=dot
+          npm run build
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: SDK (Python) — install + test + build
+        run: |
+          cd packages/sdk-python
+          pip install -e ".[test]" -q
+          python -m pytest tests/ -q
+          pip install build -q
+          python -m build
+      - name: Check package contents
+        run: npm pack --dry-run 2>&1 | grep -E "^(npm notice (files|package size|unpacked size)|Tarball)"
