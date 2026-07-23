@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 
 import type { SearchResponse, SearchResult, SearchTimings } from "../retrieval/search.js";
+import { buildProvenance } from "../retrieval/provenance-annotator.js";
 import type { SearchScope } from "../retrieval/corpus.js";
 import { canonicalizeAsOf } from "../retrieval/temporal-filter.js";
 import { classifySearchKind, searchScopeSql } from "../search/kind.js";
@@ -103,6 +104,20 @@ export interface VectorSearchResult {
   readonly kind?: SearchResult["kind"] | null;
   readonly distance: number;
   readonly vectorRank: number;
+  readonly sourceContentHash: string | null;
+  readonly chunkTextHash: string | null;
+  readonly indexGeneration: number | null;
+  readonly indexedAt: number | null;
+  readonly createdAt: string | null;
+  readonly updatedAt: string | null;
+  readonly observedAt: string | null;
+  readonly confidence: number | null;
+  readonly confidenceMetadata: unknown;
+  readonly validation: string | null;
+  readonly sourceFactCount: number | null;
+  readonly derivedFromCount: number | null;
+  readonly lexicalRank: number | null;
+  readonly lexicalScore: number | null;
 }
 
 export interface ChunkRrfInput {
@@ -115,6 +130,22 @@ export interface ChunkRrfInput {
   readonly byteEnd: number;
   readonly text: string;
   readonly kind?: SearchResult["kind"] | null;
+  readonly sourceContentHash?: string | null;
+  readonly chunkTextHash?: string | null;
+  readonly indexGeneration?: number | null;
+  readonly indexedAt?: number | null;
+  readonly createdAt?: string | null;
+  readonly updatedAt?: string | null;
+  readonly observedAt?: string | null;
+  readonly confidence?: number | null;
+  readonly confidenceMetadata?: unknown;
+  readonly validation?: string | null;
+  readonly sourceFactCount?: number | null;
+  readonly derivedFromCount?: number | null;
+  readonly lexicalRank?: number | null;
+  readonly lexicalScore?: number | null;
+  readonly vectorRank?: number | null;
+  readonly vectorDistance?: number | null;
 }
 
 export interface ChunkRrfSource {
@@ -189,6 +220,18 @@ interface PayloadRow {
   readonly byteEnd: number;
   readonly text: string;
   readonly kind: SearchResult["kind"] | null;
+  readonly sourceContentHash: string | null;
+  readonly chunkTextHash: string | null;
+  readonly indexGeneration: number | null;
+  readonly indexedAt: number | null;
+  readonly createdAt: string | null;
+  readonly updatedAt: string | null;
+  readonly observedAt: string | null;
+  readonly frontmatterConfidence: number | null;
+  readonly frontmatterConfidenceJson: string | null;
+  readonly validation: string | null;
+  readonly sourceFactCount: number | null;
+  readonly derivedFromCount: number | null;
 }
 
 interface CachedQueryVector {
@@ -420,7 +463,19 @@ export function twoStageVectorSearch(database: SqliteDatabase, opts: VectorSearc
       c.byteStart AS byteStart,
       c.byteEnd AS byteEnd,
       c.text AS text,
-      f.kind AS kind
+      c.textHash AS chunkTextHash,
+      c.generation AS indexGeneration,
+      f.kind AS kind,
+      f.contentHash AS sourceContentHash,
+      f.indexedAt AS indexedAt,
+      f.frontmatterCreated AS createdAt,
+      f.frontmatterUpdated AS updatedAt,
+      f.frontmatterObservedAt AS observedAt,
+      f.frontmatterConfidence AS frontmatterConfidence,
+      f.frontmatterConfidenceJson AS frontmatterConfidenceJson,
+      f.frontmatterValidation AS validation,
+      f.sourceFactCount AS sourceFactCount,
+      f.derivedFromCount AS derivedFromCount
     FROM chunk_vectors cv
     JOIN chunks c ON c.rowid = cv.chunkRowid
     JOIN files f ON f.relPath = c.relPath
@@ -428,7 +483,7 @@ export function twoStageVectorSearch(database: SqliteDatabase, opts: VectorSearc
   `);
 
   return coarse
-    .map((candidate): (VectorSearchResult & { readonly coarseRowid: number | bigint }) | null => {
+    .map((candidate): (PayloadRow & { readonly coarseRowid: number | bigint; readonly distance: number; readonly vectorRank: number }) | null => {
       const stored = rescore.get(candidate.rowid)?.embeddingRescore;
       if (!Buffer.isBuffer(stored)) return null;
       const row = payload.get(candidate.rowid, opts.profile.profileId);
@@ -440,7 +495,7 @@ export function twoStageVectorSearch(database: SqliteDatabase, opts: VectorSearc
         vectorRank: 0,
       };
     })
-    .filter((row): row is VectorSearchResult & { readonly coarseRowid: number | bigint } => row !== null)
+    .filter((row): row is PayloadRow & { readonly coarseRowid: number | bigint; readonly distance: number; readonly vectorRank: number } => row !== null)
     .sort((a, b) => a.distance - b.distance || a.relPath.localeCompare(b.relPath) || a.rowid - b.rowid)
     .slice(0, k)
     .map((row, index) => ({
@@ -453,6 +508,20 @@ export function twoStageVectorSearch(database: SqliteDatabase, opts: VectorSearc
       byteEnd: row.byteEnd,
       text: row.text,
       kind: row.kind,
+      sourceContentHash: row.sourceContentHash,
+      chunkTextHash: row.chunkTextHash,
+      indexGeneration: row.indexGeneration,
+      indexedAt: row.indexedAt,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+      observedAt: row.observedAt,
+      confidence: row.frontmatterConfidence,
+      confidenceMetadata: parseConfidenceMetadata(row.frontmatterConfidenceJson, row.frontmatterConfidence),
+      validation: row.validation,
+      sourceFactCount: row.sourceFactCount,
+      derivedFromCount: row.derivedFromCount,
+      lexicalRank: null,
+      lexicalScore: null,
       distance: row.distance,
       vectorRank: index + 1,
     }));
@@ -479,6 +548,16 @@ export function fuseChunkRrf(opts: {
       } satisfies MutableChunkRrfResult);
     existing.score += 1 / (k + rank);
     existing.sources.push({ source, rank });
+    const mutable = existing as MutableChunkRrfResult & {
+      lexicalRank?: number | null;
+      vectorRank?: number | null;
+      vectorDistance?: number | null;
+    };
+    if (source === "lexical") mutable.lexicalRank = rank;
+    if (source === "vector") {
+      mutable.vectorRank = rank;
+      mutable.vectorDistance = (item as VectorSearchResult).distance;
+    }
     existing.sourceCount = new Set(existing.sources.map((entry) => entry.source)).size;
     existing.bestRank = Math.min(existing.bestRank, rank);
     byChunk.set(key, existing);
@@ -848,6 +927,7 @@ function fusedToSearchResult(result: ChunkRrfResult): SearchResult {
   const source = dominantSource(result.sources);
   const kind = classifySearchKind({ relPath: result.relPath, kind: result.kind });
   const sources = result.sources.map((entry) => ({ source: entry.source, rank: entry.rank }));
+  const confidenceMetadata = result.confidenceMetadata ?? result.confidence ?? null;
   return {
     path: result.relPath,
     title: titleFromChunk(result),
@@ -856,40 +936,71 @@ function fusedToSearchResult(result: ChunkRrfResult): SearchResult {
     source,
     sources,
     kind,
-    provenance: {
-      path: result.relPath,
+    provenance: buildProvenance({
+      relPath: result.relPath,
       kind,
-      dominantSource: source,
-      signals: sources,
-      confidence: null,
-      sourceFactCount: 0,
-      derivedFromCount: 0,
-      tier: "medium",
-    },
+      confidenceFull: confidenceMetadata,
+      sourceFactCount: result.sourceFactCount ?? null,
+      derivedFromCount: result.derivedFromCount ?? null,
+    }, source, sources, {
+      confidenceMetadata,
+      validation: result.validation ?? null,
+      chunkId: result.chunkId,
+      chunkOrdinal: result.ordinal,
+      byteStart: result.byteStart,
+      byteEnd: result.byteEnd,
+      sourceContentHash: result.sourceContentHash ?? null,
+      chunkTextHash: result.chunkTextHash ?? null,
+      indexGeneration: result.indexGeneration ?? null,
+      indexedAt: result.indexedAt == null ? null : new Date(result.indexedAt).toISOString(),
+      createdAt: result.createdAt ?? null,
+      updatedAt: result.updatedAt ?? null,
+      observedAt: result.observedAt ?? null,
+      lexicalRank: result.lexicalRank ?? null,
+      lexicalScore: result.lexicalScore ?? null,
+      vectorRank: result.vectorRank ?? null,
+      vectorDistance: result.vectorDistance ?? null,
+    }),
   };
 }
 
 function lexicalToSearchResult(result: LexicalSearchResult, rank: number): SearchResult {
   const source = "index";
   const kind = classifySearchKind({ relPath: result.relPath, kind: result.kind });
+  const signals = [{ source, rank }];
   return {
     path: result.relPath,
     title: titleFromChunk(result),
     snippet: result.text,
     score: result.score,
     source,
-    sources: [{ source, rank }],
+    sources: signals,
     kind,
-    provenance: {
-      path: result.relPath,
+    provenance: buildProvenance({
+      relPath: result.relPath,
       kind,
-      dominantSource: source,
-      signals: [{ source, rank }],
-      confidence: null,
-      sourceFactCount: 0,
-      derivedFromCount: 0,
-      tier: "medium",
-    },
+      confidenceFull: result.confidenceMetadata,
+      sourceFactCount: result.sourceFactCount,
+      derivedFromCount: result.derivedFromCount,
+    }, source, signals, {
+      confidenceMetadata: result.confidenceMetadata,
+      validation: result.validation,
+      chunkId: result.chunkId,
+      chunkOrdinal: result.ordinal,
+      byteStart: result.byteStart,
+      byteEnd: result.byteEnd,
+      sourceContentHash: result.sourceContentHash,
+      chunkTextHash: result.chunkTextHash,
+      indexGeneration: result.indexGeneration,
+      indexedAt: result.indexedAt === null ? null : new Date(result.indexedAt).toISOString(),
+      createdAt: result.createdAt,
+      updatedAt: result.updatedAt,
+      observedAt: result.observedAt,
+      lexicalRank: rank,
+      lexicalScore: result.lexicalScore,
+      vectorRank: null,
+      vectorDistance: null,
+    }),
   };
 }
 
@@ -1258,6 +1369,17 @@ function readLexicalGeneration(database: SqliteDatabase): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function parseConfidenceMetadata(value: string | null, fallback: number | null): unknown {
+  if (value) {
+    try {
+      return JSON.parse(value) as unknown;
+    } catch {
+      // Fall through to the scalar value persisted beside malformed legacy JSON.
+    }
+  }
+  return fallback;
 }
 
 function isNullableString(value: unknown): value is string | null {

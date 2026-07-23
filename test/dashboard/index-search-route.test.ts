@@ -1,4 +1,5 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -195,6 +196,192 @@ describe("dashboard index search route", () => {
       }),
     ]);
     expect(loadSearchCorpus).not.toHaveBeenCalled();
+  });
+
+  it("returns factual indexed provenance instead of receipt defaults", async () => {
+    const content = [
+      "---",
+      "title: Provenance",
+      "type: projects",
+      "confidence:",
+      "  extraction: 0.73",
+      "  validation: user",
+      "source_facts:",
+      "  - fact-a",
+      "  - fact-b",
+      "relations:",
+      "  derived_from:",
+      "    - raw/2026-07-23/a.md",
+      "---",
+      "",
+      "# Exact source",
+      "",
+      "provenanceneedle lives in this exact UTF-8 range.",
+    ].join("\n");
+    const { vaultRoot, indexDbPath } = await createIndexedVaultWithPages([
+      ["wiki/projects/provenance.md", content],
+    ]);
+    server = await createServer({
+      vaultRoot,
+      port: 0,
+      env: { MEMORY_INDEX_DB_PATH: indexDbPath },
+      voyageClient: null,
+    });
+
+    const response = await fetch(
+      `http://${server.host}:${server.port}/api/search?q=provenanceneedle`,
+    );
+    const body = await response.json();
+    const result = body.results[0];
+    const receipt = result.provenance;
+    const source = Buffer.from(content, "utf8");
+    const exactBytes = source.subarray(receipt.byteStart, receipt.byteEnd);
+
+    expect(response.status).toBe(200);
+    expect(receipt).toMatchObject({
+      path: "wiki/projects/provenance.md",
+      kind: "wiki",
+      confidence: 0.73,
+      confidenceMetadata: { extraction: 0.73, validation: "user" },
+      validation: "user",
+      sourceFactCount: 2,
+      derivedFromCount: 1,
+      chunkId: expect.any(String),
+      chunkOrdinal: expect.any(Number),
+      byteStart: expect.any(Number),
+      byteEnd: expect.any(Number),
+      sourceContentHash: createHash("sha256").update(source).digest("hex"),
+      chunkTextHash: createHash("sha256").update(result.snippet).digest("hex"),
+      indexGeneration: 1,
+      indexedAt: expect.any(String),
+      appliedScope: "all",
+      appliedFilters: {
+        includeArchived: false,
+        asOf: null,
+        agentId: null,
+        userId: null,
+        identityMode: "inclusive",
+      },
+      backend: "index-lexical",
+      rankingProfile: "bm25-metadata-v1",
+    });
+    expect(exactBytes.toString("utf8")).toBe(result.snippet);
+  });
+
+  it("rejects a fabricated provenance range through the response contract", async () => {
+    const { vaultRoot, indexDbPath } = await createIndexedVaultWithPages([
+      ["wiki/projects/receipt.md", "# Receipt\n\nreceiptneedle exact bytes"],
+    ]);
+    server = await createServer({
+      vaultRoot,
+      port: 0,
+      env: { MEMORY_INDEX_DB_PATH: indexDbPath },
+      voyageClient: null,
+    });
+    const search = await fetch(
+      `http://${server.host}:${server.port}/api/search?q=receiptneedle`,
+    );
+    const result = (await search.json()).results[0];
+
+    const validResponse = await fetch(
+      `http://${server.host}:${server.port}/api/search/provenance/resolve`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(result.provenance),
+      },
+    );
+    await expect(validResponse.json()).resolves.toMatchObject({
+      valid: true,
+      reason: "verified",
+      text: result.snippet,
+    });
+
+    const fabricatedResponse = await fetch(
+      `http://${server.host}:${server.port}/api/search/provenance/resolve`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          ...result.provenance,
+          byteStart: result.provenance.byteStart + 1,
+        }),
+      },
+    );
+    expect(fabricatedResponse.status).toBe(409);
+    await expect(fabricatedResponse.json()).resolves.toMatchObject({
+      valid: false,
+      reason: "chunk-hash-mismatch",
+      text: null,
+    });
+  });
+
+  it("invalidates an old receipt after source edit and reconciliation", async () => {
+    const relPath = "wiki/projects/changing-receipt.md";
+    const firstContent = "# Changing receipt\n\nstaleprovenance first indexed bytes";
+    const { vaultRoot, indexDbPath } = await createIndexedVaultWithPages([
+      [relPath, firstContent],
+    ]);
+    server = await createServer({
+      vaultRoot,
+      port: 0,
+      env: { MEMORY_INDEX_DB_PATH: indexDbPath },
+      voyageClient: null,
+    });
+    const firstSearch = await fetch(
+      `http://${server.host}:${server.port}/api/search?q=staleprovenance`,
+    );
+    const oldReceipt = (await firstSearch.json()).results[0].provenance;
+
+    await server.close();
+    server = null;
+    await writeVaultFile(
+      vaultRoot,
+      relPath,
+      "# Changing receipt\n\nstaleprovenance replacement indexed bytes are different",
+    );
+    const writer = openIndexDb(indexDbPath);
+    await reconcileIndex(writer, vaultRoot);
+    writer.close();
+    server = await createServer({
+      vaultRoot,
+      port: 0,
+      env: { MEMORY_INDEX_DB_PATH: indexDbPath },
+      voyageClient: null,
+    });
+
+    const oldResolution = await fetch(
+      `http://${server.host}:${server.port}/api/search/provenance/resolve`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(oldReceipt),
+      },
+    );
+    expect(oldResolution.status).toBe(409);
+    await expect(oldResolution.json()).resolves.toMatchObject({
+      valid: false,
+      reason: "source-hash-mismatch",
+    });
+
+    const nextSearch = await fetch(
+      `http://${server.host}:${server.port}/api/search?q=staleprovenance`,
+    );
+    const nextResult = (await nextSearch.json()).results[0];
+    expect(nextResult.provenance.sourceContentHash).not.toBe(oldReceipt.sourceContentHash);
+    expect(nextResult.provenance.indexGeneration).toBe(oldReceipt.indexGeneration + 1);
+    const nextResolution = await fetch(
+      `http://${server.host}:${server.port}/api/search/provenance/resolve`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(nextResult.provenance),
+      },
+    );
+    await expect(nextResolution.json()).resolves.toMatchObject({
+      valid: true,
+      text: nextResult.snippet,
+    });
   });
 
   it("applies supported advanced params on the index search path", async () => {

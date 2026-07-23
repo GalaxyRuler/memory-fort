@@ -81,6 +81,8 @@ interface FileFrontmatterMetadata {
   readonly frontmatterValidUntil: string | null;
   readonly frontmatterAgentId: string | null;
   readonly frontmatterUserId: string | null;
+  readonly sourceFactCount: number;
+  readonly derivedFromCount: number;
 }
 
 export async function reconcileIndex(
@@ -397,11 +399,13 @@ function writeIndexedFile(
          frontmatterValidUntil,
          frontmatterAgentId,
          frontmatterUserId,
+         sourceFactCount,
+         derivedFromCount,
          generation,
          lastSeenRunId,
          indexedAt
        )
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(relPath) DO UPDATE SET
          kind = excluded.kind,
          sizeBytes = excluded.sizeBytes,
@@ -422,6 +426,8 @@ function writeIndexedFile(
          frontmatterValidUntil = excluded.frontmatterValidUntil,
          frontmatterAgentId = excluded.frontmatterAgentId,
          frontmatterUserId = excluded.frontmatterUserId,
+         sourceFactCount = excluded.sourceFactCount,
+         derivedFromCount = excluded.derivedFromCount,
          indexedAt = excluded.indexedAt,
          lastErrorAt = NULL`,
     ).run(
@@ -442,6 +448,8 @@ function writeIndexedFile(
       input.frontmatterMetadata.frontmatterValidUntil,
       input.frontmatterMetadata.frontmatterAgentId,
       input.frontmatterMetadata.frontmatterUserId,
+      input.frontmatterMetadata.sourceFactCount,
+      input.frontmatterMetadata.derivedFromCount,
       input.generation,
       input.runId,
       Date.now(),
@@ -594,6 +602,8 @@ function extractFrontmatterMetadata(content: string): FileFrontmatterMetadata {
       frontmatterValidUntil: readDate(frontmatter.valid_until),
       frontmatterAgentId: readString(frontmatter.agent_id),
       frontmatterUserId: readString(frontmatter.user_id),
+      sourceFactCount: countArray(frontmatter.source_facts),
+      derivedFromCount: countArray(frontmatter.relations?.derived_from),
     };
   } catch {
     return emptyFrontmatterMetadata();
@@ -615,6 +625,8 @@ function emptyFrontmatterMetadata(): FileFrontmatterMetadata {
     frontmatterValidUntil: null,
     frontmatterAgentId: null,
     frontmatterUserId: null,
+    sourceFactCount: 0,
+    derivedFromCount: 0,
   };
 }
 
@@ -624,6 +636,10 @@ function readString(value: unknown): string | null {
 
 function readDate(value: unknown): string | null {
   return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/u.test(value) ? value : null;
+}
+
+function countArray(value: unknown): number {
+  return Array.isArray(value) ? value.length : 0;
 }
 
 function readLifecycle(value: unknown): LifecycleStage | null {

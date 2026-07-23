@@ -16,6 +16,8 @@ CREATE TABLE IF NOT EXISTS files (
   frontmatterValidUntil TEXT,
   frontmatterAgentId TEXT,
   frontmatterUserId TEXT,
+  sourceFactCount INTEGER,
+  derivedFromCount INTEGER,
   generation INTEGER,
   lastSeenRunId INTEGER,
   errorState TEXT,

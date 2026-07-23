@@ -15,6 +15,7 @@ import {
   type SearchResult,
   type SearchTimings,
 } from "../retrieval/search.js";
+import { buildProvenance } from "../retrieval/provenance-annotator.js";
 import { canonicalizeAsOf } from "../retrieval/temporal-filter.js";
 import { handlePostObservation, handleGetPages } from "./api-handlers.js";
 import { getCaptureSpoolStatus } from "../hooks/raw-file.js";
@@ -23,6 +24,7 @@ import { isEntityWikiPath } from "../retrieval/wiki-paths.js";
 import { isIntentLabel, type IntentLabel } from "../retrieval/query-intent.js";
 import { openReadOnlyIndexDb, resolveIndexDbPath, type IndexDb } from "../index/db.js";
 import { lexicalSearch, type LexicalSearchResult } from "../index/search.js";
+import { resolveProvenanceReceipt } from "../index/provenance-resolver.js";
 import { isIndexSearchEnabled, isIndexVectorsEnabled } from "../index/env.js";
 import type { SearchCursorStatus, SearchExecutor } from "../index/vector-search.js";
 import {
@@ -864,11 +866,11 @@ function createDashboardIndexSearchController(opts: {
             ...filters,
           });
           liveBackend = response.hybridMode === "lexical-plus-vector" ? "index-hybrid" : "index-lexical";
-          return { ...response, index: status };
+          return withIndexProvenanceContext({ ...response, index: status }, filters, liveBackend);
         } catch (error) {
           liveBackend = "index-lexical";
           const results = lexicalSearch(db, query, { limit: page.fetchLimit, ...filters });
-          return indexSearchResponse(
+          return withIndexProvenanceContext(indexSearchResponse(
             query,
             page,
             results,
@@ -878,11 +880,15 @@ function createDashboardIndexSearchController(opts: {
             },
             started,
             [`search process unavailable: ${error instanceof Error ? error.message : String(error)}`],
-          );
+          ), filters, liveBackend);
         }
       }
       const results = lexicalSearch(db, query, { limit: page.fetchLimit, ...filters });
-      return indexSearchResponse(query, page, results, status, started);
+      return withIndexProvenanceContext(
+        indexSearchResponse(query, page, results, status, started),
+        filters,
+        liveBackend,
+      );
     },
     status: currentStatus,
     close: () => {
@@ -891,6 +897,33 @@ function createDashboardIndexSearchController(opts: {
       reader = null;
     },
   };
+
+function withIndexProvenanceContext(
+  response: IndexSearchRouteResponse,
+  filters: IndexSearchFilters,
+  backend: "index-lexical" | "index-hybrid",
+): IndexSearchRouteResponse {
+  return {
+    ...response,
+    results: response.results.map((result) => ({
+      ...result,
+      provenance: {
+        ...result.provenance,
+        appliedScope: filters.scope,
+        appliedFilters: {
+          includeArchived: filters.includeArchived,
+          asOf: filters.asOf ?? null,
+          agentId: filters.agentId ?? null,
+          userId: filters.userId ?? null,
+          identityMode: filters.identityMode,
+        },
+        backend,
+        rankingProfile: backend === "index-hybrid" ? "chunk-rrf-v1" : "bm25-metadata-v1",
+      },
+    })),
+  };
+}
+
 }
 
 function createDefaultIndexSearchExecutor(opts: {
@@ -1030,24 +1063,41 @@ function baseIndexSearchResponse(query: string, started: number): SearchResponse
 function indexSearchResultToSearchResult(result: LexicalSearchResult, index: number): SearchResult {
   const kind = classifySearchKind({ relPath: result.relPath, kind: result.kind });
   const source = "index";
+  const rank = index + 1;
+  const signals = [{ source, rank }];
   return {
     path: result.relPath,
     title: titleFromIndexResult(result),
     snippet: result.text,
     score: result.score,
     source,
-    sources: [{ source, rank: index + 1 }],
+    sources: signals,
     kind,
-    provenance: {
-      path: result.relPath,
+    provenance: buildProvenance({
+      relPath: result.relPath,
       kind,
-      dominantSource: source,
-      signals: [{ source, rank: index + 1 }],
-      confidence: null,
-      sourceFactCount: 0,
-      derivedFromCount: 0,
-      tier: "medium",
-    },
+      confidenceFull: result.confidenceMetadata,
+      sourceFactCount: result.sourceFactCount,
+      derivedFromCount: result.derivedFromCount,
+    }, source, signals, {
+      confidenceMetadata: result.confidenceMetadata,
+      validation: result.validation,
+      chunkId: result.chunkId,
+      chunkOrdinal: result.ordinal,
+      byteStart: result.byteStart,
+      byteEnd: result.byteEnd,
+      sourceContentHash: result.sourceContentHash,
+      chunkTextHash: result.chunkTextHash,
+      indexGeneration: result.indexGeneration,
+      indexedAt: result.indexedAt === null ? null : new Date(result.indexedAt).toISOString(),
+      createdAt: result.createdAt,
+      updatedAt: result.updatedAt,
+      observedAt: result.observedAt,
+      lexicalRank: rank,
+      lexicalScore: result.lexicalScore,
+      vectorRank: null,
+      vectorDistance: null,
+    }),
   };
 }
 
@@ -1546,6 +1596,29 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
         if (err instanceof RequestBodyTooLargeError) { writeRequestBodyTooLarge(res); return; }
         if (err instanceof InvalidContentLengthError) { writeInvalidContentLength(res); return; }
         if (err instanceof InvalidJsonBodyError) { writeInvalidJsonBody(res); return; }
+        writeJsonError(res, 500, (err as Error).message);
+      }
+      return;
+    }
+
+    if (method === "POST" && path === "/api/search/provenance/resolve") {
+      try {
+        const body = await readJsonBody(req);
+        const resolution = await resolveProvenanceReceipt(opts.vaultRoot, body);
+        writeJson(res, resolution, resolution.valid ? 200 : resolution.reason === "invalid-receipt" ? 400 : 409);
+      } catch (err) {
+        if (err instanceof RequestBodyTooLargeError) {
+          writeRequestBodyTooLarge(res);
+          return;
+        }
+        if (err instanceof InvalidContentLengthError) {
+          writeInvalidContentLength(res);
+          return;
+        }
+        if (err instanceof InvalidJsonBodyError) {
+          writeInvalidJsonBody(res);
+          return;
+        }
         writeJsonError(res, 500, (err as Error).message);
       }
       return;

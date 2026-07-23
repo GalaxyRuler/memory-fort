@@ -8,7 +8,7 @@ import { loadSqliteVec, type CapabilityDb } from "./native/capability.js";
 const require = createRequire(import.meta.url);
 const BetterSqlite3 = require("better-sqlite3") as BetterSqlite3Constructor;
 
-const SCHEMA_VERSION = "6";
+const SCHEMA_VERSION = "7";
 const TOKENIZER = "unicode61 remove_diacritics 2";
 const DEFAULT_BUSY_TIMEOUT_MS = 5_000;
 const VECTOR_DIMENSION = 384;
@@ -32,6 +32,8 @@ const INIT_MIGRATION_SQL = `CREATE TABLE IF NOT EXISTS files (
   frontmatterValidUntil TEXT,
   frontmatterAgentId TEXT,
   frontmatterUserId TEXT,
+  sourceFactCount INTEGER,
+  derivedFromCount INTEGER,
   generation INTEGER,
   lastSeenRunId INTEGER,
   errorState TEXT,

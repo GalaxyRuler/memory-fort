@@ -804,6 +804,7 @@ function normalizeExtendedSearchProvenanceFields(value: unknown): {
     ...(isProbabilityNumberOrNull(value.confidence) ? { confidence: value.confidence } : {}),
     ...(isSafeNonNegativeInteger(value.sourceFactCount) ? { sourceFactCount: value.sourceFactCount } : {}),
     ...(isSafeNonNegativeInteger(value.derivedFromCount) ? { derivedFromCount: value.derivedFromCount } : {}),
+    ...normalizeIndexedReceiptFields(value),
   };
 }
 
@@ -817,6 +818,73 @@ function isProbabilityNumberOrNull(value: unknown): value is number | null {
 
 function isSafeNonNegativeInteger(value: unknown): value is number {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+
+function normalizeIndexedReceiptFields(value: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  const copyString = (key: string, max = 500): void => {
+    const item = value[key];
+    if (typeof item === "string" && item.length <= max) out[key] = item;
+    else if (item === null) out[key] = null;
+  };
+  const copyInteger = (key: string): void => {
+    const item = value[key];
+    if (isSafeNonNegativeInteger(item)) out[key] = item;
+    else if (item === null) out[key] = null;
+  };
+  const copyFinite = (key: string): void => {
+    const item = value[key];
+    if (typeof item === "number" && Number.isFinite(item)) out[key] = item;
+    else if (item === null) out[key] = null;
+  };
+  copyString("chunkId");
+  copyInteger("chunkOrdinal");
+  copyInteger("byteStart");
+  copyInteger("byteEnd");
+  for (const key of ["sourceContentHash", "chunkTextHash"]) {
+    const item = value[key];
+    if (typeof item === "string" && /^[a-f0-9]{64}$/u.test(item)) out[key] = item;
+    else if (item === null) out[key] = null;
+  }
+  copyInteger("indexGeneration");
+  for (const key of ["indexedAt", "createdAt", "updatedAt", "observedAt", "validation"]) copyString(key, 80);
+  copyInteger("lexicalRank");
+  copyFinite("lexicalScore");
+  copyInteger("vectorRank");
+  copyFinite("vectorDistance");
+  const confidenceMetadata = value["confidenceMetadata"];
+  if (isProbabilityNumberOrNull(confidenceMetadata)) out["confidenceMetadata"] = confidenceMetadata;
+  else if (isRecord(confidenceMetadata)) {
+    const metadata: Record<string, unknown> = {};
+    if (isProbabilityNumberOrNull(confidenceMetadata.extraction)) metadata["extraction"] = confidenceMetadata.extraction;
+    if (isProbabilityNumberOrNull(confidenceMetadata.source)) metadata["source"] = confidenceMetadata.source;
+    if (typeof confidenceMetadata.validation === "string" && confidenceMetadata.validation.length <= 80) {
+      metadata["validation"] = confidenceMetadata.validation;
+    }
+    if (Object.keys(metadata).length > 0) out["confidenceMetadata"] = metadata;
+  }
+  if (value["appliedScope"] === "all" || value["appliedScope"] === "wiki" || value["appliedScope"] === "raw" || value["appliedScope"] === "crystals") {
+    out["appliedScope"] = value["appliedScope"];
+  }
+  if (value["backend"] === "legacy" || value["backend"] === "index-lexical" || value["backend"] === "index-hybrid") {
+    out["backend"] = value["backend"];
+  }
+  copyString("rankingProfile", 120);
+  const filters = value["appliedFilters"];
+  if (
+    isRecord(filters) &&
+    (filters.includeArchived === true || filters.includeArchived === false || filters.includeArchived === null) &&
+    (filters.identityMode === "inclusive" || filters.identityMode === "strict" || filters.identityMode === null)
+  ) {
+    out["appliedFilters"] = {
+      includeArchived: filters.includeArchived,
+      asOf: typeof filters.asOf === "string" ? truncate(filters.asOf, 80) : null,
+      agentId: typeof filters.agentId === "string" ? truncate(filters.agentId, 120) : null,
+      userId: typeof filters.userId === "string" ? truncate(filters.userId, 120) : null,
+      identityMode: filters.identityMode,
+    };
+  }
+  return out;
 }
 
 function formatSearchToolResponse(body: ApiSearchResponse, results: ApiSearchResultWithPath[]): string {

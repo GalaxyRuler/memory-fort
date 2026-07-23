@@ -97,6 +97,20 @@ export interface LexicalSearchResult {
   readonly text: string;
   readonly kind?: SearchDocument["kind"];
   readonly score: number;
+  readonly sourceContentHash: string | null;
+  readonly chunkTextHash: string | null;
+  readonly indexGeneration: number | null;
+  readonly indexedAt: number | null;
+  readonly createdAt: string | null;
+  readonly updatedAt: string | null;
+  readonly observedAt: string | null;
+  readonly confidence: number | null;
+  readonly confidenceMetadata: Frontmatter["confidence"] | null;
+  readonly validation: ValidationState | null;
+  readonly sourceFactCount: number | null;
+  readonly derivedFromCount: number | null;
+  readonly lexicalRank: number;
+  readonly lexicalScore: number;
 }
 
 interface LexicalSearchRow extends Omit<LexicalSearchResult, "kind"> {
@@ -166,8 +180,14 @@ export function lexicalSearch(
             chunks.byteStart AS byteStart,
             chunks.byteEnd AS byteEnd,
             chunks.text AS text,
+            chunks.textHash AS chunkTextHash,
+            chunks.generation AS indexGeneration,
             matched.bm25Score AS bm25Score,
             files.kind AS kind,
+            files.contentHash AS sourceContentHash,
+            files.indexedAt AS indexedAt,
+            files.sourceFactCount AS sourceFactCount,
+            files.derivedFromCount AS derivedFromCount,
             files.sizeBytes AS sizeBytes,
             files.mtimeMs AS mtimeMs,
             files.frontmatterStatus AS frontmatterStatus,
@@ -207,8 +227,14 @@ export function lexicalSearch(
           byteStart,
           byteEnd,
           text,
+          chunkTextHash,
+          indexGeneration,
           bm25Score,
           kind,
+          sourceContentHash,
+          indexedAt,
+          sourceFactCount,
+          derivedFromCount,
           sizeBytes,
           mtimeMs,
           frontmatterStatus,
@@ -241,6 +267,20 @@ export function lexicalSearch(
         text: row.text,
         kind: searchKindFromIndexKind(row.kind, row.relPath),
         score,
+        sourceContentHash: row.sourceContentHash,
+        chunkTextHash: row.chunkTextHash,
+        indexGeneration: row.indexGeneration,
+        indexedAt: row.indexedAt,
+        createdAt: row.frontmatterCreated,
+        updatedAt: row.frontmatterUpdated,
+        observedAt: row.frontmatterObservedAt,
+        confidence: row.frontmatterConfidence,
+        confidenceMetadata: confidenceFullFromRow(row) ?? null,
+        validation: readValidation(row.frontmatterValidation),
+        sourceFactCount: row.sourceFactCount,
+        derivedFromCount: row.derivedFromCount,
+        lexicalRank: 0,
+        lexicalScore: row.bm25Score,
       }));
   } catch (error) {
     if (isFtsMatchError(error)) return [];
@@ -320,8 +360,14 @@ function pathCandidateRows(
           chunks.byteStart AS byteStart,
           chunks.byteEnd AS byteEnd,
           chunks.text AS text,
+          chunks.textHash AS chunkTextHash,
+          chunks.generation AS indexGeneration,
           0 AS bm25Score,
           files.kind AS kind,
+          files.contentHash AS sourceContentHash,
+          files.indexedAt AS indexedAt,
+          files.sourceFactCount AS sourceFactCount,
+          files.derivedFromCount AS derivedFromCount,
           files.sizeBytes AS sizeBytes,
           files.mtimeMs AS mtimeMs,
           files.frontmatterStatus AS frontmatterStatus,
@@ -361,8 +407,14 @@ function pathCandidateRows(
         byteStart,
         byteEnd,
         text,
+        chunkTextHash,
+        indexGeneration,
         bm25Score,
         kind,
+        sourceContentHash,
+        indexedAt,
+        sourceFactCount,
+        derivedFromCount,
         sizeBytes,
         mtimeMs,
         frontmatterStatus,

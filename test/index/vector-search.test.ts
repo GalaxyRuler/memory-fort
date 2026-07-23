@@ -124,7 +124,18 @@ describe("vector search", () => {
     await writeVaultFile(
       vaultRoot,
       "wiki/projects/vector-only-crystal.md",
-      "---\ntitle: Vector-only crystal\ntype: crystal\n---\n\nstored semantic payload",
+      [
+        "---",
+        "title: Vector-only crystal",
+        "type: crystal",
+        "confidence: 0.81",
+        "source_facts: [fact-a]",
+        "relations:",
+        "  derived_from: [raw/source.md]",
+        "---",
+        "",
+        "stored semantic payload",
+      ].join("\n"),
     );
     await reconcileIndex(indexDb, vaultRoot);
     await embedPath(indexDb, "wiki/projects/vector-only-crystal.md", profile, vector(0));
@@ -146,7 +157,22 @@ describe("vector search", () => {
         path: "wiki/projects/vector-only-crystal.md",
         kind: "crystal",
         source: "vector",
-        provenance: expect.objectContaining({ kind: "crystal" }),
+        provenance: expect.objectContaining({
+          kind: "crystal",
+          confidence: 0.81,
+          sourceFactCount: 1,
+          derivedFromCount: 1,
+          chunkId: expect.any(String),
+          chunkOrdinal: expect.any(Number),
+          byteStart: expect.any(Number),
+          byteEnd: expect.any(Number),
+          sourceContentHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+          chunkTextHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+          indexGeneration: 1,
+          lexicalRank: null,
+          vectorRank: 1,
+          vectorDistance: 0,
+        }),
       }),
     ]);
   });
