@@ -77,7 +77,20 @@ export async function atomicAppend(
   content: string,
 ): Promise<void> {
   await mkdir(dirname(absolutePath), { recursive: true });
-  await appendFile(absolutePath, content, "utf-8");
+  await appendFile(absolutePath, content, { encoding: "utf-8", flush: true });
+}
+
+/** Create a new file exactly once and flush it before reporting success. */
+export async function atomicCreate(absolutePath: string, content: string): Promise<void> {
+  await mkdir(dirname(absolutePath), { recursive: true });
+  const handle = await open(absolutePath, "wx");
+  try {
+    await handle.writeFile(content, "utf-8");
+    await handle.sync();
+  } finally {
+    await handle.close();
+  }
+  await syncParentDir(absolutePath);
 }
 
 async function renameWithWindowsRetry(from: string, to: string): Promise<void> {

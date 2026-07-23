@@ -153,6 +153,24 @@ export function schedulerStatePath(): string {
 }
 
 /**
+ * Directory for capture events that could not acquire a raw-session lock.
+ * Deliberately outside the canonical Markdown vault: spool files are
+ * operational recovery state and must never be indexed or committed.
+ */
+export function captureSpoolDir(): string {
+  const override = process.env["MEMORY_CAPTURE_SPOOL_DIR"]?.trim();
+  if (override) return override;
+  const appData = process.env["APPDATA"];
+  if (appData) return join(appData, "memory-fort", "capture-spool");
+  if (process.platform === "darwin") {
+    return join(homedir(), "Library", "Application Support", "memory-fort", "capture-spool");
+  }
+  const xdg = process.env["XDG_CONFIG_HOME"];
+  if (xdg && xdg.trim().length > 0) return join(xdg, "memory-fort", "capture-spool");
+  return join(homedir(), ".config", "memory-fort", "capture-spool");
+}
+
+/**
  * Directory containing the self-signed TLS cert+key for the ChatGPT bridge.
  * Stored outside the vault so private keys never enter git.
  * Override with MEMORY_CHATGPT_BRIDGE_CERT_DIR for tests / isolated installs.
