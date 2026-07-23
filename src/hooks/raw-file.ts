@@ -16,13 +16,19 @@ import type { ToolName } from "../storage/paths.js";
 
 /** Shared lock options for raw session writers (append + frontmatter RMW). */
 const RAW_FILE_LOCK = { timeoutMs: 15_000, staleMs: 60_000 } as const;
+/**
+ * Replay is opportunistic recovery: it must not hold a new hook behind stale
+ * capture contention for the normal session-lock timeout.
+ */
+const CAPTURE_REPLAY_LOCK = { timeoutMs: 100, staleMs: 60_000, pollMs: 50 } as const;
+const CAPTURE_REPLAY_EVENT_BUDGET = 2;
 const CAPTURE_EVENT_MARKER = "memory-fort-capture";
 const CAPTURE_SPOOLED_DIAGNOSTICS_FILE = "capture-spooled.jsonl";
+const CAPTURE_DRAIN_FAILURES_FILE = "capture-drain-failures.jsonl";
 
 interface CaptureEvent { version: 1; id: string; hash: string; rawPath: string; block: string; createdAt: string; }
 export interface CaptureSpooledDiagnostic { type: "capture_spooled"; eventId: string; hash: string; createdAt: string; }
 export interface CaptureSpoolStatus { pendingEventCount: number; oldestPendingAgeMs: number | null; drainFailures: number; captureSpooled: CaptureSpooledDiagnostic[]; }
-const captureSpoolRuntime = { drainFailures: 0 };
 
 export async function getCaptureSpoolStatus(now = new Date()): Promise<CaptureSpoolStatus> {
   const events = await readCaptureSpoolEvents();
@@ -44,7 +50,10 @@ export async function getCaptureSpoolStatus(now = new Date()): Promise<CaptureSp
       });
     }
   }
-  return { pendingEventCount: events.length, oldestPendingAgeMs, drainFailures: captureSpoolRuntime.drainFailures,
+  return {
+    pendingEventCount: events.length,
+    oldestPendingAgeMs,
+    drainFailures: await countCaptureDrainFailures(),
     captureSpooled: [...captureSpooled.values()],
   };
 }
@@ -331,18 +340,55 @@ async function spoolCaptureEvent(event: CaptureEvent): Promise<void> {
   await ensureCaptureSpooledDiagnostic(event);
 }
 async function drainCaptureSpool(): Promise<void> {
-  for (const entry of await readCaptureSpoolEntries()) {
+  for (const entry of (await readCaptureSpoolEntries()).slice(0, CAPTURE_REPLAY_EVENT_BUDGET)) {
     try {
-      await withRawFileLock(entry.event.rawPath, async () => {
+      await withFileLock(entry.event.rawPath, async () => {
         let existing = "";
         try { existing = await readFile(entry.event.rawPath, "utf-8"); }
         catch (error) { if (!isCode(error, "ENOENT")) throw error; }
         if (!existing.includes(marker(entry.event))) await atomicAppend(entry.event.rawPath, renderCaptureEvent(entry.event));
         await ensureCaptureSpooledDiagnostic(entry.event);
-        await unlink(entry.path);
-      });
-    } catch { captureSpoolRuntime.drainFailures += 1; }
+        try {
+          await unlink(entry.path);
+        } catch (error) {
+          // Another replayer already persisted this event and removed the spool.
+          if (!isCode(error, "ENOENT")) throw error;
+        }
+      }, CAPTURE_REPLAY_LOCK);
+    } catch {
+      await recordCaptureDrainFailure(entry.event);
+    }
   }
+}
+async function recordCaptureDrainFailure(event: CaptureEvent): Promise<void> {
+  await atomicAppend(
+    join(captureSpoolDir(), CAPTURE_DRAIN_FAILURES_FILE),
+    `${JSON.stringify({ type: "capture_drain_failed", eventId: event.id, createdAt: new Date().toISOString() })}\n`,
+  );
+}
+async function countCaptureDrainFailures(): Promise<number> {
+  let content: string;
+  try {
+    content = await readFile(join(captureSpoolDir(), CAPTURE_DRAIN_FAILURES_FILE), "utf-8");
+  } catch (error) {
+    if (isCode(error, "ENOENT")) return 0;
+    throw error;
+  }
+  let count = 0;
+  for (const line of content.split(/\r?\n/u)) {
+    if (!line) continue;
+    try {
+      const record = JSON.parse(line) as { type?: unknown; eventId?: unknown; createdAt?: unknown };
+      if (
+        record.type === "capture_drain_failed"
+        && typeof record.eventId === "string"
+        && typeof record.createdAt === "string"
+      ) count += 1;
+    } catch {
+      // A malformed failure record is passive observation, not a new replay attempt.
+    }
+  }
+  return count;
 }
 async function ensureCaptureSpooledDiagnostic(event: CaptureEvent): Promise<void> {
   const existing = await readCaptureSpooledDiagnostics();

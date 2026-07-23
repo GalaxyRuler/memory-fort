@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import { access, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
 import { appendBlock, ensureRawSessionFile, getCaptureSpoolStatus } from "../../src/hooks/raw-file.js";
 import { captureSpoolDir } from "../../src/storage/paths.js";
@@ -132,6 +134,135 @@ describe("durable raw capture", () => {
     });
   });
 
+  it("persists a real replay failure for a fresh status reader after the hook exits", async () => {
+    await mkdir(captureSpoolDir(), { recursive: true });
+    await writeFile(join(captureSpoolDir(), "child-failure.json"), JSON.stringify({
+      version: 1,
+      id: "child-failure-event",
+      hash: "child-failure-hash",
+      rawPath: root,
+      block: "child replay failure payload",
+      createdAt: "2026-07-23T04:00:00.000Z",
+    }), "utf-8");
+    const viteNode = join(process.cwd(), "node_modules", "vite-node", "vite-node.mjs");
+    const fixture = join(process.cwd(), "test", "fixtures", "capture-replay-failure-child.ts");
+
+    await promisify(execFile)(process.execPath, [viteNode, fixture], {
+      cwd: process.cwd(),
+      env: {
+        ...process.env,
+        MEMORY_ROOT: root,
+        MEMORY_CAPTURE_SPOOL_DIR: captureSpoolDir(),
+      },
+      windowsHide: true,
+      timeout: 10_000,
+    });
+
+    vi.resetModules();
+    const restarted = await import("../../src/hooks/raw-file.js");
+    expect(await restarted.getCaptureSpoolStatus()).toMatchObject({
+      pendingEventCount: 1,
+      drainFailures: 1,
+    });
+  });
+
+  it("bounds contended replay before persisting the current capture", async () => {
+    const now = new Date("2026-07-23T04:00:00.000Z");
+    const currentPath = await ensureRawSessionFile({
+      tool: "codex",
+      sessionId: "current-capture",
+      cwd: "C:/work",
+      now,
+    });
+    const lockedReplayPath = join(root, "locked-replay.md");
+    await mkdir(captureSpoolDir(), { recursive: true });
+    await writeFile(`${lockedReplayPath}.lock`, JSON.stringify({
+      pid: process.pid,
+      host: hostname(),
+      acquiredAt: now.toISOString(),
+    }), "utf-8");
+    const pending = [
+      ["01-locked.json", "locked-replay", lockedReplayPath],
+      ["02-fast.json", "fast-replay", join(root, "fast-replay.md")],
+      ["03-deferred.json", "deferred-replay", join(root, "deferred-replay.md")],
+    ] as const;
+    for (const [name, id, rawPath] of pending) {
+      await writeFile(join(captureSpoolDir(), name), JSON.stringify({
+        version: 1,
+        id,
+        hash: `${id}-hash`,
+        rawPath,
+        block: `\n## [04:00:00] Prompt\n\n${id}\n`,
+        createdAt: now.toISOString(),
+      }), "utf-8");
+    }
+
+    const started = Date.now();
+    await appendBlock({
+      tool: "codex",
+      sessionId: "current-capture",
+      block: "\n## [04:00:01] Prompt\n\ncurrent-capture-durable\n",
+      now: new Date("2026-07-23T04:00:01.000Z"),
+    });
+    const elapsedMs = Date.now() - started;
+
+    expect(elapsedMs).toBeLessThan(2_000);
+    expect(await readFile(currentPath, "utf-8")).toContain("current-capture-durable");
+    expect((await readdir(captureSpoolDir())).filter((name) => name.endsWith(".json"))).toEqual([
+      "01-locked.json",
+      "03-deferred.json",
+    ]);
+  }, 20_000);
+
+  it("treats a concurrently deleted spool as already drained without recording a failure", async () => {
+    const replayPath = join(root, "concurrent-replay.md");
+    const readyDir = join(root, "replay-ready");
+    const startPath = join(root, "start-replay");
+    await mkdir(captureSpoolDir(), { recursive: true });
+    await writeFile(join(captureSpoolDir(), "concurrent.json"), JSON.stringify({
+      version: 1,
+      id: "concurrent-replay-event",
+      hash: "concurrent-replay-hash",
+      rawPath: replayPath,
+      block: "\n## [04:00:00] Prompt\n\nconcurrent-replay-payload\n",
+      createdAt: "2026-07-23T04:00:00.000Z",
+    }), "utf-8");
+    await writeFile(`${replayPath}.lock`, JSON.stringify({
+      pid: process.pid,
+      host: hostname(),
+      acquiredAt: new Date().toISOString(),
+    }), "utf-8");
+    const viteNode = join(process.cwd(), "node_modules", "vite-node", "vite-node.mjs");
+    const fixture = join(process.cwd(), "test", "fixtures", "capture-concurrent-replay-child.ts");
+    const runChild = (sessionId: string) => promisify(execFile)(process.execPath, [viteNode, fixture], {
+      cwd: process.cwd(),
+      env: {
+        ...process.env,
+        MEMORY_ROOT: root,
+        MEMORY_CAPTURE_SPOOL_DIR: captureSpoolDir(),
+        MEMORY_TEST_READY_FILE: join(readyDir, `${sessionId}.ready`),
+        MEMORY_TEST_START_FILE: startPath,
+        MEMORY_TEST_SESSION_ID: sessionId,
+      },
+      windowsHide: true,
+      timeout: 10_000,
+    });
+
+    const first = runChild("concurrent-one");
+    const second = runChild("concurrent-two");
+    await waitForFiles([join(readyDir, "concurrent-one.ready"), join(readyDir, "concurrent-two.ready")]);
+    await writeFile(startPath, "go", "utf-8");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    await rm(`${replayPath}.lock`);
+    await Promise.all([first, second]);
+
+    vi.resetModules();
+    const restarted = await import("../../src/hooks/raw-file.js");
+    expect((await readFile(replayPath, "utf-8")).match(/concurrent-replay-payload/g)).toHaveLength(1);
+    expect((await readdir(captureSpoolDir())).filter((name) => name.endsWith(".json"))).toEqual([]);
+    expect((await restarted.getCaptureSpoolStatus()).drainFailures).toBe(0);
+  });
+
   it("counts one real failed opportunistic drain exactly once", async () => {
     await mkdir(captureSpoolDir(), { recursive: true });
     await writeFile(join(captureSpoolDir(), "malformed.json"), "not-json", "utf-8");
@@ -175,4 +306,16 @@ describe("durable raw capture", () => {
     expect((await readdir(captureSpoolDir())).filter((name) => name.endsWith(".json"))).toEqual([]);
     expect((await readFile(path, "utf-8")).match(/merge-once/g)).toHaveLength(1);
   }, 20_000);
+
+  async function waitForFiles(paths: string[]): Promise<void> {
+    const deadline = Date.now() + 10_000;
+    while (true) {
+      const present = await Promise.all(paths.map(async (path) => {
+        try { await access(path); return true; } catch { return false; }
+      }));
+      if (present.every(Boolean)) return;
+      if (Date.now() >= deadline) throw new Error("replay children did not become ready");
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+  }
 });
