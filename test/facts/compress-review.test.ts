@@ -17,6 +17,7 @@ describe("compression rejection review", () => {
   it("records an inspectable review record for a rejected unsupported bundle without facts or watermark", async () => {
     const root = await setup("session-unsupported.md");
     const relPath = "raw/2026-07-17/session-unsupported.md";
+    const privateModelClaim = "PRIVATE_CANDIDATE=orbital-relay-secret";
     const llm = responseLlm({
       facts: [{
         title: "Memory System Mars relay",
@@ -27,7 +28,7 @@ describe("compression rejection review", () => {
         importance: 8,
         evidence: "Memory System shipped Phase 3 retrieval.",
       }],
-    }, { unsupported_claims: ["Memory System deployed a Mars relay."] });
+    }, { unsupported_claims: [privateModelClaim] });
 
     const result = await runCompress({
       vaultRoot: root,
@@ -45,7 +46,9 @@ describe("compression rejection review", () => {
     expect(reviews).toHaveLength(1);
     const review = await readFile(join(reviewDir, reviews[0]!), "utf-8");
     expect(review).toContain(relPath);
-    expect(review).toContain("unsupported");
+    expect(review).toContain("Failure category: faithfulness_unsupported");
+    expect(review).toMatch(/Failure fingerprint: [a-f0-9]{16}/);
+    expect(review).not.toContain(privateModelClaim);
   });
 
   it("rejects a substantive schema-valid empty bundle before fact or watermark persistence", async () => {

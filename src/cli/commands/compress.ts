@@ -311,13 +311,17 @@ export async function runCompress(opts: CompressOptions = {}): Promise<CompressR
       tokensUsed = addTokenUsage(tokensUsed, result.tokensUsed);
       delete quarantine[raw.relPath]; // a successful pass clears the fail tally
     } catch (err) {
-      const reason = redactSecrets(errorMessage(err));
+      const rawReason = errorMessage(err);
+      const reason = redactSecrets(rawReason);
+      const failureCategory = compressionFailureCategory(reason);
+      const failureFingerprint = sha256(rawReason).slice(0, 16);
       await writeCompressionRejectionReview({
         vaultRoot: root,
         rawRelPath: raw.relPath,
         sourceHash: rawSourceHash,
         bytes: info.size,
-        reason,
+        failureCategory,
+        failureFingerprint,
         now: opts.now ?? new Date(),
       });
       const prior = quarantine[raw.relPath];
@@ -440,7 +444,8 @@ async function writeCompressionRejectionReview(opts: {
   rawRelPath: string;
   sourceHash?: string;
   bytes: number;
-  reason: string;
+  failureCategory: string;
+  failureFingerprint: string;
   now: Date;
 }): Promise<void> {
   // Keep the precise raw reference and content fingerprint reviewable without
@@ -463,10 +468,20 @@ async function writeCompressionRejectionReview(opts: {
     "- Inspect the retained raw source at the path above; its text is deliberately not copied here because it may contain secrets.",
     "- The source hash binds this review to the exact raw version that was rejected.",
     "",
-    "Rejection reason:",
-    opts.reason,
+    `Failure category: ${opts.failureCategory}`,
+    `Failure fingerprint: ${opts.failureFingerprint}`,
     "",
   ].join("\n"), "utf-8");
+}
+
+function compressionFailureCategory(reason: string): string {
+  if (/fact bundle contains unsupported claims/i.test(reason)) return "faithfulness_unsupported";
+  if (/faithfulness judge|faithfulness check/i.test(reason)) return "faithfulness_unverifiable";
+  if (/empty fact bundle/i.test(reason)) return "empty_fact_bundle";
+  if (/evidence.*(missing|invalid)|substantive claim token/i.test(reason)) return "evidence_validation_failed";
+  if (/finishReason=|response truncated/i.test(reason)) return "llm_response_incomplete";
+  if (/facts JSON|unusable fact bundle/i.test(reason)) return "invalid_fact_bundle";
+  return "compression_failed";
 }
 
 function readSessionId(rawText: string): string | null {

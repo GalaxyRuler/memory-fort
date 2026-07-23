@@ -10,6 +10,7 @@ import {
 } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
 import { applyCompileOperations, parseCompileOperationsBlock, type ApplyCompileOperationsResult } from "../../compile/execute.js";
+import type { FaithfulnessFact } from "../../compile/faithfulness.js";
 import { pruneOpsJournalForAdvancedRaws } from "../../compile/ops-journal.js";
 import { condenseIndex } from "../../compile/condense-index.js";
 import { filterRawText } from "../../compile/filter-raw.js";
@@ -266,6 +267,7 @@ async function runCompileImpl(
   const includedWatermarks: IncludedRawWatermark[] = [];
   const noiseOnlyWatermarks: IncludedRawWatermark[] = [];
   const pendingLowSignalQuarantines: LowSignalQuarantineEntry[] = [];
+  const rawFacts: FaithfulnessFact[] = [];
   const rawContentBlocks: string[] = [];
   const eligibleRaws: EligibleRaw[] = [];
   const filterReportFiles: CompileFilterReportFile[] = [];
@@ -513,6 +515,7 @@ async function runCompileImpl(
     rawContentBlocks.push(
       `### ${raw.candidate.path}\n\n\`\`\`markdown\n${text}\n\`\`\``,
     );
+    rawFacts.push({ fact_id: raw.candidate.relPath, narrative: text });
   }
 
   const deferredBytesRemaining = deferredRaws.reduce(
@@ -573,6 +576,7 @@ async function runCompileImpl(
     ? await executeCompilePrompt({
       ...opts,
       root,
+      sourceFacts: rawFacts,
       prompt,
       hasRawContent: rawContentBlocks.length > 0,
       sourceRaws: includedWatermarks.map((item) => item.relPath),
@@ -893,6 +897,7 @@ function formatDrainProgress(pass: number, result: CompileResult): string {
 }
 
 export async function executeCompilePrompt(opts: CompileOptions & {
+  sourceFacts?: readonly FaithfulnessFact[];
   root: string;
   prompt: string;
   hasRawContent: boolean;
@@ -991,7 +996,7 @@ export async function executeCompilePrompt(opts: CompileOptions & {
   if (!parsed.ok) {
     return {
       mode: opts.plan ? "plan" : "execute",
-      rawInputConsumed: true,
+      rawInputConsumed: false,
       applied: [],
       proposed: [],
       resolvedConsumed: [],
@@ -1001,7 +1006,7 @@ export async function executeCompilePrompt(opts: CompileOptions & {
         path: "(response)",
         outcome: "rejected",
         reason: parsed.reason,
-        contentPreserved: false,
+        contentPreserved: true,
       }],
       referencesStripped: 0,
       prosePathLeaks: 0,
@@ -1013,6 +1018,7 @@ export async function executeCompilePrompt(opts: CompileOptions & {
     };
   }
   const applied = await applyCompileOperations({
+    generationFacts: opts.plan ? undefined : [...(opts.sourceFacts ?? [])],
     vaultRoot: opts.root,
     operations: parsed.operations,
     plan: opts.plan,

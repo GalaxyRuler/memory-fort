@@ -15,7 +15,7 @@ import { filterNoiseForPage } from "./filter-noise.js";
 import { operationKey, readAppliedOperationKeys, recordAppliedOperation } from "./ops-journal.js";
 import { isProposalResolved } from "./proposal-ledger.js";
 import { NARRATIVE_REVIEW_KEY_FIELD, synthesizeNarrative } from "./synthesize-narrative.js";
-import { assessClaimSupport } from "./faithfulness.js";
+import { assessClaimSupport, type FaithfulnessFact } from "./faithfulness.js";
 import type { CompressedFact } from "../facts/store.js";
 
 export type CompileOperation =
@@ -61,7 +61,7 @@ export type CompileOperation =
     };
 
 export type ParseCompileOperationsResult =
-  | { ok: true; operations: CompileOperation[]; unsupportedSkipped?: number }
+  | { ok: true; operations: CompileOperation[] }
   | { ok: false; reason: string };
 
 export interface ApplyCompileOperationsOptions {
@@ -77,6 +77,8 @@ export interface ApplyCompileOperationsOptions {
   sourceRaws?: readonly string[];
   /** Set only for operations produced by an LLM response, never human-authored operations. */
   generationLLM?: LLMProvider;
+  /** Exact raw material that was included in the LLM compile prompt. */
+  generationFacts?: FaithfulnessFact[];
   /** Default-on semantic guard; `false` is an advanced local opt-out. */
   faithfulnessCheck?: boolean;
   /** Visible warning sink for the advanced local opt-out. */
@@ -211,23 +213,18 @@ export function parseCompileOperationsBlock(text: string): ParseCompileOperation
     ? parsed
     : (parsed as { operations: unknown[] }).operations;
 
-  // Skip unsupported operations instead of rejecting the whole response — one
-  // malformed op from a weaker model must not discard the valid ops beside it
-  // (rejecting everything freezes the compile watermark and stalls drains).
+  // A compile response is an atomic mutation batch. Accepting only its valid
+  // members would advance the raw watermark after silently losing malformed
+  // intent, so retain the whole raw batch for a retry or human review instead.
   const operations: CompileOperation[] = [];
-  let unsupportedSkipped = 0;
-  for (const candidate of candidates) {
+  for (const [index, candidate] of candidates.entries()) {
     const operation = readOperation(candidate);
     if (!operation) {
-      unsupportedSkipped += 1;
-      continue;
+      return { ok: false, reason: `compile-ops contains invalid operation at index ${index}` };
     }
     operations.push(operation);
   }
-  if (operations.length === 0 && unsupportedSkipped > 0) {
-    return { ok: false, reason: "compile-ops contains only unsupported operations" };
-  }
-  return { ok: true, operations, ...(unsupportedSkipped > 0 ? { unsupportedSkipped } : {}) };
+  return { ok: true, operations };
 }
 
 export function parseCompileOperationBlock(text: string): { ok: true; operation: CompileOperation } | { ok: false; reason: string } {
@@ -412,6 +409,7 @@ export async function applyCompileOperations(
       operation: operationToApply,
       llm: opts.generationLLM,
       faithfulnessCheck: opts.faithfulnessCheck,
+      facts: opts.generationFacts,
     });
     if (generationGuard.stage) {
       await recordProposalStage(result, opts.vaultRoot, operationToApply, now, generationGuard.reason, relPath, converted);
@@ -1002,6 +1000,7 @@ async function guardLLMGeneratedOperation(opts: {
   operation: CompileOperation;
   llm?: LLMProvider;
   faithfulnessCheck?: boolean;
+  facts?: FaithfulnessFact[];
 }): Promise<{ stage: false } | { stage: true; reason: string }> {
   if (!opts.llm || opts.faithfulnessCheck === false) return { stage: false };
   const body = opts.operation.kind === "write_page" || opts.operation.kind === "rewrite_page"
@@ -1022,7 +1021,7 @@ async function guardLLMGeneratedOperation(opts: {
   }
   const verdict = await assessClaimSupport({
     body,
-    facts: [],
+    facts: opts.facts ?? [],
     priorBody,
     llm: opts.llm,
   });

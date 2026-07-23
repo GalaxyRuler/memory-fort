@@ -155,6 +155,12 @@ export async function synthesizeNarrative(opts: SynthesizeNarrativeOptions): Pro
       opts.facts,
     );
     if (relationFrontmatter !== baseFrontmatter) {
+      // Relation-only updates still derive from the snapshot the detector saw.
+      // Do not let a stale frontmatter write replace a concurrent body edit.
+      const beforeRelationWrite = await readFile(fullPath, "utf-8");
+      if (sha256(beforeRelationWrite) !== sourceHash) {
+        return stageUnverifiableSynthesis(opts, "source page changed while narrative generation was in progress", llmCalls, tokensUsed);
+      }
       await atomicWrite(fullPath, serializeFrontmatter(relationFrontmatter, parsed.body));
       return { outcome: "rewritten", path: opts.pageRelPath, proposed: false, llmCalls, tokensUsed };
     }

@@ -106,6 +106,43 @@ describe("synthesizeNarrative", () => {
     expect(existsSync(join(tmp, "wiki", ".history"))).toBe(false);
   });
 
+  it("does not overwrite a concurrent edit with a relation-only update", async () => {
+    await writeFileAt("wiki/tools/vitest.md", serializeFrontmatter({
+      type: "tools",
+      title: "Vitest",
+      created: "2026-05-30",
+      updated: "2026-05-30",
+    }, "Vitest test runner.\n"));
+    const concurrentlyEditedBody = "A human added this detail while synthesis was running.\n";
+    const llm: LLMProvider = {
+      providerName: "test",
+      modelName: "test",
+      chat: vi.fn(async (request: LLMRequest): Promise<LLMResponse> => {
+        expect(request.jsonSchema?.name).toBe("NarrativeDetectOutput");
+        await writePage("wiki/projects/memory-system.md", concurrentlyEditedBody);
+        return fakeResponse(JSON.stringify({ contradicted_claims: [], net_new_facts: [] }));
+      }),
+    };
+
+    const result = await synthesizeNarrative({
+      vaultRoot: tmp,
+      pageRelPath: "wiki/projects/memory-system.md",
+      facts: relationFacts(),
+      llm,
+      now: new Date("2026-06-01T10:00:00.000Z"),
+    });
+
+    expect(result).toMatchObject({
+      outcome: "staged-for-review",
+      proposed: true,
+      reason: expect.stringMatching(/source page changed/),
+    });
+    const written = parseFrontmatter(await readFile(join(tmp, "wiki", "projects", "memory-system.md"), "utf-8"));
+    expect(written.body.trim()).toBe(concurrentlyEditedBody.trim());
+    expect(written.frontmatter.relations).toBeUndefined();
+    expect(existsSync(join(tmp, "wiki", ".history"))).toBe(false);
+  });
+
   it("writes relation-only frontmatter updates when novelty detection finds no body changes", async () => {
     await writeFileAt("wiki/tools/vitest.md", serializeFrontmatter({
       type: "tools",
