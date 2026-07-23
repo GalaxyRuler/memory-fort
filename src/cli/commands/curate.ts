@@ -16,7 +16,7 @@ import {
   type LLMConfig,
 } from "../../llm/factory.js";
 import type { LLMProvider, LLMTokenUsage } from "../../llm/types.js";
-import { loadMemoryConfig, type MemoryConfig } from "../../storage/config.js";
+import { loadMemoryConfig, resolveCompileConfig, type MemoryConfig } from "../../storage/config.js";
 import { parseFrontmatter } from "../../storage/frontmatter.js";
 import { memoryRoot } from "../../storage/paths.js";
 import { filterNoiseForPage } from "../../compile/filter-noise.js";
@@ -75,7 +75,8 @@ export async function runCurate(opts: CurateOptions = {}): Promise<CurateResult>
       continue;
     }
 
-    const operation = await requestCuratedRewrite(root, target, opts);
+    const generated = await requestCuratedRewrite(root, target, opts);
+    const operation = generated.operation;
     const withConfidence = {
       ...operation,
       frontmatter: {
@@ -89,6 +90,8 @@ export async function runCurate(opts: CurateOptions = {}): Promise<CurateResult>
       operations: [withConfidence],
       plan: mode === "plan",
       now: opts.now,
+      generationLLM: mode === "apply" ? generated.llm : undefined,
+      faithfulnessCheck: generated.faithfulnessCheck,
     });
     const outcome = applied.outcomes.find((item) => item.path === target);
     pages.push({
@@ -116,7 +119,11 @@ async function requestCuratedRewrite(
   root: string,
   target: string,
   opts: CurateOptions,
-): Promise<Extract<CompileOperation, { kind: "rewrite_page" }>> {
+): Promise<{
+  operation: Extract<CompileOperation, { kind: "rewrite_page" }>;
+  llm: LLMProvider;
+  faithfulnessCheck: boolean;
+}> {
   const fullPath = join(root, ...target.split("/"));
   if (!existsSync(fullPath)) {
     throw new Error(`memory curate: page not found: ${target}`);
@@ -169,8 +176,12 @@ async function requestCuratedRewrite(
     throw new Error("memory curate: LLM must return rewrite_page");
   }
   return {
-    ...parsed.operation,
-    path: target,
+    operation: {
+      ...parsed.operation,
+      path: target,
+    },
+    llm,
+    faithfulnessCheck: resolveCompileConfig(config.compile).faithfulness_check,
   };
 }
 
@@ -181,12 +192,14 @@ async function applyRefreshRewrite(
   mode: CurateResult["mode"],
 ) {
   let llm: LLMProvider | undefined;
+  let faithfulnessCheck = true;
   if (mode === "apply") {
     const env = opts.env ?? process.env;
     try {
       const config = await (opts.configLoader ?? (() => loadMemoryConfig(root)))();
       const llmConfig = getActiveLLMConfig(config);
       llm = (opts.llmFactory ?? createLLMFromConfig)(llmConfig, env);
+      faithfulnessCheck = resolveCompileConfig(config.compile).faithfulness_check;
     } catch {
       llm = undefined;
     }
@@ -258,6 +271,7 @@ async function applyRefreshRewrite(
     facts: acceptedFacts,
     llm,
     now: opts.now ?? new Date(),
+    faithfulnessCheck,
   });
   return refreshSynthesisResult(target, synthesis, {
     sessionsScanned: extracted.sessionsScanned,

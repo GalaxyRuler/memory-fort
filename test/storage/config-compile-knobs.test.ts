@@ -18,8 +18,13 @@ describe("compile config knobs", () => {
     expect(c.raw_filter_quarantine_low_signal).toBe(false);
   });
 
-  it("defaults faithfulness_check to false", () => {
+  it("defaults faithfulness_check to true", () => {
     const c = resolveCompileConfig(parseMemoryConfigYaml("", "config.yaml").compile);
+    expect(c.faithfulness_check).toBe(true);
+  });
+
+  it("allows only an explicit false faithfulness_check opt-out", () => {
+    const c = resolveCompileConfig(parseMemoryConfigYaml("compile:\n  faithfulness_check: false\n", "config.yaml").compile);
     expect(c.faithfulness_check).toBe(false);
   });
 

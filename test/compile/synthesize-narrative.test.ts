@@ -57,7 +57,7 @@ describe("synthesizeNarrative", () => {
       path: "wiki/projects/memory-system.md",
       proposed: false,
     });
-    expect(llm.chat).toHaveBeenCalledTimes(2);
+    expect(llm.chat).toHaveBeenCalledTimes(3);
     expect(vi.mocked(llm.chat).mock.calls[0]![0].jsonSchema?.name).toBe("NarrativeDetectOutput");
     expect(vi.mocked(llm.chat).mock.calls[1]![0].jsonSchema?.name).toBe("NarrativeSynthesisOutput");
 
@@ -149,10 +149,10 @@ describe("synthesizeNarrative", () => {
         contradicted_claims: [],
         net_new_facts: ["Memory System graph coverage is tested with Vitest."],
       },
-      body: "Memory System graph coverage is tested with Vitest while [[docs/ROADMAP]] tracks rollout decisions.",
+      body: "Memory System graph coverage is tested with Vitest. Phase 3 retrieval is planned. [[docs/ROADMAP]] tracks rollout decisions.",
     });
 
-    await synthesizeNarrative({
+    const result = await synthesizeNarrative({
       vaultRoot: tmp,
       pageRelPath: "wiki/projects/memory-system.md",
       facts: relationFacts(),
@@ -161,6 +161,7 @@ describe("synthesizeNarrative", () => {
     });
 
     const parsed = parseFrontmatter(await readFile(join(tmp, "wiki", "projects", "memory-system.md"), "utf-8"));
+    expect(result).toMatchObject({ outcome: "rewritten", proposed: false });
     expect(parsed.frontmatter.relations).toMatchObject({
       uses: ["wiki/tools/vitest.md"],
       "tested-with": ["wiki/tools/vitest.md"],
@@ -477,8 +478,9 @@ describe("synthesizeNarrative", () => {
     expect(llm.chat).toHaveBeenCalledTimes(3);
   });
 
-  it("rejects truncated novelty detection output", async () => {
-    await expect(synthesizeNarrative({
+  it("stages truncated novelty detection output without changing canonical data", async () => {
+    const before = await readFile(join(tmp, "wiki", "projects", "memory-system.md"), "utf-8");
+    const result = await synthesizeNarrative({
       vaultRoot: tmp,
       pageRelPath: "wiki/projects/memory-system.md",
       facts: facts(),
@@ -488,11 +490,14 @@ describe("synthesizeNarrative", () => {
         detectFinishReason: "length",
       }),
       now: new Date("2026-06-01T10:00:00.000Z"),
-    })).rejects.toThrow(/truncated.*length/);
+    });
+    expect(result).toMatchObject({ outcome: "staged-for-review", reason: expect.stringMatching(/truncated.*length/) });
+    expect(await readFile(join(tmp, "wiki", "projects", "memory-system.md"), "utf-8")).toBe(before);
   });
 
-  it("rejects filtered synthesis output", async () => {
-    await expect(synthesizeNarrative({
+  it("stages filtered synthesis output without changing canonical data", async () => {
+    const before = await readFile(join(tmp, "wiki", "projects", "memory-system.md"), "utf-8");
+    const result = await synthesizeNarrative({
       vaultRoot: tmp,
       pageRelPath: "wiki/projects/memory-system.md",
       facts: facts(),
@@ -505,7 +510,9 @@ describe("synthesizeNarrative", () => {
         synthFinishReason: "filter",
       }),
       now: new Date("2026-06-01T10:00:00.000Z"),
-    })).rejects.toThrow(/truncated.*filter/);
+    });
+    expect(result).toMatchObject({ outcome: "staged-for-review", reason: expect.stringMatching(/truncated.*filter/) });
+    expect(await readFile(join(tmp, "wiki", "projects", "memory-system.md"), "utf-8")).toBe(before);
   });
 
   it("validates canonical narrative body syntax", () => {
@@ -595,7 +602,7 @@ function compressedFact(title: string, factLines: string[]) {
 function fakeNarrativeLLM(opts: {
   detect: { contradicted_claims: string[]; net_new_facts: string[] };
   body: string;
-  faithfulness?: { unsupported_claims: string[] };
+  faithfulness?: { unsupported_claims: string[] } | string;
   detectFinishReason?: LLMFinishReason;
   synthFinishReason?: LLMFinishReason;
 }): LLMProvider {
@@ -606,8 +613,8 @@ function fakeNarrativeLLM(opts: {
     if (request.jsonSchema?.name === "NarrativeSynthesisOutput") {
       return fakeResponse(JSON.stringify({ body: opts.body }), opts.synthFinishReason);
     }
-    if (request.jsonSchema?.name === "FaithfulnessOutput" && opts.faithfulness) {
-      return fakeResponse(JSON.stringify(opts.faithfulness));
+    if (request.jsonSchema?.name === "FaithfulnessOutput") {
+      return fakeResponse(typeof opts.faithfulness === "string" ? opts.faithfulness : JSON.stringify(opts.faithfulness ?? { unsupported_claims: [] }));
     }
     throw new Error(`unexpected schema ${request.jsonSchema?.name ?? "none"}`);
   });

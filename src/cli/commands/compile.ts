@@ -1015,6 +1015,8 @@ export async function executeCompilePrompt(opts: CompileOptions & {
     operations: parsed.operations,
     plan: opts.plan,
     rewriteLLM: opts.plan ? undefined : llm,
+    generationLLM: opts.plan ? undefined : llm,
+    faithfulnessCheck: compileConfig.faithfulness_check,
     extractFacts: false,
     journal: !opts.plan,
     sourceRaws: opts.sourceRaws,

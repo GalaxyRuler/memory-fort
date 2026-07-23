@@ -15,6 +15,7 @@ import { filterNoiseForPage } from "./filter-noise.js";
 import { operationKey, readAppliedOperationKeys, recordAppliedOperation } from "./ops-journal.js";
 import { isProposalResolved } from "./proposal-ledger.js";
 import { NARRATIVE_REVIEW_KEY_FIELD, synthesizeNarrative } from "./synthesize-narrative.js";
+import { assessClaimSupport } from "./faithfulness.js";
 import type { CompressedFact } from "../facts/store.js";
 
 export type CompileOperation =
@@ -74,6 +75,13 @@ export interface ApplyCompileOperationsOptions {
   journal?: boolean;
   /** Raw rel-paths that fed this apply batch (scoped ops-journal prune). */
   sourceRaws?: readonly string[];
+  /** Set only for operations produced by an LLM response, never human-authored operations. */
+  generationLLM?: LLMProvider;
+  /** Default-on semantic guard; `false` is an advanced local opt-out. */
+  faithfulnessCheck?: boolean;
+  /** Visible warning sink for the advanced local opt-out. */
+  logger?: (message: string) => void;
+
   /**
    * Operator-directed consolidation (memory curate) exists precisely to merge
    * dated bloat sections into clean prose — exempt it from the dated-section
@@ -261,6 +269,11 @@ export async function applyCompileOperations(
   };
   const now = opts.now ?? new Date();
   const prepared = prepareCompileOperations(opts.vaultRoot, opts.operations, now);
+  if (opts.generationLLM && opts.faithfulnessCheck === false) {
+    (opts.logger ?? console.warn)(
+      "memory compile: unverified generation enabled; LLM-produced operations can bypass the faithfulness verdict",
+    );
+  }
   result.rejected.push(...prepared.rejected);
   result.outcomes.push(...prepared.outcomes);
   const journaledKeys = opts.journal && !opts.plan
@@ -305,6 +318,7 @@ export async function applyCompileOperations(
       llm: opts.rewriteLLM,
       maxBytes: opts.rewriteMaxBytes ?? DEFAULT_REWRITE_MAX_BYTES,
       extractFacts: opts.extractFacts ?? false,
+      faithfulnessCheck: opts.faithfulnessCheck,
     });
     if (deterministicRewrite.handled) {
       result.referencesStripped += deterministicRewrite.referencesStripped;
@@ -391,6 +405,16 @@ export async function applyCompileOperations(
     }
     if (rewriteGuard.stage) {
       await recordProposalStage(result, opts.vaultRoot, operationToApply, now, rewriteGuard.reason, relPath);
+      continue;
+    }
+    const generationGuard = await guardLLMGeneratedOperation({
+      vaultRoot: opts.vaultRoot,
+      operation: operationToApply,
+      llm: opts.generationLLM,
+      faithfulnessCheck: opts.faithfulnessCheck,
+    });
+    if (generationGuard.stage) {
+      await recordProposalStage(result, opts.vaultRoot, operationToApply, now, generationGuard.reason, relPath, converted);
       continue;
     }
 
@@ -973,6 +997,44 @@ async function appendSectionHasNewContent(fullPath: string, section: string): Pr
   return netNewProse(parsed.body, section).length > 0;
 }
 
+async function guardLLMGeneratedOperation(opts: {
+  vaultRoot: string;
+  operation: CompileOperation;
+  llm?: LLMProvider;
+  faithfulnessCheck?: boolean;
+}): Promise<{ stage: false } | { stage: true; reason: string }> {
+  if (!opts.llm || opts.faithfulnessCheck === false) return { stage: false };
+  const body = opts.operation.kind === "write_page" || opts.operation.kind === "rewrite_page"
+    ? opts.operation.body
+    : opts.operation.kind === "append_page"
+      ? opts.operation.section
+      : opts.operation.kind === "append_log"
+        ? opts.operation.line
+        : null;
+  // update_index is deterministic and dispute/supersede operations are already
+  // proposal-only. Every generated canonical prose write reaches the judge.
+  if (body === null) return { stage: false };
+  const relPath = compileOperationPath(opts.operation);
+  const fullPath = join(opts.vaultRoot, ...relPath.split("/"));
+  let priorBody: string | undefined;
+  if (existsSync(fullPath)) {
+    priorBody = parseFrontmatter(await readFile(fullPath, "utf-8")).body;
+  }
+  const verdict = await assessClaimSupport({
+    body,
+    facts: [],
+    priorBody,
+    llm: opts.llm,
+  });
+  if (verdict.outcome === "supported") return { stage: false };
+  return {
+    stage: true,
+    reason: verdict.outcome === "unsupported"
+      ? `unsupported generated claims: ${verdict.unsupportedClaims.join("; ")}`
+      : `generated operation unverifiable: ${verdict.reason ?? "unknown judge failure"}`,
+  };
+}
+
 async function rewriteExistingKnowledgePageUpdate(opts: {
   vaultRoot: string;
   operation: CompileOperation;
@@ -980,6 +1042,7 @@ async function rewriteExistingKnowledgePageUpdate(opts: {
   llm?: LLMProvider;
   maxBytes: number;
   extractFacts: boolean;
+  faithfulnessCheck?: boolean;
 }): Promise<
   | { handled: false }
   | {
@@ -1050,16 +1113,17 @@ async function rewriteExistingKnowledgePageUpdate(opts: {
     extractionTokensUsed = extraction.tokensUsed;
     sessionsScanned = 1;
     if (extraction.truncated) {
+      const reason = extraction.unverifiable ? "fact extraction unverifiable by LLM" : "fact extraction truncated by LLM";
       const staged = await stageCompileProposal(
         opts.vaultRoot,
         opts.operation,
         opts.now,
-        "fact extraction truncated by LLM",
+        reason,
       );
       return {
         handled: true,
         outcome: "staged-for-review",
-        reason: "fact extraction truncated by LLM",
+        reason,
         proposedPath: staged.path,
         alreadyResolved: staged.alreadyResolved,
         extractionTokensUsed,
@@ -1115,6 +1179,7 @@ async function rewriteExistingKnowledgePageUpdate(opts: {
       facts: filtered.accepted,
       llm: opts.llm,
       now: opts.now,
+      faithfulnessCheck: opts.faithfulnessCheck,
     });
     if (synthesis.outcome === "unchanged") {
       return {

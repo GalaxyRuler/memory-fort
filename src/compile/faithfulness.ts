@@ -5,9 +5,16 @@ export interface FaithfulnessFact {
   narrative: string;
 }
 
+export type ClaimSupportOutcome = "supported" | "unsupported" | "unverifiable";
+
+/** A verdict is never a boolean: judge failures must be visible to callers. */
 export interface ClaimSupportResult {
-  supported: boolean;
+  outcome: ClaimSupportOutcome;
   unsupportedClaims: string[];
+  /** Present for `unverifiable` so a proposal explains why it was staged. */
+  reason?: string;
+  /** Bounded judge calls, including the one syntax-repair retry when needed. */
+  llmCalls: number;
 }
 
 export interface AssessClaimSupportOptions {
@@ -43,37 +50,98 @@ const SCHEMA = {
 
 export async function assessClaimSupport(opts: AssessClaimSupportOptions): Promise<ClaimSupportResult> {
   const factsBlock = opts.facts.length > 0
-    ? opts.facts.map((f) => `- (${f.fact_id}) ${f.narrative}`).join("\n")
+    ? opts.facts.map((fact) => `- (${fact.fact_id}) ${fact.narrative}`).join("\n")
     : "(no source facts)";
   const priorBlock = opts.priorBody && opts.priorBody.trim().length > 0
     ? `\n\nPRIOR PAGE (already established — claims here are supported):\n${opts.priorBody}`
     : "";
-  const response = await opts.llm.chat({
+  const request = {
     messages: [
-      { role: "system", content: FAITHFULNESS_SYSTEM_PROMPT },
-      { role: "user", content: `SOURCE FACTS:\n${factsBlock}${priorBlock}\n\nPAGE:\n${opts.body}` },
+      { role: "system" as const, content: FAITHFULNESS_SYSTEM_PROMPT },
+      { role: "user" as const, content: `SOURCE FACTS:\n${factsBlock}${priorBlock}\n\nPAGE:\n${opts.body}` },
     ],
     temperature: 0,
     jsonSchema: { name: "FaithfulnessOutput", schema: SCHEMA, strict: true },
-  });
-  if (response.finishReason === "length" || response.finishReason === "filter") {
-    // A truncated/filtered judge response cannot be trusted. Do NOT fail open —
-    // treat the page as unverifiable and stage it for review. (The sibling detect/synth
-    // calls treat the same finishReason as a hard error via throwIfTruncatedResponse.)
-    return {
-      supported: false,
-      unsupportedClaims: [`faithfulness check could not be verified (LLM response ${response.finishReason})`],
-    };
-  }
-  let unsupportedClaims: string[] = [];
+  };
+
+  let response;
   try {
-    const parsed = JSON.parse(response.content) as { unsupported_claims?: unknown };
-    if (Array.isArray(parsed.unsupported_claims)) {
-      unsupportedClaims = parsed.unsupported_claims.filter((c): c is string => typeof c === "string");
-    }
-  } catch {
-    // On parse failure, fail open (treat as supported) - never block compile on a flaky judge.
-    unsupportedClaims = [];
+    response = await opts.llm.chat(request);
+  } catch (error) {
+    return unverifiable(`faithfulness judge failed: ${errorMessage(error)}`, 1);
   }
-  return { supported: unsupportedClaims.length === 0, unsupportedClaims };
+  const first = parseJudgeResponse(response);
+  if (first.kind === "valid") return verdict(first.unsupportedClaims, 1);
+  if (first.kind === "invalid") return unverifiable(first.reason, 1);
+
+  // Only malformed JSON gets one repair retry. Schema failures are not repaired:
+  // accepting them would turn missing/wrong fields into a silent pass.
+  let repaired;
+  try {
+    repaired = await opts.llm.chat({
+      ...request,
+      messages: [
+        ...request.messages,
+        { role: "assistant", content: response.content },
+        {
+          role: "user",
+          content: "The prior reply was malformed JSON. Return exactly one JSON object matching the requested schema, with no markdown or commentary.",
+        },
+      ],
+    });
+  } catch (error) {
+    return unverifiable(`faithfulness judge repair failed: ${errorMessage(error)}`, 2);
+  }
+  const second = parseJudgeResponse(repaired);
+  if (second.kind === "valid") return verdict(second.unsupportedClaims, 2);
+  return unverifiable(
+    second.kind === "malformed"
+      ? "faithfulness judge remained malformed after one repair retry"
+      : second.reason,
+    2,
+  );
+}
+
+type ParsedJudgeResponse =
+  | { kind: "valid"; unsupportedClaims: string[] }
+  | { kind: "malformed" }
+  | { kind: "invalid"; reason: string };
+
+function parseJudgeResponse(response: { content: string; finishReason: string }): ParsedJudgeResponse {
+  if (response.finishReason !== "stop") {
+    return { kind: "invalid", reason: `faithfulness judge could not be verified (finishReason=${response.finishReason})` };
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(response.content);
+  } catch {
+    return { kind: "malformed" };
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    return { kind: "invalid", reason: "faithfulness judge returned a non-object response" };
+  }
+  const record = parsed as Record<string, unknown>;
+  const keys = Object.keys(record);
+  if (keys.length !== 1 || keys[0] !== "unsupported_claims") {
+    return { kind: "invalid", reason: "faithfulness judge returned an invalid response schema" };
+  }
+  const claims = record.unsupported_claims;
+  if (!Array.isArray(claims) || claims.some((claim) => typeof claim !== "string")) {
+    return { kind: "invalid", reason: "faithfulness judge returned invalid unsupported_claims" };
+  }
+  return { kind: "valid", unsupportedClaims: claims };
+}
+
+function verdict(unsupportedClaims: string[], llmCalls: number): ClaimSupportResult {
+  return unsupportedClaims.length === 0
+    ? { outcome: "supported", unsupportedClaims, llmCalls }
+    : { outcome: "unsupported", unsupportedClaims, llmCalls };
+}
+
+function unverifiable(reason: string, llmCalls: number): ClaimSupportResult {
+  return { outcome: "unverifiable", unsupportedClaims: [], reason, llmCalls };
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

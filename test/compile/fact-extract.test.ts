@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { extractEntityFacts } from "../../src/compile/fact-extract.js";
+import { extractEntityFacts, extractEntityFactsCached } from "../../src/compile/fact-extract.js";
 import type { LLMProvider } from "../../src/llm/types.js";
 
 describe("extractEntityFacts", () => {
@@ -44,9 +44,34 @@ describe("extractEntityFacts", () => {
 
     expect(result.facts).toEqual([]);
   });
+
+  it("marks malformed output unverifiable and does not cache it", async () => {
+    const state = {};
+    const result = await extractEntityFactsCached({
+      rawText: "Memory System shipped a strict extraction response guard.",
+      entity: "Memory System",
+      llm: fakeFactLLM([], "not JSON"),
+      state,
+      rawRelPath: "raw/2026-05-31/session.md",
+      startByte: 0,
+      endByte: 60,
+      now: new Date("2026-05-31T12:00:00.000Z"),
+    });
+
+    expect(result).toMatchObject({
+      facts: [],
+      truncated: true,
+      unverifiable: true,
+      fromCache: false,
+    });
+    expect(state).not.toHaveProperty("factExtraction");
+  });
 });
 
-function fakeFactLLM(facts: string[]): LLMProvider {
+function fakeFactLLM(
+  facts: string[],
+  content = ["```json", JSON.stringify({ facts }), "```"].join("\n"),
+): LLMProvider {
   return {
     providerName: "ollama",
     modelName: "llama3.2",
@@ -55,11 +80,7 @@ function fakeFactLLM(facts: string[]): LLMProvider {
       finishReason: "stop",
       rawProviderName: "ollama",
       tokensUsed: { prompt: 11, completion: 7, total: 18 },
-      content: [
-        "```json",
-        JSON.stringify({ facts }),
-        "```",
-      ].join("\n"),
+      content,
     })),
   };
 }

@@ -369,6 +369,45 @@ describe("compile execute operations", () => {
     expect(parseFrontmatter(archived).body).toContain("Memory Fort body.");
   });
 
+  it("stages an unverifiable LLM-generated rewrite and preserves the canonical page", async () => {
+    const before = await readFile(join(tmp, "wiki", "projects", "memory-fort.md"), "utf-8");
+    const malformedJudge: LLMProvider = {
+      providerName: "fake",
+      modelName: "fake-model",
+      chat: async () => ({
+        content: "not json",
+        model: "fake-model",
+        finishReason: "stop",
+        rawProviderName: "fake",
+      }),
+    };
+
+    const result = await applyCompileOperations({
+      vaultRoot: tmp,
+      generationLLM: malformedJudge,
+      operations: [{
+        kind: "rewrite_page",
+        path: "wiki/projects/memory-fort.md",
+        frontmatter: { type: "projects", title: "Memory Fort", confidence: 0.9 },
+        body: [
+          "Memory Fort body.",
+          "",
+          "Memory Fort now curates recurring observations into one coherent project article.",
+        ].join("\n"),
+      }],
+      now: new Date("2026-05-31T12:00:00.000Z"),
+    });
+
+    expect(result.applied).toEqual([]);
+    expect(result.proposed).toEqual(["wiki/compile-proposed/memory-fort.md"]);
+    expect(result.outcomes).toContainEqual(expect.objectContaining({
+      path: "wiki/projects/memory-fort.md",
+      outcome: "staged-for-review",
+      reason: expect.stringContaining("unverifiable"),
+    }));
+    expect(await readFile(join(tmp, "wiki", "projects", "memory-fort.md"), "utf-8")).toBe(before);
+  });
+
   it("preserves existing curated relations when rewrite_page emits only derived_from", async () => {
     await writeFileAt("raw/x.md", rawPage("X", "session-x"));
     await writeFileAt("wiki/tools/voyageai.md", page("tools", "VoyageAI", "VoyageAI embeddings."));
@@ -754,7 +793,7 @@ describe("compile execute operations", () => {
     });
     expect(result.pagesUpdated).toBe(1);
     expect(result.pagesUnchanged).toBe(0);
-    expect(llm.calls).toBe(2);
+    expect(llm.calls).toBe(3);
     const written = parseFrontmatter(await readFile(join(tmp, "wiki", "projects", "memory-system.md"), "utf-8"));
     expect(written.frontmatter.updated).toBe("2026-05-31");
     expect(written.body).toContain("Phase 3 retrieval shipped");
@@ -799,7 +838,7 @@ describe("compile execute operations", () => {
     expect(result.sessionsScanned).toBe(1);
     expect(result.factsExtracted).toBe(1);
     expect(result.extractionTokensUsed?.total).toBe(28);
-    expect(llm.calls).toBe(3);
+    expect(llm.calls).toBe(4);
     expect(llm.noveltyPrompts[0]).toContain("Memory System shipped Phase 3 retrieval");
     expect(llm.noveltyPrompts[0]).not.toContain("SEARCH RESULT CARD COPY");
     const written = parseFrontmatter(await readFile(join(tmp, "wiki", "projects", "memory-system.md"), "utf-8"));
@@ -848,6 +887,47 @@ describe("compile execute operations", () => {
     expect(llm.calls).toBe(1);
   });
 
+  it("stages unverifiable fact extraction without rewriting the canonical page", async () => {
+    await writeFileAt("wiki/projects/memory-system.md", page(
+      "projects",
+      "Memory System",
+      "Memory System captures raw observations and compiles them into curated wiki pages.",
+    ));
+    const before = await readFile(join(tmp, "wiki", "projects", "memory-system.md"), "utf-8");
+    const llm = fakeExtractionAndNoveltyLLM({
+      facts: ["Memory System shipped a strict extraction response guard."],
+      body: "Memory System shipped a strict extraction response guard.",
+      extractionContent: "not JSON",
+    });
+
+    const result = await applyCompileOperations({
+      vaultRoot: tmp,
+      rewriteLLM: llm,
+      extractFacts: true,
+      now: new Date("2026-05-31T12:00:00.000Z"),
+      operations: [{
+        kind: "append_page",
+        path: "wiki/projects/memory-system.md",
+        section: [
+          "## 2026-05-31 update",
+          "",
+          "Memory System shipped a strict extraction response guard.",
+        ].join("\n"),
+      }],
+    });
+
+    expect(result.applied).toEqual([]);
+    expect(result.proposed).toEqual(["wiki/compile-proposed/memory-system.md"]);
+    expect(result.outcomes.at(-1)).toMatchObject({
+      path: "wiki/projects/memory-system.md",
+      outcome: "staged-for-review",
+      reason: "fact extraction unverifiable by LLM",
+    });
+    await expect(readFile(join(tmp, "wiki", "projects", "memory-system.md"), "utf-8"))
+      .resolves.toBe(before);
+    expect(llm.calls).toBe(1);
+  });
+
   it("rewrites dated append_page updates against existing knowledge pages", async () => {
     await writeFileAt("wiki/projects/memory-fort.md", page(
       "projects",
@@ -881,7 +961,7 @@ describe("compile execute operations", () => {
     expect(result.pagesRewritten).toBe(1);
     expect(result.pagesUpdated).toBe(1);
     expect(result.pagesUnchanged).toBe(0);
-    expect(llm.calls).toBe(2);
+    expect(llm.calls).toBe(3);
     const written = parseFrontmatter(await readFile(join(tmp, "wiki", "projects", "memory-fort.md"), "utf-8"));
     expect(written.body).toContain("Memory Fort stores durable memory.");
     expect(written.body).toContain("Memory Fort had a dated operator event.");
@@ -1055,7 +1135,7 @@ describe("compile execute operations", () => {
     expect(current).toContain("alpha30 beta30 gamma30 delta30");
     const historyDir = join(tmp, "wiki", ".history", "wiki", "projects", "hot-entity.md");
     expect((await readdir(historyDir)).filter((name) => name.endsWith(".md"))).toHaveLength(30);
-    expect(llm.calls).toBe(60);
+    expect(llm.calls).toBe(90);
   });
 
   it("skips append_page sections whose content is already substantially present", async () => {
@@ -1368,6 +1448,10 @@ function fakeNoveltyLLM(
           body: decision.body ?? currentBody,
         }));
       }
+      if (request.jsonSchema?.name === "FaithfulnessOutput") {
+        provider.calls += 1;
+        return fakeLLMResponse(JSON.stringify({ unsupported_claims: [] }));
+      }
       provider.calls += 1;
       const currentBody = /Current page body:\n```markdown\n([\s\S]*?)\n```/.exec(prompt)?.[1] ?? "";
       const newContent = /New content to integrate:\n```markdown\n([\s\S]*?)\n```/.exec(prompt)?.[1] ?? "";
@@ -1391,6 +1475,7 @@ function fakeExtractionAndNoveltyLLM(opts: {
   facts: string[];
   body: string;
   extractionFinishReason?: LLMFinishReason;
+  extractionContent?: string;
 }): LLMProvider & { calls: number; noveltyPrompts: string[] } {
   const provider: LLMProvider & { calls: number; noveltyPrompts: string[] } = {
     calls: 0,
@@ -1406,7 +1491,7 @@ function fakeExtractionAndNoveltyLLM(opts: {
           rawProviderName: "rewrite-test",
           finishReason: opts.extractionFinishReason ?? "stop",
           tokensUsed: { prompt: 20, completion: 8, total: 28 },
-          content: [
+          content: opts.extractionContent ?? [
             "```json",
             JSON.stringify({ facts: opts.facts }),
             "```",
@@ -1427,6 +1512,10 @@ function fakeExtractionAndNoveltyLLM(opts: {
         return fakeLLMResponse(JSON.stringify({
           body: opts.body,
         }));
+      }
+      if (request.jsonSchema?.name === "FaithfulnessOutput") {
+        provider.calls += 1;
+        return fakeLLMResponse(JSON.stringify({ unsupported_claims: [] }));
       }
       provider.calls += 1;
       return {

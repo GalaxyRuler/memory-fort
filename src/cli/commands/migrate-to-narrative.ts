@@ -6,7 +6,7 @@ import { parseFrontmatter, serializeFrontmatter } from "../../storage/frontmatte
 import { memoryRoot } from "../../storage/paths.js";
 import { createLLMFromConfig, getActiveLLMConfig, type LLMConfig } from "../../llm/factory.js";
 import type { LLMProvider } from "../../llm/types.js";
-import { loadMemoryConfig, type MemoryConfig } from "../../storage/config.js";
+import { loadMemoryConfig, resolveCompileConfig, type MemoryConfig } from "../../storage/config.js";
 import {
   archivePageVersion,
   isNarrativeKnowledgePagePath,
@@ -14,7 +14,10 @@ import {
   nextNarrativeFrontmatter,
   stageNarrativeReview,
   validateNarrativeBody,
+  validateDatedBlockConservation,
+  validateWikilinkRetention,
 } from "../../compile/synthesize-narrative.js";
+import { assessClaimSupport } from "../../compile/faithfulness.js";
 
 export type MigrateToNarrativeMode = "plan" | "apply";
 
@@ -58,9 +61,10 @@ export async function runMigrateToNarrative(opts: MigrateToNarrativeOptions): Pr
     const config = await (opts.configLoader ?? (() => loadMemoryConfig(root)))();
     const llmConfig = getActiveLLMConfig(config);
     const llm = (opts.llmFactory ?? createLLMFromConfig)(llmConfig, env);
+    const faithfulnessCheck = resolveCompileConfig(config.compile).faithfulness_check;
 
     for (const relPath of candidates) {
-      const result = await migrateOne(root, relPath, llm, now);
+      const result = await migrateOne(root, relPath, llm, now, faithfulnessCheck);
       if (result === "migrated") migrated.push(relPath);
       if (result === "unchanged") unchanged.push(relPath);
       if (result === "staged") staged.push(relPath);
@@ -82,50 +86,65 @@ async function migrateOne(
   relPath: string,
   llm: LLMProvider,
   now: Date,
+  faithfulnessCheck: boolean,
 ): Promise<"migrated" | "staged" | "unchanged"> {
   const fullPath = join(root, ...relPath.split("/"));
   const current = await readFile(fullPath, "utf-8");
   const parsed = parseFrontmatter(current);
   const flattened = flattenBody(parsed.body);
-  const response = await llm.chat({
-    messages: [
-      {
-        role: "system",
-        content: NARRATIVE_SYNTHESIS_SYSTEM_PROMPT,
-      },
-      {
-        role: "user",
-        content: [
-          "Convert this existing knowledge page body into one coherent narrative body using the synthesis rules.",
-          `Path: ${relPath}`,
-          "",
-          "Frontmatter:",
-          JSON.stringify(parsed.frontmatter, null, 2),
-          "",
-          "CURRENT BODY:",
-          parsed.body.trim(),
-          "",
-          "contradicted_claims:",
-          "[]",
-          "",
-          "net_new_facts:",
-          flattened
-            .split(/\n+/)
-            .map((line) => line.trim())
-            .filter((line) => line.length > 0)
-            .map((line) => `- ${line}`)
-            .join("\n"),
-        ].join("\n"),
-      },
-    ],
-    temperature: 0.2,
-    jsonSchema: { name: "NarrativeMigrationOutput", schema: MIGRATE_SCHEMA, strict: true },
-  });
-  const body = parseBody(response.content);
+  let body: string;
+  try {
+    const response = await llm.chat({
+      messages: [
+        {
+          role: "system",
+          content: NARRATIVE_SYNTHESIS_SYSTEM_PROMPT,
+        },
+        {
+          role: "user",
+          content: [
+            "Convert this existing knowledge page body into one coherent narrative body using the synthesis rules.",
+            `Path: ${relPath}`,
+            "",
+            "Frontmatter:",
+            JSON.stringify(parsed.frontmatter, null, 2),
+            "",
+            "CURRENT BODY:",
+            parsed.body.trim(),
+            "",
+            "contradicted_claims:",
+            "[]",
+            "",
+            "net_new_facts:",
+            flattened
+              .split(/\n+/)
+              .map((line) => line.trim())
+              .filter((line) => line.length > 0)
+              .map((line) => `- ${line}`)
+              .join("\n"),
+          ].join("\n"),
+        },
+      ],
+      temperature: 0.2,
+      jsonSchema: { name: "NarrativeMigrationOutput", schema: MIGRATE_SCHEMA, strict: true },
+    });
+    if (response.finishReason !== "stop") {
+      throw new Error(`migration response finishReason=${response.finishReason}`);
+    }
+    body = parseBody(response.content);
+  } catch (error) {
+    await stageNarrativeReview(root, relPath, {
+      reason: `migration response unverifiable: ${errorMessage(error)}`,
+      body: parsed.body,
+    }, now);
+    return "staged";
+  }
   const validation = validateNarrativeBody(body);
   const shrinkRatio = body.length / Math.max(1, parsed.body.trim().length);
   const missingLinks = existingWikilinks(parsed.body).filter((link) => !body.includes(link));
-  if (!validation.ok || shrinkRatio < 0.3 || missingLinks.length > 0) {
+  const wikilinkCheck = validateWikilinkRetention(parsed.body, body);
+  const datedCheck = validateDatedBlockConservation(parsed.body, body, []);
+  if (!validation.ok || shrinkRatio < 0.3 || !wikilinkCheck.ok || !datedCheck.ok || missingLinks.length > 0) {
     await stageNarrativeReview(root, relPath, {
       reason: validation.ok ? "migration safety gate failed" : validation.reason,
       shrinkRatio,
@@ -134,7 +153,29 @@ async function migrateOne(
     }, now);
     return "staged";
   }
+  if (await readFile(fullPath, "utf-8") !== current) {
+    await stageNarrativeReview(root, relPath, { reason: "migration source changed before verification", body }, now);
+    return "staged";
+  }
+  if (faithfulnessCheck !== false) {
+    const verdict = await assessClaimSupport({ body, facts: [], priorBody: parsed.body, llm });
+    if (verdict.outcome !== "supported") {
+      await stageNarrativeReview(root, relPath, {
+        reason: verdict.outcome === "unsupported"
+          ? `migration unsupported claims: ${verdict.unsupportedClaims.join("; ")}`
+          : "migration faithfulness check unverifiable",
+        body,
+      }, now);
+      return "staged";
+    }
+  } else {
+    console.warn(`memory migrate-to-narrative: unverified generation enabled for ${relPath}; this advanced local opt-out can write without a faithfulness verdict`);
+  }
   if (body.trim() === parsed.body.trim()) return "unchanged";
+  if (await readFile(fullPath, "utf-8") !== current) {
+    await stageNarrativeReview(root, relPath, { reason: "migration source changed before write", body }, now);
+    return "staged";
+  }
   const history = await archivePageVersion(root, relPath, current, now, parsed.frontmatter);
   await mkdir(dirname(fullPath), { recursive: true });
   await atomicWrite(fullPath, serializeFrontmatter(nextNarrativeFrontmatter(parsed.frontmatter, now, [], history), `${body.trim()}\n`));
@@ -205,4 +246,8 @@ function parseBody(content: string): string {
 
 function existingWikilinks(body: string): string[] {
   return Array.from(body.matchAll(/\[\[[^\]]+\]\]/gu)).map((match) => match[0]!);
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

@@ -46,7 +46,7 @@ describe("runMigrateToNarrative", () => {
     });
 
     expect(applied.migrated).toEqual(["wiki/projects/memory-system.md"]);
-    expect(llm.chat).toHaveBeenCalledTimes(1);
+    expect(llm.chat).toHaveBeenCalledTimes(2);
     const request = vi.mocked(llm.chat).mock.calls[0]![0];
     expect(request.messages[0]!.content).toContain("You are a memory consolidation engine.");
     expect(request.messages[1]!.content).toContain("contradicted_claims:\n[]");
@@ -67,6 +67,69 @@ describe("runMigrateToNarrative", () => {
       }),
     ]);
     expect(existsSync(join(tmp, "wiki", ".history", "wiki", "projects", "memory-system.md", "2026-06-01T00-00-00-000Z.md"))).toBe(true);
+  });
+
+  it("stages an unverifiable migration verdict without changing the canonical page", async () => {
+    await writePage("wiki/projects/memory-system.md", [
+      "## Status",
+      "",
+      "- Memory System captures raw observations.",
+      "- [[docs/ROADMAP]] tracks rollout decisions.",
+      "",
+    ].join("\n"));
+    const before = await readFile(join(tmp, "wiki", "projects", "memory-system.md"), "utf-8");
+    const llm = fakeMigrationLLM(
+      "Memory System captures raw observations, and [[docs/ROADMAP]] tracks rollout decisions.",
+      "not valid judge JSON",
+    );
+
+    const result = await runMigrateToNarrative({
+      vaultRoot: tmp,
+      mode: "apply",
+      now: new Date("2026-06-01T00:00:00.000Z"),
+      configLoader: async () => ({ llm: { provider: "openrouter" } }),
+      llmFactory: () => llm,
+    });
+
+    expect(result.migrated).toEqual([]);
+    expect(result.staged).toEqual(["wiki/projects/memory-system.md"]);
+    expect(await readFile(join(tmp, "wiki", "projects", "memory-system.md"), "utf-8")).toBe(before);
+    expect(existsSync(join(tmp, "wiki", "compile-proposed", "memory-system.md"))).toBe(true);
+    expect(vi.mocked(llm.chat).mock.calls.filter((call) => call[0].jsonSchema?.name === "FaithfulnessOutput")).toHaveLength(2);
+  });
+
+  it("permits only the explicit advanced opt-out and warns about unverified migration", async () => {
+    await writePage("wiki/projects/memory-system.md", [
+      "## Status",
+      "",
+      "- Memory System captures raw observations.",
+      "- [[docs/ROADMAP]] tracks rollout decisions.",
+      "",
+    ].join("\n"));
+    const llm = fakeMigrationLLM(
+      "Memory System captures raw observations, and [[docs/ROADMAP]] tracks rollout decisions.",
+      "not valid judge JSON",
+    );
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    try {
+      const result = await runMigrateToNarrative({
+        vaultRoot: tmp,
+        mode: "apply",
+        now: new Date("2026-06-01T00:00:00.000Z"),
+        configLoader: async () => ({
+          llm: { provider: "openrouter" },
+          compile: { faithfulness_check: false },
+        }),
+        llmFactory: () => llm,
+      });
+
+      expect(result.migrated).toEqual(["wiki/projects/memory-system.md"]);
+      expect(vi.mocked(llm.chat).mock.calls).toHaveLength(1);
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("unverified generation enabled"));
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it("stages safety-gate failures as promotable compile proposals", async () => {
@@ -114,13 +177,27 @@ describe("runMigrateToNarrative", () => {
   }
 });
 
-function fakeMigrationLLM(body: string): LLMProvider {
-  const chat = vi.fn(async (_request: LLMRequest): Promise<LLMResponse> => ({
-    model: "test",
-    finishReason: "stop",
-    rawProviderName: "test",
-    tokensUsed: { prompt: 20, completion: 10, total: 30 },
-    content: JSON.stringify({ body }),
-  }));
+function fakeMigrationLLM(
+  body: string,
+  faithfulness: { unsupported_claims: string[] } | string = { unsupported_claims: [] },
+): LLMProvider {
+  const chat = vi.fn(async (request: LLMRequest): Promise<LLMResponse> => {
+    if (request.jsonSchema?.name === "FaithfulnessOutput") {
+      return {
+        model: "test",
+        finishReason: "stop",
+        rawProviderName: "test",
+        tokensUsed: { prompt: 20, completion: 10, total: 30 },
+        content: typeof faithfulness === "string" ? faithfulness : JSON.stringify(faithfulness),
+      };
+    }
+    return {
+      model: "test",
+      finishReason: "stop",
+      rawProviderName: "test",
+      tokensUsed: { prompt: 20, completion: 10, total: 30 },
+      content: JSON.stringify({ body }),
+    };
+  });
   return { providerName: "test", modelName: "test", chat };
 }

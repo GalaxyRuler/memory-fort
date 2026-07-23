@@ -57,6 +57,8 @@ export interface SynthesizeNarrativeOptions {
   llm: LLMProvider;
   now: Date;
   faithfulnessCheck?: boolean;
+  /** Advanced local escape hatch; callers should surface its warning. */
+  logger?: (message: string) => void;
 }
 
 interface NarrativeDetectOutput {
@@ -114,24 +116,35 @@ export async function synthesizeNarrative(opts: SynthesizeNarrativeOptions): Pro
   }
   const current = await readFile(fullPath, "utf-8");
   const parsed = parseFrontmatter(current);
-  const detectResponse = await opts.llm.chat({
-    messages: [
-      {
-        role: "system",
-        content: NARRATIVE_DETECT_SYSTEM_PROMPT,
-      },
-      {
-        role: "user",
-        content: buildDetectPrompt(opts.pageRelPath, parsed.frontmatter, parsed.body, opts.facts),
-      },
-    ],
-    temperature: 0,
-    jsonSchema: { name: "NarrativeDetectOutput", schema: DETECT_SCHEMA, strict: true },
-  });
-  throwIfTruncatedResponse("narrative synthesis detect", detectResponse.finishReason);
+  const sourceHash = sha256(current);
+  const faithfulnessCheck = opts.faithfulnessCheck !== false;
+  if (!faithfulnessCheck) {
+    (opts.logger ?? console.warn)(
+      `memory compile: unverified generation enabled for ${opts.pageRelPath}; this advanced local opt-out can write without a faithfulness verdict`,
+    );
+  }
+  let detectResponse: Awaited<ReturnType<LLMProvider["chat"]>>;
+  try {
+    detectResponse = await opts.llm.chat({
+      messages: [
+        { role: "system", content: NARRATIVE_DETECT_SYSTEM_PROMPT },
+        { role: "user", content: buildDetectPrompt(opts.pageRelPath, parsed.frontmatter, parsed.body, opts.facts) },
+      ],
+      temperature: 0,
+      jsonSchema: { name: "NarrativeDetectOutput", schema: DETECT_SCHEMA, strict: true },
+    });
+  } catch (error) {
+    return stageUnverifiableSynthesis(opts, `narrative synthesis detect failed: ${errorMessage(error)}`, 1);
+  }
   let llmCalls = 1;
   let tokensUsed = detectResponse.tokensUsed;
-  const detect = parseDetectOutput(detectResponse.content);
+  let detect: NarrativeDetectOutput;
+  try {
+    throwIfUnverifiableResponse("narrative synthesis detect", detectResponse.finishReason);
+    detect = parseDetectOutput(detectResponse.content);
+  } catch (error) {
+    return stageUnverifiableSynthesis(opts, `narrative synthesis detect unverifiable: ${errorMessage(error)}`, llmCalls, tokensUsed);
+  }
 
   if (detect.contradicted_claims.length === 0 && detect.net_new_facts.length === 0) {
     const baseFrontmatter = { ...parsed.frontmatter, updated: isoDate(opts.now) };
@@ -161,75 +174,65 @@ export async function synthesizeNarrative(opts: SynthesizeNarrativeOptions): Pro
     });
   }
 
-  const synthResponse = await opts.llm.chat({
-    messages: [
-      {
-        role: "system",
-        content: NARRATIVE_SYNTHESIS_SYSTEM_PROMPT,
-      },
-      {
-        role: "user",
-        content: buildSynthesisPrompt(opts.pageRelPath, parsed.frontmatter, parsed.body, opts.facts, detect),
-      },
-    ],
-    temperature: 0.2,
-    jsonSchema: { name: "NarrativeSynthesisOutput", schema: SYNTHESIS_SCHEMA, strict: true },
-  });
-  throwIfTruncatedResponse("narrative synthesis", synthResponse.finishReason);
+  let synthResponse: Awaited<ReturnType<LLMProvider["chat"]>>;
+  try {
+    synthResponse = await opts.llm.chat({
+      messages: [
+        { role: "system", content: NARRATIVE_SYNTHESIS_SYSTEM_PROMPT },
+        { role: "user", content: buildSynthesisPrompt(opts.pageRelPath, parsed.frontmatter, parsed.body, opts.facts, detect) },
+      ],
+      temperature: 0.2,
+      jsonSchema: { name: "NarrativeSynthesisOutput", schema: SYNTHESIS_SCHEMA, strict: true },
+    });
+  } catch (error) {
+    return stageUnverifiableSynthesis(opts, `narrative synthesis failed: ${errorMessage(error)}`, llmCalls + 1, tokensUsed);
+  }
   llmCalls += 1;
   tokensUsed = addTokenUsage(tokensUsed, synthResponse.tokensUsed);
-  const synth = parseSynthesisOutput(synthResponse.content);
+  let synth: NarrativeSynthesisOutput;
+  try {
+    throwIfUnverifiableResponse("narrative synthesis", synthResponse.finishReason);
+    synth = parseSynthesisOutput(synthResponse.content);
+  } catch (error) {
+    return stageUnverifiableSynthesis(opts, `narrative synthesis unverifiable: ${errorMessage(error)}`, llmCalls, tokensUsed);
+  }
 
-  if (opts.faithfulnessCheck) {
+  // Deterministic conservation checks are the first gate. The judge only adds
+  // a semantic check after syntax, dated history, and evidence anchors survive.
+  const body = normalizeBody(synth.body);
+  const validation = validateNarrativeBody(body);
+  const wikilinkCheck = validateWikilinkRetention(parsed.body, body);
+  const datedCheck = validateDatedBlockConservation(parsed.body, body, detect.contradicted_claims);
+  if (!validation.ok || !wikilinkCheck.ok || !datedCheck.ok) {
+    const reason = !validation.ok ? validation.reason : !wikilinkCheck.ok ? wikilinkCheck.reason : !datedCheck.ok ? datedCheck.reason : "deterministic conservation check failed";
+    return stageUnverifiableSynthesis(opts, reason, llmCalls, tokensUsed, body);
+  }
+
+  if (faithfulnessCheck) {
     const verdict = await assessClaimSupport({
       body: synth.body,
       facts: opts.facts.map((fact) => ({ fact_id: fact.fact_id, narrative: fact.fact.narrative })),
       llm: opts.llm,
       priorBody: parsed.body,
     });
-    llmCalls += 1;
-    if (!verdict.supported) {
-      const reason = `unsupported claims: ${verdict.unsupportedClaims.join("; ")}`;
-      const staged = await stageNarrativeReview(opts.vaultRoot, opts.pageRelPath, {
-        reason,
-        body: synth.body,
-        facts: opts.facts,
-      }, opts.now);
-      return stagedReviewResult(opts.pageRelPath, staged, { reason, llmCalls, tokensUsed });
+    llmCalls += verdict.llmCalls;
+    if (verdict.outcome !== "supported") {
+      const reason = verdict.outcome === "unsupported"
+        ? `unsupported claims: ${verdict.unsupportedClaims.join("; ")}`
+        : `faithfulness check unverifiable: ${verdict.reason ?? "unknown judge failure"}`;
+      return stageUnverifiableSynthesis(opts, reason, llmCalls, tokensUsed, body);
     }
-  }
-
-  const body = normalizeBody(synth.body);
-  const validation = validateNarrativeBody(body);
-  if (!validation.ok) {
-    const staged = await stageNarrativeReview(opts.vaultRoot, opts.pageRelPath, {
-      reason: validation.reason,
-      body,
-      facts: opts.facts,
-    }, opts.now);
-    return stagedReviewResult(opts.pageRelPath, staged, {
-      reason: validation.reason,
-      llmCalls,
-      tokensUsed,
-    });
-  }
-  const wikilinkCheck = validateWikilinkRetention(parsed.body, body);
-  if (!wikilinkCheck.ok) {
-    const staged = await stageNarrativeReview(opts.vaultRoot, opts.pageRelPath, {
-      reason: wikilinkCheck.reason,
-      body,
-      facts: opts.facts,
-    }, opts.now);
-    return stagedReviewResult(opts.pageRelPath, staged, {
-      reason: wikilinkCheck.reason,
-      llmCalls,
-      tokensUsed,
-    });
   }
   if (narrativeEquivalent(parsed.body, body)) {
     return { outcome: "unchanged", path: opts.pageRelPath, proposed: false, llmCalls, tokensUsed };
   }
 
+  // Never overwrite a page that changed after the LLM saw it. This is a
+  // deterministic source-hash conservation gate, not a best-effort warning.
+  const beforeWrite = await readFile(fullPath, "utf-8");
+  if (sha256(beforeWrite) !== sourceHash) {
+    return stageUnverifiableSynthesis(opts, "source page changed while narrative generation was in progress", llmCalls, tokensUsed, body);
+  }
   const history = await archivePageVersion(opts.vaultRoot, opts.pageRelPath, current, opts.now, parsed.frontmatter);
   const nextFrontmatter = await applyFactRelationsToFrontmatter(
     opts.vaultRoot,
@@ -289,6 +292,21 @@ function stagedReviewResult(
     llmCalls: opts.llmCalls,
     tokensUsed: opts.tokensUsed,
   };
+}
+
+async function stageUnverifiableSynthesis(
+  opts: SynthesizeNarrativeOptions,
+  reason: string,
+  llmCalls: number,
+  tokensUsed?: LLMTokenUsage,
+  body?: string,
+): Promise<SynthesisResult> {
+  const staged = await stageNarrativeReview(opts.vaultRoot, opts.pageRelPath, {
+    reason,
+    ...(body ? { body } : {}),
+    facts: opts.facts,
+  }, opts.now);
+  return stagedReviewResult(opts.pageRelPath, staged, { reason, llmCalls, tokensUsed });
 }
 
 export async function archivePageVersion(
@@ -502,7 +520,10 @@ export function nextNarrativeFrontmatter(
     supersedes: [...previousSupersedes, history],
     strength: typeof current.strength === "number" ? current.strength : 8,
     last_accessed: isoDate(now),
-    source_facts: facts.map((fact) => fact.fact_id),
+    source_facts: [...new Set([
+      ...(Array.isArray(current.source_facts) ? current.source_facts.filter((fact): fact is string => typeof fact === "string") : []),
+      ...facts.map((fact) => fact.fact_id),
+    ])],
   };
 }
 
@@ -683,10 +704,21 @@ function buildSynthesisPrompt(
 }
 
 function parseDetectOutput(content: string): NarrativeDetectOutput {
-  const parsed = parseJsonObject(content) as Partial<NarrativeDetectOutput>;
+  const parsed = parseJsonObject(content);
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new Error("narrative synthesis detect: LLM returned a non-object response");
+  }
+  const record = parsed as Record<string, unknown>;
+  const keys = Object.keys(record).sort();
+  if (keys.length !== 2 || keys[0] !== "contradicted_claims" || keys[1] !== "net_new_facts") {
+    throw new Error("narrative synthesis detect: LLM returned an invalid response schema");
+  }
+  if (!isStringArray(record.contradicted_claims) || !isStringArray(record.net_new_facts)) {
+    throw new Error("narrative synthesis detect: LLM returned invalid claim arrays");
+  }
   return {
-    contradicted_claims: stringArray(parsed.contradicted_claims),
-    net_new_facts: stringArray(parsed.net_new_facts),
+    contradicted_claims: record.contradicted_claims,
+    net_new_facts: record.net_new_facts,
   };
 }
 
@@ -698,9 +730,12 @@ function parseSynthesisOutput(content: string): NarrativeSynthesisOutput {
   return { body: parsed.body };
 }
 
-function throwIfTruncatedResponse(stage: string, finishReason: string): void {
-  if (finishReason === "length" || finishReason === "filter") {
-    throw new Error(`${stage}: LLM response truncated (finishReason=${finishReason})`);
+function throwIfUnverifiableResponse(stage: string, finishReason: string): void {
+  if (finishReason !== "stop") {
+    if (finishReason === "length" || finishReason === "filter") {
+      throw new Error(`${stage}: LLM response truncated (finishReason=${finishReason})`);
+    }
+    throw new Error(`${stage}: LLM response unverifiable (finishReason=${finishReason})`);
   }
 }
 
@@ -727,16 +762,53 @@ function parseJsonObject(content: string): unknown {
   throw new Error("narrative synthesis: LLM returned invalid JSON");
 }
 
-function stringArray(value: unknown): string[] {
-  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === "string");
 }
 
-function validateWikilinkRetention(currentBody: string, nextBody: string): { ok: true } | { ok: false; reason: string } {
+export function validateWikilinkRetention(currentBody: string, nextBody: string): { ok: true } | { ok: false; reason: string } {
   const existing = Array.from(currentBody.matchAll(/\[\[[^\]]+\]\]/gu)).map((match) => match[0]!);
   if (existing.length === 0) return { ok: true };
   const missing = existing.filter((link) => !nextBody.includes(link));
   if (missing.length === 0) return { ok: true };
   return { ok: false, reason: `synthesized body dropped wikilinks: ${missing.join(", ")}` };
+}
+
+export function validateDatedBlockConservation(currentBody: string, nextBody: string, contradictedClaims: string[]): { ok: true } | { ok: false; reason: string } {
+  const previous = datedBlocks(currentBody);
+  if (previous.size === 0) return { ok: true };
+  const contradicted = new Set(contradictedClaims.map(normalizeBody));
+  const missing = [...previous.values()]
+    .flatMap((content) => content.split(/\n+/))
+    .map((line) => line.replace(/^\s*[-*+]\s+/u, "").trim())
+    .filter((line) => line.length > 0 && !/\[\[[^\]]+\]\]/u.test(line))
+    .filter((line) => !contradicted.has(normalizeBody(line)))
+    .filter((line) => !nextBody.includes(line));
+  return missing.length === 0
+    ? { ok: true }
+    : { ok: false, reason: `synthesized body dropped dated evidence spans: ${missing.join("; ")}` };
+}
+
+function datedBlocks(body: string): Map<string, string> {
+  const blocks = new Map<string, string>();
+  const lines = body.split(/\r?\n/);
+  let heading: string | undefined;
+  let content: string[] = [];
+  const flush = () => {
+    if (heading) blocks.set(heading, normalizeBody(content.join("\n")));
+    heading = undefined;
+    content = [];
+  };
+  for (const line of lines) {
+    if (/^##\s+/u.test(line)) {
+      flush();
+      if (/^##\s+\S*\d{4}-\d{2}-\d{2}/u.test(line)) heading = line.trim();
+      continue;
+    }
+    if (heading) content.push(line);
+  }
+  flush();
+  return blocks;
 }
 
 function normalizeBody(body: string): string {
@@ -768,6 +840,10 @@ function asRecord(value: unknown): Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
     ? value as Record<string, unknown>
     : { value };
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function stringifyFencedJson(value: unknown): string {

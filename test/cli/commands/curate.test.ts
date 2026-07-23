@@ -75,6 +75,33 @@ describe("runCurate", () => {
     expect(existsSync(join(tmp, "wiki", ".history", "wiki", "projects", "memory-fort.md", "2026-05-31T12-00-00-000Z.md"))).toBe(true);
   });
 
+  it("stages a curated rewrite when the faithfulness verdict is malformed", async () => {
+    const before = await readFile(join(tmp, "wiki", "projects", "memory-fort.md"), "utf-8");
+    const llm = fakeCurateLLM(
+      "Memory Fort stores durable memory and records compile observations.",
+      "not valid judge JSON",
+    );
+
+    const result = await runCurate({
+      vaultRoot: tmp,
+      target: "wiki/projects/memory-fort.md",
+      apply: true,
+      configLoader: async () => ({ llm: { provider: "ollama", model: "llama3.2" } }),
+      llmFactory: () => llm,
+      env: {},
+      now: new Date("2026-05-31T12:00:00.000Z"),
+    });
+
+    expect(result.pages).toEqual([{
+      path: "wiki/projects/memory-fort.md",
+      outcome: "staged-for-review",
+      proposed: true,
+    }]);
+    expect(await readFile(join(tmp, "wiki", "projects", "memory-fort.md"), "utf-8")).toBe(before);
+    expect(existsSync(join(tmp, "wiki", "compile-proposed", "memory-fort.md"))).toBe(true);
+    expect(vi.mocked(llm.chat).mock.calls.filter((call) => call[0].jsonSchema?.name === "FaithfulnessOutput")).toHaveLength(2);
+  });
+
   it("resolves a bare page slug across wiki categories", async () => {
     await writeFileAt("wiki/projects/agentmemory.md", page("AgentMemory keeps imported memory."));
     const llm = fakeCurateLLM("AgentMemory keeps imported memory in one coherent article.");
@@ -147,7 +174,7 @@ describe("runCurate", () => {
       outcome: "rewritten",
       proposed: false,
     }]);
-    expect(llm.chat).toHaveBeenCalledTimes(2);
+    expect(llm.chat).toHaveBeenCalledTimes(3);
     const noveltyPrompt = vi.mocked(llm.chat).mock.calls[0]![0].messages.at(-1)!.content;
     expect(noveltyPrompt).toContain("Memory System shipped Phase 3 retrieval");
     expect(noveltyPrompt).not.toContain("SEARCH RESULT CARD COPY");
@@ -209,7 +236,7 @@ describe("runCurate", () => {
 
     expect(first.pages[0]?.outcome).toBe("rewritten");
     expect(second.pages[0]?.outcome).toBe("skipped: no new content");
-    expect(llm.chat).toHaveBeenCalledTimes(3);
+    expect(llm.chat).toHaveBeenCalledTimes(4);
     expect(vi.mocked(llm.chat).mock.calls.filter((call) => call[0].messages[0]?.content.includes("entity fact extractor"))).toHaveLength(0);
     const historyDir = join(tmp, "wiki", ".history", "wiki", "projects", "memory-system.md");
     expect((await readdir(historyDir)).filter((name) => name.endsWith(".md"))).toHaveLength(1);
@@ -272,11 +299,23 @@ function page(body: string): string {
   ].join("\n");
 }
 
-function fakeCurateLLM(body: string): LLMProvider {
+function fakeCurateLLM(
+  body: string,
+  faithfulness: { unsupported_claims: string[] } | string = { unsupported_claims: [] },
+): LLMProvider {
   return {
     providerName: "ollama",
     modelName: "llama3.2",
-    chat: vi.fn(async () => ({
+    chat: vi.fn(async (request) => {
+      if (request.jsonSchema?.name === "FaithfulnessOutput") {
+        return {
+          model: "llama3.2",
+          finishReason: "stop" as const,
+          rawProviderName: "ollama",
+          content: typeof faithfulness === "string" ? faithfulness : JSON.stringify(faithfulness),
+        };
+      }
+      return {
       model: "llama3.2",
       finishReason: "stop",
       rawProviderName: "ollama",
@@ -290,7 +329,8 @@ function fakeCurateLLM(body: string): LLMProvider {
         }),
         "```",
       ].join("\n"),
-    })),
+      };
+    }),
   };
 }
 
@@ -344,6 +384,15 @@ function fakeRefreshPipelineLLM(opts: {
           rawProviderName: "ollama",
           tokensUsed: { prompt: 12, completion: 6, total: 18 },
           content: JSON.stringify({ body: opts.body }),
+        };
+      }
+      if (request.jsonSchema?.name === "FaithfulnessOutput") {
+        return {
+          model: "llama3.2",
+          finishReason: "stop",
+          rawProviderName: "ollama",
+          tokensUsed: { prompt: 12, completion: 6, total: 18 },
+          content: JSON.stringify({ unsupported_claims: [] }),
         };
       }
       return {

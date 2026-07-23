@@ -481,7 +481,7 @@ function promptAwareCompressionLLM(factory: (request: LLMRequest) => Array<Recor
   };
 }
 
-function truncatedCompressionLLM(reason: "length" | "filter"): LLMProvider {
+function truncatedCompressionLLM(reason: "length" | "filter" | "error" | "other" | "tool_calls"): LLMProvider {
   return {
     providerName: "ollama",
     modelName: "llama3.2",
@@ -614,7 +614,22 @@ describe("compress truncation gate", () => {
     },
   );
 
-  it("runCompress leaves no fact file and no watermark when the response is truncated", async () => {
+  it.each(["error", "other", "tool_calls"] as const)(
+    "rejects non-stop LLM responses as unverifiable when finishReason=%s",
+    async (reason) => {
+      await expect(
+        compressSession({
+          rawText: "## [10:00:00] Prompt\nhello unverified world\n",
+          rawRelPath: "raw/2026-07-17/claude-code-x.md",
+          sessionId: "x",
+          observedAt: "2026-07-17T00:00:00.000Z",
+          llm: truncatedCompressionLLM(reason),
+        }),
+      ).rejects.toThrow(/unverifiable/);
+    },
+  );
+
+  it("runCompress leaves no fact file and no watermark when the response is unverifiable", async () => {
     const root = await mkdtemp(join(tmpdir(), "memory-compress-trunc-"));
     try {
       const relPath = "raw/2026-07-17/session-trunc.md";
@@ -625,7 +640,7 @@ describe("compress truncation gate", () => {
         vaultRoot: root,
         apply: true,
         configLoader: async () => ({}),
-        llmFactory: () => truncatedCompressionLLM("length"),
+        llmFactory: () => truncatedCompressionLLM("error"),
       });
 
       expect(result.files.find((f) => f.path === relPath)?.outcome).toBe("failed");

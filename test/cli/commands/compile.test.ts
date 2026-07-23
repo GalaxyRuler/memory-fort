@@ -881,20 +881,50 @@ function fakeExecuteLLMWith(
   return {
     providerName: "ollama",
     modelName: "llama3.2",
-    chat: vi.fn(async (request) => ({
-      model: "llama3.2",
-      finishReason: "stop",
-      rawProviderName: "ollama",
-      content: [
-        "```compile-ops",
-        JSON.stringify({
-          operations: operations({
-            prompt: request.messages.map((message) => message.content).join("\n"),
+    chat: vi.fn(async (request) => {
+      if (request.jsonSchema?.name === "FaithfulnessOutput") {
+        return {
+          model: "llama3.2",
+          finishReason: "stop" as const,
+          rawProviderName: "ollama",
+          content: JSON.stringify({ unsupported_claims: [] }),
+        };
+      }
+      if (request.jsonSchema?.name === "NarrativeDetectOutput") {
+        return {
+          model: "llama3.2",
+          finishReason: "stop" as const,
+          rawProviderName: "ollama",
+          content: JSON.stringify({ contradicted_claims: [], net_new_facts: ["generated compile update"] }),
+        };
+      }
+      if (request.jsonSchema?.name === "NarrativeSynthesisOutput") {
+        const prompt = request.messages.at(-1)?.content ?? "";
+        const current = /Current body:\n([\s\S]*?)\n\nContradicted claims:/.exec(prompt)?.[1]?.trim() ?? "";
+        const encodedNarrative = /"narrative":\s*"((?:\\.|[^"\\])*)"/.exec(prompt)?.[1];
+        const incoming = encodedNarrative ? JSON.parse(`"${encodedNarrative}"`) : "generated compile update";
+        return {
+          model: "llama3.2",
+          finishReason: "stop" as const,
+          rawProviderName: "ollama",
+          content: JSON.stringify({ body: [current, incoming].filter(Boolean).join("\n\n") }),
+        };
+      }
+      return {
+        model: "llama3.2",
+        finishReason: "stop",
+        rawProviderName: "ollama",
+        content: [
+          "```compile-ops",
+          JSON.stringify({
+            operations: operations({
+              prompt: request.messages.map((message) => message.content).join("\n"),
+            }),
           }),
-        }),
-        "```",
-      ].join("\n"),
-    })),
+          "```",
+        ].join("\n"),
+      };
+    }),
   };
 }
 
@@ -943,6 +973,9 @@ function fakeFactConsolidationLLM(): LLMProvider {
             "Memory System fact c.",
           ].join("\n"),
         }));
+      }
+      if (request.jsonSchema?.name === "FaithfulnessOutput") {
+        return fakeJsonResponse(JSON.stringify({ unsupported_claims: [] }));
       }
       throw new Error(`unexpected schema ${request.jsonSchema?.name ?? "none"}`);
     }),

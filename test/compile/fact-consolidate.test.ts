@@ -66,8 +66,8 @@ describe("fact-first compile consolidation", () => {
       now: new Date("2026-05-31T12:00:00.000Z"),
     });
 
-    expect(result.summary).toMatchObject({ conceptsEligible: 1, llmCalls: 2, pagesUpdated: 1, factsConsidered: 8 });
-    expect(llm.chat).toHaveBeenCalledTimes(2);
+    expect(result.summary).toMatchObject({ conceptsEligible: 1, llmCalls: 3, pagesUpdated: 1, factsConsidered: 8 });
+    expect(llm.chat).toHaveBeenCalledTimes(3);
     const prompt = vi.mocked(llm.chat).mock.calls[0]![0].messages.at(-1)!.content;
     expect(prompt).toContain("Memory System important fact 11.");
     expect(prompt).toContain("Memory System important fact 4.");
@@ -134,6 +134,7 @@ describe("fact-first compile consolidation", () => {
     await writeFact("facts/2026-05-31/a.json", fact("a", 8));
     await writeFact("facts/2026-05-31/b.json", fact("b", 7));
     await writeFact("facts/2026-05-31/c.json", fact("c", 6));
+    const before = await readFile(join(tmp, "wiki", "projects", "memory-system.md"), "utf-8");
     const llm = fakeSectionPatchLLM("Memory System is backed by Supabase and all e2e tests pass.", {
       faithfulness: { unsupported_claims: ["backed by Supabase", "all e2e tests pass"] },
     });
@@ -143,12 +144,12 @@ describe("fact-first compile consolidation", () => {
       llm,
       maxCalls: 1,
       now: new Date("2026-05-31T12:00:00.000Z"),
-      faithfulnessCheck: true,
     });
 
     expect(llm.chat).toHaveBeenCalledTimes(3);
     expect(result.summary.llmCalls).toBe(3);
     expect(result.proposed).toEqual(["wiki/compile-proposed/memory-system.md"]);
+    await expect(readFile(join(tmp, "wiki", "projects", "memory-system.md"), "utf-8")).resolves.toBe(before);
   });
 
   it("does not re-queue already-resolved narrative proposals", async () => {
@@ -259,8 +260,8 @@ function fakeSectionPatchLLM(body: string, opts: { faithfulness?: { unsupported_
         body,
       }));
     }
-    if (request.jsonSchema?.name === "FaithfulnessOutput" && opts.faithfulness) {
-      return fakeResponse(JSON.stringify(opts.faithfulness));
+    if (request.jsonSchema?.name === "FaithfulnessOutput") {
+      return fakeResponse(JSON.stringify(opts.faithfulness ?? { unsupported_claims: [] }));
     }
     throw new Error(`unexpected schema ${request.jsonSchema?.name ?? "none"}`);
   });

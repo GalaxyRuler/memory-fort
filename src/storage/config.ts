@@ -177,7 +177,7 @@ export function resolveCompileConfig(raw: MemoryConfig["compile"]): ResolvedComp
     raw_filter: config.raw_filter === true,
     raw_filter_min_signal_bytes: readInteger(config.raw_filter_min_signal_bytes, 40),
     raw_filter_quarantine_low_signal: config.raw_filter_quarantine_low_signal === true,
-    faithfulness_check: config.faithfulness_check === true,
+    faithfulness_check: config.faithfulness_check !== false,
     drain: config.drain === true,
     max_passes_per_run: readInteger(config.max_passes_per_run, 25),
     condensed_index: config.condensed_index !== false,

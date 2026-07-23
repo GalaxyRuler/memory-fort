@@ -1,5 +1,5 @@
 import { chatWithAudit } from "../llm/audit.js";
-import type { LLMProvider, LLMTokenUsage } from "../llm/types.js";
+import type { LLMProvider, LLMResponse, LLMTokenUsage } from "../llm/types.js";
 import type { CompileStateFile } from "./state.js";
 
 export interface ExtractEntityFactsOptions {
@@ -16,6 +16,7 @@ export interface ExtractEntityFactsResult {
   facts: string[];
   tokensUsed?: LLMTokenUsage;
   truncated: boolean;
+  unverifiable: boolean;
 }
 
 export interface CachedExtractEntityFactsOptions extends ExtractEntityFactsOptions {
@@ -44,36 +45,52 @@ export async function extractEntityFacts(opts: ExtractEntityFactsOptions): Promi
   const facts: string[] = [];
   let tokensUsed: LLMTokenUsage | undefined;
   let truncated = false;
+  let unverifiable = false;
 
   for (const chunk of chunks) {
-    const response = opts.vaultRoot
-      ? await chatWithAudit({
-        llm: opts.llm,
-        vaultRoot: opts.vaultRoot,
-        consumer: "entity-fact-extract",
-        request: factExtractionRequest({
+    let response: LLMResponse;
+    try {
+      response = opts.vaultRoot
+        ? await chatWithAudit({
+          llm: opts.llm,
+          vaultRoot: opts.vaultRoot,
+          consumer: "entity-fact-extract",
+          request: factExtractionRequest({
+            rawText: chunk,
+            entity: opts.entity,
+            entityContext: opts.entityContext,
+          }),
+          env: opts.env,
+        })
+        : await opts.llm.chat(factExtractionRequest({
           rawText: chunk,
           entity: opts.entity,
           entityContext: opts.entityContext,
-        }),
-        env: opts.env,
-      })
-      : await opts.llm.chat(factExtractionRequest({
-        rawText: chunk,
-        entity: opts.entity,
-        entityContext: opts.entityContext,
-      }));
-    tokensUsed = addTokenUsage(tokensUsed, response.tokensUsed);
-    if (response.finishReason === "length" || response.finishReason === "filter") {
+        }));
+    } catch {
       truncated = true;
+      unverifiable = true;
       break;
     }
-    facts.push(...parseFactsResponse(response.content));
+    tokensUsed = addTokenUsage(tokensUsed, response.tokensUsed);
+    if (response.finishReason !== "stop") {
+      truncated = true;
+      unverifiable = response.finishReason !== "length" && response.finishReason !== "filter";
+      break;
+    }
+    const parsedFacts = parseFactsResponse(response.content);
+    if (parsedFacts === null) {
+      truncated = true;
+      unverifiable = true;
+      break;
+    }
+    facts.push(...parsedFacts);
   }
 
   return {
     facts: dedupeFacts(facts),
     truncated,
+    unverifiable,
     ...(tokensUsed ? { tokensUsed } : {}),
   };
 }
@@ -93,6 +110,7 @@ export async function extractEntityFactsCached(
     return {
       facts: [...cached.facts],
       truncated: false,
+      unverifiable: false,
       ...(cached.tokensUsed ? { tokensUsed: cached.tokensUsed } : {}),
       fromCache: true,
     };
@@ -165,31 +183,29 @@ function factExtractionRequest(opts: {
   };
 }
 
-function parseFactsResponse(content: string): string[] {
+function parseFactsResponse(content: string): string[] | null {
   const json = extractJsonObject(content.trim());
-  if (!json) return [];
+  if (!json) return null;
   let parsed: unknown;
   try {
     parsed = JSON.parse(json);
   } catch {
-    return [];
+    return null;
   }
-  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return [];
-  const facts = (parsed as Record<string, unknown>)["facts"];
-  if (!Array.isArray(facts)) return [];
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return null;
+  const record = parsed as Record<string, unknown>;
+  if (Object.keys(record).length !== 1 || !Object.hasOwn(record, "facts")) return null;
+  const facts = record["facts"];
+  if (!Array.isArray(facts) || !facts.every((fact) => typeof fact === "string")) return null;
   return facts
-    .filter((fact): fact is string => typeof fact === "string")
+    .map((fact) => fact as string)
     .map((fact) => fact.trim())
     .filter((fact) => fact.length > 0);
 }
 
 function extractJsonObject(content: string): string | null {
-  const fenced = /```(?:json)?\s*([\s\S]*?)```/m.exec(content)?.[1]?.trim();
-  if (fenced) return fenced;
-  const start = content.indexOf("{");
-  const end = content.lastIndexOf("}");
-  if (start === -1 || end <= start) return null;
-  return content.slice(start, end + 1);
+  const fenced = /^```(?:json)?\s*([\s\S]*?)```$/i.exec(content)?.[1]?.trim();
+  return fenced ?? (content.startsWith("{") && content.endsWith("}") ? content : null);
 }
 
 function chunkUtf8(text: string, maxBytes: number): string[] {

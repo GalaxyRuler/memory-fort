@@ -111,9 +111,12 @@ export async function compressSessionWithUsage(opts: CompressSessionOptions): Pr
           env: opts.env,
         })
       : await opts.llm.chat(request);
-    if (response.finishReason === "length" || response.finishReason === "filter") {
+    if (response.finishReason !== "stop") {
+      const reason = response.finishReason === "length" || response.finishReason === "filter"
+        ? "response truncated"
+        : "response unverifiable";
       throw new Error(
-        `memory compress: response truncated (finishReason=${response.finishReason}) for ${opts.rawRelPath} chunk ${chunk.originalIndex + 1}/${allChunks.length}; nothing persisted for this file`,
+        `memory compress: ${reason} (finishReason=${response.finishReason}) for ${opts.rawRelPath} chunk ${chunk.originalIndex + 1}/${allChunks.length}; nothing persisted for this file`,
       );
     }
     // Malformed output is a provider failure, not a valid "zero facts" result —
