@@ -81,8 +81,8 @@ interface FileFrontmatterMetadata {
   readonly frontmatterValidUntil: string | null;
   readonly frontmatterAgentId: string | null;
   readonly frontmatterUserId: string | null;
-  readonly sourceFactCount: number;
-  readonly derivedFromCount: number;
+  readonly sourceFactCount: number | null;
+  readonly derivedFromCount: number | null;
 }
 
 export async function reconcileIndex(
@@ -279,6 +279,8 @@ function markFileSkipped(
          generation = excluded.generation,
          frontmatterValidFrom = NULL,
          frontmatterValidUntil = NULL,
+         sourceFactCount = NULL,
+         derivedFromCount = NULL,
          lastSeenRunId = excluded.lastSeenRunId,
          frontmatterAgentId = NULL,
          frontmatterUserId = NULL,
@@ -625,8 +627,8 @@ function emptyFrontmatterMetadata(): FileFrontmatterMetadata {
     frontmatterValidUntil: null,
     frontmatterAgentId: null,
     frontmatterUserId: null,
-    sourceFactCount: 0,
-    derivedFromCount: 0,
+    sourceFactCount: null,
+    derivedFromCount: null,
   };
 }
 

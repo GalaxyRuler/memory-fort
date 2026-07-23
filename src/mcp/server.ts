@@ -794,16 +794,20 @@ function normalizeSearchSignals(value: unknown): SearchSignal[] {
 
 function normalizeExtendedSearchProvenanceFields(value: unknown): {
   confidence?: number | null;
-  sourceFactCount?: number;
-  derivedFromCount?: number;
-  tier?: SearchProvenanceTier;
+  sourceFactCount?: number | null;
+  derivedFromCount?: number | null;
+  tier?: SearchProvenanceTier | null;
 } {
   if (!isRecord(value)) return {};
   return {
-    ...(isSearchProvenanceTier(value.tier) ? { tier: value.tier } : {}),
+    ...(value.tier === null || isSearchProvenanceTier(value.tier) ? { tier: value.tier } : {}),
     ...(isProbabilityNumberOrNull(value.confidence) ? { confidence: value.confidence } : {}),
-    ...(isSafeNonNegativeInteger(value.sourceFactCount) ? { sourceFactCount: value.sourceFactCount } : {}),
-    ...(isSafeNonNegativeInteger(value.derivedFromCount) ? { derivedFromCount: value.derivedFromCount } : {}),
+    ...(value.sourceFactCount === null || isSafeNonNegativeInteger(value.sourceFactCount)
+      ? { sourceFactCount: value.sourceFactCount }
+      : {}),
+    ...(value.derivedFromCount === null || isSafeNonNegativeInteger(value.derivedFromCount)
+      ? { derivedFromCount: value.derivedFromCount }
+      : {}),
     ...normalizeIndexedReceiptFields(value),
   };
 }

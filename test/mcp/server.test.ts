@@ -599,6 +599,56 @@ describe("memory.search MCP tool", () => {
     }
   });
 
+  it("preserves explicit unknown lineage as null in MCP search receipts", async () => {
+    const fetchFn = vi.fn(async () =>
+      jsonResponse({
+        query: "unknown lineage",
+        results: [
+          {
+            path: "wiki/tools/malformed.md",
+            title: "Malformed Frontmatter",
+            snippet: "Lineage is unavailable.",
+            score: 0.7,
+            source: "bm25",
+            sources: [{ source: "bm25", rank: 1 }],
+            provenance: {
+              path: "wiki/tools/malformed.md",
+              kind: "wiki",
+              dominantSource: "bm25",
+              signals: [{ source: "bm25", rank: 1 }],
+              confidence: null,
+              sourceFactCount: null,
+              derivedFromCount: null,
+              tier: null,
+            },
+          },
+        ],
+        warnings: [],
+        timings: { totalMs: 7, rerankMs: 0 },
+        degraded: false,
+      }),
+    ) as unknown as typeof fetch;
+    const { client, close } = await connectMcp(fetchFn);
+    try {
+      const result = await client.callTool({
+        name: "search",
+        arguments: { query: "unknown lineage" },
+      });
+      const parsed = JSON.parse(extractJsonFence(textFromToolResult(result)));
+
+      expect(parsed.results[0]).toMatchObject({
+        path: "wiki/tools/malformed.md",
+        provenance: {
+          confidence: null,
+          sourceFactCount: null,
+          derivedFromCount: null,
+          tier: null,
+        },
+      });
+    } finally {
+      await close();
+    }
+  });
   it("omits invalid extended provenance fields in MCP search results", async () => {
     const fetchFn = vi.fn(async () =>
       jsonResponse({

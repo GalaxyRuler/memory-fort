@@ -12,6 +12,7 @@ import {
 } from "../../src/index/embed.js";
 import { reconcileIndex } from "../../src/index/reconcile.js";
 import { lexicalSearch } from "../../src/index/search.js";
+import { buildProvenance } from "../../src/retrieval/provenance-annotator.js";
 
 describe("reconcileIndex", () => {
   const openDbs: IndexDb[] = [];
@@ -116,6 +117,54 @@ describe("reconcileIndex", () => {
       frontmatterCreated: "2026-06-01",
       frontmatterUpdated: "2026-07-01",
       frontmatterObservedAt: "2026-06-15",
+    });
+  });
+
+  it("keeps malformed-YAML lineage unknown through reconciliation and lexical search", async () => {
+    const { vaultRoot, indexDb } = await createHarness();
+    await writeVaultFile(
+      vaultRoot,
+      "wiki/projects/malformed-lineage.md",
+      [
+        "---",
+        "title: [unterminated",
+        "source_facts:",
+        "  - should-not-be-counted",
+        "relations:",
+        "  derived_from:",
+        "    - target: raw/evidence.md",
+        "---",
+        "",
+        "malformedlineagesentinel",
+      ].join("\n"),
+    );
+
+    await reconcileIndex(indexDb, vaultRoot);
+
+    expect(
+      indexDb.database
+        .prepare<[string], { sourceFactCount: number | null; derivedFromCount: number | null }>(
+          "SELECT sourceFactCount, derivedFromCount FROM files WHERE relPath = ?",
+        )
+        .get("wiki/projects/malformed-lineage.md"),
+    ).toEqual({ sourceFactCount: null, derivedFromCount: null });
+    const hit = lexicalSearch(indexDb, "malformedlineagesentinel")[0];
+    expect(hit).toMatchObject({
+      relPath: "wiki/projects/malformed-lineage.md",
+      sourceFactCount: null,
+      derivedFromCount: null,
+    });
+    if (!hit) throw new Error("expected malformed frontmatter document to be searchable");
+    const provenance = buildProvenance({
+      relPath: hit.relPath,
+      kind: hit.kind,
+      sourceFactCount: hit.sourceFactCount,
+      derivedFromCount: hit.derivedFromCount,
+    }, "bm25", []);
+    expect(provenance).toMatchObject({
+      sourceFactCount: null,
+      derivedFromCount: null,
+      tier: null,
     });
   });
 
@@ -374,7 +423,21 @@ describe("reconcileIndex", () => {
 
   it("skips an oversized file without aborting the reconcile run", async () => {
     const { vaultRoot, indexDb } = await createHarness();
-    await writeVaultFile(vaultRoot, "raw/too-large.md", "# Original\n\noldterm");
+    await writeVaultFile(
+      vaultRoot,
+      "raw/too-large.md",
+      [
+        "---",
+        "source_facts:",
+        "  - captured-evidence",
+        "relations:",
+        "  derived_from:",
+        "    - target: raw/source.md",
+        "---",
+        "",
+        "# Original\n\noldterm",
+      ].join("\n"),
+    );
     await writeVaultFile(vaultRoot, "wiki/deleted.md", "# Deleted\n\nghostterm");
     await reconcileIndex(indexDb, vaultRoot);
     await unlink(vaultPath(vaultRoot, "wiki/deleted.md"));
@@ -397,6 +460,13 @@ describe("reconcileIndex", () => {
       }),
     ]);
     expect(countChunks(indexDb, "raw/too-large.md")).toBe(0);
+    expect(
+      indexDb.database
+        .prepare<[string], { sourceFactCount: number | null; derivedFromCount: number | null }>(
+          "SELECT sourceFactCount, derivedFromCount FROM files WHERE relPath = ?",
+        )
+        .get("raw/too-large.md"),
+    ).toEqual({ sourceFactCount: null, derivedFromCount: null });
     expect(searchChunkTexts(indexDb, "oldterm")).toEqual([]);
     expect(searchChunkTexts(indexDb, "oversized")).toEqual([]);
     expect(searchChunkTexts(indexDb, "needle")).toEqual(["# Rest\n\nneedle survives"]);
