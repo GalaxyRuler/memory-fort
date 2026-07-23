@@ -313,6 +313,8 @@ export async function applyCompileOperations(
       operation: grounded.operation,
       now,
       llm: opts.rewriteLLM,
+      generationLLM: opts.generationLLM,
+      generationFacts: opts.generationFacts,
       maxBytes: opts.rewriteMaxBytes ?? DEFAULT_REWRITE_MAX_BYTES,
       extractFacts: opts.extractFacts ?? false,
       faithfulnessCheck: opts.faithfulnessCheck,
@@ -1039,6 +1041,8 @@ async function rewriteExistingKnowledgePageUpdate(opts: {
   operation: CompileOperation;
   now: Date;
   llm?: LLMProvider;
+  generationLLM?: LLMProvider;
+  generationFacts?: FaithfulnessFact[];
   maxBytes: number;
   extractFacts: boolean;
   faithfulnessCheck?: boolean;
@@ -1089,6 +1093,28 @@ async function rewriteExistingKnowledgePageUpdate(opts: {
       handled: true,
       outcome: "staged-for-review",
       reason: "knowledge-page update requires rewrite LLM",
+      proposedPath: staged.path,
+      alreadyResolved: staged.alreadyResolved,
+      referencesStripped: 0,
+      prosePathLeaks: 0,
+    };
+  }
+
+  // A generated append/write must be grounded in the raw compile evidence
+  // before it is converted into synthetic facts for narrative synthesis.
+  const generationGuard = await guardLLMGeneratedOperation({
+    vaultRoot: opts.vaultRoot,
+    operation: opts.operation,
+    llm: opts.generationLLM,
+    faithfulnessCheck: opts.faithfulnessCheck,
+    facts: opts.generationFacts,
+  });
+  if (generationGuard.stage) {
+    const staged = await stageCompileProposal(opts.vaultRoot, opts.operation, opts.now, generationGuard.reason);
+    return {
+      handled: true,
+      outcome: "staged-for-review",
+      reason: generationGuard.reason,
       proposedPath: staged.path,
       alreadyResolved: staged.alreadyResolved,
       referencesStripped: 0,

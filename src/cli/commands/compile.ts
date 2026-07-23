@@ -1031,7 +1031,7 @@ export async function executeCompilePrompt(opts: CompileOptions & {
   });
   return {
     mode: opts.plan ? "plan" : "execute",
-    rawInputConsumed: true,
+    rawInputConsumed: applied.rejected.length === 0,
     ...applied,
   };
 }
@@ -1130,14 +1130,15 @@ async function maybeAdvanceWatermarks(opts: {
   if (opts.execute && opts.noiseOnlyWatermarks && opts.noiseOnlyWatermarks.length > 0) {
     advanced.push(...opts.noiseOnlyWatermarks);
   }
-  // Advance only when this batch stages no *new* proposals. Applied-only or
-  // already-resolved-only batches are fine; a mixed applied+proposed batch
-  // must not consume the raw cursor (rejected drafts would lose those bytes).
+  // Advance only when this batch has no new proposals or rejections. Applied-only
+  // or already-resolved-only batches are fine; a mixed batch must not consume
+  // the raw cursor because any rejected operation still needs a retry or review.
   // Noise-only skips above still advance separately.
   if (
     opts.execution
     && opts.execution.mode === "execute"
     && opts.execution.rawInputConsumed !== false
+    && opts.execution.rejected.length === 0
     && opts.includedWatermarks.length > 0
     && opts.execution.proposed.length === 0
     && (

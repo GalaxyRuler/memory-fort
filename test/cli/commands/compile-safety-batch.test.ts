@@ -85,6 +85,29 @@ describe("compile response safety", () => {
     expect(judgePrompt).toContain("Evidence Beta: the faithfulness judge must inspect those facts.");
   });
 
+  it("holds raw watermarks when one valid batch operation is rejected during apply", async () => {
+    await writeRaw("a.md", "Evidence Alpha: a batch must retain raw input after any rejection.");
+    await writeRaw("b.md", "Evidence Beta: applied siblings must not hide a rejected operation.");
+    const result = await runCompile({
+      vaultRoot: root,
+      execute: true,
+      configLoader: async () => ({ llm: { provider: "ollama", model: "llama3.2" } }),
+      llmFactory: () => applicationRejectedBatchLlm("A supported write can apply before a sibling rejects."),
+      env: {},
+    });
+
+    expect(result.execution?.rawInputConsumed).toBe(false);
+    expect(result.execution?.applied).toEqual(["wiki/lessons/evidence-grounded.md"]);
+    expect(result.execution?.rejected).toEqual([expect.objectContaining({
+      path: "../outside-vault.md",
+      reason: "path outside allowed vault targets",
+    })]);
+    expect(result.watermarksAdvanced).toEqual([]);
+    const state = await readCompileStateFile(root);
+    expect(state.consumed ?? {}).not.toHaveProperty("raw/2026-07-23/a.md");
+    expect(state.consumed ?? {}).not.toHaveProperty("raw/2026-07-23/b.md");
+  });
+
   it("stages an unsupported compile write and holds its raw watermarks", async () => {
     await writeRaw("a.md", "Evidence Alpha: supported writes use raw facts.");
     await writeRaw("b.md", "Evidence Beta: unsupported claims stay proposed.");
@@ -108,6 +131,20 @@ describe("compile response safety", () => {
     await writeFile(join(root, "raw", "2026-07-23", name), `${content}\n`, "utf-8");
   }
 });
+
+function applicationRejectedBatchLlm(body: string): LLMProvider {
+  return responseLlm((request) => {
+    if (request.jsonSchema?.name === "FaithfulnessOutput") {
+      return { unsupported_claims: [] };
+    }
+    return {
+      operations: [
+        operation(body),
+        { kind: "write_page", path: "../outside-vault.md", frontmatter: {}, body: "Rejected sibling." },
+      ],
+    };
+  });
+}
 
 function mixedBatchLlm(): LLMProvider {
   return responseLlm(() => ({
