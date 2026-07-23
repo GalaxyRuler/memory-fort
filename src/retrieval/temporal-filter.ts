@@ -16,6 +16,16 @@ export function parseAsOf(asOf: string | undefined): Date | undefined {
 }
 
 /**
+ * Resolve an accepted asOf value to the UTC calendar day used by indexed
+ * validity fields (YYYY-MM-DD). This intentionally preserves parseAsOf's
+ * Date semantics for ISO timestamps, then makes the SQL/filter comparison
+ * date-based and inclusive at valid_until boundaries.
+ */
+export function canonicalizeAsOf(asOf: string | undefined): string | undefined {
+  return parseAsOf(asOf)?.toISOString().slice(0, 10);
+}
+
+/**
  * Filter documents by temporal validity.
  * Intervals are inclusive: [valid_from, valid_until].
  * A page with valid_until: 2026-06-09 IS valid on 2026-06-09.
@@ -27,7 +37,8 @@ export function filterDocumentsByValidity(
 ): SearchDocument[] {
   if (!asOf) return docs;
 
-  const asOfDate = parseAsOf(asOf);
+  const canonicalAsOf = canonicalizeAsOf(asOf);
+  const asOfDate = parseAsOf(canonicalAsOf);
   if (!asOfDate) return docs;
 
   return docs.filter((doc) => {

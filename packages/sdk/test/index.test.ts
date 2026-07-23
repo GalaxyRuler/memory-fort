@@ -95,6 +95,18 @@ describe("MemoryFortClient", () => {
     await expect(client.searchCapabilities()).rejects.toThrow("invalid search capabilities");
   });
 
+  it("rejects oversized search capability arrays", async () => {
+    fetchSpy.mockResolvedValueOnce(mockResponse({
+      searchBackend: "index-lexical",
+      supportedParams: Array.from({ length: 33 }, () => "oversized-param"),
+      unsupportedParams: [],
+      scopes: ["all", "wiki", "raw", "crystals"],
+    }));
+    const client = new MemoryFortClient({ baseUrl: BASE });
+
+    await expect(client.searchCapabilities()).rejects.toThrow("invalid search capabilities");
+  });
+
 
   it("add sends POST /api/observations with text", async () => {
     fetchSpy.mockResolvedValueOnce(mockResponse({ ok: true }));

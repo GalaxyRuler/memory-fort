@@ -210,6 +210,70 @@ describe("vector search", () => {
     expect(results.map((result) => result.relPath)).toEqual(["wiki/current.md"]);
   });
 
+  it("includes valid_until on the same timestamp-derived day in vector search", async () => {
+    const { vaultRoot, indexDb } = await createHarness();
+    const profile = profileFingerprint();
+    await writeVaultFile(
+      vaultRoot,
+      "wiki/expires-today.md",
+      "---\ntitle: Expires today\ntype: projects\nvalid_until: 2026-07-23\n---\n\ntemporal semantic payload",
+    );
+    await reconcileIndex(indexDb, vaultRoot);
+    await embedPath(indexDb, "wiki/expires-today.md", profile, vector(0));
+
+    const results = twoStageVectorSearch(indexDb.database, {
+      profile,
+      queryVector: vector(0),
+      k: 1,
+      oversample: 2,
+      asOf: "2026-07-23T12:00:00Z",
+    });
+
+    expect(results.map((result) => result.relPath)).toEqual(["wiki/expires-today.md"]);
+  });
+
+  it("keeps a cursor valid when equivalent as_of values canonicalize to one day", async () => {
+    const { vaultRoot, indexDb } = await createHarness();
+    const profile = profileFingerprint();
+    await writeVaultFile(
+      vaultRoot,
+      "wiki/a.md",
+      "---\ntitle: A\ntype: projects\nvalid_until: 2026-07-23\n---\n\nneedle alpha",
+    );
+    await writeVaultFile(
+      vaultRoot,
+      "wiki/b.md",
+      "---\ntitle: B\ntype: projects\nvalid_until: 2026-07-23\n---\n\nneedle beta",
+    );
+    await reconcileIndex(indexDb, vaultRoot);
+    await embedPath(indexDb, "wiki/a.md", profile, vector(0));
+    await embedPath(indexDb, "wiki/b.md", profile, vector(1));
+    const executor = new InlineSearchExecutor({
+      indexDb,
+      embedder: fakeEmbedder(vector(0)),
+      profile,
+      k: 2,
+    });
+
+    const first = await executor.search({
+      query: "needle",
+      asOf: "2026-07-23T12:00:00Z",
+      limit: 1,
+    });
+    const second = await executor.search({
+      query: "needle",
+      asOf: "2026-07-23",
+      limit: 1,
+      cursor: first.nextCursor,
+    });
+
+    expect(first.results).toHaveLength(1);
+    expect(first.nextCursor).toEqual(expect.any(String));
+    expect(second.cursorStatus).toBe("ok");
+    expect(second.results).toHaveLength(1);
+    expect(second.results[0]?.path).not.toBe(first.results[0]?.path);
+  });
+
   it("applies strict identity metadata before the vector candidate limit", async () => {
     const { vaultRoot, indexDb } = await createHarness();
     const profile = profileFingerprint();

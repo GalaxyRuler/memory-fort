@@ -1,5 +1,6 @@
 import type { IndexDb } from "./db.js";
 import type { SearchDocument, SearchScope } from "../retrieval/corpus.js";
+import { canonicalizeAsOf } from "../retrieval/temporal-filter.js";
 import { classifySearchKind, searchScopeSql } from "../search/kind.js";
 import { scoreByMetadata } from "../retrieval/metadata-score.js";
 import {
@@ -132,10 +133,11 @@ export function lexicalSearch(
   if (!matchQuery) return [];
   const limit = clampLimit(options.limit);
   const candidateLimit = docCandidateLimit(limit);
+  const asOf = canonicalizeAsOf(options.asOf);
   const scopeFilter = searchScopeSql(options.scope ?? "all", "files");
   const archiveFilter = options.includeArchived === true ? "1 = 1" : activeDocumentSql("files");
-  const temporalFilter = options.asOf ? temporalValiditySql("files") : "1 = 1";
-  const temporalParams = options.asOf ? [options.asOf, options.asOf] : [];
+  const temporalFilter = asOf ? temporalValiditySql("files") : "1 = 1";
+  const temporalParams = asOf ? [asOf, asOf] : [];
   const identityFilter = identitySql(options, "files");
 
   try {
@@ -226,7 +228,7 @@ export function lexicalSearch(
       `)
       .all(matchQuery, ...temporalParams, ...identityFilter.params, candidateLimit, candidateLimit);
 
-    return rankRows(mergeRowsByRelPath(rows, pathCandidateRows(indexDb, terms, candidateLimit, options)), terms)
+    return rankRows(mergeRowsByRelPath(rows, pathCandidateRows(indexDb, terms, candidateLimit, { ...options, asOf })), terms)
       .slice(0, limit)
       .map(({ row, score }) => ({
         rowid: row.rowid,

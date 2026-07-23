@@ -15,7 +15,7 @@ import {
   type SearchResult,
   type SearchTimings,
 } from "../retrieval/search.js";
-import { parseAsOf } from "../retrieval/temporal-filter.js";
+import { canonicalizeAsOf } from "../retrieval/temporal-filter.js";
 import { handlePostObservation, handleGetPages } from "./api-handlers.js";
 import { getCaptureSpoolStatus } from "../hooks/raw-file.js";
 import { loadSearchCorpus, type SearchScope } from "../retrieval/corpus.js";
@@ -1856,8 +1856,9 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
           return;
         }
         const rawAsOf = url.searchParams.get("as_of") ?? undefined;
+        let asOf: string | undefined;
         try {
-          parseAsOf(rawAsOf);
+          asOf = canonicalizeAsOf(rawAsOf);
         } catch {
           writeJsonError(res, 400, `invalid as_of date: ${rawAsOf}`);
           return;
@@ -1877,7 +1878,7 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
         const filters: IndexSearchFilters = {
           scope,
           includeArchived,
-          asOf: rawAsOf,
+          asOf,
           agentId,
           userId,
           identityMode,
@@ -1910,7 +1911,7 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
             noHyde: parseSearchBoolean(url.searchParams.get("noHyde")),
             intent,
             hydeExpansion,
-            asOf: rawAsOf,
+            asOf,
             agentId,
             userId,
             identityMode,

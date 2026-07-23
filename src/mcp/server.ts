@@ -25,7 +25,7 @@ import {
   listEmbedderProviders,
 } from "../retrieval/embedder/factory.js";
 import { classifySearchKind, type SearchKind } from "../search/kind.js";
-
+import { parseSearchCapabilities } from "../search/contract.js";
 const LogObservationInput = z.object({
   text: z.string().min(1, "text must be non-empty"),
   tags: z.array(z.string()).optional(),
@@ -520,14 +520,12 @@ export async function searchCapabilities(
     return toolError(`Search backend returned HTTP ${response.status}: ${truncate(body, 500)}`);
   }
   try {
-    const body = await response.json();
+    const body = parseSearchCapabilities(await response.json());
     return {
       content: [{ type: "text", text: JSON.stringify(body, null, 2) }],
     };
   } catch (error) {
-    return toolError(
-      `Failed to parse search capabilities JSON: ${error instanceof Error ? error.message : String(error)}`,
-    );
+    return toolError("Search backend returned invalid search capabilities.");
   }
 }
 

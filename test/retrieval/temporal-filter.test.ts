@@ -69,6 +69,11 @@ describe("filterDocumentsByValidity", () => {
     expect(filterDocumentsByValidity(docs, "2026-06-10")).toHaveLength(0);
   });
 
+  it("canonicalizes timestamps to the inclusive valid_until day", () => {
+    const docs = [makeDoc({ valid_from: "2025-01-01", valid_until: "2026-07-23" })];
+    expect(filterDocumentsByValidity(docs, "2026-07-23T12:00:00Z")).toHaveLength(1);
+  });
+
   it("includes doc when asOf equals valid_from", () => {
     const docs = [makeDoc({ valid_from: "2026-06-01", valid_until: "2026-12-31" })];
     expect(filterDocumentsByValidity(docs, "2026-06-01")).toHaveLength(1);

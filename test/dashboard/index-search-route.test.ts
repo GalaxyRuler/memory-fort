@@ -223,6 +223,31 @@ describe("dashboard index search route", () => {
     );
   });
 
+  it("canonicalizes timestamp as_of to the inclusive stored validity day", async () => {
+    const { vaultRoot, indexDbPath } = await createIndexedVaultWithPages([
+      [
+        "wiki/projects/expires-today.md",
+        "---\ntitle: Expires today\ntype: projects\nvalid_until: 2026-07-23\n---\n\ntemporalneedle",
+      ],
+    ]);
+    server = await createServer({
+      vaultRoot,
+      port: 0,
+      env: { MEMORY_INDEX_DB_PATH: indexDbPath },
+      voyageClient: null,
+    });
+
+    const response = await fetch(
+      `http://${server.host}:${server.port}/api/search?q=temporalneedle&as_of=2026-07-23T12:00:00Z`,
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.results).toEqual([
+      expect.objectContaining({ path: "wiki/projects/expires-today.md" }),
+    ]);
+  });
+
   it("applies index scope before the route candidate limit", async () => {
     const { vaultRoot, indexDbPath } = await createIndexedVaultWithPages([
       ["wiki/scoped.md", "# Scoped\n\nneedle"],

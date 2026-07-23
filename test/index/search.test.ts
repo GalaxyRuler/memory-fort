@@ -111,6 +111,23 @@ describe("lexicalSearch", () => {
     ).toEqual(["wiki/projects/current.md"]);
   });
 
+  it("includes valid_until on the same timestamp-derived day", async () => {
+    const { vaultRoot, indexDb } = await createHarness();
+    await writeVaultFile(
+      vaultRoot,
+      "wiki/projects/expires-today.md",
+      "---\ntitle: Expires today\ntype: projects\nvalid_until: 2026-07-23\n---\n\ntemporalneedle",
+    );
+    await reconcileIndex(indexDb, vaultRoot);
+
+    expect(
+      lexicalSearch(indexDb, "temporalneedle", {
+        scope: "wiki",
+        asOf: "2026-07-23T12:00:00Z",
+      }).map((result) => result.relPath),
+    ).toEqual(["wiki/projects/expires-today.md"]);
+  });
+
   it("applies strict identity metadata before the FTS candidate limit", async () => {
     const { vaultRoot, indexDb } = await createHarness();
     for (let index = 0; index < 25; index += 1) {

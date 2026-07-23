@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 
 import type { SearchResponse, SearchResult, SearchTimings } from "../retrieval/search.js";
 import type { SearchScope } from "../retrieval/corpus.js";
+import { canonicalizeAsOf } from "../retrieval/temporal-filter.js";
 import { classifySearchKind, searchScopeSql } from "../search/kind.js";
 import type { IndexDb, SqliteDatabase } from "./db.js";
 import {
@@ -235,6 +236,7 @@ export class InlineSearchExecutor implements SearchExecutor {
     this.supersededSearch = supersession;
     previous?.abort();
     const signal = composeAbortSignals(req.signal, supersession.signal);
+    const asOf = canonicalizeAsOf(req.asOf);
 
     try {
       throwIfAborted(signal);
@@ -257,7 +259,7 @@ export class InlineSearchExecutor implements SearchExecutor {
         readiness,
         fusionParams,
         limit,
-        filters: req,
+        filters: { ...req, asOf },
       });
       const page = normalizePage(req, cursorSnapshot);
       warnings.push(...page.warnings);
@@ -266,7 +268,7 @@ export class InlineSearchExecutor implements SearchExecutor {
         limit: page.fetchLimit,
         scope: req.scope,
         includeArchived: req.includeArchived,
-        asOf: req.asOf,
+        asOf,
         agentId: req.agentId,
         userId: req.userId,
         identityMode: req.identityMode,
@@ -317,7 +319,7 @@ export class InlineSearchExecutor implements SearchExecutor {
           oversample: fusionParams.oversample,
           scope: req.scope,
           includeArchived: req.includeArchived,
-          asOf: req.asOf,
+          asOf,
           agentId: req.agentId,
           userId: req.userId,
           identityMode: req.identityMode,
@@ -383,7 +385,8 @@ export function twoStageVectorSearch(database: SqliteDatabase, opts: VectorSearc
     throw new VectorSearchError("vec0-unavailable", "query int8 quantization did not return a buffer");
   }
 
-  const temporalParams = opts.asOf ? [opts.asOf, opts.asOf] : [];
+  const asOf = canonicalizeAsOf(opts.asOf);
+  const temporalParams = asOf ? [asOf, asOf] : [];
   const identityFilter = vectorIdentitySql(opts, "f");
   const coarse = database
     .prepare<unknown[], CoarseCandidateRow>(`
@@ -397,7 +400,7 @@ export function twoStageVectorSearch(database: SqliteDatabase, opts: VectorSearc
           JOIN files f ON f.relPath = c.relPath
           WHERE ${searchScopeSql(opts.scope ?? "all", "f")}
             AND ${opts.includeArchived === true ? "1 = 1" : vectorActiveDocumentSql("f")}
-            AND ${opts.asOf ? vectorTemporalValiditySql("f") : "1 = 1"}
+            AND ${asOf ? vectorTemporalValiditySql("f") : "1 = 1"}
             AND ${identityFilter.sql}
         )
       ORDER BY distance
@@ -1238,7 +1241,7 @@ function fingerprintSearchQuery(
       filters: {
         scope: filters.scope ?? "all",
         includeArchived: filters.includeArchived === true,
-        asOf: filters.asOf ?? null,
+        asOf: canonicalizeAsOf(filters.asOf) ?? null,
         agentId: filters.agentId ?? null,
         userId: filters.userId ?? null,
         identityMode: filters.identityMode ?? "inclusive",

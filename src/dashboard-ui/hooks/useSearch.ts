@@ -1,15 +1,11 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { apiGet } from "../lib/api.js";
+import { parseSearchCapabilities, type SearchCapabilities as SharedSearchCapabilities } from "../../search/contract.js";
 import { normalizeSearchSignals } from "../lib/search-sources.js";
 
 export type SearchScope = "all" | "wiki" | "raw" | "crystals";
 
-export interface SearchCapabilities {
-  searchBackend: "legacy" | "index-lexical" | "index-hybrid";
-  supportedParams: string[];
-  unsupportedParams: string[];
-  scopes: SearchScope[];
-}
+export type SearchCapabilities = SharedSearchCapabilities;
 
 export interface SearchResult {
   path: string;
@@ -129,7 +125,7 @@ export function useSearch({
 export function useSearchCapabilities() {
   return useQuery({
     queryKey: ["search-capabilities"],
-    queryFn: () => apiGet<SearchCapabilities>("/search/capabilities"),
+    queryFn: async () => parseSearchCapabilities(await apiGet<unknown>("/search/capabilities")),
     staleTime: 30_000,
   });
 }

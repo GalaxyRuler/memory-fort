@@ -147,26 +147,56 @@ function validateSearchOptions(opts: SearchOptions): void {
   }
 }
 
+const SEARCH_CAPABILITY_BACKENDS = ["legacy", "index-lexical", "index-hybrid"] as const;
+const SEARCH_CAPABILITY_SCOPES = ["all", "wiki", "raw", "crystals"] as const;
+const MAX_SEARCH_CAPABILITY_PARAMS = 32;
+const MAX_SEARCH_CAPABILITY_PARAM_LENGTH = 128;
+const MAX_SEARCH_CAPABILITY_SCOPES = 4;
+
 function parseSearchCapabilities(value: unknown): SearchCapabilities {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new TypeError("invalid search capabilities response");
-  }
-  const body = value as Record<string, unknown>;
-  const backends = ["legacy", "index-lexical", "index-hybrid"];
-  const scopes = ["all", "wiki", "raw", "crystals"];
+  if (!isRecord(value)) throw new TypeError("invalid search capabilities response");
+  const searchBackend = value["searchBackend"];
+  const supportedParams = parseCapabilityStringArray(value["supportedParams"], MAX_SEARCH_CAPABILITY_PARAMS);
+  const unsupportedParams = parseCapabilityStringArray(value["unsupportedParams"], MAX_SEARCH_CAPABILITY_PARAMS);
+  const scopes = parseCapabilityStringArray(value["scopes"], MAX_SEARCH_CAPABILITY_SCOPES);
   if (
-    typeof body.searchBackend !== "string"
-    || !backends.includes(body.searchBackend)
-    || !isStringArray(body.supportedParams)
-    || !isStringArray(body.unsupportedParams)
-    || !isStringArray(body.scopes)
-    || !body.scopes.every((scope) => scopes.includes(scope))
+    !isSearchCapabilityBackend(searchBackend)
+    || supportedParams === null
+    || unsupportedParams === null
+    || scopes === null
+    || scopes.length === 0
+    || !scopes.every(isSearchCapabilityScope)
   ) {
     throw new TypeError("invalid search capabilities response");
   }
-  return body as unknown as SearchCapabilities;
+  return {
+    searchBackend,
+    supportedParams,
+    unsupportedParams,
+    scopes,
+  };
 }
 
-function isStringArray(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every((item) => typeof item === "string");
+function parseCapabilityStringArray(value: unknown, maxLength: number): string[] | null {
+  if (!Array.isArray(value) || value.length > maxLength) return null;
+  const parsed: string[] = [];
+  for (const item of value) {
+    if (typeof item !== "string" || item.length === 0 || item.length > MAX_SEARCH_CAPABILITY_PARAM_LENGTH) {
+      return null;
+    }
+    parsed.push(item);
+  }
+  return parsed;
+}
+
+function isSearchCapabilityBackend(value: unknown): value is SearchCapabilities["searchBackend"] {
+  return typeof value === "string" && SEARCH_CAPABILITY_BACKENDS.includes(value as SearchCapabilities["searchBackend"]);
+}
+
+function isSearchCapabilityScope(value: string): value is SearchScope {
+  return SEARCH_CAPABILITY_SCOPES.includes(value as SearchScope);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

@@ -93,6 +93,28 @@ describe("useSearch", () => {
     expect(String(fetchMock.mock.calls[0][0])).toContain("/api/search/capabilities");
   });
 
+  test("treats malformed capability JSON as a handled query error", async () => {
+    const fetchMock = vi.fn(
+      async (_input: RequestInfo | URL) => new Response(JSON.stringify({
+        searchBackend: "index-lexical",
+        supportedParams: "q",
+        unsupportedParams: [],
+        scopes: ["all"],
+      }), { status: 200 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { result } = renderHook(() => useSearchCapabilities(), {
+      wrapper: wrapperWithQueryClient,
+    });
+
+    await waitFor(() => {
+      expect(result.current.isError).toBe(true);
+    });
+    expect(result.current.data).toBeUndefined();
+    expect(result.current.error).toBeInstanceOf(TypeError);
+  });
+
 
   test("fires query when query is non-empty", async () => {
     const fetchMock = vi.fn(

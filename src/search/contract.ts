@@ -34,6 +34,10 @@ export type SearchFilterValidation =
 const SEARCH_SCOPES = new Set<SearchScope>(["all", "wiki", "raw", "crystals"]);
 const IDENTITY_MODES = new Set(["inclusive", "strict"]);
 
+const SEARCH_BACKENDS = new Set<SearchBackend>(["legacy", "index-lexical", "index-hybrid"]);
+const MAX_SEARCH_CAPABILITY_PARAMS = 32;
+const MAX_SEARCH_CAPABILITY_PARAM_LENGTH = 128;
+const MAX_SEARCH_CAPABILITY_SCOPES = 4;
 export function validateSearchFilterParams(url: URL): SearchFilterValidation {
   const scope = url.searchParams.get("scope");
   const identityMode = url.searchParams.get("identity_mode");
@@ -91,6 +95,52 @@ export interface SearchCapabilities {
   readonly supportedParams: readonly string[];
   readonly unsupportedParams: readonly string[];
   readonly scopes: readonly SearchScope[];
+}
+
+/**
+ * Validate untrusted dashboard capability JSON before a consumer uses it.
+ * The bounded normalization keeps UI and MCP consumers from treating an
+ * arbitrary successful HTTP response as authoritative capability data.
+ */
+export function parseSearchCapabilities(value: unknown): SearchCapabilities {
+  if (!isRecord(value)) throw new TypeError("invalid search capabilities response");
+  const searchBackend = value["searchBackend"];
+  const supportedParams = parseCapabilityStringArray(value["supportedParams"], MAX_SEARCH_CAPABILITY_PARAMS);
+  const unsupportedParams = parseCapabilityStringArray(value["unsupportedParams"], MAX_SEARCH_CAPABILITY_PARAMS);
+  const scopes = parseCapabilityStringArray(value["scopes"], MAX_SEARCH_CAPABILITY_SCOPES);
+  if (
+    typeof searchBackend !== "string"
+    || !SEARCH_BACKENDS.has(searchBackend as SearchBackend)
+    || supportedParams === null
+    || unsupportedParams === null
+    || scopes === null
+    || scopes.length === 0
+    || !scopes.every((scope) => SEARCH_SCOPES.has(scope as SearchScope))
+  ) {
+    throw new TypeError("invalid search capabilities response");
+  }
+  return {
+    searchBackend: searchBackend as SearchBackend,
+    supportedParams,
+    unsupportedParams,
+    scopes: scopes as SearchScope[],
+  };
+}
+
+function parseCapabilityStringArray(value: unknown, maxLength: number): string[] | null {
+  if (!Array.isArray(value) || value.length > maxLength) return null;
+  const parsed: string[] = [];
+  for (const item of value) {
+    if (typeof item !== "string" || item.length === 0 || item.length > MAX_SEARCH_CAPABILITY_PARAM_LENGTH) {
+      return null;
+    }
+    parsed.push(item);
+  }
+  return parsed;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 export function capabilitiesForSearchBackend(searchBackend: SearchBackend): SearchCapabilities {

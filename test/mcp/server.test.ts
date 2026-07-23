@@ -1326,6 +1326,28 @@ describe("memory.search MCP tool", () => {
       await close();
     }
   });
+  it("rejects malformed oversized search capabilities instead of printing them", async () => {
+    const fetchFn = vi.fn(async () => jsonResponse({
+      searchBackend: "index-lexical",
+      supportedParams: Array.from({ length: 33 }, () => "oversized-param"),
+      unsupportedParams: [],
+      scopes: ["all", "wiki", "raw", "crystals"],
+    })) as unknown as typeof fetch;
+    const { client, close } = await connectMcp(fetchFn);
+    try {
+      const result = await client.callTool({
+        name: "search_capabilities",
+        arguments: {},
+      });
+
+      expect(result.isError).toBe(true);
+      expect(textFromToolResult(result)).toContain("invalid search capabilities");
+      expect(textFromToolResult(result)).not.toContain("oversized-param");
+    } finally {
+      await close();
+    }
+  });
+
 });
 
 describe("embeddingProviderPreflight", () => {
