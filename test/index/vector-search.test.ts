@@ -118,6 +118,39 @@ describe("vector search", () => {
     expect(wiki.results.map((result) => result.path)).toEqual(["wiki/projects/wiki.md"]);
   });
 
+  it("preserves a type-defined crystal kind for a vector-only match", async () => {
+    const { vaultRoot, indexDb } = await createHarness();
+    const profile = profileFingerprint();
+    await writeVaultFile(
+      vaultRoot,
+      "wiki/projects/vector-only-crystal.md",
+      "---\ntitle: Vector-only crystal\ntype: crystal\n---\n\nstored semantic payload",
+    );
+    await reconcileIndex(indexDb, vaultRoot);
+    await embedPath(indexDb, "wiki/projects/vector-only-crystal.md", profile, vector(0));
+
+    const executor = new InlineSearchExecutor({
+      indexDb,
+      embedder: fakeEmbedder(vector(0)),
+      profile,
+      k: 1,
+    });
+    const result = await executor.search({
+      query: "querytermsabsentfromdocument",
+      scope: "crystals",
+      limit: 1,
+    });
+
+    expect(result.results).toEqual([
+      expect.objectContaining({
+        path: "wiki/projects/vector-only-crystal.md",
+        kind: "crystal",
+        source: "vector",
+        provenance: expect.objectContaining({ kind: "crystal" }),
+      }),
+    ]);
+  });
+
   it("excludes archived vector candidates before the limit unless requested", async () => {
     const { vaultRoot, indexDb } = await createHarness();
     const profile = profileFingerprint();

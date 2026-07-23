@@ -449,6 +449,7 @@ export function twoStageVectorSearch(database: SqliteDatabase, opts: VectorSearc
       byteStart: row.byteStart,
       byteEnd: row.byteEnd,
       text: row.text,
+      kind: row.kind,
       distance: row.distance,
       vectorRank: index + 1,
     }));
