@@ -25,6 +25,7 @@ export interface VerifyCheckContext {
   vaultRoot: string;
   now: () => Date;
   offline?: boolean;
+  deep?: boolean;
   dashboardUrl?: string;
   remoteName?: string;
   runningProcessNames?: () => Promise<string[]>;
@@ -40,6 +41,8 @@ export interface CheckDescriptor {
   roles: VerifyRole[];
   /** Hang-backstop timeout for this check (ms). Overrides the orchestrator default. */
   timeoutMs?: number;
+  /** Optional longer hang-backstop used only when verify runs in deep mode. */
+  deepTimeoutMs?: number;
   run: (opts: RunCheckOptions) => Promise<CheckResult | CheckResult[]>;
 }
 

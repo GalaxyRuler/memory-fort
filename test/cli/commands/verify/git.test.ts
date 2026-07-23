@@ -134,7 +134,7 @@ describe("checkGitIntegrity", () => {
     });
 
     expect(results.map((r) => r.status)).toEqual(["pass", "pass"]);
-    expect(results[1]?.detail).toBe("remote git fsck passed");
+    expect(results[1]?.detail).toContain("connectivity-only");
   });
 
   it("warns when remote fsck cannot run because vps config is incomplete", async () => {

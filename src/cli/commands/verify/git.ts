@@ -35,9 +35,10 @@ export const gitDurabilityConfigCheck: CheckDescriptor = {
 
 export const gitIntegrityCheck: CheckDescriptor = {
   id: "git.integrity",
-  label: "git repository has no corruption",
+  label: "git repository integrity check",
   roles: ["operator"],
   timeoutMs: 120_000,
+  deepTimeoutMs: 600_000,
   run: checkGitIntegrity,
 };
 
@@ -76,8 +77,8 @@ export async function checkGitIntegrity(
     return [
       warn(
         "git.integrity",
-        "git repository has no corruption",
-        "git fsck skipped (--offline)",
+        "git repository integrity check skipped",
+        "git fsck skipped (--offline); no integrity claim made",
       ),
     ];
   }
@@ -152,30 +153,33 @@ function isUnsetGitConfigError(error: unknown): boolean {
 async function checkLocalGitIntegrity(
   opts: GitVerifyOptions,
 ): Promise<VerifyCheckResult> {
+  const deep = opts.deep === true;
   try {
     await (opts.execFile ?? execFileAsync)(
       "git",
-      // --connectivity-only: verify every ref reaches a present, valid object
-      // (catches the missing/unreachable-object corruption that breaks sync)
-      // WITHOUT re-hashing every object. Full --strict fsck on a large vault
-      // takes minutes and was timing out here, false-reporting "corrupted".
-      ["fsck", "--full", "--connectivity-only", "--no-dangling"],
+      deep
+        ? ["fsck", "--full", "--strict", "--no-dangling"]
+        : ["fsck", "--full", "--connectivity-only", "--no-dangling"],
       {
         cwd: opts.vaultRoot,
-        timeout: 30000,
+        timeout: deep ? 300_000 : 30_000,
         windowsHide: true,
       },
     );
     return pass(
       "git.integrity",
-      "local vault repository: no corruption",
-      "git fsck passed",
+      deep
+        ? "local vault Git object integrity verified"
+        : "local vault Git object connectivity verified",
+      deep
+        ? "strict full-object git fsck passed"
+        : "connectivity-only git fsck passed; blob contents were not rehashed",
     );
   } catch (error) {
     return fail(
       "git.integrity",
-      "local vault repository: no corruption",
-      "local vault git repository is corrupted; inspect with `git fsck --full --strict` before sync",
+      deep ? "local vault Git object integrity check failed" : "local vault Git object connectivity check failed",
+      "inspect with `git fsck --full --strict` before sync",
       error instanceof Error ? error.message : String(error),
     );
   }
@@ -184,6 +188,10 @@ async function checkLocalGitIntegrity(
 async function checkRemoteGitIntegrity(
   opts: GitVerifyOptions,
 ): Promise<VerifyCheckResult> {
+  const deep = opts.deep === true;
+  const fsckArgs = deep
+    ? "--full --strict --no-dangling"
+    : "--full --connectivity-only --no-dangling";
   try {
     const config = await (opts.configLoader ?? loadMemoryConfig)(opts.vaultRoot);
     const host = config.vps?.host?.trim();
@@ -191,7 +199,7 @@ async function checkRemoteGitIntegrity(
     if (!host || !installRoot) {
       return warn(
         "git.integrity",
-        "remote VPS repository: no corruption",
+        deep ? "remote VPS Git object integrity check unavailable" : "remote VPS Git object connectivity check unavailable",
         "VPS integrity check unavailable: no vps config with host and install_root",
       );
     }
@@ -201,8 +209,8 @@ async function checkRemoteGitIntegrity(
       : host;
     const repoPath = `${installRoot.replace(/\/+$/, "")}/memory.git`;
     const result = await (opts.sshRunner ?? makeRealSshRunner()).run(target, {
-      command: `git -C ${shellQuote(repoPath)} fsck --full --connectivity-only --no-dangling`,
-      description: "verify remote VPS bare memory git repository integrity",
+      command: `git -C ${shellQuote(repoPath)} fsck ${fsckArgs}`,
+      description: deep ? "deep-verify remote VPS Git objects" : "verify remote VPS Git object connectivity",
     });
     const output = [result.stdout.trim(), result.stderr.trim()]
       .filter((part) => part.length > 0)
@@ -210,20 +218,28 @@ async function checkRemoteGitIntegrity(
     if (result.exitCode !== 0) {
       return fail(
         "git.integrity",
-        "remote VPS repository: no corruption",
-        "remote bare repository may be corrupted; inspect the VPS repo before sync",
+        deep
+          ? "remote VPS Git object integrity check failed"
+          : "remote VPS Git object connectivity check failed",
+        "inspect the remote bare repository with `git fsck --full --strict` before sync",
         output || `ssh exited ${result.exitCode}`,
       );
     }
     return pass(
       "git.integrity",
-      "remote VPS repository: no corruption",
-      "remote git fsck passed",
+      deep
+        ? "remote VPS Git object integrity verified"
+        : "remote VPS Git object connectivity verified",
+      deep
+        ? "remote strict full-object git fsck passed"
+        : "remote connectivity-only git fsck passed; blob contents were not rehashed",
     );
   } catch (error) {
     return fail(
       "git.integrity",
-      "remote VPS repository: no corruption",
+      deep
+        ? "remote VPS Git object integrity check failed"
+        : "remote VPS Git object connectivity check failed",
       "check vps config, SSH access, and remote bare repository path",
       error instanceof Error ? error.message : String(error),
     );

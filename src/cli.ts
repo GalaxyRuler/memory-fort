@@ -1286,6 +1286,7 @@ program
   .command("verify")
   .description("End-to-end health check for vault, sync, dashboard, search, and client capture")
   .option("--offline", "skip network checks such as git remote and dashboard")
+  .option("--deep", "rehash all Git objects with strict fsck (slower)")
   .option("--role <role>", "operator | server")
   .option("--dashboard-url <url>", "dashboard base URL for remote health checks")
   .option("--remote-name <name>", "vault git remote name for sync health checks")
@@ -1295,6 +1296,7 @@ program
   .option("--shell <shell>", "scheduler shell override: powershell | systemd")
   .action(async (opts: {
     offline?: boolean;
+    deep?: boolean;
     role?: string;
     dashboardUrl?: string;
     remoteName?: string;
@@ -1322,6 +1324,7 @@ program
       }
       const result = await runVerify({
         offline: opts.offline,
+        deep: opts.deep,
         role,
         dashboardUrl: opts.dashboardUrl,
         remoteName: opts.remoteName,

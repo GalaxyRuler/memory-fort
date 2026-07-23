@@ -50,7 +50,7 @@ if (process.argv[1]?.endsWith("verify-worker.mjs")) {
   const vaultRoot = process.argv[2];
   const role = process.argv[3] as VerifyRole;
   const includeSearch = process.argv[4] === "1";
-  runVerify({ vaultRoot, role, includeSearch })
+  runVerify({ vaultRoot, role, includeSearch, deep: includeSearch })
     .then((result) => {
       process.stdout.write(JSON.stringify(result), () => process.exit(0));
     })

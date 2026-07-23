@@ -22,6 +22,7 @@ const DEFAULT_PER_CHECK_TIMEOUT_MS = 60_000;
 
 export interface VerifyOptions {
   offline?: boolean;
+  deep?: boolean;
   includeSearch?: boolean;
   vaultRoot?: string;
   dashboardUrl?: string;
@@ -66,6 +67,7 @@ export async function runVerify(opts: VerifyOptions = {}): Promise<VerifyResult>
         vaultRoot,
         now,
         offline: opts.offline,
+        deep: opts.deep,
         includeSearch: opts.includeSearch ?? true,
         dashboardUrl: opts.dashboardUrl,
         remoteName: opts.remoteName,
@@ -110,6 +112,7 @@ async function runDescriptorChecks(
   vaultRoot: string;
   now: () => Date;
   offline?: boolean;
+  deep?: boolean;
   includeSearch: boolean;
   dashboardUrl?: string;
   remoteName?: string;
@@ -142,7 +145,9 @@ async function runCheckIsolated(
 ): Promise<VerifyCheckResult | VerifyCheckResult[]> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const effectiveTimeoutMs =
-    descriptor.timeoutMs ?? perCheckTimeoutMs ?? DEFAULT_PER_CHECK_TIMEOUT_MS;
+    opts.deep && descriptor.deepTimeoutMs !== undefined
+      ? descriptor.deepTimeoutMs
+      : descriptor.timeoutMs ?? perCheckTimeoutMs ?? DEFAULT_PER_CHECK_TIMEOUT_MS;
   try {
     const timeout = new Promise<VerifyCheckResult>((resolve) => {
       timer = setTimeout(
