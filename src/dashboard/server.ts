@@ -296,13 +296,23 @@ async function serveSpaHistoryFallback(res: ServerResponse, assets: StaticAssets
   await writeStaticFile(res, assets.indexPath, "no-cache");
 }
 
-function parseSafeSegments(pathname: string): string[] | null {
-  let decoded = "";
-  try {
-    decoded = decodeURIComponent(pathname);
-  } catch {
-    return null;
+function decodeDashboardPathname(pathname: string): string | null {
+  let decoded = pathname;
+  for (let depth = 0; depth <= pathname.length; depth += 1) {
+    try {
+      const next = decodeURIComponent(decoded);
+      if (next === decoded) return decoded;
+      decoded = next;
+    } catch {
+      return null;
+    }
   }
+  return null;
+}
+
+function parseSafeSegments(pathname: string): string[] | null {
+  const decoded = decodeDashboardPathname(pathname);
+  if (decoded === null) return null;
 
   const segments = decoded.split("/").filter((segment) => segment.length > 0);
   for (const segment of segments) {
@@ -1327,9 +1337,13 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
   const server = createHttpServer(async (req, res) => {
     const method = req.method ?? "GET";
     const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
-    const path = normalizeDashboardPath(url.pathname);
+    const decodedPath = decodeDashboardPathname(url.pathname);
+    const path = normalizeDashboardPath(decodedPath ?? url.pathname);
+    const segments = decodedPath === null ? null : parseSafeSegments(path);
+    const isApiRoute = segments?.[0] === "api";
+    const isApiPath = isApiRoute || path === "/api" || path.startsWith("/api/");
 
-    if (requiresDashboardAuthentication && path.startsWith("/api/")) {
+    if (requiresDashboardAuthentication && isApiRoute) {
       if (requestHasQueryAuthentication(url)) {
         writeJsonError(res, 400, "query authentication is not supported");
         return;
@@ -1708,7 +1722,7 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
     }
 
     if (method !== "GET") {
-      if (path.startsWith("/api/")) {
+      if (isApiPath) {
         writeJsonError(res, 405, "method not allowed");
       } else {
         res.writeHead(405, withSecurityHeaders({
@@ -1792,9 +1806,8 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
       return;
     }
 
-    const segments = parseSafeSegments(path);
     if (!segments) {
-      if (path.startsWith("/api/")) {
+      if (isApiPath) {
         writeJsonError(res, 400, path.startsWith("/api/wiki/") ? "malformed wiki path" : "malformed dashboard path");
       } else {
         writeHtml(res, 400, renderBadRequest("Malformed dashboard path."));
@@ -1967,7 +1980,7 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
         return;
       }
 
-      if (staticAssets && !path.startsWith("/api/")) {
+      if (staticAssets && !isApiPath) {
         const staticResult = await serveStaticAssetIfFound(res, staticAssets, segments);
         if (staticResult === "served") return;
         if (staticResult === "bad-request") {
@@ -2169,7 +2182,7 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
       }
 
     } catch (err) {
-      if (path.startsWith("/api/")) {
+      if (isApiPath) {
         writeJsonError(res, 500, (err as Error).message);
       } else {
         res.writeHead(500, withSecurityHeaders({ "Content-Type": "text/plain; charset=utf-8" }));
@@ -2178,7 +2191,7 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
       return;
     }
 
-    if (path.startsWith("/api/")) {
+    if (isApiPath) {
       writeJsonNotFound(res);
       return;
     }

@@ -416,6 +416,48 @@ describe("dashboard server", () => {
     }
   });
 
+  it("authenticates canonical encoded API paths before dispatch", async () => {
+    const token = "test-dashboard-token";
+    const server = await createServer({
+      vaultRoot: tmp,
+      port: 0,
+      host: "0.0.0.0",
+      env: { MEMORY_DASHBOARD_TOKEN: token },
+      loader: async () => fixture(),
+    });
+
+    try {
+      for (const path of ["/api", "/api%2fstatus", "/%61pi/status", "/api%252fstatus"]) {
+        const anonymous = await httpRequest({
+          host: "127.0.0.1",
+          port: server.port,
+          method: "GET",
+          path,
+        });
+        expect(anonymous.status).toBe(401);
+      }
+
+      const queryToken = await httpRequest({
+        host: "127.0.0.1",
+        port: server.port,
+        method: "GET",
+        path: `/api%2fstatus?%74oken=${token}`,
+      });
+      expect(queryToken.status).toBe(400);
+
+      const authorized = await httpRequest({
+        host: "127.0.0.1",
+        port: server.port,
+        method: "GET",
+        path: "/api%2fstatus",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      expect(authorized.status).toBe(200);
+    } finally {
+      await server.close();
+    }
+  });
+
   it("allows authenticated non-browser mutations without an Origin or Referer while checking browser provenance", async () => {
     const token = "test-dashboard-token";
     const compileRunner = vi.fn(async () => ({
