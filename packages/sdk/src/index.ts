@@ -31,6 +31,13 @@ export interface PageMeta {
   status?: string;
 }
 
+export interface SearchCapabilities {
+  searchBackend: "legacy" | "index-lexical" | "index-hybrid";
+  supportedParams: string[];
+  unsupportedParams: string[];
+  scopes: Array<"all" | "wiki" | "raw" | "crystals">;
+}
+
 export interface SearchOptions {
   k?: number;
   scope?: string;
@@ -38,6 +45,7 @@ export interface SearchOptions {
   userId?: string;
   asOf?: string;
   identityMode?: "inclusive" | "strict";
+  includeArchived?: boolean;
 }
 
 export interface LogOptions {
@@ -76,11 +84,19 @@ export class MemoryFortClient {
     if (opts.userId) params.set("user_id", opts.userId);
     if (opts.asOf) params.set("as_of", opts.asOf);
     if (opts.identityMode) params.set("identity_mode", opts.identityMode);
+    if (opts.includeArchived !== undefined) params.set("includeArchived", String(opts.includeArchived));
     const res = await this._fetch(`${this.baseUrl}/api/search?${params}`, {
       headers: this.headers,
     });
     const data = (await checked(res)) as { results?: SearchResult[] };
     return data.results ?? [];
+  }
+
+  async searchCapabilities(): Promise<SearchCapabilities> {
+    const res = await this._fetch(`${this.baseUrl}/api/search/capabilities`, {
+      headers: this.headers,
+    });
+    return (await checked(res)) as SearchCapabilities;
   }
 
   async add(text: string, opts: LogOptions = {}): Promise<void> {

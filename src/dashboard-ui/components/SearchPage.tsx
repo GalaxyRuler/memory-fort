@@ -2,7 +2,7 @@ import { useNavigate, useSearch as useRouterSearch } from "@tanstack/react-route
 import { Search } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useListKeyNav } from "../hooks/useListKeyNav.js";
-import { type SearchIndexStatus, type SearchScope, useSearch } from "../hooks/useSearch.js";
+import { type SearchIndexStatus, type SearchScope, useSearch, useSearchCapabilities } from "../hooks/useSearch.js";
 import { useDebouncedValue } from "../hooks/useDebouncedValue.js";
 import { EmptyState } from "./EmptyState.js";
 import { Input } from "./Input.js";
@@ -15,6 +15,7 @@ interface SearchPageSearch {
   scope?: SearchScope;
   k?: number;
   noRerank?: boolean;
+  includeArchived?: boolean;
 }
 
 export function SearchPage() {
@@ -25,11 +26,17 @@ export function SearchPage() {
   const scope = params.scope ?? "wiki";
   const k = params.k ?? 20;
   const noRerank = params.noRerank ?? false;
+  const includeArchived = params.includeArchived ?? false;
+  const capabilities = useSearchCapabilities();
+  const supportedParams = capabilities.data?.supportedParams ?? ["scope", "includeArchived"];
+  const scopes = capabilities.data?.scopes ?? ["all", "wiki", "raw", "crystals"];
+  const effectiveNoRerank = supportedParams.includes("noRerank") && noRerank;
   const search = useSearch({
     query: debouncedQuery,
     scope,
     k,
-    noRerank,
+    noRerank: effectiveNoRerank,
+    includeArchived,
     enabled: debouncedQuery.trim().length > 0,
   });
   const results = search.data?.results ?? [];
@@ -100,6 +107,9 @@ export function SearchPage() {
         <SearchFilters
           k={k}
           noRerank={noRerank}
+          includeArchived={includeArchived}
+          supportedParams={supportedParams}
+          scopes={scopes}
           onChange={(next) =>
             navigate({
               search: (previous: SearchPageSearch) => ({ ...previous, ...next }),
@@ -109,6 +119,14 @@ export function SearchPage() {
           scope={scope}
         />
         <div className="space-y-3">
+          {search.data?.ignoredParams && search.data.ignoredParams.length > 0 ? (
+            <div
+              className="rounded-md border border-warning/40 bg-surface px-4 py-3 text-sm text-text-secondary"
+              role="status"
+            >
+              Backend ignored: {search.data.ignoredParams.join(", ")}
+            </div>
+          ) : null}
           {search.data && showIndexNotice ? (
             <SearchIndexNotice
               degraded={search.data.degraded}

@@ -10,6 +10,7 @@ const routerState = vi.hoisted(() => ({
 
 const searchHook = vi.hoisted(() => ({
   useSearch: vi.fn(),
+  useSearchCapabilities: vi.fn(),
 }));
 
 vi.mock("@tanstack/react-router", async (importOriginal) => {
@@ -50,6 +51,7 @@ vi.mock("../../../src/dashboard-ui/hooks/useSearch.js", async (importOriginal) =
   return {
     ...actual,
     useSearch: searchHook.useSearch,
+    useSearchCapabilities: searchHook.useSearchCapabilities,
   };
 });
 
@@ -148,6 +150,15 @@ describe("SearchPage", () => {
     routerState.search = {};
     routerState.navigate.mockReset();
     searchHook.useSearch.mockReset();
+    searchHook.useSearchCapabilities.mockReset();
+    searchHook.useSearchCapabilities.mockReturnValue({
+      data: {
+        searchBackend: "index-lexical",
+        supportedParams: ["q", "k", "scope", "includeArchived"],
+        unsupportedParams: ["noRerank"],
+        scopes: ["all", "wiki", "raw", "crystals"],
+      },
+    });
     searchHook.useSearch.mockReturnValue({
       data: undefined,
       isLoading: false,
@@ -164,6 +175,33 @@ describe("SearchPage", () => {
     render(<SearchPage />);
 
     expect(screen.getByRole("textbox", { name: "Search memory" })).toBeInTheDocument();
+  });
+
+  test("renders controls from the active backend capabilities", () => {
+    render(<SearchPage />);
+
+    expect(screen.queryByText("Skip Voyage rerank")).not.toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: /Include archived/ })).toBeInTheDocument();
+  });
+
+  test("visibly reports compatibility ignoredParams returned by an older backend", () => {
+    routerState.search = { q: "needle" };
+    searchHook.useSearch.mockReturnValue({
+      data: {
+        results: [],
+        timings: { totalMs: 8 },
+        degraded: false,
+        warnings: [],
+        ignoredParams: ["scope", "as_of"],
+      },
+      isLoading: false,
+    });
+
+    render(<SearchPage />);
+
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Backend ignored: scope, as_of",
+    );
   });
 
   test("renders results after typing a debounced query", async () => {

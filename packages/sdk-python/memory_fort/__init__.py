@@ -51,6 +51,7 @@ class MemoryFortClient:
         user_id: str | None = None,
         as_of: str | None = None,
         identity_mode: str | None = None,
+        include_archived: bool | None = None,
     ) -> list[dict[str, Any]]:
         params: dict[str, str] = {"q": query}
         if k is not None:
@@ -65,9 +66,16 @@ class MemoryFortClient:
             params["as_of"] = as_of
         if identity_mode:
             params["identity_mode"] = identity_mode
+        if include_archived is not None:
+            params["includeArchived"] = str(include_archived).lower()
         res = await self._client.get(f"{self._base}/api/search", params=params)
         data = await self._checked(res)
         return data.get("results", [])
+
+    async def search_capabilities(self) -> dict[str, Any]:
+        res = await self._client.get(f"{self._base}/api/search/capabilities")
+        data = await self._checked(res)
+        return data
 
     async def add(
         self,

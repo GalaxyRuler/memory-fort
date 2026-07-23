@@ -275,7 +275,7 @@ const SearchInput = z.object({
   scope: z
     .enum(["wiki", "raw", "crystals", "all"])
     .optional()
-    .describe("NOT APPLIED by the default index backend — results span all scopes regardless"),
+    .describe("Search scope applied by both index and legacy backends"),
   k: z
     .number()
     .int()
@@ -289,6 +289,10 @@ const SearchInput = z.object({
     .max(1)
     .optional()
     .describe("NOT APPLIED by the default index backend — no score filtering happens"),
+  include_archived: z
+    .boolean()
+    .optional()
+    .describe("Include archived documents (supported by the default index backend)"),
   no_rerank: z
     .boolean()
     .optional()
@@ -300,19 +304,19 @@ const SearchInput = z.object({
   as_of: z
     .string()
     .optional()
-    .describe("NOT APPLIED by the default index backend — temporal filtering does not happen"),
+    .describe("Filter by temporal validity at this ISO date"),
   agent_id: z
     .string()
     .optional()
-    .describe("NOT APPLIED by the default index backend — identity filtering does not happen"),
+    .describe("Filter by agent identity"),
   user_id: z
     .string()
     .optional()
-    .describe("NOT APPLIED by the default index backend — identity filtering does not happen"),
+    .describe("Filter by user identity"),
   identity_mode: z
     .enum(["inclusive", "strict"])
     .optional()
-    .describe("NOT APPLIED by the default index backend — identity filtering does not happen"),
+    .describe("Identity filtering mode"),
 });
 
 export type SearchInput = z.infer<typeof SearchInput>;
@@ -499,6 +503,33 @@ export async function searchMemory(
   };
 }
 
+export async function searchCapabilities(
+  deps: SearchDeps = {},
+): Promise<{ content: Array<{ type: "text"; text: string }>; isError?: boolean }> {
+  const fetchFn = deps.fetchFn ?? fetch;
+  const baseUrl = deps.dashboardUrl ?? deps.vpsUrl ?? DEFAULT_SEARCH_BASE_URL;
+  let response: Response;
+  try {
+    response = await fetchFn(`${trimTrailingSlash(baseUrl)}/api/search/capabilities`);
+  } catch {
+    return toolError("Search dashboard offline.");
+  }
+  if (!response.ok) {
+    const body = await response.text().catch(() => "");
+    return toolError(`Search backend returned HTTP ${response.status}: ${truncate(body, 500)}`);
+  }
+  try {
+    const body = await response.json();
+    return {
+      content: [{ type: "text", text: JSON.stringify(body, null, 2) }],
+    };
+  } catch (error) {
+    return toolError(
+      `Failed to parse search capabilities JSON: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+
 async function bumpLastAccessed(path: string, now: Date, knownContent?: string): Promise<void> {
   const wikiRel = path.startsWith("wiki/") ? path : `wiki/${path}`;
   if (!isNarrativeKnowledgePagePath(wikiRel)) return;
@@ -553,10 +584,19 @@ export function createServer(deps: SearchDeps = {}): McpServer {
     "search",
     {
       description:
-        "Search the user's memory system (wiki + raw observations). Default dashboard backend (since 0.11) is a local SQLite FTS index (lexical; optional vectors if MEMORY_INDEX_VECTORS=1). Responses include search_backend and ignored_params when advanced filters (scope, min_score, as_of, identity, HyDE, rerank) are not applied by that backend. Legacy multi-signal search (BM25 + embeddings + graph + RRF + optional Voyage rerank/HyDE) runs only when MEMORY_INDEX_SEARCH=0. Returns ranked results with snippets and provenance.",
+        "Search the user's memory system. The default SQLite index applies scope, archive, temporal, and identity filters; it rejects unsupported score, rerank, HyDE, and intent controls with unsupported_params. Call search_capabilities before offering backend-specific controls.",
       inputSchema: SearchInput.shape,
     },
     async (args) => searchMemory(args, deps),
+  );
+
+  server.registerTool(
+    "search_capabilities",
+    {
+      description: "Return the active search backend and its supported parameters, unsupported parameters, and scopes.",
+      inputSchema: {},
+    },
+    async () => searchCapabilities(deps),
   );
 
   return server;
@@ -664,7 +704,12 @@ function buildSearchUrl(baseUrl: string, input: SearchInput): string {
   if (input.min_score !== undefined) {
     url.searchParams.set("minScore", String(input.min_score));
   }
-  url.searchParams.set("noRerank", String(input.no_rerank ?? true));
+  if (input.include_archived !== undefined) {
+    url.searchParams.set("includeArchived", String(input.include_archived));
+  }
+  if (input.no_rerank !== undefined) {
+    url.searchParams.set("noRerank", String(input.no_rerank));
+  }
   if (input.hyde_expansion !== undefined) {
     url.searchParams.set("hydeExpansion", input.hyde_expansion);
   }

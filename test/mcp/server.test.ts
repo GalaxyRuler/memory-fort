@@ -180,13 +180,15 @@ describe("readPage", () => {
     expect(text).toContain("windows, stability");
   });
 
-  it("every forward-compat search param is documented as NOT APPLIED by the default index backend", () => {
+  it("documents supported and unsupported default-index search params truthfully", () => {
     const src = readFileSync(new URL("../../src/mcp/server.ts", import.meta.url), "utf-8");
     const schema = src.slice(src.indexOf("const SearchInput = z.object"), src.indexOf("export type SearchInput"));
-    // These are accepted for forward-compat but dropped by the default index
-    // path (dashboard /api/search short-circuits to the index backend, which
-    // reads only q/k/cursor). Their descriptions must say so, not imply they work.
-    for (const field of ["scope", "min_score", "no_rerank", "hyde_expansion", "as_of", "agent_id", "user_id", "identity_mode"]) {
+    for (const field of ["scope", "include_archived", "as_of", "agent_id", "user_id", "identity_mode"]) {
+      const decl = schema.slice(schema.indexOf(`${field}:`));
+      const describeText = decl.slice(0, decl.indexOf("),") + 2);
+      expect(describeText, `${field} description`).not.toMatch(/NOT APPLIED/);
+    }
+    for (const field of ["min_score", "no_rerank", "hyde_expansion"]) {
       const decl = schema.slice(schema.indexOf(`${field}:`));
       const describeText = decl.slice(0, decl.indexOf("),") + 2);
       expect(describeText, `${field} description`).toMatch(/NOT APPLIED/);
@@ -335,7 +337,7 @@ describe("memory.search MCP tool", () => {
     try {
       const listed = await client.listTools();
       const names = listed.tools.map((tool) => tool.name).sort();
-      expect(names).toEqual(["list_pages", "log_observation", "read_page", "search"]);
+      expect(names).toEqual(["list_pages", "log_observation", "read_page", "search", "search_capabilities"]);
     } finally {
       await close();
     }
@@ -1237,13 +1239,13 @@ describe("memory.search MCP tool", () => {
       expect(urls[0]).toContain(
         "hydeExpansion=Voyage+AI+is+an+embedding+provider",
       );
-      expect(urls[0]).toContain("noRerank=true");
+      expect(urls[0]).not.toContain("noRerank");
     } finally {
       await close();
     }
   });
 
-  it("defaults MCP search to noRerank for latency and lets callers opt into rerank", async () => {
+  it("omits unsupported controls by default and preserves explicit caller intent", async () => {
     const urls: string[] = [];
     const fetchFn = vi.fn(async (input) => {
       urls.push(String(input));
@@ -1259,8 +1261,38 @@ describe("memory.search MCP tool", () => {
         name: "search",
         arguments: { query: "operator preferences", no_rerank: false },
       });
-      expect(urls[0]).toContain("noRerank=true");
+      expect(urls[0]).not.toContain("noRerank");
       expect(urls[1]).toContain("noRerank=false");
+    } finally {
+      await close();
+    }
+  });
+
+  it("surfaces the active backend search capabilities", async () => {
+    const capabilities = {
+      searchBackend: "index-lexical",
+      supportedParams: ["q", "scope", "includeArchived"],
+      unsupportedParams: ["noRerank"],
+      scopes: ["all", "wiki", "raw", "crystals"],
+    };
+    const urls: string[] = [];
+    const fetchFn = vi.fn(async (input) => {
+      urls.push(String(input));
+      return jsonResponse(capabilities);
+    }) as unknown as typeof fetch;
+    const { client, close } = await connectMcp(fetchFn);
+    try {
+      const result = await client.callTool({
+        name: "search_capabilities",
+        arguments: {},
+      });
+      expect(urls[0]).toContain("/api/search/capabilities");
+      expect(result.content).toEqual([
+        {
+          type: "text",
+          text: JSON.stringify(capabilities, null, 2),
+        },
+      ]);
     } finally {
       await close();
     }

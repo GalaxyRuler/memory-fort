@@ -34,6 +34,11 @@ import {
   createEmbedderFromConfig,
   getActiveEmbedderConfig,
 } from "../retrieval/embedder/factory.js";
+import {
+  capabilitiesForSearchBackend,
+  collectUnsupportedIndexSearchParams,
+  unsupportedParamsBody,
+} from "../search/contract.js";
 import { makeVoyageClient, type VoyageClient, type VoyageClientOptions } from "../retrieval/voyage-client.js";
 import { loadMemoryConfig, type MemoryConfig } from "../storage/config.js";
 import { getVaultWriteCapability, type VaultWriteCapability } from "../sync/vault-capability.js";
@@ -658,7 +663,8 @@ interface DashboardSkippedIndexFile {
 
 interface DashboardIndexSearchController {
   readonly dbPath: string;
-  search(query: string, page: IndexSearchPage): Promise<IndexSearchRouteResponse>;
+  readonly backend: "index-lexical" | "index-hybrid";
+  search(query: string, page: IndexSearchPage, filters: IndexSearchFilters): Promise<IndexSearchRouteResponse>;
   status(): DashboardIndexStatus;
   close(): void;
 }
@@ -669,6 +675,15 @@ interface IndexSearchPage {
   readonly limit: number;
   readonly fetchLimit: number;
   readonly cursorStatus?: "invalid";
+}
+
+interface IndexSearchFilters {
+  readonly scope: SearchScope;
+  readonly includeArchived: boolean;
+  readonly asOf?: string;
+  readonly agentId?: string;
+  readonly userId?: string;
+  readonly identityMode: "inclusive" | "strict";
 }
 
 type IndexSearchRouteResponse = SearchResponse & {
@@ -733,35 +748,9 @@ function parseIndexSearchPage(url: URL): IndexSearchPage {
   };
 }
 
-/**
- * Query params accepted by the legacy multi-signal path but not applied by the
- * default SQLite FTS index backend. Only list params that were actually
- * requested with a non-default value so agents get an honest contract.
- */
-export function collectIndexIgnoredSearchParams(url: URL): string[] {
-  const ignored: string[] = [];
-  const scope = url.searchParams.get("scope");
-  if (scope !== null && scope !== "" && scope !== "all") ignored.push("scope");
-
-  const minScore = url.searchParams.get("minScore");
-  if (minScore !== null && minScore !== "" && minScore !== "0") ignored.push("minScore");
-
-  // MCP always sends noRerank; only flag when the client explicitly wants rerank.
-  if (url.searchParams.get("noRerank") === "false") ignored.push("noRerank");
-
-  if (hasNonEmptyParam(url, "hydeExpansion")) ignored.push("hydeExpansion");
-  if (url.searchParams.get("noHyde") === "true") ignored.push("noHyde");
-  if (hasNonEmptyParam(url, "intent")) ignored.push("intent");
-  if (hasNonEmptyParam(url, "as_of")) ignored.push("as_of");
-  if (hasNonEmptyParam(url, "agent_id")) ignored.push("agent_id");
-  if (hasNonEmptyParam(url, "user_id")) ignored.push("user_id");
-  if (url.searchParams.get("identity_mode") === "strict") ignored.push("identity_mode");
-  return ignored;
-}
-
-function hasNonEmptyParam(url: URL, key: string): boolean {
-  const value = url.searchParams.get(key);
-  return value !== null && value.trim().length > 0;
+/** Accepted index params are applied; unsupported requests fail before search. */
+export function collectIndexIgnoredSearchParams(_url: URL): string[] {
+  return [];
 }
 
 /**
@@ -859,7 +848,8 @@ function createDashboardIndexSearchController(opts: {
 
   return {
     dbPath,
-    search: async (query, page) => {
+    backend: searchExecutor ? "index-hybrid" : "index-lexical",
+    search: async (query, page, filters) => {
       const started = Date.now();
       const db = getReader();
       if (!db) return indexingSearchResponse(query, page, started, currentStatus());
@@ -870,10 +860,11 @@ function createDashboardIndexSearchController(opts: {
             query,
             limit: page.limit,
             cursor: page.cursor,
+            ...filters,
           });
           return { ...response, index: status };
         } catch (error) {
-          const results = lexicalSearch(db, query, { limit: page.fetchLimit });
+          const results = lexicalSearch(db, query, { limit: page.fetchLimit, ...filters });
           return indexSearchResponse(
             query,
             page,
@@ -887,7 +878,7 @@ function createDashboardIndexSearchController(opts: {
           );
         }
       }
-      const results = lexicalSearch(db, query, { limit: page.fetchLimit });
+      const results = lexicalSearch(db, query, { limit: page.fetchLimit, ...filters });
       return indexSearchResponse(query, page, results, status, started);
     },
     status: currentStatus,
@@ -1851,28 +1842,25 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
         return;
       }
 
+      if (
+        segments.length === 3
+        && segments[0] === "api"
+        && segments[1] === "search"
+        && segments[2] === "capabilities"
+      ) {
+        writeJson(res, capabilitiesForSearchBackend(indexSearch?.backend ?? "legacy"));
+        return;
+      }
+
       if (segments.length === 2 && segments[0] === "api" && segments[1] === "search") {
         const query = url.searchParams.get("q")?.trim() ?? "";
         if (query.length === 0) {
           writeJson(res, { error: "missing query parameter q" }, 400);
           return;
         }
-        if (indexSearch) {
-          try {
-            const indexBody = await indexSearch.search(query, parseIndexSearchPage(url));
-            writeJson(res, annotateIndexSearchResponse(indexBody, url, env));
-          } catch (err) {
-            const message = err instanceof Error ? err.message : String(err);
-            writeJsonError(res, 500, message);
-          }
-          return;
-        }
-        const noRerank = parseSearchBoolean(url.searchParams.get("noRerank"));
-        const hydeExpansion = url.searchParams.get("hydeExpansion") ?? undefined;
-        const intent = parseSearchIntent(url.searchParams.get("intent"));
         const rawAsOf = url.searchParams.get("as_of") ?? undefined;
         try {
-          parseAsOf(rawAsOf); // validate — throws on invalid
+          parseAsOf(rawAsOf);
         } catch {
           writeJsonError(res, 400, `invalid as_of date: ${rawAsOf}`);
           return;
@@ -1883,10 +1871,40 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
           url.searchParams.get("identity_mode") === "strict"
             ? ("strict" as const)
             : ("inclusive" as const);
+        const filters: IndexSearchFilters = {
+          scope: parseSearchScope(url.searchParams.get("scope")),
+          includeArchived: parseSearchBoolean(url.searchParams.get("includeArchived")),
+          asOf: rawAsOf,
+          agentId,
+          userId,
+          identityMode,
+        };
+        if (indexSearch) {
+          const unsupportedParams = collectUnsupportedIndexSearchParams(url);
+          if (unsupportedParams.length > 0) {
+            writeJson(res, unsupportedParamsBody(unsupportedParams), 422);
+            return;
+          }
+          try {
+            const indexBody = await indexSearch.search(query, parseIndexSearchPage(url), filters);
+            writeJson(res, annotateIndexSearchResponse(indexBody, url, env));
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            writeJsonError(res, 500, message);
+          }
+          return;
+        }
+        if (url.searchParams.has("includeArchived")) {
+          writeJson(res, unsupportedParamsBody(["includeArchived"]), 422);
+          return;
+        }
+        const noRerank = parseSearchBoolean(url.searchParams.get("noRerank"));
+        const hydeExpansion = url.searchParams.get("hydeExpansion") ?? undefined;
+        const intent = parseSearchIntent(url.searchParams.get("intent"));
         try {
           const result = await fullCorpusGate.runSearch(() => runSearch({
             query,
-            scope: parseSearchScope(url.searchParams.get("scope")),
+            scope: filters.scope,
             k: parseClampedInt(url.searchParams.get("k"), 10, 1, 50),
             minScore: parseClampedFloat(url.searchParams.get("minScore"), 0, 0, 1),
             noRerank: noRerank || !voyageClient,

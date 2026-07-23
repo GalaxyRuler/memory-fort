@@ -37,11 +37,13 @@ export interface ReconcileIndexOptions {
 
 const DEFAULT_MAX_CHUNKS_PER_FILE = 50_000;
 const DEFAULT_MAX_FILE_BYTES = 16 * 1024 * 1024;
+type IndexedFileKind = "raw" | "wiki" | "crystal";
+
 
 interface VaultFile {
   readonly absPath: string;
   readonly relPath: string;
-  readonly kind: "raw" | "wiki";
+  readonly kind: IndexedFileKind;
 }
 
 interface FileStatRow {
@@ -73,6 +75,10 @@ interface FileFrontmatterMetadata {
   readonly frontmatterCreated: string | null;
   readonly frontmatterUpdated: string | null;
   readonly frontmatterObservedAt: string | null;
+  readonly frontmatterValidFrom: string | null;
+  readonly frontmatterValidUntil: string | null;
+  readonly frontmatterAgentId: string | null;
+  readonly frontmatterUserId: string | null;
 }
 
 export async function reconcileIndex(
@@ -195,7 +201,7 @@ function markFileUnchanged(
   db: SqliteDatabase,
   input: {
     readonly relPath: string;
-    readonly kind: "raw" | "wiki";
+    readonly kind: IndexedFileKind;
     readonly sizeBytes: number;
     readonly mtimeMs: number;
     readonly runId: number;
@@ -212,7 +218,7 @@ function markFileSkipped(
   db: SqliteDatabase,
   input: {
     readonly relPath: string;
-    readonly kind: "raw" | "wiki";
+    readonly kind: IndexedFileKind;
     readonly sizeBytes: number;
     readonly mtimeMs: number;
     readonly generation: number;
@@ -222,7 +228,7 @@ function markFileSkipped(
 ): void {
   db.exec("BEGIN IMMEDIATE");
   try {
-    db.prepare<[string, string, number, number, null, null, null, null, null, null, null, null, null, number, number, string, null, number]>(
+    db.prepare<unknown[]>(
       `INSERT INTO files(
          relPath,
          kind,
@@ -237,13 +243,17 @@ function markFileSkipped(
          frontmatterCreated,
          frontmatterUpdated,
          frontmatterObservedAt,
+         frontmatterValidFrom,
+         frontmatterValidUntil,
+         frontmatterAgentId,
+         frontmatterUserId,
          generation,
          lastSeenRunId,
          errorState,
          indexedAt,
          lastErrorAt
        )
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(relPath) DO UPDATE SET
          kind = excluded.kind,
          sizeBytes = excluded.sizeBytes,
@@ -258,7 +268,11 @@ function markFileSkipped(
          frontmatterUpdated = NULL,
          frontmatterObservedAt = NULL,
          generation = excluded.generation,
+         frontmatterValidFrom = NULL,
+         frontmatterValidUntil = NULL,
          lastSeenRunId = excluded.lastSeenRunId,
+         frontmatterAgentId = NULL,
+         frontmatterUserId = NULL,
          errorState = excluded.errorState,
          indexedAt = NULL,
          lastErrorAt = excluded.lastErrorAt`,
@@ -267,6 +281,10 @@ function markFileSkipped(
       input.kind,
       input.sizeBytes,
       input.mtimeMs,
+      null,
+      null,
+      null,
+      null,
       null,
       null,
       null,
@@ -297,13 +315,13 @@ function markFileSkipped(
 
 async function* walkVaultMarkdown(vaultRoot: string): AsyncGenerator<VaultFile> {
   const root = resolve(vaultRoot);
-  for (const kind of ["raw", "wiki"] as const) {
-    const dir = resolve(root, kind);
+  for (const kind of ["raw", "wiki", "crystal"] as const) {
+    const dir = resolve(root, kind === "crystal" ? "crystals" : kind);
     yield* walkDirectory(root, dir, kind);
   }
 }
 
-async function* walkDirectory(root: string, dir: string, kind: "raw" | "wiki"): AsyncGenerator<VaultFile> {
+async function* walkDirectory(root: string, dir: string, kind: IndexedFileKind): AsyncGenerator<VaultFile> {
   let entries: Array<Dirent<string>>;
   try {
     entries = await readdir(dir, { withFileTypes: true });
@@ -340,7 +358,7 @@ function writeIndexedFile(
   db: SqliteDatabase,
   input: {
     readonly relPath: string;
-    readonly kind: "raw" | "wiki";
+    readonly kind: IndexedFileKind;
     readonly sizeBytes: number;
     readonly mtimeMs: number;
     readonly contentHash: string;
@@ -353,7 +371,7 @@ function writeIndexedFile(
 ): void {
   db.exec("BEGIN IMMEDIATE");
   try {
-    db.prepare<[string, string, number, number, string, string | null, LifecycleStage | null, number | null, string | null, ValidationState | null, string | null, string | null, string | null, number, number, number]>(
+    db.prepare<unknown[]>(
       `INSERT INTO files(
          relPath,
          kind,
@@ -368,11 +386,15 @@ function writeIndexedFile(
          frontmatterCreated,
          frontmatterUpdated,
          frontmatterObservedAt,
+         frontmatterValidFrom,
+         frontmatterValidUntil,
+         frontmatterAgentId,
+         frontmatterUserId,
          generation,
          lastSeenRunId,
          indexedAt
        )
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(relPath) DO UPDATE SET
          kind = excluded.kind,
          sizeBytes = excluded.sizeBytes,
@@ -389,6 +411,10 @@ function writeIndexedFile(
          generation = excluded.generation,
          lastSeenRunId = excluded.lastSeenRunId,
          errorState = NULL,
+         frontmatterValidFrom = excluded.frontmatterValidFrom,
+         frontmatterValidUntil = excluded.frontmatterValidUntil,
+         frontmatterAgentId = excluded.frontmatterAgentId,
+         frontmatterUserId = excluded.frontmatterUserId,
          indexedAt = excluded.indexedAt,
          lastErrorAt = NULL`,
     ).run(
@@ -405,6 +431,10 @@ function writeIndexedFile(
       input.frontmatterMetadata.frontmatterCreated,
       input.frontmatterMetadata.frontmatterUpdated,
       input.frontmatterMetadata.frontmatterObservedAt,
+      input.frontmatterMetadata.frontmatterValidFrom,
+      input.frontmatterMetadata.frontmatterValidUntil,
+      input.frontmatterMetadata.frontmatterAgentId,
+      input.frontmatterMetadata.frontmatterUserId,
       input.generation,
       input.runId,
       Date.now(),
@@ -552,6 +582,10 @@ function extractFrontmatterMetadata(content: string): FileFrontmatterMetadata {
       frontmatterCreated: readDate(frontmatter.created),
       frontmatterUpdated: readDate(frontmatter.updated),
       frontmatterObservedAt: readDate(frontmatter.observed_at),
+      frontmatterValidFrom: readDate(frontmatter.valid_from),
+      frontmatterValidUntil: readDate(frontmatter.valid_until),
+      frontmatterAgentId: readString(frontmatter.agent_id),
+      frontmatterUserId: readString(frontmatter.user_id),
     };
   } catch {
     return emptyFrontmatterMetadata();
@@ -568,6 +602,10 @@ function emptyFrontmatterMetadata(): FileFrontmatterMetadata {
     frontmatterCreated: null,
     frontmatterUpdated: null,
     frontmatterObservedAt: null,
+    frontmatterValidFrom: null,
+    frontmatterValidUntil: null,
+    frontmatterAgentId: null,
+    frontmatterUserId: null,
   };
 }
 

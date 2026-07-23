@@ -51,6 +51,95 @@ describe("dashboard index search route", () => {
     vi.clearAllMocks();
   });
 
+  it("reports the typed default index search capabilities", async () => {
+    const { vaultRoot, indexDbPath } = await createIndexedVault();
+
+    server = await createServer({
+      vaultRoot,
+      port: 0,
+      env: { MEMORY_INDEX_DB_PATH: indexDbPath },
+      voyageClient: null,
+    });
+
+    const response = await fetch(
+      `http://${server.host}:${server.port}/api/search/capabilities`,
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      searchBackend: "index-lexical",
+      supportedParams: [
+        "q",
+        "limit",
+        "k",
+        "cursor",
+        "scope",
+        "includeArchived",
+        "as_of",
+        "agent_id",
+        "user_id",
+        "identity_mode",
+      ],
+      unsupportedParams: ["minScore", "noRerank", "noHyde", "hydeExpansion", "intent"],
+      scopes: ["all", "wiki", "raw", "crystals"],
+    });
+  });
+
+  it("reports the typed legacy search capabilities", async () => {
+    const { vaultRoot } = await createVault();
+    server = await createServer({
+      vaultRoot,
+      port: 0,
+      env: { MEMORY_INDEX_SEARCH: "0" },
+      voyageClient: null,
+    });
+
+    const response = await fetch(
+      `http://${server.host}:${server.port}/api/search/capabilities`,
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      searchBackend: "legacy",
+      supportedParams: [
+        "q",
+        "k",
+        "scope",
+        "minScore",
+        "noRerank",
+        "noHyde",
+        "hydeExpansion",
+        "intent",
+        "as_of",
+        "agent_id",
+        "user_id",
+        "identity_mode",
+      ],
+      unsupportedParams: ["includeArchived"],
+      scopes: ["all", "wiki", "raw", "crystals"],
+    });
+  });
+
+  it("rejects controls unsupported by the legacy backend with the same 422 shape", async () => {
+    const { vaultRoot } = await createVault();
+    server = await createServer({
+      vaultRoot,
+      port: 0,
+      env: { MEMORY_INDEX_SEARCH: "0" },
+      voyageClient: null,
+    });
+
+    const response = await fetch(
+      `http://${server.host}:${server.port}/api/search?q=needle&includeArchived=true`,
+    );
+
+    expect(response.status).toBe(422);
+    await expect(response.json()).resolves.toEqual({
+      error: "unsupported_params",
+      unsupported_params: ["includeArchived"],
+    });
+  });
+
   it("uses lexical index search by default without loading the legacy corpus", async () => {
     const { vaultRoot, indexDbPath } = await createIndexedVault();
 
@@ -80,7 +169,7 @@ describe("dashboard index search route", () => {
     expect(loadSearchCorpus).not.toHaveBeenCalled();
   });
 
-  it("reports ignored advanced params on the index search path", async () => {
+  it("applies supported advanced params on the index search path", async () => {
     const { vaultRoot, indexDbPath } = await createIndexedVault();
 
     server = await createServer({
@@ -93,17 +182,70 @@ describe("dashboard index search route", () => {
     });
 
     const response = await fetch(
-      `http://${server.host}:${server.port}/api/search?q=needle&scope=wiki&minScore=0.5&as_of=2026-01-01`,
+      `http://${server.host}:${server.port}/api/search?q=needle&scope=wiki&as_of=2026-01-01`,
     );
     const body = await response.json();
 
     expect(response.status).toBe(200);
     expect(body.searchBackend).toBe("index-lexical");
-    expect(body.ignoredParams).toEqual(["scope", "minScore", "as_of"]);
+    expect(body.ignoredParams).toEqual([]);
     // Contract fields stay out of health warnings (SearchPage empty-state).
     expect(body.warnings ?? []).not.toEqual(
       expect.arrayContaining([expect.stringMatching(/^ignored-params:/)]),
     );
+  });
+
+  it("applies index scope before the route candidate limit", async () => {
+    const { vaultRoot, indexDbPath } = await createIndexedVaultWithPages([
+      ["wiki/scoped.md", "# Scoped\n\nneedle"],
+    ]);
+
+    server = await createServer({
+      vaultRoot,
+      port: 0,
+      env: {
+        MEMORY_INDEX_DB_PATH: indexDbPath,
+      },
+      voyageClient: null,
+    });
+
+    const response = await fetch(
+      `http://${server.host}:${server.port}/api/search?q=needle&scope=raw&limit=1`,
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.results).toEqual([]);
+  });
+
+  it("returns stable 422 unsupported_params for explicit unsupported index controls", async () => {
+    const { vaultRoot, indexDbPath } = await createIndexedVault();
+
+    server = await createServer({
+      vaultRoot,
+      port: 0,
+      env: {
+        MEMORY_INDEX_DB_PATH: indexDbPath,
+      },
+      voyageClient: null,
+    });
+
+    const response = await fetch(
+      `http://${server.host}:${server.port}/api/search` +
+      "?q=needle&minScore=0.5&noRerank=true&noHyde=true&hydeExpansion=expanded&intent=procedure",
+    );
+
+    expect(response.status).toBe(422);
+    await expect(response.json()).resolves.toEqual({
+      error: "unsupported_params",
+      unsupported_params: [
+        "minScore",
+        "noRerank",
+        "noHyde",
+        "hydeExpansion",
+        "intent",
+      ],
+    });
   });
 
   it("serves default index search inline even when a vector executor is available", async () => {
@@ -153,7 +295,17 @@ describe("dashboard index search route", () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(searchExecutor.search).toHaveBeenCalledWith({ query: "needle", limit: 5, cursor: null });
+    expect(searchExecutor.search).toHaveBeenCalledWith({
+      query: "needle",
+      limit: 5,
+      cursor: null,
+      scope: "all",
+      includeArchived: false,
+      asOf: undefined,
+      agentId: undefined,
+      userId: undefined,
+      identityMode: "inclusive",
+    });
     expect(body).toMatchObject({
       query: "needle",
       hybridMode: "lexical-plus-vector",
@@ -242,7 +394,17 @@ describe("dashboard index search route", () => {
     const response = await fetch(`http://${server.host}:${server.port}/api/search?q=needle&limit=5&cursor=opaque-token`);
 
     expect(response.status).toBe(200);
-    expect(searchExecutor.search).toHaveBeenCalledWith({ query: "needle", limit: 5, cursor: "opaque-token" });
+    expect(searchExecutor.search).toHaveBeenCalledWith({
+      query: "needle",
+      limit: 5,
+      cursor: "opaque-token",
+      scope: "all",
+      includeArchived: false,
+      asOf: undefined,
+      agentId: undefined,
+      userId: undefined,
+      identityMode: "inclusive",
+    });
     expect(loadSearchCorpus).not.toHaveBeenCalled();
   });
 

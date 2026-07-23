@@ -59,6 +59,14 @@ export async function runSearch(
   }
 
   if (!response.ok) {
+    if (response.status === 422) {
+      const body = await response.text().catch(() => "");
+      return {
+        exitCode: 2,
+        stdout: "",
+        stderr: `Search failed (HTTP 422): ${body}\n`,
+      };
+    }
     return backendOffline(trimmedQuery, baseUrl);
   }
 
@@ -119,7 +127,9 @@ function buildSearchUrl(baseUrl: string, query: string, opts: CliSearchOptions):
   if (opts.scope !== undefined) url.searchParams.set("scope", opts.scope);
   if (opts.k !== undefined) url.searchParams.set("k", String(opts.k));
   if (opts.minScore !== undefined) url.searchParams.set("minScore", String(opts.minScore));
-  url.searchParams.set("noRerank", String(opts.noRerank ?? true));
+  if (opts.noRerank !== undefined) {
+    url.searchParams.set("noRerank", String(opts.noRerank));
+  }
   return url.toString();
 }
 

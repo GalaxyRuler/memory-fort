@@ -8,7 +8,7 @@ import { loadSqliteVec, type CapabilityDb } from "./native/capability.js";
 const require = createRequire(import.meta.url);
 const BetterSqlite3 = require("better-sqlite3") as BetterSqlite3Constructor;
 
-const SCHEMA_VERSION = "3";
+const SCHEMA_VERSION = "5";
 const TOKENIZER = "unicode61 remove_diacritics 2";
 const DEFAULT_BUSY_TIMEOUT_MS = 5_000;
 const VECTOR_DIMENSION = 384;
@@ -28,6 +28,10 @@ const INIT_MIGRATION_SQL = `CREATE TABLE IF NOT EXISTS files (
   frontmatterCreated TEXT,
   frontmatterUpdated TEXT,
   frontmatterObservedAt TEXT,
+  frontmatterValidFrom TEXT,
+  frontmatterValidUntil TEXT,
+  frontmatterAgentId TEXT,
+  frontmatterUserId TEXT,
   generation INTEGER,
   lastSeenRunId INTEGER,
   errorState TEXT,
@@ -86,7 +90,9 @@ CREATE INDEX IF NOT EXISTS idx_chunks_relPath ON chunks(relPath);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_chunks_relPath_ordinal ON chunks(relPath, ordinal);
 CREATE INDEX IF NOT EXISTS idx_chunks_generation ON chunks(generation);
 CREATE INDEX IF NOT EXISTS idx_files_generation ON files(generation);
-CREATE INDEX IF NOT EXISTS idx_files_hash ON files(contentHash);`;
+CREATE INDEX IF NOT EXISTS idx_files_hash ON files(contentHash);
+CREATE INDEX IF NOT EXISTS idx_files_validity ON files(frontmatterValidFrom, frontmatterValidUntil);
+CREATE INDEX IF NOT EXISTS idx_files_identity ON files(frontmatterAgentId, frontmatterUserId);`;
 
 const VECTOR_MIGRATION_SQL = `CREATE TABLE IF NOT EXISTS embedding_profiles (
   profileId TEXT PRIMARY KEY,
@@ -345,6 +351,8 @@ function assertSchema(database: SqliteDatabase): void {
     "idx_chunks_relPath_ordinal",
     "idx_files_generation",
     "idx_files_hash",
+    "idx_files_identity",
+    "idx_files_validity",
   ]);
 }
 

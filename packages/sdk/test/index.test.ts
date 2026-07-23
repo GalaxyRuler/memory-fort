@@ -49,6 +49,30 @@ describe("MemoryFortClient", () => {
     expect(url).toContain("identity_mode=strict");
   });
 
+  it("search passes includeArchived as a supported index param", async () => {
+    fetchSpy.mockResolvedValueOnce(mockResponse({ results: [] }));
+    const client = new MemoryFortClient({ baseUrl: BASE });
+    await client.search("test", { includeArchived: true });
+    expect(fetchSpy.mock.calls[0]![0]).toContain("includeArchived=true");
+  });
+
+  it("returns typed search capabilities", async () => {
+    const capabilities = {
+      searchBackend: "index-lexical",
+      supportedParams: ["q", "scope", "includeArchived"],
+      unsupportedParams: ["noRerank"],
+      scopes: ["all", "wiki", "raw", "crystals"],
+    };
+    fetchSpy.mockResolvedValueOnce(mockResponse(capabilities));
+    const client = new MemoryFortClient({ baseUrl: BASE });
+
+    await expect(client.searchCapabilities()).resolves.toEqual(capabilities);
+    expect(fetchSpy).toHaveBeenCalledWith(
+      `${BASE}/api/search/capabilities`,
+      expect.any(Object),
+    );
+  });
+
   it("add sends POST /api/observations with text", async () => {
     fetchSpy.mockResolvedValueOnce(mockResponse({ ok: true }));
     const client = new MemoryFortClient({ baseUrl: BASE });

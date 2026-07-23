@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { useSearch } from "../../../src/dashboard-ui/hooks/useSearch.js";
+import { useSearch, useSearchCapabilities } from "../../../src/dashboard-ui/hooks/useSearch.js";
 
 function renderWithQueryClient(ui: ReactNode) {
   const client = new QueryClient({
@@ -71,6 +71,28 @@ describe("useSearch", () => {
 
     expect(fetchMock).not.toHaveBeenCalled();
   });
+  test("loads the active backend search capabilities", async () => {
+    const capabilities = {
+      searchBackend: "index-lexical",
+      supportedParams: ["q", "scope"],
+      unsupportedParams: ["noRerank"],
+      scopes: ["all", "wiki", "raw", "crystals"],
+    };
+    const fetchMock = vi.fn(
+      async (_input: RequestInfo | URL) => new Response(JSON.stringify(capabilities), { status: 200 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { result } = renderHook(() => useSearchCapabilities(), {
+      wrapper: wrapperWithQueryClient,
+    });
+
+    await waitFor(() => {
+      expect(result.current.data).toEqual(capabilities);
+    });
+    expect(String(fetchMock.mock.calls[0][0])).toContain("/api/search/capabilities");
+  });
+
 
   test("fires query when query is non-empty", async () => {
     const fetchMock = vi.fn(

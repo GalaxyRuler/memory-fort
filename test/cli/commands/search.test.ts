@@ -131,7 +131,7 @@ describe("runSearch CLI command", () => {
     expect(calls[1]).toMatch(/^https:\/\/override\.example\/memory\/api\/search\?/);
   });
 
-  it("defaults to noRerank for bounded latency", async () => {
+  it("does not send unsupported controls by default", async () => {
     const calls: string[] = [];
     const fetchFn = vi.fn(async (input) => {
       calls.push(String(input));
@@ -140,6 +140,22 @@ describe("runSearch CLI command", () => {
 
     await runSearch("operator preferences", { fetchFn, configLoader: emptyConfigLoader });
 
-    expect(calls[0]).toContain("noRerank=true");
+    expect(calls[0]).not.toContain("noRerank");
+  });
+
+  it("preserves the unsupported_params response for callers", async () => {
+    const fetchFn = vi.fn(async () => jsonResponse({
+      error: "unsupported_params",
+      unsupported_params: ["minScore"],
+    }, 422)) as unknown as typeof fetch;
+
+    const result = await runSearch("voyage", {
+      minScore: 0.5,
+      fetchFn,
+      configLoader: emptyConfigLoader,
+    });
+
+    expect(result.exitCode).toBe(2);
+    expect(result.stderr).toBe('Search failed (HTTP 422): {"error":"unsupported_params","unsupported_params":["minScore"]}\n');
   });
 });

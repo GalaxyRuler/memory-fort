@@ -1,5 +1,5 @@
 import type { IndexDb } from "./db.js";
-import type { SearchDocument } from "../retrieval/corpus.js";
+import type { SearchDocument, SearchScope } from "../retrieval/corpus.js";
 import { scoreByMetadata } from "../retrieval/metadata-score.js";
 import {
   KNOWN_LIFECYCLE_STAGES,
@@ -76,6 +76,12 @@ const PATH_CANDIDATE_STOPWORDS = new Set([
 
 export interface LexicalSearchOptions {
   readonly limit?: number;
+  readonly scope?: SearchScope;
+  readonly includeArchived?: boolean;
+  readonly asOf?: string;
+  readonly agentId?: string;
+  readonly userId?: string;
+  readonly identityMode?: "inclusive" | "strict";
 }
 
 export interface LexicalSearchResult {
@@ -124,15 +130,26 @@ export function lexicalSearch(
   if (!matchQuery) return [];
   const limit = clampLimit(options.limit);
   const candidateLimit = docCandidateLimit(limit);
+  const scopeFilter = searchScopeSql(options.scope ?? "all", "files");
+  const archiveFilter = options.includeArchived === true ? "1 = 1" : activeDocumentSql("files");
+  const temporalFilter = options.asOf ? temporalValiditySql("files") : "1 = 1";
+  const temporalParams = options.asOf ? [options.asOf, options.asOf] : [];
+  const identityFilter = identitySql(options, "files");
 
   try {
     const rows = indexDb.database
-      .prepare<[string, number, number], LexicalSearchRow>(`
+      .prepare<unknown[], LexicalSearchRow>(`
         WITH matched AS (
-          SELECT rowid, bm25(chunks_fts) AS bm25Score
+          SELECT chunks_fts.rowid AS rowid, bm25(chunks_fts) AS bm25Score
           FROM chunks_fts
+          JOIN chunks ON chunks.rowid = chunks_fts.rowid
+          JOIN files ON files.relPath = chunks.relPath
           WHERE chunks_fts MATCH ?
-          ORDER BY bm25Score ASC, rowid ASC
+            AND ${scopeFilter}
+            AND ${archiveFilter}
+            AND ${temporalFilter}
+            AND ${identityFilter.sql}
+          ORDER BY bm25Score ASC, chunks_fts.rowid ASC
           LIMIT ?
         ),
         ranked AS (
@@ -205,9 +222,9 @@ export function lexicalSearch(
         ORDER BY scopeRank ASC, score ASC, bm25Score ASC, relPath ASC, rowid ASC
           LIMIT ?
       `)
-      .all(matchQuery, candidateLimit, candidateLimit);
+      .all(matchQuery, ...temporalParams, ...identityFilter.params, candidateLimit, candidateLimit);
 
-    return rankRows(mergeRowsByRelPath(rows, pathCandidateRows(indexDb, terms, candidateLimit)), terms)
+    return rankRows(mergeRowsByRelPath(rows, pathCandidateRows(indexDb, terms, candidateLimit, options)), terms)
       .slice(0, limit)
       .map(({ row, score }) => ({
         rowid: row.rowid,
@@ -256,16 +273,28 @@ function docCandidateLimit(limit: number): number {
   return Math.min(MAX_DOC_CANDIDATE_LIMIT, Math.max(limit, limit * DOC_CANDIDATE_MULTIPLIER));
 }
 
-function pathCandidateRows(indexDb: IndexDb, terms: readonly string[], limit: number): LexicalSearchRow[] {
+function pathCandidateRows(
+  indexDb: IndexDb,
+  terms: readonly string[],
+  limit: number,
+  options: LexicalSearchOptions,
+): LexicalSearchRow[] {
   const pathTerms = pathCandidateTerms(terms);
   if (pathTerms.length === 0) return [];
   const conditions = pathTerms.map(() => "lower(files.relPath) LIKE ? ESCAPE '\\'").join(" OR ");
+  const temporalParams = options.asOf ? [options.asOf, options.asOf] : [];
+  const identityFilter = identitySql(options, "files");
+  const archiveFilter = options.includeArchived === true ? "1 = 1" : activeDocumentSql("files");
   return indexDb.database
     .prepare<unknown[], LexicalSearchRow>(`
       WITH matched_files AS (
         SELECT relPath
         FROM files
         WHERE errorState IS NULL AND (${conditions})
+          AND ${searchScopeSql(options.scope ?? "all", "files")}
+          AND ${archiveFilter}
+          AND ${options.asOf ? temporalValiditySql("files") : "1 = 1"}
+          AND ${identityFilter.sql}
         ORDER BY
           CASE
             WHEN relPath GLOB 'wiki/archive/*' THEN 3
@@ -344,7 +373,7 @@ function pathCandidateRows(indexDb: IndexDb, terms: readonly string[], limit: nu
       FROM ranked
       WHERE docRank = 1
     `)
-    .all(...pathTerms.map(likePatternForTerm), limit);
+    .all(...pathTerms.map(likePatternForTerm), ...temporalParams, ...identityFilter.params, limit);
 }
 
 function rankRows(rows: readonly LexicalSearchRow[], terms: readonly string[]): RankedLexicalSearchRow[] {
@@ -490,7 +519,7 @@ function readValidation(value: string | null): ValidationState | null {
 
 function searchKindFromIndexKind(kind: string | null, relPath: string): SearchDocument["kind"] {
   if (kind === "raw" || relPath.startsWith("raw/")) return "raw";
-  if (relPath.startsWith("crystals/")) return "crystal";
+  if (kind === "crystal" || relPath.startsWith("crystals/") || relPath.startsWith("wiki/crystals/")) return "crystal";
   return "wiki";
 }
 
@@ -503,6 +532,68 @@ function titleFromPath(relPath: string): string {
 function typeFromPath(relPath: string): string {
   if (relPath.startsWith("raw/")) return "raw-session";
   return relPath.split("/")[1] ?? "wiki";
+}
+
+function searchScopeSql(scope: SearchScope, filesAlias: string): string {
+  switch (scope) {
+    case "wiki":
+      return `${filesAlias}.kind = 'wiki' AND ${filesAlias}.relPath NOT GLOB 'wiki/crystals/*'`;
+    case "raw":
+      return `${filesAlias}.kind = 'raw'`;
+    case "crystals":
+      return `(${filesAlias}.kind = 'crystal' OR ${filesAlias}.relPath GLOB 'wiki/crystals/*')`;
+    case "all":
+      return "1 = 1";
+  }
+}
+
+function activeDocumentSql(filesAlias: string): string {
+  return [
+    `coalesce(${filesAlias}.frontmatterStatus, '') NOT IN ('archived', 'superseded')`,
+    `coalesce(${filesAlias}.frontmatterLifecycle, '') <> 'archived'`,
+    `${filesAlias}.relPath NOT GLOB 'wiki/archive/*'`,
+    `${filesAlias}.relPath NOT GLOB 'wiki/.archive/*'`,
+    `${filesAlias}.relPath NOT GLOB 'raw/.compact-archive/*'`,
+  ].join(" AND ");
+}
+
+function temporalValiditySql(filesAlias: string): string {
+  return [
+    `(${filesAlias}.frontmatterValidFrom IS NULL OR ${filesAlias}.frontmatterValidFrom <= ?)`,
+    `(${filesAlias}.frontmatterValidUntil IS NULL OR ${filesAlias}.frontmatterValidUntil >= ?)`,
+  ].join(" AND ");
+}
+
+function identitySql(
+  options: Pick<LexicalSearchOptions, "agentId" | "userId" | "identityMode">,
+  filesAlias: string,
+): { readonly sql: string; readonly params: string[] } {
+  const requested: string[] = [];
+  const params: string[] = [];
+  if (options.agentId) {
+    requested.push(`${filesAlias}.frontmatterAgentId = ?`);
+    params.push(options.agentId);
+  }
+  if (options.userId) {
+    requested.push(`${filesAlias}.frontmatterUserId = ?`);
+    params.push(options.userId);
+  }
+  if (requested.length === 0) return { sql: "1 = 1", params };
+
+  if (options.identityMode === "strict") {
+    return {
+      sql: [
+        `(${filesAlias}.frontmatterAgentId IS NOT NULL OR ${filesAlias}.frontmatterUserId IS NOT NULL)`,
+        ...requested,
+      ].join(" AND "),
+      params,
+    };
+  }
+
+  return {
+    sql: `((${filesAlias}.frontmatterAgentId IS NULL AND ${filesAlias}.frontmatterUserId IS NULL) OR (${requested.join(" AND ")}))`,
+    params,
+  };
 }
 
 function isFtsMatchError(error: unknown): boolean {

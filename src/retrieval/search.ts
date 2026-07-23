@@ -157,12 +157,13 @@ export interface SearchResponse {
   /**
    * Retrieval backend that handled this query.
    * Index mode (default since 0.11) is lexical FTS (+ optional vectors);
-   * many legacy filters are not applied — see `ignoredParams`.
+   * consult the capabilities endpoint before sending backend-specific controls.
    */
   searchBackend?: SearchBackend;
   /**
-   * Request parameters that were present but not applied by the active backend.
-   * Empty/absent when all requested filters were honored (or not supplied).
+   * Compatibility field for older servers that silently ignored parameters.
+   * Current servers apply supported filters and reject unsupported controls;
+   * clients should still render non-empty values received during upgrades.
    */
   ignoredParams?: string[];
 }

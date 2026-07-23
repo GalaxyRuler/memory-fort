@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 
 import type { SearchResponse, SearchResult, SearchTimings } from "../retrieval/search.js";
+import type { SearchScope } from "../retrieval/corpus.js";
 import type { IndexDb, SqliteDatabase } from "./db.js";
 import {
   type EmbedClient,
@@ -41,6 +42,12 @@ export interface SearchExecutorRequest {
   readonly offset?: number;
   readonly cursor?: string | null;
   readonly signal?: AbortSignal;
+  readonly scope?: SearchScope;
+  readonly includeArchived?: boolean;
+  readonly asOf?: string;
+  readonly agentId?: string;
+  readonly userId?: string;
+  readonly identityMode?: "inclusive" | "strict";
 }
 
 export type IndexSearchExecutorResponse = SearchResponse & {
@@ -74,6 +81,12 @@ export interface VectorSearchOptions {
   readonly queryVector: Float32Array;
   readonly k?: number;
   readonly oversample?: number;
+  readonly scope?: SearchScope;
+  readonly includeArchived?: boolean;
+  readonly asOf?: string;
+  readonly agentId?: string;
+  readonly userId?: string;
+  readonly identityMode?: "inclusive" | "strict";
 }
 
 export interface VectorSearchResult {
@@ -240,11 +253,20 @@ export class InlineSearchExecutor implements SearchExecutor {
         readiness,
         fusionParams,
         limit,
+        filters: req,
       });
       const page = normalizePage(req, cursorSnapshot);
       warnings.push(...page.warnings);
 
-      const lexical = lexicalSearch(this.opts.indexDb, query, { limit: page.fetchLimit });
+      const lexical = lexicalSearch(this.opts.indexDb, query, {
+        limit: page.fetchLimit,
+        scope: req.scope,
+        includeArchived: req.includeArchived,
+        asOf: req.asOf,
+        agentId: req.agentId,
+        userId: req.userId,
+        identityMode: req.identityMode,
+      });
       if (!query || readiness.hybridMode !== "lexical-plus-vector" || !profile || !this.opts.embedder) {
         return lexicalOnlyResponse({
           query,
@@ -289,6 +311,12 @@ export class InlineSearchExecutor implements SearchExecutor {
           queryVector,
           k: fusionParams.k,
           oversample: fusionParams.oversample,
+          scope: req.scope,
+          includeArchived: req.includeArchived,
+          asOf: req.asOf,
+          agentId: req.agentId,
+          userId: req.userId,
+          identityMode: req.identityMode,
         });
         const fused = fuseChunkRrf({
           lexical,
@@ -351,15 +379,27 @@ export function twoStageVectorSearch(database: SqliteDatabase, opts: VectorSearc
     throw new VectorSearchError("vec0-unavailable", "query int8 quantization did not return a buffer");
   }
 
+  const temporalParams = opts.asOf ? [opts.asOf, opts.asOf] : [];
+  const identityFilter = vectorIdentitySql(opts, "f");
   const coarse = database
-    .prepare<[Buffer, number], CoarseCandidateRow>(`
-      SELECT rowid, distance AS coarseDistance
+    .prepare<unknown[], CoarseCandidateRow>(`
+      SELECT chunk_vectors_bin.rowid AS rowid, distance AS coarseDistance
       FROM chunk_vectors_bin
       WHERE embedding MATCH vec_quantize_binary(?)
+        AND chunk_vectors_bin.rowid IN (
+          SELECT cv.coarseRowid
+          FROM chunk_vectors cv
+          JOIN chunks c ON c.rowid = cv.chunkRowid
+          JOIN files f ON f.relPath = c.relPath
+          WHERE ${vectorScopeSql(opts.scope ?? "all", "f")}
+            AND ${opts.includeArchived === true ? "1 = 1" : vectorActiveDocumentSql("f")}
+            AND ${opts.asOf ? vectorTemporalValiditySql("f") : "1 = 1"}
+            AND ${identityFilter.sql}
+        )
       ORDER BY distance
       LIMIT ?
     `)
-    .all(queryBuffer, k * oversample);
+    .all(queryBuffer, ...temporalParams, ...identityFilter.params, k * oversample);
   const rescore = database.prepare<[number | bigint], RescoreRow>(
     "SELECT embedding AS embeddingRescore FROM chunk_vectors_i8 WHERE rowid = ?",
   );
@@ -879,8 +919,8 @@ function titleFromChunk(result: { readonly relPath: string; readonly headingPath
 
 function searchKindFromIndexRelPath(relPath: string): SearchResult["kind"] {
   if (relPath.startsWith("raw/")) return "raw";
-  if (relPath.startsWith("wiki/")) return "wiki";
-  return "crystal";
+  if (relPath.startsWith("crystals/") || relPath.startsWith("wiki/crystals/")) return "crystal";
+  return "wiki";
 }
 
 function dominantSource(sources: readonly ChunkRrfSource[]): string {
@@ -1028,9 +1068,10 @@ function readSearchCursorSnapshot(database: SqliteDatabase, opts: {
   readonly readiness: VectorReadiness;
   readonly fusionParams: SearchFusionParams;
   readonly limit: number;
+  readonly filters: SearchExecutorRequest;
 }): SearchCursorSnapshot {
   return {
-    queryFingerprint: fingerprintSearchQuery(opts.query, opts.fusionParams),
+    queryFingerprint: fingerprintSearchQuery(opts.query, opts.fusionParams, opts.filters),
     lexicalGeneration: readLexicalGeneration(database),
     vectorGeneration: readMeta(database, "vectorGeneration") ?? "0",
     embeddingProfileId: opts.profile?.profileId ?? null,
@@ -1184,9 +1225,24 @@ function sameFusionParams(left: SearchFusionParams, right: SearchFusionParams): 
     && left.dedupPolicy === right.dedupPolicy;
 }
 
-function fingerprintSearchQuery(query: string, fusionParams: SearchFusionParams): string {
+function fingerprintSearchQuery(
+  query: string,
+  fusionParams: SearchFusionParams,
+  filters: SearchExecutorRequest,
+): string {
   return createHash("sha256")
-    .update(JSON.stringify({ fusionParams, query: normalizeQueryForEmbedding(query) }))
+    .update(JSON.stringify({
+      fusionParams,
+      query: normalizeQueryForEmbedding(query),
+      filters: {
+        scope: filters.scope ?? "all",
+        includeArchived: filters.includeArchived === true,
+        asOf: filters.asOf ?? null,
+        agentId: filters.agentId ?? null,
+        userId: filters.userId ?? null,
+        identityMode: filters.identityMode ?? "inclusive",
+      },
+    }))
     .digest("hex");
 }
 
@@ -1260,4 +1316,65 @@ function isAbortError(error: unknown): boolean {
 function errorMessage(error: unknown): string {
   if (error instanceof Error && error.message.length > 0) return error.message;
   return String(error);
+}
+
+function vectorScopeSql(scope: SearchScope, filesAlias: string): string {
+  switch (scope) {
+    case "wiki":
+      return `${filesAlias}.kind = 'wiki' AND ${filesAlias}.relPath NOT GLOB 'wiki/crystals/*'`;
+    case "raw":
+      return `${filesAlias}.kind = 'raw'`;
+    case "crystals":
+      return `(${filesAlias}.kind = 'crystal' OR ${filesAlias}.relPath GLOB 'wiki/crystals/*')`;
+    case "all":
+      return "1 = 1";
+  }
+}
+
+function vectorActiveDocumentSql(filesAlias: string): string {
+  return [
+    `coalesce(${filesAlias}.frontmatterStatus, '') NOT IN ('archived', 'superseded')`,
+    `coalesce(${filesAlias}.frontmatterLifecycle, '') <> 'archived'`,
+    `${filesAlias}.relPath NOT GLOB 'wiki/archive/*'`,
+    `${filesAlias}.relPath NOT GLOB 'wiki/.archive/*'`,
+    `${filesAlias}.relPath NOT GLOB 'raw/.compact-archive/*'`,
+  ].join(" AND ");
+}
+
+function vectorTemporalValiditySql(filesAlias: string): string {
+  return [
+    `(${filesAlias}.frontmatterValidFrom IS NULL OR ${filesAlias}.frontmatterValidFrom <= ?)`,
+    `(${filesAlias}.frontmatterValidUntil IS NULL OR ${filesAlias}.frontmatterValidUntil >= ?)`,
+  ].join(" AND ");
+}
+
+function vectorIdentitySql(
+  options: Pick<VectorSearchOptions, "agentId" | "userId" | "identityMode">,
+  filesAlias: string,
+): { readonly sql: string; readonly params: string[] } {
+  const requested: string[] = [];
+  const params: string[] = [];
+  if (options.agentId) {
+    requested.push(`${filesAlias}.frontmatterAgentId = ?`);
+    params.push(options.agentId);
+  }
+  if (options.userId) {
+    requested.push(`${filesAlias}.frontmatterUserId = ?`);
+    params.push(options.userId);
+  }
+  if (requested.length === 0) return { sql: "1 = 1", params };
+
+  if (options.identityMode === "strict") {
+    return {
+      sql: [
+        `(${filesAlias}.frontmatterAgentId IS NOT NULL OR ${filesAlias}.frontmatterUserId IS NOT NULL)`,
+        ...requested,
+      ].join(" AND "),
+      params,
+    };
+  }
+  return {
+    sql: `((${filesAlias}.frontmatterAgentId IS NULL AND ${filesAlias}.frontmatterUserId IS NULL) OR (${requested.join(" AND ")}))`,
+    params,
+  };
 }

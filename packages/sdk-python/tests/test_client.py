@@ -63,6 +63,32 @@ async def test_search_passes_identity_and_temporal_params():
     assert request.url.params["as_of"] == "2026-01-01"
     assert request.url.params["identity_mode"] == "strict"
 
+@pytest.mark.asyncio
+@respx.mock
+async def test_search_passes_include_archived():
+    route = respx.get(f"{BASE}/api/search").mock(
+        return_value=httpx.Response(200, json={"results": []})
+    )
+    async with MemoryFortClient(base_url=BASE) as client:
+        await client.search("test", include_archived=True)
+    assert route.calls[0].request.url.params["includeArchived"] == "true"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_search_capabilities():
+    capabilities = {
+        "searchBackend": "index-lexical",
+        "supportedParams": ["q", "scope"],
+        "unsupportedParams": ["noRerank"],
+        "scopes": ["all", "wiki", "raw", "crystals"],
+    }
+    respx.get(f"{BASE}/api/search/capabilities").mock(
+        return_value=httpx.Response(200, json=capabilities)
+    )
+    async with MemoryFortClient(base_url=BASE) as client:
+        assert await client.search_capabilities() == capabilities
+
 
 @pytest.mark.asyncio
 @respx.mock

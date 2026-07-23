@@ -37,6 +37,134 @@ describe("lexicalSearch", () => {
     });
   });
 
+  it("applies wiki scope before the FTS candidate limit", async () => {
+    const { vaultRoot, indexDb } = await createHarness();
+    for (let index = 0; index < 25; index += 1) {
+      await writeVaultFile(
+        vaultRoot,
+        `raw/2026-07-23/raw-${String(index).padStart(2, "0")}.md`,
+        `# Raw\n\n${"needle ".repeat(20)}`,
+      );
+    }
+    await writeVaultFile(vaultRoot, "wiki/projects/in-scope.md", "# In scope\n\nneedle");
+    await reconcileIndex(indexDb, vaultRoot);
+
+    expect(lexicalSearch(indexDb, "needle", { limit: 1, scope: "wiki" }).map((result) => result.relPath))
+      .toEqual(["wiki/projects/in-scope.md"]);
+  });
+
+  it("excludes archived documents before the FTS candidate limit by default", async () => {
+    const { vaultRoot, indexDb } = await createHarness();
+    for (let index = 0; index < 25; index += 1) {
+      await writeVaultFile(
+        vaultRoot,
+        `wiki/archive/archived-${String(index).padStart(2, "0")}.md`,
+        [
+          "---",
+          "title: Archived",
+          "type: projects",
+          "status: archived",
+          "created: 2026-01-01",
+          "updated: 2026-01-01",
+          "---",
+          "",
+          "needle ".repeat(20),
+        ].join("\n"),
+      );
+    }
+    await writeVaultFile(vaultRoot, "wiki/projects/active.md", "# Active\n\nneedle");
+    await reconcileIndex(indexDb, vaultRoot);
+
+    expect(lexicalSearch(indexDb, "needle", { limit: 1, scope: "wiki" }).map((result) => result.relPath))
+      .toEqual(["wiki/projects/active.md"]);
+    expect(
+      lexicalSearch(indexDb, "needle", { limit: 1, scope: "wiki", includeArchived: true }).map((result) => result.relPath),
+    ).toEqual(["wiki/archive/archived-00.md"]);
+  });
+
+  it("applies as_of validity before the FTS candidate limit", async () => {
+    const { vaultRoot, indexDb } = await createHarness();
+    for (let index = 0; index < 25; index += 1) {
+      await writeVaultFile(
+        vaultRoot,
+        `wiki/projects/future-${String(index).padStart(2, "0")}.md`,
+        [
+          "---",
+          "title: Future",
+          "type: projects",
+          "status: active",
+          "created: 2026-01-01",
+          "updated: 2026-01-01",
+          "valid_from: 2027-01-01",
+          "---",
+          "",
+          "needle ".repeat(20),
+        ].join("\n"),
+      );
+    }
+    await writeVaultFile(vaultRoot, "wiki/projects/current.md", "# Current\n\nneedle");
+    await reconcileIndex(indexDb, vaultRoot);
+
+    expect(
+      lexicalSearch(indexDb, "needle", { limit: 1, scope: "wiki", asOf: "2026-07-23" })
+        .map((result) => result.relPath),
+    ).toEqual(["wiki/projects/current.md"]);
+  });
+
+  it("applies strict identity metadata before the FTS candidate limit", async () => {
+    const { vaultRoot, indexDb } = await createHarness();
+    for (let index = 0; index < 25; index += 1) {
+      await writeVaultFile(
+        vaultRoot,
+        `wiki/projects/other-${String(index).padStart(2, "0")}.md`,
+        [
+          "---",
+          "title: Other",
+          "type: projects",
+          "created: 2026-01-01",
+          "updated: 2026-01-01",
+          "agent_id: other-agent",
+          "user_id: other-user",
+          "---",
+          "",
+          "needle ".repeat(20),
+        ].join("\n"),
+      );
+    }
+    await writeVaultFile(
+      vaultRoot,
+      "wiki/projects/matching.md",
+      "---\ntitle: Matching\ntype: projects\ncreated: 2026-01-01\nupdated: 2026-01-01\nagent_id: agent-1\nuser_id: user-1\n---\n\nneedle",
+    );
+    await reconcileIndex(indexDb, vaultRoot);
+
+    expect(
+      lexicalSearch(indexDb, "needle", {
+        limit: 1,
+        agentId: "agent-1",
+        userId: "user-1",
+        identityMode: "strict",
+      }).map((result) => result.relPath),
+    ).toEqual(["wiki/projects/matching.md"]);
+  });
+
+  it("defines crystals scope across top-level and wiki crystal documents", async () => {
+    const { vaultRoot, indexDb } = await createHarness();
+    await writeVaultFile(vaultRoot, "crystals/top-level.md", "# Top crystal\n\nscopeword");
+    await writeVaultFile(
+      vaultRoot,
+      "wiki/crystals/wiki-crystal.md",
+      "---\ntitle: Wiki crystal\ntype: crystal\ncreated: 2026-01-01\nupdated: 2026-01-01\n---\n\nscopeword",
+    );
+    await writeVaultFile(vaultRoot, "wiki/projects/wiki.md", "# Wiki\n\nscopeword");
+    await reconcileIndex(indexDb, vaultRoot);
+
+    expect(lexicalSearch(indexDb, "scopeword", { scope: "crystals" }).map((result) => result.relPath))
+      .toEqual(["crystals/top-level.md", "wiki/crystals/wiki-crystal.md"]);
+    expect(lexicalSearch(indexDb, "scopeword", { scope: "wiki" }).map((result) => result.relPath))
+      .toEqual(["wiki/projects/wiki.md"]);
+  });
+
   it("treats FTS operators in user input as simple terms instead of exposing raw syntax", async () => {
     const { vaultRoot, indexDb } = await createHarness();
     await writeVaultFile(vaultRoot, "wiki/operators.md", "# Operators\n\nfoo bar a b y term no");
@@ -152,6 +280,15 @@ describe("lexicalSearch", () => {
       .toBe("wiki/lessons/powershell-safe-vars.md");
   });
 
+  it("applies scope before the path fallback candidate limit", async () => {
+    const { vaultRoot, indexDb } = await createHarness();
+    await writeVaultFile(vaultRoot, "wiki/lessons/unique-path-token.md", "# Lesson\n\nunrelated content");
+    await writeVaultFile(vaultRoot, "raw/2026-07-23/raw.md", "# Raw\n\nunrelated content");
+    await reconcileIndex(indexDb, vaultRoot);
+
+    expect(lexicalSearch(indexDb, "unique path token", { scope: "raw" })).toEqual([]);
+  });
+
   it("does not route by folder vocabulary when another document has stronger lexical evidence", async () => {
     const { vaultRoot, indexDb } = await createHarness();
     await writeVaultFile(
@@ -256,8 +393,9 @@ describe("lexicalSearch", () => {
     expect(capturedParams[1]).toEqual(["%needle%", 140]);
     expect(capturedSql[0]).toContain("WITH matched AS");
     expect(capturedSql[0]).toContain("ranked AS");
-    expect(capturedSql[0]).toContain("FROM chunks_fts WHERE chunks_fts MATCH ?");
-    expect(capturedSql[0]!.indexOf("LIMIT ?")).toBeLessThan(capturedSql[0]!.indexOf("JOIN chunks"));
+    expect(capturedSql[0]).toContain("FROM chunks_fts JOIN chunks");
+    expect(capturedSql[0]).toContain("WHERE chunks_fts MATCH ?");
+    expect(capturedSql[0]!.indexOf("LIMIT ?")).toBeLessThan(capturedSql[0]!.indexOf("ranked AS"));
     expect(capturedSql[1]).toContain("matched_files AS");
     expect(capturedSql[1]).toContain("FROM files");
   });

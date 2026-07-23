@@ -6,7 +6,10 @@ export interface SearchFiltersProps {
   scope: SearchScope;
   k: number;
   noRerank: boolean;
-  onChange: (next: { scope?: SearchScope; k?: number; noRerank?: boolean }) => void;
+  includeArchived: boolean;
+  supportedParams: readonly string[];
+  scopes: readonly SearchScope[];
+  onChange: (next: { scope?: SearchScope; k?: number; noRerank?: boolean; includeArchived?: boolean }) => void;
 }
 
 const SCOPE_OPTIONS: Array<{ value: SearchScope; label: string; hint?: string }> = [
@@ -18,7 +21,15 @@ const SCOPE_OPTIONS: Array<{ value: SearchScope; label: string; hint?: string }>
 
 const K_OPTIONS = [10, 20, 50] as const;
 
-export function SearchFilters({ scope, k, noRerank, onChange }: SearchFiltersProps) {
+export function SearchFilters({
+  scope,
+  k,
+  noRerank,
+  includeArchived,
+  supportedParams,
+  scopes,
+  onChange,
+}: SearchFiltersProps) {
   return (
     <Card className="space-y-4 md:sticky md:top-4">
       <div>
@@ -26,6 +37,7 @@ export function SearchFilters({ scope, k, noRerank, onChange }: SearchFiltersPro
         <div className="space-y-1">
           {SCOPE_OPTIONS.map((option) => (
             <button
+              disabled={!scopes.includes(option.value)}
               key={option.value}
               className={cn(
                 "flex min-h-11 w-full items-center justify-between gap-2 rounded-md px-2 py-2 text-left text-sm transition-colors md:min-h-8 md:py-1.5",
@@ -62,19 +74,34 @@ export function SearchFilters({ scope, k, noRerank, onChange }: SearchFiltersPro
           ))}
         </div>
       </div>
-      <div>
-        <h3 className="mb-2 text-xs uppercase tracking-wider text-text-muted">Options</h3>
-        <label className="flex min-h-11 cursor-pointer flex-wrap items-center gap-2 text-sm md:min-h-8">
-          <input
-            checked={noRerank}
-            className="rounded border-border-emphasis bg-surface"
-            onChange={(event) => onChange({ noRerank: event.target.checked })}
-            type="checkbox"
-          />
-          <span>Skip Voyage rerank</span>
-          <span className="ml-1 text-[10px] text-text-muted">faster, less accurate</span>
-        </label>
-      </div>
+      {supportedParams.includes("includeArchived") || supportedParams.includes("noRerank") ? (
+        <div>
+          <h3 className="mb-2 text-xs uppercase tracking-wider text-text-muted">Options</h3>
+          {supportedParams.includes("includeArchived") ? (
+            <label className="flex min-h-11 cursor-pointer flex-wrap items-center gap-2 text-sm md:min-h-8">
+              <input
+                checked={includeArchived}
+                className="rounded border-border-emphasis bg-surface"
+                onChange={(event) => onChange({ includeArchived: event.target.checked })}
+                type="checkbox"
+              />
+              <span>Include archived</span>
+            </label>
+          ) : null}
+          {supportedParams.includes("noRerank") ? (
+            <label className="flex min-h-11 cursor-pointer flex-wrap items-center gap-2 text-sm md:min-h-8">
+              <input
+                checked={noRerank}
+                className="rounded border-border-emphasis bg-surface"
+                onChange={(event) => onChange({ noRerank: event.target.checked })}
+                type="checkbox"
+              />
+              <span>Skip Voyage rerank</span>
+              <span className="ml-1 text-[10px] text-text-muted">faster, less accurate</span>
+            </label>
+          ) : null}
+        </div>
+      ) : null}
     </Card>
   );
 }

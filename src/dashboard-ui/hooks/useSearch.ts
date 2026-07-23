@@ -4,6 +4,13 @@ import { normalizeSearchSignals } from "../lib/search-sources.js";
 
 export type SearchScope = "all" | "wiki" | "raw" | "crystals";
 
+export interface SearchCapabilities {
+  searchBackend: "legacy" | "index-lexical" | "index-hybrid";
+  supportedParams: string[];
+  unsupportedParams: string[];
+  scopes: SearchScope[];
+}
+
 export interface SearchResult {
   path: string;
   title: string;
@@ -71,6 +78,7 @@ export interface UseSearchOptions {
   scope?: SearchScope;
   k?: number;
   noRerank?: boolean;
+  includeArchived?: boolean;
   enabled?: boolean;
 }
 
@@ -97,21 +105,31 @@ export function useSearch({
   scope = "all",
   k = 10,
   noRerank = false,
+  includeArchived = false,
   enabled = true,
 }: UseSearchOptions) {
   return useQuery({
-    queryKey: ["search", query, scope, k, noRerank],
+    queryKey: ["search", query, scope, k, noRerank, includeArchived],
     queryFn: async () => {
       const response = await apiGet<RuntimeSearchResponse>("/search", {
         q: query,
         scope,
         k,
         noRerank: noRerank ? "true" : undefined,
+        includeArchived: includeArchived ? "true" : undefined,
       });
       return normalizeSearchResponse(response);
     },
     enabled: enabled && query.trim().length > 0,
     placeholderData: keepPreviousData,
+    staleTime: 30_000,
+  });
+}
+
+export function useSearchCapabilities() {
+  return useQuery({
+    queryKey: ["search-capabilities"],
+    queryFn: () => apiGet<SearchCapabilities>("/search/capabilities"),
     staleTime: 30_000,
   });
 }

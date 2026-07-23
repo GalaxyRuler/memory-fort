@@ -53,6 +53,118 @@ describe("vector search", () => {
     expect(results[0]).toMatchObject({ vectorRank: 1, distance: 0 });
   });
 
+  it("applies wiki scope before the vector candidate limit", async () => {
+    const { vaultRoot, indexDb } = await createHarness();
+    const profile = profileFingerprint();
+    for (let index = 0; index < 5; index += 1) {
+      const relPath = `raw/2026-07-23/raw-${index}.md`;
+      await writeVaultFile(vaultRoot, relPath, `# Raw\n\nraw semantic payload ${index}`);
+    }
+    await writeVaultFile(vaultRoot, "wiki/in-scope.md", "# Wiki\n\nwiki semantic payload");
+    await reconcileIndex(indexDb, vaultRoot);
+    for (let index = 0; index < 5; index += 1) {
+      await embedPath(indexDb, `raw/2026-07-23/raw-${index}.md`, profile, vector(index));
+    }
+    await embedPath(indexDb, "wiki/in-scope.md", profile, vector(10));
+
+    const results = twoStageVectorSearch(indexDb.database, {
+      profile,
+      queryVector: vector(0),
+      k: 1,
+      oversample: 2,
+      scope: "wiki",
+    });
+
+    expect(results.map((result) => result.relPath)).toEqual(["wiki/in-scope.md"]);
+  });
+
+  it("excludes archived vector candidates before the limit unless requested", async () => {
+    const { vaultRoot, indexDb } = await createHarness();
+    const profile = profileFingerprint();
+    for (let index = 0; index < 5; index += 1) {
+      const relPath = `wiki/archive/archived-${index}.md`;
+      await writeVaultFile(
+        vaultRoot,
+        relPath,
+        "---\ntitle: Archived\ntype: projects\nstatus: archived\ncreated: 2026-01-01\nupdated: 2026-01-01\n---\n\narchived semantic payload",
+      );
+    }
+    await writeVaultFile(vaultRoot, "wiki/active.md", "# Active\n\nactive semantic payload");
+    await reconcileIndex(indexDb, vaultRoot);
+    for (let index = 0; index < 5; index += 1) {
+      await embedPath(indexDb, `wiki/archive/archived-${index}.md`, profile, vector(index));
+    }
+    await embedPath(indexDb, "wiki/active.md", profile, vector(10));
+
+    const base = {
+      profile,
+      queryVector: vector(0),
+      k: 1,
+      oversample: 2,
+      scope: "wiki" as const,
+    };
+
+    expect(twoStageVectorSearch(indexDb.database, base).map((result) => result.relPath))
+      .toEqual(["wiki/active.md"]);
+    expect(twoStageVectorSearch(indexDb.database, { ...base, includeArchived: true }).map((result) => result.relPath))
+      .toEqual(["wiki/archive/archived-0.md"]);
+  });
+
+  it("applies as_of before the vector candidate limit", async () => {
+    const { vaultRoot, indexDb } = await createHarness();
+    const profile = profileFingerprint();
+    for (let index = 0; index < 3; index += 1) {
+      await writeVaultFile(
+        vaultRoot,
+        `wiki/future-${index}.md`,
+        "---\ntitle: Future\ntype: projects\ncreated: 2026-01-01\nupdated: 2026-01-01\nvalid_from: 2027-01-01\n---\n\nfuture semantic payload",
+      );
+    }
+    await writeVaultFile(vaultRoot, "wiki/current.md", "# Current\n\ncurrent semantic payload");
+    await reconcileIndex(indexDb, vaultRoot);
+    for (let index = 0; index < 3; index += 1) {
+      await embedPath(indexDb, `wiki/future-${index}.md`, profile, vector(index));
+    }
+    await embedPath(indexDb, "wiki/current.md", profile, vector(10));
+
+    const results = twoStageVectorSearch(indexDb.database, {
+      profile,
+      queryVector: vector(0),
+      k: 1,
+      oversample: 2,
+      asOf: "2026-07-23",
+    });
+    expect(results.map((result) => result.relPath)).toEqual(["wiki/current.md"]);
+  });
+
+  it("applies strict identity metadata before the vector candidate limit", async () => {
+    const { vaultRoot, indexDb } = await createHarness();
+    const profile = profileFingerprint();
+    for (let index = 0; index < 3; index += 1) {
+      await writeVaultFile(
+        vaultRoot,
+        `wiki/other-${index}.md`,
+        "---\ntitle: Other\ntype: projects\ncreated: 2026-01-01\nupdated: 2026-01-01\nagent_id: other\nuser_id: other\n---\n\nother semantic payload",
+      );
+    }
+    await writeVaultFile(
+      vaultRoot,
+      "wiki/matching.md",
+      "---\ntitle: Matching\ntype: projects\ncreated: 2026-01-01\nupdated: 2026-01-01\nagent_id: agent-1\nuser_id: user-1\n---\n\nmatching semantic payload",
+    );
+    await reconcileIndex(indexDb, vaultRoot);
+    for (let index = 0; index < 3; index += 1) {
+      await embedPath(indexDb, `wiki/other-${index}.md`, profile, vector(index));
+    }
+    await embedPath(indexDb, "wiki/matching.md", profile, vector(10));
+
+    const results = twoStageVectorSearch(indexDb.database, {
+      profile, queryVector: vector(0), k: 1, oversample: 2,
+      agentId: "agent-1", userId: "user-1", identityMode: "strict",
+    });
+    expect(results.map((result) => result.relPath)).toEqual(["wiki/matching.md"]);
+  });
+
   it("fuses FTS and vector ranks at chunk level with parent dedup and deterministic ties", () => {
     const lexicalA = chunk(1, "a", "wiki/a.md");
     const lexicalB = chunk(2, "b", "wiki/b.md");
