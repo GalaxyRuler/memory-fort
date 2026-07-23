@@ -263,6 +263,112 @@ describe("durable raw capture", () => {
     expect((await restarted.getCaptureSpoolStatus()).drainFailures).toBe(0);
   });
 
+  it("persists the current capture when replay-failure telemetry cannot be written", async () => {
+    const now = new Date("2026-07-23T04:00:00.000Z");
+    const currentPath = await ensureRawSessionFile({
+      tool: "codex",
+      sessionId: "telemetry-current",
+      cwd: "C:/work",
+      now,
+    });
+    await mkdir(captureSpoolDir(), { recursive: true });
+    await writeFile(join(captureSpoolDir(), "failed-replay.json"), JSON.stringify({
+      version: 1,
+      id: "telemetry-failure-event",
+      hash: "telemetry-failure-hash",
+      rawPath: root,
+      block: "prior replay failure",
+      createdAt: now.toISOString(),
+    }), "utf-8");
+    await mkdir(join(captureSpoolDir(), "capture-drain-failures.jsonl"));
+
+    await expect(appendBlock({
+      tool: "codex",
+      sessionId: "telemetry-current",
+      block: "\n## [04:00:01] Prompt\n\ncurrent-survives-telemetry-failure\n",
+      now: new Date("2026-07-23T04:00:01.000Z"),
+    })).resolves.toBeUndefined();
+
+    expect(await readFile(currentPath, "utf-8")).toContain("current-survives-telemetry-failure");
+    expect((await readdir(captureSpoolDir())).filter((name) => name.endsWith(".json"))).toEqual([
+      "failed-replay.json",
+    ]);
+  });
+
+  it("persists the current capture when replay cursor state cannot be written", async () => {
+    const now = new Date("2026-07-23T04:00:00.000Z");
+    const currentPath = await ensureRawSessionFile({
+      tool: "codex",
+      sessionId: "cursor-current",
+      cwd: "C:/work",
+      now,
+    });
+    const replayPath = join(root, "cursor-replay.md");
+    await mkdir(captureSpoolDir(), { recursive: true });
+    await writeFile(replayPath, "", "utf-8");
+    await writeFile(join(captureSpoolDir(), "cursor-replay.json"), JSON.stringify({
+      version: 1,
+      id: "cursor-replay-event",
+      hash: "cursor-replay-hash",
+      rawPath: replayPath,
+      block: "cursor replay payload",
+      createdAt: now.toISOString(),
+    }), "utf-8");
+    await mkdir(join(captureSpoolDir(), "capture-replay-cursor.txt"));
+
+    await expect(appendBlock({
+      tool: "codex",
+      sessionId: "cursor-current",
+      block: "\n## [04:00:01] Prompt\n\ncurrent-survives-cursor-failure\n",
+      now: new Date("2026-07-23T04:00:01.000Z"),
+    })).resolves.toBeUndefined();
+
+    expect(await readFile(currentPath, "utf-8")).toContain("current-survives-cursor-failure");
+  });
+
+  it("rotates bounded replay past permanent leading failures across hook processes", async () => {
+    const drainablePath = join(root, "eventually-drained.md");
+    await mkdir(captureSpoolDir(), { recursive: true });
+    await writeFile(drainablePath, "", "utf-8");
+    const entries = [
+      ["01-permanent.json", "permanent-one", root, "permanent-one-payload"],
+      ["02-permanent.json", "permanent-two", root, "permanent-two-payload"],
+      ["03-drainable.json", "drainable-three", drainablePath, "drainable-three-payload"],
+    ] as const;
+    for (const [name, id, rawPath, payload] of entries) {
+      await writeFile(join(captureSpoolDir(), name), JSON.stringify({
+        version: 1,
+        id,
+        hash: `${id}-hash`,
+        rawPath,
+        block: `\n## [04:00:00] Prompt\n\n${payload}\n`,
+        createdAt: "2026-07-23T04:00:00.000Z",
+      }), "utf-8");
+    }
+    const viteNode = join(process.cwd(), "node_modules", "vite-node", "vite-node.mjs");
+    const fixture = join(process.cwd(), "test", "fixtures", "capture-replay-failure-child.ts");
+    const runHook = () => promisify(execFile)(process.execPath, [viteNode, fixture], {
+      cwd: process.cwd(),
+      env: {
+        ...process.env,
+        MEMORY_ROOT: root,
+        MEMORY_CAPTURE_SPOOL_DIR: captureSpoolDir(),
+      },
+      windowsHide: true,
+      timeout: 10_000,
+    });
+
+    await runHook();
+    expect(await readFile(drainablePath, "utf-8")).toBe("");
+    await runHook();
+
+    expect(await readFile(drainablePath, "utf-8")).toContain("drainable-three-payload");
+    expect((await readdir(captureSpoolDir())).filter((name) => name.endsWith(".json"))).toEqual([
+      "01-permanent.json",
+      "02-permanent.json",
+    ]);
+  });
+
   it("counts one real failed opportunistic drain exactly once", async () => {
     await mkdir(captureSpoolDir(), { recursive: true });
     await writeFile(join(captureSpoolDir(), "malformed.json"), "not-json", "utf-8");

@@ -25,8 +25,10 @@ const CAPTURE_REPLAY_EVENT_BUDGET = 2;
 const CAPTURE_EVENT_MARKER = "memory-fort-capture";
 const CAPTURE_SPOOLED_DIAGNOSTICS_FILE = "capture-spooled.jsonl";
 const CAPTURE_DRAIN_FAILURES_FILE = "capture-drain-failures.jsonl";
+const CAPTURE_REPLAY_CURSOR_FILE = "capture-replay-cursor.txt";
 
 interface CaptureEvent { version: 1; id: string; hash: string; rawPath: string; block: string; createdAt: string; }
+interface CaptureSpoolEntry { name: string; path: string; event: CaptureEvent; }
 export interface CaptureSpooledDiagnostic { type: "capture_spooled"; eventId: string; hash: string; createdAt: string; }
 export interface CaptureSpoolStatus { pendingEventCount: number; oldestPendingAgeMs: number | null; drainFailures: number; captureSpooled: CaptureSpooledDiagnostic[]; }
 
@@ -340,7 +342,11 @@ async function spoolCaptureEvent(event: CaptureEvent): Promise<void> {
   await ensureCaptureSpooledDiagnostic(event);
 }
 async function drainCaptureSpool(): Promise<void> {
-  for (const entry of (await readCaptureSpoolEntries()).slice(0, CAPTURE_REPLAY_EVENT_BUDGET)) {
+  const entries = rotateCaptureSpoolEntries(
+    await readCaptureSpoolEntries(),
+    await readCaptureReplayCursor(),
+  );
+  for (const entry of entries.slice(0, CAPTURE_REPLAY_EVENT_BUDGET)) {
     try {
       await withFileLock(entry.event.rawPath, async () => {
         let existing = "";
@@ -358,13 +364,39 @@ async function drainCaptureSpool(): Promise<void> {
     } catch {
       await recordCaptureDrainFailure(entry.event);
     }
+    await advanceCaptureReplayCursor(entry.name);
+  }
+}
+function rotateCaptureSpoolEntries(entries: CaptureSpoolEntry[], cursor: string | null): CaptureSpoolEntry[] {
+  if (!cursor) return entries;
+  const cursorIndex = entries.findIndex((entry) => entry.name === cursor);
+  if (cursorIndex < 0) return entries;
+  return [...entries.slice(cursorIndex + 1), ...entries.slice(0, cursorIndex + 1)];
+}
+async function readCaptureReplayCursor(): Promise<string | null> {
+  try {
+    const cursor = (await readFile(join(captureSpoolDir(), CAPTURE_REPLAY_CURSOR_FILE), "utf-8")).trim();
+    return cursor || null;
+  } catch {
+    return null;
+  }
+}
+async function advanceCaptureReplayCursor(name: string): Promise<void> {
+  try {
+    await atomicWrite(join(captureSpoolDir(), CAPTURE_REPLAY_CURSOR_FILE), `${name}\n`);
+  } catch {
+    // Replay cursor state must not prevent the current capture from persisting.
   }
 }
 async function recordCaptureDrainFailure(event: CaptureEvent): Promise<void> {
-  await atomicAppend(
-    join(captureSpoolDir(), CAPTURE_DRAIN_FAILURES_FILE),
-    `${JSON.stringify({ type: "capture_drain_failed", eventId: event.id, createdAt: new Date().toISOString() })}\n`,
-  );
+  try {
+    await atomicAppend(
+      join(captureSpoolDir(), CAPTURE_DRAIN_FAILURES_FILE),
+      `${JSON.stringify({ type: "capture_drain_failed", eventId: event.id, createdAt: new Date().toISOString() })}\n`,
+    );
+  } catch {
+    // Recovery telemetry must not prevent the current capture from persisting.
+  }
 }
 async function countCaptureDrainFailures(): Promise<number> {
   let content: string;
@@ -434,16 +466,16 @@ async function readCaptureSpooledDiagnostics(): Promise<CaptureSpooledDiagnostic
 async function readCaptureSpoolEvents(): Promise<CaptureEvent[]> {
   return (await readCaptureSpoolEntries()).map((entry) => entry.event);
 }
-async function readCaptureSpoolEntries(): Promise<Array<{ path: string; event: CaptureEvent }>> {
+async function readCaptureSpoolEntries(): Promise<CaptureSpoolEntry[]> {
   let names: string[];
   try { names = await readdir(captureSpoolDir()); }
   catch (error) { if (isCode(error, "ENOENT")) return []; throw error; }
-  const entries: Array<{ path: string; event: CaptureEvent }> = [];
+  const entries: CaptureSpoolEntry[] = [];
   for (const name of names.filter((candidate) => candidate.endsWith(".json")).sort()) {
     try {
       const path = join(captureSpoolDir(), name);
       const event = JSON.parse(await readFile(path, "utf-8")) as CaptureEvent;
-      if (event.version === 1 && typeof event.id === "string" && typeof event.hash === "string" && typeof event.rawPath === "string" && typeof event.block === "string" && typeof event.createdAt === "string") entries.push({ path, event });
+      if (event.version === 1 && typeof event.id === "string" && typeof event.hash === "string" && typeof event.rawPath === "string" && typeof event.block === "string" && typeof event.createdAt === "string") entries.push({ name, path, event });
     } catch {
       // Passive observation is not a drain attempt and must not affect drain accounting.
     }
