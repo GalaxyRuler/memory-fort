@@ -2,6 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { type HTMLAttributes, useState } from "react";
 import { type SearchResult } from "../hooks/useSearch.js";
 import { cn } from "../lib/cn.js";
+import { apiPost } from "../lib/api.js";
 import { formatSearchSourceLabel, normalizeSearchSignals } from "../lib/search-sources.js";
 import { BottomSheet } from "./BottomSheet.js";
 import { Card } from "./Card.js";
@@ -26,6 +27,14 @@ export function SearchResultCard({
   keyboardProps?: HTMLAttributes<HTMLDivElement>;
 }) {
   const [isScoreOpen, setIsScoreOpen] = useState(false);
+  const [resolution, setResolution] = useState<{
+    valid: boolean;
+    reason: string;
+    text: string | null;
+    byteStart: number | null;
+    byteEnd: number | null;
+  } | null>(null);
+  const [resolutionError, setResolutionError] = useState<string | null>(null);
   const linkProps = resultLinkProps(result);
   const signals = normalizeSearchSignals(result.provenance.signals);
   const sourceLabel = formatSearchSourceLabel(result.source);
@@ -70,6 +79,39 @@ export function SearchResultCard({
               </div>
             </details>
           ) : null}
+          {hasResolvableReceipt(result) ? (
+            <div className="mt-3 text-xs">
+              <button
+                type="button"
+                className="rounded border border-border-subtle px-2 py-1 text-text-secondary"
+                onClick={async () => {
+                  setResolution(null);
+                  setResolutionError(null);
+                  try {
+                    setResolution(await apiPost("/search/provenance/resolve", result.provenance));
+                  } catch (error) {
+                    setResolutionError(error instanceof Error ? error.message : "Receipt could not be verified");
+                  }
+                }}
+              >
+                Why this result?
+              </button>
+              {resolution?.valid ? (
+                <div className="mt-2 rounded border border-border-subtle bg-surface-2 p-2">
+                  <p className="font-medium text-text-secondary">
+                    Verified bytes {resolution.byteStart}–{resolution.byteEnd}
+                  </p>
+                  <pre className="mt-1 whitespace-pre-wrap break-words font-mono text-text-muted">
+                    {resolution.text}
+                  </pre>
+                </div>
+              ) : resolution ? (
+                <p className="mt-2 text-status-red">Receipt unavailable: {resolution.reason}</p>
+              ) : resolutionError ? (
+                <p className="mt-2 text-status-red">Receipt unavailable: {resolutionError}</p>
+              ) : null}
+            </div>
+          ) : null}
           <ScoreBreakdown className="hidden md:flex" sources={result.sources} />
         </div>
         <div className="flex flex-shrink-0 items-center justify-between gap-3 border-t border-border-subtle pt-3 md:block md:border-t-0 md:pt-0 md:text-right">
@@ -91,6 +133,17 @@ export function SearchResultCard({
         <ScoreBreakdown sources={result.sources} />
       </BottomSheet>
     </Card>
+  );
+}
+
+function hasResolvableReceipt(result: SearchResult): boolean {
+  const receipt = result.provenance;
+  return (
+    typeof receipt.chunkId === "string" &&
+    Number.isSafeInteger(receipt.byteStart) &&
+    Number.isSafeInteger(receipt.byteEnd) &&
+    typeof receipt.sourceContentHash === "string" &&
+    typeof receipt.chunkTextHash === "string"
   );
 }
 

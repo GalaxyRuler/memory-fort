@@ -1,7 +1,10 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
 import { SearchResultCard } from "../../../src/dashboard-ui/components/SearchResultCard.js";
 import type { SearchResult } from "../../../src/dashboard-ui/hooks/useSearch.js";
+import { apiPost } from "../../../src/dashboard-ui/lib/api.js";
+
+vi.mock("../../../src/dashboard-ui/lib/api.js", () => ({ apiPost: vi.fn() }));
 
 vi.mock("@tanstack/react-router", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@tanstack/react-router")>();
@@ -120,6 +123,39 @@ describe("SearchResultCard", () => {
     expect(screen.getByText("BM25 rank 1")).toBeVisible();
     expect(screen.getByText("graph spread rank 2")).toBeVisible();
     expect(screen.getByText("rerank rank 3")).toBeVisible();
+  });
+
+  test("resolves and displays the exact verified source range", async () => {
+    const result = {
+      ...RESULT,
+      provenance: {
+        ...RESULT.provenance,
+        chunkId: "wiki/projects/provenance.md#1:0",
+        chunkOrdinal: 0,
+        byteStart: 10,
+        byteEnd: 42,
+        sourceContentHash: "a".repeat(64),
+        chunkTextHash: "b".repeat(64),
+        indexGeneration: 1,
+      },
+    } as SearchResult;
+    vi.mocked(apiPost).mockResolvedValue({
+      valid: true,
+      reason: "verified",
+      text: "exact verified source text",
+      byteStart: 10,
+      byteEnd: 42,
+    });
+
+    render(<SearchResultCard result={result} />);
+    fireEvent.click(screen.getByRole("button", { name: "Why this result?" }));
+
+    await waitFor(() => expect(apiPost).toHaveBeenCalledWith(
+      "/search/provenance/resolve",
+      result.provenance,
+    ));
+    expect(await screen.findByText("Verified bytes 10–42")).toBeVisible();
+    expect(screen.getByText("exact verified source text")).toBeVisible();
   });
 
   test("renders without a provenance receipt when signals are empty", () => {

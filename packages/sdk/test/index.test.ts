@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { MemoryFortClient } from "../src/index.js";
+import { MemoryFortClient, parseProvenanceReceipt } from "../src/index.js";
 
 const BASE = "http://127.0.0.1:4410/memory";
 
@@ -31,6 +31,32 @@ describe("MemoryFortClient", () => {
       expect.any(Object),
     );
     expect(results[0]?.path).toBe("wiki/tools/voyage.md");
+  });
+  it("preserves a validated typed provenance receipt", async () => {
+    const provenance = {
+      path: "wiki/tools/voyage.md",
+      kind: "wiki",
+      dominantSource: "index",
+      signals: [{ source: "index", rank: 1 }],
+      confidence: null,
+      sourceFactCount: 0,
+      derivedFromCount: 0,
+      tier: "low",
+      chunkId: "wiki/tools/voyage.md#1:0",
+      chunkOrdinal: 0,
+      byteStart: 10,
+      byteEnd: 42,
+      sourceContentHash: "a".repeat(64),
+      chunkTextHash: "b".repeat(64),
+      indexGeneration: 1,
+    };
+    fetchSpy.mockResolvedValueOnce(mockResponse({ results: [{ path: provenance.path, score: 1, provenance }] }));
+    const client = new MemoryFortClient({ baseUrl: BASE });
+
+    await expect(client.search("voyage")).resolves.toEqual([
+      expect.objectContaining({ provenance }),
+    ]);
+    expect(() => parseProvenanceReceipt({ ...provenance, byteEnd: 5 })).toThrow("invalid provenance receipt");
   });
 
   it("search passes agentId, userId, asOf, identityMode as query params", async () => {

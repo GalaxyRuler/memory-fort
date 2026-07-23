@@ -15,12 +15,57 @@ export interface MemoryFortClientOptions {
   fetch?: typeof fetch;
 }
 
+export type ProvenanceTier = "high" | "medium" | "low";
+
+export interface ProvenanceSignal {
+  source: string;
+  rank: number;
+}
+
+export interface ProvenanceReceipt {
+  path: string;
+  kind: "wiki" | "raw" | "crystal";
+  dominantSource: string;
+  signals: ProvenanceSignal[];
+  confidence: number | null;
+  confidenceMetadata?: unknown;
+  validation?: string | null;
+  sourceFactCount: number | null;
+  derivedFromCount: number | null;
+  tier: ProvenanceTier | null;
+  chunkId?: string | null;
+  chunkOrdinal?: number | null;
+  byteStart?: number | null;
+  byteEnd?: number | null;
+  sourceContentHash?: string | null;
+  chunkTextHash?: string | null;
+  indexGeneration?: number | null;
+  indexedAt?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  observedAt?: string | null;
+  lexicalRank?: number | null;
+  lexicalScore?: number | null;
+  vectorRank?: number | null;
+  vectorDistance?: number | null;
+  appliedScope?: SearchScope | null;
+  appliedFilters?: {
+    includeArchived: boolean | null;
+    asOf: string | null;
+    agentId: string | null;
+    userId: string | null;
+    identityMode: "inclusive" | "strict" | null;
+  } | null;
+  backend?: "legacy" | "index-lexical" | "index-hybrid" | null;
+  rankingProfile?: string | null;
+}
+
 export interface SearchResult {
   path: string;
   score: number;
   title?: string;
   snippet?: string;
-  provenance?: Record<string, unknown>;
+  provenance?: ProvenanceReceipt;
 }
 
 export interface PageMeta {
@@ -91,7 +136,9 @@ export class MemoryFortClient {
       headers: this.headers,
     });
     const data = (await checked(res)) as { results?: SearchResult[] };
-    return data.results ?? [];
+    return (data.results ?? []).map((result) => result.provenance === undefined
+      ? result
+      : { ...result, provenance: parseProvenanceReceipt(result.provenance) });
   }
 
   async searchCapabilities(): Promise<SearchCapabilities> {
@@ -199,4 +246,108 @@ function isSearchCapabilityScope(value: string): value is SearchScope {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+const PROVENANCE_KINDS = ["wiki", "raw", "crystal"] as const;
+const PROVENANCE_TIERS = ["high", "medium", "low"] as const;
+const PROVENANCE_BACKENDS = ["legacy", "index-lexical", "index-hybrid"] as const;
+const HASH_PATTERN = /^[0-9a-f]{64}$/i;
+
+export function parseProvenanceReceipt(value: unknown): ProvenanceReceipt {
+  if (!isRecord(value)) throw invalidProvenanceReceipt();
+  const signals = value["signals"];
+  if (
+    !isNonEmptyString(value["path"])
+    || !PROVENANCE_KINDS.includes(value["kind"] as ProvenanceReceipt["kind"])
+    || !isNonEmptyString(value["dominantSource"])
+    || !Array.isArray(signals)
+    || !signals.every(isProvenanceSignal)
+    || !isConfidence(value["confidence"])
+    || !isNullableNonNegativeInteger(value["sourceFactCount"])
+    || !isNullableNonNegativeInteger(value["derivedFromCount"])
+    || !(value["tier"] === null || PROVENANCE_TIERS.includes(value["tier"] as ProvenanceTier))
+  ) {
+    throw invalidProvenanceReceipt();
+  }
+  validateOptionalReceiptFields(value);
+  return value as unknown as ProvenanceReceipt;
+}
+
+function validateOptionalReceiptFields(value: Record<string, unknown>): void {
+  for (const key of ["chunkOrdinal", "byteStart", "byteEnd", "indexGeneration", "lexicalRank", "vectorRank"]) {
+    if (key in value && !isNullableNonNegativeInteger(value[key])) throw invalidProvenanceReceipt();
+  }
+  for (const key of ["lexicalScore", "vectorDistance"]) {
+    if (key in value && !isNullableFiniteNumber(value[key])) throw invalidProvenanceReceipt();
+  }
+  for (const key of ["chunkId", "indexedAt", "createdAt", "updatedAt", "observedAt", "rankingProfile", "validation"]) {
+    if (key in value && !isNullableString(value[key])) throw invalidProvenanceReceipt();
+  }
+  for (const key of ["sourceContentHash", "chunkTextHash"]) {
+    const field = value[key];
+    if (key in value && !(field === null || (typeof field === "string" && HASH_PATTERN.test(field)))) {
+      throw invalidProvenanceReceipt();
+    }
+  }
+  if (
+    typeof value["byteStart"] === "number"
+    && typeof value["byteEnd"] === "number"
+    && value["byteEnd"] <= value["byteStart"]
+  ) {
+    throw invalidProvenanceReceipt();
+  }
+  if (
+    "appliedScope" in value
+    && !(value["appliedScope"] === null || isSearchCapabilityScope(value["appliedScope"] as string))
+  ) {
+    throw invalidProvenanceReceipt();
+  }
+  if (
+    "backend" in value
+    && !(value["backend"] === null || PROVENANCE_BACKENDS.includes(value["backend"] as NonNullable<ProvenanceReceipt["backend"]>))
+  ) {
+    throw invalidProvenanceReceipt();
+  }
+  if ("appliedFilters" in value && !isAppliedFilters(value["appliedFilters"])) throw invalidProvenanceReceipt();
+}
+
+function isProvenanceSignal(value: unknown): value is ProvenanceSignal {
+  return isRecord(value)
+    && isNonEmptyString(value["source"])
+    && Number.isInteger(value["rank"])
+    && (value["rank"] as number) >= 0;
+}
+
+function isAppliedFilters(value: unknown): value is NonNullable<ProvenanceReceipt["appliedFilters"]> | null {
+  if (value === null) return true;
+  return isRecord(value)
+    && (value["includeArchived"] === null || typeof value["includeArchived"] === "boolean")
+    && isNullableString(value["asOf"])
+    && isNullableString(value["agentId"])
+    && isNullableString(value["userId"])
+    && (value["identityMode"] === null || value["identityMode"] === "inclusive" || value["identityMode"] === "strict");
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0;
+}
+
+function isNullableString(value: unknown): value is string | null {
+  return value === null || typeof value === "string";
+}
+
+function isConfidence(value: unknown): value is number | null {
+  return value === null || (typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1);
+}
+
+function isNullableFiniteNumber(value: unknown): value is number | null {
+  return value === null || (typeof value === "number" && Number.isFinite(value));
+}
+
+function isNullableNonNegativeInteger(value: unknown): value is number | null {
+  return value === null || (Number.isInteger(value) && (value as number) >= 0);
+}
+
+function invalidProvenanceReceipt(): TypeError {
+  return new TypeError("invalid provenance receipt");
 }

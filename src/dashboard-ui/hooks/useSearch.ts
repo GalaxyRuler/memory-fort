@@ -23,6 +23,13 @@ export interface SearchResult {
     sourceFactCount: number;
     derivedFromCount: number;
     tier: "high" | "medium" | "low";
+    chunkId?: string | null;
+    chunkOrdinal?: number | null;
+    byteStart?: number | null;
+    byteEnd?: number | null;
+    sourceContentHash?: string | null;
+    chunkTextHash?: string | null;
+    indexGeneration?: number | null;
   };
   kind: "wiki" | "raw" | "crystal";
 }

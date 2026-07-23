@@ -126,3 +126,70 @@ async def test_raises_on_error():
     async with MemoryFortClient(base_url=BASE) as client:
         with pytest.raises(MemoryFortError, match="vault not found"):
             await client.search("test")
+
+
+def provenance_receipt() -> dict[str, object]:
+    return {
+        "path": "wiki/tools/voyage.md",
+        "kind": "wiki",
+        "dominantSource": "index",
+        "signals": [{"source": "index", "rank": 1}],
+        "confidence": None,
+        "sourceFactCount": 0,
+        "derivedFromCount": 0,
+        "tier": "low",
+        "chunkId": "wiki/tools/voyage.md#1:0",
+        "chunkOrdinal": 0,
+        "byteStart": 10,
+        "byteEnd": 42,
+        "sourceContentHash": "a" * 64,
+        "chunkTextHash": "b" * 64,
+        "indexGeneration": 1,
+    }
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_search_preserves_valid_provenance_receipt():
+    provenance = provenance_receipt()
+    respx.get(f"{BASE}/api/search").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "results": [
+                    {
+                        "path": provenance["path"],
+                        "score": 1,
+                        "provenance": provenance,
+                    }
+                ]
+            },
+        )
+    )
+    async with MemoryFortClient(base_url=BASE) as client:
+        results = await client.search("voyage")
+
+    assert results[0]["provenance"] == provenance
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_search_rejects_invalid_provenance_receipt():
+    provenance = {**provenance_receipt(), "byteEnd": 5}
+    respx.get(f"{BASE}/api/search").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "results": [
+                    {
+                        "path": provenance["path"],
+                        "score": 1,
+                        "provenance": provenance,
+                    }
+                ]
+            },
+        )
+    )
+    async with MemoryFortClient(base_url=BASE) as client:
+        with pytest.raises(ValueError, match="invalid provenance receipt"):
+            await client.search("voyage")
