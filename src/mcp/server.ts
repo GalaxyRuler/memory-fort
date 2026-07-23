@@ -24,6 +24,7 @@ import {
   getActiveEmbedderConfig,
   listEmbedderProviders,
 } from "../retrieval/embedder/factory.js";
+import { classifySearchKind, type SearchKind } from "../search/kind.js";
 
 const LogObservationInput = z.object({
   text: z.string().min(1, "text must be non-empty"),
@@ -728,24 +729,12 @@ function buildSearchUrl(baseUrl: string, input: SearchInput): string {
   return url.toString();
 }
 
-type SearchKind = "wiki" | "raw" | "crystal";
 type SearchSignal = { source: string; rank: number };
 type SearchProvenanceTier = "high" | "medium" | "low";
 type ApiSearchResultWithPath = ApiSearchResult & { path: string };
 
 function inferSearchKind(item: ApiSearchResultWithPath): SearchKind {
-  const normalizedPath = item.path.replace(/\\/g, "/");
-  if (normalizedPath.startsWith("wiki/")) return "wiki";
-  if (normalizedPath.startsWith("raw/")) return "raw";
-  if (normalizedPath.startsWith("crystals/") || normalizedPath.startsWith("crystal/")) {
-    return "crystal";
-  }
-  if (isSearchKind(item.kind)) return item.kind;
-  return "wiki";
-}
-
-function isSearchKind(value: unknown): value is SearchKind {
-  return value === "wiki" || value === "raw" || value === "crystal";
+  return classifySearchKind({ relPath: item.path, kind: item.kind });
 }
 
 function isSearchResultWithStringPath(value: unknown): value is ApiSearchResultWithPath {

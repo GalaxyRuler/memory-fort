@@ -1405,7 +1405,7 @@ program
       scope: opts.scope,
       k: opts.k,
       minScore: opts.minScore,
-      noRerank: opts.rerank === false,
+      ...(opts.rerank === false ? { noRerank: true } : {}),
       json: opts.json,
       dashboardUrl: opts.dashboardUrl,
       vpsUrl: opts.vpsUrl,

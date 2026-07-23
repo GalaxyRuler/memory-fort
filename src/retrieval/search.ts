@@ -6,6 +6,7 @@ import {
   type SearchDocument,
   type SearchScope,
 } from "./corpus.js";
+import { searchScopeAllows } from "../search/kind.js";
 import {
   loadEmbeddings,
   loadEmbeddingsFileSignature,
@@ -787,11 +788,7 @@ function filterByScope(
   documents: SearchDocument[],
   scope: SearchScope,
 ): SearchDocument[] {
-  if (scope === "all") return documents;
-  if (scope === "crystals") {
-    return documents.filter((document) => document.kind === "crystal");
-  }
-  return documents.filter((document) => document.kind === scope);
+  return documents.filter((document) => searchScopeAllows(scope, document));
 }
 
 function toRankedItems(scores: Array<{ relPath: string }>): RankedItem[] {

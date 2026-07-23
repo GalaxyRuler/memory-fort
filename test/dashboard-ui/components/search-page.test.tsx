@@ -184,6 +184,25 @@ describe("SearchPage", () => {
     expect(screen.getByRole("checkbox", { name: /Include archived/ })).toBeInTheDocument();
   });
 
+  test("does not fabricate includeArchived support while capabilities are loading", () => {
+    routerState.search = { q: "needle", includeArchived: true };
+    searchHook.useSearchCapabilities.mockReturnValue({
+      data: undefined,
+      isLoading: true,
+    });
+
+    render(<SearchPage />);
+
+    expect(screen.queryByRole("checkbox", { name: /Include archived/ })).not.toBeInTheDocument();
+    expect(searchHook.useSearch).toHaveBeenCalledWith(
+      expect.not.objectContaining({ includeArchived: expect.anything() }),
+    );
+    expect(screen.getByRole("button", { name: /Wiki/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /All/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Raw/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /Crystals/ })).toBeDisabled();
+  });
+
   test("visibly reports compatibility ignoredParams returned by an older backend", () => {
     routerState.search = { q: "needle" };
     searchHook.useSearch.mockReturnValue({

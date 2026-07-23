@@ -119,6 +119,32 @@ describe("dashboard index search route", () => {
       scopes: ["all", "wiki", "raw", "crystals"],
     });
   });
+  it("rejects invalid shared search filters with a stable invalid_params body", async () => {
+    const { vaultRoot, indexDbPath } = await createIndexedVault();
+    server = await createServer({
+      vaultRoot,
+      port: 0,
+      env: { MEMORY_INDEX_DB_PATH: indexDbPath },
+      voyageClient: null,
+    });
+
+    for (const [query, invalidParam] of [
+      ["scope=bogus", "scope"],
+      ["identity_mode=bogus", "identity_mode"],
+      ["includeArchived=1", "includeArchived"],
+    ] as const) {
+      const response = await fetch(
+        `http://${server.host}:${server.port}/api/search?q=needle&${query}`,
+      );
+
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toEqual({
+        error: "invalid_params",
+        invalid_params: [invalidParam],
+      });
+    }
+  });
+
 
   it("rejects controls unsupported by the legacy backend with the same 422 shape", async () => {
     const { vaultRoot } = await createVault();
@@ -248,8 +274,31 @@ describe("dashboard index search route", () => {
     });
   });
 
+  it("rejects unsupported index controls even when their explicit value is blank", async () => {
+    const { vaultRoot, indexDbPath } = await createIndexedVault();
+    server = await createServer({
+      vaultRoot,
+      port: 0,
+      env: { MEMORY_INDEX_DB_PATH: indexDbPath },
+      voyageClient: null,
+    });
+
+    for (const param of ["minScore", "hydeExpansion", "intent"] as const) {
+      const response = await fetch(
+        `http://${server.host}:${server.port}/api/search?q=needle&${param}=`,
+      );
+
+      expect(response.status).toBe(422);
+      await expect(response.json()).resolves.toEqual({
+        error: "unsupported_params",
+        unsupported_params: [param],
+      });
+    }
+  });
+
   it("serves default index search inline even when a vector executor is available", async () => {
     const { vaultRoot, indexDbPath } = await createIndexedVault();
+
     const searchExecutor = fakeSearchExecutor("lexical-plus-vector");
 
     server = await createServer({
@@ -275,6 +324,47 @@ describe("dashboard index search route", () => {
     ]);
     expect(loadSearchCorpus).not.toHaveBeenCalled();
   });
+  it("keeps capabilities lexical when an executor is present but vector search is unavailable", async () => {
+    const { vaultRoot, indexDbPath } = await createIndexedVault();
+    const searchExecutor = fakeSearchExecutor("lexical-only");
+
+    server = await createServer({
+      vaultRoot,
+      port: 0,
+      env: {
+        MEMORY_INDEX_DB_PATH: indexDbPath,
+        MEMORY_INDEX_VECTORS: "1",
+      },
+      voyageClient: null,
+      searchExecutor,
+    });
+
+    const before = await fetch(
+      `http://${server.host}:${server.port}/api/search/capabilities`,
+    );
+    await expect(before.json()).resolves.toMatchObject({
+      searchBackend: "index-lexical",
+    });
+
+    const response = await fetch(
+      `http://${server.host}:${server.port}/api/search?q=needle`,
+    );
+    const body = await response.json();
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({
+      searchBackend: "index-lexical",
+      hybridMode: "lexical-only",
+      vectorState: "unavailable",
+    });
+
+    const after = await fetch(
+      `http://${server.host}:${server.port}/api/search/capabilities`,
+    );
+    await expect(after.json()).resolves.toMatchObject({
+      searchBackend: body.searchBackend,
+    });
+  });
+
 
   it("routes index search through the configured SearchExecutor only when vectors are opted in", async () => {
     const { vaultRoot, indexDbPath } = await createIndexedVault();
@@ -1004,8 +1094,10 @@ describe("dashboard index search route", () => {
           tokenCacheHits: 0,
           tokenCacheMisses: 0,
         },
-        vectorState: "ready" as const,
-        vectorCoverage: { embeddedEligible: 1, totalEligible: 1 },
+        vectorState: hybridMode === "lexical-plus-vector" ? "ready" as const : "unavailable" as const,
+        vectorCoverage: hybridMode === "lexical-plus-vector"
+          ? { embeddedEligible: 1, totalEligible: 1 }
+          : { embeddedEligible: 0, totalEligible: 1 },
         hybridMode,
         cursor: null,
         nextCursor: null,

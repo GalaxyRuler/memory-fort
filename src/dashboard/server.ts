@@ -38,6 +38,7 @@ import {
   capabilitiesForSearchBackend,
   collectUnsupportedIndexSearchParams,
   unsupportedParamsBody,
+  validateSearchFilterParams,
 } from "../search/contract.js";
 import { makeVoyageClient, type VoyageClient, type VoyageClientOptions } from "../retrieval/voyage-client.js";
 import { loadMemoryConfig, type MemoryConfig } from "../storage/config.js";
@@ -725,10 +726,6 @@ function parseClampedFloat(value: string | null, fallback: number, min: number, 
   return Math.max(min, Math.min(max, parsed));
 }
 
-function parseSearchScope(value: string | null): SearchScope {
-  return value && SEARCH_SCOPES.has(value as SearchScope) ? (value as SearchScope) : "all";
-}
-
 function parseSearchIntent(value: string | null): IntentLabel | undefined {
   if (!value) return undefined;
   const normalized = value.trim().toLowerCase();
@@ -813,6 +810,7 @@ function createDashboardIndexSearchController(opts: {
     : null;
   let reader: IndexDb | null = null;
   let lastOpenError: string | null = null;
+  let liveBackend: "index-lexical" | "index-hybrid" = "index-lexical";
 
   function getReader(): IndexDb | null {
     if (reader) return reader;
@@ -848,7 +846,9 @@ function createDashboardIndexSearchController(opts: {
 
   return {
     dbPath,
-    backend: searchExecutor ? "index-hybrid" : "index-lexical",
+    get backend() {
+      return liveBackend;
+    },
     search: async (query, page, filters) => {
       const started = Date.now();
       const db = getReader();
@@ -862,8 +862,10 @@ function createDashboardIndexSearchController(opts: {
             cursor: page.cursor,
             ...filters,
           });
+          liveBackend = response.hybridMode === "lexical-plus-vector" ? "index-hybrid" : "index-lexical";
           return { ...response, index: status };
         } catch (error) {
+          liveBackend = "index-lexical";
           const results = lexicalSearch(db, query, { limit: page.fetchLimit, ...filters });
           return indexSearchResponse(
             query,
@@ -1865,15 +1867,17 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
           writeJsonError(res, 400, `invalid as_of date: ${rawAsOf}`);
           return;
         }
+        const filterValidation = validateSearchFilterParams(url);
+        if (!filterValidation.ok) {
+          writeJson(res, filterValidation.body, 400);
+          return;
+        }
         const agentId = url.searchParams.get("agent_id") ?? undefined;
         const userId = url.searchParams.get("user_id") ?? undefined;
-        const identityMode =
-          url.searchParams.get("identity_mode") === "strict"
-            ? ("strict" as const)
-            : ("inclusive" as const);
+        const { scope, includeArchived, identityMode } = filterValidation.filters;
         const filters: IndexSearchFilters = {
-          scope: parseSearchScope(url.searchParams.get("scope")),
-          includeArchived: parseSearchBoolean(url.searchParams.get("includeArchived")),
+          scope,
+          includeArchived,
           asOf: rawAsOf,
           agentId,
           userId,

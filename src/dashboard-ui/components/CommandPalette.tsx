@@ -21,7 +21,7 @@ export function CommandPalette() {
   const [query, setQuery] = useState("");
   const [scope, setScope] = useState<SearchScope>("all");
   const debouncedQuery = useDebouncedValue(query, 150);
-  const search = useSearch({ query: debouncedQuery, scope, k: 12, noRerank: true });
+  const search = useSearch({ query: debouncedQuery, scope, k: 12 });
   const navigate = useNavigate();
   const results = search.data?.results ?? [];
   const resultSourceSummary = search.data ? sourceSummary(results) : "";

@@ -16,7 +16,7 @@ describe("openIndexDb", () => {
     tempDir = null;
   });
 
-  it("opens a WAL database with the v3 schema, FTS triggers, vector tables, and file metadata columns", async () => {
+  it("opens a WAL database with the v5 schema, FTS triggers, vector tables, and filter metadata indexes", async () => {
     const { openIndexDb } = await import("../../src/index/db.js");
     tempDir = await mkdtemp(join(tmpdir(), "memory-index-db-"));
 
@@ -24,7 +24,7 @@ describe("openIndexDb", () => {
 
     expect(String(indexDb.database.pragma("journal_mode", { simple: true })).toLowerCase()).toBe("wal");
     expect(indexDb.database.prepare("SELECT value FROM meta WHERE key = 'schemaVersion'").get()).toEqual({
-      value: "3",
+      value: "5",
     });
     expect(indexDb.database.prepare("SELECT value FROM meta WHERE key = 'tokenizer'").get()).toEqual({
       value: "unicode61 remove_diacritics 2",
@@ -69,10 +69,26 @@ describe("openIndexDb", () => {
         "frontmatterLifecycle",
         "frontmatterConfidence",
         "frontmatterConfidenceJson",
+        "kind",
+        "frontmatterValidFrom",
+        "frontmatterValidUntil",
+        "frontmatterAgentId",
+        "frontmatterUserId",
         "frontmatterValidation",
         "frontmatterCreated",
         "frontmatterUpdated",
         "frontmatterObservedAt",
+      ]),
+    );
+
+    const fileIndexes = indexDb.database
+      .prepare("PRAGMA index_list(files)")
+      .all() as Array<{ name: string }>;
+    expect(fileIndexes.map((row) => row.name)).toEqual(
+      expect.arrayContaining([
+        "idx_files_kind",
+        "idx_files_validity",
+        "idx_files_identity",
       ]),
     );
   });
@@ -127,7 +143,7 @@ describe("openIndexDb", () => {
     const indexDb = track(openIndexDb(dbPath));
 
     expect(indexDb.database.prepare("SELECT value FROM meta WHERE key = 'schemaVersion'").get()).toEqual({
-      value: "3",
+      value: "5",
     });
     expect(() => indexDb.integrityCheck()).not.toThrow();
     expect(await readFile(dbPath, "utf8")).not.toBe("not a sqlite database");
@@ -150,7 +166,7 @@ describe("openIndexDb", () => {
     const rebuilt = track(openIndexDb(dbPath));
 
     expect(rebuilt.database.prepare("SELECT value FROM meta WHERE key = 'schemaVersion'").get()).toEqual({
-      value: "3",
+      value: "5",
     });
     expect(rebuilt.database.prepare("SELECT count(*) AS count FROM files").get()).toEqual({ count: 0 });
     expect(() => rebuilt.integrityCheck()).not.toThrow();

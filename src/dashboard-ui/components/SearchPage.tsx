@@ -28,15 +28,15 @@ export function SearchPage() {
   const noRerank = params.noRerank ?? false;
   const includeArchived = params.includeArchived ?? false;
   const capabilities = useSearchCapabilities();
-  const supportedParams = capabilities.data?.supportedParams ?? ["scope", "includeArchived"];
-  const scopes = capabilities.data?.scopes ?? ["all", "wiki", "raw", "crystals"];
+  const supportedParams = capabilities.data?.supportedParams ?? [];
+  const scopes = capabilities.data?.scopes ?? [];
   const effectiveNoRerank = supportedParams.includes("noRerank") && noRerank;
   const search = useSearch({
     query: debouncedQuery,
     scope,
     k,
-    noRerank: effectiveNoRerank,
-    includeArchived,
+    ...(supportedParams.includes("noRerank") ? { noRerank: effectiveNoRerank } : {}),
+    ...(supportedParams.includes("includeArchived") ? { includeArchived } : {}),
     enabled: debouncedQuery.trim().length > 0,
   });
   const results = search.data?.results ?? [];

@@ -37,10 +37,11 @@ export interface SearchCapabilities {
   unsupportedParams: string[];
   scopes: Array<"all" | "wiki" | "raw" | "crystals">;
 }
+export type SearchScope = "all" | "wiki" | "raw" | "crystals";
 
 export interface SearchOptions {
   k?: number;
-  scope?: string;
+  scope?: SearchScope;
   agentId?: string;
   userId?: string;
   asOf?: string;
@@ -77,6 +78,7 @@ export class MemoryFortClient {
   }
 
   async search(query: string, opts: SearchOptions = {}): Promise<SearchResult[]> {
+    validateSearchOptions(opts);
     const params = new URLSearchParams({ q: query });
     if (opts.k !== undefined) params.set("k", String(opts.k));
     if (opts.scope) params.set("scope", opts.scope);
@@ -96,7 +98,7 @@ export class MemoryFortClient {
     const res = await this._fetch(`${this.baseUrl}/api/search/capabilities`, {
       headers: this.headers,
     });
-    return (await checked(res)) as SearchCapabilities;
+    return parseSearchCapabilities(await checked(res));
   }
 
   async add(text: string, opts: LogOptions = {}): Promise<void> {
@@ -125,3 +127,46 @@ export class MemoryFortClient {
 }
 
 export default MemoryFortClient;
+
+function validateSearchOptions(opts: SearchOptions): void {
+  if (
+    opts.scope !== undefined
+    && !["all", "wiki", "raw", "crystals"].includes(opts.scope)
+  ) {
+    throw new TypeError(`invalid scope: ${String(opts.scope)}`);
+  }
+  if (
+    opts.identityMode !== undefined
+    && opts.identityMode !== "inclusive"
+    && opts.identityMode !== "strict"
+  ) {
+    throw new TypeError(`invalid identityMode: ${String(opts.identityMode)}`);
+  }
+  if (opts.includeArchived !== undefined && typeof opts.includeArchived !== "boolean") {
+    throw new TypeError(`invalid includeArchived: ${String(opts.includeArchived)}`);
+  }
+}
+
+function parseSearchCapabilities(value: unknown): SearchCapabilities {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new TypeError("invalid search capabilities response");
+  }
+  const body = value as Record<string, unknown>;
+  const backends = ["legacy", "index-lexical", "index-hybrid"];
+  const scopes = ["all", "wiki", "raw", "crystals"];
+  if (
+    typeof body.searchBackend !== "string"
+    || !backends.includes(body.searchBackend)
+    || !isStringArray(body.supportedParams)
+    || !isStringArray(body.unsupportedParams)
+    || !isStringArray(body.scopes)
+    || !body.scopes.every((scope) => scopes.includes(scope))
+  ) {
+    throw new TypeError("invalid search capabilities response");
+  }
+  return body as unknown as SearchCapabilities;
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === "string");
+}

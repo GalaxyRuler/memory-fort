@@ -149,7 +149,7 @@ describe("CommandPalette", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(String(fetchMock.mock.calls[0][0])).toContain("q=voyage");
-    expect(String(fetchMock.mock.calls[0][0])).toContain("noRerank=true");
+    expect(String(fetchMock.mock.calls[0][0])).not.toContain("noRerank");
   });
 
   test("does not render inert sort controls", () => {

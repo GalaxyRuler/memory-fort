@@ -9,6 +9,7 @@ export const Route = createFileRoute("/search")({
     scope: isSearchScope(search.scope) ? search.scope : undefined,
     k: parseK(search.k),
     noRerank: search.noRerank === true || search.noRerank === "true" ? true : undefined,
+    includeArchived: search.includeArchived === true || search.includeArchived === "true" ? true : undefined,
   }),
 });
 
@@ -17,6 +18,7 @@ export interface SearchPageSearch {
   scope?: SearchScope;
   k?: number;
   noRerank?: boolean;
+  includeArchived?: boolean;
 }
 
 function isSearchScope(value: unknown): value is SearchScope {

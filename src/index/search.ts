@@ -1,5 +1,6 @@
 import type { IndexDb } from "./db.js";
 import type { SearchDocument, SearchScope } from "../retrieval/corpus.js";
+import { classifySearchKind, searchScopeSql } from "../search/kind.js";
 import { scoreByMetadata } from "../retrieval/metadata-score.js";
 import {
   KNOWN_LIFECYCLE_STAGES,
@@ -518,9 +519,7 @@ function readValidation(value: string | null): ValidationState | null {
 }
 
 function searchKindFromIndexKind(kind: string | null, relPath: string): SearchDocument["kind"] {
-  if (kind === "raw" || relPath.startsWith("raw/")) return "raw";
-  if (kind === "crystal" || relPath.startsWith("crystals/") || relPath.startsWith("wiki/crystals/")) return "crystal";
-  return "wiki";
+  return classifySearchKind({ relPath, kind });
 }
 
 function titleFromPath(relPath: string): string {
@@ -534,18 +533,6 @@ function typeFromPath(relPath: string): string {
   return relPath.split("/")[1] ?? "wiki";
 }
 
-function searchScopeSql(scope: SearchScope, filesAlias: string): string {
-  switch (scope) {
-    case "wiki":
-      return `${filesAlias}.kind = 'wiki' AND ${filesAlias}.relPath NOT GLOB 'wiki/crystals/*'`;
-    case "raw":
-      return `${filesAlias}.kind = 'raw'`;
-    case "crystals":
-      return `(${filesAlias}.kind = 'crystal' OR ${filesAlias}.relPath GLOB 'wiki/crystals/*')`;
-    case "all":
-      return "1 = 1";
-  }
-}
 
 function activeDocumentSql(filesAlias: string): string {
   return [

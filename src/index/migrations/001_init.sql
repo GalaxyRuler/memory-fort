@@ -75,5 +75,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_chunks_relPath_ordinal ON chunks(relPath, 
 CREATE INDEX IF NOT EXISTS idx_chunks_generation ON chunks(generation);
 CREATE INDEX IF NOT EXISTS idx_files_generation ON files(generation);
 CREATE INDEX IF NOT EXISTS idx_files_hash ON files(contentHash);
+CREATE INDEX IF NOT EXISTS idx_files_kind ON files(kind);
 CREATE INDEX IF NOT EXISTS idx_files_validity ON files(frontmatterValidFrom, frontmatterValidUntil);
 CREATE INDEX IF NOT EXISTS idx_files_identity ON files(frontmatterAgentId, frontmatterUserId);

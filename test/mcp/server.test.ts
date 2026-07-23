@@ -426,6 +426,13 @@ describe("memory.search MCP tool", () => {
               { source: "missing-rank" },
             ],
           },
+          {
+            path: "wiki/crystals/wiki-retrieval.md",
+            title: "Wiki crystal",
+            snippet: "Curated crystal summary",
+            score: 0.5,
+            source: "bm25",
+          },
         ],
         warnings: [],
         timings: { totalMs: 12, rerankMs: 0 },
@@ -462,6 +469,15 @@ describe("memory.search MCP tool", () => {
           kind: "crystal",
           dominantSource: "vector",
           signals: [{ source: "vector", rank: 1 }],
+        },
+      });
+      expect(parsed.results[2]).toMatchObject({
+        path: "wiki/crystals/wiki-retrieval.md",
+        kind: "crystal",
+        provenance: {
+          path: "wiki/crystals/wiki-retrieval.md",
+          kind: "crystal",
+          dominantSource: "bm25",
         },
       });
     } finally {

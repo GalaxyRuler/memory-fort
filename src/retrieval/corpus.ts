@@ -1,5 +1,11 @@
 import { appendFile, mkdir, readdir, readFile, stat } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve } from "node:path";
+import {
+  classifySearchKind,
+  searchScopeAllows,
+  type SearchKind,
+  type SearchScope,
+} from "../search/kind.js";
 import { canonicalizeRawObservation } from "../compile/canonicalize.js";
 import { getConfidenceScore } from "../storage/confidence.js";
 import {
@@ -12,14 +18,13 @@ import { buildGraph } from "./graph.js";
 import { readRelations, type RelationMap } from "./relations.js";
 import { isWikiDotDirectoryPath } from "./wiki-paths.js";
 
-export type SearchScope = "wiki" | "raw" | "crystals" | "all";
+export type { SearchKind, SearchScope } from "../search/kind.js";
 // Source identifier for a memory document. Originally a strict union of agent
 // identifiers; widened to plain string in Phase 3.1 so process names like
 // import-agentmemory, backfill, consolidate, crystal-extraction, and
 // codex-fork-smoke are first-class values alongside the original agent ids.
 // "unknown" is reserved for the legacy sentinel "no source set" case.
 export type SearchSource = string;
-export type SearchKind = "wiki" | "raw" | "crystal";
 export type CognitiveType = "core" | "semantic" | "episodic" | "procedural" | "prospective";
 
 export interface SearchDocument {
@@ -191,7 +196,7 @@ export async function loadSearchCorpus(
 
   // The crystals scope over-collects (the wiki pool) so wiki/crystals/ pages are
   // reachable; narrow to the actual crystal documents here.
-  const scopedDocuments = scope === "crystals" ? documents.filter(isCrystalDocument) : documents;
+  const scopedDocuments = documents.filter((document) => searchScopeAllows(scope, document));
 
   scopedDocuments.sort((a, b) => a.relPath.localeCompare(b.relPath));
   applyCognitiveTypeInference(scopedDocuments);
@@ -322,10 +327,6 @@ function selectedFilesForScope(
   return [...files.wiki, ...files.raw, ...files.crystals];
 }
 
-function isCrystalDocument(document: SearchDocument): boolean {
-  return document.kind === "crystal" || document.type === "crystal" || document.type === "crystals";
-}
-
 async function loadDocument(
   file: MarkdownFile,
   omitBody = false,
@@ -350,12 +351,14 @@ async function loadDocument(
         })
       : null;
 
+  const type = readString(frontmatter.type) ?? defaultType(file);
+  const kind = classifySearchKind({ relPath: file.relPath, kind: file.kind, type });
   return {
-    kind: file.kind,
+    kind,
     relPath: file.relPath,
     fullPath: file.fullPath,
     title: canonical?.title ?? readString(frontmatter.title) ?? filename,
-    type: readString(frontmatter.type) ?? defaultType(file),
+    type,
     status: readString(frontmatter.status) ?? "active",
     cognitiveType: explicitCognitiveType ?? "semantic",
     confidence: canonical?.confidence ?? readConfidenceScore(frontmatter.confidence),

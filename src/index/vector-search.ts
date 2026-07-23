@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 
 import type { SearchResponse, SearchResult, SearchTimings } from "../retrieval/search.js";
 import type { SearchScope } from "../retrieval/corpus.js";
+import { classifySearchKind, searchScopeSql } from "../search/kind.js";
 import type { IndexDb, SqliteDatabase } from "./db.js";
 import {
   type EmbedClient,
@@ -391,7 +392,7 @@ export function twoStageVectorSearch(database: SqliteDatabase, opts: VectorSearc
           FROM chunk_vectors cv
           JOIN chunks c ON c.rowid = cv.chunkRowid
           JOIN files f ON f.relPath = c.relPath
-          WHERE ${vectorScopeSql(opts.scope ?? "all", "f")}
+          WHERE ${searchScopeSql(opts.scope ?? "all", "f")}
             AND ${opts.includeArchived === true ? "1 = 1" : vectorActiveDocumentSql("f")}
             AND ${opts.asOf ? vectorTemporalValiditySql("f") : "1 = 1"}
             AND ${identityFilter.sql}
@@ -918,9 +919,7 @@ function titleFromChunk(result: { readonly relPath: string; readonly headingPath
 }
 
 function searchKindFromIndexRelPath(relPath: string): SearchResult["kind"] {
-  if (relPath.startsWith("raw/")) return "raw";
-  if (relPath.startsWith("crystals/") || relPath.startsWith("wiki/crystals/")) return "crystal";
-  return "wiki";
+  return classifySearchKind({ relPath });
 }
 
 function dominantSource(sources: readonly ChunkRrfSource[]): string {
@@ -1318,18 +1317,6 @@ function errorMessage(error: unknown): string {
   return String(error);
 }
 
-function vectorScopeSql(scope: SearchScope, filesAlias: string): string {
-  switch (scope) {
-    case "wiki":
-      return `${filesAlias}.kind = 'wiki' AND ${filesAlias}.relPath NOT GLOB 'wiki/crystals/*'`;
-    case "raw":
-      return `${filesAlias}.kind = 'raw'`;
-    case "crystals":
-      return `(${filesAlias}.kind = 'crystal' OR ${filesAlias}.relPath GLOB 'wiki/crystals/*')`;
-    case "all":
-      return "1 = 1";
-  }
-}
 
 function vectorActiveDocumentSql(filesAlias: string): string {
   return [

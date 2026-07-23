@@ -55,6 +55,19 @@ describe("MemoryFortClient", () => {
     await client.search("test", { includeArchived: true });
     expect(fetchSpy.mock.calls[0]![0]).toContain("includeArchived=true");
   });
+  it("rejects invalid search filters before issuing a request", async () => {
+    const client = new MemoryFortClient({ baseUrl: BASE });
+
+    await expect(client.search("test", { scope: "bogus" } as never))
+      .rejects.toThrow("invalid scope");
+    await expect(client.search("test", { identityMode: "bogus" } as never))
+      .rejects.toThrow("invalid identityMode");
+    await expect(client.search("test", { includeArchived: 1 } as never))
+      .rejects.toThrow("invalid includeArchived");
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
 
   it("returns typed search capabilities", async () => {
     const capabilities = {
@@ -72,6 +85,16 @@ describe("MemoryFortClient", () => {
       expect.any(Object),
     );
   });
+  it("rejects malformed search capabilities instead of casting arbitrary JSON", async () => {
+    fetchSpy.mockResolvedValueOnce(mockResponse({
+      searchBackend: "invented",
+      supportedParams: "q",
+    }));
+    const client = new MemoryFortClient({ baseUrl: BASE });
+
+    await expect(client.searchCapabilities()).rejects.toThrow("invalid search capabilities");
+  });
+
 
   it("add sends POST /api/observations with text", async () => {
     fetchSpy.mockResolvedValueOnce(mockResponse({ ok: true }));
