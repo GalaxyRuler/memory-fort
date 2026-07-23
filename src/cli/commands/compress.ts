@@ -250,16 +250,19 @@ export async function runCompress(opts: CompressOptions = {}): Promise<CompressR
 
       // Decide whether to preserve prior facts by MERGING, or discard them by
       // overwriting. Preserve when:
+      //   - their watermark is already at the current safety-contract version,
       //   - the bytes are unchanged (a resume, or a config-only re-chunk), OR
       //   - an archive copy exists whose content hash equals the PRIOR
       //     watermark's sourceHash — i.e. this change is a compaction of exactly
       //     the content the prior facts were extracted from, now living only in
       //     the (walker-excluded) archive.
+      // Earlier versions predate the v4 evidence/faithfulness gate, so even a
+      // same-content artifact is not trusted or carried forward.
       // Binding to the prior source hash (not mere archive existence) is what
       // stops a later unrelated edit from preserving stale facts forever: after
       // a compaction the watermark's sourceHash advances to the compacted
       // content, so a subsequent edit's prior hash matches no archive copy.
-      const preservePrior = priorValid && priorFacts.length > 0
+      const preservePrior = versionMatches && priorValid && priorFacts.length > 0
         && ((bytesMatch && sourceUnchanged) || await archiveHasSourceHash(root, raw.relPath, watermark?.sourceHash));
       const mergedFacts = preservePrior
         ? mergeCompressedFacts([...priorFacts, ...result.facts])

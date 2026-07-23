@@ -360,6 +360,64 @@ describe("memory fact compression", () => {
     expect(state.compressed?.["raw/2026-05-31/session-a.md"]?.compressVersion).toBe(CURRENT_COMPRESS_VERSION);
   });
 
+  it("does not carry a same-content v3 artifact into the v4 fact file", async () => {
+    const rawRelPath = "raw/2026-05-31/session-a.md";
+    const rawPath = join(tmp, "raw", "2026-05-31", "session-a.md");
+    const info = await stat(rawPath);
+    await writeFileAt("facts/2026-05-31/session-a.json", `${JSON.stringify({
+      version: 1,
+      sourceRawPath: rawRelPath,
+      sessionId: "session-a",
+      observedAt: "2026-05-31T00:00:00.000Z",
+      compressedAt: "2026-05-31T01:00:00.000Z",
+      facts: [{
+        title: "Unverified v3 Mars relay",
+        facts: ["Memory System deployed an unverified Mars relay."],
+        narrative: "Memory System deployed an unverified Mars relay.",
+        concepts: ["Memory System"],
+        files: [],
+        importance: 9,
+        type: "project",
+        sessionId: "session-a",
+        sourceRawPath: rawRelPath,
+        observedAt: "2026-05-31T00:00:00.000Z",
+        compressedAt: "2026-05-31T01:00:00.000Z",
+      }],
+    }, null, 2)}\n`);
+    await writeCompileStateFile(tmp, {
+      compressed: {
+        [rawRelPath]: {
+          bytes: info.size,
+          lastObservationAt: "2026-05-31T00:00:00.000Z",
+          compressVersion: CURRENT_COMPRESS_VERSION - 1,
+        },
+      },
+    });
+    const llm = fakeCompressionLLM([{
+      title: "Fresh v4 retrieval fact",
+      facts: ["Memory System shipped Phase 3 retrieval."],
+      narrative: "Memory System shipped Phase 3 retrieval.",
+      concepts: ["Memory System"],
+      files: [],
+      importance: 8,
+      type: "project",
+    }]);
+
+    const result = await runCompress({
+      vaultRoot: tmp,
+      apply: true,
+      configLoader: async () => ({ llm: { provider: "ollama", model: "llama3.2" } }),
+      llmFactory: () => llm,
+      env: {},
+      now: new Date("2026-05-31T12:00:00.000Z"),
+    });
+
+    expect(result.summary).toMatchObject({ compressed: 1, factsWritten: 1 });
+    const facts = readCompressedFactFile(await readFile(join(tmp, "facts", "2026-05-31", "session-a.json"), "utf-8"));
+    expect(facts.map((fact) => fact.title)).toEqual(["Fresh v4 retrieval fact"]);
+    expect(facts.map((fact) => fact.title)).not.toContain("Unverified v3 Mars relay");
+  });
+
   it("continues apply mode after one raw session fails and reports the failed session", async () => {
     await writeFileAt("raw/2026-05-31/session-b.md", [
       "---",
