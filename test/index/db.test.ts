@@ -16,7 +16,7 @@ describe("openIndexDb", () => {
     tempDir = null;
   });
 
-  it("opens a WAL database with the v5 schema, FTS triggers, vector tables, and filter metadata indexes", async () => {
+  it("opens a WAL database with the v6 schema, FTS triggers, vector tables, and filter metadata indexes", async () => {
     const { openIndexDb } = await import("../../src/index/db.js");
     tempDir = await mkdtemp(join(tmpdir(), "memory-index-db-"));
 
@@ -24,7 +24,7 @@ describe("openIndexDb", () => {
 
     expect(String(indexDb.database.pragma("journal_mode", { simple: true })).toLowerCase()).toBe("wal");
     expect(indexDb.database.prepare("SELECT value FROM meta WHERE key = 'schemaVersion'").get()).toEqual({
-      value: "5",
+      value: "6",
     });
     expect(indexDb.database.prepare("SELECT value FROM meta WHERE key = 'tokenizer'").get()).toEqual({
       value: "unicode61 remove_diacritics 2",
@@ -143,7 +143,7 @@ describe("openIndexDb", () => {
     const indexDb = track(openIndexDb(dbPath));
 
     expect(indexDb.database.prepare("SELECT value FROM meta WHERE key = 'schemaVersion'").get()).toEqual({
-      value: "5",
+      value: "6",
     });
     expect(() => indexDb.integrityCheck()).not.toThrow();
     expect(await readFile(dbPath, "utf8")).not.toBe("not a sqlite database");
@@ -166,7 +166,7 @@ describe("openIndexDb", () => {
     const rebuilt = track(openIndexDb(dbPath));
 
     expect(rebuilt.database.prepare("SELECT value FROM meta WHERE key = 'schemaVersion'").get()).toEqual({
-      value: "5",
+      value: "6",
     });
     expect(rebuilt.database.prepare("SELECT count(*) AS count FROM files").get()).toEqual({ count: 0 });
     expect(() => rebuilt.integrityCheck()).not.toThrow();

@@ -40,6 +40,7 @@ import {
   unsupportedParamsBody,
   validateSearchFilterParams,
 } from "../search/contract.js";
+import { classifySearchKind } from "../search/kind.js";
 import { makeVoyageClient, type VoyageClient, type VoyageClientOptions } from "../retrieval/voyage-client.js";
 import { loadMemoryConfig, type MemoryConfig } from "../storage/config.js";
 import { getVaultWriteCapability, type VaultWriteCapability } from "../sync/vault-capability.js";
@@ -1027,7 +1028,7 @@ function baseIndexSearchResponse(query: string, started: number): SearchResponse
 }
 
 function indexSearchResultToSearchResult(result: LexicalSearchResult, index: number): SearchResult {
-  const kind = searchKindFromIndexRelPath(result.relPath);
+  const kind = classifySearchKind({ relPath: result.relPath, kind: result.kind });
   const source = "index";
   return {
     path: result.relPath,
@@ -1056,12 +1057,6 @@ function titleFromIndexResult(result: LexicalSearchResult): string {
     if (parts.length > 0) return parts.at(-1)!;
   }
   return basename(result.relPath).replace(/\.md$/i, "");
-}
-
-function searchKindFromIndexRelPath(relPath: string): SearchResult["kind"] {
-  if (relPath.startsWith("raw/")) return "raw";
-  if (relPath.startsWith("wiki/")) return "wiki";
-  return "crystal";
 }
 
 function indexSearchTimings(started: number): SearchTimings {
@@ -1867,6 +1862,10 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
           writeJsonError(res, 400, `invalid as_of date: ${rawAsOf}`);
           return;
         }
+        if (!indexSearch && url.searchParams.has("includeArchived")) {
+          writeJson(res, unsupportedParamsBody(["includeArchived"]), 422);
+          return;
+        }
         const filterValidation = validateSearchFilterParams(url);
         if (!filterValidation.ok) {
           writeJson(res, filterValidation.body, 400);
@@ -1896,10 +1895,6 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
             const message = err instanceof Error ? err.message : String(err);
             writeJsonError(res, 500, message);
           }
-          return;
-        }
-        if (url.searchParams.has("includeArchived")) {
-          writeJson(res, unsupportedParamsBody(["includeArchived"]), 422);
           return;
         }
         const noRerank = parseSearchBoolean(url.searchParams.get("noRerank"));

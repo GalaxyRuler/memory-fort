@@ -78,6 +78,46 @@ describe("vector search", () => {
     expect(results.map((result) => result.relPath)).toEqual(["wiki/in-scope.md"]);
   });
 
+  it("keeps a type-defined crystal in crystal vector scope with crystal provenance", async () => {
+    const { vaultRoot, indexDb } = await createHarness();
+    const profile = profileFingerprint();
+    await writeVaultFile(
+      vaultRoot,
+      "wiki/projects/typed-crystal.md",
+      "---\ntitle: Typed crystal\ntype: crystal\n---\n\nsemantic payload",
+    );
+    await writeVaultFile(vaultRoot, "wiki/projects/wiki.md", "# Wiki\n\nsemantic payload");
+    await reconcileIndex(indexDb, vaultRoot);
+    await embedPath(indexDb, "wiki/projects/typed-crystal.md", profile, vector(0));
+    await embedPath(indexDb, "wiki/projects/wiki.md", profile, vector(1));
+
+    const executor = new InlineSearchExecutor({
+      indexDb,
+      embedder: fakeEmbedder(vector(0)),
+      profile,
+      k: 2,
+    });
+    const crystals = await executor.search({
+      query: "semantic payload",
+      scope: "crystals",
+      limit: 2,
+    });
+    expect(crystals.results).toEqual([
+      expect.objectContaining({
+        path: "wiki/projects/typed-crystal.md",
+        kind: "crystal",
+        provenance: expect.objectContaining({ kind: "crystal" }),
+      }),
+    ]);
+
+    const wiki = await executor.search({
+      query: "semantic payload",
+      scope: "wiki",
+      limit: 2,
+    });
+    expect(wiki.results.map((result) => result.path)).toEqual(["wiki/projects/wiki.md"]);
+  });
+
   it("excludes archived vector candidates before the limit unless requested", async () => {
     const { vaultRoot, indexDb } = await createHarness();
     const profile = profileFingerprint();

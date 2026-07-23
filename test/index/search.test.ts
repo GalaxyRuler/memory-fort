@@ -157,10 +157,15 @@ describe("lexicalSearch", () => {
       "---\ntitle: Wiki crystal\ntype: crystal\ncreated: 2026-01-01\nupdated: 2026-01-01\n---\n\nscopeword",
     );
     await writeVaultFile(vaultRoot, "wiki/projects/wiki.md", "# Wiki\n\nscopeword");
+    await writeVaultFile(
+      vaultRoot,
+      "wiki/projects/typed-crystal.md",
+      "---\ntitle: Typed crystal\ntype: crystal\ncreated: 2026-01-01\nupdated: 2026-01-01\n---\n\nscopeword",
+    );
     await reconcileIndex(indexDb, vaultRoot);
 
     expect(lexicalSearch(indexDb, "scopeword", { scope: "crystals" }).map((result) => result.relPath))
-      .toEqual(["crystals/top-level.md", "wiki/crystals/wiki-crystal.md"]);
+      .toEqual(["crystals/top-level.md", "wiki/crystals/wiki-crystal.md", "wiki/projects/typed-crystal.md"]);
     expect(lexicalSearch(indexDb, "scopeword", { scope: "wiki" }).map((result) => result.relPath))
       .toEqual(["wiki/projects/wiki.md"]);
   });

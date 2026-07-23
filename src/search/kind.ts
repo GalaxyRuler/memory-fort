@@ -18,7 +18,9 @@ export function classifySearchKind(input: SearchKindInput): SearchKind {
   }
   if (relPath.startsWith("raw/")) return "raw";
   if (relPath.startsWith("wiki/")) {
-    return input.type === "crystal" || input.type === "crystals" ? "crystal" : "wiki";
+    return input.kind === "crystal" || input.type === "crystal" || input.type === "crystals"
+      ? "crystal"
+      : "wiki";
   }
   if (
     input.kind === "crystal"

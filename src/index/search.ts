@@ -94,10 +94,11 @@ export interface LexicalSearchResult {
   readonly byteStart: number;
   readonly byteEnd: number;
   readonly text: string;
+  readonly kind?: SearchDocument["kind"];
   readonly score: number;
 }
 
-interface LexicalSearchRow extends LexicalSearchResult {
+interface LexicalSearchRow extends Omit<LexicalSearchResult, "kind"> {
   readonly bm25Score: number;
   readonly scopeRank: number;
   readonly kind: string | null;
@@ -236,6 +237,7 @@ export function lexicalSearch(
         byteStart: row.byteStart,
         byteEnd: row.byteEnd,
         text: row.text,
+        kind: searchKindFromIndexKind(row.kind, row.relPath),
         score,
       }));
   } catch (error) {

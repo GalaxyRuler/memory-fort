@@ -119,6 +119,30 @@ describe("reconcileIndex", () => {
     });
   });
 
+  it("persists the derived crystal kind for a type-defined wiki document", async () => {
+    const { vaultRoot, indexDb } = await createHarness();
+    await writeVaultFile(
+      vaultRoot,
+      "wiki/projects/typed-crystal.md",
+      [
+        "---",
+        "title: Typed Crystal",
+        "type: crystal",
+        "---",
+        "",
+        "persisted crystal kind",
+      ].join("\n"),
+    );
+
+    await reconcileIndex(indexDb, vaultRoot);
+
+    expect(
+      indexDb.database
+        .prepare<[string], { kind: string }>("SELECT kind FROM files WHERE relPath = ?")
+        .get("wiki/projects/typed-crystal.md"),
+    ).toEqual({ kind: "crystal" });
+  });
+
   it("skips dot-directory markdown backups under raw and wiki so they cannot be searched", async () => {
     const { vaultRoot, indexDb } = await createHarness();
     await writeVaultFile(vaultRoot, "raw/capture.md", "# Capture\n\nrawliveonly");

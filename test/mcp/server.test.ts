@@ -663,7 +663,15 @@ describe("memory.search MCP tool", () => {
             score: 0.8,
             source: "vector",
             sources: [{ source: "vector", rank: 1 }],
-            kind: "wiki",
+            kind: "crystal",
+          },
+          {
+            path: "wiki/tools/typed-crystal.md",
+            title: "Typed Crystal",
+            snippet: "Backend-classified crystal at a wiki path.",
+            score: 0.7,
+            source: "bm25",
+            kind: "crystal",
           },
         ],
         warnings: [],
@@ -690,6 +698,11 @@ describe("memory.search MCP tool", () => {
         provenance: { kind: "raw" },
       });
       const parsedPage = parseFrontmatter(await readFile(join(tmp, "wiki", "tools", "path-kind.md"), "utf-8"));
+      expect(parsed.results[2]).toMatchObject({
+        path: "wiki/tools/typed-crystal.md",
+        kind: "crystal",
+        provenance: { kind: "crystal" },
+      });
       expect(parsedPage.frontmatter.last_accessed).toBe("2026-06-02");
     } finally {
       await close();

@@ -99,6 +99,7 @@ export interface VectorSearchResult {
   readonly byteStart: number;
   readonly byteEnd: number;
   readonly text: string;
+  readonly kind?: SearchResult["kind"] | null;
   readonly distance: number;
   readonly vectorRank: number;
 }
@@ -112,6 +113,7 @@ export interface ChunkRrfInput {
   readonly byteStart: number;
   readonly byteEnd: number;
   readonly text: string;
+  readonly kind?: SearchResult["kind"] | null;
 }
 
 export interface ChunkRrfSource {
@@ -185,6 +187,7 @@ interface PayloadRow {
   readonly byteStart: number;
   readonly byteEnd: number;
   readonly text: string;
+  readonly kind: SearchResult["kind"] | null;
 }
 
 interface CachedQueryVector {
@@ -413,9 +416,11 @@ export function twoStageVectorSearch(database: SqliteDatabase, opts: VectorSearc
       c.headingPath AS headingPath,
       c.byteStart AS byteStart,
       c.byteEnd AS byteEnd,
-      c.text AS text
+      c.text AS text,
+      f.kind AS kind
     FROM chunk_vectors cv
     JOIN chunks c ON c.rowid = cv.chunkRowid
+    JOIN files f ON f.relPath = c.relPath
     WHERE cv.coarseRowid = ? AND cv.profileId = ? AND cv.status = 'embedded'
   `);
 
@@ -837,7 +842,7 @@ function baseResponse(
 
 function fusedToSearchResult(result: ChunkRrfResult): SearchResult {
   const source = dominantSource(result.sources);
-  const kind = searchKindFromIndexRelPath(result.relPath);
+  const kind = classifySearchKind({ relPath: result.relPath, kind: result.kind });
   const sources = result.sources.map((entry) => ({ source: entry.source, rank: entry.rank }));
   return {
     path: result.relPath,
@@ -862,7 +867,7 @@ function fusedToSearchResult(result: ChunkRrfResult): SearchResult {
 
 function lexicalToSearchResult(result: LexicalSearchResult, rank: number): SearchResult {
   const source = "index";
-  const kind = searchKindFromIndexRelPath(result.relPath);
+  const kind = classifySearchKind({ relPath: result.relPath, kind: result.kind });
   return {
     path: result.relPath,
     title: titleFromChunk(result),
@@ -916,10 +921,6 @@ function titleFromChunk(result: { readonly relPath: string; readonly headingPath
   const slash = result.relPath.lastIndexOf("/");
   const basename = slash >= 0 ? result.relPath.slice(slash + 1) : result.relPath;
   return basename.replace(/\.md$/i, "");
-}
-
-function searchKindFromIndexRelPath(relPath: string): SearchResult["kind"] {
-  return classifySearchKind({ relPath });
 }
 
 function dominantSource(sources: readonly ChunkRrfSource[]): string {

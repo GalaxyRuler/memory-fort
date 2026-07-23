@@ -224,6 +224,33 @@ describe("retrieval corpus loader", () => {
     expect(result.documents[0]?.kind).toBe("raw");
   });
 
+  it("classifies a type-defined wiki document as crystal across legacy scopes", async () => {
+    await writeMarkdown(
+      tmp,
+      "wiki/projects/typed-crystal.md",
+      frontmatterPage(
+        {
+          type: "crystal",
+          title: "Typed Crystal",
+          created: "2026-05-22",
+          updated: "2026-05-23",
+        },
+        "Typed crystal body.\n",
+      ),
+    );
+
+    const crystals = await loadSearchCorpus({ vaultRoot: tmp, scope: "crystals" });
+    expect(crystals.documents).toEqual([
+      expect.objectContaining({
+        relPath: "wiki/projects/typed-crystal.md",
+        kind: "crystal",
+      }),
+    ]);
+
+    const wiki = await loadSearchCorpus({ vaultRoot: tmp, scope: "wiki" });
+    expect(wiki.documents).toEqual([]);
+  });
+
   it("Scope filter: all returns wiki + raw + crystals", async () => {
     await writeMixedVault(tmp);
 

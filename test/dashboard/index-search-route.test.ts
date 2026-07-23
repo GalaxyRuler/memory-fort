@@ -155,15 +155,17 @@ describe("dashboard index search route", () => {
       voyageClient: null,
     });
 
-    const response = await fetch(
-      `http://${server.host}:${server.port}/api/search?q=needle&includeArchived=true`,
-    );
+    for (const value of ["", "1", "true"]) {
+      const response = await fetch(
+        `http://${server.host}:${server.port}/api/search?q=needle&includeArchived=${value}`,
+      );
 
-    expect(response.status).toBe(422);
-    await expect(response.json()).resolves.toEqual({
-      error: "unsupported_params",
-      unsupported_params: ["includeArchived"],
-    });
+      expect(response.status).toBe(422);
+      await expect(response.json()).resolves.toEqual({
+        error: "unsupported_params",
+        unsupported_params: ["includeArchived"],
+      });
+    }
   });
 
   it("uses lexical index search by default without loading the legacy corpus", async () => {
@@ -242,6 +244,77 @@ describe("dashboard index search route", () => {
 
     expect(response.status).toBe(200);
     expect(body.results).toEqual([]);
+  });
+
+  it("returns crystal result and provenance kinds from the default SQLite route", async () => {
+    const { vaultRoot, indexDbPath } = await createIndexedVaultWithPages([
+      [
+        "wiki/crystals/example.md",
+        "---\ntitle: Example crystal\ntype: crystal\n---\n\ncrystalneedle",
+      ],
+    ]);
+
+    server = await createServer({
+      vaultRoot,
+      port: 0,
+      env: { MEMORY_INDEX_DB_PATH: indexDbPath },
+      voyageClient: null,
+    });
+
+    const response = await fetch(
+      `http://${server.host}:${server.port}/api/search?q=crystalneedle&scope=crystals`,
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.results).toEqual([
+      expect.objectContaining({
+        path: "wiki/crystals/example.md",
+        kind: "crystal",
+        provenance: expect.objectContaining({
+          path: "wiki/crystals/example.md",
+          kind: "crystal",
+        }),
+      }),
+    ]);
+  });
+
+  it("serves a type-defined crystal outside wiki/crystals only in crystal scope", async () => {
+    const { vaultRoot, indexDbPath } = await createIndexedVaultWithPages([
+      [
+        "wiki/projects/typed-crystal.md",
+        "---\ntitle: Typed crystal\ntype: crystal\n---\n\ntypedcrystalneedle",
+      ],
+    ]);
+
+    server = await createServer({
+      vaultRoot,
+      port: 0,
+      env: { MEMORY_INDEX_DB_PATH: indexDbPath },
+      voyageClient: null,
+    });
+
+    const crystalResponse = await fetch(
+      `http://${server.host}:${server.port}/api/search?q=typedcrystalneedle&scope=crystals`,
+    );
+    const crystalBody = await crystalResponse.json();
+    expect(crystalResponse.status).toBe(200);
+    expect(crystalBody.results).toEqual([
+      expect.objectContaining({
+        path: "wiki/projects/typed-crystal.md",
+        kind: "crystal",
+        provenance: expect.objectContaining({
+          kind: "crystal",
+        }),
+      }),
+    ]);
+
+    const wikiResponse = await fetch(
+      `http://${server.host}:${server.port}/api/search?q=typedcrystalneedle&scope=wiki`,
+    );
+    const wikiBody = await wikiResponse.json();
+    expect(wikiResponse.status).toBe(200);
+    expect(wikiBody.results).toEqual([]);
   });
 
   it("returns stable 422 unsupported_params for explicit unsupported index controls", async () => {

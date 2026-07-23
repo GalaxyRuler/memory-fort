@@ -15,6 +15,7 @@ import {
   type ValidationState,
 } from "../storage/frontmatter.js";
 import { isWikiDotDirectoryPath } from "../retrieval/wiki-paths.js";
+import { classifySearchKind, type SearchKind } from "../search/kind.js";
 
 export interface ReconcileIndexResult {
   readonly filesIndexed: number;
@@ -37,8 +38,7 @@ export interface ReconcileIndexOptions {
 
 const DEFAULT_MAX_CHUNKS_PER_FILE = 50_000;
 const DEFAULT_MAX_FILE_BYTES = 16 * 1024 * 1024;
-type IndexedFileKind = "raw" | "wiki" | "crystal";
-
+type IndexedFileKind = SearchKind;
 
 interface VaultFile {
   readonly absPath: string;
@@ -47,6 +47,7 @@ interface VaultFile {
 }
 
 interface FileStatRow {
+  readonly kind: IndexedFileKind | null;
   readonly sizeBytes: number | null;
   readonly mtimeMs: number | null;
   readonly contentHash: string | null;
@@ -67,6 +68,7 @@ interface CoarseRowidRow {
 }
 
 interface FileFrontmatterMetadata {
+  readonly frontmatterType: string | null;
   readonly frontmatterStatus: string | null;
   readonly frontmatterLifecycle: LifecycleStage | null;
   readonly frontmatterConfidence: number | null;
@@ -101,7 +103,7 @@ export async function reconcileIndex(
     const mtimeMs = Math.trunc(stats.mtimeMs);
     const existing = db
       .prepare<[string], FileStatRow>(
-        "SELECT sizeBytes, mtimeMs, contentHash, generation, errorState FROM files WHERE relPath = ?",
+        "SELECT kind, sizeBytes, mtimeMs, contentHash, generation, errorState FROM files WHERE relPath = ?",
       )
       .get(file.relPath);
     if (stats.size > maxFileBytes) {
@@ -126,7 +128,7 @@ export async function reconcileIndex(
     if (existing?.contentHash === contentHash && !existing.errorState) {
       markFileUnchanged(db, {
         relPath: file.relPath,
-        kind: file.kind,
+        kind: existing.kind ?? file.kind,
         sizeBytes: stats.size,
         mtimeMs,
         runId,
@@ -138,7 +140,7 @@ export async function reconcileIndex(
     if (existing?.contentHash === indexedContent.contentHash && !existing.errorState) {
       markFileUnchanged(db, {
         relPath: file.relPath,
-        kind: file.kind,
+        kind: existing.kind ?? file.kind,
         sizeBytes: stats.size,
         mtimeMs,
         runId,
@@ -148,6 +150,11 @@ export async function reconcileIndex(
 
     const generation = (existing?.generation ?? 0) + 1;
     const frontmatterMetadata = extractFrontmatterMetadata(indexedContent.text);
+    const indexedKind = classifySearchKind({
+      relPath: file.relPath,
+      kind: file.kind,
+      type: frontmatterMetadata.frontmatterType,
+    });
     const fileChunks = chunkMarkdown(indexedContent.text, options.chunkOptions);
     if (fileChunks.length > maxChunksPerFile) {
       markFileSkipped(db, {
@@ -167,7 +174,7 @@ export async function reconcileIndex(
       db,
       {
         relPath: file.relPath,
-        kind: file.kind,
+        kind: indexedKind,
         sizeBytes: stats.size,
         mtimeMs,
         contentHash: indexedContent.contentHash,
@@ -575,6 +582,7 @@ function extractFrontmatterMetadata(content: string): FileFrontmatterMetadata {
     const confidence = readConfidence(frontmatter.confidence);
     return {
       frontmatterStatus: readString(frontmatter.status),
+      frontmatterType: readString(frontmatter.type),
       frontmatterLifecycle: readLifecycle(frontmatter.lifecycle),
       frontmatterConfidence: confidence === undefined ? null : getConfidenceScore(confidence),
       frontmatterConfidenceJson: confidence === undefined ? null : JSON.stringify(confidence),
@@ -595,6 +603,7 @@ function extractFrontmatterMetadata(content: string): FileFrontmatterMetadata {
 function emptyFrontmatterMetadata(): FileFrontmatterMetadata {
   return {
     frontmatterStatus: null,
+    frontmatterType: null,
     frontmatterLifecycle: null,
     frontmatterConfidence: null,
     frontmatterConfidenceJson: null,
