@@ -20,7 +20,11 @@ import { loadMemoryConfig, resolveCompileConfig, type MemoryConfig } from "../..
 import { parseFrontmatter } from "../../storage/frontmatter.js";
 import { memoryRoot } from "../../storage/paths.js";
 import { filterNoiseForPage } from "../../compile/filter-noise.js";
-import { synthesizeNarrative } from "../../compile/synthesize-narrative.js";
+import {
+  stageNarrativeReview,
+  synthesizeNarrative,
+  validateDatedBlockConservation,
+} from "../../compile/synthesize-narrative.js";
 
 export interface CurateOptions {
   vaultRoot?: string;
@@ -75,8 +79,25 @@ export async function runCurate(opts: CurateOptions = {}): Promise<CurateResult>
       continue;
     }
 
-    const generated = await requestCuratedRewrite(root, target, opts);
+    let generated: Awaited<ReturnType<typeof requestCuratedRewrite>>;
+    try {
+      generated = await requestCuratedRewrite(root, target, opts);
+    } catch (error) {
+      pages.push(await stageCurateReview(root, target, {
+        reason: `memory curate: generated rewrite is unverifiable: ${errorMessage(error)}`,
+      }, mode, opts.now));
+      continue;
+    }
     const operation = generated.operation;
+    const currentBody = parseFrontmatter(await readFile(join(root, ...target.split("/")), "utf-8")).body;
+    const datedEvidence = validateDatedBlockConservation(currentBody, operation.body, []);
+    if (!datedEvidence.ok) {
+      pages.push(await stageCurateReview(root, target, {
+        body: operation.body,
+        reason: `memory curate: ${datedEvidence.reason}`,
+      }, mode, opts.now));
+      continue;
+    }
     const withConfidence = {
       ...operation,
       frontmatter: {
@@ -113,6 +134,24 @@ export function formatCurateResult(result: CurateResult): string {
     lines.push(`  - ${page.outcome}: ${page.path}${page.proposed ? " (staged)" : ""}`);
   }
   return `${lines.join("\n")}\n`;
+}
+
+async function stageCurateReview(
+  root: string,
+  target: string,
+  packet: unknown,
+  mode: CurateResult["mode"],
+  now: Date | undefined,
+): Promise<CuratePageResult> {
+  if (mode === "plan") {
+    return { path: target, outcome: "staged-for-review", proposed: true };
+  }
+  const staged = await stageNarrativeReview(root, target, packet, now);
+  return {
+    path: target,
+    outcome: "staged-for-review",
+    proposed: !staged.alreadyResolved,
+  };
 }
 
 async function requestCuratedRewrite(
@@ -168,6 +207,9 @@ async function requestCuratedRewrite(
     },
     env,
   });
+  if (response.finishReason !== "stop") {
+    throw new Error(`LLM response could not be verified (finishReason=${response.finishReason})`);
+  }
   const parsed = parseCompileOperationBlock(response.content);
   if (!parsed.ok) {
     throw new Error(`memory curate: ${parsed.reason}`);
@@ -536,4 +578,8 @@ async function listBloatedWikiPages(root: string, threshold: number): Promise<st
 
   await walk(wikiRoot);
   return pages.sort();
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

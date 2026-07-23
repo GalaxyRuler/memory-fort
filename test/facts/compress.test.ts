@@ -174,10 +174,10 @@ describe("memory fact compression", () => {
     const llm = promptAwareCompressionLLM((request) => {
       const prompt = request.messages.at(-1)?.content ?? "";
       const facts: Array<Record<string, unknown>> = [];
+      if (prompt.includes("Opening WebView2")) facts.push(factBundle("Opening WebView2 initialization", "fact"));
       if (prompt.includes("Test-Driven Development")) facts.push(factBundle("Test-Driven Development", "procedure"));
       if (prompt.includes("Systematic Debugging")) facts.push(factBundle("Systematic Debugging Process", "procedure"));
       if (prompt.includes("Homelab Runner")) facts.push(factBundle("Homelab Runner Integration", "decision"));
-      if (facts.length === 0) facts.push(factBundle("Opening WebView2 initialization", "fact"));
       return facts;
     });
 
@@ -225,7 +225,8 @@ describe("memory fact compression", () => {
       const prompt = request.messages.at(-1)?.content ?? "";
       if (prompt.includes("FIRST_CHUNK_MARKER")) return [factBundle("First chunk marker", "fact")];
       if (prompt.includes("LAST_CHUNK_MARKER")) return [factBundle("Last chunk marker", "fact")];
-      return [factBundle("Interior marker", "fact")];
+      if (prompt.includes("interior marker")) return [factBundle("Interior marker", "fact")];
+      return [];
     });
 
     const result = await runCompress({
@@ -242,10 +243,10 @@ describe("memory fact compression", () => {
     });
 
     // The first pass covers the CONTIGUOUS front window [1..4], not a spread sample.
-    expect(llm.chat).toHaveBeenCalledTimes(4);
+    expect(compressionCallCount(llm)).toBe(4);
     expect(result.files[0]?.totalChunks).toBeGreaterThan(4);
     expect(logs.join("\n")).toContain("processing chunks 1-4");
-    const prompts = vi.mocked(llm.chat).mock.calls.map((call) => call[0].messages.at(-1)!.content).join("\n");
+    const prompts = compressionPrompts(llm).join("\n");
     // Front window includes the first chunk; the last chunk is beyond it and
     // resumes on a later pass (proven by the multi-pass convergence test).
     expect(prompts).toContain("FIRST_CHUNK_MARKER");
@@ -262,7 +263,10 @@ describe("memory fact compression", () => {
       deepSecret,
       "DEEP_SECRET_MARKER",
     ].join("\n"));
-    const llm = promptAwareCompressionLLM(() => [factBundle("Deep secret marker", "fact")]);
+    const llm = promptAwareCompressionLLM((request) => {
+      const prompt = request.messages.at(-1)?.content ?? "";
+      return prompt.includes("DEEP_SECRET_MARKER") ? [factBundle("Deep secret marker", "fact")] : [];
+    });
 
     await runCompress({
       vaultRoot: tmp,
@@ -276,7 +280,7 @@ describe("memory fact compression", () => {
       now: new Date("2026-05-31T12:00:00.000Z"),
     });
 
-    const prompts = vi.mocked(llm.chat).mock.calls.map((call) => call[0].messages.at(-1)!.content).join("\n");
+    const prompts = compressionPrompts(llm).join("\n");
     expect(prompts).not.toContain("sk-deep-secret-token");
     expect(prompts).toContain("DEEP_SECRET_TOKEN=[REDACTED]");
     expect(prompts).toContain("DEEP_SECRET_MARKER");
@@ -311,7 +315,7 @@ describe("memory fact compression", () => {
 
     expect(first.summary).toMatchObject({ compressed: 1, skipped: 0, factsWritten: 1 });
     expect(second.summary).toMatchObject({ compressed: 0, skipped: 1, factsWritten: 0 });
-    expect(llm.chat).toHaveBeenCalledTimes(1);
+    expect(compressionCallCount(llm)).toBe(1);
     expect(existsSync(join(tmp, "facts", "2026-05-31", "session-a.json"))).toBe(true);
     const state = await readCompileStateFile(tmp);
     expect(state.compressed?.["raw/2026-05-31/session-a.md"]?.bytes).toBeGreaterThan(0);
@@ -351,7 +355,7 @@ describe("memory fact compression", () => {
 
     expect(first.summary).toMatchObject({ compressed: 1, skipped: 0 });
     expect(second.summary).toMatchObject({ compressed: 0, skipped: 1 });
-    expect(llm.chat).toHaveBeenCalledTimes(1);
+    expect(compressionCallCount(llm)).toBe(1);
     const state = await readCompileStateFile(tmp);
     expect(state.compressed?.["raw/2026-05-31/session-a.md"]?.compressVersion).toBe(CURRENT_COMPRESS_VERSION);
   });
@@ -372,6 +376,15 @@ describe("memory fact compression", () => {
       providerName: "ollama",
       modelName: "llama3.2",
       chat: vi.fn(async (request) => {
+        if (request.jsonSchema?.name === "FaithfulnessOutput") {
+          return {
+            model: "llama3.2",
+            finishReason: "stop" as const,
+            rawProviderName: "ollama",
+            tokensUsed: { prompt: 20, completion: 8, total: 28 },
+            content: JSON.stringify({ unsupported_claims: [] }),
+          };
+        }
         const prompt = request.messages.at(-1)?.content ?? "";
         if (prompt.includes("session-a.md")) {
           throw new Error("provider timeout");
@@ -391,6 +404,7 @@ describe("memory fact compression", () => {
                 concepts: ["Memory System"],
                 files: [],
                 importance: 7,
+                evidence: "Memory System added a safe dashboard status contract.",
               }],
             }),
             "```",
@@ -467,18 +481,41 @@ function promptAwareCompressionLLM(factory: (request: LLMRequest) => Array<Recor
   return {
     providerName: "ollama",
     modelName: "llama3.2",
-    chat: vi.fn(async (request) => ({
-      model: "llama3.2",
-      finishReason: "stop",
-      rawProviderName: "ollama",
-      tokensUsed: { prompt: 20, completion: 8, total: 28 },
-      content: [
-        "```json",
-        JSON.stringify({ facts: factory(request) }),
-        "```",
-      ].join("\n"),
-    })),
+    chat: vi.fn(async (request) => {
+      if (request.jsonSchema?.name === "FaithfulnessOutput") {
+        return {
+          model: "llama3.2",
+          finishReason: "stop" as const,
+          rawProviderName: "ollama",
+          tokensUsed: { prompt: 20, completion: 8, total: 28 },
+          content: JSON.stringify({ unsupported_claims: [] }),
+        };
+      }
+      const prompt = request.messages.at(-1)?.content ?? "";
+      const evidence = /Session text:\n```markdown\n([\s\S]*?)\n```/.exec(prompt)?.[1] ?? "session evidence unavailable";
+      return {
+        model: "llama3.2",
+        finishReason: "stop" as const,
+        rawProviderName: "ollama",
+        tokensUsed: { prompt: 20, completion: 8, total: 28 },
+        content: [
+          "```json",
+          JSON.stringify({ facts: factory(request).map((fact) => ({ ...fact, evidence: fact.evidence ?? evidence })) }),
+          "```",
+        ].join("\n"),
+      };
+    }),
   };
+}
+
+function compressionCallCount(llm: LLMProvider): number {
+  return vi.mocked(llm.chat).mock.calls.filter(([request]) => request.jsonSchema?.name !== "FaithfulnessOutput").length;
+}
+
+function compressionPrompts(llm: LLMProvider): string[] {
+  return vi.mocked(llm.chat).mock.calls
+    .filter(([request]) => request.jsonSchema?.name !== "FaithfulnessOutput")
+    .map(([request]) => request.messages.at(-1)?.content ?? "");
 }
 
 function truncatedCompressionLLM(reason: "length" | "filter" | "error" | "other" | "tool_calls"): LLMProvider {
@@ -586,15 +623,14 @@ describe("compress rejects unusable fact members (semantic-invalid, not just tru
     ).rejects.toThrow(/unusable/);
   });
 
-  it("allows a genuinely empty extraction ({\"facts\":[]})", async () => {
-    const facts = await compressSession({
-      rawText: "## [10:00:00] Prompt\nhello\n",
+  it("rejects an empty extraction for a substantive chunk instead of marking it covered", async () => {
+    await expect(compressSession({
+      rawText: "## [10:00:00] Observation\nMemory System shipped Phase 3 retrieval.\n",
       rawRelPath: "raw/2026-07-17/x.md",
       sessionId: "x",
       observedAt: "2026-07-17T00:00:00.000Z",
       llm: factsResponseLlm("```json\n" + JSON.stringify({ facts: [] }) + "\n```"),
-    });
-    expect(facts).toEqual([]);
+    })).rejects.toThrow(/empty fact bundle/);
   });
 });
 

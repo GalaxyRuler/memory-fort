@@ -1,12 +1,13 @@
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-import { readFile, readdir, stat } from "node:fs/promises";
+import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { mutateCompileStateFile, readCompressedMap, readCompileStateFile, writeCompileStateFile, type CompileConsumedWatermark } from "../../compile/state.js";
 import { createLLMFromConfig, getActiveLLMConfig, type LLMConfig } from "../../llm/factory.js";
 import { estimateLLMCostUsd } from "../../llm/pricing.js";
 import type { LLMProvider, LLMTokenUsage } from "../../llm/types.js";
-import { loadMemoryConfig, type MemoryConfig } from "../../storage/config.js";
+import { redactSecrets } from "../../privacy/redaction.js";
+import { loadMemoryConfig, resolveCompileConfig, type MemoryConfig } from "../../storage/config.js";
 import { memoryRoot } from "../../storage/paths.js";
 import { listRawMarkdownFiles } from "../../storage/raw-walker.js";
 import {
@@ -119,10 +120,12 @@ export async function runCompress(opts: CompressOptions = {}): Promise<CompressR
 
   let llm: LLMProvider | undefined;
   let compressConfig = defaultCompressConfig();
+  let faithfulnessCheck = true;
   if (mode === "apply") {
     const env = opts.env ?? process.env;
     const config = await (opts.configLoader ?? (() => loadMemoryConfig(root)))();
     compressConfig = compressConfigFromMemoryConfig(config);
+    faithfulnessCheck = resolveCompileConfig(config.compile).faithfulness_check;
     llm = (opts.llmFactory ?? createLLMFromConfig)(getActiveLLMConfig(config), env);
   }
 
@@ -179,9 +182,11 @@ export async function runCompress(opts: CompressOptions = {}): Promise<CompressR
       continue;
     }
     if (!llm) throw new Error("memory compress: LLM is required in apply mode");
+    let rawSourceHash: string | undefined;
     try {
       const rawText = await readFile(raw.fullPath, "utf-8");
       const currentHash = sha256(rawText);
+      rawSourceHash = currentHash;
       // Content identity, not size: a same-length in-place edit has bytesMatch
       // true but changed content. Legacy watermarks without a sourceHash fall
       // back to size (append-only assumption).
@@ -239,6 +244,7 @@ export async function runCompress(opts: CompressOptions = {}): Promise<CompressR
         env: opts.env,
         now: opts.now,
         logger: opts.logger,
+        faithfulnessCheck,
         startChunk,
       });
 
@@ -302,13 +308,22 @@ export async function runCompress(opts: CompressOptions = {}): Promise<CompressR
       tokensUsed = addTokenUsage(tokensUsed, result.tokensUsed);
       delete quarantine[raw.relPath]; // a successful pass clears the fail tally
     } catch (err) {
+      const reason = redactSecrets(errorMessage(err));
+      await writeCompressionRejectionReview({
+        vaultRoot: root,
+        rawRelPath: raw.relPath,
+        sourceHash: rawSourceHash,
+        bytes: info.size,
+        reason,
+        now: opts.now ?? new Date(),
+      });
       const prior = quarantine[raw.relPath];
       // Reset the tally when the source changed (size OR mtime) — a corrected
       // file is a new source version and deserves fresh attempts.
       const sameSource = prior && prior.bytes === info.size && prior.mtimeMs === info.mtimeMs;
       const attempts = sameSource ? prior!.attempts + 1 : 1;
       quarantine[raw.relPath] = { attempts, bytes: info.size, mtimeMs: info.mtimeMs };
-      files.push({ path: raw.relPath, outcome: "failed", facts: 0, reason: errorMessage(err) });
+      files.push({ path: raw.relPath, outcome: "failed", facts: 0, reason });
     }
   }
 
@@ -415,6 +430,40 @@ async function archiveHasSourceHash(root: string, rawRelPath: string, targetHash
     }
   }
   return false;
+}
+
+async function writeCompressionRejectionReview(opts: {
+  vaultRoot: string;
+  rawRelPath: string;
+  sourceHash?: string;
+  bytes: number;
+  reason: string;
+  now: Date;
+}): Promise<void> {
+  // Keep the precise raw reference and content fingerprint reviewable without
+  // duplicating raw text or an untrusted LLM candidate into a wiki artifact.
+  // Raw sessions can contain sensitive material; the canonical source remains
+  // the redacted-at-prompt raw file named below.
+  const fingerprint = sha256(opts.rawRelPath).slice(0, 16);
+  const reviewDir = join(opts.vaultRoot, "wiki", ".audit", "compress-rejections");
+  const reviewPath = join(reviewDir, `${fingerprint}.md`);
+  await mkdir(reviewDir, { recursive: true });
+  await writeFile(reviewPath, [
+    "# Compression rejection review",
+    "",
+    `Recorded: ${opts.now.toISOString()}`,
+    `Raw source: ${opts.rawRelPath}`,
+    `Source hash: ${opts.sourceHash ?? "unavailable (source read failed)"}`,
+    `Source bytes: ${opts.bytes}`,
+    "",
+    "Evidence context:",
+    "- Inspect the retained raw source at the path above; its text is deliberately not copied here because it may contain secrets.",
+    "- The source hash binds this review to the exact raw version that was rejected.",
+    "",
+    "Rejection reason:",
+    opts.reason,
+    "",
+  ].join("\n"), "utf-8");
 }
 
 function readSessionId(rawText: string): string | null {

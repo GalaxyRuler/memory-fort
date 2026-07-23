@@ -33,9 +33,10 @@ describe("runCurate", () => {
 
   it("applies a non-shrinking curated rewrite and is idempotent on re-run", async () => {
     const llm = fakeCurateLLM([
-      "Memory Fort stores durable memory and records compile observations.",
+      "Memory Fort stores durable memory.",
+      "Memory Fort records compile observations.",
       "",
-      "It now supports curate-merge consolidation.",
+      "Memory Fort now supports curate-merge consolidation.",
     ].join("\n"));
 
     const first = await runCurate({
@@ -75,10 +76,63 @@ describe("runCurate", () => {
     expect(existsSync(join(tmp, "wiki", ".history", "wiki", "projects", "memory-fort.md", "2026-05-31T12-00-00-000Z.md"))).toBe(true);
   });
 
+  it("stages a parseable normal-curate response when its source finish reason is non-stop", async () => {
+    const before = await readFile(join(tmp, "wiki", "projects", "memory-fort.md"), "utf-8");
+    const llm = fakeCurateLLM(
+      "Memory Fort stores durable memory.",
+      { unsupported_claims: [] },
+      { finishReason: "error" },
+    );
+
+    const result = await runCurate({
+      vaultRoot: tmp,
+      target: "wiki/projects/memory-fort.md",
+      apply: true,
+      configLoader: async () => ({ llm: { provider: "ollama", model: "llama3.2" } }),
+      llmFactory: () => llm,
+      env: {},
+      now: new Date("2026-05-31T12:00:00.000Z"),
+    });
+
+    expect(result.pages).toEqual([{
+      path: "wiki/projects/memory-fort.md",
+      outcome: "staged-for-review",
+      proposed: true,
+    }]);
+    expect(await readFile(join(tmp, "wiki", "projects", "memory-fort.md"), "utf-8")).toBe(before);
+    expect(existsSync(join(tmp, "wiki", "compile-proposed", "memory-fort.md"))).toBe(true);
+  });
+
+  it("stages a hostile dated-section consolidation that cannot conserve the dated evidence spans", async () => {
+    const before = await readFile(join(tmp, "wiki", "projects", "memory-fort.md"), "utf-8");
+    const result = await runCurate({
+      vaultRoot: tmp,
+      target: "wiki/projects/memory-fort.md",
+      apply: true,
+      configLoader: async () => ({ llm: { provider: "ollama", model: "llama3.2" } }),
+      llmFactory: () => fakeCurateLLM("Memory Fort stores durable memory."),
+      env: {},
+      now: new Date("2026-05-31T12:00:00.000Z"),
+    });
+
+    expect(result.pages).toEqual([{
+      path: "wiki/projects/memory-fort.md",
+      outcome: "staged-for-review",
+      proposed: true,
+    }]);
+    expect(await readFile(join(tmp, "wiki", "projects", "memory-fort.md"), "utf-8")).toBe(before);
+    const proposal = await readFile(join(tmp, "wiki", "compile-proposed", "memory-fort.md"), "utf-8");
+    expect(proposal).toContain("dropped dated evidence spans");
+  });
+
   it("stages a curated rewrite when the faithfulness verdict is malformed", async () => {
     const before = await readFile(join(tmp, "wiki", "projects", "memory-fort.md"), "utf-8");
     const llm = fakeCurateLLM(
-      "Memory Fort stores durable memory and records compile observations.",
+      [
+        "Memory Fort stores durable memory.",
+        "Memory Fort records compile observations.",
+        "Memory Fort now supports curate-merge consolidation.",
+      ].join("\n"),
       "not valid judge JSON",
     );
 
@@ -302,6 +356,7 @@ function page(body: string): string {
 function fakeCurateLLM(
   body: string,
   faithfulness: { unsupported_claims: string[] } | string = { unsupported_claims: [] },
+  responseOptions: { finishReason?: import("../../../src/llm/types.js").LLMFinishReason } = {},
 ): LLMProvider {
   return {
     providerName: "ollama",
@@ -317,7 +372,7 @@ function fakeCurateLLM(
       }
       return {
       model: "llama3.2",
-      finishReason: "stop",
+      finishReason: responseOptions.finishReason ?? "stop",
       rawProviderName: "ollama",
       content: [
         "```compile-op",

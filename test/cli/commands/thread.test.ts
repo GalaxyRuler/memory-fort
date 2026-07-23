@@ -1,6 +1,13 @@
 import { execFile as nodeExecFile } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
@@ -23,13 +30,26 @@ describe("thread commands", () => {
   beforeEach(async () => {
     tmp = await mkdtemp(join(tmpdir(), "memory-thread-"));
     await mkdir(join(tmp, "wiki", "projects"), { recursive: true });
-    await writeMarkdown("wiki/projects/memory-fort.md", page("projects", "Memory Fort", "Shared project page."));
-    await writeMarkdown("wiki/decisions/settings-ui.md", page("decisions", "Settings UI", "Decision."));
-    await writeMarkdown("wiki/lessons/env-secrets.md", page("lessons", "Env Secrets", "Lesson."));
+    await writeMarkdown(
+      "wiki/projects/memory-fort.md",
+      page("projects", "Memory Fort", "Shared project page."),
+    );
+    await writeMarkdown(
+      "wiki/decisions/settings-ui.md",
+      page("decisions", "Settings UI", "Decision."),
+    );
+    await writeMarkdown(
+      "wiki/lessons/env-secrets.md",
+      page("lessons", "Env Secrets", "Lesson."),
+    );
     for (let index = 1; index <= 3; index += 1) {
       await writeMarkdown(
         `raw/2026-05-2${index}/codex-${index}.md`,
-        rawPage(`Raw ${index}`, `Observation ${index} about Memory Fort settings.`, ["wiki/projects/memory-fort.md"]),
+        rawPage(
+          `Raw ${index}`,
+          `Observation ${index} about Memory Fort settings.`,
+          ["wiki/projects/memory-fort.md"],
+        ),
       );
     }
   });
@@ -45,7 +65,9 @@ describe("thread commands", () => {
       days: 30,
       maxProposals: 1,
       now: new Date("2026-05-28T12:00:00.000Z"),
-      configLoader: async () => ({ llm: { provider: "ollama", model: "llama3.2" } }),
+      configLoader: async () => ({
+        llm: { provider: "ollama", model: "llama3.2" },
+      }),
       llmFactory: () => fakeLLM("memory-fort-settings"),
       env: {},
     });
@@ -60,10 +82,16 @@ describe("thread commands", () => {
       relPath: "wiki/threads-proposed/memory-fort-settings.md",
       observationCount: 3,
     });
-    expect(existsSync(join(tmp, "wiki", "threads-proposed", "memory-fort-settings.md"))).toBe(false);
+    expect(
+      existsSync(
+        join(tmp, "wiki", "threads-proposed", "memory-fort-settings.md"),
+      ),
+    ).toBe(false);
     expect(existsSync(result.auditLogPath)).toBe(true);
     expect(formatThreadProposeResult(result)).toContain("Mode: plan");
-    expect(formatThreadProposeResult(result)).toContain("References stripped: 0 (avg 0.0 per proposal)");
+    expect(formatThreadProposeResult(result)).toContain(
+      "References stripped: 0 (avg 0.0 per proposal)",
+    );
   });
 
   it("skips clusters meaningfully covered by an existing thread without calling the LLM", async () => {
@@ -93,13 +121,17 @@ describe("thread commands", () => {
       days: 30,
       maxProposals: 1,
       now: new Date("2026-05-28T12:00:00.000Z"),
-      configLoader: async () => ({ llm: { provider: "ollama", model: "llama3.2" } }),
+      configLoader: async () => ({
+        llm: { provider: "ollama", model: "llama3.2" },
+      }),
       llmFactory: () => llm,
       env: {},
     });
 
     expect(result.proposed).toBe(0);
-    expect(result.skipped[0]?.reason).toBe("already represented by an existing thread or draft");
+    expect(result.skipped[0]?.reason).toBe(
+      "already represented by an existing thread or draft",
+    );
     expect(llm.chat).not.toHaveBeenCalled();
   });
 
@@ -126,7 +158,9 @@ describe("thread commands", () => {
       days: 30,
       maxProposals: 1,
       now: new Date("2026-05-28T12:00:00.000Z"),
-      configLoader: async () => ({ llm: { provider: "ollama", model: "llama3.2" } }),
+      configLoader: async () => ({
+        llm: { provider: "ollama", model: "llama3.2" },
+      }),
       llmFactory: () => fakeLLM("memory-fort-settings"),
       env: {},
     });
@@ -146,14 +180,21 @@ describe("thread commands", () => {
       days: 30,
       maxProposals: 1,
       now: new Date("2026-05-28T12:00:00.000Z"),
-      configLoader: async () => ({ llm: { provider: "ollama", model: "llama3.2" } }),
+      configLoader: async () => ({
+        llm: { provider: "ollama", model: "llama3.2" },
+      }),
       llmFactory: () => fakeLLM("memory-fort-settings"),
       env: {},
     });
 
     expect(result.written).toBe(1);
     expect(result.proposals[0]?.slug).toBe("memory-fort-settings-2");
-    const draftPath = join(tmp, "wiki", "threads-proposed", "memory-fort-settings-2.md");
+    const draftPath = join(
+      tmp,
+      "wiki",
+      "threads-proposed",
+      "memory-fort-settings-2.md",
+    );
     const draft = parseFrontmatter(await readFile(draftPath, "utf-8"));
     expect(draft.frontmatter.lifecycle).toBe("proposed");
     expect(draft.frontmatter.source).toBe("auto-thread-propose");
@@ -162,14 +203,20 @@ describe("thread commands", () => {
       "raw/2026-05-22/codex-2.md",
       "raw/2026-05-23/codex-3.md",
     ]);
-    expect(existsSync(join(tmp, "wiki", "threads", "memory-fort-settings-2.md"))).toBe(false);
+    expect(
+      existsSync(join(tmp, "wiki", "threads", "memory-fort-settings-2.md")),
+    ).toBe(false);
   });
 
   it("auto-promotes high-confidence thread proposals when requested", async () => {
     for (let index = 4; index <= 5; index += 1) {
       await writeMarkdown(
         `raw/2026-05-2${index}/codex-${index}.md`,
-        rawPage(`Raw ${index}`, `Observation ${index} about Memory Fort settings.`, ["wiki/projects/memory-fort.md"]),
+        rawPage(
+          `Raw ${index}`,
+          `Observation ${index} about Memory Fort settings.`,
+          ["wiki/projects/memory-fort.md"],
+        ),
       );
     }
 
@@ -180,7 +227,9 @@ describe("thread commands", () => {
       days: 30,
       maxProposals: 1,
       now: new Date("2026-05-28T12:00:00.000Z"),
-      configLoader: async () => ({ llm: { provider: "ollama", model: "llama3.2" } }),
+      configLoader: async () => ({
+        llm: { provider: "ollama", model: "llama3.2" },
+      }),
       llmFactory: () => fakeLLM("memory-fort-settings"),
       env: {},
     });
@@ -193,11 +242,105 @@ describe("thread commands", () => {
       autoPromoted: true,
       confidence: { level: "high", reasons: ["all signals clean"] },
     });
-    expect(existsSync(join(tmp, "wiki", "threads", "memory-fort-settings.md"))).toBe(true);
-    expect(existsSync(join(tmp, "wiki", "threads-proposed", "memory-fort-settings.md"))).toBe(false);
-    expect(formatThreadProposeResult(result)).toContain("Drafts auto-promoted: 1");
-    expect(formatThreadProposeResult(result)).toContain("Drafts awaiting review: 0");
-    expect(await readFile(result.auditLogPath, "utf-8")).toContain("autoPromoted: true");
+    expect(
+      existsSync(join(tmp, "wiki", "threads", "memory-fort-settings.md")),
+    ).toBe(true);
+    expect(
+      existsSync(
+        join(tmp, "wiki", "threads-proposed", "memory-fort-settings.md"),
+      ),
+    ).toBe(false);
+    expect(formatThreadProposeResult(result)).toContain(
+      "Drafts auto-promoted: 1",
+    );
+    expect(formatThreadProposeResult(result)).toContain(
+      "Drafts awaiting review: 0",
+    );
+    expect(await readFile(result.auditLogPath, "utf-8")).toContain(
+      "autoPromoted: true",
+    );
+  });
+
+  it("keeps a high-confidence thread proposal staged when the faithfulness judge is unverifiable", async () => {
+    for (let index = 4; index <= 5; index += 1) {
+      await writeMarkdown(
+        `raw/2026-05-2${index}/codex-${index}.md`,
+        rawPage(
+          `Raw ${index}`,
+          `Observation ${index} about Memory Fort settings.`,
+          ["wiki/projects/memory-fort.md"],
+        ),
+      );
+    }
+    const llm = fakeLLM("memory-fort-settings", {}, "not json");
+
+    const result = await runThreadPropose({
+      vaultRoot: tmp,
+      apply: true,
+      autoPromote: true,
+      days: 30,
+      maxProposals: 1,
+      now: new Date("2026-05-28T12:00:00.000Z"),
+      configLoader: async () => ({
+        llm: { provider: "ollama", model: "llama3.2" },
+      }),
+      llmFactory: () => llm,
+      env: {},
+    });
+
+    expect(result.autoPromoted).toBe(0);
+    expect(result.awaitingReview).toBe(1);
+    expect(
+      existsSync(join(tmp, "wiki", "threads", "memory-fort-settings.md")),
+    ).toBe(false);
+    expect(
+      existsSync(
+        join(tmp, "wiki", "threads-proposed", "memory-fort-settings.md"),
+      ),
+    ).toBe(true);
+    expect(llm.chat).toHaveBeenCalledTimes(3);
+  });
+
+  it("allows an explicit faithfulness opt-out but visibly warns before auto-promoting a thread", async () => {
+    for (let index = 4; index <= 5; index += 1) {
+      await writeMarkdown(
+        `raw/2026-05-2${index}/codex-${index}.md`,
+        rawPage(
+          `Raw ${index}`,
+          `Observation ${index} about Memory Fort settings.`,
+          ["wiki/projects/memory-fort.md"],
+        ),
+      );
+    }
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const llm = fakeLLM("memory-fort-settings", {}, "not json");
+    try {
+      const result = await runThreadPropose({
+        vaultRoot: tmp,
+        apply: true,
+        autoPromote: true,
+        days: 30,
+        maxProposals: 1,
+        now: new Date("2026-05-28T12:00:00.000Z"),
+        configLoader: async () => ({
+          llm: { provider: "ollama", model: "llama3.2" },
+          compile: { faithfulness_check: false },
+        }),
+        llmFactory: () => llm,
+        env: {},
+      });
+
+      expect(result.autoPromoted).toBe(1);
+      expect(
+        existsSync(join(tmp, "wiki", "threads", "memory-fort-settings.md")),
+      ).toBe(true);
+      expect(llm.chat).toHaveBeenCalledTimes(1);
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining("unverified generation enabled"),
+      );
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it("keeps low-confidence thread proposals in review even with auto-promote enabled", async () => {
@@ -208,7 +351,9 @@ describe("thread commands", () => {
       days: 30,
       maxProposals: 1,
       now: new Date("2026-05-28T12:00:00.000Z"),
-      configLoader: async () => ({ llm: { provider: "ollama", model: "llama3.2" } }),
+      configLoader: async () => ({
+        llm: { provider: "ollama", model: "llama3.2" },
+      }),
       llmFactory: () => fakeLLM("memory-fort-settings"),
       env: {},
     });
@@ -223,7 +368,11 @@ describe("thread commands", () => {
         reasons: ["observationCount=3 below threshold 5"],
       },
     });
-    expect(existsSync(join(tmp, "wiki", "threads-proposed", "memory-fort-settings.md"))).toBe(true);
+    expect(
+      existsSync(
+        join(tmp, "wiki", "threads-proposed", "memory-fort-settings.md"),
+      ),
+    ).toBe(true);
   });
 
   it("does not write path-leaked prose fields to proposed thread drafts", async () => {
@@ -233,22 +382,32 @@ describe("thread commands", () => {
       days: 30,
       maxProposals: 1,
       now: new Date("2026-05-28T12:00:00.000Z"),
-      configLoader: async () => ({ llm: { provider: "ollama", model: "llama3.2" } }),
-      llmFactory: () => fakeLLM("memory-fort-settings", {
-        decision: "wiki/decisions/invented.md",
-        lesson: "wiki/lessons/env-secrets.md",
+      configLoader: async () => ({
+        llm: { provider: "ollama", model: "llama3.2" },
       }),
+      llmFactory: () =>
+        fakeLLM("memory-fort-settings", {
+          decision: "wiki/decisions/invented.md",
+          lesson: "wiki/lessons/env-secrets.md",
+        }),
       env: {},
     });
 
     expect(result.referencesStripped).toBe(0);
-    const draft = await readFile(join(tmp, "wiki", "threads-proposed", "memory-fort-settings.md"), "utf-8");
+    const draft = await readFile(
+      join(tmp, "wiki", "threads-proposed", "memory-fort-settings.md"),
+      "utf-8",
+    );
     expect(draft).not.toContain("wiki/decisions/invented.md");
     expect(draft).not.toContain("wiki/lessons/env-secrets.md");
-    const llmAuditFile = (await readdir(join(tmp, "wiki", ".audit")))
-      .find((entry) => /^llm-\d{4}-\d{2}-\d{2}\.md$/.test(entry));
+    const llmAuditFile = (await readdir(join(tmp, "wiki", ".audit"))).find(
+      (entry) => /^llm-\d{4}-\d{2}-\d{2}\.md$/.test(entry),
+    );
     expect(llmAuditFile).toBeDefined();
-    const llmAudit = await readFile(join(tmp, "wiki", ".audit", llmAuditFile!), "utf-8");
+    const llmAudit = await readFile(
+      join(tmp, "wiki", ".audit", llmAuditFile!),
+      "utf-8",
+    );
     expect(llmAudit).toContain("| prose_path_leaks |");
     expect(llmAudit).toContain("wiki/decisions/invented.md");
   });
@@ -260,7 +419,9 @@ describe("thread commands", () => {
       days: 30,
       maxProposals: 1,
       now: new Date("2026-05-28T12:00:00.000Z"),
-      configLoader: async () => ({ llm: { provider: "ollama", model: "llama3.2" } }),
+      configLoader: async () => ({
+        llm: { provider: "ollama", model: "llama3.2" },
+      }),
       llmFactory: () => ({
         providerName: "ollama",
         modelName: "llama3.2",
@@ -276,12 +437,18 @@ describe("thread commands", () => {
 
     expect(result.proposed).toBe(0);
     expect(result.written).toBe(0);
-    expect(result.skipped).toEqual([{
-      clusterIndex: 0,
-      reason: expect.stringContaining("yaml parse error:"),
-    }]);
-    expect(formatThreadProposeResult(result)).toContain("cluster 0: yaml parse error:");
-    expect(await readFile(result.auditLogPath, "utf-8")).toContain("yaml parse error:");
+    expect(result.skipped).toEqual([
+      {
+        clusterIndex: 0,
+        reason: expect.stringContaining("yaml parse error:"),
+      },
+    ]);
+    expect(formatThreadProposeResult(result)).toContain(
+      "cluster 0: yaml parse error:",
+    );
+    expect(await readFile(result.auditLogPath, "utf-8")).toContain(
+      "yaml parse error:",
+    );
   });
 
   it("includes prompt and response hashes for skipped clusters when debug logging is enabled", async () => {
@@ -291,7 +458,9 @@ describe("thread commands", () => {
       days: 30,
       maxProposals: 1,
       now: new Date("2026-05-28T12:00:00.000Z"),
-      configLoader: async () => ({ llm: { provider: "ollama", model: "llama3.2" } }),
+      configLoader: async () => ({
+        llm: { provider: "ollama", model: "llama3.2" },
+      }),
       llmFactory: () => ({
         providerName: "ollama",
         modelName: "llama3.2",
@@ -308,24 +477,30 @@ describe("thread commands", () => {
       env: { MEMORY_LLM_DEBUG_LOG: "1" },
     });
 
-    expect(result.skipped).toEqual([{
-      clusterIndex: 0,
-      reason: "missing required field: proposed_slug",
-      promptHash: expect.stringMatching(/^[a-f0-9]{16}$/),
-      responseHash: expect.stringMatching(/^[a-f0-9]{16}$/),
-    }]);
+    expect(result.skipped).toEqual([
+      {
+        clusterIndex: 0,
+        reason: "missing required field: proposed_slug",
+        promptHash: expect.stringMatching(/^[a-f0-9]{16}$/),
+        responseHash: expect.stringMatching(/^[a-f0-9]{16}$/),
+      },
+    ]);
     expect(formatThreadProposeResult(result)).toContain("hashes prompt=");
     expect(formatThreadProposeResult(result)).toContain("response=");
   });
 
   it("honors the MEMORY_LLM_DISABLED kill switch", async () => {
-    await expect(runThreadPropose({
-      vaultRoot: tmp,
-      apply: false,
-      configLoader: async () => ({ llm: { provider: "ollama", model: "llama3.2" } }),
-      llmFactory: () => fakeLLM("memory-fort-settings"),
-      env: { MEMORY_LLM_DISABLED: "true" },
-    })).rejects.toThrow("LLM access disabled by MEMORY_LLM_DISABLED=true");
+    await expect(
+      runThreadPropose({
+        vaultRoot: tmp,
+        apply: false,
+        configLoader: async () => ({
+          llm: { provider: "ollama", model: "llama3.2" },
+        }),
+        llmFactory: () => fakeLLM("memory-fort-settings"),
+        env: { MEMORY_LLM_DISABLED: "true" },
+      }),
+    ).rejects.toThrow("LLM access disabled by MEMORY_LLM_DISABLED=true");
   });
 
   it("promotes and rejects proposed thread drafts", async () => {
@@ -351,9 +526,20 @@ describe("thread commands", () => {
       page("threads", "Reject Me", "Draft body."),
     );
 
-    const commitVaultChange = vi.fn(async () => ({ kind: "committed" as const, commitSha: "abc1234" }));
-    const promoted = await runThreadPromote({ vaultRoot: tmp, slug: "memory-fort-settings", commitVaultChange });
-    const rejected = await runThreadReject({ vaultRoot: tmp, slug: "reject-me", commitVaultChange });
+    const commitVaultChange = vi.fn(async () => ({
+      kind: "committed" as const,
+      commitSha: "abc1234",
+    }));
+    const promoted = await runThreadPromote({
+      vaultRoot: tmp,
+      slug: "memory-fort-settings",
+      commitVaultChange,
+    });
+    const rejected = await runThreadReject({
+      vaultRoot: tmp,
+      slug: "reject-me",
+      commitVaultChange,
+    });
 
     expect(promoted).toEqual({
       from: "wiki/threads-proposed/memory-fort-settings.md",
@@ -363,13 +549,18 @@ describe("thread commands", () => {
     expect(existsSync(join(tmp, promoted.from))).toBe(false);
     expect(existsSync(join(tmp, rejected.deleted))).toBe(false);
 
-    const canonical = parseFrontmatter(await readFile(join(tmp, promoted.to), "utf-8"));
+    const canonical = parseFrontmatter(
+      await readFile(join(tmp, promoted.to), "utf-8"),
+    );
     expect(canonical.frontmatter.lifecycle).toBe("consolidated");
     expect(canonical.frontmatter.source).toBe("auto-thread-propose-validated");
     expect(canonical.body).toContain("Draft body.");
     expect(commitVaultChange).toHaveBeenCalledWith({
       memoryRoot: tmp,
-      paths: ["wiki/threads-proposed/memory-fort-settings.md", "wiki/threads/memory-fort-settings.md"],
+      paths: [
+        "wiki/threads-proposed/memory-fort-settings.md",
+        "wiki/threads/memory-fort-settings.md",
+      ],
       message: "promote thread: memory-fort-settings",
     });
     expect(commitVaultChange).toHaveBeenCalledWith({
@@ -410,8 +601,12 @@ describe("thread commands", () => {
     });
 
     expect(promoted.to).toBe("wiki/threads/sync-test.md");
-    await expect(git(["status", "--porcelain", "--", promoted.from, promoted.to], tmp)).resolves.toBe("");
-    await expect(git(["log", "-1", "--pretty=%s"], tmp)).resolves.toBe("promote thread: sync-test");
+    await expect(
+      git(["status", "--porcelain", "--", promoted.from, promoted.to], tmp),
+    ).resolves.toBe("");
+    await expect(git(["log", "-1", "--pretty=%s"], tmp)).resolves.toBe(
+      "promote thread: sync-test",
+    );
   });
 
   it("commits a rejected tracked draft deletion and leaves the path clean", async () => {
@@ -433,11 +628,18 @@ describe("thread commands", () => {
         }),
     });
 
-    await expect(git(["status", "--porcelain", "--", rejected.deleted], tmp)).resolves.toBe("");
-    await expect(git(["log", "-1", "--pretty=%s"], tmp)).resolves.toBe("reject thread: reject-sync-test");
+    await expect(
+      git(["status", "--porcelain", "--", rejected.deleted], tmp),
+    ).resolves.toBe("");
+    await expect(git(["log", "-1", "--pretty=%s"], tmp)).resolves.toBe(
+      "reject thread: reject-sync-test",
+    );
   });
 
-  async function writeMarkdown(relPath: string, content: string): Promise<void> {
+  async function writeMarkdown(
+    relPath: string,
+    content: string,
+  ): Promise<void> {
     const fullPath = join(tmp, ...relPath.split("/"));
     await mkdir(dirname(fullPath), { recursive: true });
     await writeFile(fullPath, content, "utf-8");
@@ -458,28 +660,39 @@ async function git(args: string[], cwd: string): Promise<string> {
 function fakeLLM(
   slug: string,
   refs: { decision?: string; lesson?: string } = {},
+  faithfulnessResponse = '{"unsupported_claims":[]}',
 ): LLMProvider {
   return {
     providerName: "ollama",
     modelName: "llama3.2",
-    chat: vi.fn(async () => ({
-      content: [
-        "title: Memory Fort Settings",
-        "summary: |",
-        "  The settings work became an operator-facing configuration arc.",
-        "  It kept secrets outside the UI while making model choices editable.",
-        "key_decisions:",
-        `  - ${refs.decision ?? "Provider settings became editable while secrets stayed outside the UI."}`,
-        "key_lessons:",
-        `  - ${refs.lesson ?? "Env-only secret handling remains compatible with operator-visible config."}`,
-        "open_questions:",
-        "  - Should review move into the dashboard?",
-        `proposed_slug: ${slug}`,
-      ].join("\n"),
-      model: "llama3.2",
-      finishReason: "stop",
-      rawProviderName: "ollama",
-    })),
+    chat: vi.fn(async (request) => {
+      if (request.jsonSchema?.name === "FaithfulnessOutput") {
+        return {
+          content: faithfulnessResponse,
+          model: "llama3.2",
+          finishReason: "stop" as const,
+          rawProviderName: "ollama",
+        };
+      }
+      return {
+        content: [
+          "title: Memory Fort Settings",
+          "summary: |",
+          "  The settings work became an operator-facing configuration arc.",
+          "  It kept secrets outside the UI while making model choices editable.",
+          "key_decisions:",
+          `  - ${refs.decision ?? "Provider settings became editable while secrets stayed outside the UI."}`,
+          "key_lessons:",
+          `  - ${refs.lesson ?? "Env-only secret handling remains compatible with operator-visible config."}`,
+          "open_questions:",
+          "  - Should review move into the dashboard?",
+          `proposed_slug: ${slug}`,
+        ].join("\n"),
+        model: "llama3.2",
+        finishReason: "stop" as const,
+        rawProviderName: "ollama",
+      };
+    }),
   };
 }
 

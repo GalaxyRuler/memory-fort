@@ -7,7 +7,9 @@ import {
   type RawObservationRef,
   type ThreadCluster,
 } from "../../consolidate/thread-cluster.js";
+import { assessClaimSupport } from "../../compile/faithfulness.js";
 import { loadSearchCorpus, type SearchDocument } from "../../retrieval/corpus.js";
+import { readRelations } from "../../retrieval/relations.js";
 import {
   createLLMFromConfig,
   getActiveLLMConfig,
@@ -17,7 +19,7 @@ import { isDebugLogEnabled } from "../../llm/audit.js";
 import { scoreProposalConfidence, type ProposalConfidence } from "../../llm/proposal-confidence.js";
 import { LLMDisabledError, type LLMProvider } from "../../llm/types.js";
 import { proposeThread, type ThreadProposal } from "../../llm/thread-propose.js";
-import { loadMemoryConfig, type MemoryConfig } from "../../storage/config.js";
+import { loadMemoryConfig, resolveCompileConfig, type MemoryConfig } from "../../storage/config.js";
 import { atomicWrite } from "../../storage/atomic-write.js";
 import {
   parseFrontmatter,
@@ -84,6 +86,7 @@ export async function runThreadPropose(
   const days = opts.days ?? DEFAULT_DAYS;
   const maxProposals = opts.maxProposals ?? DEFAULT_MAX_PROPOSALS;
   const config = await (opts.configLoader ?? (() => loadMemoryConfig(opts.vaultRoot)))();
+  const faithfulnessCheck = resolveCompileConfig(config.compile).faithfulness_check;
   const llmConfig = getActiveLLMConfig(config);
   const llm = (opts.llmFactory ?? createLLMFromConfig)(llmConfig, env);
   // bodyMaxChars: the LLM snippet uses only the first 500 body chars (see
@@ -146,10 +149,23 @@ export async function runThreadPropose(
       written += 1;
 
       if (opts.autoPromote && confidence.level === "high") {
-        const promoted = await runThreadPromote({ vaultRoot: opts.vaultRoot, slug, commitVaultChange: opts.commitVaultChange });
-        relPath = promoted.to;
-        proposalAutoPromoted = true;
-        autoPromoted += 1;
+        const guard = await guardThreadAutoPromotion({
+          vaultRoot: opts.vaultRoot,
+          relPath,
+          cluster,
+          llm,
+          faithfulnessCheck,
+        });
+        if (guard.ok) {
+          const promoted = await runThreadPromote({ vaultRoot: opts.vaultRoot, slug, commitVaultChange: opts.commitVaultChange });
+          relPath = promoted.to;
+          proposalAutoPromoted = true;
+          autoPromoted += 1;
+        } else {
+          console.warn(`memory thread propose: auto-promotion kept ${relPath} staged: ${guard.reason}`);
+          writtenReviewPaths.push(relPath);
+          awaitingReview += 1;
+        }
       } else {
         writtenReviewPaths.push(relPath);
         awaitingReview += 1;
@@ -203,6 +219,61 @@ export async function runThreadPropose(
     auditLogPath,
     mode: opts.apply ? "apply" : "plan",
   };
+}
+
+type AutoPromotionGuardResult = { ok: true } | { ok: false; reason: string };
+
+async function guardThreadAutoPromotion(opts: {
+  vaultRoot: string;
+  relPath: string;
+  cluster: ThreadCluster;
+  llm: LLMProvider;
+  faithfulnessCheck: boolean;
+}): Promise<AutoPromotionGuardResult> {
+  let parsed: ReturnType<typeof parseFrontmatter>;
+  try {
+    parsed = parseFrontmatter(await readFile(join(opts.vaultRoot, ...opts.relPath.split("/")), "utf-8"));
+  } catch (error) {
+    return { ok: false, reason: `proposal could not be read for validation: ${error instanceof Error ? error.message : String(error)}` };
+  }
+
+  if (
+    parsed.frontmatter.type !== "threads" ||
+    parsed.frontmatter.lifecycle !== "proposed" ||
+    parsed.frontmatter.source !== "auto-thread-propose" ||
+    parsed.body.trim().length === 0
+  ) {
+    return { ok: false, reason: "proposal failed deterministic thread-draft validation" };
+  }
+  const expectedSources = opts.cluster.observations
+    .map((observation) => observation.relPath)
+    .filter((relPath) => relationTargetExists(opts.vaultRoot, relPath));
+  const mentionedSources = new Set((readRelations(parsed.frontmatter.relations, opts.relPath).mentions ?? [])
+    .map((edge) => edge.target));
+  const missingSources = expectedSources.filter((relPath) => !mentionedSources.has(relPath));
+  if (missingSources.length > 0) {
+    return { ok: false, reason: `proposal failed source-relation conservation: ${missingSources.join(", ")}` };
+  }
+
+  if (!opts.faithfulnessCheck) {
+    console.warn(
+      `memory thread propose: unverified generation enabled for ${opts.relPath}; this advanced local opt-out can auto-promote without a faithfulness verdict`,
+    );
+    return { ok: true };
+  }
+  const verdict = await assessClaimSupport({
+    body: parsed.body,
+    facts: opts.cluster.observations.map((observation) => ({
+      fact_id: observation.relPath,
+      narrative: [observation.title, observation.snippet].filter((value) => value.trim().length > 0).join("\n"),
+    })),
+    llm: opts.llm,
+  });
+  if (verdict.outcome === "supported") return { ok: true };
+  if (verdict.outcome === "unsupported") {
+    return { ok: false, reason: `faithfulness check found unsupported claims: ${verdict.unsupportedClaims.join("; ")}` };
+  }
+  return { ok: false, reason: `faithfulness check unverifiable${verdict.reason ? `: ${verdict.reason}` : ""}` };
 }
 
 export async function runThreadPromote(opts: {

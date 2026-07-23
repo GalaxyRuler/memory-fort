@@ -2,6 +2,7 @@ import { Buffer } from "node:buffer";
 import { chatWithAudit } from "../llm/audit.js";
 import type { LLMProvider, LLMRequest, LLMTokenUsage } from "../llm/types.js";
 import { redactSecrets } from "../privacy/redaction.js";
+import { assessClaimSupport } from "../compile/faithfulness.js";
 import {
   COMPRESSED_FACT_TYPES,
   readCompressedFactType,
@@ -23,6 +24,8 @@ export interface CompressSessionOptions {
   env?: NodeJS.ProcessEnv;
   now?: Date;
   logger?: (line: string) => void;
+  /** Advanced escape hatch; default-on to keep generated fact artifacts grounded. */
+  faithfulnessCheck?: boolean;
   /** Resume compression from this chunk index (contiguous window). Default 0. */
   startChunk?: number;
 }
@@ -41,10 +44,11 @@ export interface CompressSessionResult {
   chunkBytes: number;
 }
 
-// v3: contiguous resumable windows replaced the fixed 8-chunk sample. Bumped so
-// lossy v2 watermarks (which marked files "complete" after sampling) are treated
-// as stale and re-covered under the new algorithm.
-export const CURRENT_COMPRESS_VERSION = 3;
+// v4: every generated bundle must carry an exact raw evidence span and pass the
+// strict faithfulness gate before its fact artifact/watermark can advance. The
+// bump makes pre-gate v3 coverage stale, so it cannot continue to suppress raw
+// processing under the new safety contract.
+export const CURRENT_COMPRESS_VERSION = 4;
 export const DEFAULT_COMPRESS_MAX_INPUT_BYTES = 48_000;
 export const DEFAULT_COMPRESS_CHUNK_THRESHOLD_BYTES = 48_000;
 export const DEFAULT_COMPRESS_MAX_CHUNKS = 8;
@@ -70,6 +74,10 @@ export async function compressSession(opts: CompressSessionOptions): Promise<Com
 export async function compressSessionWithUsage(opts: CompressSessionOptions): Promise<CompressSessionResult> {
   const config = resolveCompressConfig(opts);
   const allChunks = splitSessionIntoChunks(opts.rawText, config.maxBytesPerCall);
+  const faithfulnessCheck = opts.faithfulnessCheck !== false;
+  if (!faithfulnessCheck) {
+    (opts.logger ?? console.warn)("memory compress: faithfulness_check=false is an advanced opt-out; generated fact bundles may be promoted without LLM verification");
+  }
   // Contiguous window [startChunk, startChunk + maxChunks). Each pass processes
   // the next window and reports the cursor; the caller resumes from it. This
   // replaces a fixed spread-sample that permanently excluded unsampled chunks.
@@ -131,6 +139,11 @@ export async function compressSessionWithUsage(opts: CompressSessionOptions): Pr
         `memory compress: response was not valid facts JSON for ${opts.rawRelPath} chunk ${chunk.originalIndex + 1}/${allChunks.length}; nothing persisted for this file`,
       );
     }
+    if (rawArray.length === 0 && !isDeterministicallyEmptySource(redactedChunk)) {
+      throw new Error(
+        `memory compress: empty fact bundle cannot prove substantive source coverage for ${opts.rawRelPath} chunk ${chunk.originalIndex + 1}/${allChunks.length}; nothing persisted for this file`,
+      );
+    }
     const chunkFacts = parseCompressedFacts({
       content: response.content,
       rawRelPath: opts.rawRelPath,
@@ -143,6 +156,30 @@ export async function compressSessionWithUsage(opts: CompressSessionOptions): Pr
       throw new Error(
         `memory compress: ${rawArray.length - chunkFacts.length} of ${rawArray.length} fact record(s) were unusable for ${opts.rawRelPath} chunk ${chunk.originalIndex + 1}/${allChunks.length}; nothing persisted for this file`,
       );
+    }
+    const evidence = validateCompressionEvidence(rawArray, redactedChunk);
+    if (!evidence.ok) {
+      throw new Error(
+        `memory compress: ${evidence.reason} for ${opts.rawRelPath} chunk ${chunk.originalIndex + 1}/${allChunks.length}; nothing persisted for this file`,
+      );
+    }
+    if (faithfulnessCheck && chunkFacts.length > 0) {
+      const judgment = await assessClaimSupport({
+        body: compressionClaimsForReview(chunkFacts),
+        facts: [{
+          fact_id: `${opts.rawRelPath}#chunk-${chunk.originalIndex + 1}`,
+          narrative: redactedChunk,
+        }],
+        llm: opts.llm,
+      });
+      if (judgment.outcome !== "supported") {
+        const reason = judgment.outcome === "unsupported"
+          ? `fact bundle contains unsupported claims: ${judgment.unsupportedClaims.join("; ") || "judge rejected generated claims"}`
+          : `fact bundle is unverifiable: ${judgment.reason ?? "faithfulness judge did not return a valid verdict"}`;
+        throw new Error(
+          `memory compress: ${reason} for ${opts.rawRelPath} chunk ${chunk.originalIndex + 1}/${allChunks.length}; nothing persisted for this file`,
+        );
+      }
     }
     partialFacts.push(...chunkFacts);
     tokensUsed = addTokenUsage(tokensUsed, response.tokensUsed);
@@ -280,6 +317,85 @@ function readImportance(value: unknown): number | null {
   return Math.max(1, Math.min(10, Math.round(value)));
 }
 
+function validateCompressionEvidence(rawFacts: unknown[], source: string): { ok: true } | { ok: false; reason: string } {
+  const normalizedSource = normalizeEvidenceSpan(source);
+  for (let index = 0; index < rawFacts.length; index += 1) {
+    const record = rawFacts[index];
+    if (typeof record !== "object" || record === null || Array.isArray(record)) {
+      return { ok: false, reason: `fact record ${index + 1} is not an object` };
+    }
+    const candidate = record as Record<string, unknown>;
+    const evidence = readString(candidate.evidence);
+    if (!evidence) {
+      return { ok: false, reason: `fact record ${index + 1} is missing the required exact evidence span` };
+    }
+    const normalizedEvidence = normalizeEvidenceSpan(evidence);
+    if (!normalizedEvidence || !normalizedSource.includes(normalizedEvidence)) {
+      return { ok: false, reason: `fact record ${index + 1} supplied evidence that is not an exact source span` };
+    }
+    const claimTerms = substantiveTerms([
+      readString(candidate.title) ?? "",
+      ...readStringArray(candidate.facts),
+      readString(candidate.narrative) ?? "",
+      ...readStringArray(candidate.concepts),
+    ].join(" "));
+    const evidenceTerms = new Set(substantiveTerms(evidence));
+    if (claimTerms.size === 0 || ![...claimTerms].some((term) => evidenceTerms.has(term))) {
+      return { ok: false, reason: `fact record ${index + 1} has no substantive claim token in its required evidence span` };
+    }
+  }
+  return { ok: true };
+}
+
+function normalizeEvidenceSpan(value: string): string {
+  return value.replace(/\r\n/g, "\n").replace(/\s+/gu, " ").trim();
+}
+
+function substantiveTerms(value: string): Set<string> {
+  const ignored = new Set([
+    "about", "after", "also", "and", "are", "became", "been", "before", "but", "for", "from", "has", "have", "into", "its", "now", "the", "this", "that", "their", "then", "they", "was", "were", "with",
+  ]);
+  return new Set(
+    (value.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [])
+      .filter((term) => term.length >= 3 && !ignored.has(term)),
+  );
+}
+
+function compressionClaimsForReview(facts: CompressedFact[]): string {
+  return facts.map((fact) => [
+    `Title: ${fact.title}`,
+    `Facts: ${fact.facts.join(" | ")}`,
+    `Narrative: ${fact.narrative}`,
+    `Concepts: ${fact.concepts.join(" | ")}`,
+    ...(fact.files.length > 0 ? [`Files: ${fact.files.join(" | ")}`] : []),
+    ...(fact.entities && fact.entities.length > 0 ? [`Entities: ${fact.entities.join(" | ")}`] : []),
+    ...(fact.relations && fact.relations.length > 0
+      ? [`Relations: ${fact.relations.map((relation) => `${relation.subject} ${relation.predicate} ${relation.object}`).join(" | ")}`]
+      : []),
+  ].join("\n")).join("\n\n");
+}
+
+/**
+ * Empty output may cover only deterministic metadata or obvious low-information
+ * padding. Any natural-language/code-bearing source remains retryable because
+ * an empty LLM bundle cannot prove that it preserved the source's facts.
+ */
+function isDeterministicallyEmptySource(source: string): boolean {
+  const withoutFrontmatter = source.replace(/^---\r?\n[\s\S]*?\r?\n---\s*/u, "");
+  const material = withoutFrontmatter
+    .split(/\r?\n/)
+    .filter((line) => !/^##\s+\[[^\]\n]+\].*$/u.test(line))
+    .filter((line) => !/^\s*session:\s*\S+\s*$/iu.test(line))
+    .join(" ")
+    .replace(/\s+/gu, "")
+    .trim();
+  if (material.length === 0) return true;
+  // Compression chunking can split benign spacer padding into a standalone
+  // chunk. Require enough repeated non-whitespace symbols to avoid classifying
+  // a short meaningful token such as "ok" as empty evidence.
+  return material.length >= 32 && new Set([...material]).size === 1;
+}
+
 function extractJsonObject(content: string): string | null {
   const fenced = /```(?:json)?\s*([\s\S]*?)```/m.exec(content)?.[1]?.trim();
   if (fenced) return fenced;
@@ -305,7 +421,7 @@ function buildCompressionRequest(opts: {
         role: "system",
         content: [
           "You compress memory observations into durable structured facts.",
-          "Return only JSON shaped like: {\"facts\":[{\"title\":string,\"type\":string,\"facts\":string[],\"narrative\":string,\"concepts\":string[],\"files\":string[],\"importance\":number,\"entities\":string[],\"relations\":[{\"subject\":string,\"predicate\":string,\"object\":string}]}]}",
+          "Return only JSON shaped like: {\"facts\":[{\"title\":string,\"type\":string,\"facts\":string[],\"narrative\":string,\"concepts\":string[],\"files\":string[],\"importance\":number,\"evidence\":string,\"entities\":string[],\"relations\":[{\"subject\":string,\"predicate\":string,\"object\":string}]}]}. Evidence is one non-empty exact quote copied from the supplied session text for that fact bundle.",
           `Type enum: ${COMPRESSED_FACT_TYPES.join(", ")}. Use procedure for durable workflows, decision for choices, lesson for reusable learnings, project for project/entity state, reference for durable docs, tool for tools, people for people, fact for uncategorized facts.`,
           "Also extract named entities and relation triples already evidenced in the session; use concise predicates such as mentions, uses, derived_from, depends_on, tested-with.",
           "Importance scale: 1-3 routine reads, 4-6 edits/commands, 7-9 architectural decisions, 10 breaking changes.",

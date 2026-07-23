@@ -522,6 +522,39 @@ describe("runCompile", () => {
       .toBe(Buffer.byteLength("first observation\nsecond observation\n", "utf-8"));
   });
 
+  it("holds canonical writes and raw watermarks for a parseable non-stop compile response", async () => {
+    await writeFile(join(root, "raw", "2026-05-21", "manual-a.md"), "first source observation\n");
+    await writeFile(join(root, "raw", "2026-05-21", "manual-b.md"), "second source observation\n");
+
+    const result = await runCompile({
+      vaultRoot: root,
+      execute: true,
+      configLoader: async () => ({ llm: { provider: "ollama", model: "llama3.2" } }),
+      llmFactory: () => fakeExecuteLLMWith(() => [{
+        kind: "write_page",
+        path: "wiki/lessons/nonstop-response.md",
+        frontmatter: {
+          type: "lessons",
+          title: "Non-stop response",
+          relations: { derived_from: ["raw/2026-05-21/manual-a.md", "raw/2026-05-21/manual-b.md"] },
+        },
+        body: "This parseable mutation must not apply after a non-stop response.",
+      }], { finishReason: "error" }),
+      env: {},
+    });
+
+    expect(result.execution?.outcomes).toEqual([expect.objectContaining({
+      path: "(response)",
+      outcome: "rejected",
+      reason: expect.stringContaining("unverifiable"),
+    })]);
+    expect(result.watermarksAdvanced).toEqual([]);
+    expect(existsSync(join(root, "wiki", "lessons", "nonstop-response.md"))).toBe(false);
+    const state = await readCompileState();
+    expect(state.consumed ?? {}).not.toHaveProperty("raw/2026-05-21/manual-a.md");
+    expect(state.consumed ?? {}).not.toHaveProperty("raw/2026-05-21/manual-b.md");
+  });
+
   it("does not advance the watermark when execute only stages proposals", async () => {
     const rawPath = join(root, "raw", "2026-05-21", "manual-a.md");
     const body = "single-source observation that should stage not apply\n";
@@ -877,6 +910,7 @@ function fakeExecuteLLMWhenRawPresent(): LLMProvider {
 
 function fakeExecuteLLMWith(
   operations: (opts: { prompt: string }) => unknown[],
+  responseOptions: { finishReason?: import("../../../src/llm/types.js").LLMFinishReason } = {},
 ): LLMProvider {
   return {
     providerName: "ollama",
@@ -912,7 +946,7 @@ function fakeExecuteLLMWith(
       }
       return {
         model: "llama3.2",
-        finishReason: "stop",
+        finishReason: responseOptions.finishReason ?? "stop",
         rawProviderName: "ollama",
         content: [
           "```compile-ops",

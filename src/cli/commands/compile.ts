@@ -960,8 +960,10 @@ export async function executeCompilePrompt(opts: CompileOptions & {
     },
     env,
   });
-  if (response.finishReason === "length" || response.finishReason === "filter") {
-    const reason = `llm response truncated (finishReason=${response.finishReason}); watermark held, drain will retry`;
+  if (response.finishReason !== "stop") {
+    const reason = response.finishReason === "length" || response.finishReason === "filter"
+      ? `llm response truncated (finishReason=${response.finishReason}); watermark held, drain will retry`
+      : `llm response unverifiable (finishReason=${response.finishReason}); watermark held, drain will retry`;
     return {
       mode: opts.plan ? "plan" : "execute",
       rawInputConsumed: false,
