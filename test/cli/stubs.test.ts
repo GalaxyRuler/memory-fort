@@ -32,7 +32,6 @@ function runStub(
 describe("stub commands", () => {
   const stubs: Array<[string, number]> = [
     ["crystallize", 4],
-    ["backup", 6],
     ["import-from-agentmemory", 5],
     ["retain", 6],
     ["schedule", 6],
@@ -52,6 +51,13 @@ describe("stub commands", () => {
     for (const [name] of stubs) {
       expect(r.stdout).toContain(name);
     }
+  });
+
+  it("shows the implemented backup command regardless of stub visibility", () => {
+    const normal = runCli(["--help"], { MEMORY_FORT_SHOW_STUBS: "" });
+    const withStubs = runCli(["--help"], { MEMORY_FORT_SHOW_STUBS: "1" });
+    expect(normal.stdout).toContain("backup");
+    expect(withStubs.stdout).toContain("backup");
   });
 
   it("documents top-level environment variables in help", () => {

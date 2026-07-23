@@ -5,6 +5,9 @@ Description=Memory backup runner
 Type=oneshot
 User=root
 WorkingDirectory=${INSTALL_ROOT}
+Environment=MEMORY_INSTALL_ROOT=${INSTALL_ROOT}
+Environment=MEMORY_BACKUP_DIR=${BACKUP_DIR}
+Environment=MEMORY_NODE_PATH=${NODE_PATH}
 ExecStart=${INSTALL_ROOT}/services/memory-backup.sh
 UMask=0077
 StandardOutput=append:${INSTALL_ROOT}/logs/backup.log
@@ -13,7 +16,7 @@ NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=${INSTALL_ROOT}/backups ${INSTALL_ROOT}/logs
+ReadWritePaths=${BACKUP_DIR} ${INSTALL_ROOT}/logs
 ProtectKernelTunables=yes
 ProtectControlGroups=yes
 RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX

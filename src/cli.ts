@@ -19,6 +19,7 @@ import { runInitOnboarding } from "./cli/commands/init-onboarding.js";
 import { formatAutoHealResult, runAutoHealCommand, type AutoHealAction } from "./cli/commands/auto-heal.js";
 import { runBackfill } from "./cli/commands/backfill.js";
 import { runBackfillSource } from "./cli/commands/backfill-source.js";
+import { registerBackupCommand } from "./cli/commands/backup.js";
 import {
   runChatGptBridgeStart,
   runChatGptBridgeStop,
@@ -113,6 +114,7 @@ registerDashboardCommand(program);
 registerEntityCommand(program);
 registerProcedureCommand(program);
 registerThreadCommand(program);
+registerBackupCommand(program);
 
 program
   .command("eval-retrieval")
@@ -1437,7 +1439,6 @@ if (process.env.MEMORY_FORT_SHOW_STUBS === "1") {
     4,
     "Distill a completed thread into a long-form digest",
   );
-  registerStub("backup", 6, "git commit + push memory state to remote");
   registerStub(
     "import-from-agentmemory",
     5,
