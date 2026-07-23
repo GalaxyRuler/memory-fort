@@ -2,10 +2,13 @@ import { Link, useLocation } from "@tanstack/react-router";
 import { Menu, Search } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useOptionalCommandPaletteContext } from "../hooks/useCommandPalette.js";
+import { apiFetch, setDashboardAccessToken } from "../lib/api.js";
 import { NAV_ITEMS } from "../lib/nav-items.js";
+import { queryClient } from "../lib/queryClient.js";
 
 export function TopBar({ onOpenMobileMenu }: { onOpenMobileMenu?: () => void }) {
   const commandPalette = useOptionalCommandPaletteContext();
+  const [tokenDraft, setTokenDraft] = useState("");
   const proposedSummary = useInboxBadgeSummary();
   const location = useLocation();
   const segments = location.pathname.split("/").filter(Boolean);
@@ -50,6 +53,26 @@ export function TopBar({ onOpenMobileMenu }: { onOpenMobileMenu?: () => void }) 
         </span>
       </div>
       <div className="flex flex-shrink-0 items-center gap-2">
+        <form
+          className="hidden items-center gap-1 md:flex"
+          onSubmit={(event) => {
+            event.preventDefault();
+            setDashboardAccessToken(tokenDraft);
+            void queryClient.invalidateQueries();
+          }}
+        >
+          <label className="sr-only" htmlFor="dashboard-access-token">Dashboard access token</label>
+          <input
+            id="dashboard-access-token"
+            type="password"
+            autoComplete="off"
+            value={tokenDraft}
+            onChange={(event) => setTokenDraft(event.target.value)}
+            placeholder="Remote access token"
+            className="h-9 w-40 rounded-md border border-border-subtle bg-surface px-2 text-xs text-text-primary placeholder:text-text-muted"
+          />
+          <button type="submit" className="h-9 rounded-md border border-border-subtle px-2 text-xs text-text-secondary hover:bg-surface-2">Use token</button>
+        </form>
         {(proposedSummary.data?.total ?? 0) > 0 && (
           <Link
             to="/inbox"
@@ -79,7 +102,7 @@ function useInboxBadgeSummary() {
 
   useEffect(() => {
     const controller = new AbortController();
-    void fetch("/memory/api/proposed/summary", { signal: controller.signal })
+    void apiFetch("/memory/api/proposed/summary", { signal: controller.signal })
       .then((response) => response.ok ? response.json() as Promise<{ total: number }> : null)
       .then((summary) => {
         if (summary) setData(summary);

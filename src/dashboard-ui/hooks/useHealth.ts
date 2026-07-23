@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { API_BASE, ApiError } from "../lib/api.js";
+import { API_BASE, apiFetch, ApiError } from "../lib/api.js";
 
 export type CheckStatus = "pass" | "warn" | "fail" | "skip";
 
@@ -30,7 +30,7 @@ export function useHealth() {
 
 async function fetchHealth(): Promise<VerifyReport> {
   const url = new URL(`${API_BASE}/health`, window.location.origin);
-  const response = await fetch(url.toString());
+  const response = await apiFetch(url.toString());
   const body = await response.json().catch(() => null) as VerifyReport | { error?: string } | null;
 
   if (isVerifyReport(body)) return body;

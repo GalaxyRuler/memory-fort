@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { API_BASE, ApiError } from "../lib/api.js";
+import { API_BASE, apiFetch, ApiError } from "../lib/api.js";
 
 export type GraphHealthStatus = "pass" | "warn" | "fail" | "n/a";
 
@@ -39,7 +39,7 @@ export function useGraphHealth() {
 
 async function fetchGraphHealth(): Promise<GraphHealthReport> {
   const url = new URL(`${API_BASE}/graph-health`, window.location.origin);
-  const response = await fetch(url.toString());
+  const response = await apiFetch(url.toString());
   const body = await response.json().catch(() => null) as GraphHealthReport | { error?: string } | null;
 
   if (isGraphHealthReport(body)) return body;

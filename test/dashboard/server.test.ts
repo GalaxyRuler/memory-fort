@@ -350,6 +350,116 @@ describe("dashboard server", () => {
     ).toBe(false);
   });
 
+  it("refuses a non-loopback listener unless a dashboard token is configured", async () => {
+    let running: Awaited<ReturnType<typeof createServer>> | undefined;
+    let startupError: unknown;
+    try {
+      running = await createServer({
+        vaultRoot: tmp,
+        port: 0,
+        host: "0.0.0.0",
+        env: {},
+        loader: async () => fixture(),
+      });
+    } catch (error) {
+      startupError = error;
+    }
+
+    try {
+      expect(startupError).toBeInstanceOf(Error);
+      expect((startupError as Error).message).toContain("MEMORY_DASHBOARD_TOKEN");
+    } finally {
+      await running?.close();
+    }
+  });
+
+  it("requires a bearer token for every API route on a non-loopback listener and rejects query tokens", async () => {
+    const token = "test-dashboard-token";
+    const server = await createServer({
+      vaultRoot: tmp,
+      port: 0,
+      host: "0.0.0.0",
+      env: { MEMORY_DASHBOARD_TOKEN: token },
+      loader: async () => fixture(),
+    });
+
+    try {
+      const anonymous = await httpRequest({
+        host: "127.0.0.1",
+        port: server.port,
+        method: "GET",
+        path: "/api/status",
+      });
+      expect(anonymous.status).toBe(401);
+      expect(anonymous.body).not.toContain(token);
+
+      const queryToken = await httpRequest({
+        host: "127.0.0.1",
+        port: server.port,
+        method: "GET",
+        path: `/api/status?token=${token}`,
+      });
+      expect(queryToken.status).toBe(400);
+      expect(queryToken.body).not.toContain(token);
+
+      const authorized = await httpRequest({
+        host: "127.0.0.1",
+        port: server.port,
+        method: "GET",
+        path: "/api/status",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      expect(authorized.status).toBe(200);
+      expect(authorized.body).not.toContain(token);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("rejects authenticated non-loopback mutations without an Origin or Referer", async () => {
+    const token = "test-dashboard-token";
+    const compileRunner = vi.fn(async () => ({
+      rawFilesIncluded: [],
+      rawFilesSkipped: [],
+      outputPath: "var/compile/scheduled-compile-prompt.md",
+      rawRemaining: 0,
+    }));
+    const server = await createServer({
+      vaultRoot: tmp,
+      port: 0,
+      host: "0.0.0.0",
+      env: { MEMORY_DASHBOARD_TOKEN: token },
+      compileRunner,
+    });
+
+    try {
+      const missingBrowserProvenance = await httpRequest({
+        host: "127.0.0.1",
+        port: server.port,
+        method: "POST",
+        path: "/api/compile/run",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      expect(missingBrowserProvenance.status).toBe(403);
+      expect(compileRunner).not.toHaveBeenCalled();
+
+      const sameOrigin = await httpRequest({
+        host: "127.0.0.1",
+        port: server.port,
+        method: "POST",
+        path: "/api/compile/run",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Origin: `http://127.0.0.1:${server.port}`,
+        },
+      });
+      expect(sameOrigin.status).toBe(200);
+      expect(compileRunner).toHaveBeenCalledOnce();
+    } finally {
+      await server.close();
+    }
+  });
+
   it("GET /healthz returns 200 text/plain ok", async () => {
     let loaderCalled = false;
     const server = await createServer({

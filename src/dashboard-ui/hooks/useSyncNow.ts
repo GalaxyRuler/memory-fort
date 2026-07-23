@@ -1,4 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { apiFetch } from "../lib/api.js";
 
 interface SyncNowResult {
   ok: boolean;
@@ -11,7 +12,7 @@ export function useSyncNow() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (): Promise<SyncNowResult> => {
-      const res = await fetch("/memory/api/sync", { method: "POST" });
+      const res = await apiFetch("/memory/api/sync", { method: "POST" });
       return res.json() as Promise<SyncNowResult>;
     },
     onSuccess: () => {

@@ -1,3 +1,4 @@
+import { createHash, timingSafeEqual } from "node:crypto";
 import { createServer as createHttpServer, type IncomingHttpHeaders, type IncomingMessage, type Server as HttpServer, type ServerResponse } from "node:http";
 import { existsSync, statSync } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
@@ -161,6 +162,7 @@ function closeServer(server: HttpServer): Promise<void> {
 const SAFE_SEGMENT_RE = /^[A-Za-z0-9._-]+$/;
 const DASHBOARD_MOUNT_PREFIX = "/memory";
 const REQUEST_BODY_LIMIT_BYTES = 1024 * 1024;
+const QUERY_AUTH_PARAM_NAMES = new Set(["token", "access_token", "auth", "authorization"]);
 const COMMON_SECURITY_HEADERS = {
   "X-Content-Type-Options": "nosniff",
   "X-Frame-Options": "DENY",
@@ -532,6 +534,58 @@ function isLoopbackRemoteAddress(value: string | undefined): boolean {
   if (address.startsWith("[") && address.endsWith("]")) address = address.slice(1, -1);
   if (address === "::1") return true;
   return isLoopbackIpv4Literal(address) || isLoopbackIpv4MappedLiteral(address);
+}
+
+function isLoopbackListenHost(value: string): boolean {
+  return isLoopbackHostAuthority(value);
+}
+
+function dashboardTokenHashFromEnv(env: NodeJS.ProcessEnv): Buffer | null {
+  const token = env["MEMORY_DASHBOARD_TOKEN"];
+  if (typeof token !== "string" || token.trim().length === 0) return null;
+  return createHash("sha256").update(token).digest();
+}
+
+function requestHasQueryAuthentication(url: URL): boolean {
+  for (const name of url.searchParams.keys()) {
+    if (QUERY_AUTH_PARAM_NAMES.has(name.toLowerCase())) return true;
+  }
+  return false;
+}
+
+function bearerTokenAuthorized(headers: IncomingHttpHeaders, expectedHash: Buffer): boolean {
+  const authorization = headers.authorization;
+  if (!authorization || Array.isArray(authorization)) return false;
+  const match = /^Bearer ([^\s]+)$/i.exec(authorization);
+  if (!match) return false;
+
+  const providedHash = createHash("sha256").update(match[1]!).digest();
+  return timingSafeEqual(providedHash, expectedHash);
+}
+
+function isUnsafeApiMethod(method: string): boolean {
+  return method !== "GET" && method !== "HEAD" && method !== "OPTIONS";
+}
+
+function sameOriginOrRefererAllowed(
+  headers: IncomingHttpHeaders,
+  requestUrl: URL,
+  trustedOrigins: string[],
+  trustForwardedHeaders: boolean,
+  remoteAddress: string | undefined,
+): boolean {
+  if (headers.origin !== undefined) {
+    return sameOriginAllowed(
+      headers.origin,
+      requestUrl,
+      headers,
+      trustedOrigins,
+      trustForwardedHeaders,
+      remoteAddress,
+    );
+  }
+  if (headers.referer === undefined) return false;
+  return sameOriginAllowed(headers.referer, requestUrl, headers, trustedOrigins, trustForwardedHeaders, remoteAddress);
 }
 
 function isLoopbackHostAuthority(value: string | undefined): boolean {
@@ -1199,6 +1253,12 @@ const unavailableVoyageClient: VoyageClient = {
 export async function createServer(opts: ServerOptions): Promise<RunningServer> {
   const port = opts.port ?? 4410;
   const host = opts.host ?? "127.0.0.1";
+  const env = opts.env ?? process.env;
+  const requiresDashboardAuthentication = !isLoopbackListenHost(host);
+  const dashboardTokenHash = dashboardTokenHashFromEnv(env);
+  if (requiresDashboardAuthentication && !dashboardTokenHash) {
+    throw new Error("a non-loopback dashboard host requires MEMORY_DASHBOARD_TOKEN");
+  }
   const loader = opts.loader ?? loadDashboardStatus;
   // Default: run verify in a child process. It loads the embeddings sidecars +
   // corpus (multi-GB peak), which OOM-killed the app when run in-process on the
@@ -1210,7 +1270,6 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
       role: runnerOpts.role,
       includeSearch: runnerOpts.includeSearch,
     }));
-  const env = opts.env ?? process.env;
   const config = await loadMemoryConfig(opts.vaultRoot);
   const voyageClient = opts.voyageClient === undefined
     ? makeConfiguredVoyageClient(config, env, opts.voyageClientFactory ?? makeVoyageClient)
@@ -1269,6 +1328,30 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
     const method = req.method ?? "GET";
     const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
     const path = normalizeDashboardPath(url.pathname);
+
+    if (requiresDashboardAuthentication && path.startsWith("/api/")) {
+      if (requestHasQueryAuthentication(url)) {
+        writeJsonError(res, 400, "query authentication is not supported");
+        return;
+      }
+      if (!bearerTokenAuthorized(req.headers, dashboardTokenHash!)) {
+        writeJsonError(res, 401, "authentication required");
+        return;
+      }
+      if (isUnsafeApiMethod(method)) {
+        const policy = await loadDashboardOriginPolicy(opts.vaultRoot);
+        if (!sameOriginOrRefererAllowed(
+          req.headers,
+          url,
+          policy.trustedOrigins,
+          policy.trustForwardedHeaders,
+          req.socket.remoteAddress,
+        )) {
+          writeJsonError(res, 403, "unsafe API requests require a valid Origin or Referer");
+          return;
+        }
+      }
+    }
 
     if (method === "PATCH" && path === "/api/config") {
       const policy = await loadDashboardOriginPolicy(opts.vaultRoot);
