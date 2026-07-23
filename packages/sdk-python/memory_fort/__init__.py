@@ -9,6 +9,13 @@ __all__ = ["MemoryFortClient", "MemoryFortError", "SearchCapabilities", "SearchS
 SearchScope = Literal["all", "wiki", "raw", "crystals"]
 IdentityMode = Literal["inclusive", "strict"]
 
+_SEARCH_CAPABILITY_BACKENDS = ("legacy", "index-lexical", "index-hybrid")
+_SEARCH_CAPABILITY_SCOPES = ("all", "wiki", "raw", "crystals")
+_MAX_SEARCH_CAPABILITY_PARAMS = 32
+_MAX_SEARCH_CAPABILITY_PARAM_LENGTH = 128
+_MAX_SEARCH_CAPABILITY_SCOPES = 4
+
+
 
 class SearchCapabilities(TypedDict):
     searchBackend: Literal["legacy", "index-lexical", "index-hybrid"]
@@ -135,15 +142,22 @@ def _parse_search_capabilities(data: Any) -> SearchCapabilities:
     if not isinstance(data, dict):
         raise ValueError("invalid search capabilities response")
     backend = data.get("searchBackend")
-    supported = data.get("supportedParams")
-    unsupported = data.get("unsupportedParams")
-    scopes = data.get("scopes")
+    supported = _parse_capability_string_list(
+        data.get("supportedParams"), _MAX_SEARCH_CAPABILITY_PARAMS
+    )
+    unsupported = _parse_capability_string_list(
+        data.get("unsupportedParams"), _MAX_SEARCH_CAPABILITY_PARAMS
+    )
+    scopes = _parse_capability_string_list(
+        data.get("scopes"), _MAX_SEARCH_CAPABILITY_SCOPES
+    )
     if (
-        backend not in ("legacy", "index-lexical", "index-hybrid")
-        or not _is_string_list(supported)
-        or not _is_string_list(unsupported)
-        or not _is_string_list(scopes)
-        or any(scope not in ("all", "wiki", "raw", "crystals") for scope in scopes)
+        backend not in _SEARCH_CAPABILITY_BACKENDS
+        or supported is None
+        or unsupported is None
+        or scopes is None
+        or not scopes
+        or any(scope not in _SEARCH_CAPABILITY_SCOPES for scope in scopes)
     ):
         raise ValueError("invalid search capabilities response")
     return cast(SearchCapabilities, {
@@ -154,5 +168,12 @@ def _parse_search_capabilities(data: Any) -> SearchCapabilities:
     })
 
 
-def _is_string_list(value: Any) -> bool:
-    return isinstance(value, list) and all(isinstance(item, str) for item in value)
+def _parse_capability_string_list(value: Any, max_items: int) -> list[str] | None:
+    if not isinstance(value, list) or len(value) > max_items:
+        return None
+    parsed: list[str] = []
+    for item in value:
+        if not isinstance(item, str) or not item or len(item) > _MAX_SEARCH_CAPABILITY_PARAM_LENGTH:
+            return None
+        parsed.append(item)
+    return parsed
