@@ -1,8 +1,9 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, renderHook, waitFor } from "@testing-library/react";
+import { fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { useSearch, useSearchCapabilities } from "../../../src/dashboard-ui/hooks/useSearch.js";
+import { SearchResultCard } from "../../../src/dashboard-ui/components/SearchResultCard.js";
 
 function renderWithQueryClient(ui: ReactNode) {
   const client = new QueryClient({
@@ -21,6 +22,12 @@ function wrapperWithQueryClient({ children }: { children: ReactNode }) {
 function SearchProbe({ query }: { query: string }) {
   useSearch({ query });
   return null;
+}
+
+function SearchResultProbe() {
+  const search = useSearch({ query: "receipt" });
+  const result = search.data?.results[0];
+  return result ? <SearchResultCard result={result} /> : null;
 }
 
 function makeSearchResponse(query = "voyage") {
@@ -128,6 +135,77 @@ describe("useSearch", () => {
       expect(fetchMock).toHaveBeenCalled();
     });
     expect(String(fetchMock.mock.calls[0][0])).toContain("q=voyage");
+  });
+
+  test("retains an API provenance receipt and resolves it from the result card", async () => {
+    const response = makeSearchResponse("receipt");
+    response.results[0] = {
+      ...response.results[0],
+      path: "wiki/receipt.md",
+      provenance: {
+        path: "wiki/receipt.md",
+        kind: "wiki",
+        dominantSource: "index",
+        signals: [{ source: "index", rank: 1 }],
+        confidence: null,
+        sourceFactCount: null,
+        derivedFromCount: null,
+        tier: null,
+        chunkId: "wiki/receipt.md#8:0",
+        chunkOrdinal: 0,
+        byteStart: 10,
+        byteEnd: 42,
+        sourceContentHash: "a".repeat(64),
+        chunkTextHash: "b".repeat(64),
+        indexGeneration: 8,
+        indexedAt: "2026-07-23T10:00:00.000Z",
+        lexicalRank: 1,
+        lexicalScore: 4.2,
+        vectorRank: null,
+        vectorDistance: null,
+        appliedScope: "all",
+        appliedFilters: {
+          includeArchived: false,
+          asOf: null,
+          agentId: null,
+          userId: null,
+          identityMode: null,
+        },
+        backend: "index-lexical",
+        rankingProfile: "bm25-v1",
+      },
+    } as unknown as (typeof response.results)[number];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
+      if (String(input).includes("/search/provenance/resolve")) {
+        return new Response(JSON.stringify({
+          valid: true,
+          reason: "verified",
+          text: "exact API-normalized source text",
+          byteStart: 10,
+          byteEnd: 42,
+        }), { status: 200 });
+      }
+      return new Response(JSON.stringify(response), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderWithQueryClient(<SearchResultProbe />);
+
+    const whyButton = await screen.findByRole("button", { name: "Why this result?" });
+    fireEvent.click(whyButton);
+
+    expect(await screen.findByText("Verified bytes 10–42")).toBeVisible();
+    expect(screen.getByText("exact API-normalized source text")).toBeVisible();
+    const resolverCall = fetchMock.mock.calls.find(([input]) =>
+      String(input).includes("/search/provenance/resolve")
+    );
+    expect(resolverCall?.[1]?.method).toBe("POST");
+    expect(JSON.parse(String(resolverCall?.[1]?.body))).toMatchObject({
+      chunkId: "wiki/receipt.md#8:0",
+      byteStart: 10,
+      byteEnd: 42,
+      indexGeneration: 8,
+    });
   });
 
   test("passes noRerank through to the search URL", async () => {
@@ -245,15 +323,15 @@ describe("useSearch", () => {
     );
 
     await waitFor(() => {
-      expect(result.current.data?.results[0]?.provenance).toEqual({
+      expect(result.current.data?.results[0]?.provenance).toMatchObject({
         path: "wiki/projects/voyage.md",
         kind: "wiki",
         dominantSource: "bm25",
         signals: [],
         confidence: null,
-        sourceFactCount: 0,
-        derivedFromCount: 0,
-        tier: "medium",
+        sourceFactCount: null,
+        derivedFromCount: null,
+        tier: null,
       });
     });
   });
@@ -275,15 +353,15 @@ describe("useSearch", () => {
     );
 
     await waitFor(() => {
-      expect(result.current.data?.results[0]?.provenance).toEqual({
+      expect(result.current.data?.results[0]?.provenance).toMatchObject({
         path: "wiki/projects/voyage.md",
         kind: "wiki",
         dominantSource: "bm25",
         signals: [],
         confidence: null,
-        sourceFactCount: 0,
-        derivedFromCount: 0,
-        tier: "medium",
+        sourceFactCount: null,
+        derivedFromCount: null,
+        tier: null,
       });
     });
   });
@@ -349,9 +427,9 @@ describe("useSearch", () => {
         dominantSource: "",
         signals: [{ source: "rerank", rank: 2 }],
         confidence: null,
-        sourceFactCount: 0,
-        derivedFromCount: 0,
-        tier: "medium",
+        sourceFactCount: null,
+        derivedFromCount: null,
+        tier: null,
       },
     });
   });

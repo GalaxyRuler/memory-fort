@@ -7,6 +7,44 @@ export type SearchScope = "all" | "wiki" | "raw" | "crystals";
 
 export type SearchCapabilities = SharedSearchCapabilities;
 
+export interface SearchProvenance {
+  path: string;
+  kind: "wiki" | "raw" | "crystal";
+  dominantSource: string;
+  signals: Array<{ source: string; rank: number }>;
+  confidence: number | null;
+  confidenceMetadata?: unknown;
+  validation?: string | null;
+  sourceFactCount: number | null;
+  derivedFromCount: number | null;
+  tier: "high" | "medium" | "low" | null;
+  chunkId?: string | null;
+  chunkOrdinal?: number | null;
+  byteStart?: number | null;
+  byteEnd?: number | null;
+  sourceContentHash?: string | null;
+  chunkTextHash?: string | null;
+  indexGeneration?: number | null;
+  indexedAt?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  observedAt?: string | null;
+  lexicalRank?: number | null;
+  lexicalScore?: number | null;
+  vectorRank?: number | null;
+  vectorDistance?: number | null;
+  appliedScope?: SearchScope | null;
+  appliedFilters?: {
+    includeArchived: boolean | null;
+    asOf: string | null;
+    agentId: string | null;
+    userId: string | null;
+    identityMode: "inclusive" | "strict" | null;
+  } | null;
+  backend?: "legacy" | "index-lexical" | "index-hybrid" | null;
+  rankingProfile?: string | null;
+}
+
 export interface SearchResult {
   path: string;
   title: string;
@@ -14,23 +52,7 @@ export interface SearchResult {
   score: number;
   source: string;
   sources: Array<{ source: string; rank: number }>;
-  provenance: {
-    path: string;
-    kind: "wiki" | "raw" | "crystal";
-    dominantSource: string;
-    signals: Array<{ source: string; rank: number }>;
-    confidence: number | null;
-    sourceFactCount: number;
-    derivedFromCount: number;
-    tier: "high" | "medium" | "low";
-    chunkId?: string | null;
-    chunkOrdinal?: number | null;
-    byteStart?: number | null;
-    byteEnd?: number | null;
-    sourceContentHash?: string | null;
-    chunkTextHash?: string | null;
-    indexGeneration?: number | null;
-  };
+  provenance: SearchProvenance;
   kind: "wiki" | "raw" | "crystal";
 }
 
@@ -96,6 +118,27 @@ type RuntimeSearchResult = Partial<Omit<SearchResult, "provenance" | "sources">>
     sourceFactCount?: unknown;
     derivedFromCount?: unknown;
     tier?: unknown;
+    confidenceMetadata?: unknown;
+    validation?: unknown;
+    chunkId?: unknown;
+    chunkOrdinal?: unknown;
+    byteStart?: unknown;
+    byteEnd?: unknown;
+    sourceContentHash?: unknown;
+    chunkTextHash?: unknown;
+    indexGeneration?: unknown;
+    indexedAt?: unknown;
+    createdAt?: unknown;
+    updatedAt?: unknown;
+    observedAt?: unknown;
+    lexicalRank?: unknown;
+    lexicalScore?: unknown;
+    vectorRank?: unknown;
+    vectorDistance?: unknown;
+    appliedScope?: unknown;
+    appliedFilters?: unknown;
+    backend?: unknown;
+    rankingProfile?: unknown;
   };
 };
 
@@ -167,6 +210,27 @@ export function normalizeSearchResult(result: RuntimeSearchResult): SearchResult
       sourceFactCount: normalizeProvenanceCount(provenance?.sourceFactCount),
       derivedFromCount: normalizeProvenanceCount(provenance?.derivedFromCount),
       tier: normalizeProvenanceTier(provenance?.tier),
+      confidenceMetadata: provenance?.confidenceMetadata,
+      validation: normalizeNullableString(provenance?.validation),
+      chunkId: normalizeNullableNonEmptyString(provenance?.chunkId),
+      chunkOrdinal: normalizeProvenanceCount(provenance?.chunkOrdinal),
+      byteStart: normalizeProvenanceCount(provenance?.byteStart),
+      byteEnd: normalizeProvenanceCount(provenance?.byteEnd),
+      sourceContentHash: normalizeNullableHash(provenance?.sourceContentHash),
+      chunkTextHash: normalizeNullableHash(provenance?.chunkTextHash),
+      indexGeneration: normalizeProvenanceCount(provenance?.indexGeneration),
+      indexedAt: normalizeNullableString(provenance?.indexedAt),
+      createdAt: normalizeNullableString(provenance?.createdAt),
+      updatedAt: normalizeNullableString(provenance?.updatedAt),
+      observedAt: normalizeNullableString(provenance?.observedAt),
+      lexicalRank: normalizeProvenanceCount(provenance?.lexicalRank),
+      lexicalScore: normalizeNullableFiniteNumber(provenance?.lexicalScore),
+      vectorRank: normalizeProvenanceCount(provenance?.vectorRank),
+      vectorDistance: normalizeNullableFiniteNumber(provenance?.vectorDistance),
+      appliedScope: normalizeProvenanceScope(provenance?.appliedScope),
+      appliedFilters: normalizeAppliedFilters(provenance?.appliedFilters),
+      backend: normalizeProvenanceBackend(provenance?.backend),
+      rankingProfile: normalizeNullableString(provenance?.rankingProfile),
     },
   };
   return [normalizedResult];
@@ -179,9 +243,43 @@ function isSearchResultKind(kind: unknown): kind is SearchResult["kind"] {
 function normalizeProvenanceProbability(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1 ? value : null;
 }
-function normalizeProvenanceCount(value: unknown): number {
-  return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : 0;
+function normalizeProvenanceCount(value: unknown): number | null {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : null;
 }
-function normalizeProvenanceTier(value: unknown): "high" | "medium" | "low" {
-  return value === "high" || value === "low" ? value : "medium";
+function normalizeProvenanceTier(value: unknown): "high" | "medium" | "low" | null {
+  return value === "high" || value === "medium" || value === "low" ? value : null;
+}
+function normalizeNullableFiniteNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+function normalizeNullableString(value: unknown): string | null {
+  return typeof value === "string" ? value : null;
+}
+function normalizeNullableNonEmptyString(value: unknown): string | null {
+  return typeof value === "string" && value.length > 0 ? value : null;
+}
+function normalizeNullableHash(value: unknown): string | null {
+  return typeof value === "string" && /^[0-9a-f]{64}$/i.test(value) ? value : null;
+}
+function normalizeProvenanceScope(value: unknown): SearchScope | null {
+  return value === "all" || value === "wiki" || value === "raw" || value === "crystals" ? value : null;
+}
+function normalizeProvenanceBackend(value: unknown): SearchProvenance["backend"] {
+  return value === "legacy" || value === "index-lexical" || value === "index-hybrid" ? value : null;
+}
+function normalizeAppliedFilters(value: unknown): SearchProvenance["appliedFilters"] {
+  if (!isRecord(value)) return null;
+  return {
+    includeArchived: typeof value["includeArchived"] === "boolean" ? value["includeArchived"] : null,
+    asOf: normalizeNullableString(value["asOf"]),
+    agentId: normalizeNullableString(value["agentId"]),
+    userId: normalizeNullableString(value["userId"]),
+    identityMode: normalizeIdentityMode(value["identityMode"]),
+  };
+}
+function normalizeIdentityMode(value: unknown): "inclusive" | "strict" | null {
+  return value === "inclusive" || value === "strict" ? value : null;
+}
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
