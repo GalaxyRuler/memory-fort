@@ -1,35 +1,14 @@
-import { existsSync } from "node:fs";
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
-import { homedir } from "node:os";
 import {
-  chatgptBridgePidPath,
-  claudeDesktopConfigPath,
-  configPath as memoryConfigPath,
-  memoryRoot,
-} from "../../storage/paths.js";
-import { getChatGptBridgePort, isClientEnabled, loadMemoryConfig } from "../../storage/config.js";
-import { isClaudeCodePluginEnabled } from "./install/claude-code.js";
-import { readOpenCodeReadiness } from "./install/opencode.js";
-import { readOpenCovenReadiness } from "./install/opencoven.js";
-import { vscodeMcpConfigPath } from "./install/vscode.js";
+  CLIENTS as SHARED_CLIENTS,
+  getClientIntegrationStatuses,
+  type ClientInstallation,
+  type ClientName,
+} from "../../clients/status.js";
 
-export type ClientName =
-  | "claude-code"
-  | "claude-desktop"
-  | "codex"
-  | "antigravity"
-  | "antigravity-ide"
-  | "chatgpt"
-  | "hermes"
-  | "pi"
-  | "openclaw"
-  | "opencoven"
-  | "opencode"
-  | "vscode";
+export type { ClientName } from "../../clients/status.js";
+export type ClientInstallState = ClientInstallation;
 
-export type ClientInstallState = "installed" | "stale" | "missing";
-
+/** Backwards-compatible CLI projection of the shared client status contract. */
 export interface ClientStatus {
   client: ClientName;
   state: ClientInstallState;
@@ -37,276 +16,19 @@ export interface ClientStatus {
   configPath?: string;
 }
 
-export const CLIENTS: ClientName[] = [
-  "claude-code",
-  "claude-desktop",
-  "codex",
-  "antigravity",
-  "antigravity-ide",
-  "chatgpt",
-  "hermes",
-  "pi",
-  "openclaw",
-  "opencoven",
-  "opencode",
-  "vscode",
-];
+export const CLIENTS: ClientName[] = SHARED_CLIENTS;
 
 export async function getClientStatuses(): Promise<ClientStatus[]> {
-  const antigravity = await readAntigravityStatus("antigravity");
-  return [
-    await readClaudeCodeStatus(),
-    await readClaudeDesktopStatus(),
-    await readCodexStatus(),
-    antigravity,
-    { ...antigravity, client: "antigravity-ide" },
-    await readChatGptStatus(),
-    await readHermesStatus(),
-    await readPiStatus(),
-    await readOpenClawStatus(),
-    await readOpenCovenStatus(),
-    await readOpenCodeStatus(),
-    await readVsCodeStatus(),
-  ];
-}
-
-async function readChatGptStatus(): Promise<ClientStatus> {
-  const config = await loadMemoryConfig();
-  const port = getChatGptBridgePort(config);
-  if (!isClientEnabled(config, "chatgpt")) {
-    return {
-      client: "chatgpt",
-      state: "missing",
-      detail: "disabled in config.yaml",
-      configPath: memoryConfigPath(),
-    };
-  }
-
-  const pidPath = chatgptBridgePidPath();
-  if (!existsSync(pidPath)) {
-    return {
-      client: "chatgpt",
-      state: "stale",
-      detail: `enabled but bridge PID file is missing (expected https://localhost:${port}/sse)`,
-      configPath: memoryConfigPath(),
-    };
-  }
-
-  return {
-    client: "chatgpt",
-    state: "installed",
-    detail: `enabled; bridge state at ${pidPath}`,
-    configPath: memoryConfigPath(),
-  };
+  const statuses = await getClientIntegrationStatuses();
+  return statuses.map((status) => ({
+    client: status.client,
+    state: status.installation,
+    detail: status.evidence.join("; "),
+    configPath: status.configPath,
+  }));
 }
 
 export function formatClientStatus(status: ClientStatus): string {
-  const marker =
-    status.state === "installed" ? "✓" : status.state === "stale" ? "⚠" : "✗";
+  const marker = status.state === "installed" ? "✓" : status.state === "stale" ? "⚠" : "✗";
   return `${marker} ${status.client.padEnd(18)} ${status.detail}`;
-}
-
-async function readClaudeCodeStatus(): Promise<ClientStatus> {
-  const pluginRoot = join(memoryRoot(), "claude-code-plugin");
-  const manifest = join(pluginRoot, ".claude-plugin", "plugin.json");
-  const mcpConfig = join(pluginRoot, ".mcp.json");
-  const scripts = join(pluginRoot, "scripts", "mcp-server.mjs");
-  if (!existsSync(manifest) || !existsSync(mcpConfig)) {
-    return {
-      client: "claude-code",
-      state: "missing",
-      detail: "not installed: plugin manifest or MCP config missing",
-      configPath: mcpConfig,
-    };
-  }
-  if (!existsSync(scripts)) {
-    return {
-      client: "claude-code",
-      state: "stale",
-      detail: "installed but scripts link is stale",
-      configPath: mcpConfig,
-    };
-  }
-  const enabled = await isClaudeCodePluginEnabled();
-  if (!enabled) {
-    return {
-      client: "claude-code",
-      state: "stale",
-      detail: "plugin installed but not enabled in Claude Code settings",
-      configPath: mcpConfig,
-    };
-  }
-  return {
-    client: "claude-code",
-    state: "installed",
-    detail: "installed and enabled",
-    configPath: mcpConfig,
-  };
-}
-
-async function readClaudeDesktopStatus(): Promise<ClientStatus> {
-  const configPath = claudeDesktopConfigPath();
-  const ok = await jsonHasServer(configPath, "mcpServers");
-  return ok
-    ? {
-        client: "claude-desktop",
-        state: "installed",
-        detail: "installed",
-        configPath,
-      }
-    : {
-        client: "claude-desktop",
-        state: existsSync(configPath) ? "stale" : "missing",
-        detail: existsSync(configPath)
-          ? "installed but memory entry missing or invalid"
-          : "not installed",
-        configPath,
-      };
-}
-
-async function readCodexStatus(): Promise<ClientStatus> {
-  const dir = process.env["MEMORY_CODEX_DIR"] ?? join(homedir(), ".codex");
-  const configPath = join(dir, "config.toml");
-  if (!existsSync(configPath)) {
-    return { client: "codex", state: "missing", detail: "not installed", configPath };
-  }
-  const raw = await readFile(configPath, "utf-8");
-  const ok = raw.includes("[mcp_servers.memory]") && raw.includes("mcp-server.mjs");
-  return {
-    client: "codex",
-    state: ok ? "installed" : "stale",
-    detail: ok ? "installed" : "installed but memory MCP block is stale",
-    configPath,
-  };
-}
-
-async function readAntigravityStatus(client: ClientName): Promise<ClientStatus> {
-  const dir =
-    process.env["MEMORY_ANTIGRAVITY_DIR"] ??
-    join(homedir(), ".gemini", "antigravity");
-  const configPath = join(dir, "mcp_config.json");
-  const ok = await jsonHasServer(configPath, "mcpServers");
-  return {
-    client,
-    state: ok ? "installed" : existsSync(configPath) ? "stale" : "missing",
-    detail: ok
-      ? "installed (shared workspace/IDE config)"
-      : existsSync(configPath)
-        ? "installed but memory entry missing or invalid"
-        : "not installed",
-    configPath,
-  };
-}
-
-async function readHermesStatus(): Promise<ClientStatus> {
-  const dir = process.env["MEMORY_HERMES_DIR"] ?? join(homedir(), ".hermes");
-  const configPath = join(dir, "config.yaml");
-  if (!existsSync(configPath)) {
-    return { client: "hermes", state: "missing", detail: "not installed", configPath };
-  }
-  const raw = await readFile(configPath, "utf-8");
-  const ok = raw.includes("# === BEGIN memory-system") && raw.includes("mcp-server.mjs");
-  return {
-    client: "hermes",
-    state: ok ? "installed" : "stale",
-    detail: ok ? "installed" : "installed but memory block is stale",
-    configPath,
-  };
-}
-
-async function readPiStatus(): Promise<ClientStatus> {
-  const dir = process.env["MEMORY_PI_DIR"] ?? join(homedir(), ".pi");
-  const configPath = join(dir, "config.yaml");
-  if (!existsSync(configPath)) {
-    return { client: "pi", state: "missing", detail: "not installed", configPath };
-  }
-  const raw = await readFile(configPath, "utf-8");
-  const ok = raw.includes("# === BEGIN memory-system") && raw.includes("session-start.mjs");
-  return {
-    client: "pi",
-    state: ok ? "installed" : "stale",
-    detail: ok ? "installed (hooks; MCP skipped)" : "installed but memory hooks block is stale",
-    configPath,
-  };
-}
-
-async function readOpenClawStatus(): Promise<ClientStatus> {
-  const dir = process.env["MEMORY_OPENCLAW_DIR"] ?? join(homedir(), ".openclaw");
-  const configPath = join(dir, "openclaw.json");
-  const ok = await jsonHasServer(configPath, "mcpServers");
-  return {
-    client: "openclaw",
-    state: ok ? "installed" : existsSync(configPath) ? "stale" : "missing",
-    detail: ok
-      ? "installed"
-      : existsSync(configPath)
-        ? "installed but memory entry missing or invalid"
-        : "not installed",
-    configPath,
-  };
-}
-
-async function readOpenCovenStatus(): Promise<ClientStatus> {
-  const status = await readOpenCovenReadiness();
-  return {
-    client: "opencoven",
-    state: status.state,
-    detail: status.detail,
-    configPath: status.socketPath,
-  };
-}
-
-async function readOpenCodeStatus(): Promise<ClientStatus> {
-  const readiness = await readOpenCodeReadiness();
-  const configOk = readiness.config.ok;
-  const pluginOk = readiness.plugin.ok;
-  const anyOpenCodeFile = readiness.config.exists || readiness.plugin.exists;
-  return {
-    client: "opencode",
-    state: configOk && pluginOk
-      ? "installed"
-      : anyOpenCodeFile
-        ? "stale"
-        : "missing",
-    detail: configOk && pluginOk
-      ? "installed"
-      : anyOpenCodeFile
-        ? "installed but memory MCP or plugin file is missing or stale"
-        : "not installed",
-    configPath: readiness.configPath,
-  };
-}
-
-async function readVsCodeStatus(): Promise<ClientStatus> {
-  const configPath = vscodeMcpConfigPath();
-  const ok = await jsonHasServer(configPath, "servers");
-  return {
-    client: "vscode",
-    state: ok ? "installed" : existsSync(configPath) ? "stale" : "missing",
-    detail: ok
-      ? "installed (user profile mcp.json)"
-      : existsSync(configPath)
-        ? "installed but memory server missing or invalid"
-        : "not installed",
-    configPath,
-  };
-}
-
-async function jsonHasServer(
-  configPath: string,
-  serverMapKey: "mcpServers" | "servers" | "mcp",
-): Promise<boolean> {
-  if (!existsSync(configPath)) return false;
-  try {
-    const parsed = JSON.parse(await readFile(configPath, "utf-8")) as Record<
-      string,
-      unknown
-    >;
-    const servers = parsed[serverMapKey];
-    if (typeof servers !== "object" || servers === null) return false;
-    const memory = (servers as Record<string, unknown>)["memory"];
-    return typeof memory === "object" && memory !== null;
-  } catch {
-    return false;
-  }
 }

@@ -13,6 +13,7 @@ import {
   type DashboardServiceRuntimeEnv,
 } from "../src/dashboard/dashboard-service-supervisor.js";
 import { isIndexSearchEnabled } from "../src/index/env.js";
+import { getClientIntegrationStatuses } from "../src/clients/status.js";
 
 // main heap is ~4GB-capped; dashboard server work runs in a utility process.
 
@@ -33,6 +34,17 @@ if (!gotLock) {
 let dashboardSupervisor: DashboardServiceSupervisor | null = null;
 let indexWriterSupervisor: DashboardServiceSupervisor | null = null;
 let mainWindow: BrowserWindow | null = null;
+
+/** Read-only bootstrap inventory. It never installs, repairs, or edits client config. */
+async function runFirstRunClientStatusScan(): Promise<void> {
+  try {
+    const statuses = await getClientIntegrationStatuses();
+    console.info(`[memory-fort client-status bootstrap] scanned ${statuses.length} client integrations`);
+  } catch (error) {
+    // A client config can be malformed or unavailable; this must not block the dashboard.
+    console.warn(`[memory-fort client-status bootstrap] unavailable: ${formatErrorForLog(error)}`);
+  }
+}
 
 async function createWindow(): Promise<void> {
   const appPath = app.getAppPath();
@@ -2263,6 +2275,7 @@ app
       }
       return;
     }
+    void runFirstRunClientStatusScan();
     await createWindow();
   })
   .catch((error) => {

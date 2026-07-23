@@ -4,7 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runInit } from "../../../src/cli/commands/init.js";
 import { getClientStatuses } from "../../../src/cli/commands/client-status.js";
+import { getClientIntegrationStatuses } from "../../../src/clients/status.js";
 import { runInstallOpenCode } from "../../../src/cli/commands/install/opencode.js";
+import { chatgptBridgePidPath } from "../../../src/storage/paths.js";
 
 describe("getClientStatuses", () => {
   let tmp: string;
@@ -380,6 +382,36 @@ describe("getClientStatuses", () => {
     const status = statuses.find((item) => item.client === "opencode")!;
     expect(status.state).toBe("missing");
     expect(status.detail).toBe("not installed");
+  });
+
+  it("marks a configured Codex integration stale when its referenced executable is missing", async () => {
+    const codexDir = process.env["MEMORY_CODEX_DIR"]!;
+    await mkdir(codexDir, { recursive: true });
+    await writeFile(join(codexDir, "config.toml"), [
+      "[mcp_servers.memory]",
+      'command = "node"',
+      'args = ["mcp-server.mjs"]',
+      "",
+    ].join("\n"));
+    await rm(join(memDir, "claude-code-plugin", "scripts", "mcp-server.mjs"));
+
+    const status = (await getClientIntegrationStatuses()).find((item) => item.client === "codex")!;
+    expect(status.installation).toBe("stale");
+    expect(status.evidence[0]).toContain("executable is missing");
+  });
+
+  it("does not treat a ChatGPT PID file as health evidence", async () => {
+    const configPath = join(memDir, "config.yaml");
+    await writeFile(configPath, "clients:\n  chatgpt: true\n");
+    await writeFile(chatgptBridgePidPath(), String(process.pid));
+
+    const status = (await getClientIntegrationStatuses({
+      now: () => new Date("2026-07-24T00:00:00.000Z"),
+      probeChatGpt: async () => "unhealthy",
+    })).find((item) => item.client === "chatgpt")!;
+    expect(status.installation).toBe("stale");
+    expect(status.health).toBe("unhealthy");
+    expect(status.evidence[0]).toContain("PID files are not health evidence");
   });
 
   async function writeOpenCodeConfig(

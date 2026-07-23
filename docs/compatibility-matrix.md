@@ -1,16 +1,18 @@
 # Memory Fort Compatibility Matrix
 
-This matrix tracks what Memory Fort claims, what is installed by the CLI, and what has fresh verification evidence.
+This matrix keeps three claims separate: **supported** means an installer/contract exists; **installed** is local machine state reported by `/api/clients/status`; **certified** requires the listed live proof. An installed configuration is not automatically certified.
 
-| Tool | Install command | Capture path | Recall path | Fresh proof required for v1.1 | Status |
-|---|---|---|---|---|---|
-| Claude Code | `memory-fort install claude-code` | Plugin hooks | Plugin MCP + session-start context | Plugin enabled, hook paths resolve, one raw capture, one MCP search | certification required |
-| Codex | `memory-fort install codex` | `~/.codex/config.toml` hooks | MCP + session-start context | Config block, one raw capture, one MCP search | certification required |
-| Antigravity | `memory-fort install antigravity` | Live-capture plugin | MCP | Plugin installed, one raw capture, one MCP call | certification required |
-| OpenCode | `memory-fort install opencode` | Selected OpenCode plugin events | OpenCode local MCP config | Config entry, plugin file, selected event capture, one MCP list/search operator smoke | implemented; live/operator smoke pending |
-| Hermes | `memory-fort install hermes` | YAML hooks | MCP | Config block and capture freshness when installed | supported |
-| Pi | `memory-fort install pi` | YAML hooks | none in v1 | Config block and capture freshness when installed | supported |
-| OpenClaw | `memory-fort install openclaw` | none in v1 | MCP | Config entry preserved and updated idempotently | supported |
-| OpenCoven | `memory-fort install opencoven` | none | readiness check only | Readiness contract result | read-only |
-| Claude Desktop | `memory-fort install claude-desktop` | none | MCP | MCP config entry | supported |
-| VS Code | `memory-fort install vscode` | extension shell | MCP | MCP config entry and extension copy | supported |
+| Tool | Supported contract | Installed state | Certification evidence | Certified |
+|---|---|---|---|---|
+| Claude Code | Plugin hooks + MCP | Inspect plugin, hook paths, and enablement | One raw capture and bounded MCP `tools/list`/search smoke | pending live smoke |
+| Codex | `config.toml` hooks + MCP | Inspect config and referenced executables | One raw capture and bounded MCP `tools/list`/search smoke | pending live smoke |
+| Antigravity | Live-capture plugin + MCP | Inspect configured plugin/MCP entry | One raw capture and MCP smoke | pending live smoke |
+| OpenCode | Selected plugin events + local MCP | Inspect config, plugin, and referenced scripts | Selected event capture and MCP list/search smoke | pending live smoke |
+| Hermes | YAML hooks + MCP | Inspect hook block and referenced script | Capture freshness and MCP smoke | pending live smoke |
+| Pi | YAML hooks only | Inspect hook block and referenced script | Capture freshness | pending live smoke |
+| OpenClaw | MCP only | Inspect MCP entry | Bounded MCP smoke | pending live smoke |
+| OpenCoven | Read-only readiness | Readiness contract result | Not applicable | not claimed |
+| Claude Desktop | MCP only | Inspect MCP entry | Bounded MCP smoke | pending live smoke |
+| VS Code | MCP + extension shell | Inspect MCP entry and extension | Extension capture and MCP smoke | pending live smoke |
+
+`/api/clients/status` reports only local installation/health evidence. It does not set certification, mutate a client configuration, or turn a disabled client on.

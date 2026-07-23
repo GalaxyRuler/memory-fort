@@ -1,11 +1,15 @@
 import { CLIENT_CATALOG, readConfiguredClientEnabled } from "../../clients/catalog.js";
+import { classifyClientPresentation } from "../../clients/status.js";
 import { useConfig } from "../hooks/useConfig.js";
 import { useUpdateConfig } from "../hooks/useUpdateConfig.js";
+import { useClientAction, useClientStatuses } from "../hooks/useClientStatus.js";
 import { Card } from "./Card.js";
 
 export function ClientsConfigCard() {
   const config = useConfig();
   const update = useUpdateConfig();
+  const clientStatuses = useClientStatuses();
+  const clientAction = useClientAction();
   const clients = (config.data?.clients ?? {}) as Record<string, boolean>;
 
   return (
@@ -20,6 +24,15 @@ export function ClientsConfigCard() {
       <ul className="space-y-2">
         {CLIENT_CATALOG.map((client) => {
           const enabled = readConfiguredClientEnabled(clients, client.id);
+          const status = clientStatuses.data?.find((entry) => entry.client === client.id);
+          const presentation = status
+            ? classifyClientPresentation(status)
+            : enabled ? "Checking…" : "Off";
+          const primaryAction = status?.installation === "missing"
+            ? "install"
+            : status?.installation === "stale"
+              ? "repair"
+              : null;
           return (
             <li
               key={client.id}
@@ -34,31 +47,46 @@ export function ClientsConfigCard() {
                     <span className="rounded bg-surface-2 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-text-muted">
                       {client.connection}
                     </span>
-                    {!enabled ? (
-                      <span className="rounded bg-text-muted/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-text-muted">
-                        Off
-                      </span>
-                    ) : null}
+                    <span className="rounded bg-text-muted/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-text-muted">
+                      {presentation}
+                    </span>
                   </span>
                   <span className="mt-1 block text-xs text-text-muted">{client.disableEffect}</span>
-                  <span className="mt-1 block text-xs text-text-muted">
-                    Disconnect/remove setup:{" "}
-                    <code className="break-all rounded bg-surface-2 px-1 py-0.5 font-mono text-[11px]">
-                      {client.disconnectCommand}
-                    </code>
-                  </span>
+                  {status?.evidence.length ? <span className="mt-1 block text-xs text-text-muted">{status.evidence[0]}</span> : null}
                 </span>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={enabled}
-                  aria-label={`${client.label} ${enabled ? "enabled" : "disabled"}`}
-                  disabled={update.isPending}
-                  className="flex-shrink-0 self-start rounded-md border border-border-subtle px-3 py-1 text-xs text-text-secondary transition-colors hover:bg-surface-2 hover:text-text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                  onClick={() => update.mutate({ clients: { [client.id]: !enabled } })}
-                >
-                  {enabled ? "Turn off" : "Turn on"}
-                </button>
+                <span className="flex flex-shrink-0 flex-wrap gap-2 self-start">
+                  {primaryAction ? (
+                    <button
+                      type="button"
+                      disabled={clientAction.isPending}
+                      className="rounded-md border border-border-subtle px-3 py-1 text-xs text-text-secondary transition-colors hover:bg-surface-2 hover:text-text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                      onClick={() => clientAction.mutate({ action: primaryAction, client: client.id })}
+                    >
+                      {primaryAction === "install" ? "Install" : "Repair"}
+                    </button>
+                  ) : null}
+                  {status?.installation && status.installation !== "missing" ? (
+                    <button
+                      type="button"
+                      disabled={clientAction.isPending}
+                      className="rounded-md border border-border-subtle px-3 py-1 text-xs text-text-secondary transition-colors hover:bg-surface-2 hover:text-text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                      onClick={() => clientAction.mutate({ action: "disconnect", client: client.id })}
+                    >
+                      Disconnect
+                    </button>
+                  ) : null}
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={enabled}
+                    aria-label={`${client.label} ${enabled ? "enabled" : "disabled"}`}
+                    disabled={update.isPending}
+                    className="rounded-md border border-border-subtle px-3 py-1 text-xs text-text-secondary transition-colors hover:bg-surface-2 hover:text-text-primary focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                    onClick={() => update.mutate({ clients: { [client.id]: !enabled } })}
+                  >
+                    {enabled ? "Turn off" : "Turn on"}
+                  </button>
+                </span>
               </div>
             </li>
           );

@@ -566,6 +566,55 @@ describe("dashboard server", () => {
     }
   });
 
+  it("GET /api/clients/status returns the shared client status contract", async () => {
+    const clientStatus = [{
+      client: "codex" as const,
+      captureEnabled: true,
+      installation: "stale" as const,
+      health: "unknown" as const,
+      lastCheckedAt: null,
+      evidence: ["Memory Fort config references missing hook executable"],
+    }];
+    const server = await createServer({
+      vaultRoot: tmp,
+      port: 0,
+      clientStatusReader: async () => clientStatus,
+    });
+
+    try {
+      const response = await fetch(`http://${server.host}:${server.port}/api/clients/status`);
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toEqual(clientStatus);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("POST /api/clients/action only accepts allowlisted installer actions", async () => {
+    const actionRunner = vi.fn(async () => ({ ok: true, detail: "installed fixture" }));
+    const server = await createServer({ vaultRoot: tmp, port: 0, clientActionRunner: actionRunner });
+    try {
+      const repaired = await fetch(`http://${server.host}:${server.port}/api/clients/action`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "repair", client: "codex" }),
+      });
+      expect(repaired.status).toBe(200);
+      await expect(repaired.json()).resolves.toMatchObject({ ok: true, action: "repair", client: "codex" });
+      expect(actionRunner).toHaveBeenCalledWith("repair", "codex");
+
+      const rejected = await fetch(`http://${server.host}:${server.port}/api/clients/action`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "run", client: "arbitrary-command" }),
+      });
+      expect(rejected.status).toBe(400);
+      expect(actionRunner).toHaveBeenCalledTimes(1);
+    } finally {
+      await server.close();
+    }
+  });
+
   it("GET /api/capture-spool/status exposes capture durability diagnostics", async () => {
     const previousSpool = process.env["MEMORY_CAPTURE_SPOOL_DIR"];
     const spool = await mkdtemp(join(tmpdir(), "memtest-capture-spool-status-"));

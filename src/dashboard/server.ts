@@ -20,6 +20,10 @@ import { buildProvenance } from "../retrieval/provenance-annotator.js";
 import { canonicalizeAsOf } from "../retrieval/temporal-filter.js";
 import { handlePostObservation, handleGetPages } from "./api-handlers.js";
 import { getCaptureSpoolStatus } from "../hooks/raw-file.js";
+import { getClientIntegrationStatuses, type ClientIntegrationStatus } from "../clients/status.js";
+import { isConfigurableClientId, type ConfigurableClientId } from "../clients/catalog.js";
+import { runConnect } from "../cli/commands/connect.js";
+import { runDisconnect } from "../cli/commands/disconnect.js";
 import { loadSearchCorpus, type SearchScope } from "../retrieval/corpus.js";
 import { isEntityWikiPath } from "../retrieval/wiki-paths.js";
 import { isIntentLabel, type IntentLabel } from "../retrieval/query-intent.js";
@@ -137,11 +141,30 @@ export interface ServerOptions {
   syncRunner?: () => Promise<SyncRunnerResult>;
   fullCorpusGate?: FullCorpusAdmissionGate;
   searchExecutor?: SearchExecutor | null;
+  clientStatusReader?: () => Promise<ClientIntegrationStatus[]>;
+  clientActionRunner?: (action: ClientAction, client: ConfigurableClientId) => Promise<ClientActionResult>;
 }
 
 export interface SyncRunnerResult {
   autoCommit: import("../sync/auto-commit-raws.js").AutoCommitResult;
   sync: import("../cli/commands/sync.js").SyncResult;
+}
+
+type ClientAction = "install" | "repair" | "disconnect";
+interface ClientActionResult { ok: boolean; detail: string; }
+
+async function runAllowlistedClientAction(
+  action: ClientAction,
+  client: ConfigurableClientId,
+): Promise<ClientActionResult> {
+  if (action === "disconnect") {
+    const result = await runDisconnect({ client });
+    const entry = result.clients[0];
+    return { ok: result.exitCode === 0, detail: entry?.detail ?? "nothing to remove" };
+  }
+  const result = await runConnect({ client, yes: true, noVerify: true });
+  const entry = result.clients[0];
+  return { ok: result.exitCode === 0, detail: entry?.detail ?? "installer returned no result" };
 }
 
 export interface RunningServer {
@@ -1270,6 +1293,8 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
     throw new Error("a non-loopback dashboard host requires MEMORY_DASHBOARD_TOKEN");
   }
   const loader = opts.loader ?? loadDashboardStatus;
+  const clientStatusReader = opts.clientStatusReader ?? getClientIntegrationStatuses;
+  const clientActionRunner = opts.clientActionRunner ?? runAllowlistedClientAction;
   // Default: run verify in a child process. It loads the embeddings sidecars +
   // corpus (multi-GB peak), which OOM-killed the app when run in-process on the
   // /api/health fetch the dashboard UI makes on mount. An injected runner
@@ -1434,6 +1459,32 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
           writeInvalidJsonBody(res);
           return;
         }
+        writeJsonError(res, 500, (err as Error).message);
+      }
+      return;
+    }
+
+    if (method === "POST" && path === "/api/clients/action") {
+      const policy = await loadDashboardOriginPolicy(opts.vaultRoot);
+      if (!sameOriginAllowed(req.headers.origin, url, req.headers, policy.trustedOrigins, policy.trustForwardedHeaders, req.socket.remoteAddress)) {
+        writeJsonError(res, 403, "cross-origin client actions are not allowed");
+        return;
+      }
+      try {
+        const body = await readJsonBody(req);
+        const input = typeof body === "object" && body !== null ? body as Record<string, unknown> : {};
+        const action = input["action"];
+        const client = input["client"];
+        if ((action !== "install" && action !== "repair" && action !== "disconnect") || !isConfigurableClientId(client)) {
+          writeJsonError(res, 400, "expected an allowlisted client and install, repair, or disconnect action");
+          return;
+        }
+        const result = await clientActionRunner(action, client);
+        writeJson(res, { ok: result.ok, action, client, detail: result.detail }, result.ok ? 200 : 500);
+      } catch (err) {
+        if (err instanceof RequestBodyTooLargeError) { writeRequestBodyTooLarge(res); return; }
+        if (err instanceof InvalidContentLengthError) { writeInvalidContentLength(res); return; }
+        if (err instanceof InvalidJsonBodyError) { writeInvalidJsonBody(res); return; }
         writeJsonError(res, 500, (err as Error).message);
       }
       return;
@@ -1737,6 +1788,15 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
     if (path === "/healthz") {
       res.writeHead(200, withSecurityHeaders({ "Content-Type": "text/plain; charset=utf-8" }));
       res.end("ok");
+      return;
+    }
+
+    if (path === "/api/clients/status") {
+      try {
+        writeJson(res, await clientStatusReader());
+      } catch (err) {
+        writeJsonError(res, 500, (err as Error).message);
+      }
       return;
     }
 

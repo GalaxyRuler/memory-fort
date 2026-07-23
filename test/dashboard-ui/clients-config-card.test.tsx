@@ -6,12 +6,25 @@ import { ClientsConfigCard } from "../../src/dashboard-ui/components/ClientsConf
 // Mutable state shared across tests so individual tests can override per-call behaviour
 let mockMutate = vi.fn();
 let mockClients: Record<string, boolean> = { codex: false };
+let mockClientAction = vi.fn();
+let mockStatuses: Array<{
+  client: string;
+  captureEnabled: boolean;
+  installation: "missing" | "stale" | "installed";
+  health: "unknown" | "healthy" | "unhealthy";
+  lastCheckedAt: string | null;
+  evidence: string[];
+}> = [];
 
 vi.mock("../../src/dashboard-ui/hooks/useConfig.js", () => ({
   useConfig: () => ({ data: { clients: mockClients } }),
 }));
 vi.mock("../../src/dashboard-ui/hooks/useUpdateConfig.js", () => ({
   useUpdateConfig: () => ({ mutate: mockMutate, isPending: false }),
+}));
+vi.mock("../../src/dashboard-ui/hooks/useClientStatus.js", () => ({
+  useClientStatuses: () => ({ data: mockStatuses }),
+  useClientAction: () => ({ mutate: mockClientAction, isPending: false }),
 }));
 
 function wrap(ui: React.ReactNode) {
@@ -60,5 +73,23 @@ describe("ClientsConfigCard", () => {
     fireEvent.click(screen.getByRole("switch", { name: /chatgpt disabled/i }));
 
     expect(mockMutate).toHaveBeenCalledWith({ clients: { chatgpt: true } });
+  });
+
+  it("shows Needs repair and sends only an allowlisted repair action", () => {
+    mockClients = { codex: true };
+    mockClientAction = vi.fn();
+    mockStatuses = [{
+      client: "codex",
+      captureEnabled: true,
+      installation: "stale",
+      health: "unknown",
+      lastCheckedAt: null,
+      evidence: ["configured executable is missing"],
+    }];
+    wrap(<ClientsConfigCard />);
+
+    expect(screen.getByText("Needs repair")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Repair" }));
+    expect(mockClientAction).toHaveBeenCalledWith({ action: "repair", client: "codex" });
   });
 });

@@ -41,4 +41,13 @@ describe("Electron main heap policy", () => {
     expect(gateScriptSource).toContain("MEMORY_INDEX_GATE_EXPECTED_SKIPPED");
     expect(gateScriptSource).toContain("index-writer emitted error");
   });
+
+  it("runs a read-only shared client status scan during bootstrap", async () => {
+    const source = await readFile(join(process.cwd(), "electron", "main.ts"), "utf-8");
+
+    expect(source).toContain("getClientIntegrationStatuses");
+    expect(source).toContain("runFirstRunClientStatusScan");
+    expect(source).not.toContain("runConnect(");
+    expect(source).not.toContain("runDisconnect(");
+  });
 });
