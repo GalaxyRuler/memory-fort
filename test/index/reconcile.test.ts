@@ -43,6 +43,43 @@ describe("reconcileIndex", () => {
     expect(() => indexDb.integrityCheck()).not.toThrow();
   });
 
+  it("keeps capture spool records out of indexed documents and search results", async () => {
+    const { vaultRoot, indexDb } = await createHarness();
+    const previousSpoolDir = process.env["MEMORY_CAPTURE_SPOOL_DIR"];
+    const spoolDir = join(tempDir!, "installation-state", "capture-spool");
+    const eventId = "capture-spool-event-x7q9";
+    const sentinel = "spoolonlysentinelx7q9";
+    process.env["MEMORY_CAPTURE_SPOOL_DIR"] = spoolDir;
+
+    try {
+      await mkdir(spoolDir, { recursive: true });
+      await writeFile(join(spoolDir, `${eventId}.json`), JSON.stringify({
+        version: 1,
+        id: eventId,
+        hash: "spool-hash-x7q9",
+        rawPath: join(vaultRoot, "raw", "capture.md"),
+        block: `\n## Prompt\n\n${sentinel}\n`,
+        createdAt: "2026-07-23T04:00:00.000Z",
+      }), "utf-8");
+      await writeVaultFile(vaultRoot, "wiki/live.md", "# Live\n\nindexed-live-token");
+
+      await reconcileIndex(indexDb, vaultRoot);
+
+      expect(selectFilePaths(indexDb)).toEqual(["wiki/live.md"]);
+      const indexedText = selectChunks(indexDb).map((chunk) => chunk.text).join("\n");
+      expect(indexedText).not.toContain(sentinel);
+      expect(indexedText).not.toContain(eventId);
+      expect(lexicalSearch(indexDb, sentinel)).toEqual([]);
+      expect(lexicalSearch(indexDb, eventId)).toEqual([]);
+      expect(lexicalSearch(indexDb, "indexed-live-token").map((hit) => hit.relPath)).toEqual([
+        "wiki/live.md",
+      ]);
+    } finally {
+      if (previousSpoolDir === undefined) delete process.env["MEMORY_CAPTURE_SPOOL_DIR"];
+      else process.env["MEMORY_CAPTURE_SPOOL_DIR"] = previousSpoolDir;
+    }
+  });
+
   it("stores frontmatter status, lifecycle, confidence, validation, and dates on files", async () => {
     const { vaultRoot, indexDb } = await createHarness();
     await writeVaultFile(

@@ -17,6 +17,7 @@ import {
 } from "../retrieval/search.js";
 import { parseAsOf } from "../retrieval/temporal-filter.js";
 import { handlePostObservation, handleGetPages } from "./api-handlers.js";
+import { getCaptureSpoolStatus } from "../hooks/raw-file.js";
 import { loadSearchCorpus, type SearchScope } from "../retrieval/corpus.js";
 import { isEntityWikiPath } from "../retrieval/wiki-paths.js";
 import { isIntentLabel, type IntentLabel } from "../retrieval/query-intent.js";
@@ -1632,6 +1633,15 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
     if (path === "/api/auto-heal/status") {
       try {
         writeJson(res, await (opts.autoHealStatusReader ?? readAutoHealStatus)(opts.vaultRoot));
+      } catch (err) {
+        writeJsonError(res, 500, (err as Error).message);
+      }
+      return;
+    }
+
+    if (path === "/api/capture-spool/status") {
+      try {
+        writeJson(res, await getCaptureSpoolStatus());
       } catch (err) {
         writeJsonError(res, 500, (err as Error).message);
       }

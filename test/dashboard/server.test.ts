@@ -414,6 +414,29 @@ describe("dashboard server", () => {
     }
   });
 
+  it("GET /api/capture-spool/status exposes capture durability diagnostics", async () => {
+    const previousSpool = process.env["MEMORY_CAPTURE_SPOOL_DIR"];
+    const spool = await mkdtemp(join(tmpdir(), "memtest-capture-spool-status-"));
+    process.env["MEMORY_CAPTURE_SPOOL_DIR"] = spool;
+    const server = await createServer({ vaultRoot: "/unused", port: 0, loader: async () => fixture() });
+
+    try {
+      const response = await fetch(`http://${server.host}:${server.port}/api/capture-spool/status`);
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toEqual({
+        pendingEventCount: 0,
+        oldestPendingAgeMs: null,
+        drainFailures: 0,
+        captureSpooled: [],
+      });
+    } finally {
+      await server.close();
+      if (previousSpool === undefined) delete process.env["MEMORY_CAPTURE_SPOOL_DIR"];
+      else process.env["MEMORY_CAPTURE_SPOOL_DIR"] = previousSpool;
+      await rm(spool, { recursive: true, force: true });
+    }
+  });
+
   it("JSON responses include common security headers and a lockdown CSP", async () => {
     const server = await createServer({
       vaultRoot: "/unused",

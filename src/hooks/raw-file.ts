@@ -17,6 +17,7 @@ import type { ToolName } from "../storage/paths.js";
 /** Shared lock options for raw session writers (append + frontmatter RMW). */
 const RAW_FILE_LOCK = { timeoutMs: 15_000, staleMs: 60_000 } as const;
 const CAPTURE_EVENT_MARKER = "memory-fort-capture";
+const CAPTURE_SPOOLED_DIAGNOSTICS_FILE = "capture-spooled.jsonl";
 
 interface CaptureEvent { version: 1; id: string; hash: string; rawPath: string; block: string; createdAt: string; }
 export interface CaptureSpooledDiagnostic { type: "capture_spooled"; eventId: string; hash: string; createdAt: string; }
@@ -29,8 +30,23 @@ export async function getCaptureSpoolStatus(now = new Date()): Promise<CaptureSp
     const age = Math.max(0, now.getTime() - Date.parse(event.createdAt));
     return oldest === null || age > oldest ? age : oldest;
   }, null);
+  const captureSpooled = new Map<string, CaptureSpooledDiagnostic>();
+  for (const diagnostic of await readCaptureSpooledDiagnostics()) {
+    captureSpooled.set(diagnostic.eventId, diagnostic);
+  }
+  for (const event of events) {
+    if (!captureSpooled.has(event.id)) {
+      captureSpooled.set(event.id, {
+        type: "capture_spooled",
+        eventId: event.id,
+        hash: event.hash,
+        createdAt: event.createdAt,
+      });
+    }
+  }
   return { pendingEventCount: events.length, oldestPendingAgeMs, drainFailures: captureSpoolRuntime.drainFailures,
-    captureSpooled: events.map((event) => ({ type: "capture_spooled", eventId: event.id, hash: event.hash, createdAt: event.createdAt })) };
+    captureSpooled: [...captureSpooled.values()],
+  };
 }
 
 /**
@@ -310,7 +326,9 @@ function renderCaptureEvent(event: CaptureEvent): string {
 }
 function marker(event: CaptureEvent): string { return `${CAPTURE_EVENT_MARKER} id=${event.id}`; }
 async function spoolCaptureEvent(event: CaptureEvent): Promise<void> {
-  await atomicCreate(join(captureSpoolDir(), `${event.id}.json`), `${JSON.stringify(event)}\n`);
+  const spoolDir = captureSpoolDir();
+  await atomicCreate(join(spoolDir, `${event.id}.json`), `${JSON.stringify(event)}\n`);
+  await ensureCaptureSpooledDiagnostic(event);
 }
 async function drainCaptureSpool(): Promise<void> {
   for (const entry of await readCaptureSpoolEntries()) {
@@ -320,10 +338,52 @@ async function drainCaptureSpool(): Promise<void> {
         try { existing = await readFile(entry.event.rawPath, "utf-8"); }
         catch (error) { if (!isCode(error, "ENOENT")) throw error; }
         if (!existing.includes(marker(entry.event))) await atomicAppend(entry.event.rawPath, renderCaptureEvent(entry.event));
+        await ensureCaptureSpooledDiagnostic(entry.event);
         await unlink(entry.path);
       });
     } catch { captureSpoolRuntime.drainFailures += 1; }
   }
+}
+async function ensureCaptureSpooledDiagnostic(event: CaptureEvent): Promise<void> {
+  const existing = await readCaptureSpooledDiagnostics();
+  if (existing.some((diagnostic) => diagnostic.eventId === event.id)) return;
+  await atomicAppend(
+    join(captureSpoolDir(), CAPTURE_SPOOLED_DIAGNOSTICS_FILE),
+    `${JSON.stringify(diagnosticFromEvent(event))}\n`,
+  );
+}
+function diagnosticFromEvent(event: CaptureEvent): CaptureSpooledDiagnostic {
+  return {
+    type: "capture_spooled",
+    eventId: event.id,
+    hash: event.hash,
+    createdAt: event.createdAt,
+  };
+}
+async function readCaptureSpooledDiagnostics(): Promise<CaptureSpooledDiagnostic[]> {
+  let content: string;
+  try {
+    content = await readFile(join(captureSpoolDir(), CAPTURE_SPOOLED_DIAGNOSTICS_FILE), "utf-8");
+  } catch (error) {
+    if (isCode(error, "ENOENT")) return [];
+    throw error;
+  }
+  const diagnostics: CaptureSpooledDiagnostic[] = [];
+  for (const line of content.split(/\r?\n/u)) {
+    if (!line) continue;
+    try {
+      const diagnostic = JSON.parse(line) as CaptureSpooledDiagnostic;
+      if (
+        diagnostic.type === "capture_spooled"
+        && typeof diagnostic.eventId === "string"
+        && typeof diagnostic.hash === "string"
+        && typeof diagnostic.createdAt === "string"
+      ) diagnostics.push(diagnostic);
+    } catch {
+      // A malformed diagnostic is passive observation, not a failed drain attempt.
+    }
+  }
+  return diagnostics;
 }
 async function readCaptureSpoolEvents(): Promise<CaptureEvent[]> {
   return (await readCaptureSpoolEntries()).map((entry) => entry.event);
@@ -338,7 +398,9 @@ async function readCaptureSpoolEntries(): Promise<Array<{ path: string; event: C
       const path = join(captureSpoolDir(), name);
       const event = JSON.parse(await readFile(path, "utf-8")) as CaptureEvent;
       if (event.version === 1 && typeof event.id === "string" && typeof event.hash === "string" && typeof event.rawPath === "string" && typeof event.block === "string" && typeof event.createdAt === "string") entries.push({ path, event });
-    } catch { captureSpoolRuntime.drainFailures += 1; }
+    } catch {
+      // Passive observation is not a drain attempt and must not affect drain accounting.
+    }
   }
   return entries;
 }

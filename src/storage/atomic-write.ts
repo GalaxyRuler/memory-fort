@@ -67,6 +67,12 @@ async function syncParentDir(absolutePath: string): Promise<void> {
   }
 }
 
+type AtomicAppendFile = (
+  absolutePath: string,
+  content: string,
+  options: { encoding: "utf-8"; flush: true },
+) => Promise<void>;
+
 /**
  * Append to a file. Creates the file (and parent dirs) if
  * missing. Append is atomic for typical hook payload sizes
@@ -75,9 +81,10 @@ async function syncParentDir(absolutePath: string): Promise<void> {
 export async function atomicAppend(
   absolutePath: string,
   content: string,
+  appendFileImpl: AtomicAppendFile = appendFile,
 ): Promise<void> {
   await mkdir(dirname(absolutePath), { recursive: true });
-  await appendFile(absolutePath, content, { encoding: "utf-8", flush: true });
+  await appendFileImpl(absolutePath, content, { encoding: "utf-8", flush: true });
 }
 
 /** Create a new file exactly once and flush it before reporting success. */
