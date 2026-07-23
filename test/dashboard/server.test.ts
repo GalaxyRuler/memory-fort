@@ -416,7 +416,7 @@ describe("dashboard server", () => {
     }
   });
 
-  it("rejects authenticated non-loopback mutations without an Origin or Referer", async () => {
+  it("allows authenticated non-browser mutations without an Origin or Referer while checking browser provenance", async () => {
     const token = "test-dashboard-token";
     const compileRunner = vi.fn(async () => ({
       rawFilesIncluded: [],
@@ -433,15 +433,15 @@ describe("dashboard server", () => {
     });
 
     try {
-      const missingBrowserProvenance = await httpRequest({
+      const nonBrowser = await httpRequest({
         host: "127.0.0.1",
         port: server.port,
         method: "POST",
         path: "/api/compile/run",
         headers: { Authorization: `Bearer ${token}` },
       });
-      expect(missingBrowserProvenance.status).toBe(403);
-      expect(compileRunner).not.toHaveBeenCalled();
+      expect(nonBrowser.status).toBe(200);
+      expect(compileRunner).toHaveBeenCalledOnce();
 
       const sameOrigin = await httpRequest({
         host: "127.0.0.1",
@@ -454,7 +454,7 @@ describe("dashboard server", () => {
         },
       });
       expect(sameOrigin.status).toBe(200);
-      expect(compileRunner).toHaveBeenCalledOnce();
+      expect(compileRunner).toHaveBeenCalledTimes(2);
     } finally {
       await server.close();
     }

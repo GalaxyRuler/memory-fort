@@ -1338,7 +1338,7 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
         writeJsonError(res, 401, "authentication required");
         return;
       }
-      if (isUnsafeApiMethod(method)) {
+      if (isUnsafeApiMethod(method) && (req.headers.origin !== undefined || req.headers.referer !== undefined)) {
         const policy = await loadDashboardOriginPolicy(opts.vaultRoot);
         if (!sameOriginOrRefererAllowed(
           req.headers,
