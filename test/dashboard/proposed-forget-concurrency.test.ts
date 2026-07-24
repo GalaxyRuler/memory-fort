@@ -8,8 +8,9 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runForget } from "../../src/cli/commands/forget.js";
 import { compileExecuteLockTarget } from "../../src/compile/execute-lock.js";
 import { readIndexGeneration } from "../../src/index/generation.js";
+import { serializeFrontmatter } from "../../src/storage/frontmatter.js";
 
-describe("dashboard compile promotion and forget publication fence", () => {
+describe("dashboard promotion and forget publication fence", () => {
   let tmp: string;
   let root: string;
   let previousRoot: string | undefined;
@@ -42,26 +43,32 @@ describe("dashboard compile promotion and forget publication fence", () => {
     await rm(tmp, { recursive: true, force: true });
   });
 
-  it("serializes a real child promotion snapshot through rebuild before forget replans", async () => {
-    const raw = "raw/2026-05-20/codex-promoted-then-forgotten.md";
-    const derivative = "wiki/projects/promoted-then-forgotten.md";
+  it.each(["compile", "thread", "procedure"] as const)(
+    "serializes a real child %s promotion snapshot before forget replans",
+    async (kind) => {
+    const raw = `raw/2026-05-20/codex-${kind}-promoted-then-forgotten.md`;
+    const derivative = kind === "compile"
+      ? "wiki/projects/promoted-then-forgotten.md"
+      : `wiki/${kind === "thread" ? "threads" : "procedures"}/promoted-then-forgotten.md`;
     await writeAt(raw, "source that must be forgotten\n");
-    await writeAt("wiki/compile-proposed/promoted-then-forgotten.md", compileProposal({
-      kind: "write_page",
-      path: derivative,
-      frontmatter: {
-        type: "projects",
-        title: "Promoted then forgotten",
-        generated: true,
-        source_facts: [raw],
-        relations: { derived_from: [raw] },
-      },
-      body: "FORGOTTEN-PROMOTION-DERIVATIVE",
-    }));
+    if (kind === "compile") {
+      await writeAt("wiki/compile-proposed/promoted-then-forgotten.md", compileProposal({
+        kind: "write_page",
+        path: derivative,
+        frontmatter: generatedFrontmatter("projects", raw),
+        body: "FORGOTTEN-PROMOTION-DERIVATIVE",
+      }));
+    } else {
+      const proposedDir = kind === "thread" ? "threads-proposed" : "procedures-proposed";
+      await writeAt(`wiki/${proposedDir}/promoted-then-forgotten.md`, serializeFrontmatter(
+        generatedFrontmatter(kind === "thread" ? "threads" : "procedures", raw),
+        "FORGOTTEN-PROMOTION-DERIVATIVE\n",
+      ));
+    }
 
     const readyPath = join(tmp, "promotion.ready");
     const releasePath = join(tmp, "promotion.release");
-    const child = spawnPromotionChild(readyPath, releasePath);
+    const child = spawnPromotionChild(kind, readyPath, releasePath);
     children.push(child);
     const childExit = waitForChildExit(child);
     await waitForPath(readyPath, 5_000);
@@ -100,6 +107,7 @@ describe("dashboard compile promotion and forget publication fence", () => {
   }, 15_000);
 
   function spawnPromotionChild(
+    kind: "compile" | "thread" | "procedure",
     readyPath: string,
     releasePath: string,
   ): ChildProcessWithoutNullStreams {
@@ -114,6 +122,7 @@ describe("dashboard compile promotion and forget publication fence", () => {
         MEMORY_TEST_PROMOTION_READY: readyPath,
         MEMORY_TEST_PROMOTION_RELEASE: releasePath,
         MEMORY_TEST_PROMOTION_SLUG: "promoted-then-forgotten",
+        MEMORY_TEST_PROMOTION_KIND: kind,
       },
       windowsHide: true,
     });
@@ -182,4 +191,15 @@ function compileProposal(operation: Record<string, unknown>): string {
     "```",
     "",
   ].join("\n");
+}
+
+function generatedFrontmatter(type: string, raw: string): Record<string, unknown> {
+  return {
+    type,
+    title: "Promoted then forgotten",
+    generated: true,
+    generated_by: "memory-fort",
+    source_facts: [raw],
+    relations: { derived_from: [raw] },
+  };
 }

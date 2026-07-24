@@ -8,6 +8,11 @@ import {
   type RawProcedureObservationRef,
 } from "../../consolidate/procedure-detect.js";
 import { assessClaimSupport } from "../../compile/faithfulness.js";
+import {
+  assertCompileExecuteLockOwnership,
+  withCompileExecuteLock,
+  type CompileExecuteLockOwnership,
+} from "../../compile/execute-lock.js";
 import { loadSearchCorpus, type SearchDocument } from "../../retrieval/corpus.js";
 import { readRelations } from "../../retrieval/relations.js";
 import {
@@ -75,6 +80,17 @@ const DEFAULT_MAX_PROPOSALS = 10;
 export async function runProcedurePropose(
   opts: ProcedureProposeRunOptions,
 ): Promise<ProcedureProposeRunResult> {
+  return withCompileExecuteLock(
+    opts.vaultRoot,
+    (ownership) => runProcedureProposeWithCompileLockHeld(ownership, opts),
+  );
+}
+
+export async function runProcedureProposeWithCompileLockHeld(
+  ownership: CompileExecuteLockOwnership,
+  opts: ProcedureProposeRunOptions,
+): Promise<ProcedureProposeRunResult> {
+  assertCompileExecuteLockOwnership(ownership, opts.vaultRoot);
   const now = opts.now ?? new Date();
   const env = opts.env ?? process.env;
   if (env["MEMORY_LLM_DISABLED"]?.trim().toLowerCase() === "true") {
@@ -143,7 +159,11 @@ export async function runProcedurePropose(
           faithfulnessCheck,
         });
         if (guard.ok) {
-          const promoted = await runProcedurePromote({ vaultRoot: opts.vaultRoot, slug, commitVaultChange: opts.commitVaultChange });
+          const promoted = await runProcedurePromoteWithCompileLockHeld(ownership, {
+            vaultRoot: opts.vaultRoot,
+            slug,
+            commitVaultChange: opts.commitVaultChange,
+          });
           relPath = promoted.to;
           proposalAutoPromoted = true;
           autoPromoted += 1;
@@ -262,11 +282,29 @@ async function guardProcedureAutoPromotion(opts: {
   return { ok: false, reason: `faithfulness check unverifiable${verdict.reason ? `: ${verdict.reason}` : ""}` };
 }
 
-export async function runProcedurePromote(opts: {
+export interface ProcedurePromoteOptions {
   vaultRoot: string;
   slug: string;
   commitVaultChange?: CommitVaultChange;
-}): Promise<{ from: string; to: string }> {
+  hooks?: {
+    afterProposalSnapshot?: (snapshot: { from: string; to: string }) => Promise<void>;
+  };
+}
+
+export async function runProcedurePromote(
+  opts: ProcedurePromoteOptions,
+): Promise<{ from: string; to: string }> {
+  return withCompileExecuteLock(
+    opts.vaultRoot,
+    (ownership) => runProcedurePromoteWithCompileLockHeld(ownership, opts),
+  );
+}
+
+export async function runProcedurePromoteWithCompileLockHeld(
+  ownership: CompileExecuteLockOwnership,
+  opts: ProcedurePromoteOptions,
+): Promise<{ from: string; to: string }> {
+  assertCompileExecuteLockOwnership(ownership, opts.vaultRoot);
   const slug = sanitizeSlug(opts.slug);
   const from = `wiki/procedures-proposed/${slug}.md`;
   const to = `wiki/procedures/${slug}.md`;
@@ -280,8 +318,10 @@ export async function runProcedurePromote(opts: {
   }
 
   const parsed = parseFrontmatter(await readFile(fromPath, "utf-8"));
+  await opts.hooks?.afterProposalSnapshot?.({ from, to });
+  const normalized = normalizeGeneratedProcedureFrontmatter(parsed.frontmatter, from);
   const frontmatter: Frontmatter = {
-    ...parsed.frontmatter,
+    ...normalized,
     lifecycle: "consolidated",
     source: "auto-procedural-extract-validated",
   };
@@ -459,6 +499,9 @@ function formatProcedureProposalFile(opts: {
       title: opts.proposal.title,
       cognitive_type: "procedural",
       source: "auto-procedural-extract",
+      generated: true,
+      generated_by: "memory-fort",
+      source_facts: derivedFrom,
       lifecycle: "proposed",
       status: "active",
       confidence: {
@@ -612,6 +655,45 @@ function listOrNone(items: string[]): string[] {
 function uniqueSorted(items: string[]): string[] {
   return [...new Set(items.filter((item) => item.trim().length > 0))]
     .sort((a, b) => a.localeCompare(b));
+}
+
+function normalizeGeneratedProcedureFrontmatter(frontmatter: Frontmatter, sourcePath: string): Frontmatter {
+  const relations = frontmatter.relations ?? {};
+  const rawSources = uniqueSorted([
+    ...readSourceFacts(frontmatter),
+    ...(readRelations(frontmatter.relations, sourcePath).derived_from ?? []).map((edge) => edge.target),
+  ].filter((target) => target.startsWith("raw/")));
+  const existingDerived = relations["derived_from"] ?? [];
+  const existingTargets = new Set(existingDerived.map(readRelationTarget).filter((target): target is string => target !== null));
+  const derivedFrom = [
+    ...existingDerived,
+    ...rawSources.filter((target) => !existingTargets.has(target)),
+  ];
+  return {
+    ...frontmatter,
+    generated: true,
+    generated_by: "memory-fort",
+    ...(rawSources.length > 0 ? { source_facts: rawSources } : {}),
+    relations: {
+      ...relations,
+      ...(derivedFrom.length > 0 ? { derived_from: derivedFrom } : {}),
+    },
+  };
+}
+
+function readSourceFacts(frontmatter: Frontmatter): string[] {
+  return Array.isArray(frontmatter.source_facts)
+    ? frontmatter.source_facts
+        .filter((value): value is string => typeof value === "string")
+        .map((value) => value.split("#", 1)[0]!)
+    : [];
+}
+
+function readRelationTarget(value: unknown): string | null {
+  if (typeof value === "string") return value;
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const target = (value as { target?: unknown }).target;
+  return typeof target === "string" ? target : null;
 }
 
 function averageStripped(stripped: number, proposals: number): string {

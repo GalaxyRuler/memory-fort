@@ -3,11 +3,23 @@ import { join, resolve, relative, isAbsolute, basename } from "node:path";
 import { parseFrontmatter, serializeFrontmatter } from "../storage/frontmatter.js";
 import { atomicWrite } from "../storage/atomic-write.js";
 import { hasArchiveOrSystemPathComponent } from "../storage/archive-paths.js";
+import {
+  assertCompileExecuteLockOwnership,
+  withCompileExecuteLock,
+  type CompileExecuteLockOwnership,
+} from "./execute-lock.js";
 
-interface ApproveOpts {
+export interface ApproveOpts {
   vaultRoot: string;
   proposalPath: string;
   now?: Date;
+  hooks?: {
+    afterProposalAndCanonicalSnapshot?: (snapshot: {
+      proposalPath: string;
+      oldPage: string;
+      newPage?: string;
+    }) => Promise<void>;
+  };
 }
 
 type ApproveResult =
@@ -34,6 +46,17 @@ async function fileExists(path: string): Promise<boolean> {
 export async function applyApprovedSupersedeProposal(
   opts: ApproveOpts,
 ): Promise<ApproveResult> {
+  return withCompileExecuteLock(
+    opts.vaultRoot,
+    (ownership) => applyApprovedSupersedeProposalWithCompileLockHeld(ownership, opts),
+  );
+}
+
+export async function applyApprovedSupersedeProposalWithCompileLockHeld(
+  ownership: CompileExecuteLockOwnership,
+  opts: ApproveOpts,
+): Promise<ApproveResult> {
+  assertCompileExecuteLockOwnership(ownership, opts.vaultRoot);
   const now = opts.now ?? new Date();
   const isoDate = now.toISOString().slice(0, 10);
 
@@ -102,6 +125,11 @@ export async function applyApprovedSupersedeProposal(
   }
 
   const oldParsed = parseFrontmatter(oldRaw);
+  await opts.hooks?.afterProposalAndCanonicalSnapshot?.({
+    proposalPath: proposalFullPath,
+    oldPage: oldPageRel,
+    ...(newPageRel ? { newPage: newPageRel } : {}),
+  });
 
   // Step 1: Archive old page version (append-only, duplicate-safe)
   const archiveDir = join(opts.vaultRoot, "wiki", ".archive");

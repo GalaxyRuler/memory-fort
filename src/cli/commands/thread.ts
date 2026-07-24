@@ -8,6 +8,11 @@ import {
   type ThreadCluster,
 } from "../../consolidate/thread-cluster.js";
 import { assessClaimSupport } from "../../compile/faithfulness.js";
+import {
+  assertCompileExecuteLockOwnership,
+  withCompileExecuteLock,
+  type CompileExecuteLockOwnership,
+} from "../../compile/execute-lock.js";
 import { loadSearchCorpus, type SearchDocument } from "../../retrieval/corpus.js";
 import { readRelations } from "../../retrieval/relations.js";
 import {
@@ -78,6 +83,17 @@ const DEFAULT_MIN_CLUSTER_SIZE = 3;
 export async function runThreadPropose(
   opts: ThreadProposeRunOptions,
 ): Promise<ThreadProposeRunResult> {
+  return withCompileExecuteLock(
+    opts.vaultRoot,
+    (ownership) => runThreadProposeWithCompileLockHeld(ownership, opts),
+  );
+}
+
+export async function runThreadProposeWithCompileLockHeld(
+  ownership: CompileExecuteLockOwnership,
+  opts: ThreadProposeRunOptions,
+): Promise<ThreadProposeRunResult> {
+  assertCompileExecuteLockOwnership(ownership, opts.vaultRoot);
   const now = opts.now ?? new Date();
   const env = opts.env ?? process.env;
   if (env["MEMORY_LLM_DISABLED"]?.trim().toLowerCase() === "true") {
@@ -158,7 +174,11 @@ export async function runThreadPropose(
           faithfulnessCheck,
         });
         if (guard.ok) {
-          const promoted = await runThreadPromote({ vaultRoot: opts.vaultRoot, slug, commitVaultChange: opts.commitVaultChange });
+          const promoted = await runThreadPromoteWithCompileLockHeld(ownership, {
+            vaultRoot: opts.vaultRoot,
+            slug,
+            commitVaultChange: opts.commitVaultChange,
+          });
           relPath = promoted.to;
           proposalAutoPromoted = true;
           autoPromoted += 1;
@@ -277,11 +297,29 @@ async function guardThreadAutoPromotion(opts: {
   return { ok: false, reason: `faithfulness check unverifiable${verdict.reason ? `: ${verdict.reason}` : ""}` };
 }
 
-export async function runThreadPromote(opts: {
+export interface ThreadPromoteOptions {
   vaultRoot: string;
   slug: string;
   commitVaultChange?: CommitVaultChange;
-}): Promise<{ from: string; to: string }> {
+  hooks?: {
+    afterProposalSnapshot?: (snapshot: { from: string; to: string }) => Promise<void>;
+  };
+}
+
+export async function runThreadPromote(
+  opts: ThreadPromoteOptions,
+): Promise<{ from: string; to: string }> {
+  return withCompileExecuteLock(
+    opts.vaultRoot,
+    (ownership) => runThreadPromoteWithCompileLockHeld(ownership, opts),
+  );
+}
+
+export async function runThreadPromoteWithCompileLockHeld(
+  ownership: CompileExecuteLockOwnership,
+  opts: ThreadPromoteOptions,
+): Promise<{ from: string; to: string }> {
+  assertCompileExecuteLockOwnership(ownership, opts.vaultRoot);
   const slug = sanitizeSlug(opts.slug);
   const from = `wiki/threads-proposed/${slug}.md`;
   const to = `wiki/threads/${slug}.md`;
@@ -295,8 +333,10 @@ export async function runThreadPromote(opts: {
   }
 
   const parsed = parseFrontmatter(await readFile(fromPath, "utf-8"));
+  await opts.hooks?.afterProposalSnapshot?.({ from, to });
+  const normalized = normalizeGeneratedThreadFrontmatter(parsed.frontmatter, from);
   const frontmatter: Frontmatter = {
-    ...parsed.frontmatter,
+    ...normalized,
     lifecycle: "consolidated",
     source: "auto-thread-propose-validated",
   };
@@ -484,6 +524,9 @@ function formatThreadProposalFile(opts: {
       title: opts.proposal.title,
       cognitive_type: "episodic",
       source: "auto-thread-propose",
+      generated: true,
+      generated_by: "memory-fort",
+      source_facts: mentions,
       lifecycle: "proposed",
       status: "active",
       confidence: {
@@ -507,7 +550,7 @@ function formatThreadProposalFile(opts: {
       tags: ["auto-proposed", "thread-draft"],
       relations: {
         mentions,
-        derived_from: derivedFrom,
+        derived_from: uniqueSorted([...mentions, ...derivedFrom]),
       },
     },
     [
@@ -676,6 +719,52 @@ function distinctThreadSessions(cluster: ThreadCluster): number {
 
 function listOrNone(items: string[]): string[] {
   return items.length > 0 ? items : ["none"];
+}
+
+function normalizeGeneratedThreadFrontmatter(frontmatter: Frontmatter, sourcePath: string): Frontmatter {
+  const relations = frontmatter.relations ?? {};
+  const parsedRelations = readRelations(frontmatter.relations, sourcePath);
+  const rawSources = uniqueSorted([
+    ...readSourceFacts(frontmatter),
+    ...(parsedRelations.derived_from ?? []).map((edge) => edge.target),
+    ...(parsedRelations.mentions ?? []).map((edge) => edge.target),
+  ].filter((target) => target.startsWith("raw/")));
+  const existingDerived = relations["derived_from"] ?? [];
+  const existingTargets = new Set(existingDerived.map(readRelationTarget).filter((target): target is string => target !== null));
+  const derivedFrom = [
+    ...existingDerived,
+    ...rawSources.filter((target) => !existingTargets.has(target)),
+  ];
+  return {
+    ...frontmatter,
+    generated: true,
+    generated_by: "memory-fort",
+    ...(rawSources.length > 0 ? { source_facts: rawSources } : {}),
+    relations: {
+      ...relations,
+      ...(derivedFrom.length > 0 ? { derived_from: derivedFrom } : {}),
+    },
+  };
+}
+
+function readSourceFacts(frontmatter: Frontmatter): string[] {
+  return Array.isArray(frontmatter.source_facts)
+    ? frontmatter.source_facts
+        .filter((value): value is string => typeof value === "string")
+        .map((value) => value.split("#", 1)[0]!)
+    : [];
+}
+
+function readRelationTarget(value: unknown): string | null {
+  if (typeof value === "string") return value;
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const target = (value as { target?: unknown }).target;
+  return typeof target === "string" ? target : null;
+}
+
+function uniqueSorted(items: string[]): string[] {
+  return [...new Set(items.filter((item) => item.trim().length > 0))]
+    .sort((a, b) => a.localeCompare(b));
 }
 
 function averageStripped(stripped: number, proposals: number): string {

@@ -2,6 +2,11 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { detectCommunities, type CommunityCluster } from "../../graph/community-detection.js";
+import {
+  assertCompileExecuteLockOwnership,
+  withCompileExecuteLock,
+  type CompileExecuteLockOwnership,
+} from "../../compile/execute-lock.js";
 import { buildGraph } from "../../retrieval/graph.js";
 import { loadSearchCorpus, type SearchDocument } from "../../retrieval/corpus.js";
 import { readRelations } from "../../retrieval/relations.js";
@@ -45,6 +50,18 @@ const DEFAULT_MAX_PROPOSALS = 10;
 
 export async function runDiscoverThreads(opts: DiscoverThreadsOptions = {}): Promise<DiscoverThreadsResult> {
   const vaultRoot = opts.vaultRoot ?? defaultMemoryRoot();
+  return withCompileExecuteLock(
+    vaultRoot,
+    (ownership) => runDiscoverThreadsWithCompileLockHeld(ownership, { ...opts, vaultRoot }),
+  );
+}
+
+export async function runDiscoverThreadsWithCompileLockHeld(
+  ownership: CompileExecuteLockOwnership,
+  opts: DiscoverThreadsOptions = {},
+): Promise<DiscoverThreadsResult> {
+  const vaultRoot = opts.vaultRoot ?? defaultMemoryRoot();
+  assertCompileExecuteLockOwnership(ownership, vaultRoot);
   const mode = opts.mode ?? "plan";
   const now = opts.now ?? new Date();
   // omitBodies: clustering reads relations + load-time-extracted wikilinks,
@@ -195,12 +212,16 @@ function formatThreadProposal(proposal: DiscoveredThreadProposal, now: Date): st
       updated: date,
       status: "active",
       source: "auto-thread-discovery",
+      generated: true,
+      generated_by: "memory-fort",
+      source_facts: proposal.rawReferences,
       lifecycle: "proposed",
       cognitive_type: "episodic",
       tags: ["auto-proposed", "thread-discovery"],
       relations: {
         mentions: proposal.rawReferences,
-        derived_from: proposal.members,
+        derived_from: [...new Set([...proposal.rawReferences, ...proposal.members])]
+          .sort((a, b) => a.localeCompare(b)),
       },
     },
     [

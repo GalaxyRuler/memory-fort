@@ -106,6 +106,13 @@ describe("procedure commands", () => {
     expect(draft.frontmatter.lifecycle).toBe("proposed");
     expect(draft.frontmatter.source).toBe("auto-procedural-extract");
     expect(draft.frontmatter.cognitive_type).toBe("procedural");
+    expect(draft.frontmatter.generated).toBe(true);
+    expect(draft.frontmatter.generated_by).toBe("memory-fort");
+    expect(draft.frontmatter.source_facts).toEqual([
+      "raw/2026-05-21/codex-1.md",
+      "raw/2026-05-22/codex-2.md",
+      "raw/2026-05-23/codex-3.md",
+    ]);
     expect(draft.frontmatter.relations?.derived_from).toEqual([
       "raw/2026-05-21/codex-1.md",
       "raw/2026-05-22/codex-2.md",
@@ -432,6 +439,9 @@ describe("procedure commands", () => {
         "updated: 2026-05-28",
         "source: auto-procedural-extract",
         "lifecycle: proposed",
+        "relations:",
+        "  derived_from:",
+        "    - raw/2026-05-28/codex-promote.md",
         "---",
         "",
         "# Deploy dashboard to VPS",
@@ -476,6 +486,10 @@ describe("procedure commands", () => {
     expect(canonical.frontmatter.source).toBe(
       "auto-procedural-extract-validated",
     );
+    expect(canonical.frontmatter.generated).toBe(true);
+    expect(canonical.frontmatter.generated_by).toBe("memory-fort");
+    expect(canonical.frontmatter.source_facts).toEqual(["raw/2026-05-28/codex-promote.md"]);
+    expect(canonical.frontmatter.relations?.derived_from).toEqual(["raw/2026-05-28/codex-promote.md"]);
     expect(canonical.body).toContain("Draft body.");
     expect(commitVaultChange).toHaveBeenCalledWith({
       memoryRoot: tmp,

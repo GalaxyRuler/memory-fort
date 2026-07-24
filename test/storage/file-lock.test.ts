@@ -198,6 +198,110 @@ describe("withFileLock", () => {
     expect(existsSync(lockPath)).toBe(false);
   });
 
+  it("lets only one real reaper reclaim while the successor lock survives", async () => {
+    const lockPath = `${target}.lock`;
+    await writeFile(lockPath, JSON.stringify({
+      pid: 999999,
+      host: hostname(),
+      ownerToken: "abandoned-owner-token",
+      acquiredAt: "2020-01-01T00:00:00Z",
+    }));
+    const past = new Date(Date.now() - 60_000);
+    await utimes(lockPath, past, past);
+
+    const startPath = join(dir, "reapers-start");
+    const reclaimReleasePath = join(dir, "reapers-release-reclaim");
+    const releaseA = join(dir, "release-reaper-a");
+    const releaseB = join(dir, "release-reaper-b");
+    const childA = spawnReaperChild("a", target, startPath, reclaimReleasePath, releaseA);
+    const childB = spawnReaperChild("b", target, startPath, reclaimReleasePath, releaseB);
+    children.push(childA, childB);
+    const outputA = observeChild(childA);
+    const outputB = observeChild(childB);
+    await waitFor(
+      async () => outputA.lines.includes("READY:a") && outputB.lines.includes("READY:b"),
+      5_000,
+    );
+
+    await writeFile(startPath, "start\n", "utf-8");
+    await waitFor(
+      async () => outputA.lines.includes("SNAPSHOT:a") && outputB.lines.includes("SNAPSHOT:b"),
+      5_000,
+    );
+    await writeFile(reclaimReleasePath, "release\n", "utf-8");
+    await waitFor(
+      async () => [...outputA.lines, ...outputB.lines].some((line) => line.startsWith("RECLAIMED:")),
+      5_000,
+    );
+    await waitFor(
+      async () => [...outputA.lines, ...outputB.lines].some((line) => line.startsWith("ENTERED:")),
+      5_000,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 150));
+
+    const entered = [...outputA.lines, ...outputB.lines].filter((line) => line.startsWith("ENTERED:"));
+    const reclaimed = [...outputA.lines, ...outputB.lines].filter((line) => line.startsWith("RECLAIMED:"));
+    expect(entered).toHaveLength(1);
+    expect(reclaimed).toHaveLength(1);
+    const [, firstId, firstToken] = entered[0]!.split(":");
+    expect(JSON.parse(await readFile(lockPath, "utf-8"))).toMatchObject({ ownerToken: firstToken });
+
+    await writeFile(firstId === "a" ? releaseA : releaseB, "release\n", "utf-8");
+    await expect(waitForChildExit(firstId === "a" ? childA : childB)).resolves.toBe(0);
+    const secondOutput = firstId === "a" ? outputB : outputA;
+    const secondId = firstId === "a" ? "b" : "a";
+    await waitFor(
+      async () => secondOutput.lines.some((line) => line.startsWith(`ENTERED:${secondId}:`)),
+      5_000,
+    );
+    const secondEntered = secondOutput.lines.find((line) => line.startsWith(`ENTERED:${secondId}:`))!;
+    const secondToken = secondEntered.split(":")[2];
+    expect(existsSync(lockPath)).toBe(true);
+    expect(JSON.parse(await readFile(lockPath, "utf-8"))).toMatchObject({ ownerToken: secondToken });
+    expect([...outputA.lines, ...outputB.lines].filter((line) => line.startsWith("RECLAIMED:"))).toHaveLength(1);
+
+    await writeFile(secondId === "a" ? releaseA : releaseB, "release\n", "utf-8");
+    await expect(waitForChildExit(secondId === "a" ? childA : childB)).resolves.toBe(0);
+    expect(existsSync(lockPath)).toBe(false);
+  }, 15_000);
+
+  it("restores rather than deletes a successor that appears after the stale snapshot", async () => {
+    const lockPath = `${target}.lock`;
+    await writeFile(lockPath, JSON.stringify({
+      pid: 999999,
+      host: hostname(),
+      ownerToken: "abandoned-owner-token",
+      acquiredAt: "2020-01-01T00:00:00Z",
+    }));
+    const past = new Date(Date.now() - 60_000);
+    await utimes(lockPath, past, past);
+    let successorInstalled = false;
+
+    await expect(withFileLock(target, async () => "must-not-enter", {
+      staleMs: 20,
+      timeoutMs: 150,
+      pollMs: 10,
+      testHooks: {
+        afterStaleSnapshotConfirmed: async () => {
+          if (successorInstalled) return;
+          successorInstalled = true;
+          await unlink(lockPath);
+          await writeFile(lockPath, JSON.stringify({
+            pid: process.pid,
+            host: hostname(),
+            ownerToken: "successor-after-snapshot-token",
+            acquiredAt: new Date().toISOString(),
+          }));
+        },
+      },
+    })).rejects.toBeInstanceOf(FileLockTimeoutError);
+
+    expect(existsSync(lockPath)).toBe(true);
+    expect(JSON.parse(await readFile(lockPath, "utf-8"))).toMatchObject({
+      ownerToken: "successor-after-snapshot-token",
+    });
+  });
+
   it("throws FileLockTimeoutError when a fresh lock is held past timeoutMs", async () => {
     const lockPath = `${target}.lock`;
     const handle = await open(lockPath, "wx");
@@ -230,6 +334,42 @@ function spawnOwnerChild(
     },
     windowsHide: true,
   });
+}
+
+function spawnReaperChild(
+  id: string,
+  target: string,
+  startPath: string,
+  reclaimReleasePath: string,
+  operationReleasePath: string,
+): ChildProcessWithoutNullStreams {
+  return spawn(process.execPath, [
+    join(process.cwd(), "node_modules", "vite-node", "vite-node.mjs"),
+    join(process.cwd(), "test", "fixtures", "file-lock-reaper-child.ts"),
+  ], {
+    cwd: process.cwd(),
+    env: {
+      ...process.env,
+      MEMORY_TEST_REAPER_ID: id,
+      MEMORY_TEST_LOCK_TARGET: target,
+      MEMORY_TEST_REAPER_START: startPath,
+      MEMORY_TEST_RECLAIM_RELEASE: reclaimReleasePath,
+      MEMORY_TEST_LOCK_RELEASE: operationReleasePath,
+    },
+    windowsHide: true,
+  });
+}
+
+function observeChild(child: ChildProcessWithoutNullStreams): { lines: string[] } {
+  const lines: string[] = [];
+  let pending = "";
+  child.stdout.on("data", (chunk: Buffer) => {
+    pending += chunk.toString("utf-8");
+    const complete = pending.split(/\r?\n/);
+    pending = complete.pop() ?? "";
+    lines.push(...complete.filter((line) => line.length > 0));
+  });
+  return { lines };
 }
 
 function waitForChildLine(child: ChildProcessWithoutNullStreams, expected: string): Promise<void> {

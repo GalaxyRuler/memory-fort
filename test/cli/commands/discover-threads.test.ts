@@ -71,11 +71,23 @@ describe("discover-threads command", () => {
     const draftPath = join(tmp, "wiki", "threads-proposed", "graph-health-memory-system-vitest.md");
     const draft = parseFrontmatter(await readFile(draftPath, "utf-8"));
     expect(draft.frontmatter.lifecycle).toBe("proposed");
+    expect(draft.frontmatter.generated).toBe(true);
+    expect(draft.frontmatter.generated_by).toBe("memory-fort");
+    expect(draft.frontmatter.source_facts).toEqual([
+      "raw/2026-06-01/codex-1.md",
+      "raw/2026-06-02/codex-2.md",
+      "raw/2026-06-03/codex-3.md",
+    ]);
     expect(draft.frontmatter.relations?.mentions).toEqual([
       "raw/2026-06-01/codex-1.md",
       "raw/2026-06-02/codex-2.md",
       "raw/2026-06-03/codex-3.md",
     ]);
+    expect(draft.frontmatter.relations?.derived_from).toEqual(expect.arrayContaining([
+      "raw/2026-06-01/codex-1.md",
+      "raw/2026-06-02/codex-2.md",
+      "raw/2026-06-03/codex-3.md",
+    ]));
 
     await writeMarkdown("wiki/threads/graph-health-memory-system-vitest.md", await readFile(draftPath, "utf-8"));
     const feed = await loadGraphFeed(tmp, "all");

@@ -41,6 +41,11 @@ export type ProposedKind = "thread" | "procedure" | "compile";
 
 export interface PromoteProposedDraftOptions {
   hooks?: {
+    afterProposalSnapshot?: (snapshot: {
+      kind: ProposedKind;
+      proposalPath: string;
+      promotedPath: string;
+    }) => Promise<void>;
     afterCompileProposalSnapshot?: (snapshot: {
       proposalPath: string;
       promotedPath: string;
@@ -177,8 +182,32 @@ export async function promoteProposedDraft(
     );
   }
   const result = kind === "thread"
-    ? await runThreadPromote({ vaultRoot, slug })
-    : await runProcedurePromote({ vaultRoot, slug });
+    ? await runThreadPromote({
+        vaultRoot,
+        slug,
+        hooks: {
+          afterProposalSnapshot: async ({ from, to }) => {
+            await opts.hooks?.afterProposalSnapshot?.({
+              kind: "thread",
+              proposalPath: from,
+              promotedPath: to,
+            });
+          },
+        },
+      })
+    : await runProcedurePromote({
+        vaultRoot,
+        slug,
+        hooks: {
+          afterProposalSnapshot: async ({ from, to }) => {
+            await opts.hooks?.afterProposalSnapshot?.({
+              kind: "procedure",
+              proposalPath: from,
+              promotedPath: to,
+            });
+          },
+        },
+      });
   return { promotedPath: result.to };
 }
 
@@ -236,6 +265,11 @@ async function promoteCompileProposal(
   }
 
   const targetExisted = existsSync(join(vaultRoot, ...promotedPath.split("/")));
+  await opts.hooks?.afterProposalSnapshot?.({
+    kind: "compile",
+    proposalPath,
+    promotedPath,
+  });
   await opts.hooks?.afterCompileProposalSnapshot?.({ proposalPath, promotedPath });
   const applied = await applyOperationWithCompileLockHeld(ownership, vaultRoot, parsed.operation);
   if (!applied.ok) {

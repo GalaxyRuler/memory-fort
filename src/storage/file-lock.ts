@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { open, readFile, stat, unlink, mkdir } from "node:fs/promises";
+import { link, mkdir, open, readFile, rename, stat, unlink } from "node:fs/promises";
 import { hostname } from "node:os";
 import { dirname } from "node:path";
 
@@ -8,6 +8,10 @@ export interface FileLockOptions {
   staleMs?: number;
   pollMs?: number;
   heartbeatMs?: number;
+  testHooks?: {
+    afterStaleSnapshotConfirmed?: () => Promise<void>;
+    afterStaleReclaimed?: () => Promise<void>;
+  };
 }
 
 interface FileLockOwner {
@@ -50,7 +54,7 @@ export async function withFileLock<T>(
 
   await mkdir(dirname(lockPath), { recursive: true });
   while (!(await tryAcquire(lockPath, owner))) {
-    await breakIfStale(lockPath, staleMs);
+    await breakIfStale(lockPath, staleMs, opts.testHooks);
     if (Date.now() >= deadline) throw new FileLockTimeoutError(lockPath, timeoutMs);
     await sleep(pollMs);
   }
@@ -93,13 +97,20 @@ export function isLockContentionError(error: unknown): boolean {
   return isCode(error, "EEXIST") || isCode(error, "EPERM") || isCode(error, "EACCES");
 }
 
-async function breakIfStale(lockPath: string, staleMs: number): Promise<void> {
+async function breakIfStale(
+  lockPath: string,
+  staleMs: number,
+  hooks?: FileLockOptions["testHooks"],
+): Promise<void> {
   try {
     const info = await stat(lockPath);
     if (Date.now() - info.mtimeMs <= staleMs) return;
     const snapshot = await readLockSnapshot(lockPath);
     if (!snapshot || !(await isSameHostHolderConfirmedDead(snapshot))) return;
-    await unlinkIfSnapshotMatches(lockPath, snapshot);
+    await hooks?.afterStaleSnapshotConfirmed?.();
+    if (await reclaimStaleSnapshot(lockPath, snapshot)) {
+      await hooks?.afterStaleReclaimed?.();
+    }
   } catch (error) {
     if (!isCode(error, "ENOENT")) throw error;
   }
@@ -126,16 +137,52 @@ async function isSameHostHolderConfirmedDead(snapshot: FileLockSnapshot): Promis
   }
 }
 
-async function unlinkIfSnapshotMatches(lockPath: string, expected: FileLockSnapshot): Promise<void> {
-  const current = await readLockSnapshot(lockPath);
-  if (!current) return;
+async function reclaimStaleSnapshot(
+  lockPath: string,
+  expected: FileLockSnapshot,
+): Promise<boolean> {
+  const tombstonePath = `${lockPath}.reclaim-${process.pid}-${randomUUID()}`;
+  try {
+    await rename(lockPath, tombstonePath);
+  } catch (error) {
+    if (isCode(error, "ENOENT")) return false;
+    throw error;
+  }
+
+  const renamed = await readLockSnapshot(tombstonePath);
+  if (!renamed || !lockSnapshotsMatch(expected, renamed)) {
+    await restoreUnexpectedRenamedLock(lockPath, tombstonePath);
+    return false;
+  }
+  await unlink(tombstonePath).catch((error) => {
+    if (!isCode(error, "ENOENT")) throw error;
+  });
+  return true;
+}
+
+function lockSnapshotsMatch(expected: FileLockSnapshot, current: FileLockSnapshot): boolean {
   const expectedToken = typeof expected.ownerToken === "string" ? expected.ownerToken : null;
   const currentToken = typeof current.ownerToken === "string" ? current.ownerToken : null;
-  const matches = expectedToken !== null
+  return expectedToken !== null
     ? currentToken === expectedToken
     : currentToken === null && current.raw === expected.raw;
-  if (!matches) return;
-  await unlink(lockPath).catch((error) => {
+}
+
+async function restoreUnexpectedRenamedLock(lockPath: string, tombstonePath: string): Promise<void> {
+  try {
+    // A hard link is an atomic no-clobber restore: it never overwrites a
+    // successor that already occupies the authoritative lock path.
+    await link(tombstonePath, lockPath);
+  } catch (error) {
+    if (isCode(error, "EEXIST")) {
+      throw new Error(
+        `stale lock reclaim preserved a nonmatching owner at ${tombstonePath} because ${lockPath} is occupied`,
+        { cause: error },
+      );
+    }
+    throw error;
+  }
+  await unlink(tombstonePath).catch((error) => {
     if (!isCode(error, "ENOENT")) throw error;
   });
 }

@@ -773,6 +773,88 @@ describe("runForget", () => {
     expect(existsSync(join(root, ...raw.split("/")))).toBe(true);
   });
 
+  it("itemizes and erases legacy and normalized thread/procedure derivatives", async () => {
+    const raw = "raw/2026-05-20/codex-family-lineage.md";
+    await writeAt(raw, "---\nsource: codex\n---\n\nfamily lineage source\n");
+    const derivatives: Array<[string, Record<string, unknown>]> = [
+      ["threads-proposed/legacy-thread-draft.md", {
+        type: "threads",
+        title: "Legacy thread draft",
+        source: "auto-thread-propose",
+        relations: { mentions: [raw] },
+      }],
+      ["threads/legacy-thread.md", {
+        type: "threads",
+        title: "Legacy thread",
+        source: "auto-thread-propose-validated",
+        relations: { mentions: [raw] },
+      }],
+      ["procedures-proposed/legacy-procedure-draft.md", {
+        type: "procedures",
+        title: "Legacy procedure draft",
+        source: "auto-procedural-extract",
+        relations: { derived_from: [raw] },
+      }],
+      ["procedures/legacy-procedure.md", {
+        type: "procedures",
+        title: "Legacy procedure",
+        source: "auto-procedural-extract-validated",
+        relations: { derived_from: [raw] },
+      }],
+      ["threads-proposed/normalized-thread-draft.md", {
+        type: "threads",
+        title: "Normalized thread draft",
+        source: "auto-thread-propose",
+        generated: true,
+        generated_by: "memory-fort",
+        source_facts: [raw],
+        relations: { mentions: [raw], derived_from: [raw] },
+      }],
+      ["threads/normalized-thread.md", {
+        type: "threads",
+        title: "Normalized thread",
+        source: "auto-thread-propose-validated",
+        generated: true,
+        generated_by: "memory-fort",
+        source_facts: [raw],
+        relations: { mentions: [raw], derived_from: [raw] },
+      }],
+      ["procedures-proposed/normalized-procedure-draft.md", {
+        type: "procedures",
+        title: "Normalized procedure draft",
+        source: "auto-procedural-extract",
+        generated: true,
+        generated_by: "memory-fort",
+        source_facts: [raw],
+        relations: { derived_from: [raw] },
+      }],
+      ["procedures/normalized-procedure.md", {
+        type: "procedures",
+        title: "Normalized procedure",
+        source: "auto-procedural-extract-validated",
+        generated: true,
+        generated_by: "memory-fort",
+        source_facts: [raw],
+        relations: { derived_from: [raw] },
+      }],
+    ];
+    for (const [path, frontmatter] of derivatives) {
+      await writeWiki(path, frontmatter, `Generated derivative ${path}.`);
+    }
+
+    const expected = derivatives.map(([path]) => `wiki/${path}`).sort();
+    const plan = await runForget({ rawPaths: [raw] });
+
+    expect(plan.plan.generated).toEqual(expected);
+    expect(plan.plan.relations).toEqual(expected);
+    expect(plan.plan.blocked).toEqual([]);
+    const applied = await runForget({ mode: "apply", rawPaths: [raw] });
+    expect(applied.erased).toEqual(expect.arrayContaining([raw, ...expected]));
+    for (const relPath of [raw, ...expected]) {
+      expect(existsSync(join(root, ...relPath.split("/"))), relPath).toBe(false);
+    }
+  });
+
   it("supports Unicode and space-bearing canonical paths and source IDs without treating crystals as erasable", async () => {
     const raw = "raw/2026-05-20/codex-session with ünicode.md";
     await writeAt(raw, "sensitive session");

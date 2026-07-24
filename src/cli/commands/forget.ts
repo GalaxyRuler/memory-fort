@@ -471,9 +471,14 @@ function collectPageSources(frontmatter: Record<string, unknown>): string[] {
   }
   const relations = frontmatter.relations;
   if (typeof relations === "object" && relations !== null && !Array.isArray(relations)) {
-    const derived = (relations as Record<string, unknown>).derived_from;
-    if (Array.isArray(derived)) {
-      for (const relation of derived) {
+    const relationRecord = relations as Record<string, unknown>;
+    const lineageRelations = [relationRecord.derived_from];
+    if (isLegacyThreadGeneratedSource(frontmatter.source)) {
+      lineageRelations.push(relationRecord.mentions);
+    }
+    for (const lineage of lineageRelations) {
+      if (!Array.isArray(lineage)) continue;
+      for (const relation of lineage) {
         const target = readRelationTarget(relation);
         if (target?.startsWith("raw/")) sources.add(target);
       }
@@ -485,17 +490,37 @@ function collectPageSources(frontmatter: Record<string, unknown>): string[] {
 function hasSelectedDerivedRelation(frontmatter: Record<string, unknown>, selectedRaw: Set<string>): boolean {
   const relations = frontmatter.relations;
   if (typeof relations !== "object" || relations === null || Array.isArray(relations)) return false;
-  const derived = (relations as Record<string, unknown>).derived_from;
-  return Array.isArray(derived) && derived.some((relation) => {
-    const target = readRelationTarget(relation);
-    return target !== null && selectedRaw.has(target);
-  });
+  const relationRecord = relations as Record<string, unknown>;
+  const lineageRelations = [relationRecord.derived_from];
+  if (isLegacyThreadGeneratedSource(frontmatter.source)) {
+    lineageRelations.push(relationRecord.mentions);
+  }
+  return lineageRelations.some((lineage) =>
+    Array.isArray(lineage) && lineage.some((relation) => {
+      const target = readRelationTarget(relation);
+      return target !== null && selectedRaw.has(target);
+    })
+  );
 }
 
 function isGeneratedPage(frontmatter: Record<string, unknown>): boolean {
   return frontmatter.generated === true ||
     frontmatter.generated_by === "memory-fort" ||
-    frontmatter.source === "compile";
+    frontmatter.source === "compile" ||
+    isLegacyGeneratedSource(frontmatter.source);
+}
+
+function isLegacyGeneratedSource(source: unknown): boolean {
+  return isLegacyThreadGeneratedSource(source) ||
+    source === "auto-procedural-extract" ||
+    source === "auto-procedural-extract-validated";
+}
+
+function isLegacyThreadGeneratedSource(source: unknown): boolean {
+  return source === "auto-thread-propose" ||
+    source === "auto-thread-propose-validated" ||
+    source === "auto-thread-discovery" ||
+    source === "auto-thread-discovery-validated";
 }
 
 async function collectFactChanges(root: string, selectedRaw: Set<string>): Promise<FactFileChange[]> {
