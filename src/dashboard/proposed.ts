@@ -10,12 +10,16 @@ import {
   runThreadReject,
 } from "../cli/commands/thread.js";
 import {
-  applyOperation,
+  applyOperationWithCompileLockHeld,
   compileOperationPath,
   parseCompileOperationBlock,
   validateCompileRelPath,
 } from "../compile/execute.js";
-import { rebuildIndex } from "../compile/index.js";
+import {
+  withCompileExecuteLock,
+  type CompileExecuteLockOwnership,
+} from "../compile/execute-lock.js";
+import { rebuildIndexWithCompileLockHeld } from "../compile/index.js";
 import { recordProposalResolved } from "../compile/proposal-ledger.js";
 import {
   scoreProposalConfidence,
@@ -34,6 +38,15 @@ import { hasArchiveOrSystemPathComponent } from "../storage/archive-paths.js";
 import { commitVaultChange } from "../sync/commit-vault-change.js";
 
 export type ProposedKind = "thread" | "procedure" | "compile";
+
+export interface PromoteProposedDraftOptions {
+  hooks?: {
+    afterCompileProposalSnapshot?: (snapshot: {
+      proposalPath: string;
+      promotedPath: string;
+    }) => Promise<void>;
+  };
+}
 
 export interface ProposedDraftBase {
   slug: string;
@@ -155,9 +168,13 @@ export async function promoteProposedDraft(
   vaultRoot: string,
   kind: ProposedKind,
   slug: string,
+  opts: PromoteProposedDraftOptions = {},
 ): Promise<{ promotedPath: string }> {
   if (kind === "compile") {
-    return promoteCompileProposal(vaultRoot, slug);
+    return withCompileExecuteLock(
+      vaultRoot,
+      (ownership) => promoteCompileProposal(vaultRoot, slug, opts, ownership),
+    );
   }
   const result = kind === "thread"
     ? await runThreadPromote({ vaultRoot, slug })
@@ -195,7 +212,12 @@ export function parseProposedActionBody(body: unknown): { ok: true; kind: Propos
   return { ok: true, kind, slug };
 }
 
-async function promoteCompileProposal(vaultRoot: string, slug: string): Promise<{ promotedPath: string }> {
+async function promoteCompileProposal(
+  vaultRoot: string,
+  slug: string,
+  opts: PromoteProposedDraftOptions,
+  ownership: CompileExecuteLockOwnership,
+): Promise<{ promotedPath: string }> {
   const safeSlug = sanitizeSlug(slug, "compile");
   const proposalPath = `wiki/compile-proposed/${safeSlug}.md`;
   const fullPath = join(vaultRoot, ...proposalPath.split("/"));
@@ -214,11 +236,18 @@ async function promoteCompileProposal(vaultRoot: string, slug: string): Promise<
   }
 
   const targetExisted = existsSync(join(vaultRoot, ...promotedPath.split("/")));
-  const applied = await applyOperation(vaultRoot, parsed.operation);
+  await opts.hooks?.afterCompileProposalSnapshot?.({ proposalPath, promotedPath });
+  const applied = await applyOperationWithCompileLockHeld(ownership, vaultRoot, parsed.operation);
   if (!applied.ok) {
     throw new Error(`compile proposal apply failed for ${promotedPath}: ${applied.reason}`);
   }
-  const indexPath = await maybeRebuildPromotedCompileIndex(vaultRoot, parsed.operation, promotedPath, targetExisted);
+  const indexPath = await maybeRebuildPromotedCompileIndex(
+    ownership,
+    vaultRoot,
+    parsed.operation,
+    promotedPath,
+    targetExisted,
+  );
   await recordProposalResolved(vaultRoot, parsed.operation, "approved", { path: promotedPath });
   await rm(fullPath);
   await commitVaultChange({
@@ -352,6 +381,7 @@ function sanitizeSlug(slug: string, kind: ProposedKind): string {
 }
 
 async function maybeRebuildPromotedCompileIndex(
+  ownership: CompileExecuteLockOwnership,
   vaultRoot: string,
   operation: { kind: string; path?: string },
   promotedPath: string,
@@ -360,7 +390,7 @@ async function maybeRebuildPromotedCompileIndex(
   if (operation.kind !== "write_page" || targetExisted) return null;
   if (!promotedPath.startsWith("wiki/") || !promotedPath.endsWith(".md")) return null;
 
-  const result = await rebuildIndex(vaultRoot);
+  const result = await rebuildIndexWithCompileLockHeld(ownership, vaultRoot);
   return result.changed ? "index.md" : null;
 }
 

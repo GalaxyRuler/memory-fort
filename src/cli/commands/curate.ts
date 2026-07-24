@@ -3,6 +3,7 @@ import { readFile, readdir } from "node:fs/promises";
 import { join, relative } from "node:path";
 import {
   applyCompileOperations,
+  applyCompileOperationsWithCompileLockHeld,
   parseCompileOperationBlock,
   type ApplyCompileOperationsResult,
   type CompileOperation,
@@ -26,6 +27,10 @@ import {
   synthesizeNarrative,
   validateDatedBlockConservation,
 } from "../../compile/synthesize-narrative.js";
+import {
+  withCompileExecuteLock,
+  type CompileExecuteLockOwnership,
+} from "../../compile/execute-lock.js";
 
 export interface CurateOptions {
   vaultRoot?: string;
@@ -60,6 +65,20 @@ const DEFAULT_REFRESH_MAX_BYTES = 60_000;
 
 export async function runCurate(opts: CurateOptions = {}): Promise<CurateResult> {
   const root = opts.vaultRoot ?? memoryRoot();
+  if (opts.apply) {
+    return withCompileExecuteLock(
+      root,
+      (ownership) => runCurateAtRoot(root, opts, ownership),
+    );
+  }
+  return runCurateAtRoot(root, opts);
+}
+
+async function runCurateAtRoot(
+  root: string,
+  opts: CurateOptions,
+  ownership?: CompileExecuteLockOwnership,
+): Promise<CurateResult> {
   const mode = opts.apply ? "apply" : "plan";
   const targets = opts.all
     ? opts.refresh
@@ -106,7 +125,7 @@ export async function runCurate(opts: CurateOptions = {}): Promise<CurateResult>
         confidence: typeof operation.frontmatter?.confidence === "number" ? operation.frontmatter.confidence : 0.9,
       },
     };
-    const applied = await applyCompileOperations({
+    const applyOptions = {
       allowDatedSectionConsolidation: true,
       vaultRoot: root,
       operations: [withConfidence],
@@ -114,7 +133,10 @@ export async function runCurate(opts: CurateOptions = {}): Promise<CurateResult>
       now: opts.now,
       generationLLM: mode === "apply" ? generated.llm : undefined,
       faithfulnessCheck: generated.faithfulnessCheck,
-    });
+    };
+    const applied = ownership
+      ? await applyCompileOperationsWithCompileLockHeld(ownership, applyOptions)
+      : await applyCompileOperations(applyOptions);
     const outcome = applied.outcomes.find((item) => item.path === target);
     pages.push({
       path: target,

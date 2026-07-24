@@ -9,6 +9,7 @@ const forgetRmFailure = vi.hoisted(() => ({
   pauseStarted: null as (() => void) | null,
   pauseRelease: null as Promise<void> | null,
   unlinkTarget: null as string | null,
+  renameTarget: null as string | null,
 }));
 
 vi.mock("node:fs/promises", async (importOriginal) => {
@@ -36,6 +37,13 @@ vi.mock("node:fs/promises", async (importOriginal) => {
       }
       return actual.unlink(...args);
     },
+    rename: async (...args: Parameters<typeof actual.rename>) => {
+      const target = forgetRmFailure.renameTarget;
+      if (target && String(args[1]).replace(/\\/g, "/") === target.replace(/\\/g, "/")) {
+        throw new Error(`injected rename failure: ${target}`);
+      }
+      return actual.rename(...args);
+    },
   };
 });
 
@@ -50,7 +58,13 @@ import { reconcileIndex } from "../../../src/index/reconcile.js";
 import { readIndexGeneration } from "../../../src/index/generation.js";
 import { loadSearchCorpus } from "../../../src/retrieval/corpus.js";
 import { confidenceAwareIndex } from "../../../src/hooks/session-start-helpers.js";
-import { appendBlock, ensureRawSessionFile, getCaptureSpoolStatus } from "../../../src/hooks/raw-file.js";
+import {
+  appendBlock,
+  ensureRawCaptureEpoch,
+  ensureRawSessionFile,
+  getCaptureSpoolStatus,
+  rawCaptureEpochPath,
+} from "../../../src/hooks/raw-file.js";
 import { withFileLock } from "../../../src/storage/file-lock.js";
 
 describe("runForget", () => {
@@ -78,6 +92,7 @@ describe("runForget", () => {
     forgetRmFailure.pauseStarted = null;
     forgetRmFailure.pauseRelease = null;
     forgetRmFailure.unlinkTarget = null;
+    forgetRmFailure.renameTarget = null;
     if (previousMemoryRoot === undefined) delete process.env["MEMORY_ROOT"];
     else process.env["MEMORY_ROOT"] = previousMemoryRoot;
     if (previousIndexPath === undefined) delete process.env["MEMORY_INDEX_DB_PATH"];
@@ -276,6 +291,7 @@ describe("runForget", () => {
       pendingEventCount: 1,
       removedEventCount: 0,
       paths: [selectedEventPath],
+      pendingPaths: [selectedEventPath],
       removedPaths: [],
     });
     expect(planned.report).toContain(`Attributable capture-spool events: 1\n- ${selectedEventPath}`);
@@ -288,6 +304,7 @@ describe("runForget", () => {
       pendingEventCount: 0,
       removedEventCount: 1,
       paths: [selectedEventPath],
+      pendingPaths: [],
       removedPaths: [selectedEventPath],
     });
     expect((await readdir(spoolDir)).filter((name) => name.endsWith(".json")))
@@ -355,6 +372,7 @@ describe("runForget", () => {
           attributableEventCount: 1,
           pendingEventCount: 1,
           removedEventCount: 0,
+          pendingPaths: [eventPath],
           removedPaths: [],
           failedPath: eventPath,
         },
@@ -440,18 +458,105 @@ describe("runForget", () => {
           pendingEventCount: 1,
           removedEventCount: 1,
           paths: [firstEventPath, secondEventPath],
+          pendingPaths: [secondEventPath],
           removedPaths: [firstEventPath],
           failedPath: secondEventPath,
+          epochInvalidation: {
+            status: "not-started",
+            advancedRawPaths: [],
+            quarantinedRawPaths: [],
+            pendingRawPaths: [selectedPath],
+          },
         },
       },
     });
     expect(receipt.report).toContain(`Removed attributable capture-spool events: 1\n- ${firstEventPath}`);
     expect(receipt.report).toContain(`Failed spool: ${secondEventPath}`);
+    expect(receipt.report).toContain("Capture epoch invalidation status: not-started");
     expect(receipt.report).not.toContain("first private block");
     expect(receipt.report).not.toContain("second private block");
     expect(existsSync(firstEventPath)).toBe(false);
     expect(existsSync(secondEventPath)).toBe(true);
     expect(existsSync(selectedPath)).toBe(true);
+    expect(readIndexGeneration(root).state).toBe("invalidating");
+  });
+
+  it("reports removed spool entries and partial epoch quarantine when a later epoch write fails", async () => {
+    const firstRaw = "raw/2026-05-20/01-epoch-advanced.md";
+    const secondRaw = "raw/2026-05-20/02-epoch-fails.md";
+    const firstRawPath = join(root, ...firstRaw.split("/"));
+    const secondRawPath = join(root, ...secondRaw.split("/"));
+    const firstEpochPath = rawCaptureEpochPath(firstRawPath);
+    const secondEpochPath = rawCaptureEpochPath(secondRawPath);
+    const spoolDir = process.env["MEMORY_CAPTURE_SPOOL_DIR"]!;
+    const firstEventPath = join(spoolDir, "01-epoch-event.json");
+    const secondEventPath = join(spoolDir, "02-epoch-event.json");
+    await writeAt(firstRaw, "first raw remains after epoch setup failure\n");
+    await writeAt(secondRaw, "second raw remains after epoch setup failure\n");
+    await ensureRawCaptureEpoch(firstRawPath);
+    await ensureRawCaptureEpoch(secondRawPath);
+    await writeAt("index.md", "STALE-EPOCH-SETUP-CONTEXT\n");
+    await mkdir(spoolDir, { recursive: true });
+    for (const [path, id, rawPath] of [
+      [firstEventPath, "first", firstRawPath],
+      [secondEventPath, "second", secondRawPath],
+    ] as const) {
+      await writeFile(path, JSON.stringify({
+        version: 1,
+        id: `${id}-epoch-event`,
+        hash: `${id}-epoch-hash`,
+        rawPath,
+        block: `${id} epoch-private block`,
+        createdAt: "2026-05-20T00:00:00.000Z",
+      }));
+    }
+    forgetRmFailure.renameTarget = secondEpochPath;
+
+    let failure: unknown;
+    try {
+      await runForget({ mode: "apply", rawPaths: [firstRaw, secondRaw] });
+    } catch (error) {
+      failure = error;
+    }
+
+    expect(failure).toBeInstanceOf(ForgetPartialMutationError);
+    const receipt = (failure as ForgetPartialMutationError).receipt;
+    expect(receipt).toMatchObject({
+      status: "aborted-before-live-mutation/index-invalidating",
+      erased: [],
+      rewritten: [],
+      failed: { operation: "epoch-invalidation", path: secondEpochPath },
+      plan: {
+        captureSpool: {
+          status: "removed-attributable",
+          attributableEventCount: 2,
+          pendingEventCount: 0,
+          removedEventCount: 2,
+          paths: [firstEventPath, secondEventPath],
+          pendingPaths: [],
+          removedPaths: [firstEventPath, secondEventPath],
+          failedPath: secondEpochPath,
+          epochInvalidation: {
+            status: "partial-invalidating",
+            advancedRawPaths: [firstRawPath],
+            quarantinedRawPaths: [firstRawPath],
+            pendingRawPaths: [secondRawPath],
+          },
+        },
+      },
+    });
+    expect(receipt.report).toContain("Capture epoch invalidation status: partial-invalidating");
+    expect(receipt.report).toContain(`Epoch-invalidating raw paths: 1\n- ${firstRawPath}`);
+    expect(receipt.report).toContain(`Epoch transitions not completed: 1\n- ${secondRawPath}`);
+    expect(receipt.report).not.toContain("first epoch-private block");
+    expect(receipt.report).not.toContain("second epoch-private block");
+    expect(existsSync(firstEventPath)).toBe(false);
+    expect(existsSync(secondEventPath)).toBe(false);
+    expect(existsSync(firstRawPath)).toBe(true);
+    expect(existsSync(secondRawPath)).toBe(true);
+    expect(JSON.parse(await readFile(firstEpochPath, "utf-8"))).toMatchObject({ state: "invalidating" });
+    expect(JSON.parse(await readFile(secondEpochPath, "utf-8"))).toMatchObject({ state: "ready" });
+    expect(existsSync(join(root, "index.md"))).toBe(false);
     expect(readIndexGeneration(root).state).toBe("invalidating");
   });
 

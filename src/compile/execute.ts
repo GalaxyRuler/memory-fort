@@ -18,6 +18,11 @@ import { isProposalResolved } from "./proposal-ledger.js";
 import { NARRATIVE_REVIEW_KEY_FIELD, synthesizeNarrative } from "./synthesize-narrative.js";
 import { assessClaimSupport, type FaithfulnessFact } from "./faithfulness.js";
 import type { CompressedFact } from "../facts/store.js";
+import {
+  assertCompileExecuteLockOwnership,
+  withCompileExecuteLock,
+  type CompileExecuteLockOwnership,
+} from "./execute-lock.js";
 
 export type CompileOperation =
   | {
@@ -250,6 +255,17 @@ export function parseCompileOperationBlock(text: string): { ok: true; operation:
 export async function applyCompileOperations(
   opts: ApplyCompileOperationsOptions,
 ): Promise<ApplyCompileOperationsResult> {
+  return withCompileExecuteLock(
+    opts.vaultRoot,
+    (ownership) => applyCompileOperationsWithCompileLockHeld(ownership, opts),
+  );
+}
+
+export async function applyCompileOperationsWithCompileLockHeld(
+  ownership: CompileExecuteLockOwnership,
+  opts: ApplyCompileOperationsOptions,
+): Promise<ApplyCompileOperationsResult> {
+  assertCompileExecuteLockOwnership(ownership, opts.vaultRoot);
   const result: ApplyCompileOperationsResult = {
     applied: [],
     proposed: [],
@@ -429,7 +445,12 @@ export async function applyCompileOperations(
       continue;
     }
 
-    const applied = await applyOperation(opts.vaultRoot, operationToApply, now);
+    const applied = await applyOperationWithCompileLockHeld(
+      ownership,
+      opts.vaultRoot,
+      operationToApply,
+      now,
+    );
     if (applied.ok) {
       result.applied.push(relPath);
       if (applied.outcome === "rewritten") {
@@ -808,12 +829,25 @@ export async function applyOperation(
   vaultRoot: string,
   operation: CompileOperation,
   now: Date = new Date(),
+): Promise<Awaited<ReturnType<typeof applyOperationWithCompileLockHeld>>> {
+  return withCompileExecuteLock(
+    vaultRoot,
+    (ownership) => applyOperationWithCompileLockHeld(ownership, vaultRoot, operation, now),
+  );
+}
+
+export async function applyOperationWithCompileLockHeld(
+  ownership: CompileExecuteLockOwnership,
+  vaultRoot: string,
+  operation: CompileOperation,
+  now: Date = new Date(),
 ): Promise<{
   ok: true;
   outcome: Extract<CompileOperationOutcomeKind, "created" | "appended" | "rewritten" | "index-updated" | "log-appended" | "skipped: no new content">;
   converted?: CompileOperationConversion;
   touchedPaths?: string[];
 } | { ok: false; reason: string }> {
+  assertCompileExecuteLockOwnership(ownership, vaultRoot);
   const relPath = compileOperationPath(operation);
   const pathValidation = validateCompileRelPath(relPath);
   if (!pathValidation.ok) return { ok: false, reason: pathValidation.reason };

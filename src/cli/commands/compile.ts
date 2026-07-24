@@ -9,13 +9,17 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
-import { applyCompileOperations, parseCompileOperationsBlock, type ApplyCompileOperationsResult } from "../../compile/execute.js";
+import {
+  applyCompileOperationsWithCompileLockHeld,
+  parseCompileOperationsBlock,
+  type ApplyCompileOperationsResult,
+} from "../../compile/execute.js";
 import type { FaithfulnessFact } from "../../compile/faithfulness.js";
 import { pruneOpsJournalForAdvancedRaws } from "../../compile/ops-journal.js";
 import { condenseIndex } from "../../compile/condense-index.js";
 import { filterRawText } from "../../compile/filter-raw.js";
 import { runFactConsolidation } from "../../compile/fact-consolidate.js";
-import { rebuildIndex, type RebuildIndexResult } from "../../compile/index.js";
+import { rebuildIndexWithCompileLockHeld, type RebuildIndexResult } from "../../compile/index.js";
 import { loadCompressedFacts } from "../../facts/store.js";
 import { CURRENT_COMPRESS_VERSION } from "../../facts/compress.js";
 import { chatWithAudit } from "../../llm/audit.js";
@@ -28,7 +32,10 @@ import { type LLMProvider } from "../../llm/types.js";
 import { readRuntimePrompt } from "../../prompts/runtime.js";
 import { loadMemoryConfig, resolveCompileConfig, type MemoryConfig } from "../../storage/config.js";
 import { hasArchiveOrSystemPathComponent } from "../../storage/archive-paths.js";
-import { withCompileExecuteLock } from "../../compile/execute-lock.js";
+import {
+  withCompileExecuteLock,
+  type CompileExecuteLockOwnership,
+} from "../../compile/execute-lock.js";
 import { listRawMarkdownFiles } from "../../storage/raw-walker.js";
 import {
   memoryRoot,
@@ -190,10 +197,14 @@ export async function runCompile(
   opts: CompileOptions = {},
 ): Promise<CompileResult> {
   const root = opts.vaultRoot ?? memoryRoot();
-  return withCompileExecuteLock(root, () => runCompileImpl({ ...opts, vaultRoot: root }));
+  return withCompileExecuteLock(
+    root,
+    (ownership) => runCompileImpl(ownership, { ...opts, vaultRoot: root }),
+  );
 }
 
 async function runCompileImpl(
+  ownership: CompileExecuteLockOwnership,
   opts: CompileOptions = {},
 ): Promise<CompileResult> {
   const perFileMaxBytes = readPositiveInteger(
@@ -570,7 +581,7 @@ async function runCompileImpl(
   }
 
   const execution = opts.execute
-    ? await executeCompilePrompt({
+    ? await executeCompilePromptWithCompileLockHeld(ownership, {
       ...opts,
       root,
       sourceFacts: rawFacts,
@@ -607,7 +618,7 @@ async function runCompileImpl(
   }
   const indexRebuild = execution?.mode === "execute" && !opts.plan
     && execution.applied.length + execution.proposed.length > 0
-    ? await rebuildIndex(root)
+    ? await rebuildIndexWithCompileLockHeld(ownership, root)
     : undefined;
   const pendingSummary = await summarizeCompilePending(
     root,
@@ -900,6 +911,22 @@ export async function executeCompilePrompt(opts: CompileOptions & {
   hasRawContent: boolean;
   sourceRaws?: readonly string[];
 }): Promise<CompileResult["execution"]> {
+  return withCompileExecuteLock(
+    opts.root,
+    (ownership) => executeCompilePromptWithCompileLockHeld(ownership, opts),
+  );
+}
+
+async function executeCompilePromptWithCompileLockHeld(
+  ownership: CompileExecuteLockOwnership,
+  opts: CompileOptions & {
+    sourceFacts?: readonly FaithfulnessFact[];
+    root: string;
+    prompt: string;
+    hasRawContent: boolean;
+    sourceRaws?: readonly string[];
+  },
+): Promise<CompileResult["execution"]> {
   const env = opts.env ?? process.env;
   const config = await (opts.configLoader ?? (() => loadMemoryConfig(opts.root)))();
   const compileConfig = resolveCompileConfig(config.compile);
@@ -1014,7 +1041,7 @@ export async function executeCompilePrompt(opts: CompileOptions & {
       sessionsScanned: 0,
     };
   }
-  const applied = await applyCompileOperations({
+  const applied = await applyCompileOperationsWithCompileLockHeld(ownership, {
     generationFacts: opts.plan ? undefined : [...(opts.sourceFacts ?? [])],
     vaultRoot: opts.root,
     operations: parsed.operations,

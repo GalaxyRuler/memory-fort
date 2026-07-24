@@ -59,19 +59,35 @@ export interface CaptureSpoolAttribution {
   removedEventCount: number;
   /** Absolute operational event paths only; capture block contents are never exposed. */
   paths: string[];
+  pendingPaths: string[];
   removedPaths: string[];
   failedPath?: string;
+  epochInvalidation?: CaptureEpochInvalidationAttribution;
 }
 
-export class CaptureSpoolRemovalError extends Error {
+export interface CaptureEpochInvalidationAttribution {
+  status: "not-started" | "partial-invalidating" | "all-invalidating";
+  advancedRawPaths: string[];
+  quarantinedRawPaths: string[];
+  pendingRawPaths: string[];
+}
+
+export class CapturePreparationMutationError extends Error {
   readonly attribution: CaptureSpoolAttribution;
+  readonly failedOperation: "spool-removal" | "epoch-invalidation";
   readonly failedPath: string;
 
-  constructor(attribution: CaptureSpoolAttribution, failedPath: string, cause: unknown) {
+  constructor(
+    attribution: CaptureSpoolAttribution,
+    failedOperation: "spool-removal" | "epoch-invalidation",
+    failedPath: string,
+    cause: unknown,
+  ) {
     const detail = cause instanceof Error ? cause.message : String(cause);
-    super(`capture spool removal failed for ${failedPath}: ${detail}`);
-    this.name = "CaptureSpoolRemovalError";
+    super(`capture preparation ${failedOperation} failed for ${failedPath}: ${detail}`);
+    this.name = "CapturePreparationMutationError";
     this.attribution = attribution;
+    this.failedOperation = failedOperation;
     this.failedPath = failedPath;
     this.cause = cause;
   }
@@ -146,20 +162,51 @@ export async function withCaptureSpoolEventsRemoved<T>(
           removedPaths.push(entry.path);
           continue;
         }
-        throw new CaptureSpoolRemovalError(
+        throw new CapturePreparationMutationError(
           captureSpoolAttribution(
             attributable,
             targetKeys,
             "partial-removed-attributable",
             removedPaths,
             entry.path,
+            captureEpochInvalidationAttribution(rawPaths, []),
           ),
+          "spool-removal",
           entry.path,
           error,
         );
       }
     }
-    const epochs = await beginRawCaptureEpochInvalidation(rawPaths);
+    const epochs: RawCaptureEpochTransition[] = [];
+    for (const rawPath of rawPaths) {
+      const invalidatingToken = randomUUID();
+      try {
+        await writeRawCaptureEpoch(rawPath, {
+          version: 1,
+          state: "invalidating",
+          token: invalidatingToken,
+        });
+        epochs.push({ rawPath, invalidatingToken });
+      } catch (error) {
+        const failedPath = rawCaptureEpochPath(rawPath);
+        throw new CapturePreparationMutationError(
+          captureSpoolAttribution(
+            attributable,
+            targetKeys,
+            "removed-attributable",
+            removedPaths,
+            failedPath,
+            captureEpochInvalidationAttribution(
+              rawPaths,
+              epochs.map((transition) => transition.rawPath),
+            ),
+          ),
+          "epoch-invalidation",
+          failedPath,
+          error,
+        );
+      }
+    }
     return operation(captureSpoolAttribution(
       attributable,
       targetKeys,
@@ -167,19 +214,6 @@ export async function withCaptureSpoolEventsRemoved<T>(
       removedPaths,
     ), epochs);
   }));
-}
-
-/** Advance selected capture epochs while their raw locks are held. */
-async function beginRawCaptureEpochInvalidation(
-  rawPaths: readonly string[],
-): Promise<RawCaptureEpochTransition[]> {
-  const transitions: RawCaptureEpochTransition[] = [];
-  for (const rawPath of rawPaths) {
-    const invalidatingToken = randomUUID();
-    await writeRawCaptureEpoch(rawPath, { version: 1, state: "invalidating", token: invalidatingToken });
-    transitions.push({ rawPath, invalidatingToken });
-  }
-  return transitions;
 }
 
 /** Publish fresh ready epochs after the owning generation is ready, while raw locks remain held. */
@@ -810,20 +844,47 @@ function captureSpoolAttribution(
     | "partial-removed-attributable",
   removedPaths: readonly string[],
   failedPath?: string,
+  epochInvalidation?: CaptureEpochInvalidationAttribution,
 ): CaptureSpoolAttribution {
   const paths = entries
     .filter((entry) => targetKeys.has(normalizeRawTarget(entry.event.rawPath)))
     .map((entry) => entry.path)
     .sort((a, b) => a.localeCompare(b));
   const removed = [...removedPaths].sort((a, b) => a.localeCompare(b));
+  const removedKeys = new Set(removed.map(normalizeRawTarget));
+  const pending = paths.filter((path) => !removedKeys.has(normalizeRawTarget(path)));
   return {
     status: paths.length > 0 ? matchedStatus : "none",
     attributableEventCount: paths.length,
-    pendingEventCount: Math.max(0, paths.length - removed.length),
+    pendingEventCount: pending.length,
     removedEventCount: removed.length,
     paths,
+    pendingPaths: pending,
     removedPaths: removed,
     ...(failedPath ? { failedPath } : {}),
+    ...(epochInvalidation ? { epochInvalidation } : {}),
+  };
+}
+function captureEpochInvalidationAttribution(
+  rawPaths: readonly string[],
+  advancedRawPaths: readonly string[],
+): CaptureEpochInvalidationAttribution {
+  const advancedKeys = new Set(advancedRawPaths.map(normalizeRawTarget));
+  const advanced = rawPaths
+    .filter((rawPath) => advancedKeys.has(normalizeRawTarget(rawPath)))
+    .sort((a, b) => a.localeCompare(b));
+  const pending = rawPaths
+    .filter((rawPath) => !advancedKeys.has(normalizeRawTarget(rawPath)))
+    .sort((a, b) => a.localeCompare(b));
+  return {
+    status: advanced.length === 0
+      ? "not-started"
+      : pending.length === 0
+        ? "all-invalidating"
+        : "partial-invalidating",
+    advancedRawPaths: advanced,
+    quarantinedRawPaths: [...advanced],
+    pendingRawPaths: pending,
   };
 }
 async function withRawFileLocks<T>(

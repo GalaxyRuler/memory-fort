@@ -4,7 +4,9 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runCurate } from "../../../src/cli/commands/curate.js";
+import { compileExecuteLockTarget } from "../../../src/compile/execute-lock.js";
 import type { LLMProvider } from "../../../src/llm/types.js";
+import { withFileLock } from "../../../src/storage/file-lock.js";
 import { parseFrontmatter } from "../../../src/storage/frontmatter.js";
 
 describe("runCurate", () => {
@@ -74,6 +76,43 @@ describe("runCurate", () => {
     expect(written.body).toContain("compile observations");
     expect(written.body).toContain("curate-merge consolidation");
     expect(existsSync(join(tmp, "wiki", ".history", "wiki", "projects", "memory-fort.md", "2026-05-31T12-00-00-000Z.md"))).toBe(true);
+  });
+
+  it("holds the shared compile lock before reading or generating an apply rewrite", async () => {
+    let holderStarted!: () => void;
+    let releaseHolder!: () => void;
+    const started = new Promise<void>((resolve) => { holderStarted = resolve; });
+    const release = new Promise<void>((resolve) => { releaseHolder = resolve; });
+    const holder = withFileLock(compileExecuteLockTarget(tmp), async () => {
+      holderStarted();
+      await release;
+    });
+    await started;
+
+    const llm = fakeCurateLLM([
+      "Memory Fort stores durable memory.",
+      "Memory Fort records compile observations.",
+      "Memory Fort now supports curate-merge consolidation.",
+    ].join("\n"));
+    let settled = false;
+    const curate = runCurate({
+      vaultRoot: tmp,
+      target: "wiki/projects/memory-fort.md",
+      apply: true,
+      configLoader: async () => ({ llm: { provider: "ollama", model: "llama3.2" } }),
+      llmFactory: () => llm,
+      env: {},
+      now: new Date("2026-05-31T12:00:00.000Z"),
+    }).finally(() => { settled = true; });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    const settledWhileHeld = settled;
+    const llmCallsWhileHeld = vi.mocked(llm.chat).mock.calls.length;
+
+    releaseHolder();
+    await holder;
+    await expect(curate).resolves.toMatchObject({ mode: "apply" });
+    expect(settledWhileHeld).toBe(false);
+    expect(llmCallsWhileHeld).toBe(0);
   });
 
   it("stages a parseable normal-curate response when its source finish reason is non-stop", async () => {

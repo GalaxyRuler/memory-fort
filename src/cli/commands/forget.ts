@@ -4,7 +4,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { isAbsolute, join, relative, resolve } from "node:path";
 
-import { rebuildIndex } from "../../compile/index.js";
+import { rebuildIndexWithCompileLockHeld } from "../../compile/index.js";
 import { deleteIndexDbFiles, openIndexDb, openReadOnlyIndexDb, resolveIndexDbPath } from "../../index/db.js";
 import { reconcileIndex } from "../../index/reconcile.js";
 import { parseFrontmatter } from "../../storage/frontmatter.js";
@@ -17,9 +17,12 @@ import {
   type IndexGeneration,
 } from "../../index/generation.js";
 import { withFileLock } from "../../storage/file-lock.js";
-import { withCompileExecuteLock } from "../../compile/execute-lock.js";
 import {
-  CaptureSpoolRemovalError,
+  withCompileExecuteLock,
+  type CompileExecuteLockOwnership,
+} from "../../compile/execute-lock.js";
+import {
+  CapturePreparationMutationError,
   completeRawCaptureEpochInvalidation,
   inspectCaptureSpoolAttribution,
   withCaptureSpoolEventsRemoved,
@@ -98,7 +101,13 @@ export interface ForgetPartialMutationReceipt {
   erased: string[];
   rewritten: string[];
   failed: {
-    operation: "invalidation" | "spool" | "delete" | "rewrite" | "rebuild";
+    operation:
+      | "invalidation"
+      | "spool"
+      | "epoch-invalidation"
+      | "delete"
+      | "rewrite"
+      | "rebuild";
     path: string;
     detail: string;
   };
@@ -153,7 +162,10 @@ export async function runForget(opts: ForgetOptions = {}): Promise<ForgetResult>
   if (mode === "apply") {
     return withFileLock(
       join(root, "var", "forget-apply"),
-      () => withCompileExecuteLock(root, () => runForgetAtRoot(root, opts, mode)),
+      () => withCompileExecuteLock(
+        root,
+        (ownership) => runForgetAtRoot(root, opts, mode, ownership),
+      ),
       FORGET_APPLY_LOCK,
     );
   }
@@ -164,6 +176,7 @@ async function runForgetAtRoot(
   root: string,
   opts: ForgetOptions,
   mode: ForgetMode,
+  ownership?: CompileExecuteLockOwnership,
 ): Promise<ForgetResult> {
   const selectors = normalizeSelectors(opts);
   if (selectors.paths.length + selectors.rawPaths.length + selectors.sourceIds.length === 0) {
@@ -237,7 +250,10 @@ async function runForgetAtRoot(
   const erased: string[] = [];
   const rewritten: string[] = [];
   let invalidation: IndexGeneration | null = null;
-  let failed: { operation: "invalidation" | "spool" | "delete" | "rewrite" | "rebuild"; path: string } = {
+  let failed: {
+    operation: "invalidation" | "spool" | "epoch-invalidation" | "delete" | "rewrite" | "rebuild";
+    path: string;
+  } = {
     operation: "invalidation",
     path: "derived-index",
   };
@@ -276,13 +292,17 @@ async function runForgetAtRoot(
         // race back into the selected raw path between erase and the fresh index.
         failed = { operation: "rebuild", path: "derived-index" };
         if (!invalidation) throw new Error("derived index invalidation token was not published");
-        await rebuildDerivedState(root, invalidation.token, epochs);
+        if (!ownership) throw new Error("forget apply requires compile execute lock ownership");
+        await rebuildDerivedState(ownership, root, invalidation.token, epochs);
       },
     );
   } catch (error) {
-    if (error instanceof CaptureSpoolRemovalError) {
+    if (error instanceof CapturePreparationMutationError) {
       plan.captureSpool = error.attribution;
-      failed = { operation: "spool", path: error.failedPath };
+      failed = {
+        operation: error.failedOperation === "spool-removal" ? "spool" : "epoch-invalidation",
+        path: error.failedPath,
+      };
     }
     throw partialForgetMutationError(plan, erased, rewritten, {
       operation: failed.operation,
@@ -655,12 +675,13 @@ async function readHistoryInventory(root: string, selectedRaw: Set<string>): Pro
 }
 
 async function rebuildDerivedState(
+  ownership: CompileExecuteLockOwnership,
   root: string,
   invalidatingToken: string,
   epochs: readonly RawCaptureEpochTransition[],
 ): Promise<void> {
   try {
-    await rebuildIndex(root);
+    await rebuildIndexWithCompileLockHeld(ownership, root);
     await rebuildSearchIndex(root);
     await completeIndexInvalidation(root, invalidatingToken);
     try {
@@ -848,7 +869,21 @@ function formatForgetPartialMutationReport(
   appendInventorySection(lines, "Completed fact rewrites", [...rewritten].sort());
   appendInventorySection(lines, "Planned live raw paths", plan.raw);
   appendInventorySection(lines, "Attributable capture-spool events", plan.captureSpool.paths);
+  appendInventorySection(lines, "Pending attributable capture-spool events", plan.captureSpool.pendingPaths);
   appendInventorySection(lines, "Removed attributable capture-spool events", plan.captureSpool.removedPaths);
+  if (plan.captureSpool.epochInvalidation) {
+    lines.push(`Capture epoch invalidation status: ${plan.captureSpool.epochInvalidation.status}`);
+    appendInventorySection(
+      lines,
+      "Epoch-invalidating raw paths",
+      plan.captureSpool.epochInvalidation.quarantinedRawPaths,
+    );
+    appendInventorySection(
+      lines,
+      "Epoch transitions not completed",
+      plan.captureSpool.epochInvalidation.pendingRawPaths,
+    );
+  }
   return `${lines.join("\n")}\n`;
 }
 
@@ -859,7 +894,9 @@ function partialForgetMutationError(
   failed: ForgetPartialMutationReceipt["failed"],
 ): ForgetPartialMutationError {
   const status: ForgetPartialMutationReceipt["status"] =
-    (failed.operation === "spool" || failed.operation === "invalidation")
+    (failed.operation === "spool"
+      || failed.operation === "epoch-invalidation"
+      || failed.operation === "invalidation")
       && erased.length === 0
       && rewritten.length === 0
       ? "aborted-before-live-mutation/index-invalidating"

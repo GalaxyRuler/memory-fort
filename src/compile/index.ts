@@ -5,6 +5,11 @@ import { atomicWrite } from "../storage/atomic-write.js";
 import { hasArchiveOrSystemPathComponent } from "../storage/archive-paths.js";
 import { parseFrontmatter } from "../storage/frontmatter.js";
 import type { PageType } from "../storage/paths.js";
+import {
+  assertCompileExecuteLockOwnership,
+  withCompileExecuteLock,
+  type CompileExecuteLockOwnership,
+} from "./execute-lock.js";
 
 export interface RebuildIndexResult {
   path: string;
@@ -36,6 +41,18 @@ const PAGE_SECTIONS: Array<{ type: PageType; heading: string }> = [
 const PAGE_TYPE_SET = new Set<PageType>(PAGE_SECTIONS.map((section) => section.type));
 
 export async function rebuildIndex(vaultRoot: string, opts: { plan?: boolean } = {}): Promise<RebuildIndexResult> {
+  return withCompileExecuteLock(
+    vaultRoot,
+    (ownership) => rebuildIndexWithCompileLockHeld(ownership, vaultRoot, opts),
+  );
+}
+
+export async function rebuildIndexWithCompileLockHeld(
+  ownership: CompileExecuteLockOwnership,
+  vaultRoot: string,
+  opts: { plan?: boolean } = {},
+): Promise<RebuildIndexResult> {
+  assertCompileExecuteLockOwnership(ownership, vaultRoot);
   const indexPath = join(vaultRoot, "index.md");
   const pages = await listIndexPages(vaultRoot);
   const content = renderIndex(pages);
