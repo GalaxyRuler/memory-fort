@@ -400,10 +400,12 @@ function rawPathFromRecord(value: unknown): string | null {
 
 async function findArchivedCopies(root: string, selectedRaw: Set<string>): Promise<string[]> {
   const results = new Set<string>();
+  const selectedSources = await sourceIdsForRawPaths(root, selectedRaw);
   for (const relPath of await listMarkdownFiles(root, "raw")) {
     if (!hasArchiveOrSystemPathComponent(relPath)) continue;
     const original = archiveOriginalPath(relPath);
-    if (original && selectedRaw.has(original)) results.add(relPath);
+    const source = await readRawSource(root, relPath);
+    if ((original && selectedRaw.has(original)) || selectedSources.has(source)) results.add(relPath);
   }
   for (const directory of ["wiki/archive", "wiki/.archive", ".archive"]) {
     for (const relPath of await listFiles(root, directory)) {
@@ -412,6 +414,15 @@ async function findArchivedCopies(root: string, selectedRaw: Set<string>): Promi
     }
   }
   return [...results].sort();
+}
+
+async function sourceIdsForRawPaths(root: string, paths: Set<string>): Promise<Set<string>> {
+  const sources = new Set<string>();
+  for (const relPath of paths) {
+    const source = await readRawSource(root, relPath);
+    if (source !== "unknown") sources.add(source);
+  }
+  return sources;
 }
 
 function archiveOriginalPath(relPath: string): string | null {

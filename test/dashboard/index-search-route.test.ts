@@ -223,6 +223,36 @@ describe("dashboard index search route", () => {
     expect(body.index.lastError).toContain("invalidation");
   });
 
+  it("does not return an in-flight vector result after the index generation is fenced", async () => {
+    const { vaultRoot, indexDbPath } = await createIndexedVault();
+    const executor = fakeSearchExecutor("lexical-plus-vector");
+    const staleResponse = await executor.search({ query: "needle" });
+    executor.search.mockClear();
+    let releaseSearch: (() => void) | null = null;
+    executor.search.mockImplementationOnce(async () => {
+      await new Promise<void>((resolve) => { releaseSearch = resolve; });
+      return staleResponse;
+    });
+    server = await createServer({
+      vaultRoot,
+      port: 0,
+      env: { MEMORY_INDEX_DB_PATH: indexDbPath, MEMORY_INDEX_VECTORS: "1" },
+      voyageClient: null,
+      searchExecutor: executor,
+    });
+
+    const pending = fetch(`http://${server.host}:${server.port}/api/search?q=needle&limit=5`);
+    await until(() => executor.search.mock.calls.length === 1);
+    await beginIndexInvalidation(vaultRoot);
+    releaseSearch?.();
+
+    const response = await pending;
+    const body = await response.json();
+    expect(body.results).toEqual([]);
+    expect(body.index.lastError).toContain("invalidation");
+    expect(executor.close).toHaveBeenCalled();
+  });
+
   it("returns factual indexed provenance instead of receipt defaults", async () => {
     const content = [
       "---",

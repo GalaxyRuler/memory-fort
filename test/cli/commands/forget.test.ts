@@ -149,12 +149,14 @@ describe("runForget", () => {
 
     const plan = await runForget({ sourceIds: ["codex"] });
     expect(plan.plan.raw).toEqual([raw]);
-    expect(plan.plan.archive).toEqual([compactArchive]);
+    expect(plan.plan.archive).toEqual([compactArchive, dotArchive, caseArchive]);
 
     const applied = await runForget({ mode: "apply", sourceIds: ["codex"] });
     expect(applied.erased).toEqual([raw]);
     expect(existsSync(join(root, ...raw.split("/")))).toBe(false);
     expect(existsSync(join(root, ...compactArchive.split("/")))).toBe(true);
+    expect(existsSync(join(root, ...dotArchive.split("/")))).toBe(true);
+    expect(existsSync(join(root, ...caseArchive.split("/")))).toBe(true);
     for (const archivedPath of ["raw/.compact-archive", compactArchive, dotArchive, caseArchive]) {
       await expect(runForget({ rawPaths: [archivedPath] }))
         .rejects.toThrow("archived raw copies cannot be selected");

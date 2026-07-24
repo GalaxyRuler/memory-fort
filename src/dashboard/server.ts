@@ -917,7 +917,7 @@ function createDashboardIndexSearchController(opts: {
     liveBackend = "index-lexical";
   }
 
-  function getReader(): IndexDb | null {
+  function currentGeneration(): IndexGeneration | null {
     let generation: IndexGeneration;
     try {
       generation = readIndexGeneration(opts.vaultRoot);
@@ -939,20 +939,31 @@ function createDashboardIndexSearchController(opts: {
       lastOpenError = "index invalidation in progress";
       return null;
     }
-    if (reader) return reader;
+    return generation;
+  }
+
+  function getReader(): { db: IndexDb; fence: IndexGeneration } | null {
+    const fence = currentGeneration();
+    if (!fence) return null;
+    if (reader) return { db: reader, fence };
     try {
       reader = openReadOnlyIndexDb(dbPath);
       lastOpenError = null;
-      return reader;
+      return { db: reader, fence };
     } catch (error) {
       lastOpenError = error instanceof Error ? error.message : String(error);
       return null;
     }
   }
 
+  function isCurrentFence(fence: IndexGeneration): boolean {
+    const current = currentGeneration();
+    return current !== null && current.state === fence.state && current.token === fence.token;
+  }
+
   function currentStatus(): DashboardIndexStatus {
-    const db = getReader();
-    if (!db) {
+    const readerWithFence = getReader();
+    if (!readerWithFence) {
       return {
         enabled: true,
         dbPath,
@@ -967,7 +978,17 @@ function createDashboardIndexSearchController(opts: {
         ready: false,
       };
     }
-    return readIndexStatus(db, lastOpenError);
+    return readIndexStatus(readerWithFence.db, lastOpenError);
+  }
+
+  function fencedUnavailableResponse(query: string, page: IndexSearchPage, started: number): IndexSearchRouteResponse {
+    const status = currentStatus();
+    return indexingSearchResponse(query, page, started, {
+      ...status,
+      ready: false,
+      currentState: status.ready ? "repairing" : status.currentState,
+      lastError: status.lastError ?? "index generation changed during search",
+    });
   }
 
   return {
@@ -977,8 +998,9 @@ function createDashboardIndexSearchController(opts: {
     },
     search: async (query, page, filters) => {
       const started = Date.now();
-      const db = getReader();
-      if (!db) return indexingSearchResponse(query, page, started, currentStatus());
+      const readerWithFence = getReader();
+      if (!readerWithFence) return indexingSearchResponse(query, page, started, currentStatus());
+      const { db, fence } = readerWithFence;
       const status = readIndexStatus(db, lastOpenError);
       if (searchExecutor) {
         try {
@@ -988,11 +1010,14 @@ function createDashboardIndexSearchController(opts: {
             cursor: page.cursor,
             ...filters,
           });
+          if (!isCurrentFence(fence)) return fencedUnavailableResponse(query, page, started);
           liveBackend = response.hybridMode === "lexical-plus-vector" ? "index-hybrid" : "index-lexical";
           return withIndexProvenanceContext({ ...response, index: status }, filters, liveBackend);
         } catch (error) {
+          if (!isCurrentFence(fence)) return fencedUnavailableResponse(query, page, started);
           liveBackend = "index-lexical";
           const results = lexicalSearch(db, query, { limit: page.fetchLimit, ...filters });
+          if (!isCurrentFence(fence)) return fencedUnavailableResponse(query, page, started);
           return withIndexProvenanceContext(indexSearchResponse(
             query,
             page,
@@ -1007,6 +1032,7 @@ function createDashboardIndexSearchController(opts: {
         }
       }
       const results = lexicalSearch(db, query, { limit: page.fetchLimit, ...filters });
+      if (!isCurrentFence(fence)) return fencedUnavailableResponse(query, page, started);
       return withIndexProvenanceContext(
         indexSearchResponse(query, page, results, status, started),
         filters,
