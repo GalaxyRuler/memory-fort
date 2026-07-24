@@ -38,7 +38,7 @@ let mainWindow: BrowserWindow | null = null;
 /** Read-only bootstrap inventory. It never installs, repairs, or edits client config. */
 async function runFirstRunClientStatusScan(): Promise<void> {
   try {
-    const statuses = await getClientIntegrationStatuses();
+    const statuses = await getClientIntegrationStatuses({ probeMcp: true });
     console.info(`[memory-fort client-status bootstrap] scanned ${statuses.length} client integrations`);
   } catch (error) {
     // A client config can be malformed or unavailable; this must not block the dashboard.

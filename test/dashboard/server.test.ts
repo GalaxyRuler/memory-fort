@@ -575,16 +575,22 @@ describe("dashboard server", () => {
       lastCheckedAt: null,
       evidence: ["Memory Fort config references missing hook executable"],
     }];
+    const clientStatusReader = vi.fn(async () => clientStatus);
     const server = await createServer({
       vaultRoot: tmp,
       port: 0,
-      clientStatusReader: async () => clientStatus,
+      clientStatusReader,
     });
 
     try {
       const response = await fetch(`http://${server.host}:${server.port}/api/clients/status`);
       expect(response.status).toBe(200);
       await expect(response.json()).resolves.toEqual(clientStatus);
+
+      const cachedResponse = await fetch(`http://${server.host}:${server.port}/api/clients/status`);
+      expect(cachedResponse.status).toBe(200);
+      await expect(cachedResponse.json()).resolves.toEqual(clientStatus);
+      expect(clientStatusReader).toHaveBeenCalledTimes(1);
     } finally {
       await server.close();
     }

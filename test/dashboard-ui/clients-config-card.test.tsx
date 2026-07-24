@@ -92,4 +92,20 @@ describe("ClientsConfigCard", () => {
     fireEvent.click(screen.getByRole("button", { name: "Repair" }));
     expect(mockClientAction).toHaveBeenCalledWith({ action: "repair", client: "codex" });
   });
+
+  it("renders an installed but unhealthy runtime as Unhealthy, not Needs repair", () => {
+    mockClients = { codex: true };
+    mockStatuses = [{
+      client: "codex",
+      captureEnabled: true,
+      installation: "installed",
+      health: "unhealthy",
+      lastCheckedAt: "2026-07-24T00:00:00.000Z",
+      evidence: ["bounded MCP tools/list probe failed"],
+    }];
+    wrap(<ClientsConfigCard />);
+
+    expect(screen.getByText("Unhealthy")).toBeInTheDocument();
+    expect(screen.queryByText("Needs repair")).not.toBeInTheDocument();
+  });
 });

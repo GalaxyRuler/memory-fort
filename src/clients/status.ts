@@ -60,8 +60,17 @@ export interface McpProbeCommand {
   args: string[];
 }
 
+/** Exact tool surface registered by the shipped stdio MCP server. */
+export const MEMORY_FORT_MCP_TOOLS = [
+  "log_observation",
+  "read_page",
+  "list_pages",
+  "search",
+  "search_capabilities",
+] as const;
+
 export interface ClientStatusOptions {
-  /** Expensive checks are opt-in so reading the dashboard does not spawn clients. */
+  /** Expensive protocol checks are opt-in for callers that only need installation evidence. */
   probeMcp?: boolean;
   now?: () => Date;
   probeMcpCommand?: (command: McpProbeCommand) => Promise<ClientHealth>;
@@ -172,7 +181,7 @@ async function readChatGptStatus(
   const health = await (opts.probeChatGpt ?? probeChatGptBridge)(port);
   const checkedAt = (opts.now ?? (() => new Date()))().toISOString();
   if (health !== "healthy") {
-    return { ...makeStatus("chatgpt", true, "stale", ["enabled but the bounded bridge endpoint probe failed; PID files are not health evidence"], memoryConfigPath()), health: "unhealthy", lastCheckedAt: checkedAt };
+    return { ...makeStatus("chatgpt", true, "installed", ["installed bridge config but the bounded endpoint probe failed; PID files are not health evidence"], memoryConfigPath()), health: "unhealthy", lastCheckedAt: checkedAt };
   }
   return { ...makeStatus("chatgpt", true, "installed", [`bridge endpoint responded on localhost:${port}`], memoryConfigPath()), health: "healthy", lastCheckedAt: checkedAt };
 }
@@ -255,7 +264,7 @@ export async function runBoundedMcpProbe(command: McpProbeCommand, timeoutMs = 2
           }
           if (message.id === 2) {
             const tools = new Set((message.result?.tools ?? []).map((tool) => tool.name));
-            finish(["log_observation", "read_page", "search"].every((tool) => tools.has(tool)) ? "healthy" : "unhealthy");
+            finish(MEMORY_FORT_MCP_TOOLS.every((tool) => tools.has(tool)) ? "healthy" : "unhealthy");
           }
         } catch { /* wait for the next complete protocol line */ }
       }

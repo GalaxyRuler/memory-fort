@@ -47,6 +47,7 @@ describe("Electron main heap policy", () => {
 
     expect(source).toContain("getClientIntegrationStatuses");
     expect(source).toContain("runFirstRunClientStatusScan");
+    expect(source).toContain("probeMcp: true");
     expect(source).not.toContain("runConnect(");
     expect(source).not.toContain("runDisconnect(");
   });

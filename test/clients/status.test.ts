@@ -60,11 +60,29 @@ describe("client integration status", () => {
       "  for (const line of lines) {",
       "    const message = JSON.parse(line);",
       "    if (message.id === 1) process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:1,result:{protocolVersion:'2024-11-05',capabilities:{}}}) + '\\n');",
-      "    if (message.id === 2) process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:2,result:{tools:[{name:'log_observation'},{name:'read_page'},{name:'search'}]}}) + '\\n');",
+      "    if (message.id === 2) process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:2,result:{tools:[{name:'log_observation'},{name:'read_page'},{name:'list_pages'},{name:'search'},{name:'search_capabilities'}]}}) + '\\n');",
       "  }",
       "});",
     ].join("\n");
 
     await expect(runBoundedMcpProbe({ command: process.execPath, args: ["-e", server] }, 1_000)).resolves.toBe("healthy");
+  });
+
+  it("rejects a partial MCP tool list rather than calling it healthy", async () => {
+    const partialServer = [
+      "let buffer = '';",
+      "process.stdin.setEncoding('utf8');",
+      "process.stdin.on('data', (chunk) => {",
+      "  buffer += chunk;",
+      "  const lines = buffer.split('\\n'); buffer = lines.pop() || '';",
+      "  for (const line of lines) {",
+      "    const message = JSON.parse(line);",
+      "    if (message.id === 1) process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:1,result:{protocolVersion:'2024-11-05',capabilities:{}}}) + '\\n');",
+      "    if (message.id === 2) process.stdout.write(JSON.stringify({jsonrpc:'2.0',id:2,result:{tools:[{name:'log_observation'},{name:'read_page'},{name:'search'}]}}) + '\\n');",
+      "  }",
+      "});",
+    ].join("\n");
+
+    await expect(runBoundedMcpProbe({ command: process.execPath, args: ["-e", partialServer] }, 1_000)).resolves.toBe("unhealthy");
   });
 });

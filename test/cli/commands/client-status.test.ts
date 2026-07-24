@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtemp, rm, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -92,6 +92,26 @@ describe("getClientStatuses", () => {
     const status = statuses.find((item) => item.client === "claude-code")!;
     expect(status.state).toBe("installed");
     expect(status.detail).toContain("installed and enabled");
+  });
+
+  it("uses the bounded MCP probe from the production CLI status path", async () => {
+    const codexDir = process.env["MEMORY_CODEX_DIR"]!;
+    await mkdir(codexDir, { recursive: true });
+    await writeFile(join(codexDir, "config.toml"), [
+      "[mcp_servers.memory]",
+      'command = "node"',
+      'args = ["mcp-server.mjs"]',
+      "",
+    ].join("\n"));
+    const probeMcpCommand = vi.fn(async () => "healthy" as const);
+
+    const statuses = await getClientStatuses({ probeMcpCommand });
+
+    expect(statuses.find((item) => item.client === "codex")?.state).toBe("installed");
+    expect(probeMcpCommand).toHaveBeenCalledWith({
+      command: "node",
+      args: [join(memDir, "claude-code-plugin", "scripts", "mcp-server.mjs")],
+    });
   });
 
   it("reports OpenCoven as missing when the coven CLI is unavailable", async () => {
@@ -409,7 +429,7 @@ describe("getClientStatuses", () => {
       now: () => new Date("2026-07-24T00:00:00.000Z"),
       probeChatGpt: async () => "unhealthy",
     })).find((item) => item.client === "chatgpt")!;
-    expect(status.installation).toBe("stale");
+    expect(status.installation).toBe("installed");
     expect(status.health).toBe("unhealthy");
     expect(status.evidence[0]).toContain("PID files are not health evidence");
   });

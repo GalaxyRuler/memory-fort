@@ -1,6 +1,7 @@
 import {
   CLIENTS as SHARED_CLIENTS,
   getClientIntegrationStatuses,
+  type ClientStatusOptions,
   type ClientInstallation,
   type ClientName,
 } from "../../clients/status.js";
@@ -18,12 +19,16 @@ export interface ClientStatus {
 
 export const CLIENTS: ClientName[] = SHARED_CLIENTS;
 
-export async function getClientStatuses(): Promise<ClientStatus[]> {
-  const statuses = await getClientIntegrationStatuses();
+export async function getClientStatuses(opts: ClientStatusOptions = {}): Promise<ClientStatus[]> {
+  // The CLI is the operator-facing status surface, so it performs the bounded
+  // protocol probe rather than returning an installation-only guess.
+  const statuses = await getClientIntegrationStatuses({ ...opts, probeMcp: true });
   return statuses.map((status) => ({
     client: status.client,
     state: status.installation,
-    detail: status.evidence.join("; "),
+    // Preserve the concise legacy CLI summary; the shared status object carries
+    // the probe evidence separately for callers that render it.
+    detail: status.evidence[0] ?? "not installed",
     configPath: status.configPath,
   }));
 }

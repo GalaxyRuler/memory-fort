@@ -664,6 +664,7 @@ function parseLineCount(value: string | null): number {
 const SEARCH_SCOPES = new Set<SearchScope>(["wiki", "raw", "crystals", "all"]);
 const HEALTH_CACHE_MS = 25_000;
 const GRAPH_FEED_CACHE_MS = 25_000;
+const CLIENT_STATUS_CACHE_MS = 30_000;
 
 interface HealthCacheEntry {
   atMs: number;
@@ -673,6 +674,11 @@ interface HealthCacheEntry {
 interface GraphHealthCacheEntry {
   atMs: number;
   report: GraphHealthReport;
+}
+
+interface ClientStatusCacheEntry {
+  atMs: number;
+  statuses: ClientIntegrationStatus[];
 }
 
 interface RunSingleFlightVerifyOptions {
@@ -1293,7 +1299,7 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
     throw new Error("a non-loopback dashboard host requires MEMORY_DASHBOARD_TOKEN");
   }
   const loader = opts.loader ?? loadDashboardStatus;
-  const clientStatusReader = opts.clientStatusReader ?? getClientIntegrationStatuses;
+  const clientStatusReader = opts.clientStatusReader ?? (() => getClientIntegrationStatuses({ probeMcp: true }));
   const clientActionRunner = opts.clientActionRunner ?? runAllowlistedClientAction;
   // Default: run verify in a child process. It loads the embeddings sidecars +
   // corpus (multi-GB peak), which OOM-killed the app when run in-process on the
@@ -1333,12 +1339,27 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
     openrouter: "OPENROUTER_API_KEY",
   };
   const healthCache = new Map<string, HealthCacheEntry>();
+  let clientStatusCache: ClientStatusCacheEntry | null = null;
+  let clientStatusJob: Promise<ClientIntegrationStatus[]> | null = null;
   const graphHealthCache = new Map<string, GraphHealthCacheEntry>();
   const graphFeedCache = new Map<string, GraphFeedCacheEntry>();
   const searchRuntimeCache = createSearchRuntimeCache();
   const rawCaptureCache = createRawCaptureEventCache();
   const compilePendingSummaryCache = createCompilePendingSummaryCache();
   const verifyJobs = new Map<string, Promise<VerifyResult>>();
+  const readDashboardClientStatuses = async (): Promise<ClientIntegrationStatus[]> => {
+    if (clientStatusCache && Date.now() - clientStatusCache.atMs < CLIENT_STATUS_CACHE_MS) {
+      return clientStatusCache.statuses;
+    }
+    if (clientStatusJob) return clientStatusJob;
+    clientStatusJob = clientStatusReader()
+      .then((statuses) => {
+        clientStatusCache = { atMs: Date.now(), statuses };
+        return statuses;
+      })
+      .finally(() => { clientStatusJob = null; });
+    return clientStatusJob;
+  };
   const autoPromoteScheduler = await createAutoPromoteScheduler({
     vaultRoot: opts.vaultRoot,
     writeCapability,
@@ -1480,6 +1501,7 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
           return;
         }
         const result = await clientActionRunner(action, client);
+        if (result.ok) clientStatusCache = null;
         writeJson(res, { ok: result.ok, action, client, detail: result.detail }, result.ok ? 200 : 500);
       } catch (err) {
         if (err instanceof RequestBodyTooLargeError) { writeRequestBodyTooLarge(res); return; }
@@ -1793,7 +1815,7 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
 
     if (path === "/api/clients/status") {
       try {
-        writeJson(res, await clientStatusReader());
+        writeJson(res, await readDashboardClientStatuses());
       } catch (err) {
         writeJsonError(res, 500, (err as Error).message);
       }
