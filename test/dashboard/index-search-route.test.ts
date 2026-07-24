@@ -19,7 +19,8 @@ vi.mock("../../src/retrieval/corpus.js", async () => {
 
 import { createServer, type RunningServer } from "../../src/dashboard/server.js";
 import { startIndexWriter } from "../../src/dashboard/index-writer.js";
-import { openIndexDb, type IndexDb } from "../../src/index/db.js";
+import { deleteIndexDbFiles, openIndexDb, type IndexDb } from "../../src/index/db.js";
+import { beginIndexInvalidation } from "../../src/index/generation.js";
 import {
   createEmbeddingProfileFingerprint,
   type EmbeddingProfileFingerprint,
@@ -196,6 +197,30 @@ describe("dashboard index search route", () => {
       }),
     ]);
     expect(loadSearchCorpus).not.toHaveBeenCalled();
+  });
+
+  it("quiesces a cached dashboard reader when shared index invalidation begins", async () => {
+    const { vaultRoot, indexDbPath } = await createIndexedVault();
+    server = await createServer({
+      vaultRoot,
+      port: 0,
+      env: { MEMORY_INDEX_DB_PATH: indexDbPath },
+      voyageClient: null,
+    });
+
+    const first = await fetch(`http://${server.host}:${server.port}/api/search?q=needle&limit=5`);
+    expect((await first.json()).results).toHaveLength(1);
+
+    await beginIndexInvalidation(vaultRoot);
+    const quiesced = await fetch(`http://${server.host}:${server.port}/api/search?q=needle&limit=5`);
+    expect((await quiesced.json()).results).toEqual([]);
+    deleteIndexDbFiles(indexDbPath);
+
+    const second = await fetch(`http://${server.host}:${server.port}/api/search?q=needle&limit=5`);
+    const body = await second.json();
+    expect(body.results).toEqual([]);
+    expect(body.index.currentState).toBe("building");
+    expect(body.index.lastError).toContain("invalidation");
   });
 
   it("returns factual indexed provenance instead of receipt defaults", async () => {

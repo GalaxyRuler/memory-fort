@@ -140,8 +140,12 @@ describe("runForget", () => {
   it("keeps compact raw archive copies out of source-selected live data and rejects them as direct raw selectors", async () => {
     const raw = "raw/2026-05-20/codex-session.md";
     const compactArchive = "raw/.compact-archive/2026-05-24/2026-05-20/codex-session.md";
+    const dotArchive = "raw/.retained.md";
+    const caseArchive = "raw/Archive/2026-05-24/codex-session.md";
     await writeAt(raw, "---\nsource: codex\n---\n\nlive sensitive session\n");
     await writeAt(compactArchive, "---\nsource: codex\n---\n\nretained compact archive\n");
+    await writeAt(dotArchive, "---\nsource: codex\n---\n\nretained dot archive\n");
+    await writeAt(caseArchive, "---\nsource: codex\n---\n\nretained case archive\n");
 
     const plan = await runForget({ sourceIds: ["codex"] });
     expect(plan.plan.raw).toEqual([raw]);
@@ -151,8 +155,43 @@ describe("runForget", () => {
     expect(applied.erased).toEqual([raw]);
     expect(existsSync(join(root, ...raw.split("/")))).toBe(false);
     expect(existsSync(join(root, ...compactArchive.split("/")))).toBe(true);
-    await expect(runForget({ rawPaths: [compactArchive] }))
-      .rejects.toThrow("archived raw copies cannot be selected");
+    for (const archivedPath of ["raw/.compact-archive", compactArchive, dotArchive, caseArchive]) {
+      await expect(runForget({ rawPaths: [archivedPath] }))
+        .rejects.toThrow("archived raw copies cannot be selected");
+      await expect(runForget({ paths: [archivedPath] }))
+        .rejects.toThrow("archived raw copies cannot be selected");
+    }
+  });
+
+  it("keeps archived fact copies inventory-only for whole and partial lineage matches", async () => {
+    const selected = "raw/2026-05-20/codex-selected.md";
+    const retained = "raw/2026-05-20/codex-retained.md";
+    const wholeArchive = "facts/Archive/2026-05-24/selected.json";
+    const mixedArchive = "facts/.archive/2026-05-24/mixed.json";
+    await writeAt(selected, "selected session");
+    await writeAt(retained, "retained session");
+    await writeAt(wholeArchive, JSON.stringify([{ sourceRawPath: selected, narrative: "archived selected" }]));
+    await writeAt(mixedArchive, JSON.stringify({
+      facts: [
+        { sourceRawPath: selected, narrative: "archived selected" },
+        { sourceRawPath: retained, narrative: "archived retained" },
+      ],
+    }));
+
+    const result = await runForget({ mode: "apply", rawPaths: [selected] });
+
+    expect(result.plan.archive).toEqual([mixedArchive, wholeArchive]);
+    expect(result.erased).not.toEqual(expect.arrayContaining([wholeArchive, mixedArchive]));
+    expect(result.rewritten).not.toEqual(expect.arrayContaining([wholeArchive, mixedArchive]));
+    await expect(readFile(join(root, ...wholeArchive.split("/")), "utf8")).resolves.toContain(selected);
+    await expect(readFile(join(root, ...mixedArchive.split("/")), "utf8")).resolves.toContain(selected);
+    await expect(readFile(join(root, ...mixedArchive.split("/")), "utf8")).resolves.toContain(retained);
+  });
+
+  it("rejects an apply with no live source match instead of rebuilding or reporting erased data", async () => {
+    await expect(runForget({ mode: "apply", sourceIds: ["unknown-source"] }))
+      .rejects.toThrow("no live data matched selectors");
+    expect(existsSync(process.env["MEMORY_INDEX_DB_PATH"]!)).toBe(false);
   });
 
   it("invalidates stale derived search state before reporting an incomplete rebuild", async () => {
@@ -164,7 +203,7 @@ describe("runForget", () => {
     await writeAt("wiki/projects/malformed.md", "---\ntitle: [\n---\n\nmalformed\n");
 
     await expect(runForget({ mode: "apply", rawPaths: [raw] }))
-      .rejects.toThrow("live data erased but derived index rebuild is incomplete");
+      .rejects.toThrow("live data erased but derived index rebuild/index invalidation is incomplete");
 
     expect(existsSync(join(root, ...raw.split("/")))).toBe(false);
     expect(existsSync(indexPath)).toBe(false);

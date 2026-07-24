@@ -11,6 +11,7 @@ import {
   type EmbeddingKind,
 } from "../../retrieval/embeddings-store.js";
 import { loadMemoryConfig } from "../../storage/config.js";
+import { hasArchiveOrSystemPathComponent } from "../../storage/archive-paths.js";
 import { formatIsoDate, memoryRoot } from "../../storage/paths.js";
 
 export type PruneMode = "plan" | "apply" | "restore";
@@ -138,10 +139,12 @@ async function listRawMarkdown(rawRoot: string): Promise<string[]> {
   async function walk(dir: string): Promise<void> {
     for (const entry of await readdir(dir, { withFileTypes: true })) {
       const full = join(dir, entry.name);
+      const relPath = `raw/${relative(rawRoot, full).replace(/\\/g, "/")}`;
       if (entry.isDirectory()) {
+        if (hasArchiveOrSystemPathComponent(relPath)) continue;
         await walk(full);
-      } else if (entry.isFile() && entry.name.endsWith(".md")) {
-        files.push(`raw/${relative(rawRoot, full).replace(/\\/g, "/")}`);
+      } else if (entry.isFile() && entry.name.endsWith(".md") && !hasArchiveOrSystemPathComponent(relPath)) {
+        files.push(relPath);
       }
     }
   }

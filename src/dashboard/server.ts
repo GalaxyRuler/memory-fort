@@ -28,6 +28,7 @@ import { loadSearchCorpus, type SearchScope } from "../retrieval/corpus.js";
 import { isEntityWikiPath } from "../retrieval/wiki-paths.js";
 import { isIntentLabel, type IntentLabel } from "../retrieval/query-intent.js";
 import { openReadOnlyIndexDb, resolveIndexDbPath, type IndexDb } from "../index/db.js";
+import { readIndexGeneration, type IndexGeneration } from "../index/generation.js";
 import { lexicalSearch, type LexicalSearchResult } from "../index/search.js";
 import { resolveProvenanceReceipt } from "../index/provenance-resolver.js";
 import { isIndexSearchEnabled, isIndexVectorsEnabled } from "../index/env.js";
@@ -905,10 +906,39 @@ function createDashboardIndexSearchController(opts: {
       : opts.searchExecutor
     : null;
   let reader: IndexDb | null = null;
+  let readerGeneration: IndexGeneration | null = null;
   let lastOpenError: string | null = null;
   let liveBackend: "index-lexical" | "index-hybrid" = "index-lexical";
 
+  function closeCachedIndexReaders(): void {
+    reader?.close();
+    reader = null;
+    searchExecutor?.close?.();
+    liveBackend = "index-lexical";
+  }
+
   function getReader(): IndexDb | null {
+    let generation: IndexGeneration;
+    try {
+      generation = readIndexGeneration(opts.vaultRoot);
+    } catch (error) {
+      closeCachedIndexReaders();
+      lastOpenError = `index generation check failed: ${error instanceof Error ? error.message : String(error)}`;
+      return null;
+    }
+    if (readerGeneration === null) {
+      readerGeneration = generation;
+    } else if (
+      readerGeneration.state !== generation.state ||
+      readerGeneration.token !== generation.token
+    ) {
+      closeCachedIndexReaders();
+      readerGeneration = generation;
+    }
+    if (generation.state === "invalidating") {
+      lastOpenError = "index invalidation in progress";
+      return null;
+    }
     if (reader) return reader;
     try {
       reader = openReadOnlyIndexDb(dbPath);
@@ -985,9 +1015,7 @@ function createDashboardIndexSearchController(opts: {
     },
     status: currentStatus,
     close: () => {
-      searchExecutor?.close?.();
-      reader?.close();
-      reader = null;
+      closeCachedIndexReaders();
     },
   };
 

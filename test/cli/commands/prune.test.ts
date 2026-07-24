@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { runPrune } from "../../../src/cli/commands/prune.js";
+import { runForget } from "../../../src/cli/commands/forget.js";
 import {
   loadEmbeddings,
   saveEmbeddings,
@@ -136,6 +137,22 @@ describe("runPrune", () => {
     expect(result.candidates.map((candidate) => candidate.path)).not.toContain(
       "raw/2026-04-15/codex-forty-days.md",
     );
+  });
+
+  it("skips compact raw archives during prune and leaves them inventory-only for forget", async () => {
+    const raw = "raw/2026-05-20/codex-session.md";
+    const compactArchive = "raw/.compact-archive/2026-05-24/2026-05-20/codex-session.md";
+    await writeRaw("2026-05-20/codex-session.md", "live raw");
+    await writeRaw(".compact-archive/2026-05-24/2026-05-20/codex-session.md", "retained compact archive");
+    const archivedFullPath = join(root, ...compactArchive.split("/"));
+    await utimes(archivedFullPath, new Date("2025-01-01T00:00:00.000Z"), new Date("2025-01-01T00:00:00.000Z"));
+
+    const prune = await runPrune({ mode: "plan", now: new Date("2026-05-24T00:00:00.000Z") });
+    const forget = await runForget({ rawPaths: [raw] });
+
+    expect(prune.candidates.map((candidate) => candidate.path)).not.toContain(compactArchive);
+    expect(existsSync(archivedFullPath)).toBe(true);
+    expect(forget.plan.archive).toEqual([compactArchive]);
   });
 
   async function seedPruneVault(): Promise<void> {

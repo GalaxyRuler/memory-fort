@@ -9,7 +9,9 @@ import { deleteIndexDbFiles, openIndexDb, openReadOnlyIndexDb, resolveIndexDbPat
 import { reconcileIndex } from "../../index/reconcile.js";
 import { parseFrontmatter } from "../../storage/frontmatter.js";
 import { memoryRoot } from "../../storage/paths.js";
+import { hasArchiveOrSystemPathComponent } from "../../storage/archive-paths.js";
 import { readRelationTarget } from "../../retrieval/relations.js";
+import { beginIndexInvalidation, completeIndexInvalidation } from "../../index/generation.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -128,7 +130,10 @@ export async function runForget(opts: ForgetOptions = {}): Promise<ForgetResult>
     rewrittenFacts: facts.filter((fact) => !fact.removeWholeFile).map((fact) => fact.relPath).sort(),
     generated: generated.map((page) => page.relPath).sort(),
     relations: generated.filter((page) => page.hasDerivedRelation).map((page) => page.relPath).sort(),
-    archive: await findArchivedCopies(root, selectedRaw),
+    archive: [
+      ...(await findArchivedCopies(root, selectedRaw)),
+      ...(await findArchivedFactCopies(root, selectedRaw)),
+    ].sort(),
     crystals: await listMarkdownFiles(root, "crystals"),
     erasedCrystals: [],
     index: readIndexInventory(root, plannedPaths),
@@ -150,6 +155,11 @@ export async function runForget(opts: ForgetOptions = {}): Promise<ForgetResult>
   if (plan.blocked.length > 0) {
     throw new Error(`memory forget: ambiguous manual curated content blocks erase: ${plan.blocked.join(", ")}`);
   }
+  if (plan.raw.length === 0 && plan.facts.length === 0 && plan.rewrittenFacts.length === 0 && plan.generated.length === 0) {
+    throw new Error("memory forget: no live data matched selectors; nothing was erased or rebuilt");
+  }
+
+  await beginDerivedIndexInvalidation(root);
 
   const erased: string[] = [];
   const rewritten: string[] = [];
@@ -201,11 +211,11 @@ function normalizeSelectors(opts: ForgetOptions): { paths: string[]; rawPaths: s
     }
   }
   for (const path of rawPaths) {
-    if (!path.startsWith("raw/") || !path.toLowerCase().endsWith(".md")) {
-      throw new Error(`memory forget: --raw requires a canonical raw/... markdown path, got ${path}`);
-    }
     if (isArchivedRawPath(path)) {
       throw new Error(`memory forget: archived raw copies cannot be selected: ${path}`);
+    }
+    if (!path.startsWith("raw/") || !path.toLowerCase().endsWith(".md")) {
+      throw new Error(`memory forget: --raw requires a canonical raw/... markdown path, got ${path}`);
     }
   }
   const sourceIds = [...new Set((opts.sourceIds ?? []).map((source) => source.trim()).filter(Boolean))].sort();
@@ -232,8 +242,7 @@ function canonicalRelPath(value: string): string | null {
 }
 
 function isArchivedRawPath(path: string): boolean {
-  if (!path.startsWith("raw/")) return false;
-  return path.split("/").slice(1, -1).some((part) => part === "archive" || part.startsWith("."));
+  return path.toLowerCase().startsWith("raw/") && hasArchiveOrSystemPathComponent(path);
 }
 
 async function selectedRawPaths(
@@ -342,7 +351,7 @@ function isGeneratedPage(frontmatter: Record<string, unknown>): boolean {
 
 async function collectFactChanges(root: string, selectedRaw: Set<string>): Promise<FactFileChange[]> {
   const changes: FactFileChange[] = [];
-  for (const relPath of await listFiles(root, "facts", (name) => name.endsWith(".json"))) {
+  for (const relPath of await listFiles(root, "facts", (name) => name.endsWith(".json"), { excludeArchives: true })) {
     const full = join(root, ...relPath.split("/"));
     let parsed: unknown;
     try {
@@ -391,7 +400,12 @@ function rawPathFromRecord(value: unknown): string | null {
 
 async function findArchivedCopies(root: string, selectedRaw: Set<string>): Promise<string[]> {
   const results = new Set<string>();
-  for (const directory of ["wiki/archive", "wiki/.archive", ".archive", "raw/.compact-archive"]) {
+  for (const relPath of await listMarkdownFiles(root, "raw")) {
+    if (!hasArchiveOrSystemPathComponent(relPath)) continue;
+    const original = archiveOriginalPath(relPath);
+    if (original && selectedRaw.has(original)) results.add(relPath);
+  }
+  for (const directory of ["wiki/archive", "wiki/.archive", ".archive"]) {
     for (const relPath of await listFiles(root, directory)) {
       const original = archiveOriginalPath(relPath);
       if (original && selectedRaw.has(original)) results.add(relPath);
@@ -401,10 +415,24 @@ async function findArchivedCopies(root: string, selectedRaw: Set<string>): Promi
 }
 
 function archiveOriginalPath(relPath: string): string | null {
-  const compactRawMatch = /^raw\/\.compact-archive\/[^/]+\/(.+)$/u.exec(relPath);
+  const compactRawMatch = /^raw\/\.compact-archive\/[^/]+\/(.+)$/iu.exec(relPath);
   if (compactRawMatch?.[1]) return `raw/${compactRawMatch[1]}`;
-  const match = /(?:^|\/)(?:archive|\.archive)\/[^/]+\/(raw\/.*)$/u.exec(relPath);
+  const match = /(?:^|\/)(?:archive|\.archive)\/[^/]+\/(raw\/.*)$/iu.exec(relPath);
   return match?.[1] ?? null;
+}
+
+async function findArchivedFactCopies(root: string, selectedRaw: Set<string>): Promise<string[]> {
+  const results: string[] = [];
+  for (const relPath of await listFiles(root, "facts", (name) => name.endsWith(".json"))) {
+    if (!hasArchiveOrSystemPathComponent(relPath)) continue;
+    try {
+      const parsed = JSON.parse(await readFile(join(root, ...relPath.split("/")), "utf8"));
+      if (removeSelectedFacts(parsed, selectedRaw).changed) results.push(relPath);
+    } catch {
+      // A retained archive with invalid JSON is never eligible for live mutation.
+    }
+  }
+  return results.sort();
 }
 
 function readIndexInventory(root: string, paths: string[]): ForgetIndexInventory {
@@ -467,17 +495,47 @@ async function readHistoryInventory(root: string, selectedRaw: Set<string>): Pro
 }
 
 async function rebuildDerivedState(root: string): Promise<void> {
-  deleteIndexDbFiles(resolveIndexDbPath({ vaultRoot: root }));
   try {
     await rebuildIndex(root);
     await rebuildSearchIndex(root);
+    await completeIndexInvalidation(root);
   } catch (error) {
     // Also remove any partial new generation. Leaving no search database is
-    // safer and more honest than keeping stale or incomplete derived hits.
-    deleteIndexDbFiles(resolveIndexDbPath({ vaultRoot: root }));
+    // safer and more honest than keeping stale or incomplete derived hits. The
+    // invalidating generation remains in place, keeping dashboard readers
+    // quiesced until a successful rebuild completes.
+    let cleanupError: string | null = null;
+    try {
+      deleteIndexDbFiles(resolveIndexDbPath({ vaultRoot: root }));
+    } catch (cleanupFailure) {
+      cleanupError = cleanupFailure instanceof Error ? cleanupFailure.message : String(cleanupFailure);
+    }
     const detail = error instanceof Error ? error.message : String(error);
     throw new Error(
-      `memory forget: live data erased but derived index rebuild is incomplete; stale index was removed: ${detail}`,
+      `memory forget: live data erased but derived index rebuild/index invalidation is incomplete; dashboard search remains quiesced: ${detail}${
+        cleanupError ? `; partial index cleanup also failed: ${cleanupError}` : ""
+      }`,
+    );
+  }
+}
+
+async function beginDerivedIndexInvalidation(root: string): Promise<void> {
+  try {
+    // Publish the fence before the first live deletion. Dashboard controllers
+    // close their cached readers and refuse to reopen while this state holds.
+    await beginIndexInvalidation(root);
+    deleteIndexDbFiles(resolveIndexDbPath({ vaultRoot: root }));
+  } catch (error) {
+    // No live path has been touched yet. Re-enable the prior generation only
+    // when the fence can be completed; otherwise it stays quiesced safely.
+    try {
+      await completeIndexInvalidation(root);
+    } catch {
+      // The failure below truthfully records that index invalidation remains incomplete.
+    }
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `memory forget: derived index invalidation is incomplete; live data was not erased: ${detail}`,
     );
   }
 }
@@ -518,9 +576,9 @@ async function listFiles(
       const full = join(dir, entry.name);
       const relPath = relative(root, full).replace(/\\/g, "/");
       if (entry.isDirectory()) {
-        if (options.excludeArchives && relPath.split("/").some((part) => part === "archive" || part.startsWith("."))) continue;
+        if (options.excludeArchives && hasArchiveOrSystemPathComponent(relPath)) continue;
         await walk(full);
-      } else if (entry.isFile() && include(entry.name)) {
+      } else if (entry.isFile() && include(entry.name) && (!options.excludeArchives || !hasArchiveOrSystemPathComponent(relPath))) {
         found.push(relPath);
       }
     }
