@@ -27,8 +27,20 @@ import { readIndexGeneration } from "../index/generation.js";
 import { atomicWrite } from "../storage/atomic-write.js";
 import { memoryRoot } from "../storage/paths.js";
 import {
+  hasSelectedContentFingerprint,
+  scrubSelectedContentFingerprints,
+  type ContentFingerprintEvidence,
+} from "./content-fingerprints.js";
+import {
+  EVIDENCE_KEY_LIMITATION,
+  signEvidencePayload,
+  verifyEvidenceSignature,
+  type EvidenceAuth,
+} from "./evidence-auth.js";
+import {
   canonicalRootFromLiveReceiptPath,
   forgetSelectionDigest,
+  isRepositoryRefEvidence,
   pathFingerprint,
   readLiveEraseReceipt,
   readRepositoryIdentity,
@@ -54,6 +66,7 @@ const LIMITATIONS = [
   "Cryptographic commit signatures and nonstandard commit headers are not preserved by the local rewrite.",
   "Unreachable objects remain until manual garbage collection (after separately approved reflog expiry).",
   "Local refs outside the itemized refs were not rewritten.",
+  EVIDENCE_KEY_LIMITATION,
 ] as const;
 
 const MANUAL_NEXT_STEPS = [
@@ -73,6 +86,7 @@ export interface HistoryPurgeOptions
   readonly disposableClone?: boolean;
   readonly confirmation?: string;
   readonly now?: Date;
+  readonly evidenceSecurityDir?: string;
 }
 
 export interface HistoryPurgeRefResult {
@@ -89,8 +103,8 @@ export interface HistoryPurgeResult {
   readonly report: string;
 }
 
-export interface HistoryPurgeReceipt {
-  readonly schemaVersion: 1;
+export interface HistoryPurgeReceiptPayload {
+  readonly schemaVersion: 2;
   readonly kind: "memory-fort-history-purge";
   readonly evidenceId: string;
   readonly operationId: string;
@@ -107,6 +121,8 @@ export interface HistoryPurgeReceipt {
   };
   readonly selection: {
     readonly digest: string;
+    readonly contentFingerprints: ContentFingerprintEvidence;
+    readonly additionalAffectedPaths: string[];
     readonly targetCount: number;
     readonly targetPathDigests: string[];
   };
@@ -132,7 +148,12 @@ export interface HistoryPurgeReceipt {
   readonly operationEvidencePath: string;
 }
 
+export type HistoryPurgeReceipt = HistoryPurgeReceiptPayload & {
+  readonly auth: EvidenceAuth;
+};
+
 export class HistoryPurgePartialError extends Error {
+
   readonly receiptPath: string;
 
   constructor(message: string, receiptPath: string) {
@@ -171,6 +192,8 @@ interface Preflight {
   readonly targets: PurgeTargets;
   readonly remoteRefsDigest: string;
   readonly localConfigDigest: string;
+  readonly additionalAffectedPaths: string[];
+  readonly evidenceSecurityDir?: string;
   readonly protectedEvidence: FileEvidence[];
   readonly beforeObjects: ObjectEvidence;
 }
@@ -187,6 +210,13 @@ interface ParsedCommit {
   readonly committer: GitIdentity;
   readonly message: Buffer;
   readonly signed: boolean;
+}
+
+interface TreeEntry {
+  readonly mode: string;
+  readonly type: "blob" | "commit";
+  readonly objectId: string;
+  readonly path: string;
 }
 
 interface GitIdentity {
@@ -232,8 +262,14 @@ async function buildPreflight(opts: HistoryPurgeOptions): Promise<Preflight> {
   if (selectors.paths.length + selectors.rawPaths.length + selectors.sourceIds.length === 0) {
     throw new Error("memory forget --purge-history: provide the exact live erase selection");
   }
-  const liveReceipt = await readLiveEraseReceipt(opts.liveEraseReceiptPath);
+  const liveReceipt = await readLiveEraseReceipt(
+    opts.liveEraseReceiptPath,
+    opts.evidenceSecurityDir,
+  );
   assertFreshEvidence("live erase receipt", liveReceipt.completedAt, now);
+  if (!liveReceipt.selection.contentFingerprints.coverageComplete) {
+    throw new Error("memory forget --purge-history: live erase fingerprint coverage is incomplete; no history rewrite is allowed");
+  }
   if (liveReceipt.repository === null) {
     throw new Error("memory forget --purge-history: live erase receipt has no Git repository evidence");
   }
@@ -259,10 +295,15 @@ async function buildPreflight(opts: HistoryPurgeOptions): Promise<Preflight> {
     throw new Error("memory forget --purge-history: canonical repository no longer matches the live erase receipt");
   }
 
-  const drillEvidence = await readRestoreDrillEvidence(opts.restoreDrillEvidencePath);
+  const drillEvidence = await readRestoreDrillEvidence(
+    opts.restoreDrillEvidencePath,
+    opts.evidenceSecurityDir,
+  );
   assertFreshEvidence("restore drill evidence", drillEvidence.completedAt, now);
   assertFreshEvidence("backup archive", drillEvidence.archive.createdAt, now);
-  if (drillEvidence.repository.head === null || drillEvidence.repository.fingerprint === null) {
+  if (drillEvidence.repository.head === null
+    || drillEvidence.repository.fingerprint === null
+    || drillEvidence.repository.refs === null) {
     throw new Error("memory forget --purge-history: restore drill evidence has no Git repository fingerprint");
   }
   if (drillEvidence.repository.fingerprint !== liveReceipt.repository.fingerprint
@@ -274,7 +315,11 @@ async function buildPreflight(opts: HistoryPurgeOptions): Promise<Preflight> {
     || verifiedBackup.manifestSha256 !== drillEvidence.archive.manifestSha256
     || verifiedBackup.gitHead !== drillEvidence.repository.head
     || verifiedBackup.createdAt !== drillEvidence.archive.createdAt
-    || (verifiedBackup.gitHead && repositoryFingerprint(verifiedBackup.gitHead) !== drillEvidence.repository.fingerprint)) {
+    || (verifiedBackup.gitHead
+      && repositoryFingerprint(
+        verifiedBackup.gitHead,
+        drillEvidence.repository.refs,
+      ) !== drillEvidence.repository.fingerprint)) {
     throw new Error("memory forget --purge-history: restore drill evidence does not match a freshly verified backup");
   }
 
@@ -291,6 +336,11 @@ async function buildPreflight(opts: HistoryPurgeOptions): Promise<Preflight> {
     || identity.rootFingerprint === liveReceipt.canonicalRootFingerprint) {
     throw new Error("memory forget --purge-history: refused to rewrite the canonical repository; use a separate disposable clone");
   }
+  assertRepositoryRefBindings(
+    identity.refs,
+    liveReceipt.repository.refs,
+    drillEvidence.repository.refs,
+  );
   if (identity.head !== liveReceipt.repository.head
     || identity.fingerprint !== liveReceipt.repository.fingerprint
     || identity.fingerprint !== drillEvidence.repository.fingerprint) {
@@ -300,12 +350,24 @@ async function buildPreflight(opts: HistoryPurgeOptions): Promise<Preflight> {
   await assertNoUnsafeGitOperation(root);
 
   const refs = await resolveScopedRefs(root, opts.refs);
+  for (const ref of refs) {
+    if (liveReceipt.repository.refs.heads[ref.name] !== ref.before
+      || drillEvidence.repository.refs.heads[ref.name] !== ref.before) {
+      throw new Error(`memory forget --purge-history: ${ref.name} tip does not match both signed evidence records`);
+    }
+  }
   const currentRef = await currentBranchRef(root);
   if (!refs.some((ref) => ref.name === currentRef)) {
     throw new Error("memory forget --purge-history: the checked-out branch must be included in the itemized refs");
   }
   const targets = purgeTargets(liveReceipt);
   validatePurgeTargets(targets);
+  const matchedPaths = await scanHistoryFingerprintMatches(
+    root,
+    refs.map((ref) => ref.name),
+    liveReceipt.selection.contentFingerprints,
+  );
+  const additionalAffectedPaths = matchedPaths.filter((path) => !targets.all.includes(path));
   const protectedEvidence = await Promise.all([
     snapshotFile(drillEvidence.archive.path, "backup archive"),
     snapshotFile(opts.restoreDrillEvidencePath, "restore drill evidence"),
@@ -334,6 +396,8 @@ async function buildPreflight(opts: HistoryPurgeOptions): Promise<Preflight> {
     targets,
     remoteRefsDigest,
     localConfigDigest,
+    additionalAffectedPaths,
+    evidenceSecurityDir: opts.evidenceSecurityDir,
     protectedEvidence,
     beforeObjects,
   };
@@ -377,6 +441,7 @@ async function executeHistoryPurge(
         indexPath,
         preflight.targets,
         new Set(preflight.liveReceipt.selection.targets.raw),
+        preflight.liveReceipt.selection.contentFingerprints,
       );
       const rewrittenParents = parsed.parents.map((parent) => {
         const rewritten = commitMap.get(parent);
@@ -430,8 +495,8 @@ async function executeHistoryPurge(
       rewrittenRefs.map((ref) => ref.name),
       preflight.targets.all,
     );
-    const receipt: HistoryPurgeReceipt = {
-      schemaVersion: 1,
+    const receiptPayload: HistoryPurgeReceiptPayload = {
+      schemaVersion: 2,
       kind: "memory-fort-history-purge",
       evidenceId,
       operationId,
@@ -448,6 +513,8 @@ async function executeHistoryPurge(
       },
       selection: {
         digest: preflight.liveReceipt.selection.digest,
+        contentFingerprints: preflight.liveReceipt.selection.contentFingerprints,
+        additionalAffectedPaths: preflight.additionalAffectedPaths,
         targetCount: preflight.targets.all.length,
         targetPathDigests: preflight.targets.all.map((path) => sha256Text(path)).sort(),
       },
@@ -474,6 +541,7 @@ async function executeHistoryPurge(
       manualNextSteps: [...MANUAL_NEXT_STEPS],
       operationEvidencePath: journalPath,
     };
+    const receipt = await signEvidencePayload(receiptPayload, preflight.evidenceSecurityDir);
     await atomicWrite(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`);
     await writeOperationState(journalPath, {
       operationId,
@@ -514,11 +582,12 @@ async function executeHistoryPurge(
       before: ref.before,
       after: await gitText(preflight.root, ["rev-parse", ref.name]).catch(() => "unknown"),
     })));
-    const partial = {
-      schemaVersion: 1,
+    const partialPayload = {
+      schemaVersion: 2,
+      evidenceId,
       kind: "memory-fort-history-purge-partial",
       operationId,
-      failedAt: now.toISOString(),
+      completedAt: now.toISOString(),
       status: "partial-local-history-rewrite",
       failedPhase: phase,
       detail,
@@ -531,6 +600,7 @@ async function executeHistoryPurge(
         "Recover or validate the disposable clone manually before retrying.",
       ],
     };
+    const partial = await signEvidencePayload(partialPayload, preflight.evidenceSecurityDir);
     await atomicWrite(receiptPath, `${JSON.stringify(partial, null, 2)}\n`).catch(() => undefined);
     await writeOperationState(journalPath, {
       ...partial,
@@ -578,7 +648,10 @@ async function validateCurrentLiveEraseState(
   }
 }
 
-async function readRestoreDrillEvidence(path: string): Promise<RestoreDrillEvidence> {
+async function readRestoreDrillEvidence(
+  path: string,
+  evidenceSecurityDir?: string,
+): Promise<RestoreDrillEvidence> {
   let value: unknown;
   try {
     value = JSON.parse(await readFile(resolve(path), "utf8"));
@@ -586,8 +659,9 @@ async function readRestoreDrillEvidence(path: string): Promise<RestoreDrillEvide
     const detail = error instanceof Error ? error.message : String(error);
     throw new Error(`memory forget --purge-history: restore drill evidence is missing or invalid: ${detail}`);
   }
+  await verifyEvidenceSignature(value, evidenceSecurityDir, "restore drill evidence");
   if (!isRecord(value)
-    || value["schemaVersion"] !== 1
+    || value["schemaVersion"] !== 2
     || value["kind"] !== "memory-fort-restore-drill"
     || typeof value["evidenceId"] !== "string"
     || typeof value["completedAt"] !== "string"
@@ -600,10 +674,22 @@ async function readRestoreDrillEvidence(path: string): Promise<RestoreDrillEvide
     || !isRecord(value["repository"])
     || !(value["repository"]["head"] === null || typeof value["repository"]["head"] === "string")
     || !(value["repository"]["fingerprint"] === null || typeof value["repository"]["fingerprint"] === "string")
+    || !(value["repository"]["refs"] === null || isRepositoryRefEvidence(value["repository"]["refs"]))
     || !isRecord(value["checks"])) {
     throw new Error("memory forget --purge-history: restore drill evidence is invalid");
   }
   const checks = value["checks"];
+  const repository = value["repository"];
+  const head = repository["head"] as string | null;
+  const fingerprint = repository["fingerprint"] as string | null;
+  const refs = repository["refs"];
+  if (head === null
+    ? fingerprint !== null || refs !== null
+    : !isRepositoryRefEvidence(refs)
+      || fingerprint !== repositoryFingerprint(head, refs)) {
+    throw new Error("memory forget --purge-history: restore drill repository evidence is invalid");
+  }
+
   if (value["status"] !== "passed"
     || checks["archiveVerified"] !== true
     || checks["gitVerified"] !== true
@@ -650,6 +736,24 @@ async function assertNoUnsafeGitOperation(root: string): Promise<void> {
   for (const name of unsafe) {
     if (existsSync(join(gitDir, name))) {
       throw new Error(`memory forget --purge-history: unsafe Git operation is in progress: ${name}`);
+    }
+  }
+}
+
+function assertRepositoryRefBindings(
+  current: RepositoryIdentity["refs"],
+  live: RepositoryIdentity["refs"],
+  drill: RepositoryIdentity["refs"],
+): void {
+  const names = uniqueSorted([
+    ...Object.keys(current.heads),
+    ...Object.keys(live.heads),
+    ...Object.keys(drill.heads),
+  ]);
+  for (const name of names) {
+    if (current.heads[name] !== live.heads[name]
+      || current.heads[name] !== drill.heads[name]) {
+      throw new Error(`memory forget --purge-history: ${name} does not match both signed evidence records`);
     }
   }
 }
@@ -727,42 +831,137 @@ function validatePurgeTargets(targets: PurgeTargets): void {
   }
 }
 
+async function scanHistoryFingerprintMatches(
+  root: string,
+  refs: readonly string[],
+  fingerprints: ContentFingerprintEvidence,
+): Promise<string[]> {
+  const commits = splitLines(await gitText(root, [
+    "rev-list",
+    "--reverse",
+    "--topo-order",
+    ...refs,
+  ]));
+  const trees = new Set<string>();
+  for (const commit of commits) {
+    trees.add(await gitText(root, ["show", "-s", "--format=%T", commit]));
+  }
+  const blobMatches = new Map<string, boolean>();
+  const paths = new Set<string>();
+  for (const tree of trees) {
+    for (const entry of await listTreeEntries(root, tree)) {
+      if (entry.type !== "blob") continue;
+      let matched = blobMatches.get(entry.objectId);
+      if (matched === undefined) {
+        matched = hasSelectedContentFingerprint(
+          await gitBuffer(root, ["cat-file", "blob", entry.objectId]),
+          fingerprints,
+        );
+        blobMatches.set(entry.objectId, matched);
+      }
+      if (matched) paths.add(entry.path);
+    }
+  }
+  return [...paths].sort((left, right) => left.localeCompare(right));
+}
+
+async function listTreeEntries(root: string, tree: string): Promise<TreeEntry[]> {
+  const output = await gitBuffer(root, ["ls-tree", "-r", "-z", tree]);
+  const entries: TreeEntry[] = [];
+  let offset = 0;
+  while (offset < output.length) {
+    const end = output.indexOf(0, offset);
+    if (end < 0) throw new Error("memory forget --purge-history: malformed Git tree listing");
+    const bytes = output.subarray(offset, end);
+    const value = bytes.toString("utf8");
+    if (!Buffer.from(value, "utf8").equals(bytes)) {
+      throw new Error("memory forget --purge-history: Git tree contains a non-UTF-8 path");
+    }
+    const tab = value.indexOf("\t");
+    if (tab < 0) throw new Error("memory forget --purge-history: malformed Git tree entry");
+    const header = value.slice(0, tab).split(" ");
+    const path = value.slice(tab + 1);
+    if (header.length !== 3
+      || !/^[0-7]{6}$/u.test(header[0]!)
+      || (header[1] !== "blob" && header[1] !== "commit")
+      || !/^[0-9a-f]{40,64}$/u.test(header[2]!)
+      || !isCanonicalRelPath(path)) {
+      throw new Error("memory forget --purge-history: unsafe or malformed Git tree entry");
+    }
+    entries.push({
+      mode: header[0]!,
+      type: header[1] as "blob" | "commit",
+      objectId: header[2]!,
+      path,
+    });
+    offset = end + 1;
+  }
+  return entries;
+}
+
+async function writeTreeBlob(
+  root: string,
+  env: NodeJS.ProcessEnv,
+  entry: TreeEntry,
+  body: Buffer,
+): Promise<void> {
+  const objectId = (await gitBuffer(root, ["hash-object", "-w", "--stdin"], { input: body }))
+    .toString("utf8")
+    .trim();
+  if (!/^[0-9a-f]{40,64}$/u.test(objectId)) {
+    throw new Error("memory forget --purge-history: Git returned an invalid rewritten blob ID");
+  }
+  await gitBuffer(root, [
+    "update-index", "--add", "--cacheinfo", entry.mode, objectId, entry.path,
+  ], { env });
+}
+
 async function rewriteTree(
   root: string,
   originalTree: string,
   indexPath: string,
   targets: PurgeTargets,
   selectedRaw: Set<string>,
+  fingerprints: ContentFingerprintEvidence,
 ): Promise<string> {
   await rm(indexPath, { force: true });
   const env = { ...process.env, GIT_INDEX_FILE: indexPath };
   await gitBuffer(root, ["read-tree", originalTree], { env });
-  for (const path of targets.fullDelete) {
+  const fullDelete = new Set(targets.fullDelete);
+  const factRewrite = new Set(targets.factRewrite);
+  for (const path of fullDelete) {
     await gitBuffer(root, ["update-index", "--force-remove", "--", path], { env });
   }
-  for (const path of targets.factRewrite) {
-    const entry = await readTreeEntry(root, originalTree, path);
-    if (!entry) continue;
-    const content = await gitBuffer(root, ["cat-file", "blob", entry.objectId]);
-    const parsed = parseFactJson(content.toString("utf8"), path);
-    const rewritten = rewriteSelectedFacts(parsed, selectedRaw);
-    if (!rewritten.changed) continue;
-    if (rewritten.empty) {
-      await gitBuffer(root, ["update-index", "--force-remove", "--", path], { env });
-      continue;
+
+  for (const entry of await listTreeEntries(root, originalTree)) {
+    if (entry.type !== "blob" || fullDelete.has(entry.path)) continue;
+    const original = await gitBuffer(root, ["cat-file", "blob", entry.objectId]);
+    let body = original;
+    let changed = false;
+
+    if (factRewrite.has(entry.path)) {
+      const parsed = parseFactJson(body.toString("utf8"), entry.path);
+      const rewritten = rewriteSelectedFacts(parsed, selectedRaw);
+      if (rewritten.changed) {
+        if (rewritten.empty) {
+          await gitBuffer(root, ["update-index", "--force-remove", "--", entry.path], { env });
+          continue;
+        }
+        body = Buffer.from(`${JSON.stringify(rewritten.value, null, 2)}\n`, "utf8");
+        changed = true;
+      }
     }
-    const body = Buffer.from(`${JSON.stringify(rewritten.value, null, 2)}\n`, "utf8");
-    const objectId = (await gitBuffer(root, ["hash-object", "-w", "--stdin"], { input: body }))
-      .toString("utf8")
-      .trim();
-    await gitBuffer(root, [
-      "update-index",
-      "--add",
-      "--cacheinfo",
-      entry.mode,
-      objectId,
-      path,
-    ], { env });
+
+    const scrubbed = scrubSelectedContentFingerprints(body, fingerprints);
+    if (scrubbed.matched) {
+      if (scrubbed.content === null) {
+        await gitBuffer(root, ["update-index", "--force-remove", "--", entry.path], { env });
+        continue;
+      }
+      body = scrubbed.content;
+      changed = true;
+    }
+    if (changed) await writeTreeBlob(root, env, entry, body);
   }
   return (await gitBuffer(root, ["write-tree"], { env })).toString("utf8").trim();
 }
@@ -860,6 +1059,15 @@ async function validateRewrite(
   refs: readonly HistoryPurgeRefResult[],
 ): Promise<Array<{ command: string; result: "passed" }>> {
   const refNames = refs.map((ref) => ref.name);
+  await assertCleanRepository(preflight.root);
+  const remainingFingerprintPaths = await scanHistoryFingerprintMatches(
+    preflight.root,
+    refNames,
+    preflight.liveReceipt.selection.contentFingerprints,
+  );
+  if (remainingFingerprintPaths.length > 0) {
+    throw new Error(`memory forget --purge-history: selected content fingerprints remain in rewritten history: ${remainingFingerprintPaths.join(", ")}`);
+  }
   for (const target of preflight.targets.fullDelete) {
     const history = await gitText(preflight.root, ["rev-list", ...refNames, "--", target]);
     if (history.length > 0) {
@@ -925,6 +1133,7 @@ async function validateRewrite(
   return [
     { command: "git rev-list <scoped refs> -- <selected full-delete paths>", result: "passed" },
     { command: "git cat-file <rewritten fact blobs>; selected attribution scan", result: "passed" },
+    { command: "all reachable blobs and clean HEAD/live tree; selected fingerprint scan", result: "passed" },
     { command: "working-tree selected path and attribution scan", result: "passed" },
     { command: "git for-each-ref refs/remotes; before/after digest comparison", result: "passed" },
     { command: "backup archive and evidence SHA-256 comparison", result: "passed" },
@@ -1028,6 +1237,11 @@ function formatPurgePlan(preflight: Preflight): string {
     "Historical fact paths to redact:",
     ...(preflight.targets.factRewrite.length > 0
       ? preflight.targets.factRewrite.map((path) => `- ${path}`)
+      : ["- (none)"]),
+    "",
+    "Additional paths containing selected content fingerprints:",
+    ...(preflight.additionalAffectedPaths.length > 0
+      ? preflight.additionalAffectedPaths.map((path) => `- ${path}`)
       : ["- (none)"]),
     "",
     "Local refs to rewrite:",

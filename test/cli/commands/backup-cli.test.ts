@@ -33,6 +33,7 @@ describe("built backup CLI", () => {
     const env = {
       MEMORY_ROOT: vaultRoot,
       MEMORY_SECRETS_PATH: join(root, "nonexistent-secrets.json"),
+      MEMORY_EVIDENCE_SECURITY_DIR: join(root, "evidence-security"),
     };
     const createdRun = runCli(
       ["backup", "create", "--vault", vaultRoot, "--target", targetDir, "--json"],

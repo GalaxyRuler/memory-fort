@@ -24,11 +24,20 @@ import {
   PURGE_HISTORY_CONFIRMATION,
   runHistoryPurge,
 } from "../../../src/forget/history-purge.js";
+import { collectSelectedContentFingerprints } from "../../../src/forget/content-fingerprints.js";
+import {
+  signEvidencePayload,
+  verifyEvidenceSignature,
+} from "../../../src/forget/evidence-auth.js";
 
 const execFileAsync = promisify(execFile);
 const FORGOTTEN_RAW = "raw/2026-07-23/codex-selected.md";
 const FORGOTTEN_MARKER = "SYNTHETIC-FORGOTTEN-MARKER-7E2A";
 const RETAINED_MARKER = "SYNTHETIC-RETAINED-MARKER-91C4";
+const COPIED_PATH = "wiki/notes/copied-marker.md";
+const COPIED_RETAINED_MARKER = "SYNTHETIC-COPIED-RETAINED-5B18";
+const SHARED_GENERIC_LINE = "source: codex";
+const BODY_COLLIDES_WITH_FRONTMATTER = "category: synthetic";
 const SCOPED_REFS = ["refs/heads/main", "refs/heads/auxiliary"] as const;
 
 interface PurgeFixture {
@@ -43,6 +52,7 @@ interface PurgeFixture {
   readonly originalRemoteMain: string;
   readonly originalRemoteAuxiliary: string;
   readonly backupArchiveSha256: string;
+  readonly evidenceSecurityDir: string;
 }
 
 describe("memory forget --purge-history", () => {
@@ -82,7 +92,7 @@ describe("memory forget --purge-history", () => {
     const failedLiveReceipt = JSON.parse(originalLiveReceipt) as { status: string };
     failedLiveReceipt.status = "partial-live-mutation/rebuild-incomplete";
     await writeFile(fixture.liveEraseReceiptPath, `${JSON.stringify(failedLiveReceipt, null, 2)}\n`);
-    await expect(runHistoryPurge(base)).rejects.toThrow(/live erase receipt.*completed successful/i);
+    await expect(runHistoryPurge(base)).rejects.toThrow(/live erase receipt.*signature/i);
     await writeFile(fixture.liveEraseReceiptPath, originalLiveReceipt);
 
     const generationPath = join(fixture.canonicalRoot, "var", "index-generation");
@@ -105,16 +115,13 @@ describe("memory forget --purge-history", () => {
       ...evidence,
       checks: { ...evidence.checks, canaryMatched: false },
     }, null, 2)}\n`);
-    await expect(runHistoryPurge(base)).rejects.toThrow(/restore drill evidence.*passed/i);
+    await expect(runHistoryPurge(base)).rejects.toThrow(/restore drill evidence.*signature/i);
 
     await writeFile(fixture.drillEvidencePath, `${JSON.stringify({
       ...evidence,
       completedAt: "2026-07-01T00:00:00.000Z",
     }, null, 2)}\n`);
-    await expect(runHistoryPurge({
-      ...base,
-      now: new Date("2026-07-24T12:00:00.000Z"),
-    })).rejects.toThrow(/restore drill evidence.*stale/i);
+    await expect(runHistoryPurge(base)).rejects.toThrow(/restore drill evidence.*signature/i);
 
     await writeFile(fixture.drillEvidencePath, `${JSON.stringify({
       ...evidence,
@@ -123,7 +130,27 @@ describe("memory forget --purge-history", () => {
         fingerprint: "sha256:mismatched-repository",
       },
     }, null, 2)}\n`);
-    await expect(runHistoryPurge(base)).rejects.toThrow(/repository fingerprint/i);
+    await expect(runHistoryPurge(base)).rejects.toThrow(/restore drill evidence.*signature/i);
+
+    await writeFile(fixture.drillEvidencePath, `${JSON.stringify({
+      ...evidence,
+      repository: {
+        ...evidence.repository,
+        refs: {
+          ...evidence.repository.refs,
+          heads: {
+            ...evidence.repository.refs.heads,
+            "refs/heads/auxiliary": fixture.originalMain,
+          },
+        },
+      },
+    }, null, 2)}\n`);
+    await expect(runHistoryPurge(base)).rejects.toThrow(/restore drill evidence.*signature/i);
+
+    const unsignedEvidence = JSON.parse(originalEvidence) as Record<string, unknown>;
+    delete unsignedEvidence["auth"];
+    await writeFile(fixture.drillEvidencePath, `${JSON.stringify(unsignedEvidence, null, 2)}\n`);
+    await expect(runHistoryPurge(base)).rejects.toThrow(/restore drill evidence.*signature.*missing/i);
 
     await writeFile(fixture.drillEvidencePath, originalEvidence);
     await expect(runHistoryPurge({
@@ -131,6 +158,38 @@ describe("memory forget --purge-history", () => {
       rawPaths: ["raw/2026-07-23/codex-other.md"],
     })).rejects.toThrow(/exact live erase selection/i);
 
+    expect(await git(fixture.cloneRoot, ["rev-parse", "refs/heads/main"])).toBe(originalMain);
+
+    await rm(fixture.evidenceSecurityDir, { recursive: true, force: true });
+    await expect(runHistoryPurge(base)).rejects.toThrow(/evidence.*key.*missing/i);
+    expect(await git(fixture.cloneRoot, ["rev-parse", "refs/heads/main"])).toBe(originalMain);
+  });
+
+  it("blocks before rewrite when the deterministic fingerprint safety ceiling is exceeded", async () => {
+    const fingerprints = await collectSelectedContentFingerprints(
+      fixture.cloneRoot,
+      [FORGOTTEN_RAW],
+      1,
+    );
+    expect(fingerprints).toMatchObject({
+      coverageComplete: false,
+      count: 1,
+      totalCount: 3,
+      maxCount: 1,
+    });
+
+    const originalMain = await git(fixture.cloneRoot, ["rev-parse", "refs/heads/main"]);
+    const signedReceipt = JSON.parse(await readFile(fixture.liveEraseReceiptPath, "utf8")) as {
+      auth: unknown;
+      selection: Record<string, unknown>;
+      [key: string]: unknown;
+    };
+    const { auth: _auth, ...payload } = signedReceipt;
+    payload.selection = { ...payload.selection, contentFingerprints: fingerprints };
+    const resigned = await signEvidencePayload(payload, fixture.evidenceSecurityDir);
+    await writeFile(fixture.liveEraseReceiptPath, `${JSON.stringify(resigned, null, 2)}\n`);
+
+    await expect(runHistoryPurge(purgeOptions(fixture))).rejects.toThrow(/fingerprint coverage is incomplete/i);
     expect(await git(fixture.cloneRoot, ["rev-parse", "refs/heads/main"])).toBe(originalMain);
   });
 
@@ -140,8 +199,10 @@ describe("memory forget --purge-history", () => {
     expect(planned.status).toBe("planned");
     expect(planned.report).toContain(`Required confirmation: ${PURGE_HISTORY_CONFIRMATION}`);
     expect(planned.report).toContain(`- ${FORGOTTEN_RAW}`);
+    expect(planned.report).toContain(`- ${COPIED_PATH}`);
     expect(planned.report).toContain("- refs/heads/main");
     expect(planned.report).toContain("- refs/heads/auxiliary");
+    expect(planned.report).toMatch(/same device.*evidence key/i);
 
     await expect(runHistoryPurge({
       ...base,
@@ -168,6 +229,14 @@ describe("memory forget --purge-history", () => {
       confirmation: PURGE_HISTORY_CONFIRMATION,
     })).rejects.toThrow(/unsafe Git operation.*MERGE_HEAD/i);
     await rm(join(gitDir, "MERGE_HEAD"));
+
+    const unchangedHead = await git(fixture.cloneRoot, ["rev-parse", "HEAD"]);
+    await git(fixture.cloneRoot, ["branch", "-f", "auxiliary", "main"]);
+    await expect(runHistoryPurge(base)).rejects.toThrow(/refs\/heads\/auxiliary.*evidence/i);
+    expect(await git(fixture.cloneRoot, ["rev-parse", "HEAD"])).toBe(unchangedHead);
+    expect(await git(fixture.cloneRoot, ["rev-parse", "refs/heads/main"]))
+      .toBe(fixture.originalMain);
+    await git(fixture.cloneRoot, ["branch", "-f", "auxiliary", fixture.originalAuxiliary]);
 
     await expect(runHistoryPurge({
       ...base,
@@ -211,6 +280,11 @@ describe("memory forget --purge-history", () => {
       FORGOTTEN_MARKER,
     ]);
     expect(scopedHistory).toBe("");
+    const copiedBody = await readFile(join(fixture.cloneRoot, ...COPIED_PATH.split("/")), "utf8");
+    expect(copiedBody).not.toContain(FORGOTTEN_MARKER);
+    expect(copiedBody).toContain(COPIED_RETAINED_MARKER);
+    expect(copiedBody).toContain(SHARED_GENERIC_LINE);
+    expect(copiedBody).toContain(BODY_COLLIDES_WITH_FRONTMATTER);
     expect(await readFile(join(fixture.cloneRoot, "raw", "2026-07-23", "codex-other.md"), "utf8"))
       .toContain(RETAINED_MARKER);
     const retainedHistory = await git(fixture.cloneRoot, [
@@ -221,6 +295,14 @@ describe("memory forget --purge-history", () => {
       RETAINED_MARKER,
     ]);
     expect(retainedHistory).not.toBe("");
+    const copiedRetainedHistory = await git(fixture.cloneRoot, [
+      "log",
+      ...SCOPED_REFS,
+      "--format=%H",
+      "-S",
+      COPIED_RETAINED_MARKER,
+    ]);
+    expect(copiedRetainedHistory).not.toBe("");
 
     expect(await git(fixture.cloneRoot, ["rev-parse", "refs/remotes/origin/main"]))
       .toBe(fixture.originalRemoteMain);
@@ -238,14 +320,43 @@ describe("memory forget --purge-history", () => {
     const receiptText = await readFile(result.receiptPath!, "utf8");
     const receipt = JSON.parse(receiptText) as {
       status: string;
+      auth: { algorithm: string; keyId: string; signature: string };
       limitations: string[];
       refs: Array<{ name: string; before: string; after: string }>;
+      selection: {
+        contentFingerprints: {
+          algorithm: string;
+          coverageComplete: boolean;
+          count: number;
+          hashes: string[];
+        };
+        additionalAffectedPaths: string[];
+      };
       validation: { passed: boolean; commands: Array<{ result: string }> };
     };
     expect(receipt.status).toBe("purged-local-history/limited-scope");
+    expect(receipt.auth).toMatchObject({
+      algorithm: "HMAC-SHA256",
+      keyId: expect.stringMatching(/^sha256:[0-9a-f]{64}$/u),
+      signature: expect.stringMatching(/^[0-9a-f]{64}$/u),
+    });
+    await expect(verifyEvidenceSignature(
+      receipt,
+      fixture.evidenceSecurityDir,
+      "history purge receipt",
+    )).resolves.toBeUndefined();
     expect(receipt.refs).toEqual(result.refs);
     expect(receipt.validation.passed).toBe(true);
     expect(receipt.validation.commands.every((command) => command.result === "passed")).toBe(true);
+    expect(receipt.selection.contentFingerprints).toMatchObject({
+      algorithm: "sha256-normalized-text-v1",
+      coverageComplete: true,
+    });
+    expect(receipt.selection.contentFingerprints.count).toBeGreaterThan(0);
+    expect(receipt.selection.contentFingerprints.hashes).toHaveLength(
+      receipt.selection.contentFingerprints.count,
+    );
+    expect(receipt.selection.additionalAffectedPaths).toEqual([COPIED_PATH]);
     expect(receipt.limitations).toEqual(expect.arrayContaining([
       expect.stringMatching(/remote refs and hosted repositories were not updated/i),
       expect.stringMatching(/other clones were not purged/i),
@@ -255,6 +366,9 @@ describe("memory forget --purge-history", () => {
     ]));
     expect(receiptText).not.toContain(FORGOTTEN_MARKER);
     expect(result.report).not.toContain(FORGOTTEN_MARKER);
+    expect(receiptText).not.toContain(BODY_COLLIDES_WITH_FRONTMATTER);
+    expect(receiptText).not.toContain(COPIED_RETAINED_MARKER);
+    expect(receiptText).not.toContain(SHARED_GENERIC_LINE);
   });
 });
 
@@ -266,6 +380,7 @@ function purgeOptions(fixture: PurgeFixture) {
     liveEraseReceiptPath: fixture.liveEraseReceiptPath,
     restoreDrillEvidencePath: fixture.drillEvidencePath,
     disposableClone: true,
+    evidenceSecurityDir: fixture.evidenceSecurityDir,
   };
 }
 
@@ -274,6 +389,7 @@ async function makePurgeFixture(): Promise<PurgeFixture> {
   const canonicalRoot = join(tmp, "canonical");
   const cloneRoot = join(tmp, "disposable-clone");
   const backupRoot = join(tmp, "backups");
+  const evidenceSecurityDir = join(tmp, "evidence-security");
   await mkdir(canonicalRoot, { recursive: true });
   await mkdir(backupRoot, { recursive: true });
 
@@ -285,12 +401,18 @@ async function makePurgeFixture(): Promise<PurgeFixture> {
     "source: codex",
     "---",
     FORGOTTEN_MARKER,
+    BODY_COLLIDES_WITH_FRONTMATTER,
     "",
   ].join("\n"));
   await writeAt(
     canonicalRoot,
     "raw/2026-07-23/codex-other.md",
     `---\nsource: codex-other\n---\n${RETAINED_MARKER}\n`,
+  );
+  await writeAt(
+    canonicalRoot,
+    COPIED_PATH,
+    `---\n${SHARED_GENERIC_LINE}\n${BODY_COLLIDES_WITH_FRONTMATTER}\n---\n${FORGOTTEN_MARKER}\n${COPIED_RETAINED_MARKER}\n`,
   );
   await writeAt(
     canonicalRoot,
@@ -342,6 +464,7 @@ async function makePurgeFixture(): Promise<PurgeFixture> {
   const drill = await runRestoreDrill(backup.archivePath, {
     now: new Date("2026-07-24T10:05:00.000Z"),
     tempRoot: join(tmp, "drill-work"),
+    evidenceSecurityDir,
   });
 
   process.env["MEMORY_ROOT"] = canonicalRoot;
@@ -351,6 +474,7 @@ async function makePurgeFixture(): Promise<PurgeFixture> {
     mode: "apply",
     rawPaths: [FORGOTTEN_RAW],
     now: new Date("2026-07-24T10:10:00.000Z"),
+    evidenceSecurityDir,
   });
   expect(liveErase.status).toBe("live-erased/history-retained");
   expect(liveErase.receipt?.path).toBeTruthy();
@@ -372,6 +496,7 @@ async function makePurgeFixture(): Promise<PurgeFixture> {
     originalRemoteMain: await git(cloneRoot, ["rev-parse", "refs/remotes/origin/main"]),
     originalRemoteAuxiliary: await git(cloneRoot, ["rev-parse", "refs/remotes/origin/auxiliary"]),
     backupArchiveSha256: await sha256File(backup.archivePath),
+    evidenceSecurityDir,
   };
 }
 

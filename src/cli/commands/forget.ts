@@ -40,8 +40,11 @@ import {
 } from "../../forget/recovery.js";
 import {
   persistSuccessfulLiveEraseReceipt,
+  readRepositoryIdentity,
   type PersistedLiveEraseReceipt,
 } from "../../forget/evidence.js";
+import { collectSelectedContentFingerprints } from "../../forget/content-fingerprints.js";
+import { ensureEvidenceSigningKey } from "../../forget/evidence-auth.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -58,6 +61,10 @@ export interface ForgetOptions {
   sourceIds?: readonly string[];
   /** Injectable completion time for deterministic evidence tests. */
   now?: Date;
+  /** Injectable user-scoped operational directory for signed evidence tests. */
+  evidenceSecurityDir?: string;
+  /** Injectable deterministic safety ceiling; incomplete coverage blocks history purge. */
+  evidenceFingerprintLimit?: number;
 }
 
 export interface NormalizedForgetSelectors {
@@ -280,6 +287,13 @@ async function runForgetAtRoot(
   }
 
   const erased: string[] = [];
+
+  const contentFingerprints = await collectSelectedContentFingerprints(
+    root,
+    plan.raw,
+    opts.evidenceFingerprintLimit,
+  );
+  if (await readRepositoryIdentity(root)) await ensureEvidenceSigningKey(opts.evidenceSecurityDir);
   const rewritten: string[] = [];
   let invalidation: IndexGeneration | null = null;
   let failed: {
@@ -349,6 +363,8 @@ async function runForgetAtRoot(
     plan,
     erased,
     rewritten,
+    contentFingerprints,
+    evidenceSecurityDir: opts.evidenceSecurityDir,
     now: opts.now,
   });
   return {
@@ -357,8 +373,12 @@ async function runForgetAtRoot(
     plan,
     erased: erased.sort(),
     rewritten: rewritten.sort(),
-    receipt,
-    report: `${formatForgetReport("apply", plan, erased.sort())}Live erase receipt: ${receipt.path}\n`,
+    receipt: receipt ?? undefined,
+    report: [
+      formatForgetReport("apply", plan, erased.sort()).trimEnd(),
+      ...(receipt ? [`Live erase receipt: ${receipt.path}`] : []),
+      "",
+    ].join("\n"),
   };
 }
 

@@ -68,7 +68,10 @@ describe("memory backup", () => {
     const drillTempRoot = join(harness.root, "drill-work");
     await mkdir(drillTempRoot, { recursive: true });
 
-    const receipt = await runRestoreDrill(created.archivePath, { tempRoot: drillTempRoot });
+    const receipt = await runRestoreDrill(created.archivePath, {
+      tempRoot: drillTempRoot,
+      evidenceSecurityDir: join(harness.root, "evidence-security"),
+    });
 
     expect(receipt).toMatchObject({
       archivePath: created.archivePath,
