@@ -509,6 +509,26 @@ describe("getClientStatuses", () => {
     expect(probeMcpCommand).not.toHaveBeenCalled();
   });
 
+  it("marks Hermes stale when its managed session hooks are missing or redirected", async () => {
+    const hookMcpServer = join(memDir, "hooks", "mcp-server.mjs");
+    const claudeMcpServer = join(memDir, "claude-code-plugin", "scripts", "mcp-server.mjs");
+    const probeMcpCommand = vi.fn(async () => "healthy" as const);
+
+    await writeHermesConfig(hookMcpServer, { sessionEnd: null });
+    let status = (await getClientIntegrationStatuses({ probeMcp: true, probeMcpCommand }))
+      .find((item) => item.client === "hermes")!;
+    expect(status.installation).toBe("stale");
+    expect(status.health).toBe("unknown");
+    expect(probeMcpCommand).not.toHaveBeenCalled();
+
+    await writeHermesConfig(hookMcpServer, { sessionStart: `node ${claudeMcpServer}` });
+    status = (await getClientIntegrationStatuses({ probeMcp: true, probeMcpCommand }))
+      .find((item) => item.client === "hermes")!;
+    expect(status.installation).toBe("stale");
+    expect(status.health).toBe("unknown");
+    expect(probeMcpCommand).not.toHaveBeenCalled();
+  });
+
   async function writeOpenCodeConfig(
     opencodeDir: string,
     overrides: Partial<{
@@ -533,20 +553,27 @@ describe("getClientStatuses", () => {
     );
   }
 
-  async function writeHermesConfig(mcpServer: string): Promise<void> {
+  async function writeHermesConfig(
+    mcpServer: string,
+    hooks: { sessionStart?: string | null; sessionEnd?: string | null } = {},
+  ): Promise<void> {
     const hermesDir = process.env["MEMORY_HERMES_DIR"]!;
+    const hookRoot = join(memDir, "hooks");
+    const sessionStart = hooks.sessionStart ?? `node ${join(hookRoot, "session-start.mjs").replace(/\\/g, "/")}`;
+    const sessionEnd = hooks.sessionEnd ?? `node ${join(hookRoot, "session-end.mjs").replace(/\\/g, "/")}`;
     await mkdir(hermesDir, { recursive: true });
     await writeFile(join(hermesDir, "config.yaml"), [
       "# === BEGIN memory-system v0.1.0 ===",
       "hooks:",
-      `  on_session_start: ${JSON.stringify(`node ${join(memDir, "hooks", "session-start.mjs").replace(/\\/g, "/")}`)}`,
+      hooks.sessionStart === null ? null : `  on_session_start: ${JSON.stringify(sessionStart)}`,
+      hooks.sessionEnd === null ? null : `  on_session_end: ${JSON.stringify(sessionEnd)}`,
       "mcp_servers:",
       "  memory:",
       "    command: node",
       `    args: [${JSON.stringify(mcpServer.replace(/\\/g, "/"))}]`,
       "# === END memory-system v0.1.0 ===",
       "",
-    ].join("\n"));
+    ].filter((line): line is string => line !== null).join("\n"));
   }
 
   async function writeOpenClawConfig(mcpServer: string): Promise<void> {

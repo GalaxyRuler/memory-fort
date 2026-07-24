@@ -207,8 +207,9 @@ async function readHookStatus(client: "hermes" | "pi", captureEnabled: boolean, 
   const raw = await readFile(path, "utf-8");
   const script = join(memoryRoot(), "hooks", expectedScript);
   const configured = raw.includes("# === BEGIN memory-system") && raw.includes(expectedScript);
+  const managedHooks = client !== "hermes" || await hasExpectedHermesHooks(path);
   const mcpConfigured = client !== "hermes" || await hasExpectedYamlMcpLauncher(path, expectedMcpCommand("hermes")!);
-  if (!configured || !mcpConfigured || !await isRegularFile(script)) return makeStatus(client, captureEnabled, "stale", [client === "pi" ? "installed but memory hooks block is stale" : "installed but memory block or MCP launcher is stale"], path);
+  if (!configured || !managedHooks || !mcpConfigured || !await isRegularFile(script)) return makeStatus(client, captureEnabled, "stale", [client === "pi" ? "installed but memory hooks block is stale" : "installed but memory block, hooks, or MCP launcher is stale"], path);
   return makeStatus(client, captureEnabled, "installed", [client === "pi" ? "installed (hooks; MCP skipped)" : "installed"], path);
 }
 
@@ -340,6 +341,26 @@ async function hasExpectedYamlMcpLauncher(path: string, expected: McpProbeComman
   } catch {
     return false;
   }
+}
+
+async function hasExpectedHermesHooks(path: string): Promise<boolean> {
+  try {
+    const parsed = yaml.load(await readFile(path, "utf-8"), { schema: yaml.JSON_SCHEMA });
+    const hooks = asRecord(asRecord(parsed)?.["hooks"]);
+    return isExpectedHermesHookCommand(
+      hooks?.["on_session_start"],
+      join(memoryRoot(), "hooks", "session-start.mjs"),
+    ) && isExpectedHermesHookCommand(
+      hooks?.["on_session_end"],
+      join(memoryRoot(), "hooks", "session-end.mjs"),
+    );
+  } catch {
+    return false;
+  }
+}
+
+function isExpectedHermesHookCommand(value: unknown, expectedScript: string): boolean {
+  return typeof value === "string" && normalizeMcpPath(value) === normalizeMcpPath(`node ${expectedScript}`);
 }
 
 function readTomlMcpCommand(raw: string): McpProbeCommand | null {
