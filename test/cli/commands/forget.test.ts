@@ -289,6 +289,47 @@ describe("runForget", () => {
       .resolves.toMatchObject({ status: "live-erased/history-retained" });
   });
 
+  it("restarts an exact prepared live erase after pre-delete invalidation recovery", async () => {
+    const raw = "raw/2026-05-20/prepared-restart.md";
+    const evidenceSecurityDir = join(tmp, "evidence-security");
+    await seedAttributableRaw(raw);
+    await writeAt("index.md", "STALE-PREPARED-RESTART-CONTEXT\n");
+    await execFileAsync("git", ["init", "-b", "main"], { cwd: root });
+    await execFileAsync("git", ["config", "user.email", "memory-fort-tests@example.invalid"], { cwd: root });
+    await execFileAsync("git", ["config", "user.name", "Memory Fort Tests"], { cwd: root });
+    await execFileAsync("git", ["add", "."], { cwd: root });
+    await execFileAsync("git", ["commit", "-m", "seed prepared restart fixture"], { cwd: root });
+    await rebuildFixtureIndex();
+    forgetRmFailure.target = "/index.md";
+
+    await expect(runForget({
+      mode: "apply",
+      rawPaths: [raw],
+      evidenceSecurityDir,
+    })).rejects.toBeInstanceOf(ForgetPartialMutationError);
+    expect(existsSync(join(root, ...raw.split("/")))).toBe(true);
+    expect(readIndexGeneration(root).state).toBe("invalidating");
+
+    forgetRmFailure.target = null;
+    await expect(runReindex({ vaultRoot: root })).resolves.toMatchObject({ path: "index.md" });
+    expect(readIndexGeneration(root).state).toBe("ready");
+
+    const resumed = await runForget({
+      mode: "apply",
+      rawPaths: [raw],
+      evidenceSecurityDir,
+    });
+    expect(resumed.status).toBe("live-erased/history-retained");
+    expect(resumed.erased).toEqual(expect.arrayContaining([
+      raw,
+      "facts/2026-05-20/session.json",
+      "wiki/projects/generated.md",
+    ]));
+    expect(existsSync(join(root, ...raw.split("/")))).toBe(false);
+    await expect(readLiveEraseReceipt(resumed.receipt!.path, evidenceSecurityDir))
+      .resolves.toMatchObject({ status: "live-erased/history-retained" });
+  });
+
   it("serializes concurrent applies from fresh planning through ready publication", async () => {
     const firstRaw = "raw/2026-05-20/codex-first.md";
     const secondRaw = "raw/2026-05-20/codex-second.md";

@@ -8,7 +8,10 @@ import type {
   NormalizedForgetSelectors,
 } from "../cli/commands/forget.js";
 import { readIndexGeneration } from "../index/generation.js";
-import type { ContentFingerprintEvidence } from "./content-fingerprints.js";
+import {
+  collectSelectedContentFingerprints,
+  type ContentFingerprintEvidence,
+} from "./content-fingerprints.js";
 import {
   forgetSelectionDigest,
   pathFingerprint,
@@ -88,11 +91,19 @@ export interface PreparedLiveEraseEvidence {
 }
 
 export interface ResumedLiveEraseEvidence {
+  readonly state: "completed";
   readonly plan: ForgetPlan;
   readonly erased: string[];
   readonly rewritten: string[];
   readonly receipt: PersistedLiveEraseReceipt;
 }
+
+export interface RestartPreparedLiveEraseEvidence {
+  readonly state: "restart-prepared";
+  readonly prepared: PreparedLiveEraseEvidence;
+}
+
+export type LiveEraseResume = ResumedLiveEraseEvidence | RestartPreparedLiveEraseEvidence;
 
 export class LiveEraseEvidencePendingError extends Error {
   readonly journalPath: string;
@@ -188,7 +199,7 @@ export async function resumePreparedLiveEraseEvidence(
     readonly signerFactory?: EvidenceSignerFactory;
     readonly write?: EvidenceWrite;
   },
-): Promise<ResumedLiveEraseEvidence | null> {
+): Promise<LiveEraseResume | null> {
   const root = await realpath(rootInput);
   const operationDigest = liveEraseOperationDigest(root, selectors);
   const operationDir = evidenceOperationDir("live-erase", operationDigest, opts.evidenceSecurityDir);
@@ -207,25 +218,46 @@ export async function resumePreparedLiveEraseEvidence(
     await validateLiveErasePostconditions(root, journal);
     receipt = persistedReceipt(receiptPath, persisted);
   } else {
+    const state = await classifyPreparedLiveEraseState(root, journalPath, journal);
     const signer = await (opts.signerFactory ?? createEvidenceSigner)(opts.evidenceSecurityDir);
     if (signer.keyId !== journal.evidenceKeyId) {
       throw new Error("memory forget: prepared live erase journal evidence key ID does not match this device");
     }
-    receipt = await finalizeLiveEraseEvidence({
+    const prepared = {
       journalPath,
       receiptPath,
       journal,
       signer,
       evidenceSecurityDir: opts.evidenceSecurityDir,
       write: opts.write,
-    }, root, opts.now);
+    } satisfies PreparedLiveEraseEvidence;
+    if (state === "prepared") {
+      return { state: "restart-prepared", prepared };
+    }
+    receipt = await finalizeLiveEraseEvidence(prepared, root, opts.now);
   }
   return {
+    state: "completed",
     plan: clonePlan(journal.plan),
     erased: erasedFromPlan(journal.plan),
     rewritten: [...journal.plan.rewrittenFacts].sort(),
     receipt,
   };
+}
+
+export function assertPreparedLiveEraseRestart(
+  prepared: PreparedLiveEraseEvidence,
+  plan: ForgetPlan,
+  contentFingerprints: ContentFingerprintEvidence,
+): void {
+  if (stableJson(clonePlan(plan)) !== stableJson(prepared.journal.plan)
+    || stableJson(contentFingerprints) !== stableJson(prepared.journal.selection.contentFingerprints)) {
+    throw new LiveEraseEvidencePendingError(
+      prepared.journalPath,
+      "restore the live state to the signed prepared plan before retrying",
+      "no additional destructive mutation was attempted because the current live erase plan or selected-content fingerprints no longer match the signed prepared journal",
+    );
+  }
 }
 
 export async function finalizeLiveEraseEvidence(
@@ -306,6 +338,53 @@ async function validateLiveErasePostconditions(
       throw new Error(`rewritten fact path is missing: ${relPath}`);
     }
   }
+}
+
+async function classifyPreparedLiveEraseState(
+  root: string,
+  journalPath: string,
+  journal: LiveErasePreparedJournal,
+): Promise<"completed" | "prepared"> {
+  const generation = readIndexGeneration(root);
+  const recovery = await readForgetRecovery(root);
+  const erased = erasedFromPlan(journal.plan);
+  const present = erased.filter((relPath) => existsSync(join(root, ...relPath.split("/"))));
+  const missing = erased.filter((relPath) => !existsSync(join(root, ...relPath.split("/"))));
+  const missingRewrites = journal.plan.rewrittenFacts
+    .filter((relPath) => !existsSync(join(root, ...relPath.split("/"))));
+  const repository = await readRepositoryIdentity(root);
+  const repositoryMatches = stableJson(repository) === stableJson(journal.repository);
+
+  if (generation.state === "ready" && !recovery && repositoryMatches
+    && missing.length === erased.length && missingRewrites.length === 0) {
+    return "completed";
+  }
+  let fingerprintsMatch = false;
+  if (generation.state === "ready" && !recovery && repositoryMatches
+    && present.length === erased.length && missingRewrites.length === 0) {
+    const fingerprints = await collectSelectedContentFingerprints(
+      root,
+      journal.plan.raw,
+      journal.selection.contentFingerprints.maxCount,
+    );
+    fingerprintsMatch = stableJson(fingerprints) === stableJson(journal.selection.contentFingerprints);
+    if (fingerprintsMatch) {
+      return "prepared";
+    }
+  }
+
+  const detail = generation.state !== "ready" || recovery
+    ? "no additional destructive mutation was attempted because the prepared operation is not at a ready boundary; complete the reported reindex recovery before retrying"
+    : !repositoryMatches
+      ? "no additional destructive mutation was attempted because the current repository identity no longer matches the signed prepared journal"
+      : !fingerprintsMatch && present.length === erased.length && missingRewrites.length === 0
+        ? "no additional destructive mutation was attempted because the selected-content fingerprints no longer match the signed prepared journal"
+        : `no additional destructive mutation was attempted because the prepared operation is in an ambiguous mixed state (${present.length} removal targets present, ${missing.length} absent, ${missingRewrites.length} rewritten targets missing)`;
+  throw new LiveEraseEvidencePendingError(
+    journalPath,
+    "inspect or restore the signed prepared plan before retrying",
+    detail,
+  );
 }
 
 async function readPreparedJournal(

@@ -43,9 +43,11 @@ import { collectSelectedContentFingerprints } from "../../forget/content-fingerp
 import type { EvidenceSignerFactory } from "../../forget/evidence-auth.js";
 import type { EvidenceWrite } from "../../forget/evidence-store.js";
 import {
+  assertPreparedLiveEraseRestart,
   finalizeLiveEraseEvidence,
   prepareLiveEraseEvidence,
   resumePreparedLiveEraseEvidence,
+  type PreparedLiveEraseEvidence,
 } from "../../forget/live-evidence.js";
 
 export { LiveEraseEvidencePendingError } from "../../forget/live-evidence.js";
@@ -231,6 +233,7 @@ async function runForgetAtRoot(
     throw new Error("memory forget: provide at least one --path, --raw, or --source selector");
   }
 
+  let resumedPrepared: PreparedLiveEraseEvidence | null = null;
   if (mode === "apply") {
     const resumed = await resumePreparedLiveEraseEvidence(root, selectors, {
       now: opts.now,
@@ -238,7 +241,7 @@ async function runForgetAtRoot(
       signerFactory: opts.evidenceSignerFactory,
       write: opts.evidenceWrite,
     });
-    if (resumed) {
+    if (resumed?.state === "completed") {
       return {
         mode,
         status: "live-erased/history-retained",
@@ -253,6 +256,7 @@ async function runForgetAtRoot(
         ].join("\n"),
       };
     }
+    resumedPrepared = resumed?.prepared ?? null;
   }
 
   const selectedRaw = await selectedRawPaths(root, selectors);
@@ -326,16 +330,19 @@ async function runForgetAtRoot(
     plan.raw,
     opts.evidenceFingerprintLimit,
   );
-  const preparedEvidence = await prepareLiveEraseEvidence({
-    root,
-    selectors,
-    plan,
-    contentFingerprints,
-    now: opts.now,
-    evidenceSecurityDir: opts.evidenceSecurityDir,
-    signerFactory: opts.evidenceSignerFactory,
-    write: opts.evidenceWrite,
-  });
+  if (resumedPrepared) {
+    assertPreparedLiveEraseRestart(resumedPrepared, plan, contentFingerprints);
+  }
+  const preparedEvidence = resumedPrepared ?? await prepareLiveEraseEvidence({
+      root,
+      selectors,
+      plan,
+      contentFingerprints,
+      now: opts.now,
+      evidenceSecurityDir: opts.evidenceSecurityDir,
+      signerFactory: opts.evidenceSignerFactory,
+      write: opts.evidenceWrite,
+    });
   const rewritten: string[] = [];
   let invalidation: IndexGeneration | null = null;
   let failed: {
