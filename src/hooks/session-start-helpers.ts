@@ -6,6 +6,7 @@ import { getConfidenceScore } from "../storage/confidence.js";
 import { parseFrontmatter } from "../storage/frontmatter.js";
 import { hasArchiveOrSystemPathComponent } from "../storage/archive-paths.js";
 import { indexPath, memoryRoot as defaultMemoryRoot } from "../storage/paths.js";
+import { readIndexGeneration, type IndexGeneration } from "../index/generation.js";
 
 export interface ConfidenceAwareIndexOptions {
   indexFilePath?: string;
@@ -150,6 +151,8 @@ export async function currentProjectMemoryBlock(
   const maxChars = opts.maxChars ?? MAX_INJECTED_CHARS;
   if (maxChars <= 0) return "";
   const root = opts.memoryRoot ?? defaultMemoryRoot();
+  const generation = readyIndexGeneration(root);
+  if (!generation) return null;
   const readFile = opts.readFile ?? ((path: string) => readFsFile(path, "utf-8"));
   const projectRelPath = await resolveProjectForCwd(opts.cwd, {
     memoryRoot: root,
@@ -176,7 +179,9 @@ export async function currentProjectMemoryBlock(
     formatRelatedMemorySection(related),
   ].join("\n");
 
-  return truncateWithMarker(block, maxChars);
+  return sameReadyIndexGeneration(root, generation)
+    ? truncateWithMarker(block, maxChars)
+    : null;
 }
 
 async function listProjectCandidates(
@@ -301,6 +306,7 @@ async function collectRelatedEntries(input: {
       summary: titleFromRelPath(relPath),
     };
     const meta = await readRelatedMetadata(input.root, input.readFile, relPath);
+    if (!meta) continue;
     related.push({
       ...indexEntry,
       strength: meta.strength,
@@ -391,7 +397,7 @@ async function readRelatedMetadata(
   root: string,
   readFile: (path: string) => Promise<string>,
   relPath: string,
-): Promise<{ strength: number; recency: number }> {
+): Promise<{ strength: number; recency: number } | null> {
   try {
     const { frontmatter } = parseFrontmatter(await readFile(join(root, ...relPath.split("/"))));
     const strength = typeof frontmatter["strength"] === "number" && Number.isFinite(frontmatter["strength"])
@@ -400,7 +406,7 @@ async function readRelatedMetadata(
     const recency = timestampToSortKey(String(frontmatter["last_accessed"] ?? frontmatter["updated"] ?? "")) ?? 0;
     return { strength, recency };
   } catch {
-    return { strength: 0, recency: 0 };
+    return null;
   }
 }
 
@@ -459,6 +465,8 @@ export async function confidenceAwareIndex(
   const readFile =
     opts.readFile ?? ((path: string) => readFsFile(path, "utf-8"));
   const root = opts.memoryRoot ?? defaultMemoryRoot();
+  const generation = readyIndexGeneration(root);
+  if (!generation) return "";
   const indexFile = opts.indexFilePath ?? indexPath();
   const indexContent = await readFile(indexFile);
   const floor = injectionConfidenceFloor();
@@ -476,13 +484,16 @@ export async function confidenceAwareIndex(
     // read merely to decide whether it should be emitted.
     if (relPath && isProtectedMemoryReference(relPath)) continue;
     const confidence = await confidenceForIndexLine(line, { readFile, root });
+    if (confidence === null) continue;
     if (confidence < floor) continue;
     if (confidence >= 0.8) buckets.high.push({ confidence, line });
     else if (confidence >= 0.5) buckets.medium.push({ confidence, line });
     else buckets.low.push({ confidence, line });
   }
 
-  return formatBuckets(buckets, floor);
+  return sameReadyIndexGeneration(root, generation)
+    ? formatBuckets(buckets, floor)
+    : "";
 }
 
 export async function whatToRememberBlock(
@@ -546,7 +557,7 @@ export async function whatToRememberBlock(
 async function confidenceForIndexLine(
   line: string,
   deps: { readFile: (path: string) => Promise<string>; root: string },
-): Promise<number> {
+): Promise<number | null> {
   const relPath = extractIndexedPagePath(line);
   if (!relPath) return DEFAULT_CONFIDENCE;
 
@@ -557,8 +568,22 @@ async function confidenceForIndexLine(
       ? DEFAULT_CONFIDENCE
       : getConfidenceScore(frontmatter.confidence, DEFAULT_CONFIDENCE);
   } catch {
-    return DEFAULT_CONFIDENCE;
+    return null;
   }
+}
+
+function readyIndexGeneration(root: string): IndexGeneration | null {
+  try {
+    const generation = readIndexGeneration(root);
+    return generation.state === "ready" ? generation : null;
+  } catch {
+    return null;
+  }
+}
+
+function sameReadyIndexGeneration(root: string, expected: IndexGeneration): boolean {
+  const current = readyIndexGeneration(root);
+  return current !== null && current.token === expected.token;
 }
 
 function extractIndexedPagePath(line: string): string | null {

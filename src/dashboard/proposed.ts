@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { readFile, readdir, rm } from "node:fs/promises";
-import { basename, join } from "node:path";
+import { basename, join, relative } from "node:path";
 import {
   runProcedurePromote,
   runProcedureReject,
@@ -30,6 +30,7 @@ import {
   proceduresProposedDir,
   threadsProposedDir,
 } from "../storage/paths.js";
+import { hasArchiveOrSystemPathComponent } from "../storage/archive-paths.js";
 import { commitVaultChange } from "../sync/commit-vault-change.js";
 
 export type ProposedKind = "thread" | "procedure" | "compile";
@@ -76,7 +77,7 @@ interface StoredProposalConfidence {
 }
 
 export async function listProposedThreads(vaultRoot: string): Promise<ProposedThreadDraft[]> {
-  const drafts = await readProposedFiles(threadsProposedDir(vaultRoot));
+  const drafts = await readProposedFiles(vaultRoot, threadsProposedDir(vaultRoot));
   return drafts.map(({ slug, frontmatter, body }) => {
     const observed = observationPaths(frontmatter, "mentions");
     const observationCount = storedCount(frontmatter, observed.length);
@@ -96,7 +97,7 @@ export async function listProposedThreads(vaultRoot: string): Promise<ProposedTh
 }
 
 export async function listProposedProcedures(vaultRoot: string): Promise<ProposedProcedureDraft[]> {
-  const drafts = await readProposedFiles(proceduresProposedDir(vaultRoot));
+  const drafts = await readProposedFiles(vaultRoot, proceduresProposedDir(vaultRoot));
   return drafts.map(({ slug, frontmatter, body }) => {
     const observed = observationPaths(frontmatter, "derived_from");
     const observationCount = storedCount(frontmatter, observed.length);
@@ -117,7 +118,7 @@ export async function listProposedProcedures(vaultRoot: string): Promise<Propose
 }
 
 export async function listProposedCompile(vaultRoot: string): Promise<ProposedCompileDraft[]> {
-  const drafts = await readProposedFiles(join(vaultRoot, "wiki", "compile-proposed"));
+  const drafts = await readProposedFiles(vaultRoot, join(vaultRoot, "wiki", "compile-proposed"));
   return drafts.map(({ slug, frontmatter, body }) => ({
     kind: "compile" as const,
     slug,
@@ -249,12 +250,17 @@ async function rejectCompileProposal(vaultRoot: string, slug: string): Promise<{
 }
 
 async function readProposedFiles(
+  vaultRoot: string,
   dir: string,
 ): Promise<Array<{ slug: string; frontmatter: Frontmatter; body: string }>> {
   if (!existsSync(dir)) return [];
   const entries = await readdir(dir, { withFileTypes: true });
   const files = entries
-    .filter((entry) => entry.isFile() && entry.name.endsWith(".md"))
+    .filter((entry) => {
+      if (!entry.isFile() || !entry.name.endsWith(".md")) return false;
+      const relPath = relative(vaultRoot, join(dir, entry.name)).replace(/\\/g, "/");
+      return !hasArchiveOrSystemPathComponent(relPath);
+    })
     .map((entry) => entry.name)
     .sort();
   return Promise.all(files.map(async (file) => {

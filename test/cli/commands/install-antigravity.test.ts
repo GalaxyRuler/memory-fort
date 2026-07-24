@@ -7,6 +7,7 @@ import { isAbsolute, join } from "node:path";
 import { runInit } from "../../../src/cli/commands/init.js";
 import { installAntigravity } from "../../../src/cli/commands/install/antigravity.js";
 import { parseFrontmatter } from "../../../src/storage/frontmatter.js";
+import { beginIndexInvalidation } from "../../../src/index/generation.js";
 import { seedBuiltHooks } from "./install/seed-built-hooks.js";
 
 describe("installAntigravity", () => {
@@ -249,6 +250,69 @@ describe("installAntigravity", () => {
       "utf-8",
     );
     expect(raw).toContain("## [00:00:00] Session Start");
+  });
+
+  it("session_start hook suppresses index and current-project context while the generation is invalidating", async () => {
+    await writeAntigravityProjectMemoryFixture(memDir);
+    await rm(join(memDir, "wiki", "projects", "agentmemory.md"));
+    await writeFile(
+      join(memDir, "index.md"),
+      "- [AgentMemory](wiki/projects/agentmemory.md) - STALE-FORGOTTEN-SUMMARY\n",
+    );
+    await beginIndexInvalidation(memDir);
+    const result = await installAntigravity({
+      antigravityDir,
+      antigravityVersion: "2.1.0",
+    });
+    const hookPath = join(result.pluginDir, "hooks", "session_start.mjs");
+
+    const hook = spawnSync(process.execPath, [hookPath], {
+      input: JSON.stringify({
+        sessionId: "project-memory-invalidating",
+        timestamp: "2026-06-02T00:00:00.000Z",
+        cwd: "C:\\Repos\\memory-system",
+      }),
+      encoding: "utf-8",
+      env: { ...process.env, MEMORY_ROOT: memDir },
+    });
+
+    expect(hook.status).toBe(0);
+    expect(hook.stdout).toContain("--- Schema");
+    expect(hook.stdout).not.toContain("--- Current project memory");
+    expect(hook.stdout).not.toContain("--- Related memory");
+    expect(hook.stdout).not.toContain("--- Index");
+    expect(hook.stdout).not.toContain("STALE-FORGOTTEN-SUMMARY");
+    expect(existsSync(join(memDir, "raw", "2026-06-02", "antigravity-project-memory-invalidating.md"))).toBe(true);
+  });
+
+  it("session_start hook drops missing relation targets and stale generated-index lines", async () => {
+    await writeAntigravityProjectMemoryFixture(memDir);
+    await rm(join(memDir, "wiki", "projects", "agentmemory.md"));
+    const result = await installAntigravity({
+      antigravityDir,
+      antigravityVersion: "2.1.0",
+    });
+    const hookPath = join(result.pluginDir, "hooks", "session_start.mjs");
+
+    const hook = spawnSync(process.execPath, [hookPath], {
+      input: JSON.stringify({
+        sessionId: "project-memory-missing-target",
+        timestamp: "2026-06-02T00:00:00.000Z",
+        cwd: "C:\\Repos\\memory-system",
+      }),
+      encoding: "utf-8",
+      env: { ...process.env, MEMORY_ROOT: memDir },
+    });
+
+    expect(hook.status).toBe(0);
+    expect(hook.stdout).toContain("--- Current project memory");
+    expect(hook.stdout).toContain("--- Related memory ---\n(none found)");
+    expect(hook.stdout).not.toContain("AgentMemory summary from index.");
+    const indexBlock = hook.stdout.slice(
+      hook.stdout.indexOf("--- Index"),
+      hook.stdout.indexOf("--- Recent log"),
+    );
+    expect(indexBlock).not.toContain("wiki/projects/agentmemory.md");
   });
 
   it("session_start hook excludes retained paths from project, related, and index context", async () => {

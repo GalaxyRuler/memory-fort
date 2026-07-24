@@ -94,6 +94,8 @@ describe("lexicalSearch", () => {
     insertPreexistingIndexRecord(indexDb, "wiki/_archive/retained.md", "archiveinclude token");
     insertPreexistingIndexRecord(indexDb, "raw/.retained.md", "archiveinclude token");
     insertPreexistingIndexRecord(indexDb, "archive/retained.md", "archiveinclude token");
+    insertPreexistingIndexRecord(indexDb, "wiki\\Archive\\windows-retained.md", "archiveinclude token");
+    insertPreexistingIndexRecord(indexDb, "raw\\.windows-retained.md", "archiveinclude token");
 
     expect(lexicalSearch(indexDb, "archiveinclude", { includeArchived: true }).map((result) => result.relPath))
       .toEqual(["wiki/projects/ordinary-archived.md"]);

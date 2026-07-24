@@ -9,6 +9,7 @@ import {
 } from "./session-start-helpers.js";
 import { memoryRoot } from "../storage/paths.js";
 import { isClientEnabled, loadMemoryConfig, type MemoryConfig } from "../storage/config.js";
+import { readIndexGeneration, type IndexGeneration } from "../index/generation.js";
 
 export interface SessionStartDeps {
   readFile?: (path: string) => Promise<string>;
@@ -85,8 +86,9 @@ export async function sessionStartBody(
   if (await shouldSkipForDisabledClient(payload, deps)) return;
 
   const sections: Array<{ label: string; text: string; priority: number }> = [];
+  const derivedGeneration = readyIndexGeneration(root);
 
-  try {
+  if (derivedGeneration) try {
     const projectBlock = await currentProjectMemoryBlock({
       cwd: readPayloadCwd(payload),
       memoryRoot: root,
@@ -108,7 +110,9 @@ export async function sessionStartBody(
     priority: number;
   }> = [
     { label: "Schema", path: join(root, "schema.md"), priority: 4 },
-    { label: "Index", path: join(root, "index.md"), confidenceAware: true, priority: 2 },
+    ...(derivedGeneration
+      ? [{ label: "Index", path: join(root, "index.md"), confidenceAware: true, priority: 2 }]
+      : []),
     { label: "Recent log", path: join(root, "log.md"), tail: 20, priority: 5 },
   ];
 
@@ -117,6 +121,7 @@ export async function sessionStartBody(
       const content = sec.confidenceAware
         ? await confidenceAwareIndex({ indexFilePath: sec.path, memoryRoot: root, readFile: readFn })
         : await readFn(sec.path);
+      if (sec.confidenceAware && content.trim().length === 0) continue;
       const body = sec.tail ? lastLines(content, sec.tail) : content;
       sections.push({ label: sec.label, text: `\n--- ${sec.label} (${sec.path}) ---\n${body.trim()}\n`, priority: sec.priority });
     } catch {
@@ -129,7 +134,24 @@ export async function sessionStartBody(
     sections.push({ label: "remember", text: `\n${remember}`, priority: 3 });
   }
 
-  writeFn(applyInjectionBudget(sections, readTotalInjectionBudget()));
+  const safeSections = derivedGeneration && !sameReadyIndexGeneration(root, derivedGeneration)
+    ? sections.filter((section) => section.label !== "project" && section.label !== "Index")
+    : sections;
+  writeFn(applyInjectionBudget(safeSections, readTotalInjectionBudget()));
+}
+
+function readyIndexGeneration(root: string): IndexGeneration | null {
+  try {
+    const generation = readIndexGeneration(root);
+    return generation.state === "ready" ? generation : null;
+  } catch {
+    return null;
+  }
+}
+
+function sameReadyIndexGeneration(root: string, expected: IndexGeneration): boolean {
+  const current = readyIndexGeneration(root);
+  return current !== null && current.token === expected.token;
 }
 
 async function shouldSkipForDisabledClient(

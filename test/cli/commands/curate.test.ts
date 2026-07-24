@@ -177,6 +177,28 @@ describe("runCurate", () => {
     }]);
   });
 
+  it.each([
+    { mode: "plan", apply: false, target: "wiki\\Archive\\retained.md", relPath: "wiki/Archive/retained.md" },
+    { mode: "apply", apply: true, target: "wiki/_archive/retained.md", relPath: "wiki/_archive/retained.md" },
+    { mode: "apply final-dot leaf", apply: true, target: "wiki/projects/.retained.md", relPath: "wiki/projects/.retained.md" },
+  ])("rejects an exact protected selector before any $mode LLM call", async ({ apply, target, relPath }) => {
+    const retainedBody = page("RETAINED-CURATE-BODY-MUST-NOT-REACH-LLM");
+    await writeFileAt(relPath, retainedBody);
+    const llm = fakeCurateLLM("unused");
+
+    await expect(runCurate({
+      vaultRoot: tmp,
+      target,
+      apply,
+      configLoader: async () => ({ llm: { provider: "ollama", model: "llama3.2" } }),
+      llmFactory: () => llm,
+      env: {},
+    })).rejects.toThrow("protected archive or system path");
+
+    expect(llm.chat).not.toHaveBeenCalled();
+    await expect(readFile(join(tmp, ...relPath.split("/")), "utf-8")).resolves.toBe(retainedBody);
+  });
+
   it("refresh uses stored page-scoped facts before novelty judgment and ignores raw tangents", async () => {
     await writeFileAt("wiki/projects/memory-system.md", [
       "---",

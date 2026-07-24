@@ -2878,6 +2878,22 @@ describe("dashboard server", () => {
 
   it("GET /api/proposed endpoints list drafts and summary counts", async () => {
     await writeProposedDrafts(tmp);
+    await writeFile(
+      join(tmp, "wiki", "threads-proposed", ".retained.md"),
+      [
+        "---",
+        'type: "threads"',
+        'title: "Retained hidden draft"',
+        'lifecycle: "proposed"',
+        "relations:",
+        "  mentions:",
+        '    - "raw/2026-05-24/codex-a.md"',
+        "---",
+        "",
+        "RETAINED-PROPOSAL-BODY-MUST-NOT-REACH-API",
+        "",
+      ].join("\n"),
+    );
     const server = await createServer({ vaultRoot: tmp, port: 0 });
 
     try {
@@ -2886,7 +2902,8 @@ describe("dashboard server", () => {
       const summaryResponse = await fetch(`http://${server.host}:${server.port}/api/proposed/summary`);
 
       expect(threadsResponse.status).toBe(200);
-      await expect(threadsResponse.json()).resolves.toMatchObject([
+      const threadDrafts = await threadsResponse.json();
+      expect(threadDrafts).toMatchObject([
         {
           kind: "thread",
           slug: "memory-thread",
@@ -2897,6 +2914,8 @@ describe("dashboard server", () => {
           prosePreview: "Thread summary paragraph.",
         },
       ]);
+      expect(threadDrafts).toHaveLength(1);
+      expect(JSON.stringify(threadDrafts)).not.toContain("RETAINED-PROPOSAL-BODY-MUST-NOT-REACH-API");
       expect(proceduresResponse.status).toBe(200);
       await expect(proceduresResponse.json()).resolves.toMatchObject([
         {

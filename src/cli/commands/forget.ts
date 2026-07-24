@@ -300,7 +300,8 @@ async function selectedRawPaths(
   selectors: ReturnType<typeof normalizeSelectors>,
 ): Promise<Set<string>> {
   const allRaw = await listMarkdownFiles(root, "raw", { excludeArchives: true });
-  const selected = new Set<string>([...selectors.rawPaths, ...selectors.paths.filter((path) => path.startsWith("raw/"))]);
+  const directSelectors = [...selectors.rawPaths, ...selectors.paths.filter((path) => path.startsWith("raw/"))];
+  const selected = new Set<string>(resolveDirectRawSelectors(directSelectors, allRaw));
   const sourceSet = new Set(selectors.sourceIds);
   if (sourceSet.size > 0) {
     for (const relPath of allRaw) {
@@ -314,6 +315,33 @@ async function selectedRawPaths(
     }
   }
   return selected;
+}
+
+export function resolveDirectRawSelectors(
+  directSelectors: readonly string[],
+  allRaw: readonly string[],
+): string[] {
+  const liveRawByCaseFold = new Map<string, string[]>();
+  for (const relPath of allRaw) {
+    const key = relPath.toLowerCase();
+    const matches = liveRawByCaseFold.get(key) ?? [];
+    matches.push(relPath);
+    liveRawByCaseFold.set(key, matches);
+  }
+  const selected = new Set<string>();
+  for (const selector of directSelectors) {
+    const matches = liveRawByCaseFold.get(selector.toLowerCase()) ?? [];
+    if (matches.length === 0) {
+      throw new Error(`memory forget: selected raw path does not exist: ${selector}`);
+    }
+    if (matches.length > 1) {
+      throw new Error(
+        `memory forget: case-insensitive raw selector is ambiguous: ${selector}; matches: ${matches.sort().join(", ")}`,
+      );
+    }
+    selected.add(matches[0]!);
+  }
+  return [...selected].sort();
 }
 
 async function readRawSource(root: string, relPath: string): Promise<string> {
@@ -464,7 +492,33 @@ async function findArchivedCopies(
   for (const relPath of await listMarkdownFiles(root, "wiki")) {
     if (!hasArchiveOrSystemPathComponent(relPath)) continue;
     const original = archiveOriginalPath(relPath);
-    if (original && selectedRaw.has(original)) results.add(relPath);
+    if (original && selectedRaw.has(original)) {
+      results.add(relPath);
+      continue;
+    }
+    let frontmatter: Record<string, unknown>;
+    try {
+      frontmatter = parseFrontmatter(await readFile(join(root, ...relPath.split("/")), "utf8")).frontmatter as Record<string, unknown>;
+    } catch {
+      continue;
+    }
+    if (!isGeneratedPage(frontmatter)) continue;
+    const lineage = collectPageSources(frontmatter);
+    const matchesDirectSelector = lineage.some((source) => {
+      if (selectedRaw.has(source)) return true;
+      const liveOriginal = archiveOriginalPath(source);
+      return liveOriginal !== null && selectedRaw.has(liveOriginal);
+    });
+    let matchesSourceSelector = false;
+    if (!matchesDirectSelector && selectedSources.size > 0) {
+      for (const source of lineage) {
+        if (selectedSources.has(await readRawSource(root, source))) {
+          matchesSourceSelector = true;
+          break;
+        }
+      }
+    }
+    if (matchesDirectSelector || matchesSourceSelector) results.add(relPath);
   }
   return [...results].sort();
 }
@@ -559,16 +613,21 @@ async function rebuildDerivedState(root: string): Promise<void> {
     // safer and more honest than keeping stale or incomplete derived hits. The
     // invalidating generation remains in place, keeping dashboard readers
     // quiesced until a successful rebuild completes.
-    let cleanupError: string | null = null;
+    const cleanupErrors: string[] = [];
     try {
       deleteIndexDbFiles(resolveIndexDbPath({ vaultRoot: root }));
     } catch (cleanupFailure) {
-      cleanupError = cleanupFailure instanceof Error ? cleanupFailure.message : String(cleanupFailure);
+      cleanupErrors.push(`partial SQLite index cleanup also failed: ${cleanupFailure instanceof Error ? cleanupFailure.message : String(cleanupFailure)}`);
+    }
+    try {
+      await rm(join(root, "index.md"), { force: true });
+    } catch (cleanupFailure) {
+      cleanupErrors.push(`partial generated index cleanup also failed: ${cleanupFailure instanceof Error ? cleanupFailure.message : String(cleanupFailure)}`);
     }
     const detail = error instanceof Error ? error.message : String(error);
     throw new Error(
       `memory forget: live data erased but derived index rebuild/index invalidation is incomplete; dashboard search remains quiesced: ${detail}${
-        cleanupError ? `; partial index cleanup also failed: ${cleanupError}` : ""
+        cleanupErrors.length > 0 ? `; ${cleanupErrors.join("; ")}` : ""
       }`,
     );
   }
@@ -580,6 +639,10 @@ async function beginDerivedIndexInvalidation(root: string): Promise<void> {
     // close their cached readers and refuse to reopen while this state holds.
     await beginIndexInvalidation(root);
     deleteIndexDbFiles(resolveIndexDbPath({ vaultRoot: root }));
+    // Root index.md is the auto-generated human-readable view of the same
+    // generation. Remove only this known generated root artifact; nested wiki
+    // indexes remain user-authored content and are never touched here.
+    await rm(join(root, "index.md"), { force: true });
   } catch (error) {
     // No live path has been touched yet. Re-enable the prior generation only
     // when the fence can be completed; otherwise it stays quiesced safely.

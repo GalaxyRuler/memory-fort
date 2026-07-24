@@ -8,6 +8,7 @@ import {
   collectEntityMergeProposals,
   findDuplicateEntityPairs,
   mergeEntityAliases,
+  mergeEntityProposal,
   writeEntityMergeProposals,
 } from "../../src/consolidate/entity-dedup.js";
 import {
@@ -146,6 +147,48 @@ describe("entity dedup", () => {
     expect(await relationTargets("wiki/tools/vitest.md", "linked")).toEqual(["wiki/projects/atlas-studio.md"]);
     expect(await relationTargets("raw/2026-05-28/codex-session.md", "mentions")).toEqual(["wiki/projects/atlas-studio.md"]);
     expect(await relationTargets("wiki/_archive/retained.md", "linked")).toEqual(["wiki/projects/atlasstudio.md"]);
+  });
+
+  it("rejects an edited proposal with a protected alias before any merge mutation", async () => {
+    const canonical = "wiki/projects/atlas-studio.md";
+    const protectedAlias = "wiki/_archive/retained-alias.md";
+    await writePage(canonical, {
+      type: "projects",
+      title: "Atlas Studio",
+      created: "2026-05-28",
+      updated: "2026-05-28",
+    });
+    await writePage(protectedAlias, {
+      type: "projects",
+      title: "Retained Alias",
+      created: "2026-05-28",
+      updated: "2026-05-28",
+    });
+    await writePage("wiki/tools/vitest.md", {
+      type: "tools",
+      title: "Vitest",
+      created: "2026-05-28",
+      updated: "2026-05-28",
+      relations: { linked: [protectedAlias] },
+    });
+    await writeEntityMergeProposals(tmp, [{
+      canonical: "Atlas Studio",
+      canonicalTarget: canonical,
+      aliases: [protectedAlias],
+      normalized: "atlasstudio",
+      reason: "exact-normalized",
+      referenceCounts: {},
+    }]);
+    const retainedBefore = await readFile(join(tmp, ...protectedAlias.split("/")), "utf-8");
+    const liveBefore = await readFile(join(tmp, "wiki", "tools", "vitest.md"), "utf-8");
+
+    await expect(mergeEntityProposal(tmp, "Atlas Studio"))
+      .rejects.toThrow("protected archive or system path");
+
+    await expect(readFile(join(tmp, ...protectedAlias.split("/")), "utf-8")).resolves.toBe(retainedBefore);
+    await expect(readFile(join(tmp, "wiki", "tools", "vitest.md"), "utf-8")).resolves.toBe(liveBefore);
+    await expect(readFile(join(tmp, "wiki", ".entity-aliases.json"), "utf-8")).rejects.toThrow();
+    await expect(readFile(join(tmp, "wiki", "archive", "retained-alias.md"), "utf-8")).rejects.toThrow();
   });
 
   it("commits entity review, merge, and reject mutations with explicit vault paths", async () => {

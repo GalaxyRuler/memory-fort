@@ -9,6 +9,7 @@ import {
   whatToRememberBlock,
 } from "../../src/hooks/session-start-helpers.js";
 import { applyInjectionBudget, sessionStartBody } from "../../src/hooks/session-start.js";
+import { beginIndexInvalidation } from "../../src/index/generation.js";
 
 describe("applyInjectionBudget", () => {
   it("keeps total output within the budget including the trim marker", () => {
@@ -312,6 +313,41 @@ describe("sessionStartBody", () => {
     expect(all).toContain("- Session Start Memory (wiki/lessons/session-start-memory.md): SessionStart memory");
   });
 
+  it("suppresses stale index and current-project context while the derived generation is invalidating", async () => {
+    await writeSessionStartFiles(tmp);
+    await writeProjectPage(
+      tmp,
+      "memory-system",
+      "Current project body must stay quiesced while forgetting.",
+      {
+        relations: [
+          "relations:",
+          "  linked:",
+          "    - wiki/lessons/erased-target.md",
+        ],
+      },
+    );
+    await writeFile(
+      join(tmp, "index.md"),
+      "- [Erased Target](wiki/lessons/erased-target.md) - STALE-FORGOTTEN-SUMMARY\n",
+    );
+    await beginIndexInvalidation(tmp);
+
+    const writes: string[] = [];
+    await sessionStartBody(
+      { cwd: "C:\\Repos\\memory-system" },
+      { write: (text) => writes.push(text) },
+    );
+
+    const output = writes.join("");
+    expect(output).toContain("--- Schema");
+    expect(output).toContain("--- Recent log");
+    expect(output).not.toContain("--- Current project memory");
+    expect(output).not.toContain("--- Related memory");
+    expect(output).not.toContain("--- Index");
+    expect(output).not.toContain("STALE-FORGOTTEN-SUMMARY");
+  });
+
   it("keeps stale archive index entries and physical relation targets out of project context", async () => {
     await writeProjectPage(
       tmp,
@@ -356,6 +392,35 @@ describe("sessionStartBody", () => {
     expect(related).not.toContain("raw/.compact-archive/");
     expect(related).not.toContain("RETAINED-STALE-INDEX");
     expect(related).not.toContain("RETAINED-MAINTENANCE-INDEX");
+  });
+
+  it("omits missing relation targets and their stale index summaries from current-project context", async () => {
+    await writeProjectPage(
+      tmp,
+      "memory-system",
+      "Current project links [[erased-target]].",
+      {
+        relations: [
+          "relations:",
+          "  linked:",
+          "    - wiki/lessons/erased-target.md",
+        ],
+      },
+    );
+    await writeFile(
+      join(tmp, "index.md"),
+      "- [Erased Target](wiki/lessons/erased-target.md) - STALE-RELATED-SUMMARY\n",
+    );
+
+    const block = await currentProjectMemoryBlock({
+      cwd: "C:\\Repos\\memory-system",
+      memoryRoot: tmp,
+    });
+
+    expect(block).toContain("--- Current project memory");
+    expect(block).toContain("--- Related memory ---\n(none found)");
+    expect(block).not.toContain("STALE-RELATED-SUMMARY");
+    expect(block).not.toContain("Erased Target (wiki/lessons/erased-target.md)");
   });
 
   it("keeps no-match output byte-for-byte equivalent to the legacy session-start output", async () => {
@@ -634,6 +699,23 @@ describe("confidenceAwareIndex", () => {
     expect(readPaths.some((path) => path.includes("/wiki/archive/"))).toBe(false);
     expect(readPaths.some((path) => path.includes("/wiki/_archive/"))).toBe(false);
     expect(readPaths.some((path) => path.includes("/raw/.compact-archive/"))).toBe(false);
+  });
+
+  it("drops a stale index entry when its referenced page no longer exists", async () => {
+    const output = await confidenceAwareIndex({
+      indexFilePath: join("C:/mem", "index.md"),
+      memoryRoot: "C:/mem",
+      readFile: async (path: string) => {
+        const normalized = path.replace(/\\/g, "/");
+        if (normalized.endsWith("/index.md")) {
+          return "- [Erased](wiki/projects/erased.md) - STALE-FORGOTTEN-SUMMARY";
+        }
+        throw new Error(`ENOENT: ${path}`);
+      },
+    });
+
+    expect(output).not.toContain("STALE-FORGOTTEN-SUMMARY");
+    expect(output).not.toContain("wiki/projects/erased.md");
   });
 });
 

@@ -325,17 +325,44 @@ function isoDate(dateValue) {
 }
 
 function emitSessionStartContext(payload, root) {
-  const parts = ["[memory:session-start] context loading\\n"];
-  try {
+  const generation = readyIndexGeneration(root);
+  const projectParts = [];
+  const schemaParts = [];
+  const indexParts = [];
+  const logParts = [];
+  if (generation) try {
     const projectBlock = currentProjectMemoryBlock(root, stringField(payload, "cwd") || stringField(payload, "working_directory"));
-    if (projectBlock.trim().length > 0) parts.push("\\n" + projectBlock.trim() + "\\n");
+    if (projectBlock.trim().length > 0) projectParts.push("\\n" + projectBlock.trim() + "\\n");
   } catch {
     // Project context is opportunistic; keep the schema/index/log fallback.
   }
-  appendContextSection(parts, "Schema", join(root, "schema.md"));
-  appendFilteredIndexContext(parts, join(root, "index.md"));
-  appendContextSection(parts, "Recent log", join(root, "log.md"), 20);
+  appendContextSection(schemaParts, "Schema", join(root, "schema.md"));
+  if (generation) appendFilteredIndexContext(indexParts, root, join(root, "index.md"));
+  appendContextSection(logParts, "Recent log", join(root, "log.md"), 20);
+  const derivedReady = generation && sameReadyIndexGeneration(root, generation);
+  const parts = [
+    "[memory:session-start] context loading\\n",
+    ...(derivedReady ? projectParts : []),
+    ...schemaParts,
+    ...(derivedReady ? indexParts : []),
+    ...logParts,
+  ];
   process.stdout.write(parts.join(""));
+}
+
+function readyIndexGeneration(root) {
+  const path = join(root, "var", "index-generation");
+  if (!existsSync(path)) return "ready:initial";
+  try {
+    const value = readFileSync(path, "utf-8").trim();
+    return /^ready:[A-Za-z0-9-]+$/.test(value) ? value : "";
+  } catch {
+    return "";
+  }
+}
+
+function sameReadyIndexGeneration(root, expected) {
+  return readyIndexGeneration(root) === expected;
 }
 
 function appendContextSection(parts, label, path, tail) {
@@ -348,12 +375,15 @@ function appendContextSection(parts, label, path, tail) {
   }
 }
 
-function appendFilteredIndexContext(parts, path) {
+function appendFilteredIndexContext(parts, root, path) {
   try {
     const content = readFileSync(path, "utf-8");
     const visible = content.split(/\\r?\\n/).filter((line) => {
       const reference = indexReferencePath(line);
-      return !reference || !isProtectedMemoryReference(reference);
+      return !reference || (
+        !isProtectedMemoryReference(reference)
+        && existsSync(join(root, ...reference.split("/")))
+      );
     }).join("\\n");
     parts.push("\\n--- Index (" + path + ") ---\\n" + visible.trim() + "\\n");
   } catch {
@@ -446,6 +476,7 @@ function collectRelatedEntries(root, projectRelPath, frontmatterText, body, inde
       summary: titleFromRelPath(relPath),
     };
     const meta = readRelatedMetadata(root, relPath);
+    if (!meta) continue;
     related.push({ ...indexEntry, ...meta });
   }
   return related.sort((a, b) => {
@@ -572,7 +603,9 @@ function omitProtectedWikilinks(body) {
 }
 
 function readRelatedMetadata(root, relPath) {
-  const parsed = parseFrontmatter(safeRead(join(root, ...relPath.split("/"))));
+  const fullPath = join(root, ...relPath.split("/"));
+  if (!existsSync(fullPath)) return null;
+  const parsed = parseFrontmatter(safeRead(fullPath));
   const strengthRaw = Number(frontmatterField(parsed.frontmatterText, "strength") || "0");
   const strength = Number.isFinite(strengthRaw) ? strengthRaw : 0;
   const recency = timestampToSortKey(frontmatterField(parsed.frontmatterText, "last_accessed") || frontmatterField(parsed.frontmatterText, "updated") || "");

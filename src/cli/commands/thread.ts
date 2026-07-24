@@ -21,6 +21,7 @@ import { LLMDisabledError, type LLMProvider } from "../../llm/types.js";
 import { proposeThread, type ThreadProposal } from "../../llm/thread-propose.js";
 import { loadMemoryConfig, resolveCompileConfig, type MemoryConfig } from "../../storage/config.js";
 import { atomicWrite } from "../../storage/atomic-write.js";
+import { hasArchiveOrSystemPathComponent } from "../../storage/archive-paths.js";
 import {
   parseFrontmatter,
   serializeFrontmatter,
@@ -605,6 +606,7 @@ async function loadExistingThreadRawRefs(vaultRoot: string): Promise<Array<Set<s
     if (!existsSync(root)) continue;
     for (const entry of await readdir(root)) {
       if (!entry.endsWith(".md")) continue;
+      if (hasArchiveOrSystemPathComponent(`wiki/${dir}/${entry}`)) continue;
       try {
         const parsed = parseFrontmatter(await readFile(join(root, entry), "utf-8"));
         const relations = parsed.frontmatter.relations;

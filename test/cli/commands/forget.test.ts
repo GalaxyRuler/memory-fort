@@ -19,12 +19,17 @@ vi.mock("node:fs/promises", async (importOriginal) => {
   };
 });
 
-import { ForgetPartialMutationError, runForget } from "../../../src/cli/commands/forget.js";
+import {
+  ForgetPartialMutationError,
+  resolveDirectRawSelectors,
+  runForget,
+} from "../../../src/cli/commands/forget.js";
 import { openIndexDb, openReadOnlyIndexDb } from "../../../src/index/db.js";
 import { lexicalSearch } from "../../../src/index/search.js";
 import { reconcileIndex } from "../../../src/index/reconcile.js";
 import { readIndexGeneration } from "../../../src/index/generation.js";
 import { loadSearchCorpus } from "../../../src/retrieval/corpus.js";
+import { confidenceAwareIndex } from "../../../src/hooks/session-start-helpers.js";
 
 describe("runForget", () => {
   let tmp: string;
@@ -87,6 +92,15 @@ describe("runForget", () => {
     await writeAt("wiki/.archive/2026-05-23/raw/2026-05-20/codex-session.md", "canonical archived secret");
     await writeAt("raw/.compact-archive/2026-05-24/2026-05-20/codex-session.md", "compacted archived secret");
     await writeAt("raw/2026-05-20/codex-other.md", "same-size-sessio");
+    await writeWiki(
+      "projects/retained.md",
+      { type: "projects", title: "Retained", confidence: 0.9 },
+      "Fresh retained project context.",
+    );
+    await writeAt(
+      "index.md",
+      "- [Generated](wiki/projects/generated.md) - STALE-FORGOTTEN-SUMMARY\n",
+    );
     await rebuildFixtureIndex();
 
     const result = await runForget({ mode: "apply", rawPaths: [raw] });
@@ -120,6 +134,17 @@ describe("runForget", () => {
       "wiki/projects/generated.md",
     ]));
     expect(corpus.documents.map((document) => document.relPath)).toContain("raw/2026-05-20/codex-other.md");
+    expect(readIndexGeneration(root).state).toBe("ready");
+    const rebuiltIndex = await readFile(join(root, "index.md"), "utf8");
+    expect(rebuiltIndex).toContain("[Retained](wiki/projects/retained.md) - Fresh retained project context.");
+    expect(rebuiltIndex).not.toContain("Generated");
+    expect(rebuiltIndex).not.toContain("STALE-FORGOTTEN-SUMMARY");
+    const sessionIndex = await confidenceAwareIndex({
+      indexFilePath: join(root, "index.md"),
+      memoryRoot: root,
+    });
+    expect(sessionIndex).toContain("wiki/projects/retained.md");
+    expect(sessionIndex).not.toContain("STALE-FORGOTTEN-SUMMARY");
     const index = openReadOnlyIndexDb({ vaultRoot: root });
     try {
       expect(index.database.prepare<[string], { count: number }>("SELECT count(*) AS count FROM chunks WHERE relPath = ?").get(raw)?.count)
@@ -133,6 +158,10 @@ describe("runForget", () => {
     const raw = "raw/2026-05-20/codex-session.md";
     const failedFact = "facts/2026-05-20/session.json";
     await seedAttributableRaw(raw);
+    await writeAt(
+      "index.md",
+      "- [Generated](wiki/projects/generated.md) - STALE-FORGOTTEN-SUMMARY\n",
+    );
     await rebuildFixtureIndex();
     forgetRmFailure.target = failedFact;
 
@@ -155,6 +184,7 @@ describe("runForget", () => {
     expect(receipt.report).toContain(`Failed delete: ${failedFact}`);
     expect(readIndexGeneration(root).state).toBe("invalidating");
     expect(existsSync(process.env["MEMORY_INDEX_DB_PATH"]!)).toBe(false);
+    expect(existsSync(join(root, "index.md"))).toBe(false);
     expect(existsSync(join(root, ...raw.split("/")))).toBe(false);
     expect(existsSync(join(root, ...failedFact.split("/")))).toBe(true);
     expect(existsSync(join(root, "wiki", "projects", "generated.md"))).toBe(true);
@@ -196,6 +226,33 @@ describe("runForget", () => {
       .rejects.toThrow("canonical vault-relative path");
     await expect(runForget({ paths: ["crystals/keep.md"] }))
       .rejects.toThrow("crystals are excluded");
+  });
+
+  it("maps a case-insensitive direct raw selector to the unique canonical live spelling", async () => {
+    const actualRaw = "raw/2026-05-20/Codex-Session.md";
+    const selector = "raw/2026-05-20/codex-session.md";
+    await seedAttributableRaw(actualRaw);
+
+    const plan = await runForget({ rawPaths: [selector] });
+    const applied = await runForget({ mode: "apply", rawPaths: [selector] });
+
+    expect(plan.plan.raw).toEqual([actualRaw]);
+    expect(applied.erased).toEqual(expect.arrayContaining([
+      actualRaw,
+      "facts/2026-05-20/session.json",
+      "wiki/projects/generated.md",
+    ]));
+    expect(existsSync(join(root, ...actualRaw.split("/")))).toBe(false);
+  });
+
+  it("blocks a Windows-equivalent raw selector when live spellings are case-ambiguous", async () => {
+    const upper = "raw/2026-05-20/Codex.md";
+    const lower = "raw/2026-05-20/codex.md";
+
+    expect(() => resolveDirectRawSelectors(
+      ["raw/2026-05-20/CODEX.md"],
+      [upper, lower],
+    )).toThrow("case-insensitive raw selector is ambiguous");
   });
 
   it("keeps compact raw archive copies out of source-selected live data and rejects them as direct raw selectors", async () => {
@@ -243,6 +300,60 @@ describe("runForget", () => {
     const plan = await runForget({ rawPaths: [selected] });
 
     expect(plan.plan.archive).toEqual([selectedArchive]);
+  });
+
+  it("itemizes retained generated-page copies by direct lineage and source-wide lineage", async () => {
+    const selected = "raw/2026-05-20/codex-selected.md";
+    const sourceOnly = "raw/2026-05-19/codex-source-only.md";
+    const sourceOnlyArchive = "raw/.compact-archive/2026-05-24/2026-05-19/codex-source-only.md";
+    const selectedGeneratedArchive = "wiki/_archive/generated-selected.md";
+    const sourceGeneratedArchive = "wiki/Archive/generated-source-only.md";
+    await writeAt(selected, "---\nsource: codex\n---\n\nselected live raw\n");
+    await writeAt(sourceOnlyArchive, "---\nsource: codex\n---\n\nretained source-only raw\n");
+    await writeWiki(
+      "_archive/generated-selected.md",
+      {
+        type: "projects",
+        title: "Retained selected generation",
+        generated: true,
+        source_facts: [selected],
+        relations: { derived_from: [selected] },
+      },
+      "Retained generated page for the direct raw.",
+    );
+    await writeWiki(
+      "Archive/generated-source-only.md",
+      {
+        type: "projects",
+        title: "Retained source generation",
+        generated: true,
+        source_facts: [sourceOnly],
+        relations: { derived_from: [sourceOnly] },
+      },
+      "Retained generated page for a source-wide archived raw.",
+    );
+    await writeWiki(
+      "_archive/manual-selected.md",
+      {
+        type: "projects",
+        title: "Retained manual page",
+        source_facts: [selected],
+      },
+      "Manual retained page is not claimed as generated output.",
+    );
+
+    const direct = await runForget({ rawPaths: [selected] });
+    const sourceWide = await runForget({ sourceIds: ["codex"] });
+
+    expect(direct.plan.archive).toEqual([selectedGeneratedArchive]);
+    expect(sourceWide.plan.archive).toEqual([
+      sourceOnlyArchive,
+      sourceGeneratedArchive,
+      selectedGeneratedArchive,
+    ]);
+    expect(direct.report).toContain(`Preserved archived copies: 1\n- ${selectedGeneratedArchive}`);
+    expect(sourceWide.report).toContain(`- ${sourceGeneratedArchive}`);
+    expect(sourceWide.plan.archive).not.toContain("wiki/_archive/manual-selected.md");
   });
 
   it("keeps case-variant archive copies unmutated and out of the rebuilt default index", async () => {
@@ -305,6 +416,10 @@ describe("runForget", () => {
     await rebuildFixtureIndex();
     const indexPath = process.env["MEMORY_INDEX_DB_PATH"]!;
     expect(existsSync(indexPath)).toBe(true);
+    await writeAt(
+      "index.md",
+      "- [Generated](wiki/projects/generated.md) - STALE-FORGOTTEN-SUMMARY\n",
+    );
     await writeAt("wiki/projects/malformed.md", "---\ntitle: [\n---\n\nmalformed\n");
 
     let failure: unknown;
@@ -333,6 +448,7 @@ describe("runForget", () => {
 
     expect(existsSync(join(root, ...raw.split("/")))).toBe(false);
     expect(existsSync(indexPath)).toBe(false);
+    expect(existsSync(join(root, "index.md"))).toBe(false);
     expect(readIndexGeneration(root).state).toBe("invalidating");
   });
 

@@ -218,7 +218,13 @@ export async function mergeEntityAliases(opts: {
   now?: Date;
 }): Promise<EntityMergeResult> {
   const canonical = opts.canonical.trim();
-  const aliases = uniqueSorted(opts.aliases.map((alias) => alias.trim()).filter((alias) => alias.length > 0 && alias !== canonical));
+  const requestedAliases = opts.aliases.map((alias) => alias.trim());
+  const protectedTarget = [canonical, ...requestedAliases]
+    .find((target) => hasArchiveOrSystemPathComponent(target));
+  if (protectedTarget) {
+    throw new Error(`entity merge: protected archive or system path is not allowed: ${protectedTarget}`);
+  }
+  const aliases = uniqueSorted(requestedAliases.filter((alias) => alias.length > 0 && alias !== canonical));
   const aliasSet = new Set(aliases);
   const aliasNormals = new Set(aliases.map(normalizeEntityName));
   const changedFiles: string[] = [];

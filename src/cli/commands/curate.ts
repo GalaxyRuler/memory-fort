@@ -485,6 +485,9 @@ function factMatchesNeedles(fact: CompressedFact, needles: string[]): boolean {
 
 async function resolveCurateTarget(root: string, target: string | undefined): Promise<string> {
   const normalized = normalizeTarget(target);
+  if (hasArchiveOrSystemPathComponent(normalized)) {
+    throw new Error(`memory curate: protected archive or system path cannot be curated: ${normalized}`);
+  }
   const fullPath = join(root, ...normalized.split("/"));
   if (existsSync(fullPath)) return normalized;
 

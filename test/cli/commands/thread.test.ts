@@ -135,6 +135,42 @@ describe("thread commands", () => {
     expect(llm.chat).not.toHaveBeenCalled();
   });
 
+  it("does not read a final-dot retained thread as live proposal coverage", async () => {
+    await writeMarkdown(
+      "wiki/threads/.retained.md",
+      [
+        "---",
+        "type: threads",
+        "title: Retained Thread",
+        "relations:",
+        "  mentions:",
+        "    - raw/2026-05-21/codex-1.md",
+        "    - raw/2026-05-22/codex-2.md",
+        "---",
+        "",
+        "RETAINED-THREAD-BODY-MUST-NOT-AFFECT-PROPOSALS",
+        "",
+      ].join("\n"),
+    );
+    const llm = fakeLLM("memory-fort-settings");
+
+    const result = await runThreadPropose({
+      vaultRoot: tmp,
+      apply: false,
+      days: 30,
+      maxProposals: 1,
+      now: new Date("2026-05-28T12:00:00.000Z"),
+      configLoader: async () => ({
+        llm: { provider: "ollama", model: "llama3.2" },
+      }),
+      llmFactory: () => llm,
+      env: {},
+    });
+
+    expect(result.proposed).toBe(1);
+    expect(llm.chat).toHaveBeenCalled();
+  });
+
   it("does not starve a cluster that shares only one observation with a thread", async () => {
     await writeMarkdown(
       "wiki/threads/settings-arc.md",
