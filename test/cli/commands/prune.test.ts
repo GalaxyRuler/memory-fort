@@ -155,6 +155,27 @@ describe("runPrune", () => {
     expect(forget.plan.archive).toEqual([compactArchive]);
   });
 
+  it("does not offer case-variant wiki archive pages as prune candidates", async () => {
+    await writeWikiPage(
+      "Archive/2026-05-24/wiki/projects/retained.md",
+      {
+        type: "projects",
+        title: "Retained archive",
+        created: "2025-01-01",
+        updated: "2025-01-01",
+        status: "active",
+        confidence: 0.1,
+      },
+      "Retained archive body.",
+    );
+
+    const plan = await runPrune({ mode: "plan", now: new Date("2026-05-24T00:00:00.000Z") });
+
+    expect(plan.candidates.map((candidate) => candidate.path)).not.toContain(
+      "wiki/Archive/2026-05-24/wiki/projects/retained.md",
+    );
+  });
+
   async function seedPruneVault(): Promise<void> {
     await writeWikiPage(
       "projects/eligible.md",

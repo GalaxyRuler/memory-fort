@@ -131,7 +131,7 @@ export async function runForget(opts: ForgetOptions = {}): Promise<ForgetResult>
     generated: generated.map((page) => page.relPath).sort(),
     relations: generated.filter((page) => page.hasDerivedRelation).map((page) => page.relPath).sort(),
     archive: [
-      ...(await findArchivedCopies(root, selectedRaw)),
+      ...(await findArchivedCopies(root, selectedRaw, selectors.sourceIds)),
       ...(await findArchivedFactCopies(root, selectedRaw)),
     ].sort(),
     crystals: await listMarkdownFiles(root, "crystals"),
@@ -398,31 +398,25 @@ function rawPathFromRecord(value: unknown): string | null {
   return typeof sourceRawPath === "string" ? sourceRawPath.replace(/\\/g, "/") : null;
 }
 
-async function findArchivedCopies(root: string, selectedRaw: Set<string>): Promise<string[]> {
+async function findArchivedCopies(
+  root: string,
+  selectedRaw: Set<string>,
+  selectedSourceIds: readonly string[],
+): Promise<string[]> {
   const results = new Set<string>();
-  const selectedSources = await sourceIdsForRawPaths(root, selectedRaw);
+  const selectedSources = new Set(selectedSourceIds.filter((source) => source !== "unknown"));
   for (const relPath of await listMarkdownFiles(root, "raw")) {
     if (!hasArchiveOrSystemPathComponent(relPath)) continue;
     const original = archiveOriginalPath(relPath);
     const source = await readRawSource(root, relPath);
     if ((original && selectedRaw.has(original)) || selectedSources.has(source)) results.add(relPath);
   }
-  for (const directory of ["wiki/archive", "wiki/.archive", ".archive"]) {
-    for (const relPath of await listFiles(root, directory)) {
-      const original = archiveOriginalPath(relPath);
-      if (original && selectedRaw.has(original)) results.add(relPath);
-    }
+  for (const relPath of await listMarkdownFiles(root, "wiki")) {
+    if (!hasArchiveOrSystemPathComponent(relPath)) continue;
+    const original = archiveOriginalPath(relPath);
+    if (original && selectedRaw.has(original)) results.add(relPath);
   }
   return [...results].sort();
-}
-
-async function sourceIdsForRawPaths(root: string, paths: Set<string>): Promise<Set<string>> {
-  const sources = new Set<string>();
-  for (const relPath of paths) {
-    const source = await readRawSource(root, relPath);
-    if (source !== "unknown") sources.add(source);
-  }
-  return sources;
 }
 
 function archiveOriginalPath(relPath: string): string | null {
@@ -620,8 +614,30 @@ function formatForgetReport(mode: ForgetMode, plan: ForgetPlan, erased: string[]
     "External backup discovery: unavailable or not configured",
     `Status: ${mode === "apply" ? "live-erased/history-retained" : "planned; history-retained"}`,
   ];
-  if (plan.blocked.length > 0) lines.push(`Blocked manual curated pages: ${plan.blocked.join(", ")}`);
+  if (mode === "plan") {
+    appendInventorySection(lines, "Planned live raw paths", plan.raw);
+    appendInventorySection(lines, "Planned derived fact files to delete", plan.facts);
+    appendInventorySection(lines, "Planned derived fact files to redact", plan.rewrittenFacts);
+    appendInventorySection(lines, "Planned generated pages to delete", plan.generated);
+    appendInventorySection(lines, "Planned provenance relations to remove", plan.relations);
+    appendInventorySection(lines, "Current SQLite FTS paths to clear", plan.index.fts);
+    appendInventorySection(lines, "Current SQLite vector paths to clear", plan.index.vectors);
+    lines.push("", `Derived SQLite index to rebuild: ${plan.index.path}`);
+    appendInventorySection(lines, "Preserved archived copies", plan.archive);
+    appendInventorySection(lines, "Preserved crystals", plan.crystals);
+    appendInventorySection(lines, "Preserved Git commits", plan.history.gitCommits);
+    appendInventorySection(lines, "Preserved vault-local backup manifests", plan.history.backupManifests);
+    lines.push("External backups: unavailable or not configured");
+    appendInventorySection(lines, "Blocked manual curated pages", plan.blocked);
+  }
+  if (mode !== "plan" && plan.blocked.length > 0) lines.push(`Blocked manual curated pages: ${plan.blocked.join(", ")}`);
   if (plan.rewrittenFacts.length > 0) lines.push(`Partially redacted fact files retained: ${plan.rewrittenFacts.join(", ")}`);
   if (erased.length > 0) lines.push("", "Live material erased:", ...erased.map((path) => `- ${path}`));
   return `${lines.join("\n")}\n`;
+}
+
+function appendInventorySection(lines: string[], heading: string, paths: readonly string[]): void {
+  lines.push("", `${heading}: ${paths.length}`);
+  if (paths.length === 0) lines.push("- (none)");
+  else lines.push(...paths.map((path) => `- ${path}`));
 }

@@ -177,11 +177,11 @@ describe("vector search", () => {
     ]);
   });
 
-  it("excludes archived vector candidates before the limit unless requested", async () => {
+  it("excludes frontmatter-archived vector candidates before the limit unless requested", async () => {
     const { vaultRoot, indexDb } = await createHarness();
     const profile = profileFingerprint();
     for (let index = 0; index < 5; index += 1) {
-      const relPath = `wiki/archive/archived-${index}.md`;
+      const relPath = `wiki/projects/archived-${index}.md`;
       await writeVaultFile(
         vaultRoot,
         relPath,
@@ -191,7 +191,7 @@ describe("vector search", () => {
     await writeVaultFile(vaultRoot, "wiki/active.md", "# Active\n\nactive semantic payload");
     await reconcileIndex(indexDb, vaultRoot);
     for (let index = 0; index < 5; index += 1) {
-      await embedPath(indexDb, `wiki/archive/archived-${index}.md`, profile, vector(index));
+      await embedPath(indexDb, `wiki/projects/archived-${index}.md`, profile, vector(index));
     }
     await embedPath(indexDb, "wiki/active.md", profile, vector(10));
 
@@ -206,7 +206,7 @@ describe("vector search", () => {
     expect(twoStageVectorSearch(indexDb.database, base).map((result) => result.relPath))
       .toEqual(["wiki/active.md"]);
     expect(twoStageVectorSearch(indexDb.database, { ...base, includeArchived: true }).map((result) => result.relPath))
-      .toEqual(["wiki/archive/archived-0.md"]);
+      .toEqual(["wiki/projects/archived-0.md"]);
   });
 
   it("applies as_of before the vector candidate limit", async () => {

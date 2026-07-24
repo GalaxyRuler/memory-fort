@@ -14,7 +14,7 @@ import {
   type LifecycleStage,
   type ValidationState,
 } from "../storage/frontmatter.js";
-import { isWikiDotDirectoryPath } from "../retrieval/wiki-paths.js";
+import { hasArchiveOrSystemPathComponent } from "../storage/archive-paths.js";
 import { classifySearchKind, type SearchKind } from "../search/kind.js";
 
 export interface ReconcileIndexResult {
@@ -361,8 +361,7 @@ async function* walkDirectory(root: string, dir: string, kind: IndexedFileKind):
 }
 
 function isExcludedDotDirectoryPath(relPath: string): boolean {
-  const normalized = relPath.replace(/\\/g, "/");
-  return isWikiDotDirectoryPath(normalized) || /^raw\/\.[^/]+(?:\/|$)/u.test(normalized);
+  return hasArchiveOrSystemPathComponent(relPath);
 }
 
 function writeIndexedFile(

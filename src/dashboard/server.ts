@@ -957,6 +957,10 @@ function createDashboardIndexSearchController(opts: {
   }
 
   function isCurrentFence(fence: IndexGeneration): boolean {
+    // This check is the search operation's linearization point: callers run
+    // it immediately before constructing a result from this generation. A
+    // fence published after a true result cannot retract an already-built HTTP
+    // response, but every later search observes the newer fence.
     const current = currentGeneration();
     return current !== null && current.state === fence.state && current.token === fence.token;
   }

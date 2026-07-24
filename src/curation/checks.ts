@@ -8,8 +8,8 @@ import {
 } from "../storage/frontmatter.js";
 import { getConfidenceScore } from "../storage/confidence.js";
 import { wikiDir } from "../storage/paths.js";
+import { hasArchiveOrSystemPathComponent } from "../storage/archive-paths.js";
 import { readRelationTarget } from "../retrieval/relations.js";
-import { isWikiDotDirectoryPath } from "../retrieval/wiki-paths.js";
 
 export interface WikiPage {
   /** Relative path under wiki/ (e.g. "projects/agentmemory.md"). Forward slashes. */
@@ -79,7 +79,7 @@ export async function loadWiki(rootDir?: string): Promise<WikiPage[]> {
       const full = join(dir, entry.name);
       if (entry.isDirectory()) {
         const relDir = relative(root, full).replace(/\\/g, "/");
-        if (relDir.split("/")[0] === "archive" || isWikiDotDirectoryPath(`wiki/${relDir}/placeholder`)) {
+        if (hasArchiveOrSystemPathComponent(`wiki/${relDir}`)) {
           continue;
         }
         await walk(full);

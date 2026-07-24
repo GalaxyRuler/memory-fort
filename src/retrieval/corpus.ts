@@ -16,7 +16,7 @@ import {
 } from "../storage/frontmatter.js";
 import { buildGraph } from "./graph.js";
 import { readRelations, type RelationMap } from "./relations.js";
-import { isWikiDotDirectoryPath } from "./wiki-paths.js";
+import { hasArchiveOrSystemPathComponent } from "../storage/archive-paths.js";
 
 export type { SearchKind, SearchScope } from "../search/kind.js";
 // Source identifier for a memory document. Originally a strict union of agent
@@ -284,21 +284,13 @@ async function collectMarkdownFiles(
 
     entries.sort((a, b) => a.name.localeCompare(b.name));
     for (const entry of entries) {
-      // Dot entries under raw/ are system space (compact-raw's .compact-archive);
-      // never feed archived originals into the search corpus / graph.
-      if (topLevel === "raw" && entry.name.startsWith(".")) continue;
       const fullPath = join(dir, entry.name);
       const relPath = toVaultRelPath(vaultRoot, fullPath);
+      // Archive and dot/system components are not active corpus material.
+      if (hasArchiveOrSystemPathComponent(relPath)) continue;
       if (entry.isDirectory()) {
-        if (
-          topLevel === "wiki" &&
-          (relPath.startsWith("wiki/archive/") || isWikiDotDirectoryPath(relPath))
-        ) {
-          continue;
-        }
         await walk(fullPath);
       } else if (entry.isFile() && entry.name.endsWith(".md")) {
-        if (topLevel === "wiki" && isWikiDotDirectoryPath(relPath)) continue;
         files.push({
           kind: TOP_LEVEL[topLevel],
           relPath,

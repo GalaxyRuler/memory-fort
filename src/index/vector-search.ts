@@ -6,6 +6,7 @@ import type { SearchScope } from "../retrieval/corpus.js";
 import { canonicalizeAsOf } from "../retrieval/temporal-filter.js";
 import { classifySearchKind, searchScopeSql } from "../search/kind.js";
 import type { IndexDb, SqliteDatabase } from "./db.js";
+import { activeArchiveSystemPathSql } from "./archive-filter.js";
 import {
   type EmbedClient,
   type EmbeddingProfileFingerprint,
@@ -1449,9 +1450,7 @@ function vectorActiveDocumentSql(filesAlias: string): string {
   return [
     `coalesce(${filesAlias}.frontmatterStatus, '') NOT IN ('archived', 'superseded')`,
     `coalesce(${filesAlias}.frontmatterLifecycle, '') <> 'archived'`,
-    `${filesAlias}.relPath NOT GLOB 'wiki/archive/*'`,
-    `${filesAlias}.relPath NOT GLOB 'wiki/.archive/*'`,
-    `${filesAlias}.relPath NOT GLOB 'raw/.compact-archive/*'`,
+    ...activeArchiveSystemPathSql(filesAlias),
   ].join(" AND ");
 }
 

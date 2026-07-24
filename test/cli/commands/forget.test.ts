@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { runForget } from "../../../src/cli/commands/forget.js";
 import { openIndexDb, openReadOnlyIndexDb } from "../../../src/index/db.js";
+import { lexicalSearch } from "../../../src/index/search.js";
 import { reconcileIndex } from "../../../src/index/reconcile.js";
 import { loadSearchCorpus } from "../../../src/retrieval/corpus.js";
 
@@ -35,6 +36,9 @@ describe("runForget", () => {
   it("defaults to a non-mutating provenance plan for a canonical raw selector", async () => {
     const raw = "raw/2026-05-20/codex-session.md";
     await seedAttributableRaw(raw);
+    await writeAt("raw/.compact-archive/2026-05-24/2026-05-20/codex-session.md", "archived session");
+    await writeAt("crystals/keep.md", "retained crystal");
+    await writeAt("backups/backup-manifest.json", "{}\n");
     await rebuildFixtureIndex();
 
     const result = await runForget({ rawPaths: [raw] });
@@ -47,6 +51,13 @@ describe("runForget", () => {
     expect(result.plan.index.fts).toEqual([raw, "wiki/projects/generated.md"]);
     expect(result.plan.history.status).toBe("history-retained");
     expect(result.report).toContain("history-retained");
+    expect(result.report).toContain("Planned live raw paths: 1\n- raw/2026-05-20/codex-session.md");
+    expect(result.report).toContain("Planned derived fact files to delete: 1\n- facts/2026-05-20/session.json");
+    expect(result.report).toContain("Planned generated pages to delete: 1\n- wiki/projects/generated.md");
+    expect(result.report).toContain("Planned provenance relations to remove: 1\n- wiki/projects/generated.md");
+    expect(result.report).toContain("Preserved archived copies: 1\n- raw/.compact-archive/2026-05-24/2026-05-20/codex-session.md");
+    expect(result.report).toContain("Preserved crystals: 1\n- crystals/keep.md");
+    expect(result.report).toContain("Preserved vault-local backup manifests: 1\n- backups/backup-manifest.json");
     expect(existsSync(join(root, ...raw.split("/")))).toBe(true);
   });
 
@@ -116,6 +127,7 @@ describe("runForget", () => {
 
     const plan = await runForget({ rawPaths: [raw] });
     expect(plan.plan.blocked).toEqual(["wiki/projects/manual.md"]);
+    expect(plan.report).toContain("Blocked manual curated pages: 1\n- wiki/projects/manual.md");
     await expect(runForget({ mode: "apply", rawPaths: [raw] }))
       .rejects.toThrow("ambiguous manual curated content");
     expect(existsSync(join(root, ...raw.split("/")))).toBe(true);
@@ -162,6 +174,42 @@ describe("runForget", () => {
         .rejects.toThrow("archived raw copies cannot be selected");
       await expect(runForget({ paths: [archivedPath] }))
         .rejects.toThrow("archived raw copies cannot be selected");
+    }
+  });
+
+  it("does not over-claim another raw's protected copy for a direct raw selector", async () => {
+    const selected = "raw/2026-05-20/codex-selected.md";
+    const selectedArchive = "raw/.compact-archive/2026-05-24/2026-05-20/codex-selected.md";
+    const unrelatedArchive = "raw/.retained.md";
+    await writeAt(selected, "selected sensitive session");
+    await writeAt(selectedArchive, "selected retained copy");
+    await writeAt(unrelatedArchive, "---\nsource: codex\n---\n\nunrelated retained copy\n");
+
+    const plan = await runForget({ rawPaths: [selected] });
+
+    expect(plan.plan.archive).toEqual([selectedArchive]);
+  });
+
+  it("keeps case-variant archive copies unmutated and out of the rebuilt default index", async () => {
+    const raw = "raw/2026-05-20/codex-session.md";
+    const rawArchive = "raw/Archive/2026-05-24/codex-archive.md";
+    const wikiArchive = "wiki/Archive/2026-05-24/raw/2026-05-20/codex-session.md";
+    await seedAttributableRaw(raw);
+    await writeAt(rawArchive, "---\nsource: codex\n---\n\ncase raw archive token\n");
+    await writeAt(wikiArchive, "case wiki archive token\n");
+    await rebuildFixtureIndex();
+
+    const result = await runForget({ mode: "apply", sourceIds: ["codex"] });
+
+    expect(result.plan.archive).toEqual([rawArchive, wikiArchive]);
+    await expect(readFile(join(root, ...rawArchive.split("/")), "utf8")).resolves.toContain("case raw archive token");
+    await expect(readFile(join(root, ...wikiArchive.split("/")), "utf8")).resolves.toContain("case wiki archive token");
+    const index = openReadOnlyIndexDb({ vaultRoot: root });
+    try {
+      expect(lexicalSearch(index, "case raw archive token")).toEqual([]);
+      expect(lexicalSearch(index, "case wiki archive token")).toEqual([]);
+    } finally {
+      index.close();
     }
   });
 

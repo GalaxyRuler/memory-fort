@@ -62,6 +62,18 @@ describe("loadWiki", () => {
     const paths = pages.map((p) => p.path).sort();
     expect(paths).toEqual(["lessons/b.md", "projects/a.md"]);
   });
+
+  it("excludes case-variant archive and dot/system directories", async () => {
+    await mkdir(join(tmp, "projects"), { recursive: true });
+    await mkdir(join(tmp, "Archive", "2026-05-24"), { recursive: true });
+    await mkdir(join(tmp, ".archive", "2026-05-24"), { recursive: true });
+    const pageContent = `---\ntype: projects\ntitle: Retained\ncreated: "2026-05-21"\nupdated: "2026-05-21"\n---\nbody\n`;
+    await writeFile(join(tmp, "projects", "live.md"), pageContent);
+    await writeFile(join(tmp, "Archive", "2026-05-24", "retained.md"), pageContent);
+    await writeFile(join(tmp, ".archive", "2026-05-24", "retained.md"), pageContent);
+
+    expect((await loadWiki(tmp)).map((page) => page.path)).toEqual(["projects/live.md"]);
+  });
 });
 
 describe("checkFrontmatter", () => {

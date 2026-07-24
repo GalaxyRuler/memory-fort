@@ -1,9 +1,14 @@
+import { writeFileSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+
+const lexicalSearchHook = vi.hoisted(() => ({
+  afterResult: null as null | (() => void),
+}));
 
 vi.mock("../../src/retrieval/corpus.js", async () => {
   const actual = await vi.importActual<typeof import("../../src/retrieval/corpus.js")>(
@@ -17,10 +22,22 @@ vi.mock("../../src/retrieval/corpus.js", async () => {
   };
 });
 
+vi.mock("../../src/index/search.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/index/search.js")>();
+  return {
+    ...actual,
+    lexicalSearch: (...args: Parameters<typeof actual.lexicalSearch>) => {
+      const result = actual.lexicalSearch(...args);
+      lexicalSearchHook.afterResult?.();
+      return result;
+    },
+  };
+});
+
 import { createServer, type RunningServer } from "../../src/dashboard/server.js";
 import { startIndexWriter } from "../../src/dashboard/index-writer.js";
 import { deleteIndexDbFiles, openIndexDb, type IndexDb } from "../../src/index/db.js";
-import { beginIndexInvalidation } from "../../src/index/generation.js";
+import { beginIndexInvalidation, indexGenerationPath } from "../../src/index/generation.js";
 import {
   createEmbeddingProfileFingerprint,
   type EmbeddingProfileFingerprint,
@@ -50,6 +67,7 @@ describe("dashboard index search route", () => {
     }
     if (tempDir) await rm(tempDir, { recursive: true, force: true });
     tempDir = null;
+    lexicalSearchHook.afterResult = null;
     vi.clearAllMocks();
   });
 
@@ -251,6 +269,52 @@ describe("dashboard index search route", () => {
     expect(body.results).toEqual([]);
     expect(body.index.lastError).toContain("invalidation");
     expect(executor.close).toHaveBeenCalled();
+  });
+
+  it("does not fall back to lexical results when the vector executor errors after invalidation", async () => {
+    const { vaultRoot, indexDbPath } = await createIndexedVault();
+    const executor = fakeSearchExecutor("lexical-plus-vector");
+    let rejectSearch: ((reason?: unknown) => void) | null = null;
+    executor.search.mockImplementationOnce(() => new Promise((_, reject) => {
+      rejectSearch = reject;
+    }));
+    server = await createServer({
+      vaultRoot,
+      port: 0,
+      env: { MEMORY_INDEX_DB_PATH: indexDbPath, MEMORY_INDEX_VECTORS: "1" },
+      voyageClient: null,
+      searchExecutor: executor,
+    });
+
+    const pending = fetch(`http://${server.host}:${server.port}/api/search?q=needle&limit=5`);
+    await until(() => executor.search.mock.calls.length === 1);
+    await beginIndexInvalidation(vaultRoot);
+    rejectSearch?.(new Error("vector worker failed"));
+
+    const response = await pending;
+    const body = await response.json();
+    expect(body.results).toEqual([]);
+    expect(body.index.lastError).toContain("invalidation");
+    expect(executor.close).toHaveBeenCalled();
+  });
+
+  it("rechecks the generation fence immediately before direct lexical response construction", async () => {
+    const { vaultRoot, indexDbPath } = await createIndexedVault();
+    server = await createServer({
+      vaultRoot,
+      port: 0,
+      env: { MEMORY_INDEX_DB_PATH: indexDbPath },
+      voyageClient: null,
+    });
+    await mkdir(dirname(indexGenerationPath(vaultRoot)), { recursive: true });
+    lexicalSearchHook.afterResult = () => {
+      writeFileSync(indexGenerationPath(vaultRoot), "invalidating:direct-lexical-fence\n", "utf8");
+    };
+
+    const response = await fetch(`http://${server.host}:${server.port}/api/search?q=needle&limit=5`);
+    const body = await response.json();
+    expect(body.results).toEqual([]);
+    expect(body.index.lastError).toContain("invalidation");
   });
 
   it("returns factual indexed provenance instead of receipt defaults", async () => {

@@ -53,12 +53,12 @@ describe("lexicalSearch", () => {
       .toEqual(["wiki/projects/in-scope.md"]);
   });
 
-  it("excludes archived documents before the FTS candidate limit by default", async () => {
+  it("excludes frontmatter-archived documents before the FTS candidate limit by default", async () => {
     const { vaultRoot, indexDb } = await createHarness();
     for (let index = 0; index < 25; index += 1) {
       await writeVaultFile(
         vaultRoot,
-        `wiki/archive/archived-${String(index).padStart(2, "0")}.md`,
+        `wiki/projects/archived-${String(index).padStart(2, "0")}.md`,
         [
           "---",
           "title: Archived",
@@ -79,7 +79,7 @@ describe("lexicalSearch", () => {
       .toEqual(["wiki/projects/active.md"]);
     expect(
       lexicalSearch(indexDb, "needle", { limit: 1, scope: "wiki", includeArchived: true }).map((result) => result.relPath),
-    ).toEqual(["wiki/archive/archived-00.md"]);
+    ).toEqual(["wiki/projects/archived-00.md"]);
   });
 
   it("applies as_of validity before the FTS candidate limit", async () => {
