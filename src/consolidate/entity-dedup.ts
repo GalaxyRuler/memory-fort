@@ -5,6 +5,7 @@ import { loadSearchCorpus } from "../retrieval/corpus.js";
 import { readRelations, writeRelations, type RelationMap } from "../retrieval/relations.js";
 import { isEntityWikiPath } from "../retrieval/wiki-paths.js";
 import { atomicWrite } from "../storage/atomic-write.js";
+import { hasArchiveOrSystemPathComponent } from "../storage/archive-paths.js";
 import { parseFrontmatter, serializeFrontmatter } from "../storage/frontmatter.js";
 import { kebabCase } from "../storage/slug.js";
 
@@ -382,10 +383,12 @@ async function collectRelationMarkdownFiles(vaultRoot: string): Promise<string[]
     }
     for (const entry of entries) {
       const fullPath = join(dir, entry.name);
+      const relPath = relative(vaultRoot, fullPath).replace(/\\/g, "/");
+      if (hasArchiveOrSystemPathComponent(relPath)) continue;
       if (entry.isDirectory()) {
         await walk(fullPath);
       } else if (entry.isFile() && entry.name.endsWith(".md")) {
-        files.push(relative(vaultRoot, fullPath).replace(/\\/g, "/"));
+        files.push(relPath);
       }
     }
   }

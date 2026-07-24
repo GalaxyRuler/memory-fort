@@ -4,6 +4,7 @@ import { dirname, extname, join, relative, resolve } from "node:path";
 import { mutateCompileStateFile, readCompileStateFile, readConsumedMap, writeCompileStateFile } from "../../compile/state.js";
 import { truncateMiddle } from "../../hooks/raw-file.js";
 import { atomicWrite } from "../../storage/atomic-write.js";
+import { hasArchiveOrSystemPathComponent } from "../../storage/archive-paths.js";
 import { formatIsoDate, memoryRoot } from "../../storage/paths.js";
 import {
   commitVaultChange as defaultCommitVaultChange,
@@ -182,12 +183,13 @@ async function listRawMarkdown(root: string): Promise<string[]> {
 
   async function walk(dir: string): Promise<void> {
     for (const entry of await readdir(dir, { withFileTypes: true })) {
-      if (entry.name === ".compact-archive") continue;
       const full = join(dir, entry.name);
+      const relPath = `raw/${relative(rawRoot, full).replace(/\\/g, "/")}`;
+      if (hasArchiveOrSystemPathComponent(relPath)) continue;
       if (entry.isDirectory()) {
         await walk(full);
       } else if (entry.isFile() && entry.name.endsWith(".md")) {
-        files.push(`raw/${relative(rawRoot, full).replace(/\\/g, "/")}`);
+        files.push(relPath);
       }
     }
   }

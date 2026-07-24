@@ -69,11 +69,13 @@ describe("dashboard loaders", () => {
   it("loadCounts counts .md files across all three trees, ignoring other extensions", async () => {
     await mkdir(join(tmp, "wiki", "projects"), { recursive: true });
     await mkdir(join(tmp, "wiki", "Archive"), { recursive: true });
+    await mkdir(join(tmp, "wiki", "_archive"), { recursive: true });
     await mkdir(join(tmp, "raw", "2026-05-23"), { recursive: true });
     await mkdir(join(tmp, "crystals"), { recursive: true });
     await writeFile(join(tmp, "wiki", "a.md"), "# A\n");
     await writeFile(join(tmp, "wiki", "projects", "b.md"), "# B\n");
     await writeFile(join(tmp, "wiki", "Archive", "retained.md"), "# retained\n");
+    await writeFile(join(tmp, "wiki", "_archive", "retained.md"), "# maintenance retained\n");
     await writeFile(join(tmp, "wiki", "projects", ".retained.md"), "# system\n");
     await writeFile(join(tmp, "wiki", "ignore.txt"), "nope\n");
     for (let i = 0; i < 5; i += 1) {
@@ -528,10 +530,11 @@ describe("dashboard loaders", () => {
     expect(index.byCategory.projects.map((entry) => entry.slug)).toEqual(["alpha", "zeta"]);
   });
 
-  it("loadWikiIndex excludes case-variant archive and dot/system components", async () => {
+  it("loadWikiIndex excludes case-variant archive, maintenance archive, and dot/system components", async () => {
     await mkdir(join(tmp, "wiki", "projects"), { recursive: true });
     await mkdir(join(tmp, "wiki", ".audit"), { recursive: true });
     await mkdir(join(tmp, "wiki", "Archive"), { recursive: true });
+    await mkdir(join(tmp, "wiki", "_archive"), { recursive: true });
     await writeFile(
       join(tmp, "wiki", "projects", "visible.md"),
       page({ type: "projects", title: "Visible", created: "2026-05-21", updated: "2026-05-23" }, "Visible summary.\n"),
@@ -545,6 +548,10 @@ describe("dashboard loaders", () => {
       page({ type: "projects", title: "Case archive", created: "2026-05-29", updated: "2026-05-29" }, "Archive summary.\n"),
     );
     await writeFile(
+      join(tmp, "wiki", "_archive", "old.md"),
+      page({ type: "projects", title: "Maintenance archive", created: "2026-05-29", updated: "2026-05-29" }, "Archive summary.\n"),
+    );
+    await writeFile(
       join(tmp, "wiki", "projects", ".retained.md"),
       page({ type: "projects", title: "Retained", created: "2026-05-29", updated: "2026-05-29" }, "Retained summary.\n"),
     );
@@ -555,6 +562,7 @@ describe("dashboard loaders", () => {
     expect(JSON.stringify(index)).not.toContain(".audit");
     expect(JSON.stringify(index)).not.toContain("Audit Log");
     expect(JSON.stringify(index)).not.toContain("Case archive");
+    expect(JSON.stringify(index)).not.toContain("Maintenance archive");
     expect(JSON.stringify(index)).not.toContain("Retained");
   });
 
@@ -604,7 +612,7 @@ describe("dashboard loaders", () => {
     await expect(loadPageDetail(tmp, "projects/ghost.md")).resolves.toBeNull();
   });
 
-  it("loadPageDetail rejects archive and dot/system paths", async () => {
+  it("loadPageDetail rejects archive, maintenance archive, and dot/system paths", async () => {
     await mkdir(join(tmp, "wiki", ".audit"), { recursive: true });
     await writeFile(
       join(tmp, "wiki", ".audit", "llm-2026-05-29.md"),
@@ -613,6 +621,7 @@ describe("dashboard loaders", () => {
 
     await expect(loadPageDetail(tmp, ".audit/llm-2026-05-29.md")).resolves.toBeNull();
     await expect(loadPageDetail(tmp, "Archive/old.md")).resolves.toBeNull();
+    await expect(loadPageDetail(tmp, "_archive/old.md")).resolves.toBeNull();
     await expect(loadPageDetail(tmp, "projects/.retained.md")).resolves.toBeNull();
   });
 
@@ -634,10 +643,12 @@ describe("dashboard loaders", () => {
     await mkdir(join(tmp, "raw", "2026-05-21"), { recursive: true });
     await mkdir(join(tmp, "raw", ".compact-archive", "2026-05-21"), { recursive: true });
     await mkdir(join(tmp, "raw", "Archive", "2026-05-21"), { recursive: true });
+    await mkdir(join(tmp, "raw", "_archive", "2026-05-21"), { recursive: true });
     await writeFile(join(tmp, "raw", "2026-05-21", "visible.md"), "visible\n");
     await writeFile(join(tmp, "raw", "2026-05-21", ".hidden.md"), "hidden\n");
     await writeFile(join(tmp, "raw", ".compact-archive", "2026-05-21", "archived.md"), "archived\n");
     await writeFile(join(tmp, "raw", "Archive", "2026-05-21", "archived.md"), "archived\n");
+    await writeFile(join(tmp, "raw", "_archive", "2026-05-21", "archived.md"), "archived\n");
 
     const entries = await loadRawIndex(tmp);
 
@@ -648,11 +659,14 @@ describe("dashboard loaders", () => {
 
   it("does not load protected raw archive or system sessions by direct path", async () => {
     await mkdir(join(tmp, "raw", "Archive"), { recursive: true });
+    await mkdir(join(tmp, "raw", "_archive"), { recursive: true });
     await mkdir(join(tmp, "raw", "2026-05-21"), { recursive: true });
     await writeFile(join(tmp, "raw", "Archive", "retained.md"), "retained\n");
+    await writeFile(join(tmp, "raw", "_archive", "retained.md"), "retained\n");
     await writeFile(join(tmp, "raw", "2026-05-21", ".retained.md"), "retained\n");
 
     await expect(loadRawSession(tmp, "Archive", "retained.md")).resolves.toBeNull();
+    await expect(loadRawSession(tmp, "_archive", "retained.md")).resolves.toBeNull();
     await expect(loadRawSessionDetail(tmp, "2026-05-21", ".retained.md")).resolves.toBeNull();
   });
 

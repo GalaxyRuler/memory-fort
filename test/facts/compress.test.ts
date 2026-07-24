@@ -7,7 +7,7 @@ import { CURRENT_COMPRESS_VERSION, compressSession, mergeCompressedFacts } from 
 import type { CompressedFact } from "../../src/facts/store.js";
 import { runCompress } from "../../src/cli/commands/compress.js";
 import { readCompileStateFile, writeCompileStateFile } from "../../src/compile/state.js";
-import { readCompressedFactFile } from "../../src/facts/store.js";
+import { loadCompressedFacts, readCompressedFactFile } from "../../src/facts/store.js";
 import type { LLMProvider, LLMRequest } from "../../src/llm/types.js";
 
 describe("memory fact compression", () => {
@@ -127,6 +127,29 @@ describe("memory fact compression", () => {
     expect(newFacts[0]?.relations).toEqual([
       { subject: "Memory System", predicate: "uses", object: "Vitest" },
     ]);
+  });
+
+  it("loads only live fact files and keeps retained archive/system facts out of compile inputs", async () => {
+    const factFile = (title: string) => JSON.stringify({
+      facts: [{
+        title,
+        facts: [title],
+        narrative: title,
+        concepts: ["Memory System"],
+        files: [],
+        importance: 5,
+        sessionId: "session-a",
+        sourceRawPath: "raw/2026-05-31/session-a.md",
+        observedAt: "2026-05-31T00:00:00.000Z",
+        compressedAt: "2026-05-31T01:00:00.000Z",
+      }],
+    });
+    await writeFileAt("facts/2026-05-31/live.json", factFile("Live fact"));
+    await writeFileAt("facts/Archive/retained.json", factFile("Archive fact"));
+    await writeFileAt("facts/_archive/retained.json", factFile("Maintenance archive fact"));
+    await writeFileAt("facts/.audit/retained.json", factFile("System fact"));
+
+    await expect(loadCompressedFacts(tmp)).resolves.toMatchObject([{ title: "Live fact" }]);
   });
 
   it("sends a full below-threshold session instead of the old 4KB head slice", async () => {

@@ -1567,6 +1567,9 @@ export function validateMaintenancePaths(
     if (parseSafeRelativeSegments(p) === null) {
       return { ok: false, message: `path traversal not allowed: ${p}` };
     }
+    if (hasArchiveOrSystemPathComponent(`wiki/${p}`)) {
+      return { ok: false, message: `protected archive or system path not allowed: ${p}` };
+    }
     validated.push(p);
   }
   return { ok: true, paths: validated };

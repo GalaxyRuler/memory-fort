@@ -91,6 +91,7 @@ describe("lexicalSearch", () => {
     );
     await reconcileIndex(indexDb, vaultRoot);
     insertPreexistingIndexRecord(indexDb, "wiki/Archive/retained.md", "archiveinclude token");
+    insertPreexistingIndexRecord(indexDb, "wiki/_archive/retained.md", "archiveinclude token");
     insertPreexistingIndexRecord(indexDb, "raw/.retained.md", "archiveinclude token");
     insertPreexistingIndexRecord(indexDb, "archive/retained.md", "archiveinclude token");
 

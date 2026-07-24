@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { readFile, readdir } from "node:fs/promises";
 import { basename, join, relative } from "node:path";
 import { atomicWrite } from "../storage/atomic-write.js";
+import { hasArchiveOrSystemPathComponent } from "../storage/archive-paths.js";
 
 export const COMPRESSED_FACT_TYPES = [
   "project",
@@ -100,6 +101,8 @@ async function listJsonFiles(root: string): Promise<string[]> {
     const entries = await readdir(dir, { withFileTypes: true });
     for (const entry of entries) {
       const fullPath = join(dir, entry.name);
+      const relPath = relative(root, fullPath).replace(/\\/g, "/");
+      if (hasArchiveOrSystemPathComponent(`facts/${relPath}`)) continue;
       if (entry.isDirectory()) {
         await walk(fullPath);
       } else if (entry.isFile() && entry.name.endsWith(".json")) {

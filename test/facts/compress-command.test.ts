@@ -19,6 +19,7 @@ function chunkEchoLlm(): LLMProvider {
     chat: vi.fn(async (request: LLMRequest) => {
       const prompt = request.messages.at(-1)?.content ?? "";
       const chunk = /Chunk (\d+) of/.exec(prompt)?.[1] ?? "1";
+      const evidence = evidenceFromPrompt(prompt);
       return {
         model: "llama3.2",
         finishReason: "stop" as const,
@@ -29,12 +30,13 @@ function chunkEchoLlm(): LLMProvider {
           JSON.stringify({
             facts: [{
               title: `Window fact from chunk ${chunk}`,
-              facts: [`fact ${chunk}`],
-              narrative: `narrative ${chunk}`,
+              facts: [evidence],
+              narrative: evidence,
               concepts: ["concept"],
               files: [],
               importance: 5,
               type: "fact",
+              evidence,
             }],
           }),
           "```",
@@ -44,8 +46,13 @@ function chunkEchoLlm(): LLMProvider {
   };
 }
 
+function evidenceFromPrompt(prompt: string): string {
+  return /Session text:\n```markdown\n([\s\S]*?)\n```/.exec(prompt)?.[1] ?? prompt;
+}
+
 const CONFIG = {
   llm: { provider: "ollama", model: "llama3.2" },
+  compile: { faithfulness_check: false },
   compress: { chunk_threshold_bytes: 1_500, max_chunks: 2 },
 };
 
@@ -117,10 +124,10 @@ describe("compress resumable command", () => {
     expect(titles).toContain("chunk 5"); // a late window is present
   });
 
-  it("preserves facts extracted before compact-raw truncated their source content (merge on restart)", async () => {
-    // Audit finding 2 reproduction: a fact extracted from rich ToolUse output,
-    // then compact-raw truncates that output (bytes change, archive hidden from
-    // the walker) and a recompress restart used to OVERWRITE the fact file.
+  it("does not reintroduce facts from compact-raw archive content into the live fact corpus", async () => {
+    // A fact extracted from rich ToolUse output is intentionally discarded when
+    // compact-raw removes that source text from the live file. The retained
+    // archive remains inventory only and is never read to merge old facts back.
     const compactRel = "raw/2026-07-16/session-compact.md";
     await mkdir(join(root, "raw", "2026-07-16"), { recursive: true });
     const bigBlock = formatToolUseBlock({
@@ -139,13 +146,14 @@ describe("compress resumable command", () => {
       chat: vi.fn(async (request: LLMRequest) => {
         const prompt = request.messages.at(-1)?.content ?? "";
         const title = prompt.includes("MIDDLE-ONLY-MARKER") ? "Middle-only fact" : "Compacted fallback";
+        const evidence = evidenceFromPrompt(prompt);
         return {
           model: "llama3.2",
           finishReason: "stop" as const,
           rawProviderName: "ollama",
           content: [
             "```json",
-            JSON.stringify({ facts: [{ title, facts: [title], narrative: title, concepts: ["c"], files: [], importance: 5 }] }),
+            JSON.stringify({ facts: [{ title, facts: [evidence], narrative: evidence, concepts: ["c"], files: [], importance: 5, evidence }] }),
             "```",
           ].join("\n"),
         };
@@ -154,7 +162,7 @@ describe("compress resumable command", () => {
     const bigOpts = {
       vaultRoot: root,
       apply: true,
-      configLoader: async () => ({ llm: { provider: "ollama", model: "llama3.2" } }),
+      configLoader: async () => ({ llm: { provider: "ollama", model: "llama3.2" }, compile: { faithfulness_check: false } }),
       llmFactory: () => contentAwareLlm,
       env: {},
       now: new Date("2026-07-16T12:00:00.000Z"),
@@ -176,10 +184,10 @@ describe("compress resumable command", () => {
     const liveAfter = await readFile(join(root, compactRel), "utf-8");
     expect(liveAfter).not.toContain("MIDDLE-ONLY-MARKER"); // source content is gone from the live file
 
-    await runCompress(bigOpts); // bytes changed -> restart -> must MERGE, not overwrite
+    await runCompress(bigOpts); // bytes changed -> restart from live compacted content only
     factBytes = await readFile(join(root, ...factRel.split("/")), "utf-8");
-    expect(factBytes).toContain("Middle-only fact"); // preserved
-    expect(factBytes).toContain("Compacted fallback"); // new content's fact also present
+    expect(factBytes).not.toContain("Middle-only fact");
+    expect(factBytes).toContain("Compacted fallback");
   });
 
   it("re-compresses a same-BYTE-LENGTH in-place edit instead of reporting 'already compressed'", async () => {
@@ -190,9 +198,11 @@ describe("compress resumable command", () => {
     const echo: LLMProvider = {
       providerName: "ollama", modelName: "llama3.2",
       chat: vi.fn(async (req: LLMRequest) => {
-        const title = (req.messages.at(-1)?.content ?? "").includes("OLD-MARKER") ? "Old fact" : "New fact";
+        const prompt = req.messages.at(-1)?.content ?? "";
+        const title = prompt.includes("OLD-MARKER") ? "Old fact" : "New fact";
+        const evidence = evidenceFromPrompt(prompt);
         return { model: "llama3.2", finishReason: "stop" as const, rawProviderName: "ollama",
-          content: ["```json", JSON.stringify({ facts: [{ title, facts: [title], narrative: title, concepts: ["c"], files: [], importance: 5 }] }), "```"].join("\n") };
+          content: ["```json", JSON.stringify({ facts: [{ title, facts: [evidence], narrative: evidence, concepts: ["c"], files: [], importance: 5, evidence }] }), "```"].join("\n") };
       }),
     };
     const o = { ...opts(root), llmFactory: () => echo };
@@ -210,7 +220,7 @@ describe("compress resumable command", () => {
     expect(after).not.toContain("Old fact");
   });
 
-  it("compaction lineage expires: a later unrelated edit after compaction discards stale facts (N2)", async () => {
+  it("never carries retained archive facts back into the live fact corpus after compaction", async () => {
     const rel = "raw/2026-07-16/session-lin.md";
     await mkdir(join(root, "raw", "2026-07-16"), { recursive: true });
     const block = formatToolUseBlock({
@@ -224,24 +234,27 @@ describe("compress resumable command", () => {
       chat: vi.fn(async (req: LLMRequest) => {
         const p = req.messages.at(-1)?.content ?? "";
         const title = p.includes("MIDDLE-ONLY-MARKER") ? "Middle fact" : p.includes("FINAL-EDIT") ? "Final fact" : "Compacted fallback";
+        const evidence = evidenceFromPrompt(p);
         return { model: "llama3.2", finishReason: "stop" as const, rawProviderName: "ollama",
-          content: ["```json", JSON.stringify({ facts: [{ title, facts: [title], narrative: title, concepts: ["c"], files: [], importance: 5 }] }), "```"].join("\n") };
+          content: ["```json", JSON.stringify({ facts: [{ title, facts: [evidence], narrative: evidence, concepts: ["c"], files: [], importance: 5, evidence }] }), "```"].join("\n") };
       }),
     };
     // Large single-window config so the first pass sees the whole block and
     // extracts "Middle fact" (not a tiny-chunk sample that misses the middle).
     const o = {
       vaultRoot: root, apply: true,
-      configLoader: async () => ({ llm: { provider: "ollama", model: "llama3.2" } }),
+      configLoader: async () => ({ llm: { provider: "ollama", model: "llama3.2" }, compile: { faithfulness_check: false } }),
       llmFactory: () => aware, env: {}, now: new Date("2026-07-16T12:00:00.000Z"), logger: () => undefined,
     };
     await runCompress(o);                                      // extract "Middle fact"
     await runCompactRaw({ vaultRoot: root, mode: "apply", maxInputBytes: 100, maxOutputBytes: 100, commitVaultChange: vi.fn(async () => ({ kind: "no-changes" as const })) as never });
-    await runCompress(o);                                      // compaction restart: preserve "Middle fact"
+    await runCompress(o);                                      // compaction restart: rederive only from live compacted content
     const factRel = factFileRelPath(rel, "session-lin");
-    expect(await readFile(join(root, ...factRel.split("/")), "utf-8")).toContain("Middle fact");
+    const afterCompaction = await readFile(join(root, ...factRel.split("/")), "utf-8");
+    expect(afterCompaction).toContain("Compacted fallback");
+    expect(afterCompaction).not.toContain("Middle fact");
 
-    // Later UNRELATED edit (archive still exists from the compaction).
+    // Later unrelated edit is likewise derived solely from the live source.
     await new Promise((r) => setTimeout(r, 10));
     await writeFile(join(root, rel), "session: session-lin\n## [10:00:00] Prompt\nFINAL-EDIT only\n", "utf-8");
     await runCompress(o);
@@ -262,18 +275,19 @@ describe("compress resumable command", () => {
       chat: vi.fn(async (request: LLMRequest) => {
         const prompt = request.messages.at(-1)?.content ?? "";
         const title = prompt.includes("OLD-MARKER") ? "Old fact" : "New fact";
+        const evidence = evidenceFromPrompt(prompt);
         return {
           model: "llama3.2",
           finishReason: "stop" as const,
           rawProviderName: "ollama",
-          content: ["```json", JSON.stringify({ facts: [{ title, facts: [title], narrative: title, concepts: ["c"], files: [], importance: 5 }] }), "```"].join("\n"),
+          content: ["```json", JSON.stringify({ facts: [{ title, facts: [evidence], narrative: evidence, concepts: ["c"], files: [], importance: 5, evidence }] }), "```"].join("\n"),
         };
       }),
     };
     const editOpts = {
       vaultRoot: root,
       apply: true,
-      configLoader: async () => ({ llm: { provider: "ollama", model: "llama3.2" } }),
+      configLoader: async () => ({ llm: { provider: "ollama", model: "llama3.2" }, compile: { faithfulness_check: false } }),
       llmFactory: () => contentAwareLlm,
       env: {},
       now: new Date("2026-07-16T12:00:00.000Z"),

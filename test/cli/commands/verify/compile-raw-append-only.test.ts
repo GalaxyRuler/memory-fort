@@ -95,6 +95,24 @@ describe("compile.raw-append-only verify check", () => {
     expect(result.status).toBe("pass");
   });
 
+  it("ignores retained archive and system watermarks in the default live check", async () => {
+    await writeRaw("raw/_archive/retained.md", "x");
+    await writeRaw("raw/.compact-archive/retained.md", "x");
+    await writeCompileStateFile(root, {
+      consumed: {
+        "raw/_archive/retained.md": { bytes: 100 },
+        "raw/.compact-archive/retained.md": { bytes: 100 },
+      },
+    });
+
+    const result = await checkCompileRawAppendOnly({
+      vaultRoot: root,
+      now: () => new Date("2026-06-17T00:00:00.000Z"),
+    });
+
+    expect(result.status).toBe("pass");
+  });
+
   async function writeRaw(relPath: string, content: string): Promise<void> {
     const fullPath = join(root, ...relPath.split("/"));
     await mkdir(join(fullPath, ".."), { recursive: true });

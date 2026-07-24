@@ -1,9 +1,10 @@
 import { existsSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { observedDateFromAgentMemoryKey, uuidv7ToTimestamp } from "../../migration/uuidv7-timestamp.js";
 import { formatIsoDate } from "../../storage/paths.js";
 import { atomicWrite } from "../../storage/atomic-write.js";
+import { hasArchiveOrSystemPathComponent } from "../../storage/archive-paths.js";
 import { parseFrontmatter, serializeFrontmatter } from "../../storage/frontmatter.js";
 import { memoryRoot } from "../../storage/paths.js";
 
@@ -87,6 +88,8 @@ async function listMarkdownFiles(root: string, topDirs: string[]): Promise<strin
     if (!existsSync(dir)) return;
     for (const entry of await readdir(dir, { withFileTypes: true })) {
       const fullPath = join(dir, entry.name);
+      const relPath = relative(root, fullPath).replace(/\\/g, "/");
+      if (hasArchiveOrSystemPathComponent(relPath)) continue;
       if (entry.isDirectory()) await walk(fullPath);
       else if (entry.isFile() && entry.name.endsWith(".md")) files.push(fullPath);
     }

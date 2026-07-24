@@ -40,6 +40,33 @@ describe("runCompactRaw", () => {
     expect(result.archived).toEqual([]);
   });
 
+  it("does not plan or compact protected archive and system raw paths", async () => {
+    const archivePath = join(root, "raw", "Archive", "retained.md");
+    const canonicalArchivePath = join(root, "raw", "_archive", "retained.md");
+    const systemPath = join(root, "raw", ".compact-archive", "retained.md");
+    await mkdir(join(root, "raw", "Archive"), { recursive: true });
+    await mkdir(join(root, "raw", "_archive"), { recursive: true });
+    await mkdir(join(root, "raw", ".compact-archive"), { recursive: true });
+    const retained = rawFixture();
+    await Promise.all([
+      writeFile(archivePath, retained),
+      writeFile(canonicalArchivePath, retained),
+      writeFile(systemPath, retained),
+    ]);
+
+    const result = await runCompactRaw({
+      vaultRoot: root,
+      mode: "plan",
+      maxInputBytes: 300,
+      maxOutputBytes: 300,
+    });
+
+    expect(result.files).toEqual([]);
+    await expect(readFile(archivePath, "utf-8")).resolves.toBe(retained);
+    await expect(readFile(canonicalArchivePath, "utf-8")).resolves.toBe(retained);
+    await expect(readFile(systemPath, "utf-8")).resolves.toBe(retained);
+  });
+
   it("applies compaction, archives originals, preserves observation count, and is idempotent", async () => {
     const rawPath = join(root, "raw", "2026-05-21", "codex-big.md");
     const original = rawFixture();

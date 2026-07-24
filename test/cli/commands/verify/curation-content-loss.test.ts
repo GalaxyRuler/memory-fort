@@ -108,6 +108,18 @@ describe("curationContentLossCheck", () => {
     });
   });
 
+  it("does not surface archive or system canonical pages from explicit rewrite history", async () => {
+    await writeFileAt("wiki/Archive/retained.md", page("Retained archive summary."));
+    await writeFileAt("wiki/.history/wiki/Archive/retained.md/2026-05-31T12-00-00-000Z.md", page(
+      "Retained archive previously referenced [[tools/codex]].",
+      { relations: { uses: ["wiki/tools/codex.md"] } },
+    ));
+
+    const result = await curationContentLossCheck.run({ vaultRoot: tmp, now: () => new Date("2026-05-31") });
+
+    expect(result).toMatchObject({ id: "curation.content-loss", status: "pass" });
+  });
+
   async function writeFileAt(relPath: string, content: string): Promise<void> {
     const fullPath = join(tmp, ...relPath.split("/"));
     await mkdir(dirname(fullPath), { recursive: true });

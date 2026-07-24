@@ -219,9 +219,11 @@ describe("vector search", () => {
     );
     await reconcileIndex(indexDb, vaultRoot);
     insertPreexistingIndexRecord(indexDb, "wiki/Archive/retained.md", "protected archived payload");
+    insertPreexistingIndexRecord(indexDb, "wiki/_archive/retained.md", "protected archived payload");
     insertPreexistingIndexRecord(indexDb, "archive/retained.md", "protected archived payload");
     await embedPath(indexDb, "wiki/projects/ordinary-archived.md", profile, vector(1));
     await embedPath(indexDb, "wiki/Archive/retained.md", profile, vector(0));
+    await embedPath(indexDb, "wiki/_archive/retained.md", profile, vector(0));
     await embedPath(indexDb, "archive/retained.md", profile, vector(0));
 
     expect(twoStageVectorSearch(indexDb.database, {

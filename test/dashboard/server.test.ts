@@ -2387,6 +2387,23 @@ describe("dashboard server", () => {
     }
   });
 
+  it("POST /api/maintenance/archive refuses retained maintenance archive paths", async () => {
+    const server = await createServer({ vaultRoot: tmp, port: 0 });
+    try {
+      const response = await fetch(`http://${server.host}:${server.port}/api/maintenance/archive`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ paths: ["_archive/tools/git.md"] }),
+      });
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toMatchObject({
+        error: expect.stringContaining("protected archive or system path"),
+      });
+    } finally {
+      await server.close();
+    }
+  });
+
   it("POST /api/maintenance/archive returns 400 for path traversal", async () => {
     const server = await createServer({ vaultRoot: tmp, port: 0 });
     try {

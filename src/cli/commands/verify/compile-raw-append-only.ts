@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { stat } from "node:fs/promises";
 import { join } from "node:path";
 import { readCompileStateFile, readConsumedMap } from "../../../compile/state.js";
+import { hasArchiveOrSystemPathComponent } from "../../../storage/archive-paths.js";
 import { fail, pass, type CheckDescriptor, type RunCheckOptions, type VerifyCheckResult } from "./types.js";
 
 const ID = "compile.raw-append-only";
@@ -31,6 +32,7 @@ export async function checkCompileRawAppendOnly(
 
   const regressions: string[] = [];
   for (const [relPath, watermark] of Object.entries(consumed).sort(([a], [b]) => a.localeCompare(b))) {
+    if (hasArchiveOrSystemPathComponent(relPath)) continue;
     const fullPath = join(ctx.vaultRoot, ...relPath.split("/"));
     if (!existsSync(fullPath)) continue;
     const info = await stat(fullPath);

@@ -10,6 +10,10 @@ export function activeArchiveSystemPathSql(filesAlias: string): string[] {
     `${path} NOT GLOB 'archive/*'`,
     `${path} NOT GLOB '*/archive'`,
     `${path} NOT GLOB '*/archive/*'`,
+    `${path} NOT GLOB '_archive'`,
+    `${path} NOT GLOB '_archive/*'`,
+    `${path} NOT GLOB '*/_archive'`,
+    `${path} NOT GLOB '*/_archive/*'`,
     `${path} NOT GLOB '.*'`,
     `${path} NOT GLOB '*/.*'`,
   ];

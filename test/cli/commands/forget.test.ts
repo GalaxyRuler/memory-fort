@@ -203,10 +203,12 @@ describe("runForget", () => {
     const compactArchive = "raw/.compact-archive/2026-05-24/2026-05-20/codex-session.md";
     const dotArchive = "raw/.retained.md";
     const caseArchive = "raw/Archive/2026-05-24/codex-session.md";
+    const maintenanceArchive = "wiki/_archive/retained.md";
     await writeAt(raw, "---\nsource: codex\n---\n\nlive sensitive session\n");
     await writeAt(compactArchive, "---\nsource: codex\n---\n\nretained compact archive\n");
     await writeAt(dotArchive, "---\nsource: codex\n---\n\nretained dot archive\n");
     await writeAt(caseArchive, "---\nsource: codex\n---\n\nretained case archive\n");
+    await writeAt(maintenanceArchive, "retained maintenance archive\n");
 
     const plan = await runForget({ sourceIds: ["codex"] });
     expect(plan.plan.raw).toEqual([raw]);
@@ -224,7 +226,7 @@ describe("runForget", () => {
       await expect(runForget({ paths: [archivedPath] }))
         .rejects.toThrow("protected archive or system paths cannot be selected");
     }
-    for (const protectedWikiPath of ["wiki/Archive/retained.md", "wiki/projects/.retained.md"]) {
+    for (const protectedWikiPath of ["wiki/Archive/retained.md", "wiki/_archive/retained.md", "wiki/projects/.retained.md"]) {
       await expect(runForget({ paths: [protectedWikiPath] }))
         .rejects.toThrow("protected archive or system paths cannot be selected");
     }
@@ -297,7 +299,7 @@ describe("runForget", () => {
     expect(existsSync(process.env["MEMORY_INDEX_DB_PATH"]!)).toBe(false);
   });
 
-  it("invalidates stale derived search state before reporting an incomplete rebuild", async () => {
+  it("returns a truthful partial receipt when the deterministic rebuild fixture fails after live mutations", async () => {
     const raw = "raw/2026-05-20/codex-session.md";
     await seedAttributableRaw(raw);
     await rebuildFixtureIndex();
@@ -305,11 +307,33 @@ describe("runForget", () => {
     expect(existsSync(indexPath)).toBe(true);
     await writeAt("wiki/projects/malformed.md", "---\ntitle: [\n---\n\nmalformed\n");
 
-    await expect(runForget({ mode: "apply", rawPaths: [raw] }))
-      .rejects.toThrow("live data erased but derived index rebuild/index invalidation is incomplete");
+    let failure: unknown;
+    try {
+      await runForget({ mode: "apply", rawPaths: [raw] });
+    } catch (error) {
+      failure = error;
+    }
+
+    expect(failure).toBeInstanceOf(ForgetPartialMutationError);
+    const receipt = (failure as ForgetPartialMutationError).receipt;
+    expect(receipt).toMatchObject({
+      status: "partial-live-mutation/rebuild-incomplete",
+      erased: expect.arrayContaining([
+        raw,
+        "facts/2026-05-20/session.json",
+        "wiki/projects/generated.md",
+      ]),
+      rewritten: [],
+      failed: { operation: "rebuild", path: "derived-index" },
+    });
+    expect(receipt.report).toContain("Status: partial-live-mutation/rebuild-incomplete");
+    expect(receipt.report).toContain("Failed rebuild: derived-index");
+    expect((failure as Error).message).toContain("partial live mutation");
+    expect((failure as Error).message).toContain("Completed live deletions: 3");
 
     expect(existsSync(join(root, ...raw.split("/")))).toBe(false);
     expect(existsSync(indexPath)).toBe(false);
+    expect(readIndexGeneration(root).state).toBe("invalidating");
   });
 
   it("blocks a generated page with multi-lineage instead of deleting its unrelated source material", async () => {

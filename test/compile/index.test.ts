@@ -24,6 +24,7 @@ describe("rebuildIndex", () => {
     await writePage("wiki/compile-proposed/draft.md", "projects", "Draft", "Draft should stay out.");
     await writePage("wiki/archive/old.md", "projects", "Old", "Archived should stay out.");
     await writePage("wiki/Archive/old-case.md", "projects", "Case archive", "Case archive should stay out.");
+    await writePage("wiki/_archive/maintenance.md", "projects", "Maintenance archive", "Maintenance archive should stay out.");
     await writePage("wiki/.audit/llm.md", "tools", "Audit", "Audit should stay out.");
     await writePage("wiki/projects/.retained.md", "projects", "Retained", "Operational leaf should stay out.");
     await writeFile(join(tmp, "index.md"), "# stale\n\n- [Acme](wiki/projects/acme.md) - duplicate\n");
@@ -41,6 +42,7 @@ describe("rebuildIndex", () => {
     expect(first.content).not.toContain("Draft");
     expect(first.content).not.toContain("Old");
     expect(first.content).not.toContain("Case archive");
+    expect(first.content).not.toContain("Maintenance archive");
     expect(first.content).not.toContain("Audit");
     expect(first.content).not.toContain("Operational leaf");
 

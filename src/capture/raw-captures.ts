@@ -1,5 +1,6 @@
 import { readdir, stat } from "node:fs/promises";
 import { join, relative } from "node:path";
+import { hasArchiveOrSystemPathComponent } from "../storage/archive-paths.js";
 
 export type RawCaptureSource =
   | "claude-code"
@@ -90,6 +91,7 @@ export async function listRawCaptureFiles(
 
   for (const dateEntry of dateEntries) {
     if (!dateEntry.isDirectory()) continue;
+    if (hasArchiveOrSystemPathComponent(`raw/${dateEntry.name}`)) continue;
     const fullDir = join(rawRoot, dateEntry.name);
     const directoryCaptures = opts.cache
       ? await readCachedRawCaptureDirectory(vaultRoot, fullDir, dateEntry.name, opts.cache)
@@ -143,6 +145,8 @@ async function readRawCaptureDirectory(
     if (!fileEntry.name.endsWith(".md")) continue;
 
     const fullPath = join(fullDir, fileEntry.name);
+    const relPath = relative(vaultRoot, fullPath).replace(/\\/g, "/");
+    if (hasArchiveOrSystemPathComponent(relPath)) continue;
     let info;
     try {
       info = await stat(fullPath);
@@ -154,7 +158,7 @@ async function readRawCaptureDirectory(
     captures.push({
       date,
       filename: fileEntry.name,
-      relPath: relative(vaultRoot, fullPath).replace(/\\/g, "/"),
+      relPath,
       fullPath,
       source: parseRawCaptureSourceFromFilename(fileEntry.name),
       sessionId: parseRawCaptureSessionIdFromFilename(fileEntry.name),

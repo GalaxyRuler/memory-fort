@@ -78,7 +78,7 @@ export interface ForgetPartialMutationReceipt {
   plan: ForgetPlan;
   erased: string[];
   rewritten: string[];
-  failed: { operation: "delete" | "rewrite"; path: string; detail: string };
+  failed: { operation: "delete" | "rewrite" | "rebuild"; path: string; detail: string };
   report: string;
 }
 
@@ -92,7 +92,10 @@ export class ForgetPartialMutationError extends Error {
 
   constructor(receipt: ForgetPartialMutationReceipt) {
     super(
-      `memory forget: partial live mutation; derived index remains quiesced after failed ${receipt.failed.operation} ${receipt.failed.path}: ${receipt.failed.detail}`,
+      [
+        `memory forget: partial live mutation; derived index remains quiesced after failed ${receipt.failed.operation} ${receipt.failed.path}: ${receipt.failed.detail}`,
+        receipt.report.trimEnd(),
+      ].join("\n"),
     );
     this.name = "ForgetPartialMutationError";
     this.receipt = receipt;
@@ -214,31 +217,28 @@ export async function runForget(opts: ForgetOptions = {}): Promise<ForgetResult>
       erased.push(relPath);
     }
   } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
-    const receipt: ForgetPartialMutationReceipt = {
-      mode: "apply",
-      status: "partial-live-mutation/rebuild-incomplete",
-      plan,
-      erased: erased.sort(),
-      rewritten: rewritten.sort(),
-      failed: {
-        operation: failed?.operation ?? "delete",
-        path: failed?.path ?? "unknown",
-        detail,
-      },
-      report: formatForgetPartialMutationReport(plan, erased, rewritten, {
-        operation: failed?.operation ?? "delete",
-        path: failed?.path ?? "unknown",
-        detail,
-      }),
-    };
-    throw new ForgetPartialMutationError(receipt);
+    throw partialForgetMutationError(plan, erased, rewritten, {
+      operation: failed?.operation ?? "delete",
+      path: failed?.path ?? "unknown",
+      detail: error instanceof Error ? error.message : String(error),
+    });
   }
 
   // Both generated index.md and SQLite FTS/vector state are derived data. The
   // previous SQLite generation is invalidated before any fallible rebuild so a
   // malformed unrelated page cannot leave deleted material searchable.
-  await rebuildDerivedState(root);
+  try {
+    await rebuildDerivedState(root);
+  } catch (error) {
+    // Every requested live mutation has completed, but derived state remains
+    // invalidating. Surface the same truthful receipt shape as a mid-mutation
+    // failure so CLI callers do not mistake this for an ordinary rebuild error.
+    throw partialForgetMutationError(plan, erased, rewritten, {
+      operation: "rebuild",
+      path: "derived-index",
+      detail: error instanceof Error ? error.message : String(error),
+    });
+  }
 
   return {
     mode,
@@ -709,4 +709,22 @@ function formatForgetPartialMutationReport(
   appendInventorySection(lines, "Completed fact rewrites", [...rewritten].sort());
   appendInventorySection(lines, "Planned live raw paths", plan.raw);
   return `${lines.join("\n")}\n`;
+}
+
+function partialForgetMutationError(
+  plan: ForgetPlan,
+  erased: readonly string[],
+  rewritten: readonly string[],
+  failed: ForgetPartialMutationReceipt["failed"],
+): ForgetPartialMutationError {
+  const receipt: ForgetPartialMutationReceipt = {
+    mode: "apply",
+    status: "partial-live-mutation/rebuild-incomplete",
+    plan,
+    erased: [...erased].sort(),
+    rewritten: [...rewritten].sort(),
+    failed,
+    report: formatForgetPartialMutationReport(plan, erased, rewritten, failed),
+  };
+  return new ForgetPartialMutationError(receipt);
 }

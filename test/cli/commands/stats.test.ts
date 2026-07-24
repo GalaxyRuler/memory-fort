@@ -29,8 +29,11 @@ describe("runStats", () => {
 
   it("counts raw markdown files recursively", async () => {
     await mkdir(join(tmp, "raw", "2026-05-21"), { recursive: true });
+    await mkdir(join(tmp, "raw", "_archive"), { recursive: true });
     await writeFile(join(tmp, "raw", "2026-05-21", "a.md"), "x");
     await writeFile(join(tmp, "raw", "2026-05-21", "b.md"), "y");
+    await writeFile(join(tmp, "raw", "_archive", "retained.md"), "archived");
+    await writeFile(join(tmp, "raw", ".retained.md"), "system");
     const result = await runStats();
     expect(result.raw.files).toBe(2);
     expect(result.raw.bytes).toBe(2);
@@ -39,8 +42,12 @@ describe("runStats", () => {
   it("counts wiki markdown files across subdirs", async () => {
     await mkdir(join(tmp, "wiki", "projects"), { recursive: true });
     await mkdir(join(tmp, "wiki", "lessons"), { recursive: true });
+    await mkdir(join(tmp, "wiki", "Archive"), { recursive: true });
+    await mkdir(join(tmp, "wiki", "_archive"), { recursive: true });
     await writeFile(join(tmp, "wiki", "projects", "a.md"), "x");
     await writeFile(join(tmp, "wiki", "lessons", "b.md"), "yy");
+    await writeFile(join(tmp, "wiki", "Archive", "retained.md"), "archive");
+    await writeFile(join(tmp, "wiki", "_archive", "retained.md"), "maintenance archive");
     const result = await runStats();
     expect(result.wiki.files).toBe(2);
     expect(result.wiki.bytes).toBe(3);

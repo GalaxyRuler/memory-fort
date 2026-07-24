@@ -248,22 +248,14 @@ export async function runCompress(opts: CompressOptions = {}): Promise<CompressR
         startChunk,
       });
 
-      // Decide whether to preserve prior facts by MERGING, or discard them by
-      // overwriting. Preserve when:
-      //   - their watermark is already at the current safety-contract version,
-      //   - the bytes are unchanged (a resume, or a config-only re-chunk), OR
-      //   - an archive copy exists whose content hash equals the PRIOR
-      //     watermark's sourceHash — i.e. this change is a compaction of exactly
-      //     the content the prior facts were extracted from, now living only in
-      //     the (walker-excluded) archive.
-      // Earlier versions predate the v4 evidence/faithfulness gate, so even a
-      // same-content artifact is not trusted or carried forward.
-      // Binding to the prior source hash (not mere archive existence) is what
-      // stops a later unrelated edit from preserving stale facts forever: after
-      // a compaction the watermark's sourceHash advances to the compacted
-      // content, so a subsequent edit's prior hash matches no archive copy.
+      // Prior facts are only carried forward for an unchanged live source
+      // (resume or config-only re-chunk). Archived raw content is never read to
+      // influence the live fact corpus: using an archive hash to preserve its
+      // earlier facts would reintroduce retained material into live context.
+      // Earlier versions predate the v4 evidence/faithfulness gate, so even an
+      // unchanged artifact is not trusted or carried forward.
       const preservePrior = versionMatches && priorValid && priorFacts.length > 0
-        && ((bytesMatch && sourceUnchanged) || await archiveHasSourceHash(root, raw.relPath, watermark?.sourceHash));
+        && bytesMatch && sourceUnchanged;
       const mergedFacts = preservePrior
         ? mergeCompressedFacts([...priorFacts, ...result.facts])
         : result.facts;
@@ -405,39 +397,6 @@ export function formatCompressResult(result: CompressResult): string {
   return `${lines.join("\n")}\n`;
 }
 
-
-/**
- * True when compact-raw archived a copy of this raw file whose content hash
- * equals `targetHash` (the prior watermark's sourceHash — the content the prior
- * facts were extracted from). This proves the current byte change is a
- * compaction of exactly that source version, so the prior facts should be
- * preserved. Existence alone is NOT enough: after a compaction the watermark's
- * sourceHash advances, so a later unrelated edit's prior hash matches no archive
- * copy and its stale facts are correctly discarded. compact-raw archives to
- * raw/.compact-archive/<date>/<original-relPath> (leading "raw/" stripped).
- */
-async function archiveHasSourceHash(root: string, rawRelPath: string, targetHash: string | undefined): Promise<boolean> {
-  if (!targetHash) return false;
-  const archiveRoot = join(root, "raw", ".compact-archive");
-  if (!existsSync(archiveRoot)) return false;
-  let dates: string[];
-  try {
-    dates = await readdir(archiveRoot);
-  } catch {
-    return false;
-  }
-  const relParts = rawRelPath.replace(/^raw\//, "").split("/");
-  for (const date of dates) {
-    const candidate = join(archiveRoot, date, ...relParts);
-    if (!existsSync(candidate)) continue;
-    try {
-      if (sha256(await readFile(candidate, "utf-8")) === targetHash) return true;
-    } catch {
-      // unreadable archive copy — ignore
-    }
-  }
-  return false;
-}
 
 async function writeCompressionRejectionReview(opts: {
   vaultRoot: string;

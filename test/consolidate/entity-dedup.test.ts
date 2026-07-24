@@ -118,6 +118,13 @@ describe("entity dedup", () => {
       updated: "2026-05-28",
       relations: { mentions: [{ target: "Atlas Studio", confidence: 0.9 }] },
     });
+    await writePage("wiki/_archive/retained.md", {
+      type: "references",
+      title: "Retained relation",
+      created: "2026-05-28",
+      updated: "2026-05-28",
+      relations: { linked: ["wiki/projects/atlasstudio.md"] },
+    });
 
     const result = await mergeEntityAliases({
       vaultRoot: tmp,
@@ -138,6 +145,7 @@ describe("entity dedup", () => {
     await expect(readFile(join(tmp, "wiki", ".entity-aliases.json"), "utf-8")).resolves.toContain('"Atlas Studio": "wiki/projects/atlas-studio.md"');
     expect(await relationTargets("wiki/tools/vitest.md", "linked")).toEqual(["wiki/projects/atlas-studio.md"]);
     expect(await relationTargets("raw/2026-05-28/codex-session.md", "mentions")).toEqual(["wiki/projects/atlas-studio.md"]);
+    expect(await relationTargets("wiki/_archive/retained.md", "linked")).toEqual(["wiki/projects/atlasstudio.md"]);
   });
 
   it("commits entity review, merge, and reject mutations with explicit vault paths", async () => {

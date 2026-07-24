@@ -106,6 +106,30 @@ describe("map agentmemory entries", () => {
     expect(plan.actions[0]!.relPath).toBe("wiki/decisions/use-memory-fort.imported.md");
   });
 
+  it("does not treat protected archive pages as live import dedupe candidates", async () => {
+    await mkdir(join(memDir, "wiki", "_archive", "decisions"), { recursive: true });
+    await writeFile(
+      join(memDir, "wiki", "_archive", "decisions", "use-memory-fort.md"),
+      "---\ntype: decisions\ntitle: Use Memory Fort\ncreated: \"2026-05-01\"\nupdated: \"2026-05-01\"\n---\n\nRetained historical body.\n",
+    );
+
+    const plan = await planAgentMemoryImport({
+      entries: [
+        entry("mem:memories", "mem_1", {
+          id: "mem_1",
+          type: "decision",
+          title: "Use Memory Fort",
+          content: "Current canonical body.",
+          updatedAt: "2026-05-25T10:00:00.000Z",
+        }),
+      ],
+      root: memDir,
+    });
+
+    expect(plan.actions[0]!.action).toBe("write");
+    expect(plan.actions[0]!.relPath).toBe("wiki/decisions/use-memory-fort.md");
+  });
+
   it("dedupes an existing imported conflict by content hash before title", async () => {
     await mkdir(join(memDir, "wiki", "decisions"), { recursive: true });
     await writeFile(

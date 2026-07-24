@@ -69,6 +69,34 @@ describe("runRewriteImportedTimestamps", () => {
     expect(second).toEqual({ scanned: 3, updated: 0, skippedExisting: 2, skippedNoTimestamp: 1 });
   });
 
+  it("does not scan or rewrite retained archive and system documents", async () => {
+    const imported = {
+      type: "raw-session",
+      title: "Imported",
+      created: "2026-05-26",
+      updated: "2026-05-26",
+      imported_from: {
+        system: "agentmemory",
+        original_key: "mem:obs:019e45fc-5e01-7180-9f0c-114a3b1f941a",
+      },
+    };
+    await writePage("raw/2026-05-26/live.md", imported);
+    await writePage("raw/Archive/retained.md", imported);
+    await writePage("wiki/_archive/retained.md", imported);
+    await writePage("crystals/.audit/retained.md", imported);
+
+    await expect(runRewriteImportedTimestamps({ root: tmp })).resolves.toEqual({
+      scanned: 1,
+      updated: 1,
+      skippedExisting: 0,
+      skippedNoTimestamp: 0,
+    });
+    expect((await readFrontmatter("raw/2026-05-26/live.md"))["observed_at"]).toBe("2026-05-20");
+    await expect(readFrontmatter("raw/Archive/retained.md")).resolves.not.toHaveProperty("observed_at");
+    await expect(readFrontmatter("wiki/_archive/retained.md")).resolves.not.toHaveProperty("observed_at");
+    await expect(readFrontmatter("crystals/.audit/retained.md")).resolves.not.toHaveProperty("observed_at");
+  });
+
   async function writePage(relPath: string, frontmatter: Record<string, unknown>): Promise<void> {
     const fullPath = join(tmp, ...relPath.split("/"));
     await mkdir(join(fullPath, ".."), { recursive: true });

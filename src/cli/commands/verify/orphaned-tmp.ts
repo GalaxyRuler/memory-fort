@@ -1,6 +1,7 @@
 import { readdir, stat } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { existsSync } from "node:fs";
+import { hasArchiveOrSystemPathComponent } from "../../../storage/archive-paths.js";
 import { pass, warn, type CheckDescriptor, type VerifyCheckResult, type RunCheckOptions } from "./types.js";
 
 const STALE_TMP_MS = 60 * 60 * 1000;
@@ -28,12 +29,14 @@ export async function checkOrphanedTmp(ctx: RunCheckOptions): Promise<VerifyChec
     }
     for (const entry of entries) {
       const full = join(dir, entry.name);
+      const relPath = relative(ctx.vaultRoot, full).replace(/\\/g, "/");
+      if (hasArchiveOrSystemPathComponent(relPath)) continue;
       if (entry.isDirectory()) {
         if (!SKIP_DIRS.has(entry.name)) await walk(full);
       } else if (entry.isFile() && TMP_RE.test(entry.name)) {
         const info = await stat(full).catch(() => null);
         if (info && nowMs - info.mtimeMs > STALE_TMP_MS) {
-          stale.push(relative(ctx.vaultRoot, full).replace(/\\/g, "/"));
+          stale.push(relPath);
         }
       }
     }

@@ -10,10 +10,12 @@ describe("listRawMarkdownFiles", () => {
     await mkdir(join(root, "raw", "2026-07-17"), { recursive: true });
     await mkdir(join(root, "raw", ".compact-archive", "2026-07-17"), { recursive: true });
     await mkdir(join(root, "raw", "Archive", "2026-07-17"), { recursive: true });
+    await mkdir(join(root, "raw", "_archive", "2026-07-17"), { recursive: true });
     await writeFile(join(root, "raw", "2026-07-17", "a.md"), "live", "utf-8");
     await writeFile(join(root, "raw", "2026-07-17", ".hidden.md"), "dot-file", "utf-8");
     await writeFile(join(root, "raw", ".compact-archive", "2026-07-17", "a.md"), "archived body", "utf-8");
     await writeFile(join(root, "raw", "Archive", "2026-07-17", "a.md"), "case archive", "utf-8");
+    await writeFile(join(root, "raw", "_archive", "2026-07-17", "a.md"), "maintenance archive", "utf-8");
 
     const files = await listRawMarkdownFiles(root);
 

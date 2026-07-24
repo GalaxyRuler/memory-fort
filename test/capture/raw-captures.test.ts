@@ -1,5 +1,8 @@
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, it, expect } from "vitest";
-import { parseRawCaptureSourceFromFilename } from "../../src/capture/raw-captures.js";
+import { listRawCaptureFiles, parseRawCaptureSourceFromFilename } from "../../src/capture/raw-captures.js";
 
 describe("parseRawCaptureSourceFromFilename — new clients", () => {
   it("detects chatgpt", () => {
@@ -32,5 +35,24 @@ describe("parseRawCaptureSourceFromFilename — new clients", () => {
     expect(parseRawCaptureSourceFromFilename("antigravity-abc.md")).toBe("antigravity");
     expect(parseRawCaptureSourceFromFilename("claude-desktop-abc.md")).toBe("claude-desktop");
     expect(parseRawCaptureSourceFromFilename("manual-abc.md")).toBe("manual");
+  });
+
+  it("keeps archive and system raw captures out of default activity scans", async () => {
+    const root = await mkdtemp(join(tmpdir(), "raw-captures-"));
+    try {
+      await mkdir(join(root, "raw", "2026-07-24"), { recursive: true });
+      await mkdir(join(root, "raw", "Archive", "2026-07-24"), { recursive: true });
+      await mkdir(join(root, "raw", "_archive", "2026-07-24"), { recursive: true });
+      await writeFile(join(root, "raw", "2026-07-24", "codex-live.md"), "live");
+      await writeFile(join(root, "raw", "2026-07-24", ".codex-system.md"), "system");
+      await writeFile(join(root, "raw", "Archive", "2026-07-24", "codex-archive.md"), "archive");
+      await writeFile(join(root, "raw", "_archive", "2026-07-24", "codex-maintenance.md"), "maintenance archive");
+
+      await expect(listRawCaptureFiles(root)).resolves.toMatchObject([
+        { relPath: "raw/2026-07-24/codex-live.md" },
+      ]);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });

@@ -1,7 +1,8 @@
 import { readdir, stat, readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { execFileSync } from "node:child_process";
+import { hasArchiveOrSystemPathComponent } from "../../storage/archive-paths.js";
 import { memoryRoot, errorsLogPath } from "../../storage/paths.js";
 
 export interface StatsResult {
@@ -39,6 +40,7 @@ async function countDir(
     const entries = await readdir(currentDir, { withFileTypes: true });
     for (const entry of entries) {
       const full = join(currentDir, entry.name);
+      if (hasArchiveOrSystemPathComponent(relative(dir, full))) continue;
       if (entry.isDirectory()) {
         await walk(full);
       } else if (entry.isFile()) {
@@ -64,6 +66,7 @@ async function countJsonlRecords(dir: string): Promise<{ records: number; bytes:
     const entries = await readdir(currentDir, { withFileTypes: true });
     for (const entry of entries) {
       const full = join(currentDir, entry.name);
+      if (hasArchiveOrSystemPathComponent(relative(dir, full))) continue;
       if (entry.isDirectory()) {
         await walk(full);
       } else if (entry.isFile() && entry.name.endsWith(".jsonl")) {

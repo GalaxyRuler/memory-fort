@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readdir, readFile, stat } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
 import { atomicWrite } from "../storage/atomic-write.js";
+import { hasArchiveOrSystemPathComponent } from "../storage/archive-paths.js";
 import { parseFrontmatter, serializeFrontmatter, type Frontmatter } from "../storage/frontmatter.js";
 import { formatIsoDate, memoryRoot } from "../storage/paths.js";
 import type { AgentMemoryKvEntry } from "./agentmemory-kv-reader.js";
@@ -396,6 +397,8 @@ async function listMarkdown(root: string, topDirs: string[]): Promise<string[]> 
     if (!existsSync(dir)) return;
     for (const entry of await readdir(dir, { withFileTypes: true })) {
       const full = join(dir, entry.name);
+      const relPath = relative(root, full).replace(/\\/g, "/");
+      if (hasArchiveOrSystemPathComponent(relPath)) continue;
       if (entry.isDirectory()) await walk(full);
       else if (entry.isFile() && entry.name.endsWith(".md")) files.push(full);
     }

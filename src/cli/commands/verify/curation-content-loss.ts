@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { readFile, readdir } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { readRelationTarget } from "../../../retrieval/relations.js";
+import { hasArchiveOrSystemPathComponent } from "../../../storage/archive-paths.js";
 import { parseFrontmatter } from "../../../storage/frontmatter.js";
 import { pass, warn, type CheckDescriptor, type VerifyCheckContext, type VerifyCheckResult } from "./types.js";
 
@@ -70,6 +71,10 @@ export async function analyzeCurationRewriteAnchors(vaultRoot: string): Promise<
     if (!timestamp?.endsWith(".md")) continue;
     const canonical = parts.slice(0, -1).join("/");
     if (!canonical.startsWith("wiki/") || !canonical.endsWith(".md")) continue;
+    // .history is an explicit historical diagnostic source. Its snapshots may
+    // be read, but it must never surface or compare protected archive/system
+    // pages as current live curation targets.
+    if (hasArchiveOrSystemPathComponent(canonical)) continue;
     const previous = latestByCanonical.get(canonical);
     if (!previous || historyFile.localeCompare(previous) > 0) {
       latestByCanonical.set(canonical, historyFile);
