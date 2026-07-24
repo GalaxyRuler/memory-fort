@@ -3,7 +3,7 @@ import { mkdtemp, rm, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runInit } from "../../../src/cli/commands/init.js";
-import { getClientStatuses } from "../../../src/cli/commands/client-status.js";
+import { formatClientStatus, getClientStatuses } from "../../../src/cli/commands/client-status.js";
 import { getClientIntegrationStatuses } from "../../../src/clients/status.js";
 import { runInstallOpenCode } from "../../../src/cli/commands/install/opencode.js";
 import { chatgptBridgePidPath } from "../../../src/storage/paths.js";
@@ -24,7 +24,9 @@ describe("getClientStatuses", () => {
       MEMORY_CLAUDE_DESKTOP_DIR: process.env["MEMORY_CLAUDE_DESKTOP_DIR"],
       MEMORY_CODEX_DIR: process.env["MEMORY_CODEX_DIR"],
       MEMORY_ANTIGRAVITY_DIR: process.env["MEMORY_ANTIGRAVITY_DIR"],
+      MEMORY_HERMES_DIR: process.env["MEMORY_HERMES_DIR"],
       MEMORY_OPENCODE_DIR: process.env["MEMORY_OPENCODE_DIR"],
+      MEMORY_OPENCLAW_DIR: process.env["MEMORY_OPENCLAW_DIR"],
       MEMORY_OPENCOVEN_COMMAND: process.env["MEMORY_OPENCOVEN_COMMAND"],
       MEMORY_VSCODE_USER_DIR: process.env["MEMORY_VSCODE_USER_DIR"],
     };
@@ -33,7 +35,9 @@ describe("getClientStatuses", () => {
     process.env["MEMORY_CLAUDE_DESKTOP_DIR"] = join(tmp, "Claude");
     process.env["MEMORY_CODEX_DIR"] = join(tmp, ".codex");
     process.env["MEMORY_ANTIGRAVITY_DIR"] = join(tmp, ".gemini", "antigravity");
+    process.env["MEMORY_HERMES_DIR"] = join(tmp, ".hermes");
     process.env["MEMORY_OPENCODE_DIR"] = join(tmp, ".config", "opencode");
+    process.env["MEMORY_OPENCLAW_DIR"] = join(tmp, ".openclaw");
     process.env["MEMORY_OPENCOVEN_COMMAND"] = join(tmp, "missing-coven");
     process.env["MEMORY_VSCODE_USER_DIR"] = join(tmp, "Code", "User");
     await runInit({ sourceRepoDir: process.cwd() });
@@ -48,7 +52,14 @@ describe("getClientStatuses", () => {
     );
     await writeFile(
       join(memDir, "claude-code-plugin", ".mcp.json"),
-      JSON.stringify({ mcpServers: { memory: {} } }),
+      JSON.stringify({
+        mcpServers: {
+          memory: {
+            command: "node",
+            args: [join(memDir, "claude-code-plugin", "scripts", "mcp-server.mjs")],
+          },
+        },
+      }),
     );
     await writeFile(
       join(memDir, "claude-code-plugin", "scripts", "mcp-server.mjs"),
@@ -96,11 +107,12 @@ describe("getClientStatuses", () => {
 
   it("uses the bounded MCP probe from the production CLI status path", async () => {
     const codexDir = process.env["MEMORY_CODEX_DIR"]!;
+    const mcpServer = join(memDir, "claude-code-plugin", "scripts", "mcp-server.mjs");
     await mkdir(codexDir, { recursive: true });
     await writeFile(join(codexDir, "config.toml"), [
       "[mcp_servers.memory]",
       'command = "node"',
-      'args = ["mcp-server.mjs"]',
+      `args = [${JSON.stringify(mcpServer.replace(/\\/g, "/"))}]`,
       "",
     ].join("\n"));
     const probeMcpCommand = vi.fn(async () => "healthy" as const);
@@ -112,6 +124,26 @@ describe("getClientStatuses", () => {
       command: "node",
       args: [join(memDir, "claude-code-plugin", "scripts", "mcp-server.mjs")],
     });
+  });
+
+  it("reports bounded MCP failures as Unhealthy in the CLI rather than a healthy installed status", async () => {
+    const codexDir = process.env["MEMORY_CODEX_DIR"]!;
+    const mcpServer = join(memDir, "claude-code-plugin", "scripts", "mcp-server.mjs");
+    await mkdir(codexDir, { recursive: true });
+    await writeFile(join(codexDir, "config.toml"), [
+      "[mcp_servers.memory]",
+      'command = "node"',
+      `args = [${JSON.stringify(mcpServer.replace(/\\/g, "/"))}]`,
+      "",
+    ].join("\n"));
+
+    const status = (await getClientStatuses({
+      probeMcpCommand: async () => "unhealthy",
+    })).find((item) => item.client === "codex")!;
+
+    expect(status.detail).toContain("bounded MCP initialize + tools/list probe failed");
+    expect(formatClientStatus(status)).toContain("Health: Unhealthy");
+    expect(formatClientStatus(status)).not.toMatch(/^✓/);
   });
 
   it("reports OpenCoven as missing when the coven CLI is unavailable", async () => {
@@ -131,7 +163,7 @@ describe("getClientStatuses", () => {
 
     const status = statuses.find((item) => item.client === "opencode")!;
     expect(status.state).toBe("installed");
-    expect(status.detail).toBe("installed");
+    expect(status.detail).toContain("installed");
   });
 
   it("reports OpenCode stale when only part of the install exists", async () => {
@@ -434,6 +466,49 @@ describe("getClientStatuses", () => {
     expect(status.evidence[0]).toContain("PID files are not health evidence");
   });
 
+  it("probes Hermes and OpenClaw with their configured vault MCP launcher", async () => {
+    const mcpServer = join(memDir, "hooks", "mcp-server.mjs");
+    await writeHermesConfig(mcpServer);
+    await writeOpenClawConfig(mcpServer);
+    const probeMcpCommand = vi.fn(async (command: { command: string; args: string[] }) => (
+      command.command === "node" && command.args[0] === mcpServer ? "healthy" as const : "unhealthy" as const
+    ));
+
+    const statuses = await getClientIntegrationStatuses({ probeMcp: true, probeMcpCommand });
+
+    for (const client of ["hermes", "openclaw"] as const) {
+      const status = statuses.find((item) => item.client === client)!;
+      expect(status.installation).toBe("installed");
+      expect(status.health).toBe("healthy");
+    }
+    expect(probeMcpCommand).toHaveBeenCalledTimes(2);
+    expect(probeMcpCommand).toHaveBeenCalledWith({ command: "node", args: [mcpServer] });
+  });
+
+  it("marks wrong or missing Hermes and OpenClaw launchers stale despite an unrelated Claude launcher", async () => {
+    const hookMcpServer = join(memDir, "hooks", "mcp-server.mjs");
+    const claudeMcpServer = join(memDir, "claude-code-plugin", "scripts", "mcp-server.mjs");
+    await writeHermesConfig(claudeMcpServer);
+    await writeOpenClawConfig(claudeMcpServer);
+    const probeMcpCommand = vi.fn(async () => "healthy" as const);
+
+    let statuses = await getClientIntegrationStatuses({ probeMcp: true, probeMcpCommand });
+    for (const client of ["hermes", "openclaw"] as const) {
+      const status = statuses.find((item) => item.client === client)!;
+      expect(status.installation).toBe("stale");
+      expect(status.health).toBe("unknown");
+    }
+    expect(probeMcpCommand).not.toHaveBeenCalled();
+
+    await writeOpenClawConfig(hookMcpServer);
+    await rm(hookMcpServer, { force: true });
+    statuses = await getClientIntegrationStatuses({ probeMcp: true, probeMcpCommand });
+    const missingOpenClaw = statuses.find((item) => item.client === "openclaw")!;
+    expect(missingOpenClaw.installation).toBe("stale");
+    expect(missingOpenClaw.health).toBe("unknown");
+    expect(probeMcpCommand).not.toHaveBeenCalled();
+  });
+
   async function writeOpenCodeConfig(
     opencodeDir: string,
     overrides: Partial<{
@@ -456,6 +531,30 @@ describe("getClientStatuses", () => {
         },
       }),
     );
+  }
+
+  async function writeHermesConfig(mcpServer: string): Promise<void> {
+    const hermesDir = process.env["MEMORY_HERMES_DIR"]!;
+    await mkdir(hermesDir, { recursive: true });
+    await writeFile(join(hermesDir, "config.yaml"), [
+      "# === BEGIN memory-system v0.1.0 ===",
+      "hooks:",
+      `  on_session_start: ${JSON.stringify(`node ${join(memDir, "hooks", "session-start.mjs").replace(/\\/g, "/")}`)}`,
+      "mcp_servers:",
+      "  memory:",
+      "    command: node",
+      `    args: [${JSON.stringify(mcpServer.replace(/\\/g, "/"))}]`,
+      "# === END memory-system v0.1.0 ===",
+      "",
+    ].join("\n"));
+  }
+
+  async function writeOpenClawConfig(mcpServer: string): Promise<void> {
+    const openclawDir = process.env["MEMORY_OPENCLAW_DIR"]!;
+    await mkdir(openclawDir, { recursive: true });
+    await writeFile(join(openclawDir, "openclaw.json"), JSON.stringify({
+      mcpServers: { memory: { command: "node", args: [mcpServer] } },
+    }));
   }
 
   async function writeOpenCodePlugin(opencodeDir: string): Promise<void> {

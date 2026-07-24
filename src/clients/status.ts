@@ -133,10 +133,11 @@ async function readClaudeCodeStatus(captureEnabled: boolean): Promise<ClientInte
   const pluginRoot = join(memoryRoot(), "claude-code-plugin");
   const manifest = join(pluginRoot, ".claude-plugin", "plugin.json");
   const mcpConfig = join(pluginRoot, ".mcp.json");
+  const expected = expectedMcpCommand("claude-code")!;
   if (!existsSync(manifest) || !existsSync(mcpConfig)) {
     return makeStatus("claude-code", captureEnabled, "missing", ["not installed: plugin manifest or MCP config missing"], mcpConfig);
   }
-  if (!await isRegularFile(join(pluginRoot, "scripts", "mcp-server.mjs"))) {
+  if (!await isRegularFile(expected.args[0]) || !await hasExpectedJsonMcpLauncher(mcpConfig, "mcpServers", expected, true)) {
     return makeStatus("claude-code", captureEnabled, "stale", ["installed but scripts link is stale"], mcpConfig);
   }
   if (!await isClaudeCodePluginEnabled()) {
@@ -147,7 +148,8 @@ async function readClaudeCodeStatus(captureEnabled: boolean): Promise<ClientInte
 
 async function readClaudeDesktopStatus(captureEnabled: boolean): Promise<ClientIntegrationStatus> {
   const path = claudeDesktopConfigPath();
-  const ok = await jsonHasServer(path, "mcpServers");
+  const expected = expectedMcpCommand("claude-desktop")!;
+  const ok = await isRegularFile(expected.args[0]) && await hasExpectedJsonMcpLauncher(path, "mcpServers", expected);
   return makeStatus("claude-desktop", captureEnabled, ok ? "installed" : existsSync(path) ? "stale" : "missing", [ok ? "installed" : existsSync(path) ? "installed but memory entry missing or invalid" : "not installed"], path);
 }
 
@@ -156,8 +158,10 @@ async function readCodexStatus(captureEnabled: boolean): Promise<ClientIntegrati
   const path = join(dir, "config.toml");
   if (!existsSync(path)) return makeStatus("codex", captureEnabled, "missing", ["config.toml is missing"], path);
   const raw = await readFile(path, "utf-8");
-  const block = raw.includes("[mcp_servers.memory]") && raw.includes("mcp-server.mjs");
-  if (!block) return makeStatus("codex", captureEnabled, "stale", ["installed but memory MCP block is stale"], path);
+  const expected = expectedMcpCommand("codex")!;
+  if (!isExpectedMcpCommand(readTomlMcpCommand(raw), expected) || !await isRegularFile(expected.args[0])) {
+    return makeStatus("codex", captureEnabled, "stale", ["installed but configured hook or MCP executable is missing or stale"], path);
+  }
   const launcherRoot = join(memoryRoot(), "claude-code-plugin", "scripts");
   const scriptNames = ["mcp-server.mjs", "session-start.mjs", "prompt-submit.mjs", "post-tool-use.mjs", "pre-compact.mjs", "session-end.mjs"];
   const referenced = scriptNames.filter((name) => raw.includes(name)).map((name) => join(launcherRoot, name));
@@ -167,7 +171,8 @@ async function readCodexStatus(captureEnabled: boolean): Promise<ClientIntegrati
 
 async function readAntigravityStatus(captureEnabled: boolean): Promise<ClientIntegrationStatus> {
   const path = join(process.env["MEMORY_ANTIGRAVITY_DIR"] ?? join(homedir(), ".gemini", "antigravity"), "mcp_config.json");
-  const ok = await jsonHasServer(path, "mcpServers");
+  const expected = expectedMcpCommand("antigravity")!;
+  const ok = await isRegularFile(expected.args[0]) && await hasExpectedJsonMcpLauncher(path, "mcpServers", expected);
   return makeStatus("antigravity", captureEnabled, ok ? "installed" : existsSync(path) ? "stale" : "missing", [ok ? "installed (shared workspace/IDE config)" : existsSync(path) ? "installed but memory entry missing or invalid" : "not installed"], path);
 }
 
@@ -202,12 +207,14 @@ async function readHookStatus(client: "hermes" | "pi", captureEnabled: boolean, 
   const raw = await readFile(path, "utf-8");
   const script = join(memoryRoot(), "hooks", expectedScript);
   const configured = raw.includes("# === BEGIN memory-system") && raw.includes(expectedScript);
-  if (!configured || !await isRegularFile(script)) return makeStatus(client, captureEnabled, "stale", [client === "pi" ? "installed but memory hooks block is stale" : "installed but memory block is stale"], path);
+  const mcpConfigured = client !== "hermes" || await hasExpectedYamlMcpLauncher(path, expectedMcpCommand("hermes")!);
+  if (!configured || !mcpConfigured || !await isRegularFile(script)) return makeStatus(client, captureEnabled, "stale", [client === "pi" ? "installed but memory hooks block is stale" : "installed but memory block or MCP launcher is stale"], path);
   return makeStatus(client, captureEnabled, "installed", [client === "pi" ? "installed (hooks; MCP skipped)" : "installed"], path);
 }
 
 async function readMcpConfigStatus(client: "openclaw" | "vscode", captureEnabled: boolean, path: string, map: "mcpServers" | "servers"): Promise<ClientIntegrationStatus> {
-  const ok = await jsonHasServer(path, map);
+  const expected = expectedMcpCommand(client)!;
+  const ok = await isRegularFile(expected.args[0]) && await hasExpectedJsonMcpLauncher(path, map, expected);
   return makeStatus(client, captureEnabled, ok ? "installed" : existsSync(path) ? "stale" : "missing", [ok ? (client === "vscode" ? "installed (user profile mcp.json)" : "installed") : existsSync(path) ? "installed but memory server missing or invalid" : "not installed"], path);
 }
 
@@ -224,15 +231,11 @@ async function readOpenCodeStatus(captureEnabled: boolean, _opts: ClientStatusOp
 }
 
 async function probeConfiguredMcp(status: ClientIntegrationStatus, opts: ClientStatusOptions): Promise<ClientIntegrationStatus> {
-  if (!status.captureEnabled || status.installation !== "installed" || !hasMcp(status.client)) return status;
-  const script = status.client === "opencode" ? join(memoryRoot(), "hooks", "mcp-server.mjs") : join(memoryRoot(), "claude-code-plugin", "scripts", "mcp-server.mjs");
-  if (!await isRegularFile(script)) return { ...status, installation: "stale", health: "unknown", evidence: [...status.evidence, "configured MCP launcher is missing"] };
-  const health = await (opts.probeMcpCommand ?? runBoundedMcpProbe)({ command: "node", args: [script] });
+  const command = expectedMcpCommand(status.client);
+  if (!status.captureEnabled || status.installation !== "installed" || !command) return status;
+  if (!await isRegularFile(command.args[0])) return { ...status, installation: "stale", health: "unknown", evidence: [...status.evidence, "configured MCP launcher is missing"] };
+  const health = await (opts.probeMcpCommand ?? runBoundedMcpProbe)(command);
   return { ...status, health, lastCheckedAt: (opts.now ?? (() => new Date()))().toISOString(), evidence: [...status.evidence, health === "healthy" ? "bounded MCP initialize + tools/list probe passed" : "bounded MCP initialize + tools/list probe failed"] };
-}
-
-function hasMcp(client: ClientName): boolean {
-  return !["pi", "opencoven", "chatgpt"].includes(client);
 }
 
 export async function runBoundedMcpProbe(command: McpProbeCommand, timeoutMs = 2_000): Promise<ClientHealth> {
@@ -294,13 +297,102 @@ async function probeChatGptBridge(port: number): Promise<ClientHealth> {
   }
 }
 
-async function jsonHasServer(path: string, map: "mcpServers" | "servers"): Promise<boolean> {
+function expectedMcpCommand(client: ClientName): McpProbeCommand | null {
+  switch (client) {
+    case "hermes":
+    case "openclaw":
+    case "opencode":
+      return { command: "node", args: [join(memoryRoot(), "hooks", "mcp-server.mjs")] };
+    case "claude-code":
+    case "claude-desktop":
+    case "codex":
+    case "antigravity":
+    case "antigravity-ide":
+    case "vscode":
+      return { command: "node", args: [join(memoryRoot(), "claude-code-plugin", "scripts", "mcp-server.mjs")] };
+    default:
+      return null;
+  }
+}
+
+async function hasExpectedJsonMcpLauncher(
+  path: string,
+  map: "mcpServers" | "servers",
+  expected: McpProbeCommand,
+  allowClaudePluginRoot = false,
+): Promise<boolean> {
   if (!existsSync(path)) return false;
   try {
     const parsed = JSON.parse(await readFile(path, "utf-8")) as Record<string, unknown>;
-    const servers = parsed[map];
-    return typeof servers === "object" && servers !== null && typeof (servers as Record<string, unknown>)["memory"] === "object" && (servers as Record<string, unknown>)["memory"] !== null;
-  } catch { return false; }
+    const servers = asRecord(parsed[map]);
+    return isExpectedMcpCommand(mcpCommandFromEntry(servers?.["memory"]), expected, allowClaudePluginRoot);
+  } catch {
+    return false;
+  }
+}
+
+async function hasExpectedYamlMcpLauncher(path: string, expected: McpProbeCommand): Promise<boolean> {
+  try {
+    const parsed = yaml.load(await readFile(path, "utf-8"), { schema: yaml.JSON_SCHEMA });
+    const root = asRecord(parsed);
+    const servers = asRecord(root?.["mcp_servers"]);
+    return isExpectedMcpCommand(mcpCommandFromEntry(servers?.["memory"]), expected);
+  } catch {
+    return false;
+  }
+}
+
+function readTomlMcpCommand(raw: string): McpProbeCommand | null {
+  const header = /^\[mcp_servers\.memory\]\s*$/m.exec(raw);
+  if (!header || header.index === undefined) return null;
+  const remaining = raw.slice(header.index + header[0].length);
+  const nextSection = remaining.search(/^\[/m);
+  const section = nextSection < 0 ? remaining : remaining.slice(0, nextSection);
+  const command = /^\s*command\s*=\s*"([^"]+)"\s*$/m.exec(section)?.[1];
+  const argsRaw = /^\s*args\s*=\s*(\[[^\n]*\])\s*$/m.exec(section)?.[1];
+  if (!command || !argsRaw) return null;
+  try {
+    const args = JSON.parse(argsRaw);
+    return Array.isArray(args) && args.every((arg) => typeof arg === "string")
+      ? { command, args }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function mcpCommandFromEntry(entry: unknown): McpProbeCommand | null {
+  const record = asRecord(entry);
+  const command = record?.["command"];
+  const args = record?.["args"];
+  return typeof command === "string" && Array.isArray(args) && args.every((arg) => typeof arg === "string")
+    ? { command, args }
+    : null;
+}
+
+function isExpectedMcpCommand(
+  actual: McpProbeCommand | null,
+  expected: McpProbeCommand,
+  allowClaudePluginRoot = false,
+): boolean {
+  if (!actual || actual.command !== expected.command || actual.args.length !== expected.args.length) return false;
+  return actual.args.every((arg, index) => isExpectedMcpPath(arg, expected.args[index]!, allowClaudePluginRoot));
+}
+
+function isExpectedMcpPath(actual: string, expected: string, allowClaudePluginRoot: boolean): boolean {
+  if (normalizeMcpPath(actual) === normalizeMcpPath(expected)) return true;
+  return allowClaudePluginRoot && actual === "${CLAUDE_PLUGIN_ROOT}/scripts/mcp-server.mjs";
+}
+
+function normalizeMcpPath(value: string): string {
+  const normalized = value.replace(/\\/g, "/");
+  return process.platform === "win32" ? normalized.toLowerCase() : normalized;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
 }
 
 async function isRegularFile(path: string): Promise<boolean> {
