@@ -11,6 +11,7 @@ import type { VerifyResult, VerifyRole } from "../../src/cli/commands/verify.js"
 import { writeCompileStateFile } from "../../src/compile/state.js";
 import type { VoyageClient } from "../../src/retrieval/voyage-client.js";
 import { READ_ONLY_MIRROR_REASON } from "../../src/sync/vault-capability.js";
+import type { ClientIntegrationStatus } from "../../src/clients/status.js";
 
 function httpRequest(options: {
   host: string;
@@ -591,6 +592,64 @@ describe("dashboard server", () => {
       expect(cachedResponse.status).toBe(200);
       await expect(cachedResponse.json()).resolves.toEqual(clientStatus);
       expect(clientStatusReader).toHaveBeenCalledTimes(1);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it("does not let an invalidated in-flight client status read repopulate the cache", async () => {
+    const staleStatus: ClientIntegrationStatus[] = [{
+      client: "codex",
+      captureEnabled: true,
+      installation: "stale",
+      health: "unknown",
+      lastCheckedAt: null,
+      evidence: ["old probe result"],
+    }];
+    const freshStatus: ClientIntegrationStatus[] = [{
+      client: "codex",
+      captureEnabled: true,
+      installation: "installed",
+      health: "healthy",
+      lastCheckedAt: "2026-07-24T00:00:00.000Z",
+      evidence: ["fresh probe result"],
+    }];
+    let resolveInitialRead!: (statuses: ClientIntegrationStatus[]) => void;
+    let signalInitialReadStarted!: () => void;
+    const initialRead = new Promise<ClientIntegrationStatus[]>((resolve) => { resolveInitialRead = resolve; });
+    const initialReadStarted = new Promise<void>((resolve) => { signalInitialReadStarted = resolve; });
+    const clientStatusReader = vi.fn((): Promise<ClientIntegrationStatus[]> => {
+      if (clientStatusReader.mock.calls.length === 1) {
+        signalInitialReadStarted();
+        return initialRead;
+      }
+      return Promise.resolve(freshStatus);
+    });
+    const server = await createServer({
+      vaultRoot: tmp,
+      port: 0,
+      clientStatusReader,
+      clientActionRunner: async () => ({ ok: true, detail: "repaired fixture" }),
+    });
+
+    try {
+      const pendingStatusResponse = fetch(`http://${server.host}:${server.port}/api/clients/status`);
+      await initialReadStarted;
+
+      const actionResponse = await fetch(`http://${server.host}:${server.port}/api/clients/action`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "repair", client: "codex" }),
+      });
+      expect(actionResponse.status).toBe(200);
+
+      resolveInitialRead(staleStatus);
+      await expect((await pendingStatusResponse).json()).resolves.toEqual(staleStatus);
+
+      const freshResponse = await fetch(`http://${server.host}:${server.port}/api/clients/status`);
+      expect(freshResponse.status).toBe(200);
+      await expect(freshResponse.json()).resolves.toEqual(freshStatus);
+      expect(clientStatusReader).toHaveBeenCalledTimes(2);
     } finally {
       await server.close();
     }

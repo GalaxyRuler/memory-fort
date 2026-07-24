@@ -1341,24 +1341,37 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
   const healthCache = new Map<string, HealthCacheEntry>();
   let clientStatusCache: ClientStatusCacheEntry | null = null;
   let clientStatusJob: Promise<ClientIntegrationStatus[]> | null = null;
+  let clientStatusEpoch = 0;
   const graphHealthCache = new Map<string, GraphHealthCacheEntry>();
   const graphFeedCache = new Map<string, GraphFeedCacheEntry>();
   const searchRuntimeCache = createSearchRuntimeCache();
   const rawCaptureCache = createRawCaptureEventCache();
   const compilePendingSummaryCache = createCompilePendingSummaryCache();
   const verifyJobs = new Map<string, Promise<VerifyResult>>();
+  const invalidateClientStatuses = (): void => {
+    clientStatusEpoch += 1;
+    clientStatusCache = null;
+    clientStatusJob = null;
+  };
   const readDashboardClientStatuses = async (): Promise<ClientIntegrationStatus[]> => {
     if (clientStatusCache && Date.now() - clientStatusCache.atMs < CLIENT_STATUS_CACHE_MS) {
       return clientStatusCache.statuses;
     }
     if (clientStatusJob) return clientStatusJob;
-    clientStatusJob = clientStatusReader()
+    const requestEpoch = clientStatusEpoch;
+    const activeJob = clientStatusReader()
       .then((statuses) => {
-        clientStatusCache = { atMs: Date.now(), statuses };
+        if (clientStatusEpoch === requestEpoch) {
+          clientStatusCache = { atMs: Date.now(), statuses };
+        }
         return statuses;
-      })
-      .finally(() => { clientStatusJob = null; });
-    return clientStatusJob;
+      });
+    clientStatusJob = activeJob;
+    void activeJob.then(
+      () => { if (clientStatusJob === activeJob) clientStatusJob = null; },
+      () => { if (clientStatusJob === activeJob) clientStatusJob = null; },
+    );
+    return activeJob;
   };
   const autoPromoteScheduler = await createAutoPromoteScheduler({
     vaultRoot: opts.vaultRoot,
@@ -1501,7 +1514,7 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
           return;
         }
         const result = await clientActionRunner(action, client);
-        if (result.ok) clientStatusCache = null;
+        if (result.ok) invalidateClientStatuses();
         writeJson(res, { ok: result.ok, action, client, detail: result.detail }, result.ok ? 200 : 500);
       } catch (err) {
         if (err instanceof RequestBodyTooLargeError) { writeRequestBodyTooLarge(res); return; }
