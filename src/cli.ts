@@ -65,6 +65,9 @@ import {
 import { runPrune } from "./cli/commands/prune.js";
 import { runForget } from "./cli/commands/forget.js";
 import {
+  runHistoryPurge,
+} from "./forget/history-purge.js";
+import {
   formatRewriteImportedTimestampsResult,
   runRewriteImportedTimestamps,
 } from "./cli/commands/rewrite-imported-timestamps.js";
@@ -955,13 +958,65 @@ program
 
 program
   .command("forget")
-  .description("Plan or erase attributable live data while retaining Git, backups, archives, and crystals")
+  .description("Plan/apply live erasure with history, backups, archives, and crystals retained; or purge itemized local history separately")
   .option("--path <path...>", "canonical vault-relative path selector")
   .option("--raw <path...>", "canonical raw/... path selector")
   .option("--source <id...>", "capture/source identifier selector")
   .option("--plan", "print the default non-mutating erase plan")
   .option("--apply", "erase only the planned live material")
-  .action(async (opts: { path?: string[]; raw?: string[]; source?: string[]; plan?: boolean; apply?: boolean }) => {
+  .option("--purge-history", "plan or execute the separately guarded local history rewrite")
+  .option("--purge-ref <ref...>", "explicit local refs/heads/... ref to rewrite")
+  .option("--live-erase-receipt <path>", "successful live erase receipt for the exact selection")
+  .option("--restore-drill-evidence <path>", "fresh successful backup restore-drill evidence")
+  .option("--disposable-clone", "assert this clean target is a disposable clone, never the canonical repository")
+  .option("--confirm-purge-history <phrase>", "exact destructive consequence phrase printed by the purge plan")
+  .action(async (opts: {
+    path?: string[];
+    raw?: string[];
+    source?: string[];
+    plan?: boolean;
+    apply?: boolean;
+    purgeHistory?: boolean;
+    purgeRef?: string[];
+    liveEraseReceipt?: string;
+    restoreDrillEvidence?: string;
+    disposableClone?: boolean;
+    confirmPurgeHistory?: string;
+  }) => {
+    if (opts.purgeHistory) {
+      if (opts.apply || (opts.plan && opts.confirmPurgeHistory !== undefined)) {
+        console.error("memory forget --purge-history: use the default plan or the exact confirmation phrase, not --apply");
+        process.exit(2);
+      }
+      try {
+        const result = await runHistoryPurge({
+          repositoryRoot: process.cwd(),
+          paths: opts.path,
+          rawPaths: opts.raw,
+          sourceIds: opts.source,
+          refs: opts.purgeRef ?? [],
+          liveEraseReceiptPath: opts.liveEraseReceipt ?? "",
+          restoreDrillEvidencePath: opts.restoreDrillEvidence ?? "",
+          disposableClone: opts.disposableClone,
+          confirmation: opts.confirmPurgeHistory,
+        });
+        process.stdout.write(result.report);
+      } catch (err) {
+        console.error((err as Error).message);
+        process.exit(1);
+      }
+      return;
+    }
+    if ([
+      opts.purgeRef,
+      opts.liveEraseReceipt,
+      opts.restoreDrillEvidence,
+      opts.disposableClone,
+      opts.confirmPurgeHistory,
+    ].some((value) => value !== undefined && value !== false)) {
+      console.error("memory forget: purge-only options require --purge-history");
+      process.exit(2);
+    }
     if (opts.plan && opts.apply) {
       console.error("memory forget: choose at most one of --plan or --apply");
       process.exit(2);

@@ -25,6 +25,8 @@ import { openIndexDb } from "../../index/db.js";
 import { reconcileIndex } from "../../index/reconcile.js";
 import { InlineSearchExecutor } from "../../index/vector-search.js";
 import { memoryRoot } from "../../storage/paths.js";
+import { atomicWrite } from "../../storage/atomic-write.js";
+import { repositoryFingerprint } from "../../forget/evidence.js";
 
 const MANIFEST_NAME = "backup-manifest.json";
 const BACKUP_SCHEMA_VERSION = 1;
@@ -103,7 +105,9 @@ export interface BackupVerifyOptions {
   readonly execFile?: ExecFile;
 }
 
-export interface RestoreDrillOptions extends BackupVerifyOptions {}
+export interface RestoreDrillOptions extends BackupVerifyOptions {
+  readonly now?: Date;
+}
 
 export interface BackupVerificationResult {
   readonly archivePath: string;
@@ -132,6 +136,35 @@ export interface RestoreDrillResult extends BackupVerificationResult {
   readonly canaryMatched: true;
   readonly workspaceRemoved: true;
   readonly durationMs: number;
+  readonly evidenceId: string;
+  readonly evidencePath: string;
+  readonly completedAt: string;
+  readonly repositoryFingerprint: string | null;
+}
+
+export interface RestoreDrillEvidence {
+  readonly schemaVersion: 1;
+  readonly kind: "memory-fort-restore-drill";
+  readonly evidenceId: string;
+  readonly completedAt: string;
+  readonly status: "passed";
+  readonly archive: {
+    readonly path: string;
+    readonly sha256: string;
+    readonly manifestSha256: string;
+    readonly createdAt: string;
+  };
+  readonly repository: {
+    readonly head: string | null;
+    readonly fingerprint: string | null;
+  };
+  readonly checks: {
+    readonly archiveVerified: true;
+    readonly gitVerified: true;
+    readonly indexRebuilt: true;
+    readonly canaryMatched: true;
+    readonly workspaceRemoved: true;
+  };
 }
 
 interface ExecFileOptions {
@@ -316,7 +349,14 @@ export async function runRestoreDrill(
     }
   });
 
-  return {
+  const completedAt = (opts.now ?? new Date()).toISOString();
+  const evidenceId = randomUUID();
+  const repositoryFingerprintValue = used.verification.gitHead
+    ? repositoryFingerprint(used.verification.gitHead)
+    : null;
+  const evidenceStamp = completedAt.replace(/[:.]/gu, "-");
+  const evidencePath = `${used.verification.archivePath}.restore-drill-${evidenceStamp}-${evidenceId}.json`;
+  const result: RestoreDrillResult = {
     ...used.verification,
     indexRebuilt: true,
     indexedFiles: used.value.indexedFiles,
@@ -326,7 +366,37 @@ export async function runRestoreDrill(
     canaryMatched: true,
     workspaceRemoved: true,
     durationMs: Date.now() - started,
+    evidenceId,
+    evidencePath,
+    completedAt,
+    repositoryFingerprint: repositoryFingerprintValue,
   };
+  const evidence: RestoreDrillEvidence = {
+    schemaVersion: 1,
+    kind: "memory-fort-restore-drill",
+    evidenceId,
+    completedAt,
+    status: "passed",
+    archive: {
+      path: used.verification.archivePath,
+      sha256: used.verification.archiveSha256,
+      manifestSha256: used.verification.manifestSha256,
+      createdAt: used.verification.createdAt,
+    },
+    repository: {
+      head: used.verification.gitHead,
+      fingerprint: repositoryFingerprintValue,
+    },
+    checks: {
+      archiveVerified: true,
+      gitVerified: true,
+      indexRebuilt: true,
+      canaryMatched: true,
+      workspaceRemoved: true,
+    },
+  };
+  await atomicWrite(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`);
+  return result;
 }
 
 export function classifyProtectionClass(sourceDevice: number, targetDevice: number): BackupProtectionClass {
@@ -362,6 +432,7 @@ export function formatRestoreDrillResult(result: RestoreDrillResult): string {
     `Git verified: yes; index rebuilt: yes (${result.indexedFiles} files indexed)`,
     `Canary matched: ${result.matchedPath}`,
     `Disposable workspace removed: yes; duration: ${result.durationMs} ms`,
+    `Machine-readable drill evidence: ${result.evidencePath}`,
     "",
   ].join("\n");
 }

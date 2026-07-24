@@ -38,6 +38,10 @@ import {
   readForgetRecovery,
   writeForgetRecovery,
 } from "../../forget/recovery.js";
+import {
+  persistSuccessfulLiveEraseReceipt,
+  type PersistedLiveEraseReceipt,
+} from "../../forget/evidence.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -52,6 +56,14 @@ export interface ForgetOptions {
   rawPaths?: readonly string[];
   /** Capture/source identifiers, such as `codex` or `claude-code`. */
   sourceIds?: readonly string[];
+  /** Injectable completion time for deterministic evidence tests. */
+  now?: Date;
+}
+
+export interface NormalizedForgetSelectors {
+  paths: string[];
+  rawPaths: string[];
+  sourceIds: string[];
 }
 
 export interface ForgetIndexInventory {
@@ -97,6 +109,8 @@ export interface ForgetResult {
   erased: string[];
   /** Fact files retained after removing only attributable facts. */
   rewritten: string[];
+  /** Durable machine-readable success evidence, present only after a successful apply. */
+  receipt?: PersistedLiveEraseReceipt;
   report: string;
 }
 
@@ -196,7 +210,7 @@ async function runForgetAtRoot(
       throw new Error(`memory forget: ${detail}; fix the reported cause, then run memory reindex`);
     }
   }
-  const selectors = normalizeSelectors(opts);
+  const selectors = normalizeForgetSelectors(opts);
   if (selectors.paths.length + selectors.rawPaths.length + selectors.sourceIds.length === 0) {
     throw new Error("memory forget: provide at least one --path, --raw, or --source selector");
   }
@@ -329,17 +343,26 @@ async function runForgetAtRoot(
     });
   }
 
+  const receipt = await persistSuccessfulLiveEraseReceipt({
+    root,
+    selectors,
+    plan,
+    erased,
+    rewritten,
+    now: opts.now,
+  });
   return {
     mode,
     status: "live-erased/history-retained",
     plan,
     erased: erased.sort(),
     rewritten: rewritten.sort(),
-    report: formatForgetReport("apply", plan, erased.sort()),
+    receipt,
+    report: `${formatForgetReport("apply", plan, erased.sort())}Live erase receipt: ${receipt.path}\n`,
   };
 }
 
-function normalizeSelectors(opts: ForgetOptions): { paths: string[]; rawPaths: string[]; sourceIds: string[] } {
+export function normalizeForgetSelectors(opts: ForgetOptions): NormalizedForgetSelectors {
   const paths = normalizePathList(opts.paths ?? [], "--path");
   const rawPaths = normalizePathList(opts.rawPaths ?? [], "--raw");
   for (const path of paths) {
@@ -386,7 +409,7 @@ function canonicalRelPath(value: string): string | null {
 
 async function selectedRawPaths(
   root: string,
-  selectors: ReturnType<typeof normalizeSelectors>,
+  selectors: NormalizedForgetSelectors,
 ): Promise<Set<string>> {
   const allRaw = await listMarkdownFiles(root, "raw", { excludeArchives: true });
   const directSelectors = [...selectors.rawPaths, ...selectors.paths.filter((path) => path.startsWith("raw/"))];
@@ -449,7 +472,7 @@ async function readRawSource(root: string, relPath: string): Promise<string> {
 
 async function collectGeneratedPages(
   root: string,
-  selectors: ReturnType<typeof normalizeSelectors>,
+  selectors: NormalizedForgetSelectors,
   selectedRaw: Set<string>,
 ): Promise<GeneratedPage[]> {
   const pages: GeneratedPage[] = [];
