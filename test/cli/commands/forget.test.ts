@@ -1,8 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, readdir, rm, utimes, writeFile } from "node:fs/promises";
 import { hostname, tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, relative } from "node:path";
+import { promisify } from "node:util";
+
 const forgetRmFailure = vi.hoisted(() => ({
   target: null as string | null,
   pauseTarget: null as string | null,
@@ -49,6 +52,7 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 
 import {
   ForgetPartialMutationError,
+  LiveEraseEvidencePendingError,
   resolveDirectRawSelectors,
   runForget,
 } from "../../../src/cli/commands/forget.js";
@@ -67,6 +71,11 @@ import {
   rawCaptureEpochPath,
 } from "../../../src/hooks/raw-file.js";
 import { withFileLock } from "../../../src/storage/file-lock.js";
+import { readLiveEraseReceipt } from "../../../src/forget/evidence.js";
+import { verifyEvidenceSignature } from "../../../src/forget/evidence-auth.js";
+import { atomicWrite } from "../../../src/storage/atomic-write.js";
+
+const execFileAsync = promisify(execFile);
 
 describe("runForget", () => {
   let tmp: string;
@@ -199,6 +208,85 @@ describe("runForget", () => {
     } finally {
       index.close();
     }
+  });
+
+  it("prepares signed external evidence before Git mutation and resumes final receipt persistence", async () => {
+    const signerRaw = "raw/2026-05-20/signer-readiness.md";
+    const pendingRaw = "raw/2026-05-20/receipt-pending.md";
+    const signerMarker = "SYNTHETIC-SIGNER-READINESS-PRIVATE-MARKER";
+    const pendingMarker = "SYNTHETIC-RECEIPT-PENDING-PRIVATE-MARKER";
+    const evidenceSecurityDir = join(tmp, "evidence-security");
+    await writeAt(signerRaw, `${signerMarker}\n`);
+    await writeAt(pendingRaw, `${pendingMarker}\n`);
+    await execFileAsync("git", ["init", "-b", "main"], { cwd: root });
+    await execFileAsync("git", ["config", "user.email", "memory-fort-tests@example.invalid"], { cwd: root });
+    await execFileAsync("git", ["config", "user.name", "Memory Fort Tests"], { cwd: root });
+    await execFileAsync("git", ["add", signerRaw, pendingRaw], { cwd: root });
+    await execFileAsync("git", ["commit", "-m", "seed synthetic forget evidence fixture"], { cwd: root });
+    await rebuildFixtureIndex();
+
+    await expect(runForget({
+      mode: "apply",
+      rawPaths: [signerRaw],
+      evidenceSecurityDir,
+      evidenceSignerFactory: async () => {
+        throw new Error("injected signer readiness failure");
+      },
+    })).rejects.toThrow("injected signer readiness failure");
+    expect(existsSync(join(root, ...signerRaw.split("/")))).toBe(true);
+
+    let failFinalReceipt = true;
+    let failure: unknown;
+    try {
+      await runForget({
+        mode: "apply",
+        rawPaths: [pendingRaw],
+        evidenceSecurityDir,
+        evidenceWrite: async (path, content) => {
+          const normalized = path.replace(/\\/g, "/");
+          if (
+            failFinalReceipt
+            && normalized.includes("/records/live-erase/")
+            && normalized.endsWith("/receipt.json")
+          ) {
+            failFinalReceipt = false;
+            throw new Error("injected final receipt write failure");
+          }
+          await atomicWrite(path, content);
+        },
+      });
+    } catch (error) {
+      failure = error;
+    }
+
+    expect(failure).toBeInstanceOf(LiveEraseEvidencePendingError);
+    const pending = failure as LiveEraseEvidencePendingError;
+    expect(pending.message).toContain("injected final receipt write failure");
+    expect(pending.recoveryAction).toContain("forget --apply");
+    expect(pending.journalPath).toContain(join("records", "live-erase"));
+    expect(relative(root, pending.journalPath).startsWith(".."))
+      .toBe(true);
+    expect(existsSync(join(root, ...pendingRaw.split("/")))).toBe(false);
+
+    const signedJournal = JSON.parse(await readFile(pending.journalPath, "utf8")) as unknown;
+    await expect(verifyEvidenceSignature(
+      signedJournal,
+      evidenceSecurityDir,
+      "live erase prepared journal",
+    )).resolves.toBeUndefined();
+    expect(await readFile(pending.journalPath, "utf8")).not.toContain(pendingMarker);
+
+    const resumed = await runForget({
+      mode: "apply",
+      rawPaths: [pendingRaw],
+      evidenceSecurityDir,
+    });
+    expect(resumed.status).toBe("live-erased/history-retained");
+    expect(resumed.receipt?.path).toContain(join("records", "live-erase"));
+    expect(relative(root, resumed.receipt!.path).startsWith(".."))
+      .toBe(true);
+    await expect(readLiveEraseReceipt(resumed.receipt!.path, evidenceSecurityDir))
+      .resolves.toMatchObject({ status: "live-erased/history-retained" });
   });
 
   it("serializes concurrent applies from fresh planning through ready publication", async () => {

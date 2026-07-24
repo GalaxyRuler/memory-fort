@@ -9,7 +9,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { promisify } from "node:util";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -22,13 +22,17 @@ import {
 import { runForget } from "../../../src/cli/commands/forget.js";
 import {
   PURGE_HISTORY_CONFIRMATION,
+  HistoryPurgeEvidencePendingError,
+  HistoryPurgePartialError,
   runHistoryPurge,
 } from "../../../src/forget/history-purge.js";
 import { collectSelectedContentFingerprints } from "../../../src/forget/content-fingerprints.js";
 import {
   signEvidencePayload,
+  createEvidenceSigner,
   verifyEvidenceSignature,
 } from "../../../src/forget/evidence-auth.js";
+import { atomicWrite } from "../../../src/storage/atomic-write.js";
 
 const execFileAsync = promisify(execFile);
 const FORGOTTEN_RAW = "raw/2026-07-23/codex-selected.md";
@@ -162,7 +166,7 @@ describe("memory forget --purge-history", () => {
 
     expect(await git(fixture.cloneRoot, ["rev-parse", "refs/heads/main"])).toBe(originalMain);
 
-    await rm(fixture.evidenceSecurityDir, { recursive: true, force: true });
+    await rm(join(fixture.evidenceSecurityDir, "evidence-hmac-v1.key"), { force: true });
     await expect(runHistoryPurge(base)).rejects.toThrow(/evidence.*key.*missing/i);
     expect(await git(fixture.cloneRoot, ["rev-parse", "refs/heads/main"])).toBe(originalMain);
   });
@@ -287,6 +291,138 @@ describe("memory forget --purge-history", () => {
     })).rejects.toThrow(/canonical repository/i);
   });
 
+  it("surfaces a verified external journal and resumes after final signing fails post-update", async () => {
+    const before = new Map([
+      ["refs/heads/main", fixture.originalMain],
+      ["refs/heads/auxiliary", fixture.originalAuxiliary],
+    ]);
+    let injected = false;
+    let failure: unknown;
+    try {
+      await runHistoryPurge({
+        ...purgeOptions(fixture),
+        confirmation: PURGE_HISTORY_CONFIRMATION,
+        evidenceSignerFactory: async (securityDir) => {
+          const signer = await createEvidenceSigner(securityDir);
+          return {
+            keyId: signer.keyId,
+            sign: async (payload) => {
+              if (!injected && payload.kind === "memory-fort-history-purge") {
+                injected = true;
+                throw new Error("injected final purge receipt signing failure");
+              }
+              return signer.sign(payload);
+            },
+          };
+        },
+      });
+    } catch (error) {
+      failure = error;
+    }
+
+    expect(failure).toBeInstanceOf(HistoryPurgeEvidencePendingError);
+    const pending = failure as HistoryPurgeEvidencePendingError;
+    expect(pending.message).toContain("injected final purge receipt signing failure");
+    expect(pending.recoveryAction).toContain("same command");
+    expect("receiptPath" in pending).toBe(false);
+    expect(relative(fixture.cloneRoot, pending.journalPath).startsWith(".."))
+      .toBe(true);
+
+    const journal = JSON.parse(await readFile(pending.journalPath, "utf8")) as {
+      refs: Array<{ name: string; before: string; after: string }>;
+    };
+    await expect(verifyEvidenceSignature(
+      journal,
+      fixture.evidenceSecurityDir,
+      "history purge prepared journal",
+    )).resolves.toBeUndefined();
+    for (const ref of journal.refs) {
+      expect(before.get(ref.name)).toBe(ref.before);
+      expect(await git(fixture.cloneRoot, ["rev-parse", ref.name])).toBe(ref.after);
+    }
+
+    const resumed = await runHistoryPurge({
+      ...purgeOptions(fixture),
+      confirmation: PURGE_HISTORY_CONFIRMATION,
+    });
+    expect(resumed.status).toBe("purged-local-history/limited-scope");
+    expect(resumed.refs).toEqual(journal.refs);
+    expect(relative(fixture.cloneRoot, resumed.receiptPath!).startsWith(".."))
+      .toBe(true);
+  });
+
+  it("fails closed on final receipt write, reports mixed refs, and finalizes only after exact recovery", async () => {
+    let failFinalReceipt = true;
+    let failure: unknown;
+    try {
+      await runHistoryPurge({
+        ...purgeOptions(fixture),
+        confirmation: PURGE_HISTORY_CONFIRMATION,
+        evidenceWrite: async (path, content) => {
+          const normalized = path.replace(/\\/g, "/");
+          if (
+            failFinalReceipt
+            && normalized.includes("/records/history-purge/")
+            && normalized.endsWith("/receipt.json")
+          ) {
+            failFinalReceipt = false;
+            throw new Error("injected final purge receipt write failure");
+          }
+          await atomicWrite(path, content);
+        },
+      });
+    } catch (error) {
+      failure = error;
+    }
+
+    expect(failure).toBeInstanceOf(HistoryPurgeEvidencePendingError);
+    const pending = failure as HistoryPurgeEvidencePendingError;
+    expect(pending.message).toContain("injected final purge receipt write failure");
+    expect("receiptPath" in pending).toBe(false);
+    const journal = JSON.parse(await readFile(pending.journalPath, "utf8")) as {
+      refs: Array<{ name: string; before: string; after: string }>;
+    };
+    await expect(verifyEvidenceSignature(
+      journal,
+      fixture.evidenceSecurityDir,
+      "history purge prepared journal",
+    )).resolves.toBeUndefined();
+
+    const auxiliary = journal.refs.find((ref) => ref.name === "refs/heads/auxiliary")!;
+    const main = journal.refs.find((ref) => ref.name === "refs/heads/main")!;
+    await git(fixture.cloneRoot, ["branch", "-f", "auxiliary", auxiliary.before]);
+
+    let mixedFailure: unknown;
+    try {
+      await runHistoryPurge({
+        ...purgeOptions(fixture),
+        confirmation: PURGE_HISTORY_CONFIRMATION,
+      });
+    } catch (error) {
+      mixedFailure = error;
+    }
+    expect(mixedFailure).toBeInstanceOf(HistoryPurgePartialError);
+    const partial = mixedFailure as HistoryPurgePartialError;
+    expect(relative(fixture.cloneRoot, partial.receiptPath).startsWith(".."))
+      .toBe(true);
+    const signedPartial = JSON.parse(await readFile(partial.receiptPath, "utf8")) as unknown;
+    await expect(verifyEvidenceSignature(
+      signedPartial,
+      fixture.evidenceSecurityDir,
+      "history purge partial receipt",
+    )).resolves.toBeUndefined();
+    expect(await git(fixture.cloneRoot, ["rev-parse", main.name])).toBe(main.after);
+    expect(await git(fixture.cloneRoot, ["rev-parse", auxiliary.name])).toBe(auxiliary.before);
+
+    await git(fixture.cloneRoot, ["branch", "-f", "auxiliary", auxiliary.after]);
+    const resumed = await runHistoryPurge({
+      ...purgeOptions(fixture),
+      confirmation: PURGE_HISTORY_CONFIRMATION,
+    });
+    expect(resumed.status).toBe("purged-local-history/limited-scope");
+    expect(resumed.refs).toEqual(journal.refs);
+  });
+
   it("rewrites only itemized local heads, preserves unrelated history, and records truthful limits", async () => {
     const base = purgeOptions(fixture);
     const result = await runHistoryPurge({
@@ -389,6 +525,7 @@ describe("memory forget --purge-history", () => {
         additionalAffectedPaths: string[];
       };
       validation: { passed: boolean; commands: Array<{ result: string }> };
+      operationEvidencePath: string;
     };
     expect(receipt.status).toBe("purged-local-history/limited-scope");
     expect(receipt.auth).toMatchObject({
@@ -437,6 +574,32 @@ describe("memory forget --purge-history", () => {
     expect(receiptText).not.toContain(BODY_COLLIDES_WITH_FRONTMATTER);
     expect(receiptText).not.toContain(COPIED_RETAINED_MARKER);
     expect(receiptText).not.toContain(SHARED_GENERIC_LINE);
+    const durableReceiptPath = result.receiptPath!;
+    const durableJournalPath = receipt.operationEvidencePath;
+    expect(relative(fixture.cloneRoot, durableReceiptPath).startsWith(".."))
+      .toBe(true);
+    expect(relative(fixture.cloneRoot, durableJournalPath).startsWith(".."))
+      .toBe(true);
+    const preparedJournal = JSON.parse(await readFile(durableJournalPath, "utf8")) as unknown;
+    await expect(verifyEvidenceSignature(
+      preparedJournal,
+      fixture.evidenceSecurityDir,
+      "history purge prepared journal",
+    )).resolves.toBeUndefined();
+
+    await rm(fixture.cloneRoot, { recursive: true, force: true });
+    const receiptAfterCloneDeletion = JSON.parse(await readFile(durableReceiptPath, "utf8")) as unknown;
+    const journalAfterCloneDeletion = JSON.parse(await readFile(durableJournalPath, "utf8")) as unknown;
+    await expect(verifyEvidenceSignature(
+      receiptAfterCloneDeletion,
+      fixture.evidenceSecurityDir,
+      "history purge receipt",
+    )).resolves.toBeUndefined();
+    await expect(verifyEvidenceSignature(
+      journalAfterCloneDeletion,
+      fixture.evidenceSecurityDir,
+      "history purge prepared journal",
+    )).resolves.toBeUndefined();
   });
 });
 

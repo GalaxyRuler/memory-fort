@@ -1,27 +1,19 @@
-import { createHash, randomUUID } from "node:crypto";
+import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
-import { existsSync } from "node:fs";
 import { readFile, realpath } from "node:fs/promises";
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import { isAbsolute, resolve } from "node:path";
 import { promisify } from "node:util";
 
-import type {
-  ForgetPlan,
-  NormalizedForgetSelectors,
-} from "../cli/commands/forget.js";
-import { readIndexGeneration } from "../index/generation.js";
-import { atomicWrite } from "../storage/atomic-write.js";
+import type { NormalizedForgetSelectors } from "../cli/commands/forget.js";
 import {
   isContentFingerprintEvidence,
   type ContentFingerprintEvidence,
 } from "./content-fingerprints.js";
 import {
-  signEvidencePayload,
   stableJson,
   verifyEvidenceSignature,
   type EvidenceAuth,
 } from "./evidence-auth.js";
-import { readForgetRecovery } from "./recovery.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -76,96 +68,12 @@ export interface LiveEraseReceiptPayload {
 export type LiveEraseReceipt = LiveEraseReceiptPayload & {
   readonly auth: EvidenceAuth;
 };
-export interface PersistLiveEraseReceiptOptions {
-  readonly root: string;
-  readonly selectors: NormalizedForgetSelectors;
-  readonly plan: ForgetPlan;
-  readonly erased: readonly string[];
-  readonly rewritten: readonly string[];
-  readonly now?: Date;
-  readonly contentFingerprints: ContentFingerprintEvidence;
-  readonly evidenceSecurityDir?: string;
-}
-
 export interface PersistedLiveEraseReceipt {
   readonly path: string;
   readonly evidenceId: string;
   readonly operationId: string;
   readonly completedAt: string;
   readonly selectionDigest: string;
-}
-
-export async function persistSuccessfulLiveEraseReceipt(
-  opts: PersistLiveEraseReceiptOptions,
-): Promise<PersistedLiveEraseReceipt | null> {
-  const root = await realpath(opts.root);
-  const repository = await readRepositoryIdentity(root);
-  if (!repository) return null;
-  const completedAt = (opts.now ?? new Date()).toISOString();
-  const generation = readIndexGeneration(opts.root);
-  if (generation.state !== "ready") {
-    throw new Error("memory forget: live erase completed but receipt was refused because the index is not ready");
-  }
-  if (await readForgetRecovery(opts.root)) {
-    throw new Error("memory forget: live erase completed but receipt was refused because recovery is still pending");
-  }
-  for (const relPath of opts.erased) {
-    if (existsSync(join(opts.root, ...relPath.split("/")))) {
-      throw new Error("memory forget: live erase completed but receipt was refused because a removed path is still present");
-    }
-  }
-  for (const relPath of opts.rewritten) {
-    if (!existsSync(join(opts.root, ...relPath.split("/")))) {
-      throw new Error("memory forget: live erase completed but receipt was refused because a rewritten fact path is missing");
-    }
-  }
-
-  const targets: LiveEraseReceipt["selection"]["targets"] = {
-    raw: [...opts.plan.raw],
-    facts: [...opts.plan.facts],
-    rewrittenFacts: [...opts.plan.rewrittenFacts],
-    generated: [...opts.plan.generated],
-    retainedArchives: [...opts.plan.archive],
-  };
-  const selectionDigest = forgetSelectionDigest(opts.selectors, targets);
-  const evidenceId = randomUUID();
-  const operationId = randomUUID();
-  const payload: LiveEraseReceiptPayload = {
-    schemaVersion: LIVE_ERASE_RECEIPT_SCHEMA_VERSION,
-    kind: "memory-fort-live-erase",
-    evidenceId,
-    operationId,
-    completedAt,
-    status: "live-erased/history-retained",
-    selection: {
-      digest: selectionDigest,
-      selectors: cloneSelectors(opts.selectors),
-      targets,
-      contentFingerprints: opts.contentFingerprints,
-    },
-    repository,
-    canonicalRootFingerprint: pathFingerprint(root),
-    postconditions: {
-      indexState: "ready",
-      indexGenerationToken: generation.token,
-      recovery: "none",
-      removedPathsAbsent: true,
-      rewrittenPathsCompleted: true,
-      gitHistory: "retained",
-      backups: "retained",
-    },
-  };
-  const receipt = await signEvidencePayload(payload, opts.evidenceSecurityDir);
-  const stamp = completedAt.replace(/[:.]/gu, "-");
-  const path = join(root, "var", "forget-receipts", `live-erase-${stamp}-${operationId}.json`);
-  await atomicWrite(path, `${JSON.stringify(receipt, null, 2)}\n`);
-  return {
-    path,
-    evidenceId,
-    operationId,
-    completedAt,
-    selectionDigest,
-  };
 }
 
 export async function readLiveEraseReceipt(
@@ -191,14 +99,6 @@ export async function readLiveEraseReceipt(
   return value;
 }
 
-export function canonicalRootFromLiveReceiptPath(path: string): string {
-  const resolved = resolve(path);
-  const receiptDir = dirname(resolved);
-  if (dirname(receiptDir) !== join(dirname(dirname(receiptDir)), "var")) {
-    throw new Error("memory forget --purge-history: live erase receipt is not in the canonical var/forget-receipts directory");
-  }
-  return dirname(dirname(receiptDir));
-}
 
 export function forgetSelectionDigest(
   selectors: NormalizedForgetSelectors,

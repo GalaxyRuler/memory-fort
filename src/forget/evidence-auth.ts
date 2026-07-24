@@ -28,6 +28,12 @@ export interface EvidenceAuth {
 }
 
 export type SignedEvidence<T extends object> = T & { readonly auth: EvidenceAuth };
+export interface EvidenceSigner {
+  readonly keyId: string;
+  readonly sign: <T extends object>(payload: T) => Promise<SignedEvidence<T>>;
+}
+
+export type EvidenceSignerFactory = (securityDir?: string) => Promise<EvidenceSigner>;
 
 export function resolveEvidenceSecurityDir(explicit?: string): string {
   if (explicit) return resolve(explicit);
@@ -48,29 +54,40 @@ export async function ensureEvidenceSigningKey(securityDir?: string): Promise<vo
   await loadEvidenceKey(resolveEvidenceSecurityDir(securityDir), true, "signed evidence");
 }
 
+export async function createEvidenceSigner(
+  securityDir?: string,
+): Promise<EvidenceSigner> {
+  const key = await loadEvidenceKey(resolveEvidenceSecurityDir(securityDir), true, "signed evidence");
+  const keyId = evidenceKeyId(key);
+  return {
+    keyId,
+    sign: async <T extends object>(payload: T): Promise<SignedEvidence<T>> => {
+      if ("auth" in payload) throw new Error("signed evidence payload must not already contain auth metadata");
+      const unsigned = {
+        ...payload,
+        auth: {
+          algorithm: EVIDENCE_AUTH_ALGORITHM,
+          keyId,
+        },
+      };
+      const signature = createHmac("sha256", key).update(stableJson(unsigned), "utf8").digest("hex");
+      return {
+        ...payload,
+        auth: {
+          algorithm: EVIDENCE_AUTH_ALGORITHM,
+          keyId,
+          signature,
+        },
+      };
+    },
+  };
+}
+
 export async function signEvidencePayload<T extends object>(
   payload: T,
   securityDir?: string,
 ): Promise<SignedEvidence<T>> {
-  if ("auth" in payload) throw new Error("signed evidence payload must not already contain auth metadata");
-  const key = await loadEvidenceKey(resolveEvidenceSecurityDir(securityDir), true, "signed evidence");
-  const keyId = evidenceKeyId(key);
-  const unsigned = {
-    ...payload,
-    auth: {
-      algorithm: EVIDENCE_AUTH_ALGORITHM,
-      keyId,
-    },
-  };
-  const signature = createHmac("sha256", key).update(stableJson(unsigned), "utf8").digest("hex");
-  return {
-    ...payload,
-    auth: {
-      algorithm: EVIDENCE_AUTH_ALGORITHM,
-      keyId,
-      signature,
-    },
-  };
+  return (await createEvidenceSigner(securityDir)).sign(payload);
 }
 
 export async function verifyEvidenceSignature(

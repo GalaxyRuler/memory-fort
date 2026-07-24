@@ -38,13 +38,18 @@ import {
   readForgetRecovery,
   writeForgetRecovery,
 } from "../../forget/recovery.js";
-import {
-  persistSuccessfulLiveEraseReceipt,
-  readRepositoryIdentity,
-  type PersistedLiveEraseReceipt,
-} from "../../forget/evidence.js";
+import type { PersistedLiveEraseReceipt } from "../../forget/evidence.js";
 import { collectSelectedContentFingerprints } from "../../forget/content-fingerprints.js";
-import { ensureEvidenceSigningKey } from "../../forget/evidence-auth.js";
+import type { EvidenceSignerFactory } from "../../forget/evidence-auth.js";
+import type { EvidenceWrite } from "../../forget/evidence-store.js";
+import {
+  finalizeLiveEraseEvidence,
+  prepareLiveEraseEvidence,
+  resumePreparedLiveEraseEvidence,
+} from "../../forget/live-evidence.js";
+
+export { LiveEraseEvidencePendingError } from "../../forget/live-evidence.js";
+
 
 const execFileAsync = promisify(execFile);
 
@@ -63,6 +68,10 @@ export interface ForgetOptions {
   now?: Date;
   /** Injectable user-scoped operational directory for signed evidence tests. */
   evidenceSecurityDir?: string;
+  /** Injectable retained signer factory for fail-closed evidence tests. */
+  evidenceSignerFactory?: EvidenceSignerFactory;
+  /** Injectable atomic evidence writer for fail-closed persistence tests. */
+  evidenceWrite?: EvidenceWrite;
   /** Injectable deterministic safety ceiling; incomplete coverage blocks history purge. */
   evidenceFingerprintLimit?: number;
 }
@@ -222,6 +231,30 @@ async function runForgetAtRoot(
     throw new Error("memory forget: provide at least one --path, --raw, or --source selector");
   }
 
+  if (mode === "apply") {
+    const resumed = await resumePreparedLiveEraseEvidence(root, selectors, {
+      now: opts.now,
+      evidenceSecurityDir: opts.evidenceSecurityDir,
+      signerFactory: opts.evidenceSignerFactory,
+      write: opts.evidenceWrite,
+    });
+    if (resumed) {
+      return {
+        mode,
+        status: "live-erased/history-retained",
+        plan: resumed.plan,
+        erased: resumed.erased,
+        rewritten: resumed.rewritten,
+        receipt: resumed.receipt,
+        report: [
+          formatForgetReport("apply", resumed.plan, resumed.erased).trimEnd(),
+          `Live erase receipt: ${resumed.receipt.path}`,
+          "",
+        ].join("\n"),
+      };
+    }
+  }
+
   const selectedRaw = await selectedRawPaths(root, selectors);
   const pages = await collectGeneratedPages(root, selectors, selectedRaw);
   const facts = await collectFactChanges(root, selectedRaw);
@@ -293,7 +326,16 @@ async function runForgetAtRoot(
     plan.raw,
     opts.evidenceFingerprintLimit,
   );
-  if (await readRepositoryIdentity(root)) await ensureEvidenceSigningKey(opts.evidenceSecurityDir);
+  const preparedEvidence = await prepareLiveEraseEvidence({
+    root,
+    selectors,
+    plan,
+    contentFingerprints,
+    now: opts.now,
+    evidenceSecurityDir: opts.evidenceSecurityDir,
+    signerFactory: opts.evidenceSignerFactory,
+    write: opts.evidenceWrite,
+  });
   const rewritten: string[] = [];
   let invalidation: IndexGeneration | null = null;
   let failed: {
@@ -357,16 +399,9 @@ async function runForgetAtRoot(
     });
   }
 
-  const receipt = await persistSuccessfulLiveEraseReceipt({
-    root,
-    selectors,
-    plan,
-    erased,
-    rewritten,
-    contentFingerprints,
-    evidenceSecurityDir: opts.evidenceSecurityDir,
-    now: opts.now,
-  });
+  const receipt = preparedEvidence
+    ? await finalizeLiveEraseEvidence(preparedEvidence, root, opts.now)
+    : null;
   return {
     mode,
     status: "live-erased/history-retained",

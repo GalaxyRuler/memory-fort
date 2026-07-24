@@ -8,11 +8,7 @@ import {
   rm,
   stat,
 } from "node:fs/promises";
-import {
-  isAbsolute,
-  join,
-  resolve,
-} from "node:path";
+import { join, resolve } from "node:path";
 
 import {
   normalizeForgetSelectors,
@@ -24,7 +20,6 @@ import {
   type RestoreDrillEvidence,
 } from "../cli/commands/backup.js";
 import { readIndexGeneration } from "../index/generation.js";
-import { atomicWrite } from "../storage/atomic-write.js";
 import { memoryRoot } from "../storage/paths.js";
 import {
   hasSelectedContentFingerprint,
@@ -32,13 +27,22 @@ import {
   type ContentFingerprintEvidence,
 } from "./content-fingerprints.js";
 import {
+  createEvidenceSigner,
   EVIDENCE_KEY_LIMITATION,
-  signEvidencePayload,
+  stableJson,
   verifyEvidenceSignature,
   type EvidenceAuth,
+  type EvidenceSigner,
+  type EvidenceSignerFactory,
 } from "./evidence-auth.js";
 import {
-  canonicalRootFromLiveReceiptPath,
+  assertExternalEvidencePath,
+  evidenceOperationDir,
+  persistVerifiedSignedEvidence,
+  readVerifiedEvidenceFile,
+  type EvidenceWrite,
+} from "./evidence-store.js";
+import {
   forgetSelectionDigest,
   isRepositoryRefEvidence,
   pathFingerprint,
@@ -87,6 +91,8 @@ export interface HistoryPurgeOptions
   readonly confirmation?: string;
   readonly now?: Date;
   readonly evidenceSecurityDir?: string;
+  readonly evidenceSignerFactory?: EvidenceSignerFactory;
+  readonly evidenceWrite?: EvidenceWrite;
 }
 
 export interface HistoryPurgeRefResult {
@@ -163,6 +169,20 @@ export class HistoryPurgePartialError extends Error {
   }
 }
 
+export class HistoryPurgeEvidencePendingError extends Error {
+  readonly journalPath: string;
+  readonly recoveryAction: string;
+
+  constructor(journalPath: string, recoveryAction: string, detail: string) {
+    super(
+      `memory forget --purge-history: final evidence is pending after refs moved; verified prepared journal: ${journalPath}; ${recoveryAction}; ${detail}`,
+    );
+    this.name = "HistoryPurgeEvidencePendingError";
+    this.journalPath = journalPath;
+    this.recoveryAction = recoveryAction;
+  }
+}
+
 interface PurgeTargets {
   readonly fullDelete: string[];
   readonly factRewrite: string[];
@@ -203,6 +223,62 @@ interface ObjectEvidence {
   readonly digest: string;
 }
 
+interface HistoryPurgePreparedPayload {
+  readonly schemaVersion: 1;
+  readonly kind: "memory-fort-history-purge-prepared";
+  readonly evidenceId: string;
+  readonly operationId: string;
+  readonly preparedAt: string;
+  readonly status: "prepared";
+  readonly operationDigest: string;
+  readonly evidenceKeyId: string;
+  readonly selectionDigest: string;
+  readonly selectors: NormalizedForgetSelectors;
+  readonly refs: HistoryPurgeRefResult[];
+  readonly cloneIdentity: RepositoryIdentity;
+  readonly canonicalRootFingerprint: string;
+  readonly currentRef: string;
+  readonly evidence: {
+    readonly liveEraseReceiptPath: string;
+    readonly liveEraseEvidenceId: string;
+    readonly restoreDrillEvidencePath: string;
+    readonly restoreDrillEvidenceId: string;
+    readonly backupArchiveSha256: string;
+    readonly backupManifestSha256: string;
+  };
+  readonly preflight: {
+    readonly targets: PurgeTargets;
+    readonly remoteRefsDigest: string;
+    readonly localConfigDigest: string;
+    readonly additionalAffectedPaths: string[];
+    readonly protectedEvidence: FileEvidence[];
+    readonly beforeObjects: ObjectEvidence;
+  };
+  readonly rewrite: {
+    readonly commitsVisited: number;
+    readonly commitsRewritten: number;
+    readonly commitMapDigest: string;
+  };
+  readonly validationPlan: string[];
+  readonly recovery: {
+    readonly action: "rerun-identical-purge-command";
+    readonly instructions: string[];
+  };
+}
+
+type HistoryPurgePreparedJournal = HistoryPurgePreparedPayload & {
+  readonly auth: EvidenceAuth;
+};
+
+interface PreparedHistoryPurgeEvidence {
+  readonly journalPath: string;
+  readonly receiptPath: string;
+  readonly journal: HistoryPurgePreparedJournal;
+  readonly signer: EvidenceSigner;
+  readonly evidenceSecurityDir?: string;
+  readonly write?: EvidenceWrite;
+}
+
 interface ParsedCommit {
   readonly tree: string;
   readonly parents: string[];
@@ -233,6 +309,10 @@ interface GitRunOptions {
 export async function runHistoryPurge(
   opts: HistoryPurgeOptions,
 ): Promise<HistoryPurgeResult> {
+  if (opts.confirmation === PURGE_HISTORY_CONFIRMATION) {
+    const resumed = await resumePreparedHistoryPurge(opts);
+    if (resumed) return resumed;
+  }
   const preflight = await buildPreflight(opts);
   if (opts.confirmation === undefined) {
     return {
@@ -247,7 +327,7 @@ export async function runHistoryPurge(
       `memory forget --purge-history: confirmation phrase does not match; required confirmation phrase: ${PURGE_HISTORY_CONFIRMATION}`,
     );
   }
-  return executeHistoryPurge(preflight, opts.now ?? new Date());
+  return executeHistoryPurge(preflight, opts, opts.now ?? new Date());
 }
 
 async function buildPreflight(opts: HistoryPurgeOptions): Promise<Preflight> {
@@ -283,9 +363,7 @@ async function buildPreflight(opts: HistoryPurgeOptions): Promise<Preflight> {
     throw new Error("memory forget --purge-history: selectors do not match the exact live erase selection");
   }
 
-  const canonicalRoot = await realpath(
-    canonicalRootFromLiveReceiptPath(opts.liveEraseReceiptPath),
-  );
+  const canonicalRoot = await realpath(memoryRoot());
   if (pathFingerprint(canonicalRoot) !== liveReceipt.canonicalRootFingerprint) {
     throw new Error("memory forget --purge-history: live erase receipt canonical vault fingerprint does not match");
   }
@@ -408,25 +486,24 @@ async function buildPreflight(opts: HistoryPurgeOptions): Promise<Preflight> {
 
 async function executeHistoryPurge(
   preflight: Preflight,
+  opts: HistoryPurgeOptions,
   now: Date,
 ): Promise<HistoryPurgeResult> {
-  const operationId = randomUUID();
-  const evidenceId = randomUUID();
-  const commonGitDir = await absoluteCommonGitDir(preflight.root);
-  const operationDir = join(commonGitDir, "memory-fort", "purge-operations", operationId);
-  const journalPath = join(operationDir, "state.json");
+  const operationDigest = historyPurgeOperationDigest(preflight.root, preflight.selectors, opts);
+  const operationDir = evidenceOperationDir("history-purge", operationDigest, opts.evidenceSecurityDir);
+  const journalPath = join(operationDir, "prepared.json");
   const receiptPath = join(operationDir, "receipt.json");
   const indexPath = join(operationDir, "rewrite.index");
+  assertExternalEvidencePath(preflight.root, journalPath, "history purge prepared journal");
+  assertExternalEvidencePath(preflight.canonicalRoot, journalPath, "history purge prepared journal");
+  assertExternalEvidencePath(preflight.root, receiptPath, "history purge receipt");
+  assertExternalEvidencePath(preflight.canonicalRoot, receiptPath, "history purge receipt");
   await mkdir(operationDir, { recursive: true });
-  await writeOperationState(journalPath, {
-    operationId,
-    phase: "preflight-complete",
-    selectionDigest: preflight.liveReceipt.selection.digest,
-    refs: preflight.refs,
-    refsUpdated: false,
-  });
 
+  const operationId = randomUUID();
+  const evidenceId = randomUUID();
   const commitMap = new Map<string, string>();
+  let prepared: PreparedHistoryPurgeEvidence | null = null;
   let refsUpdated = false;
   let phase = "object-rewrite";
   try {
@@ -466,26 +543,40 @@ async function executeHistoryPurge(
       if (!after) throw new Error(`memory forget --purge-history: no rewritten tip was created for ${ref.name}`);
       return { name: ref.name, before: ref.before, after };
     });
-    await writeOperationState(journalPath, {
+
+    phase = "external-journal-preparation";
+    const signer = await (opts.evidenceSignerFactory ?? createEvidenceSigner)(opts.evidenceSecurityDir);
+    const journalPayload = historyPurgePreparedPayload(
+      preflight,
+      opts,
+      operationDigest,
       operationId,
-      phase: "objects-written",
-      selectionDigest: preflight.liveReceipt.selection.digest,
-      refs: rewrittenRefs,
-      refsUpdated: false,
-      commitsWritten: commitMap.size,
-    });
+      evidenceId,
+      rewrittenRefs,
+      commitMap,
+      signer.keyId,
+      now,
+    );
+    const journal = await persistVerifiedSignedEvidence(
+      journalPath,
+      journalPayload,
+      signer,
+      opts.evidenceSecurityDir,
+      "history purge prepared journal",
+      opts.evidenceWrite,
+    );
+    prepared = {
+      journalPath,
+      receiptPath,
+      journal,
+      signer,
+      evidenceSecurityDir: opts.evidenceSecurityDir,
+      write: opts.evidenceWrite,
+    };
 
     phase = "atomic-ref-update";
     await updateRefsAtomically(preflight.root, rewrittenRefs);
     refsUpdated = true;
-    await writeOperationState(journalPath, {
-      operationId,
-      phase: "refs-updated",
-      selectionDigest: preflight.liveReceipt.selection.digest,
-      refs: rewrittenRefs,
-      refsUpdated: true,
-      commitsWritten: commitMap.size,
-    });
 
     phase = "worktree-reset";
     const currentAfter = rewrittenRefs.find((ref) => ref.name === preflight.currentRef)!.after;
@@ -498,125 +589,467 @@ async function executeHistoryPurge(
       rewrittenRefs.map((ref) => ref.name),
       preflight.targets.all,
     );
-    const receiptPayload: HistoryPurgeReceiptPayload = {
-      schemaVersion: 2,
-      kind: "memory-fort-history-purge",
-      evidenceId,
-      operationId,
-      completedAt: now.toISOString(),
-      status: "purged-local-history/limited-scope",
-      preconditions: {
-        liveEraseEvidenceId: preflight.liveReceipt.evidenceId,
-        liveEraseCompletedAt: preflight.liveReceipt.completedAt,
-        restoreDrillEvidenceId: preflight.drillEvidence.evidenceId,
-        restoreDrillCompletedAt: preflight.drillEvidence.completedAt,
-        repositoryFingerprint: preflight.identity.fingerprint,
-        cleanDisposableClone: true,
-        confirmation: "exact-consequence-phrase",
-      },
-      selection: {
-        digest: preflight.liveReceipt.selection.digest,
-        contentFingerprints: preflight.liveReceipt.selection.contentFingerprints,
-        additionalAffectedPaths: preflight.additionalAffectedPaths,
-        targetCount: preflight.targets.all.length,
-        targetPathDigests: preflight.targets.all.map((path) => sha256Text(path)).sort(),
-      },
-      refs: rewrittenRefs,
-      objects: {
-        commitsVisited: commitMap.size,
-        commitsRewritten: [...commitMap.entries()].filter(([before, after]) => before !== after).length,
-        commitMapDigest: sha256Text(
-          [...commitMap.entries()]
-            .sort(([left], [right]) => left.localeCompare(right))
-            .map(([before, after]) => `${before}:${after}`)
-            .join("\n"),
-        ),
-        beforeTargetObjectCount: preflight.beforeObjects.count,
-        beforeTargetObjectDigest: preflight.beforeObjects.digest,
-        afterTargetObjectCount: afterObjects.count,
-        afterTargetObjectDigest: afterObjects.digest,
-      },
-      validation: {
-        passed: true,
-        commands: validation,
-      },
-      limitations: [...LIMITATIONS],
-      manualNextSteps: [...MANUAL_NEXT_STEPS],
-      operationEvidencePath: journalPath,
-    };
-    const receipt = await signEvidencePayload(receiptPayload, preflight.evidenceSecurityDir);
-    await atomicWrite(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`);
-    await writeOperationState(journalPath, {
-      operationId,
-      phase: "complete",
-      selectionDigest: preflight.liveReceipt.selection.digest,
-      refs: rewrittenRefs,
-      refsUpdated: true,
-      commitsWritten: commitMap.size,
-      receiptPath,
-    });
-    return {
-      status: "purged-local-history/limited-scope",
-      selectionDigest: preflight.liveReceipt.selection.digest,
-      refs: rewrittenRefs,
-      receiptPath,
-      report: formatPurgeSuccess(rewrittenRefs, receiptPath),
-    };
+    phase = "final-evidence";
+    return await persistFinalHistoryPurgeReceipt(preflight, prepared, validation, afterObjects, now);
   } catch (error) {
+    if (error instanceof HistoryPurgeEvidencePendingError
+      || error instanceof HistoryPurgePartialError) {
+      throw error;
+    }
     const detail = error instanceof Error ? error.message : String(error);
     if (!refsUpdated) {
-      await writeOperationState(journalPath, {
-        operationId,
-        phase: "failed-before-ref-update",
-        failedPhase: phase,
-        detail,
-        selectionDigest: preflight.liveReceipt.selection.digest,
-        refs: preflight.refs,
-        refsUpdated: false,
-        commitsWritten: commitMap.size,
-        recovery: "No scoped refs changed. Preserve this operation directory and inspect the reported failure before retrying.",
-      }).catch(() => undefined);
+      const retained = prepared ? `; signed prepared journal retained at ${prepared.journalPath}` : "";
       throw new Error(
-        `memory forget --purge-history: failed closed before any ref update during ${phase}; newly written objects and evidence were retained at ${operationDir}: ${detail}`,
+        `memory forget --purge-history: failed closed before any ref update during ${phase}${retained}: ${detail}`,
       );
     }
-    const currentRefs = await Promise.all(preflight.refs.map(async (ref) => ({
-      name: ref.name,
-      before: ref.before,
-      after: await gitText(preflight.root, ["rev-parse", ref.name]).catch(() => "unknown"),
-    })));
-    const partialPayload = {
-      schemaVersion: 2,
-      evidenceId,
-      kind: "memory-fort-history-purge-partial",
-      operationId,
-      completedAt: now.toISOString(),
-      status: "partial-local-history-rewrite",
-      failedPhase: phase,
-      detail,
-      refs: currentRefs,
-      limitations: [...LIMITATIONS],
-      recovery: [
-        "Do not force-push or run garbage collection.",
-        "Preserve the operation evidence and backup/restore-drill evidence.",
-        "Compare each current ref with its before/after value in this receipt.",
-        "Recover or validate the disposable clone manually before retrying.",
-      ],
-    };
-    const partial = await signEvidencePayload(partialPayload, preflight.evidenceSecurityDir);
-    await atomicWrite(receiptPath, `${JSON.stringify(partial, null, 2)}\n`).catch(() => undefined);
-    await writeOperationState(journalPath, {
-      ...partial,
-      refsUpdated: true,
-      receiptPath,
-    }).catch(() => undefined);
-    throw new HistoryPurgePartialError(
-      `memory forget --purge-history: refs were updated but ${phase} failed; exact partial state and recovery guidance are at ${receiptPath}: ${detail}`,
-      receiptPath,
-    );
+    if (!prepared) {
+      throw new Error("memory forget --purge-history: refs moved without a prepared evidence journal");
+    }
+    return persistHistoryPurgePartialAndThrow(preflight, prepared, phase, detail, now);
   }
 }
 
+async function resumePreparedHistoryPurge(
+  opts: HistoryPurgeOptions,
+): Promise<HistoryPurgeResult | null> {
+  const root = await realpath(opts.repositoryRoot ?? memoryRoot());
+  const selectors = normalizeForgetSelectors(opts);
+  if (selectors.paths.length + selectors.rawPaths.length + selectors.sourceIds.length === 0) return null;
+  const operationDigest = historyPurgeOperationDigest(root, selectors, opts);
+  const operationDir = evidenceOperationDir("history-purge", operationDigest, opts.evidenceSecurityDir);
+  const journalPath = join(operationDir, "prepared.json");
+  if (!existsSync(journalPath)) return null;
+  const receiptPath = join(operationDir, "receipt.json");
+  assertExternalEvidencePath(root, journalPath, "history purge prepared journal");
+  assertExternalEvidencePath(root, receiptPath, "history purge receipt");
+  const journal = await readPreparedHistoryPurgeJournal(journalPath, opts.evidenceSecurityDir);
+  assertPreparedHistoryPurgeMatches(journal, root, selectors, opts, operationDigest);
+
+  const tips = await Promise.all(journal.refs.map(async (ref) => ({
+    ref,
+    current: await gitText(root, ["rev-parse", ref.name]),
+  })));
+  const allBefore = tips.every(({ ref, current }) => current === ref.before);
+  if (allBefore) return null;
+  const allAfter = tips.every(({ ref, current }) => current === ref.after);
+  const preflight = await resumePreflightFromJournal(opts, journal, root);
+  const signer = await (opts.evidenceSignerFactory ?? createEvidenceSigner)(opts.evidenceSecurityDir);
+  if (signer.keyId !== journal.evidenceKeyId) {
+    throw new Error("memory forget --purge-history: prepared journal evidence key ID does not match this device");
+  }
+  const prepared: PreparedHistoryPurgeEvidence = {
+    journalPath,
+    receiptPath,
+    journal,
+    signer,
+    evidenceSecurityDir: opts.evidenceSecurityDir,
+    write: opts.evidenceWrite,
+  };
+
+  if (!allAfter) {
+    await persistHistoryPurgePartialAndThrow(
+      preflight,
+      prepared,
+      "resume-mixed-ref-state",
+      "scoped refs are a mixture of prepared before and after tips; no ref was changed automatically",
+      opts.now ?? new Date(),
+    );
+  }
+
+  const currentAfter = journal.refs.find((ref) => ref.name === journal.currentRef)!.after;
+  await gitBuffer(root, ["reset", "--hard", currentAfter]);
+  const validation = await validateRewrite(preflight, journal.refs);
+  const afterObjects = await targetObjectEvidence(
+    root,
+    journal.refs.map((ref) => ref.name),
+    preflight.targets.all,
+  );
+  return persistFinalHistoryPurgeReceipt(
+    preflight,
+    prepared,
+    validation,
+    afterObjects,
+    opts.now ?? new Date(),
+  );
+}
+
+function historyPurgePreparedPayload(
+  preflight: Preflight,
+  opts: HistoryPurgeOptions,
+  operationDigest: string,
+  operationId: string,
+  evidenceId: string,
+  refs: HistoryPurgeRefResult[],
+  commitMap: Map<string, string>,
+  evidenceKeyId: string,
+  now: Date,
+): HistoryPurgePreparedPayload {
+  return {
+    schemaVersion: 1,
+    kind: "memory-fort-history-purge-prepared",
+    evidenceId,
+    operationId,
+    preparedAt: now.toISOString(),
+    status: "prepared",
+    operationDigest,
+    evidenceKeyId,
+    selectionDigest: preflight.liveReceipt.selection.digest,
+    selectors: cloneSelectors(preflight.selectors),
+    refs,
+    cloneIdentity: preflight.identity,
+    canonicalRootFingerprint: pathFingerprint(preflight.canonicalRoot),
+    currentRef: preflight.currentRef,
+    evidence: {
+      liveEraseReceiptPath: resolve(opts.liveEraseReceiptPath),
+      liveEraseEvidenceId: preflight.liveReceipt.evidenceId,
+      restoreDrillEvidencePath: resolve(opts.restoreDrillEvidencePath),
+      restoreDrillEvidenceId: preflight.drillEvidence.evidenceId,
+      backupArchiveSha256: preflight.drillEvidence.archive.sha256,
+      backupManifestSha256: preflight.drillEvidence.archive.manifestSha256,
+    },
+    preflight: {
+      targets: preflight.targets,
+      remoteRefsDigest: preflight.remoteRefsDigest,
+      localConfigDigest: preflight.localConfigDigest,
+      additionalAffectedPaths: preflight.additionalAffectedPaths,
+      protectedEvidence: preflight.protectedEvidence,
+      beforeObjects: preflight.beforeObjects,
+    },
+    rewrite: {
+      commitsVisited: commitMap.size,
+      commitsRewritten: [...commitMap.entries()].filter(([before, after]) => before !== after).length,
+      commitMapDigest: sha256Text(
+        [...commitMap.entries()]
+          .sort(([left], [right]) => left.localeCompare(right))
+          .map(([before, after]) => `${before}:${after}`)
+          .join("\n"),
+      ),
+    },
+    validationPlan: purgeValidationPlan(),
+    recovery: {
+      action: "rerun-identical-purge-command",
+      instructions: [
+        "Rerun the identical confirmed purge command in this disposable clone.",
+        "All prepared after tips will be revalidated and finalized without another rewrite.",
+        "Mixed before/after tips will produce a truthful signed partial receipt and will not be forced.",
+      ],
+    },
+  };
+}
+
+async function persistFinalHistoryPurgeReceipt(
+  preflight: Preflight,
+  prepared: PreparedHistoryPurgeEvidence,
+  validation: Array<{ command: string; result: "passed" }>,
+  afterObjects: ObjectEvidence,
+  now: Date,
+): Promise<HistoryPurgeResult> {
+  const journal = prepared.journal;
+  const payload: HistoryPurgeReceiptPayload = {
+    schemaVersion: 2,
+    kind: "memory-fort-history-purge",
+    evidenceId: journal.evidenceId,
+    operationId: journal.operationId,
+    completedAt: now.toISOString(),
+    status: "purged-local-history/limited-scope",
+    preconditions: {
+      liveEraseEvidenceId: preflight.liveReceipt.evidenceId,
+      liveEraseCompletedAt: preflight.liveReceipt.completedAt,
+      restoreDrillEvidenceId: preflight.drillEvidence.evidenceId,
+      restoreDrillCompletedAt: preflight.drillEvidence.completedAt,
+      repositoryFingerprint: journal.cloneIdentity.fingerprint,
+      cleanDisposableClone: true,
+      confirmation: "exact-consequence-phrase",
+    },
+    selection: {
+      digest: journal.selectionDigest,
+      contentFingerprints: preflight.liveReceipt.selection.contentFingerprints,
+      additionalAffectedPaths: journal.preflight.additionalAffectedPaths,
+      targetCount: journal.preflight.targets.all.length,
+      targetPathDigests: journal.preflight.targets.all.map((path) => sha256Text(path)).sort(),
+    },
+    refs: journal.refs,
+    objects: {
+      commitsVisited: journal.rewrite.commitsVisited,
+      commitsRewritten: journal.rewrite.commitsRewritten,
+      commitMapDigest: journal.rewrite.commitMapDigest,
+      beforeTargetObjectCount: journal.preflight.beforeObjects.count,
+      beforeTargetObjectDigest: journal.preflight.beforeObjects.digest,
+      afterTargetObjectCount: afterObjects.count,
+      afterTargetObjectDigest: afterObjects.digest,
+    },
+    validation: { passed: true, commands: validation },
+    limitations: [...LIMITATIONS],
+    manualNextSteps: [...MANUAL_NEXT_STEPS],
+    operationEvidencePath: prepared.journalPath,
+  };
+  try {
+    const receipt = await persistVerifiedSignedEvidence(
+      prepared.receiptPath,
+      payload,
+      prepared.signer,
+      prepared.evidenceSecurityDir,
+      "history purge receipt",
+      prepared.write,
+    );
+    if (receipt.kind !== "memory-fort-history-purge"
+      || receipt.status !== "purged-local-history/limited-scope"
+      || receipt.operationId !== journal.operationId) {
+      throw new Error("history purge receipt read-back is not the prepared completed operation");
+    }
+  } catch (error) {
+    throw await historyPurgePendingError(prepared, error);
+  }
+  return {
+    status: "purged-local-history/limited-scope",
+    selectionDigest: journal.selectionDigest,
+    refs: journal.refs,
+    receiptPath: prepared.receiptPath,
+    report: formatPurgeSuccess(journal.refs, prepared.receiptPath),
+  };
+}
+
+async function persistHistoryPurgePartialAndThrow(
+  preflight: Preflight,
+  prepared: PreparedHistoryPurgeEvidence,
+  failedPhase: string,
+  detail: string,
+  now: Date,
+): Promise<never> {
+  const currentRefs = await Promise.all(prepared.journal.refs.map(async (ref) => ({
+    name: ref.name,
+    before: ref.before,
+    after: await gitText(preflight.root, ["rev-parse", ref.name]).catch(() => "unknown"),
+  })));
+  const payload = {
+    schemaVersion: 2,
+    kind: "memory-fort-history-purge-partial",
+    evidenceId: prepared.journal.evidenceId,
+    operationId: prepared.journal.operationId,
+    completedAt: now.toISOString(),
+    status: "partial-local-history-rewrite",
+    failedPhase,
+    detail,
+    refs: currentRefs,
+    intendedRefs: prepared.journal.refs,
+    operationEvidencePath: prepared.journalPath,
+    limitations: [...LIMITATIONS],
+    recovery: [
+      "Do not force-push or run garbage collection.",
+      "Preserve the signed prepared journal and backup/restore-drill evidence.",
+      "Restore each scoped ref deliberately to either its prepared before or after tip before retrying.",
+    ],
+  };
+  try {
+    const partial = await persistVerifiedSignedEvidence(
+      prepared.receiptPath,
+      payload,
+      prepared.signer,
+      prepared.evidenceSecurityDir,
+      "history purge partial receipt",
+      prepared.write,
+    );
+    if (partial.kind !== "memory-fort-history-purge-partial"
+      || partial.status !== "partial-local-history-rewrite") {
+      throw new Error("history purge partial receipt read-back is invalid");
+    }
+  } catch (error) {
+    throw await historyPurgePendingError(prepared, error);
+  }
+  throw new HistoryPurgePartialError(
+    `memory forget --purge-history: refs are not safely finalized after ${failedPhase}; verified partial state and recovery guidance are at ${prepared.receiptPath}: ${detail}`,
+    prepared.receiptPath,
+  );
+}
+
+async function historyPurgePendingError(
+  prepared: PreparedHistoryPurgeEvidence,
+  error: unknown,
+): Promise<HistoryPurgeEvidencePendingError> {
+  const verified = await readPreparedHistoryPurgeJournal(
+    prepared.journalPath,
+    prepared.evidenceSecurityDir,
+  );
+  if (verified.operationId !== prepared.journal.operationId
+    || verified.operationDigest !== prepared.journal.operationDigest) {
+    throw new Error("memory forget --purge-history: prepared journal changed while final evidence was pending");
+  }
+  const detail = error instanceof Error ? error.message : String(error);
+  return new HistoryPurgeEvidencePendingError(
+    prepared.journalPath,
+    "rerun the same command with the identical confirmation to validate refs and finalize evidence",
+    detail,
+  );
+}
+
+async function resumePreflightFromJournal(
+  opts: HistoryPurgeOptions,
+  journal: HistoryPurgePreparedJournal,
+  root: string,
+): Promise<Preflight> {
+  const now = opts.now ?? new Date();
+  const liveReceipt = await readLiveEraseReceipt(journal.evidence.liveEraseReceiptPath, opts.evidenceSecurityDir);
+  if (liveReceipt.evidenceId !== journal.evidence.liveEraseEvidenceId
+    || liveReceipt.selection.digest !== journal.selectionDigest
+    || !sameSelectors(liveReceipt.selection.selectors, journal.selectors)) {
+    throw new Error("memory forget --purge-history: prepared journal live erase evidence no longer matches");
+  }
+  assertFreshEvidence("live erase receipt", liveReceipt.completedAt, now);
+  const canonicalRoot = await realpath(memoryRoot());
+  if (pathFingerprint(canonicalRoot) !== journal.canonicalRootFingerprint
+    || pathFingerprint(canonicalRoot) !== liveReceipt.canonicalRootFingerprint) {
+    throw new Error("memory forget --purge-history: prepared journal canonical root no longer matches");
+  }
+  await validateCurrentLiveEraseState(canonicalRoot, liveReceipt);
+  const canonicalIdentity = await readRepositoryIdentity(canonicalRoot);
+  if (!canonicalIdentity
+    || !liveReceipt.repository
+    || canonicalIdentity.head !== liveReceipt.repository.head
+    || canonicalIdentity.commonGitDirFingerprint !== liveReceipt.repository.commonGitDirFingerprint) {
+    throw new Error("memory forget --purge-history: canonical repository no longer matches prepared evidence");
+  }
+
+  const drillEvidence = await readRestoreDrillEvidence(
+    journal.evidence.restoreDrillEvidencePath,
+    opts.evidenceSecurityDir,
+  );
+  if (drillEvidence.evidenceId !== journal.evidence.restoreDrillEvidenceId) {
+    throw new Error("memory forget --purge-history: prepared restore drill evidence no longer matches");
+  }
+  assertFreshEvidence("restore drill evidence", drillEvidence.completedAt, now);
+  assertFreshEvidence("backup archive", drillEvidence.archive.createdAt, now);
+  const verifiedBackup = await verifyBackup(drillEvidence.archive.path);
+  if (verifiedBackup.archiveSha256 !== journal.evidence.backupArchiveSha256
+    || verifiedBackup.manifestSha256 !== journal.evidence.backupManifestSha256) {
+    throw new Error("memory forget --purge-history: prepared backup hashes no longer match");
+  }
+
+  const currentIdentity = await readRepositoryIdentity(root);
+  if (!currentIdentity
+    || currentIdentity.rootFingerprint !== journal.cloneIdentity.rootFingerprint
+    || currentIdentity.commonGitDirFingerprint !== journal.cloneIdentity.commonGitDirFingerprint) {
+    throw new Error("memory forget --purge-history: disposable clone identity no longer matches prepared journal");
+  }
+  await assertCleanRepository(root);
+  await assertNoUnsafeGitOperation(root);
+  validatePurgeTargets(journal.preflight.targets);
+  return {
+    root,
+    identity: journal.cloneIdentity,
+    canonicalRoot,
+    liveReceipt,
+    drillEvidence,
+    selectors: cloneSelectors(journal.selectors),
+    refs: journal.refs.map(({ name, before }) => ({ name, before })),
+    currentRef: journal.currentRef,
+    targets: journal.preflight.targets,
+    remoteRefsDigest: journal.preflight.remoteRefsDigest,
+    localConfigDigest: journal.preflight.localConfigDigest,
+    additionalAffectedPaths: journal.preflight.additionalAffectedPaths,
+    evidenceSecurityDir: opts.evidenceSecurityDir,
+    protectedEvidence: journal.preflight.protectedEvidence,
+    beforeObjects: journal.preflight.beforeObjects,
+  };
+}
+
+async function readPreparedHistoryPurgeJournal(
+  path: string,
+  evidenceSecurityDir?: string,
+): Promise<HistoryPurgePreparedJournal> {
+  const value = await readVerifiedEvidenceFile(path, evidenceSecurityDir, "history purge prepared journal");
+  if (!isHistoryPurgePreparedJournal(value)) {
+    throw new Error("memory forget --purge-history: prepared journal schema is invalid");
+  }
+  return value;
+}
+
+function assertPreparedHistoryPurgeMatches(
+  journal: HistoryPurgePreparedJournal,
+  root: string,
+  selectors: NormalizedForgetSelectors,
+  opts: HistoryPurgeOptions,
+  operationDigest: string,
+): void {
+  const requestedRefs = uniqueSorted(opts.refs);
+  if (journal.operationDigest !== operationDigest
+    || journal.cloneIdentity.rootFingerprint !== pathFingerprint(root)
+    || !sameSelectors(journal.selectors, selectors)
+    || JSON.stringify(uniqueSorted(journal.refs.map((ref) => ref.name))) !== JSON.stringify(requestedRefs)
+    || journal.evidence.liveEraseReceiptPath !== resolve(opts.liveEraseReceiptPath)
+    || journal.evidence.restoreDrillEvidencePath !== resolve(opts.restoreDrillEvidencePath)) {
+    throw new Error("memory forget --purge-history: prepared journal does not match this exact command");
+  }
+}
+
+function historyPurgeOperationDigest(
+  root: string,
+  selectors: NormalizedForgetSelectors,
+  opts: HistoryPurgeOptions,
+): string {
+  return sha256Text(stableJson({
+    kind: "memory-fort-history-purge-operation-v1",
+    cloneRootFingerprint: pathFingerprint(root),
+    selectors: cloneSelectors(selectors),
+    refs: uniqueSorted(opts.refs),
+    liveEraseReceiptPathFingerprint: pathFingerprint(resolve(opts.liveEraseReceiptPath)),
+    restoreDrillEvidencePathFingerprint: pathFingerprint(resolve(opts.restoreDrillEvidencePath)),
+  }));
+}
+
+function purgeValidationPlan(): string[] {
+  return [
+    "selected path and fingerprint absence across scoped history",
+    "selected attribution absence from rewritten fact blobs",
+    "scoped refs equal prepared after tips",
+    "remote refs and local config digests unchanged",
+    "backup and signed prerequisite evidence hashes unchanged",
+    "clean worktree and git fsck --full --strict",
+  ];
+}
+
+function isHistoryPurgePreparedJournal(value: unknown): value is HistoryPurgePreparedJournal {
+  if (!isRecord(value)
+    || value["schemaVersion"] !== 1
+    || value["kind"] !== "memory-fort-history-purge-prepared"
+    || value["status"] !== "prepared"
+    || typeof value["evidenceId"] !== "string"
+    || typeof value["operationId"] !== "string"
+    || typeof value["preparedAt"] !== "string"
+    || typeof value["operationDigest"] !== "string"
+    || typeof value["evidenceKeyId"] !== "string"
+    || typeof value["selectionDigest"] !== "string"
+    || typeof value["canonicalRootFingerprint"] !== "string"
+    || typeof value["currentRef"] !== "string"
+    || !Array.isArray(value["refs"])
+    || !value["refs"].every(isHistoryPurgeRefResult)
+    || !isRecord(value["selectors"])
+    || !isRecord(value["cloneIdentity"])
+    || !isRecord(value["evidence"])
+    || !isRecord(value["preflight"])
+    || !isRecord(value["rewrite"])
+    || !Array.isArray(value["validationPlan"])
+    || !isRecord(value["recovery"])
+    || !isRecord(value["auth"])) {
+    return false;
+  }
+  return true;
+}
+
+function isHistoryPurgeRefResult(value: unknown): value is HistoryPurgeRefResult {
+  return isRecord(value)
+    && typeof value["name"] === "string"
+    && typeof value["before"] === "string"
+    && typeof value["after"] === "string";
+}
+
+function cloneSelectors(selectors: NormalizedForgetSelectors): NormalizedForgetSelectors {
+  return {
+    paths: [...selectors.paths],
+    rawPaths: [...selectors.rawPaths],
+    sourceIds: [...selectors.sourceIds],
+  };
+}
 async function validateCurrentLiveEraseState(
   canonicalRoot: string,
   receipt: LiveEraseReceipt,
@@ -1218,14 +1651,6 @@ async function absoluteGitDir(root: string): Promise<string> {
   return realpath(await gitText(root, ["rev-parse", "--absolute-git-dir"]));
 }
 
-async function absoluteCommonGitDir(root: string): Promise<string> {
-  const raw = await gitText(root, ["rev-parse", "--git-common-dir"]);
-  return realpath(isAbsolute(raw) ? raw : resolve(root, raw));
-}
-
-async function writeOperationState(path: string, state: unknown): Promise<void> {
-  await atomicWrite(path, `${JSON.stringify(state, null, 2)}\n`);
-}
 
 function formatPurgePlan(preflight: Preflight): string {
   const lines = [
