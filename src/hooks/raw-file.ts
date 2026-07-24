@@ -45,7 +45,12 @@ interface CaptureEvent {
 }
 interface CaptureSpoolEntry { name: string; path: string; event: CaptureEvent; }
 interface RawCaptureEpochState { version: 1; state: "ready" | "invalidating"; token: string; }
-export interface RawCaptureEpochTransition { rawPath: string; invalidatingToken: string; }
+export interface RawCaptureEpochTransition {
+  rawPath: string;
+  previousToken: string;
+  invalidatingToken: string;
+  readyToken: string;
+}
 export interface CaptureSpooledDiagnostic { type: "capture_spooled"; eventId: string; hash: string; createdAt: string; }
 export interface CaptureSpoolStatus { pendingEventCount: number; oldestPendingAgeMs: number | null; drainFailures: number; captureSpooled: CaptureSpooledDiagnostic[]; }
 export interface CaptureSpoolAttribution {
@@ -140,7 +145,7 @@ export async function inspectCaptureSpoolAttribution(
  */
 export async function withCaptureSpoolEventsRemoved<T>(
   absoluteRawPaths: readonly string[],
-  beforeRemoval: () => Promise<void>,
+  beforeRemoval: (epochs: readonly RawCaptureEpochTransition[]) => Promise<void>,
   operation: (
     attribution: CaptureSpoolAttribution,
     epochs: readonly RawCaptureEpochTransition[],
@@ -151,7 +156,21 @@ export async function withCaptureSpoolEventsRemoved<T>(
   return withCaptureSpoolLock(async () => withRawFileLocks(rawPaths, async () => {
     const entries = await readCaptureSpoolEntries();
     const attributable = entries.filter((entry) => targetKeys.has(normalizeRawTarget(entry.event.rawPath)));
-    await beforeRemoval();
+    const epochs: RawCaptureEpochTransition[] = [];
+    for (const rawPath of rawPaths) {
+      const previousToken = await ensureRawCaptureEpoch(rawPath);
+      const previous = await readRawCaptureEpoch(rawPath);
+      if (!previous || previous.state !== "ready" || previous.token !== previousToken) {
+        throw new Error(`raw capture epoch is already invalidating for ${rawPath}`);
+      }
+      epochs.push({
+        rawPath,
+        previousToken,
+        invalidatingToken: randomUUID(),
+        readyToken: randomUUID(),
+      });
+    }
+    await beforeRemoval(epochs);
     const removedPaths: string[] = [];
     for (const entry of attributable) {
       try {
@@ -177,18 +196,17 @@ export async function withCaptureSpoolEventsRemoved<T>(
         );
       }
     }
-    const epochs: RawCaptureEpochTransition[] = [];
-    for (const rawPath of rawPaths) {
-      const invalidatingToken = randomUUID();
+    const advanced: RawCaptureEpochTransition[] = [];
+    for (const transition of epochs) {
       try {
-        await writeRawCaptureEpoch(rawPath, {
+        await writeRawCaptureEpoch(transition.rawPath, {
           version: 1,
           state: "invalidating",
-          token: invalidatingToken,
+          token: transition.invalidatingToken,
         });
-        epochs.push({ rawPath, invalidatingToken });
+        advanced.push(transition);
       } catch (error) {
-        const failedPath = rawCaptureEpochPath(rawPath);
+        const failedPath = rawCaptureEpochPath(transition.rawPath);
         throw new CapturePreparationMutationError(
           captureSpoolAttribution(
             attributable,
@@ -198,7 +216,7 @@ export async function withCaptureSpoolEventsRemoved<T>(
             failedPath,
             captureEpochInvalidationAttribution(
               rawPaths,
-              epochs.map((transition) => transition.rawPath),
+              advanced.map((advancedTransition) => advancedTransition.rawPath),
             ),
           ),
           "epoch-invalidation",
@@ -222,19 +240,26 @@ export async function completeRawCaptureEpochInvalidation(
 ): Promise<void> {
   for (const transition of transitions) {
     const current = await readRawCaptureEpoch(transition.rawPath);
-    if (
-      !current
-      || current.state !== "invalidating"
-      || current.token !== transition.invalidatingToken
-    ) {
+    if (current?.state === "ready" && current.token === transition.readyToken) continue;
+    if (current?.state === "ready" && current.token === transition.previousToken) continue;
+    if (current?.state !== "invalidating" || current.token !== transition.invalidatingToken) {
       throw new Error(`raw capture epoch ownership changed for ${transition.rawPath}`);
     }
     await writeRawCaptureEpoch(transition.rawPath, {
       version: 1,
       state: "ready",
-      token: randomUUID(),
+      token: transition.readyToken,
     });
   }
+}
+
+/** Hold the replay-compatible spool-then-sorted-raw lock order without mutating captures. */
+export function withCaptureSpoolAndRawLocks<T>(
+  absoluteRawPaths: readonly string[],
+  operation: () => Promise<T>,
+): Promise<T> {
+  const rawPaths = uniqueAbsoluteRawPaths(absoluteRawPaths);
+  return withCaptureSpoolLock(() => withRawFileLocks(rawPaths, operation));
 }
 
 /**

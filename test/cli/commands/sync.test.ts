@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runSync } from "../../../src/cli/commands/sync.js";
 import { writeSyncStateFile } from "../../../src/sync/status.js";
+import { isFileLockHeld } from "../../../src/storage/file-lock.js";
 import type { CommandRunner } from "../../../src/sync/git-remote.js";
 
 interface RecordedCommand {
@@ -123,7 +124,7 @@ describe("runSync", () => {
     expect(result.actionsPerformed).toEqual([]);
     expect(result.finalState).toBe("clean");
     expect(state.last_sync_success).toBe(now.toISOString());
-    expect(existsSync(join(tmp, ".sync-state.json.lock"))).toBe(false);
+    expect(isFileLockHeld(join(tmp, ".sync-state.json"))).toBe(false);
   });
 
   it("runSync pushes when local-ahead", async () => {

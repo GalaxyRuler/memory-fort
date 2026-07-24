@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { isFileLockHeld } from "../../../storage/file-lock.js";
 import { fail, pass, warn, type CheckDescriptor, type VerifyCheckContext, type VerifyCheckResult } from "./types.js";
 
 const HOUR_MS = 60 * 60 * 1000;
@@ -55,7 +56,7 @@ function isPendingLockContention(line: string, vaultRoot: string): boolean {
   if (!/auto-push schedule failed: (?:EPERM|EACCES): .*open .*\.auto-push-pending\.lock/i.test(line)) {
     return false;
   }
-  return existsSync(join(vaultRoot, ".auto-push-pending.lock"));
+  return isFileLockHeld(join(vaultRoot, ".auto-push-pending"));
 }
 
 async function readLastScheduledAt(vaultRoot: string): Promise<number | null> {

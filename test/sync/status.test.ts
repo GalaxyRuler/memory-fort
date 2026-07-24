@@ -172,7 +172,9 @@ describe("getSyncStatus", () => {
         ? {
           stdout: [
             "?? raw/2026-05-21/foo.md.lock",
+            "?? raw/2026-05-21/foo.md.lock/owner-token.json",
             "?? config.yaml.lock",
+            "?? config.yaml.lock/owner-token.json",
             "?? .sync-state.json.lock",
             "?? .auto-push-pending.lock",
             " M scripts/yarn.lock",

@@ -167,13 +167,13 @@ function isTransientVaultArtifact(path: string): boolean {
   if (normalized === "claude-code-plugin" || normalized.startsWith("claude-code-plugin/")) {
     return true;
   }
-  const name = normalized.split("/").at(-1) ?? normalized;
-  // withFileLock creates `${targetPath}.lock` for files that already have an
-  // extension (foo.md.lock, config.yaml.lock, .sync-state.json.lock). Do not
+  const parts = normalized.split("/");
+  const name = parts.at(-1) ?? normalized;
+  // withFileLock creates `${targetPath}.lock/` claim directories for files
+  // that already have an extension. Do not
   // treat package lockfiles (yarn.lock, Gemfile.lock, Cargo.lock) as transient.
   return (
-    name === ".auto-push-pending.lock"
-    || /\.[^./]+\.lock$/.test(name)
+    parts.some((part) => part === ".auto-push-pending.lock" || /\.[^./]+\.lock$/.test(part))
     || /\.\d+\.\d+\.[0-9a-fA-F-]+\.tmp$/.test(name)
   );
 }

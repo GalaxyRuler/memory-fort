@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { execFile } from "node:child_process";
@@ -14,6 +15,7 @@ import { readRelationTarget } from "../../retrieval/relations.js";
 import {
   beginIndexInvalidation,
   completeIndexInvalidation,
+  readIndexGeneration,
   type IndexGeneration,
 } from "../../index/generation.js";
 import { withFileLock } from "../../storage/file-lock.js";
@@ -29,9 +31,15 @@ import {
   type CaptureSpoolAttribution,
   type RawCaptureEpochTransition,
 } from "../../hooks/raw-file.js";
+import {
+  clearForgetRecovery,
+  forgetApplyLockTarget,
+  FORGET_APPLY_LOCK,
+  readForgetRecovery,
+  writeForgetRecovery,
+} from "../../forget/recovery.js";
 
 const execFileAsync = promisify(execFile);
-const FORGET_APPLY_LOCK = { timeoutMs: 30_000, staleMs: 60_000, pollMs: 100 } as const;
 
 export type ForgetMode = "plan" | "apply";
 
@@ -161,7 +169,7 @@ export async function runForget(opts: ForgetOptions = {}): Promise<ForgetResult>
   const mode = opts.mode ?? "plan";
   if (mode === "apply") {
     return withFileLock(
-      join(root, "var", "forget-apply"),
+      forgetApplyLockTarget(root),
       () => withCompileExecuteLock(
         root,
         (ownership) => runForgetAtRoot(root, opts, mode, ownership),
@@ -178,6 +186,16 @@ async function runForgetAtRoot(
   mode: ForgetMode,
   ownership?: CompileExecuteLockOwnership,
 ): Promise<ForgetResult> {
+  if (mode === "apply") {
+    const generation = readIndexGeneration(root);
+    if (generation.state === "invalidating") {
+      const recovery = await readForgetRecovery(root);
+      const detail = recovery?.indexInvalidatingToken === generation.token
+        ? "a prior forget or reindex requires recovery"
+        : "the derived generation is invalidating without matching recovery metadata";
+      throw new Error(`memory forget: ${detail}; fix the reported cause, then run memory reindex`);
+    }
+  }
   const selectors = normalizeSelectors(opts);
   if (selectors.paths.length + selectors.rawPaths.length + selectors.sourceIds.length === 0) {
     throw new Error("memory forget: provide at least one --path, --raw, or --source selector");
@@ -260,9 +278,9 @@ async function runForgetAtRoot(
   try {
     await withCaptureSpoolEventsRemoved(
       selectedRawAbsolutePaths,
-      async () => {
+      async (epochs) => {
         failed = { operation: "invalidation", path: "derived-index" };
-        invalidation = await beginDerivedIndexInvalidation(root);
+        invalidation = await beginDerivedIndexInvalidation(root, epochs);
       },
       async (captureSpool, epochs) => {
         plan.captureSpool = captureSpool;
@@ -708,18 +726,12 @@ async function rebuildDerivedState(
   try {
     await rebuildIndexWithCompileLockHeld(ownership, root);
     await rebuildSearchIndex(root);
+    // Complete capture boundaries first while their raw locks remain held, then
+    // publish the derived generation last. Any failure therefore leaves search
+    // invalidating, and deterministic ready tokens make a retry idempotent.
+    await completeRawCaptureEpochInvalidation(epochs);
     await completeIndexInvalidation(root, invalidatingToken);
-    try {
-      // Keep capture epochs invalidating until the derived generation is ready.
-      // The selected raw locks are still held, so a capture can only append
-      // after this final boundary has published a fresh ready epoch.
-      await completeRawCaptureEpochInvalidation(epochs);
-    } catch (error) {
-      // Ready derived data with an unavailable capture boundary is not a
-      // complete forget transaction. Re-quiesce search before surfacing it.
-      await beginIndexInvalidation(root).catch(() => undefined);
-      throw error;
-    }
+    await clearForgetRecovery(root, invalidatingToken).catch(() => undefined);
   } catch (error) {
     // Also remove any partial new generation. Leaving no search database is
     // safer and more honest than keeping stale or incomplete derived hits. The
@@ -745,8 +757,16 @@ async function rebuildDerivedState(
   }
 }
 
-async function beginDerivedIndexInvalidation(root: string): Promise<IndexGeneration> {
-  const invalidation = await beginIndexInvalidation(root);
+async function beginDerivedIndexInvalidation(
+  root: string,
+  epochs: readonly RawCaptureEpochTransition[],
+): Promise<IndexGeneration> {
+  const token = randomUUID();
+  await writeForgetRecovery(root, {
+    indexInvalidatingToken: token,
+    epochs,
+  });
+  const invalidation = await beginIndexInvalidation(root, token);
   try {
     // Publish the fence before the first live deletion. Dashboard controllers
     // close their cached readers and refuse to reopen while this state holds.
@@ -883,6 +903,7 @@ function formatForgetPartialMutationReport(
     `Memory forget ${status}`,
     `Status: ${status}`,
     "Derived index: invalidating; dashboard search remains quiesced until a successful rebuild.",
+    "Fix the reported cause, then run `memory reindex`.",
     `Failed ${failed.operation}: ${failed.path}`,
     `Failure detail: ${failed.detail}`,
     `Capture spool status: ${plan.captureSpool.status}`,

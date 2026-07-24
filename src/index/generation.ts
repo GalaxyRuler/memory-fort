@@ -41,10 +41,13 @@ export function readIndexGeneration(vaultRoot: string): IndexGeneration {
   return { state: match[1] as IndexGenerationState, token: match[2]! };
 }
 
-export async function beginIndexInvalidation(vaultRoot: string): Promise<IndexGeneration> {
+export async function beginIndexInvalidation(
+  vaultRoot: string,
+  requestedToken?: string,
+): Promise<IndexGeneration> {
   return withFileLock(
     indexGenerationPath(vaultRoot),
-    () => writeIndexGeneration(vaultRoot, "invalidating"),
+    () => writeIndexGeneration(vaultRoot, "invalidating", requestedToken),
   );
 }
 
@@ -61,8 +64,14 @@ export async function completeIndexInvalidation(
   });
 }
 
-async function writeIndexGeneration(vaultRoot: string, state: IndexGenerationState): Promise<IndexGeneration> {
-  const generation = { state, token: randomUUID() };
+async function writeIndexGeneration(
+  vaultRoot: string,
+  state: IndexGenerationState,
+  requestedToken?: string,
+): Promise<IndexGeneration> {
+  const token = requestedToken ?? randomUUID();
+  if (!/^[A-Za-z0-9-]+$/u.test(token)) throw new Error("invalid index generation token");
+  const generation = { state, token };
   await atomicWrite(indexGenerationPath(vaultRoot), `${generation.state}:${generation.token}\n`);
   return generation;
 }

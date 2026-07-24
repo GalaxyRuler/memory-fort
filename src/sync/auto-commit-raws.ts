@@ -123,7 +123,7 @@ function parseDirtyFiles(output: string): DirtyFile[] {
 
 // Internal artifacts that are never committable and must never block or count
 // as dirt: the auto-push pending lock, withFileLock/withRawFileLock sidecars
-// (`<file-with-ext>.lock` — not package lockfiles like yarn.lock), and
+// (`<file-with-ext>.lock/` — not package lockfiles like yarn.lock), and
 // atomic-write temp files (`<name>.<pid>.<ts>.<uuid>.tmp`). They appear
 // transiently in `git status -uall` and previously tripped the "non-raw dirty"
 // skip.
@@ -134,10 +134,10 @@ function isTransientArtifact(path: string): boolean {
   if (normalized === "claude-code-plugin" || normalized.startsWith("claude-code-plugin/")) {
     return true;
   }
-  const name = normalized.split("/").at(-1) ?? normalized;
+  const parts = normalized.split("/");
+  const name = parts.at(-1) ?? normalized;
   return (
-    name === ".auto-push-pending.lock"
-    || /\.[^./]+\.lock$/.test(name)
+    parts.some((part) => part === ".auto-push-pending.lock" || /\.[^./]+\.lock$/.test(part))
     || /\.\d+\.\d+\.[0-9a-fA-F-]+\.tmp$/.test(name)
   );
 }

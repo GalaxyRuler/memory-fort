@@ -1,6 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -74,7 +74,7 @@ describe("dashboard promotion and forget publication fence", () => {
     await waitForPath(readyPath, 5_000);
     const compileLockPath = `${compileExecuteLockTarget(root)}.lock`;
     const compileOwnerPid = existsSync(compileLockPath)
-      ? (JSON.parse(await readFile(compileLockPath, "utf-8")) as { pid?: unknown }).pid
+      ? await readUniqueClaimOwnerPid(compileLockPath)
       : null;
 
     let forgetSettled = false;
@@ -137,6 +137,14 @@ describe("dashboard promotion and forget publication fence", () => {
 
 function waitForPath(path: string, timeoutMs: number): Promise<void> {
   return waitForCondition(() => existsSync(path), timeoutMs, path);
+}
+
+async function readUniqueClaimOwnerPid(lockDirectory: string): Promise<unknown> {
+  for (const name of (await readdir(lockDirectory)).filter((entry) => entry.endsWith(".json")).sort()) {
+    const claim = JSON.parse(await readFile(join(lockDirectory, name), "utf-8")) as { pid?: unknown };
+    if (claim.pid !== undefined) return claim.pid;
+  }
+  return null;
 }
 
 function waitForCondition(

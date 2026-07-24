@@ -43,7 +43,7 @@ describe("durable raw capture", () => {
       cwd: "C:/work",
       now,
     });
-    await writeFile(`${path}.lock`, "another process holds this lock", "utf-8");
+    await seedLiveClaim(path, "locked-session-owner");
 
     await appendBlock({
       tool: "codex",
@@ -66,7 +66,7 @@ describe("durable raw capture", () => {
       cwd: "C:/work",
       now,
     });
-    await writeFile(`${path}.lock`, "another process holds this lock", "utf-8");
+    const claimPath = await seedLiveClaim(path, "diagnostic-session-owner");
 
     await appendBlock({
       tool: "codex",
@@ -90,7 +90,7 @@ describe("durable raw capture", () => {
       }],
     });
 
-    await rm(`${path}.lock`);
+    await rm(claimPath);
     await ensureRawSessionFile({
       tool: "codex",
       sessionId: "next-hook",
@@ -485,13 +485,13 @@ describe("durable raw capture", () => {
   it("drains a crash-left spool exactly once after its event was already merged", async () => {
     const now = new Date(Date.UTC(2026, 6, 23, 4, 1, 0));
     const path = await ensureRawSessionFile({ tool: "codex", sessionId: "crash-session", cwd: "C:/work", now });
-    await writeFile(`${path}.lock`, "another process holds this lock", "utf-8");
+    const claimPath = await seedLiveClaim(path, "crash-session-owner");
     await appendBlock({ tool: "codex", sessionId: "crash-session", block: "\n## [04:01:00] Prompt\n\nmerge-once\n", now });
     const [spoolName] = (await readdir(captureSpoolDir())).filter((name) => name.endsWith(".json"));
     const event = JSON.parse(await readFile(join(captureSpoolDir(), spoolName!), "utf-8")) as { id: string; hash: string; block: string };
 
     await writeFile(path, `${await readFile(path, "utf-8")}${event.block}\n<!-- memory-fort-capture id=${event.id} hash=${event.hash} -->\n`);
-    await rm(`${path}.lock`);
+    await rm(claimPath);
     await ensureRawSessionFile({ tool: "codex", sessionId: "next-hook", cwd: "C:/work", now });
     await appendBlock({ tool: "codex", sessionId: "next-hook", block: "\n## [04:01:01] Prompt\n\nnext\n", now });
 
@@ -509,6 +509,22 @@ describe("durable raw capture", () => {
       if (Date.now() >= deadline) throw new Error("replay children did not become ready");
       await new Promise((resolve) => setTimeout(resolve, 10));
     }
+  }
+
+  async function seedLiveClaim(targetPath: string, ownerToken: string): Promise<string> {
+    const directory = `${targetPath}.lock`;
+    await mkdir(directory, { recursive: true });
+    const claimPath = join(directory, `${ownerToken}.json`);
+    await writeFile(claimPath, `${JSON.stringify({
+      version: 2,
+      pid: process.pid,
+      host: hostname(),
+      acquiredAt: new Date().toISOString(),
+      ownerToken,
+      choosing: false,
+      ticket: 1,
+    })}\n`, "utf-8");
+    return claimPath;
   }
 
   async function writeReplayEvent(

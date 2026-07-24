@@ -1,7 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { link, mkdir, open, readFile, rename, stat, unlink } from "node:fs/promises";
+import { existsSync, readdirSync, statSync } from "node:fs";
+import { mkdir, open, readFile, readdir, stat, unlink } from "node:fs/promises";
 import { hostname } from "node:os";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
+
+import { atomicWrite } from "./atomic-write.js";
 
 export interface FileLockOptions {
   timeoutMs?: number;
@@ -14,18 +17,20 @@ export interface FileLockOptions {
   };
 }
 
-interface FileLockOwner {
+interface FileLockClaim {
+  version: 2;
   pid: number;
   host: string;
   acquiredAt: string;
   ownerToken: string;
+  choosing: boolean;
+  ticket: number | null;
 }
 
-interface FileLockSnapshot {
-  raw: string;
-  pid?: unknown;
-  host?: unknown;
-  ownerToken?: unknown;
+interface ClaimSnapshot {
+  path: string;
+  mtimeMs: number;
+  claim: FileLockClaim | null;
 }
 
 export class FileLockTimeoutError extends Error {
@@ -35,6 +40,18 @@ export class FileLockTimeoutError extends Error {
   }
 }
 
+/**
+ * Cross-process Lamport bakery lock.
+ *
+ * `${targetPath}.lock` is a permanent claim directory. Each contender creates,
+ * heartbeats, and removes only its own UUID-named claim. Deterministic
+ * `(ticket, ownerToken)` ordering supplies mutual exclusion without ever
+ * renaming or unlinking a shared successor pathname.
+ *
+ * A pre-v2 shared lock file is honored until its owner removes it. Once absent,
+ * the directory is created as a permanent one-way migration barrier: older
+ * shared-file implementations can no longer publish a successor at that path.
+ */
 export async function withFileLock<T>(
   targetPath: string,
   operation: () => Promise<T>,
@@ -45,158 +62,291 @@ export async function withFileLock<T>(
   const pollMs = opts.pollMs ?? 100;
   const lockPath = `${targetPath}.lock`;
   const deadline = Date.now() + timeoutMs;
-  const owner: FileLockOwner = {
+  const owner: FileLockClaim = {
+    version: 2,
     pid: process.pid,
     host: hostname(),
     acquiredAt: new Date().toISOString(),
     ownerToken: randomUUID(),
+    choosing: true,
+    ticket: null,
   };
 
   await mkdir(dirname(lockPath), { recursive: true });
-  while (!(await tryAcquire(lockPath, owner))) {
-    await breakIfStale(lockPath, staleMs, opts.testHooks);
-    if (Date.now() >= deadline) throw new FileLockTimeoutError(lockPath, timeoutMs);
-    await sleep(pollMs);
-  }
+  await waitForClaimDirectory(lockPath, deadline, timeoutMs, pollMs);
+  await reclaimStaleClaims(lockPath, staleMs, opts.testHooks);
 
-  const stopHeartbeat = startOwnedHeartbeat(lockPath, owner.ownerToken, staleMs, opts.heartbeatMs);
+  const claimPath = join(lockPath, `${owner.ownerToken}.json`);
+  await createClaim(claimPath, owner);
+  const stopHeartbeat = startOwnedHeartbeat(
+    claimPath,
+    owner.ownerToken,
+    staleMs,
+    opts.heartbeatMs,
+  );
   try {
+    const ticket = await chooseTicket(
+      lockPath,
+      claimPath,
+      owner,
+      deadline,
+      timeoutMs,
+      pollMs,
+      staleMs,
+      opts.testHooks,
+    );
+    await waitForTurn(
+      lockPath,
+      claimPath,
+      { ...owner, choosing: false, ticket },
+      deadline,
+      timeoutMs,
+      pollMs,
+      staleMs,
+      opts.testHooks,
+    );
     return await operation();
   } finally {
     await stopHeartbeat();
-    await unlinkIfOwned(lockPath, owner.ownerToken);
+    // The UUID path is never reused, so release cannot target a successor.
+    await unlink(claimPath).catch((error) => {
+      if (!isCode(error, "ENOENT")) throw error;
+    });
   }
 }
 
-async function tryAcquire(lockPath: string, owner: FileLockOwner): Promise<boolean> {
-  let handle: Awaited<ReturnType<typeof open>> | null = null;
+/** Whether a legacy lock file or at least one v2 unique claim is present. */
+export function isFileLockHeld(targetPath: string): boolean {
+  const lockPath = `${targetPath}.lock`;
+  if (!existsSync(lockPath)) return false;
   try {
-    handle = await open(lockPath, "wx");
-    try {
-      await handle.writeFile(JSON.stringify(owner), "utf-8");
-    } finally {
-      await handle.close();
-      handle = null;
-    }
+    if (!statSync(lockPath).isDirectory()) return true;
+    return readdirSync(lockPath).some((name) => name.endsWith(".json"));
+  } catch {
     return true;
-  } catch (error) {
-    if (handle) await handle.close().catch(() => undefined);
-    // EEXIST: lock held (POSIX + Windows). EPERM/EACCES: Windows returns these
-    // from an exclusive "wx" open while the lock file is in delete-pending state
-    // (another process's handle is still closing) — contention, not failure.
-    if (isLockContentionError(error)) return false;
-    throw error;
   }
 }
 
 /**
- * True for the errno codes an exclusive lock-file open raises under contention:
- * EEXIST everywhere, plus EPERM/EACCES on Windows during a delete-pending race.
+ * Retained for callers that classify filesystem contention errors. The bakery
+ * protocol itself uses EEXIST only for atomic unique-claim creation/migration.
  */
 export function isLockContentionError(error: unknown): boolean {
   return isCode(error, "EEXIST") || isCode(error, "EPERM") || isCode(error, "EACCES");
 }
 
-async function breakIfStale(
+async function waitForClaimDirectory(
   lockPath: string,
+  deadline: number,
+  timeoutMs: number,
+  pollMs: number,
+): Promise<void> {
+  while (true) {
+    try {
+      await mkdir(lockPath);
+      return;
+    } catch (error) {
+      if (!isLockContentionError(error)) throw error;
+    }
+
+    try {
+      if ((await stat(lockPath)).isDirectory()) return;
+      // Legacy shared-file locks are observed, never reaped: deleting the
+      // shared name after a snapshot could delete a live old-version successor.
+    } catch (error) {
+      if (isCode(error, "ENOENT")) continue;
+      throw error;
+    }
+    await waitOrTimeout(lockPath, deadline, timeoutMs, pollMs);
+  }
+}
+
+async function createClaim(path: string, claim: FileLockClaim): Promise<void> {
+  let handle: Awaited<ReturnType<typeof open>> | null = null;
+  try {
+    handle = await open(path, "wx");
+    await handle.writeFile(`${JSON.stringify(claim)}\n`, "utf-8");
+  } finally {
+    await handle?.close().catch(() => undefined);
+  }
+}
+
+async function chooseTicket(
+  lockPath: string,
+  claimPath: string,
+  owner: FileLockClaim,
+  deadline: number,
+  timeoutMs: number,
+  pollMs: number,
+  staleMs: number,
+  hooks?: FileLockOptions["testHooks"],
+): Promise<number> {
+  while (true) {
+    await reclaimStaleClaims(lockPath, staleMs, hooks, claimPath);
+    const snapshots = await readClaimSnapshots(lockPath);
+    if (snapshots.every((snapshot) => snapshot.claim !== null)) {
+      const maxTicket = snapshots.reduce(
+        (max, snapshot) => Math.max(max, snapshot.claim?.ticket ?? 0),
+        0,
+      );
+      if (maxTicket >= Number.MAX_SAFE_INTEGER) {
+        throw new Error(`file lock ticket space exhausted for ${lockPath}`);
+      }
+      const ticket = maxTicket + 1;
+      await writeOwnedClaim(claimPath, {
+        ...owner,
+        choosing: false,
+        ticket,
+      });
+      return ticket;
+    }
+    await waitOrTimeout(lockPath, deadline, timeoutMs, pollMs);
+  }
+}
+
+async function waitForTurn(
+  lockPath: string,
+  claimPath: string,
+  owner: FileLockClaim & { ticket: number },
+  deadline: number,
+  timeoutMs: number,
+  pollMs: number,
   staleMs: number,
   hooks?: FileLockOptions["testHooks"],
 ): Promise<void> {
-  try {
-    const info = await stat(lockPath);
-    if (Date.now() - info.mtimeMs <= staleMs) return;
-    const snapshot = await readLockSnapshot(lockPath);
-    if (!snapshot || !(await isSameHostHolderConfirmedDead(snapshot))) return;
-    await hooks?.afterStaleSnapshotConfirmed?.();
-    if (await reclaimStaleSnapshot(lockPath, snapshot)) {
-      await hooks?.afterStaleReclaimed?.();
+  while (true) {
+    await reclaimStaleClaims(lockPath, staleMs, hooks, claimPath);
+    const snapshots = await readClaimSnapshots(lockPath);
+    let blocked = false;
+    for (const snapshot of snapshots) {
+      if (snapshot.path === claimPath) continue;
+      const other = snapshot.claim;
+      if (!other || other.choosing || other.ticket === null) {
+        blocked = true;
+        break;
+      }
+      if (claimPrecedes({ ticket: other.ticket, ownerToken: other.ownerToken }, owner)) {
+        blocked = true;
+        break;
+      }
     }
-  } catch (error) {
-    if (!isCode(error, "ENOENT")) throw error;
+    if (!blocked) return;
+    await waitOrTimeout(lockPath, deadline, timeoutMs, pollMs);
   }
 }
 
-async function readLockSnapshot(lockPath: string): Promise<FileLockSnapshot | null> {
+function claimPrecedes(
+  other: { ticket: number; ownerToken: string },
+  owner: { ticket: number; ownerToken: string },
+): boolean {
+  return other.ticket < owner.ticket
+    || (other.ticket === owner.ticket && other.ownerToken.localeCompare(owner.ownerToken) < 0);
+}
+
+async function reclaimStaleClaims(
+  lockPath: string,
+  staleMs: number,
+  hooks?: FileLockOptions["testHooks"],
+  ownClaimPath?: string,
+): Promise<void> {
+  for (const snapshot of await readClaimSnapshots(lockPath)) {
+    if (snapshot.path === ownClaimPath || Date.now() - snapshot.mtimeMs <= staleMs) continue;
+    if (!snapshot.claim || !(await isSameHostHolderConfirmedDead(snapshot.claim))) continue;
+    await hooks?.afterStaleSnapshotConfirmed?.();
+    if (await reclaimExactUniqueClaim(snapshot)) {
+      await hooks?.afterStaleReclaimed?.();
+    }
+  }
+}
+
+async function reclaimExactUniqueClaim(expected: ClaimSnapshot): Promise<boolean> {
+  const current = await readClaimSnapshot(expected.path);
+  if (!current || !current.claim || !expected.claim) return false;
+  if (
+    current.claim.ownerToken !== expected.claim.ownerToken
+    || current.claim.pid !== expected.claim.pid
+    || current.claim.host !== expected.claim.host
+  ) return false;
+
+  // Claim paths contain the immutable owner token and are never successors.
+  // A delayed reaper can therefore delete only this confirmed-dead owner's
+  // exact path; ENOENT means another reaper already completed the same work.
   try {
-    const raw = await readFile(lockPath, "utf-8");
-    const parsed = JSON.parse(raw) as { pid?: unknown; host?: unknown; ownerToken?: unknown };
-    return { raw, pid: parsed.pid, host: parsed.host, ownerToken: parsed.ownerToken };
+    await unlink(expected.path);
+    return true;
+  } catch (error) {
+    if (isCode(error, "ENOENT")) return false;
+    throw error;
+  }
+}
+
+async function readClaimSnapshots(lockPath: string): Promise<ClaimSnapshot[]> {
+  let names: string[];
+  try {
+    names = (await readdir(lockPath)).filter((name) => name.endsWith(".json")).sort();
+  } catch (error) {
+    if (isCode(error, "ENOENT")) return [];
+    throw error;
+  }
+  return Promise.all(names.map((name) => readClaimSnapshot(join(lockPath, name)).then((snapshot) =>
+    snapshot ?? { path: join(lockPath, name), mtimeMs: Date.now(), claim: null }
+  )));
+}
+
+async function readClaimSnapshot(path: string): Promise<ClaimSnapshot | null> {
+  try {
+    const [info, raw] = await Promise.all([stat(path), readFile(path, "utf-8")]);
+    return { path, mtimeMs: info.mtimeMs, claim: parseClaim(raw) };
+  } catch (error) {
+    if (isCode(error, "ENOENT")) return null;
+    return { path, mtimeMs: Date.now(), claim: null };
+  }
+}
+
+function parseClaim(raw: string): FileLockClaim | null {
+  let value: unknown;
+  try {
+    value = JSON.parse(raw);
   } catch {
     return null;
   }
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const claim = value as Record<string, unknown>;
+  if (
+    claim.version !== 2
+    || typeof claim.pid !== "number"
+    || !Number.isInteger(claim.pid)
+    || claim.pid <= 0
+    || typeof claim.host !== "string"
+    || claim.host.length === 0
+    || typeof claim.acquiredAt !== "string"
+    || typeof claim.ownerToken !== "string"
+    || claim.ownerToken.length === 0
+    || typeof claim.choosing !== "boolean"
+    || (claim.ticket !== null
+      && (typeof claim.ticket !== "number"
+        || !Number.isSafeInteger(claim.ticket)
+        || claim.ticket <= 0))
+  ) return null;
+  return claim as unknown as FileLockClaim;
 }
 
-async function isSameHostHolderConfirmedDead(snapshot: FileLockSnapshot): Promise<boolean> {
-  if (snapshot.host !== hostname()) return false;
-  if (typeof snapshot.pid !== "number" || !Number.isInteger(snapshot.pid) || snapshot.pid <= 0) return false;
+async function isSameHostHolderConfirmedDead(claim: FileLockClaim): Promise<boolean> {
+  if (claim.host !== hostname()) return false;
   try {
-    process.kill(snapshot.pid, 0);
+    process.kill(claim.pid, 0);
     return false;
   } catch (error) {
     return isCode(error, "ESRCH");
   }
 }
 
-async function reclaimStaleSnapshot(
-  lockPath: string,
-  expected: FileLockSnapshot,
-): Promise<boolean> {
-  const tombstonePath = `${lockPath}.reclaim-${process.pid}-${randomUUID()}`;
-  try {
-    await rename(lockPath, tombstonePath);
-  } catch (error) {
-    if (isCode(error, "ENOENT")) return false;
-    throw error;
-  }
-
-  const renamed = await readLockSnapshot(tombstonePath);
-  if (!renamed || !lockSnapshotsMatch(expected, renamed)) {
-    await restoreUnexpectedRenamedLock(lockPath, tombstonePath);
-    return false;
-  }
-  await unlink(tombstonePath).catch((error) => {
-    if (!isCode(error, "ENOENT")) throw error;
-  });
-  return true;
-}
-
-function lockSnapshotsMatch(expected: FileLockSnapshot, current: FileLockSnapshot): boolean {
-  const expectedToken = typeof expected.ownerToken === "string" ? expected.ownerToken : null;
-  const currentToken = typeof current.ownerToken === "string" ? current.ownerToken : null;
-  return expectedToken !== null
-    ? currentToken === expectedToken
-    : currentToken === null && current.raw === expected.raw;
-}
-
-async function restoreUnexpectedRenamedLock(lockPath: string, tombstonePath: string): Promise<void> {
-  try {
-    // A hard link is an atomic no-clobber restore: it never overwrites a
-    // successor that already occupies the authoritative lock path.
-    await link(tombstonePath, lockPath);
-  } catch (error) {
-    if (isCode(error, "EEXIST")) {
-      throw new Error(
-        `stale lock reclaim preserved a nonmatching owner at ${tombstonePath} because ${lockPath} is occupied`,
-        { cause: error },
-      );
-    }
-    throw error;
-  }
-  await unlink(tombstonePath).catch((error) => {
-    if (!isCode(error, "ENOENT")) throw error;
-  });
-}
-
-async function unlinkIfOwned(lockPath: string, ownerToken: string): Promise<void> {
-  const snapshot = await readLockSnapshot(lockPath);
-  if (!snapshot || snapshot.ownerToken !== ownerToken) return;
-  await unlink(lockPath).catch((error) => {
-    if (!isCode(error, "ENOENT")) throw error;
-  });
+async function writeOwnedClaim(path: string, claim: FileLockClaim): Promise<void> {
+  await atomicWrite(path, `${JSON.stringify(claim)}\n`);
 }
 
 function startOwnedHeartbeat(
-  lockPath: string,
+  claimPath: string,
   ownerToken: string,
   staleMs: number,
   requestedHeartbeatMs?: number,
@@ -212,7 +362,7 @@ function startOwnedHeartbeat(
   const schedule = () => {
     if (stopped) return;
     timer = setTimeout(() => {
-      inFlight = refreshOwnedLock(lockPath, ownerToken)
+      inFlight = refreshOwnedClaim(claimPath, ownerToken)
         .then((stillOwner) => {
           if (stillOwner) schedule();
         })
@@ -227,25 +377,33 @@ function startOwnedHeartbeat(
   };
 }
 
-async function refreshOwnedLock(lockPath: string, ownerToken: string): Promise<boolean> {
+async function refreshOwnedClaim(path: string, ownerToken: string): Promise<boolean> {
   let handle: Awaited<ReturnType<typeof open>>;
   try {
-    handle = await open(lockPath, "r+");
+    handle = await open(path, "r+");
   } catch (error) {
     if (isCode(error, "ENOENT")) return false;
     throw error;
   }
   try {
-    const parsed = JSON.parse(await handle.readFile("utf-8")) as { ownerToken?: unknown };
-    if (parsed.ownerToken !== ownerToken) return false;
+    const claim = parseClaim(await handle.readFile("utf-8"));
+    if (claim?.ownerToken !== ownerToken) return false;
     const now = new Date();
     await handle.utimes(now, now);
     return true;
-  } catch {
-    return false;
   } finally {
     await handle.close();
   }
+}
+
+async function waitOrTimeout(
+  lockPath: string,
+  deadline: number,
+  timeoutMs: number,
+  pollMs: number,
+): Promise<void> {
+  if (Date.now() >= deadline) throw new FileLockTimeoutError(lockPath, timeoutMs);
+  await sleep(Math.min(pollMs, Math.max(1, deadline - Date.now())));
 }
 
 function isCode(error: unknown, code: string): boolean {

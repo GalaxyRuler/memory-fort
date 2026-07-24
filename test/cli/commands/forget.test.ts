@@ -52,6 +52,7 @@ import {
   resolveDirectRawSelectors,
   runForget,
 } from "../../../src/cli/commands/forget.js";
+import { runReindex } from "../../../src/cli/commands/reindex.js";
 import { openIndexDb, openReadOnlyIndexDb } from "../../../src/index/db.js";
 import { lexicalSearch } from "../../../src/index/search.js";
 import { reconcileIndex } from "../../../src/index/reconcile.js";
@@ -238,18 +239,23 @@ describe("runForget", () => {
       .resolves.not.toContain("STALE-CONCURRENT-DERIVED-CONTEXT");
   });
 
-  it("recovers a forget-apply lock only when the existing holder is stale and dead", async () => {
+  it("recovers a forget-apply unique claim only when the existing holder is stale and dead", async () => {
     const raw = "raw/2026-05-20/codex-stale-lock.md";
     const lockPath = join(root, "var", "forget-apply.lock");
+    const claimPath = join(lockPath, "dead-forget-owner.json");
     await writeAt(raw, "stale lock recovery fixture");
-    await mkdir(dirname(lockPath), { recursive: true });
-    await writeFile(lockPath, JSON.stringify({
+    await mkdir(lockPath, { recursive: true });
+    await writeFile(claimPath, JSON.stringify({
+      version: 2,
       pid: 2 ** 30,
       host: hostname(),
+      ownerToken: "dead-forget-owner",
       acquiredAt: "2020-01-01T00:00:00.000Z",
+      choosing: false,
+      ticket: 1,
     }));
     const stale = new Date("2020-01-01T00:00:00.000Z");
-    await utimes(lockPath, stale, stale);
+    await utimes(claimPath, stale, stale);
 
     await expect(runForget({ mode: "apply", rawPaths: [raw] }))
       .resolves.toMatchObject({ status: "live-erased/history-retained" });
@@ -715,6 +721,38 @@ describe("runForget", () => {
     expect(existsSync(join(root, ...derivative.split("/")))).toBe(false);
   });
 
+  it("keeps reindex behind an active forget and lets it rebuild only after forget publishes ready", async () => {
+    const raw = "raw/2026-05-20/codex-reindex-during-forget.md";
+    await writeAt(raw, "forget owns the recovery boundary\n");
+    await writeWiki(
+      "projects/reindex-retained.md",
+      { type: "projects", title: "Reindex retained" },
+      "retained after serialized recovery",
+    );
+    let releaseForget!: () => void;
+    const forgetPaused = new Promise<void>((resolve) => { forgetRmFailure.pauseStarted = resolve; });
+    forgetRmFailure.pauseRelease = new Promise<void>((resolve) => { releaseForget = resolve; });
+    forgetRmFailure.pauseTarget = raw;
+
+    const forgetting = runForget({ mode: "apply", rawPaths: [raw] });
+    await forgetPaused;
+    let reindexSettled = false;
+    const reindexing = runReindex({ vaultRoot: root })
+      .finally(() => { reindexSettled = true; });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    expect(reindexSettled).toBe(false);
+    expect(readIndexGeneration(root).state).toBe("invalidating");
+    releaseForget();
+    await expect(forgetting).resolves.toMatchObject({ status: "live-erased/history-retained" });
+    await expect(reindexing).resolves.toMatchObject({ entries: 1, path: "index.md" });
+
+    expect(readIndexGeneration(root).state).toBe("ready");
+    expect(existsSync(join(root, ...raw.split("/")))).toBe(false);
+    await expect(readFile(join(root, "index.md"), "utf-8"))
+      .resolves.toContain("wiki/projects/reindex-retained.md");
+  });
+
   it("returns a truthful partial-mutation receipt and keeps search quiesced when a live erase fails", async () => {
     const raw = "raw/2026-05-20/codex-session.md";
     const failedFact = "facts/2026-05-20/session.json";
@@ -1056,8 +1094,16 @@ describe("runForget", () => {
   it("returns a truthful partial receipt when the deterministic rebuild fixture fails after live mutations", async () => {
     const raw = "raw/2026-05-20/codex-session.md";
     await seedAttributableRaw(raw);
+    await writeWiki(
+      "projects/retained.md",
+      { type: "projects", title: "Retained recovery page" },
+      "recovery-search-marker remains available",
+    );
     await rebuildFixtureIndex();
     const indexPath = process.env["MEMORY_INDEX_DB_PATH"]!;
+    const rawPath = join(root, ...raw.split("/"));
+    const epochPath = rawCaptureEpochPath(rawPath);
+    await ensureRawCaptureEpoch(rawPath);
     expect(existsSync(indexPath)).toBe(true);
     await writeAt(
       "index.md",
@@ -1086,13 +1132,72 @@ describe("runForget", () => {
     });
     expect(receipt.report).toContain("Status: partial-live-mutation/rebuild-incomplete");
     expect(receipt.report).toContain("Failed rebuild: derived-index");
+    expect(receipt.report).toContain("Fix the reported cause, then run `memory reindex`.");
     expect((failure as Error).message).toContain("partial live mutation");
     expect((failure as Error).message).toContain("Completed live deletions: 3");
 
-    expect(existsSync(join(root, ...raw.split("/")))).toBe(false);
+    expect(existsSync(rawPath)).toBe(false);
     expect(existsSync(indexPath)).toBe(false);
     expect(existsSync(join(root, "index.md"))).toBe(false);
-    expect(readIndexGeneration(root).state).toBe("invalidating");
+    const failedGeneration = readIndexGeneration(root);
+    expect(failedGeneration.state).toBe("invalidating");
+    const failedEpoch = JSON.parse(await readFile(epochPath, "utf-8")) as {
+      state: string;
+      token: string;
+    };
+    expect(failedEpoch.state).toBe("invalidating");
+    const recoveryPath = join(root, "var", "forget-recovery.json");
+    const recoveryMetadata = await readFile(recoveryPath, "utf-8");
+    expect(recoveryMetadata).toContain(failedGeneration.token);
+    expect(recoveryMetadata).toContain(failedEpoch.token);
+    expect(recoveryMetadata).not.toContain("Generated only from the selected raw session.");
+
+    await expect(runReindex({ vaultRoot: root })).rejects.toThrow();
+    expect(readIndexGeneration(root)).toEqual(failedGeneration);
+    expect(JSON.parse(await readFile(epochPath, "utf-8"))).toEqual(failedEpoch);
+    expect(existsSync(indexPath)).toBe(false);
+    expect(existsSync(join(root, "index.md"))).toBe(false);
+
+    await rm(join(root, "wiki", "projects", "malformed.md"));
+    await expect(runReindex({ vaultRoot: root })).resolves.toMatchObject({
+      path: "index.md",
+      entries: 1,
+    });
+
+    expect(readIndexGeneration(root).state).toBe("ready");
+    expect(JSON.parse(await readFile(epochPath, "utf-8"))).toMatchObject({ state: "ready" });
+    expect(existsSync(recoveryPath)).toBe(false);
+    expect(existsSync(indexPath)).toBe(true);
+    await expect(readFile(join(root, "index.md"), "utf-8"))
+      .resolves.toContain("wiki/projects/retained.md");
+    const search = openReadOnlyIndexDb({ vaultRoot: root });
+    try {
+      expect(lexicalSearch(search, "recovery search marker").map((result) => result.relPath))
+        .toContain("wiki/projects/retained.md");
+      expect(lexicalSearch(search, "Generated only from the selected raw session."))
+        .toEqual([]);
+    } finally {
+      search.close();
+    }
+    await expect(confidenceAwareIndex({
+      memoryRoot: root,
+      indexFilePath: join(root, "index.md"),
+    })).resolves.toContain("wiki/projects/retained.md");
+
+    const now = new Date("2026-05-20T12:00:00.000Z");
+    await expect(ensureRawSessionFile({
+      tool: "codex",
+      sessionId: "session",
+      cwd: "C:/recovered",
+      now,
+    })).resolves.toBe(rawPath);
+    await appendBlock({
+      tool: "codex",
+      sessionId: "session",
+      block: "\n## [12:00:00] Prompt\n\ncapture-after-recovery\n",
+      now,
+    });
+    await expect(readFile(rawPath, "utf-8")).resolves.toContain("capture-after-recovery");
   });
 
   it("blocks a generated page with multi-lineage instead of deleting its unrelated source material", async () => {

@@ -1,6 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -90,7 +90,7 @@ describe("supersede approval and forget publication fence", () => {
     const childExit = waitForChildExit(child);
     await waitForPath(readyPath, 5_000);
     const compileLockPath = `${compileExecuteLockTarget(root)}.lock`;
-    const lockOwner = JSON.parse(await readFile(compileLockPath, "utf-8")) as { pid?: unknown };
+    const lockOwnerPid = await readUniqueClaimOwnerPid(compileLockPath);
 
     let forgetSettled = false;
     const forgetting = runForget({ mode: "apply", rawPaths: [raw] })
@@ -111,7 +111,7 @@ describe("supersede approval and forget publication fence", () => {
       erased: expect.arrayContaining([raw, oldPage]),
     });
 
-    expect(lockOwner.pid).toBe(child.pid);
+    expect(lockOwnerPid).toBe(child.pid);
     expect(existsSync(join(root, ...raw.split("/")))).toBe(false);
     expect(existsSync(join(root, ...oldPage.split("/")))).toBe(false);
     expect(existsSync(join(root, ...newPage.split("/")))).toBe(true);
@@ -128,6 +128,14 @@ describe("supersede approval and forget publication fence", () => {
 
 function waitForPath(path: string, timeoutMs: number): Promise<void> {
   return waitForCondition(() => existsSync(path), timeoutMs, path);
+}
+
+async function readUniqueClaimOwnerPid(lockDirectory: string): Promise<unknown> {
+  for (const name of (await readdir(lockDirectory)).filter((entry) => entry.endsWith(".json")).sort()) {
+    const claim = JSON.parse(await readFile(join(lockDirectory, name), "utf-8")) as { pid?: unknown };
+    if (claim.pid !== undefined) return claim.pid;
+  }
+  return null;
 }
 
 function waitForCondition(condition: () => boolean, timeoutMs: number, description: string): Promise<void> {
