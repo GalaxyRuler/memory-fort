@@ -710,11 +710,14 @@ describe("graph health metrics", () => {
           wikiPage("wiki/archive/threads/fresh-but-archived.md", {
             relations: { mentions: [{ target: "raw/2026-06-01/fresh.md" }] },
           }),
+          wikiPage("wiki/Archive/threads/fresh-but-case-variant.md", {
+            relations: { mentions: [{ target: "raw/2026-06-01/fresh-case-variant.md" }] },
+          }),
         ],
       }),
     );
 
-    // The archived thread's fresh reference must not rescue staleness.
+    // Neither archived thread's fresh reference may rescue staleness.
     expect(result.status).toBe("fail");
     expect(result.value).toBe(92);
   });

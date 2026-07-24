@@ -1,6 +1,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { parseFrontmatter } from "../storage/frontmatter.js";
+import { hasArchiveOrSystemPathComponent } from "../storage/archive-paths.js";
 
 interface HandlerResult {
   status: number;
@@ -74,14 +75,14 @@ export async function handleGetPages(opts: {
     }
     for (const entry of entries) {
       const full = join(dir, entry.name);
+      const relPath = `wiki/${relative(wikiRoot, full).replace(/\\/g, "/")}`;
+      if (hasArchiveOrSystemPathComponent(relPath)) continue;
       if (entry.isDirectory()) {
-        if (entry.name.startsWith(".") || entry.name === "archive") continue;
         await walk(full);
       } else if (entry.isFile() && entry.name.endsWith(".md")) {
         try {
           const content = await readFile(full, "utf-8");
           const parsed = parseFrontmatter(content);
-          const relPath = `wiki/${relative(wikiRoot, full).replace(/\\/g, "/")}`;
           pages.push({
             path: relPath,
             title:

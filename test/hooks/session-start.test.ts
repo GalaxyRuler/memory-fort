@@ -609,6 +609,16 @@ describe("resolveProjectForCwd", () => {
       resolveProjectForCwd("C:\\Repos\\efm-paper", { memoryRoot: tmp }),
     ).resolves.toBeNull();
   });
+
+  it("does not select a system project page for default current-project context", async () => {
+    await writeProjectPage(tmp, ".retained", "System project body.", {
+      repo: "C:\\Repos\\retained",
+    });
+
+    await expect(
+      resolveProjectForCwd("C:\\Repos\\retained", { memoryRoot: tmp }),
+    ).resolves.toBeNull();
+  });
 });
 
 function makeConfidenceReadFile(): (path: string) => Promise<string> {

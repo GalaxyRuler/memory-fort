@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { readdir, stat } from "node:fs/promises";
 import { join, relative } from "node:path";
+import { hasArchiveOrSystemPathComponent } from "./archive-paths.js";
 
 export interface RawFileEntry {
   fullPath: string;
@@ -27,15 +28,16 @@ export async function listRawMarkdownFiles(vaultRoot: string): Promise<RawFileEn
   async function walk(dir: string): Promise<void> {
     const entries = await readdir(dir, { withFileTypes: true });
     for (const entry of entries) {
-      if (entry.name.startsWith(".")) continue;
       const fullPath = join(dir, entry.name);
+      const relPath = relative(vaultRoot, fullPath).replace(/\\/g, "/");
+      if (hasArchiveOrSystemPathComponent(relPath)) continue;
       if (entry.isDirectory()) {
         await walk(fullPath);
       } else if (entry.isFile() && entry.name.endsWith(".md")) {
         const info = await stat(fullPath);
         files.push({
           fullPath,
-          relPath: relative(vaultRoot, fullPath).replace(/\\/g, "/"),
+          relPath,
           size: info.size,
           mtimeMs: info.mtimeMs,
         });

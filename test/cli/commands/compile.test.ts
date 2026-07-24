@@ -156,6 +156,29 @@ describe("runCompile", () => {
     expect(result.prompt).not.toMatch(/\{\{existing_pages\}\}/);
   });
 
+  it("never injects archive or system wiki pages into the compile context", async () => {
+    await mkdir(join(root, "wiki", "Archive"), { recursive: true });
+    await writeFile(
+      join(root, "wiki", "Archive", "retained.md"),
+      "ARCHIVE_CONTEXT_MUST_NOT_REACH_THE_LLM",
+    );
+    await writeFile(
+      join(root, "wiki", "projects", ".retained.md"),
+      "SYSTEM_CONTEXT_MUST_NOT_REACH_THE_LLM",
+    );
+    await writeFile(
+      join(root, "raw", "2026-05-21", "manual-a.md"),
+      "retained archive and retained system pages were mentioned again.",
+    );
+
+    const result = await runCompile({ vaultRoot: root });
+
+    expect(result.prompt).not.toContain("ARCHIVE_CONTEXT_MUST_NOT_REACH_THE_LLM");
+    expect(result.prompt).not.toContain("SYSTEM_CONTEXT_MUST_NOT_REACH_THE_LLM");
+    expect(result.prompt).not.toContain("wiki/Archive/retained.md");
+    expect(result.prompt).not.toContain("wiki/projects/.retained.md");
+  });
+
   it("auto-detects since cutoff from the latest compile log line", async () => {
     await writeFile(
       join(root, "log.md"),

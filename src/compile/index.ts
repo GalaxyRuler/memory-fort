@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import { basename, join, relative } from "node:path";
 import { atomicWrite } from "../storage/atomic-write.js";
+import { hasArchiveOrSystemPathComponent } from "../storage/archive-paths.js";
 import { parseFrontmatter } from "../storage/frontmatter.js";
 import type { PageType } from "../storage/paths.js";
 
@@ -92,11 +93,11 @@ async function listIndexPages(vaultRoot: string): Promise<IndexPage[]> {
 }
 
 function shouldExcludeWikiRelPath(relPath: string): boolean {
-  return relPath
+  return hasArchiveOrSystemPathComponent(`wiki/${relPath}`) || relPath
     .replace(/\\/g, "/")
     .split("/")
     // Dot-directories (.audit, .history, …) are operational, not entity pages.
-    .some((part) => part.startsWith(".") || part === "archive" || part.endsWith("-proposed"));
+    .some((part) => part.toLowerCase().endsWith("-proposed"));
 }
 
 function readPageType(value: unknown, relPath: string): PageType | null {

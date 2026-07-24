@@ -34,12 +34,26 @@ describe("runDecay", () => {
       last_accessed: "2025-10-01",
       pinned: true,
     });
+    await writePage("wiki/Archive/retained.md", {
+      title: "Archive retained",
+      strength: 0.5,
+      last_accessed: "2025-10-01",
+    });
+    await writePage("wiki/projects/.retained.md", {
+      title: "System retained",
+      strength: 0.5,
+      last_accessed: "2025-10-01",
+    });
 
     const plan = await runDecay({ vaultRoot: tmp, mode: "plan", now: new Date("2026-06-01T00:00:00.000Z") });
     expect(plan.report).toContain("Decay plan");
     expect(plan.decayed.map((item) => item.path)).toEqual(["wiki/projects/active.md", "wiki/projects/stale.md"]);
     expect(plan.archived.map((item) => item.from)).toEqual(["wiki/projects/stale.md"]);
     expect(plan.skippedPinned).toEqual(["wiki/projects/pinned.md"]);
+    expect(plan.decayed.map((item) => item.path)).not.toEqual(expect.arrayContaining([
+      "wiki/Archive/retained.md",
+      "wiki/projects/.retained.md",
+    ]));
     expect(existsSync(join(tmp, "wiki", ".archive"))).toBe(false);
 
     const applied = await runDecay({ vaultRoot: tmp, mode: "apply", now: new Date("2026-06-01T00:00:00.000Z") });
@@ -61,6 +75,8 @@ describe("runDecay", () => {
 
     const pinned = parseFrontmatter(await readFile(join(tmp, "wiki", "projects", "pinned.md"), "utf-8"));
     expect(pinned.frontmatter.strength).toBe(0.5);
+    expect(existsSync(join(tmp, "wiki", "Archive", "retained.md"))).toBe(true);
+    expect(existsSync(join(tmp, "wiki", "projects", ".retained.md"))).toBe(true);
   });
 
   async function writePage(relPath: string, extra: Record<string, unknown>): Promise<void> {

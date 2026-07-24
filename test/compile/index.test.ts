@@ -23,7 +23,9 @@ describe("rebuildIndex", () => {
     await writePage("wiki/preferences/never-mock-db.md", "preferences", "Never Mock DB", "Do not mock the database in tests.");
     await writePage("wiki/compile-proposed/draft.md", "projects", "Draft", "Draft should stay out.");
     await writePage("wiki/archive/old.md", "projects", "Old", "Archived should stay out.");
+    await writePage("wiki/Archive/old-case.md", "projects", "Case archive", "Case archive should stay out.");
     await writePage("wiki/.audit/llm.md", "tools", "Audit", "Audit should stay out.");
+    await writePage("wiki/projects/.retained.md", "projects", "Retained", "Operational leaf should stay out.");
     await writeFile(join(tmp, "index.md"), "# stale\n\n- [Acme](wiki/projects/acme.md) - duplicate\n");
 
     const first = await rebuildIndex(tmp);
@@ -38,7 +40,9 @@ describe("rebuildIndex", () => {
     expect(first.content).toContain("## Preferences\n\n- [Never Mock DB](wiki/preferences/never-mock-db.md) - Do not mock the database in tests.");
     expect(first.content).not.toContain("Draft");
     expect(first.content).not.toContain("Old");
+    expect(first.content).not.toContain("Case archive");
     expect(first.content).not.toContain("Audit");
+    expect(first.content).not.toContain("Operational leaf");
 
     const written = await readFile(join(tmp, "index.md"), "utf-8");
     expect(written).toBe(first.content);

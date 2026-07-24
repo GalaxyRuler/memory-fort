@@ -150,7 +150,8 @@ export function lexicalSearch(
   const candidateLimit = docCandidateLimit(limit);
   const asOf = canonicalizeAsOf(options.asOf);
   const scopeFilter = searchScopeSql(options.scope ?? "all", "files");
-  const archiveFilter = options.includeArchived === true ? "1 = 1" : activeDocumentSql("files");
+  const protectedPathFilter = activeArchiveSystemPathSql("files").join(" AND ");
+  const lifecycleFilter = options.includeArchived === true ? "1 = 1" : activeDocumentSql("files");
   const temporalFilter = asOf ? temporalValiditySql("files") : "1 = 1";
   const temporalParams = asOf ? [asOf, asOf] : [];
   const identityFilter = identitySql(options, "files");
@@ -165,7 +166,8 @@ export function lexicalSearch(
           JOIN files ON files.relPath = chunks.relPath
           WHERE chunks_fts MATCH ?
             AND ${scopeFilter}
-            AND ${archiveFilter}
+            AND ${protectedPathFilter}
+            AND ${lifecycleFilter}
             AND ${temporalFilter}
             AND ${identityFilter.sql}
           ORDER BY bm25Score ASC, chunks_fts.rowid ASC
@@ -330,7 +332,8 @@ function pathCandidateRows(
   const conditions = pathTerms.map(() => "lower(files.relPath) LIKE ? ESCAPE '\\'").join(" OR ");
   const temporalParams = options.asOf ? [options.asOf, options.asOf] : [];
   const identityFilter = identitySql(options, "files");
-  const archiveFilter = options.includeArchived === true ? "1 = 1" : activeDocumentSql("files");
+  const protectedPathFilter = activeArchiveSystemPathSql("files").join(" AND ");
+  const lifecycleFilter = options.includeArchived === true ? "1 = 1" : activeDocumentSql("files");
   return indexDb.database
     .prepare<unknown[], LexicalSearchRow>(`
       WITH matched_files AS (
@@ -338,7 +341,8 @@ function pathCandidateRows(
         FROM files
         WHERE errorState IS NULL AND (${conditions})
           AND ${searchScopeSql(options.scope ?? "all", "files")}
-          AND ${archiveFilter}
+          AND ${protectedPathFilter}
+          AND ${lifecycleFilter}
           AND ${options.asOf ? temporalValiditySql("files") : "1 = 1"}
           AND ${identityFilter.sql}
         ORDER BY
@@ -595,7 +599,6 @@ function activeDocumentSql(filesAlias: string): string {
   return [
     `coalesce(${filesAlias}.frontmatterStatus, '') NOT IN ('archived', 'superseded')`,
     `coalesce(${filesAlias}.frontmatterLifecycle, '') <> 'archived'`,
-    ...activeArchiveSystemPathSql(filesAlias),
   ].join(" AND ");
 }
 

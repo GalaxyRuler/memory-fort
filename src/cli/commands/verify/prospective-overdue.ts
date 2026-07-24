@@ -1,4 +1,5 @@
 import { loadSearchCorpus, type SearchDocument } from "../../../retrieval/corpus.js";
+import { hasArchiveOrSystemPathComponent } from "../../../storage/archive-paths.js";
 import {
   fail,
   pass,
@@ -42,7 +43,7 @@ function isLiveProposedProspective(document: SearchDocument): boolean {
   return document.cognitiveType === "prospective" &&
     document.lifecycle === "proposed" &&
     document.status !== "archived" &&
-    !document.relPath.startsWith("wiki/archive/");
+    !hasArchiveOrSystemPathComponent(document.relPath);
 }
 
 function isOverdue(document: SearchDocument, nowMs: number): boolean {

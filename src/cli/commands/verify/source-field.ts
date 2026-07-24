@@ -1,4 +1,5 @@
 import { loadSearchCorpus } from "../../../retrieval/corpus.js";
+import { hasArchiveOrSystemPathComponent } from "../../../storage/archive-paths.js";
 import {
   fail,
   pass,
@@ -23,7 +24,7 @@ export async function checkSourceField(ctx: VerifyCheckContext): Promise<VerifyC
   const corpus = await loadSearchCorpus({ vaultRoot: ctx.vaultRoot, scope: "wiki", omitBodies: true });
   const live = corpus.documents.filter(
     (document) =>
-      !document.relPath.startsWith("wiki/archive/") &&
+      !hasArchiveOrSystemPathComponent(document.relPath) &&
       !isAuditLogFile(document.relPath),
   );
   const missing = live.filter((document) => lacksSource(document.source));

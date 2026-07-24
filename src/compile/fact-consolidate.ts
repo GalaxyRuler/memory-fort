@@ -3,6 +3,7 @@ import { readFile, readdir } from "node:fs/promises";
 import { basename, join, relative } from "node:path";
 import type { LLMProvider, LLMTokenUsage } from "../llm/types.js";
 import { parseFrontmatter } from "../storage/frontmatter.js";
+import { hasArchiveOrSystemPathComponent } from "../storage/archive-paths.js";
 import type { PageType } from "../storage/paths.js";
 import { kebabCase } from "../storage/slug.js";
 import { loadCompressedFacts, type CompressedFact, type CompressedFactType } from "../facts/store.js";
@@ -296,8 +297,9 @@ async function listWikiPages(wikiRoot: string): Promise<string[]> {
     for (const entry of entries) {
       const fullPath = join(dir, entry.name);
       const rel = relative(wikiRoot, fullPath).replace(/\\/g, "/");
+      if (hasArchiveOrSystemPathComponent(`wiki/${rel}`)) continue;
       if (entry.isDirectory()) {
-        if (rel.split("/").some((part) => part.startsWith(".") || part.endsWith("-proposed") || part === "archive")) continue;
+        if (rel.split("/").some((part) => part.toLowerCase().endsWith("-proposed"))) continue;
         await walk(fullPath);
       } else if (entry.isFile() && entry.name.endsWith(".md")) {
         files.push(fullPath);

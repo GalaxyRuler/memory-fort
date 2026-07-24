@@ -443,6 +443,7 @@ export function twoStageVectorSearch(database: SqliteDatabase, opts: VectorSearc
           JOIN chunks c ON c.rowid = cv.chunkRowid
           JOIN files f ON f.relPath = c.relPath
           WHERE ${searchScopeSql(opts.scope ?? "all", "f")}
+            AND ${activeArchiveSystemPathSql("f").join(" AND ")}
             AND ${opts.includeArchived === true ? "1 = 1" : vectorActiveDocumentSql("f")}
             AND ${asOf ? vectorTemporalValiditySql("f") : "1 = 1"}
             AND ${identityFilter.sql}
@@ -1450,7 +1451,6 @@ function vectorActiveDocumentSql(filesAlias: string): string {
   return [
     `coalesce(${filesAlias}.frontmatterStatus, '') NOT IN ('archived', 'superseded')`,
     `coalesce(${filesAlias}.frontmatterLifecycle, '') <> 'archived'`,
-    ...activeArchiveSystemPathSql(filesAlias),
   ].join(" AND ");
 }
 

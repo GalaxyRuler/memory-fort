@@ -19,6 +19,7 @@ import type { LLMProvider, LLMTokenUsage } from "../../llm/types.js";
 import { loadMemoryConfig, resolveCompileConfig, type MemoryConfig } from "../../storage/config.js";
 import { parseFrontmatter } from "../../storage/frontmatter.js";
 import { memoryRoot } from "../../storage/paths.js";
+import { hasArchiveOrSystemPathComponent } from "../../storage/archive-paths.js";
 import { filterNoiseForPage } from "../../compile/filter-noise.js";
 import {
   stageNarrativeReview,
@@ -519,8 +520,9 @@ async function findPagesBySlug(root: string, slug: string): Promise<string[]> {
     for (const entry of entries) {
       const fullPath = join(dir, entry.name);
       const rel = relative(wikiRoot, fullPath).replace(/\\/g, "/");
+      if (hasArchiveOrSystemPathComponent(`wiki/${rel}`)) continue;
       if (entry.isDirectory()) {
-        if (rel.split("/").some((part) => part.startsWith(".") || part.endsWith("-proposed") || part === "archive")) continue;
+        if (rel.split("/").some((part) => part.toLowerCase().endsWith("-proposed"))) continue;
         await walk(fullPath);
       } else if (entry.isFile() && entry.name.toLowerCase() === `${slug.toLowerCase()}.md`) {
         matches.push(`wiki/${rel}`);
@@ -541,8 +543,9 @@ async function listRefreshableWikiPages(root: string): Promise<string[]> {
     for (const entry of entries) {
       const fullPath = join(dir, entry.name);
       const rel = relative(wikiRoot, fullPath).replace(/\\/g, "/");
+      if (hasArchiveOrSystemPathComponent(`wiki/${rel}`)) continue;
       if (entry.isDirectory()) {
-        if (rel.split("/").some((part) => part.startsWith(".") || part.endsWith("-proposed") || part === "archive")) continue;
+        if (rel.split("/").some((part) => part.toLowerCase().endsWith("-proposed"))) continue;
         await walk(fullPath);
       } else if (entry.isFile() && entry.name.endsWith(".md")) {
         pages.push(`wiki/${rel}`);
@@ -564,8 +567,9 @@ async function listBloatedWikiPages(root: string, threshold: number): Promise<st
     for (const entry of entries) {
       const fullPath = join(dir, entry.name);
       const rel = relative(wikiRoot, fullPath).replace(/\\/g, "/");
+      if (hasArchiveOrSystemPathComponent(`wiki/${rel}`)) continue;
       if (entry.isDirectory()) {
-        if (rel.split("/").some((part) => part.startsWith(".") || part.endsWith("-proposed") || part === "archive")) continue;
+        if (rel.split("/").some((part) => part.toLowerCase().endsWith("-proposed"))) continue;
         await walk(fullPath);
       } else if (entry.isFile() && entry.name.endsWith(".md")) {
         const content = await readFile(fullPath, "utf-8");

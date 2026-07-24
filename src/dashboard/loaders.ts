@@ -19,7 +19,7 @@ import {
 import { readCompileStateFile } from "../compile/state.js";
 import { loadSearchCorpus, type CognitiveType, type SearchScope } from "../retrieval/corpus.js";
 import { buildGraph } from "../retrieval/graph.js";
-import { isWikiDotDirectoryPath } from "../retrieval/wiki-paths.js";
+import { hasArchiveOrSystemPathComponent } from "../storage/archive-paths.js";
 import { getConfidenceScore } from "../storage/confidence.js";
 import { loadMemoryConfig } from "../storage/config.js";
 import { parseFrontmatter, serializeFrontmatter } from "../storage/frontmatter.js";
@@ -474,13 +474,10 @@ async function loadWikiPages(root: string): Promise<WikiPage[]> {
       const full = join(dir, entry.name);
       const relPath = relative(root, full).replace(/\\/g, "/");
       const wikiRelPath = `wiki/${relPath}`;
+      if (hasArchiveOrSystemPathComponent(wikiRelPath)) continue;
       if (entry.isDirectory()) {
-        if (relPath.split("/")[0] === "archive" || isWikiDotDirectoryPath(wikiRelPath)) {
-          continue;
-        }
         await walk(full);
       } else if (entry.isFile() && entry.name.endsWith(".md")) {
-        if (isWikiDotDirectoryPath(wikiRelPath)) continue;
         try {
           const content = await readFile(full, "utf-8");
           const parsed = parseWikiMarkdown(content);
@@ -635,9 +632,9 @@ async function countMarkdownFiles(root: string): Promise<number> {
   let count = 0;
   const entries = await readdir(root, { withFileTypes: true });
   for (const entry of entries) {
-    // Dot entries are system space (compact-archive, history, tmp) — never live content.
-    if (entry.name.startsWith(".")) continue;
     const full = join(root, entry.name);
+    // Archived and dot/system paths are never part of the live dashboard counts.
+    if (hasArchiveOrSystemPathComponent(relative(root, full))) continue;
     if (entry.isDirectory()) {
       count += await countMarkdownFiles(full);
     } else if (entry.isFile() && entry.name.endsWith(".md")) {
@@ -1028,7 +1025,7 @@ export async function loadWikiIndex(vaultRoot: string): Promise<WikiIndex> {
 
 export async function loadPageDetail(vaultRoot: string, relPath: string): Promise<PageDetail | null> {
   if (relPath.includes("\\") || !relPath.endsWith(".md")) return null;
-  if (isWikiDotDirectoryPath(`wiki/${relPath}`)) return null;
+  if (hasArchiveOrSystemPathComponent(`wiki/${relPath}`)) return null;
   const wikiRoot = join(vaultRoot, "wiki");
   const fullPath = safeResolveUnder(wikiRoot, relPath);
   if (!fullPath || !(await pathExists(fullPath))) return null;
@@ -1055,15 +1052,13 @@ export async function loadRawIndex(vaultRoot: string): Promise<RawIndexEntry[]> 
   const result: RawIndexEntry[] = [];
   for (const dateEntry of dateEntries) {
     if (!dateEntry.isDirectory()) continue;
-    // Skip system dot-directories (e.g. .compact-archive) — not real date rows.
-    if (dateEntry.name.startsWith(".")) continue;
+    if (hasArchiveOrSystemPathComponent(`raw/${dateEntry.name}`)) continue;
     const datePath = safeResolveUnder(rawRoot, dateEntry.name);
     if (!datePath) continue;
     const files = [];
     for (const fileEntry of await readdir(datePath, { withFileTypes: true })) {
       if (!fileEntry.isFile()) continue;
-      // Dot files are system space (tmp probes, editor droppings) — never captures.
-      if (fileEntry.name.startsWith(".")) continue;
+      if (hasArchiveOrSystemPathComponent(`raw/${dateEntry.name}/${fileEntry.name}`)) continue;
       const filePath = safeResolveUnder(datePath, fileEntry.name);
       if (!filePath) continue;
       const info = await stat(filePath);
@@ -1077,6 +1072,7 @@ export async function loadRawIndex(vaultRoot: string): Promise<RawIndexEntry[]> 
 }
 
 export async function loadRawSession(vaultRoot: string, date: string, filename: string): Promise<RawSession | null> {
+  if (hasArchiveOrSystemPathComponent(`raw/${date}/${filename}`)) return null;
   const rawRoot = join(vaultRoot, "raw");
   const fullPath = safeResolveUnder(rawRoot, date, filename);
   if (!fullPath || !(await pathExists(fullPath))) return null;
@@ -1103,6 +1099,7 @@ export async function loadRawSessionDetail(
   date: string,
   filename: string,
 ): Promise<RawSessionDetail | null> {
+  if (hasArchiveOrSystemPathComponent(`raw/${date}/${filename}`)) return null;
   const rawRoot = join(vaultRoot, "raw");
   const fullPath = safeResolveUnder(rawRoot, date, filename);
   if (!fullPath || !(await pathExists(fullPath))) return null;

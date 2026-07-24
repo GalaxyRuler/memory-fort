@@ -29,12 +29,13 @@ describe("runBackfillSource", () => {
     });
 
     expect(result.report).toContain("Memory backfill-source plan");
-    expect(result.report).toContain("total wiki pages: 3 (excluding archive)");
-    expect(result.report).toContain("missing/unknown source: 2");
-    expect(result.report).toContain("wiki/.audit/agentmemory-migration-2026.md -> import-agentmemory");
+    expect(result.report).toContain("total wiki pages: 2 (excluding protected archive/system paths)");
+    expect(result.report).toContain("missing/unknown source: 1");
+    expect(result.report).not.toContain("wiki/.audit/agentmemory-migration-2026.md");
     expect(result.report).toContain("wiki/crystals/validation-is-key.md -> crystal-extraction");
     expect(result.report).toContain("unmatched: 0");
     expect(parseFrontmatter(await readFull("wiki/crystals/validation-is-key.md")).frontmatter.source).toBeUndefined();
+    expect(await sourceOf("wiki/.audit/agentmemory-migration-2026.md")).toBe("unknown");
     expect(result.auditLogPath).toBeUndefined();
   });
 
@@ -53,10 +54,10 @@ describe("runBackfillSource", () => {
     });
 
     expect(result.report).toContain("Memory backfill-source apply");
-    expect(result.report).toContain("missing/unknown source: 5");
-    await expect(sourceOf("wiki/.audit/agentmemory-migration-2026.md")).resolves.toBe("import-agentmemory");
-    await expect(sourceOf("wiki/.audit/backfill-2026.md")).resolves.toBe("backfill");
-    await expect(sourceOf("wiki/.audit/consolidate-2026.md")).resolves.toBe("consolidate");
+    expect(result.report).toContain("missing/unknown source: 2");
+    await expect(sourceOf("wiki/.audit/agentmemory-migration-2026.md")).resolves.toBe("unknown");
+    await expect(sourceOf("wiki/.audit/backfill-2026.md")).resolves.toBeUndefined();
+    await expect(sourceOf("wiki/.audit/consolidate-2026.md")).resolves.toBe("unknown");
     await expect(sourceOf("wiki/crystals/project-management.md")).resolves.toBe("crystal-extraction");
     await expect(sourceOf("wiki/references/fork-smoke-marker-codex-fork-smoke-abc.md")).resolves.toBe("codex-fork-smoke");
     await expect(sourceOf("wiki/projects/already-sourced.md")).resolves.toBe("codex");

@@ -27,6 +27,8 @@ describe("runMigrateToNarrative", () => {
       "- [[docs/ROADMAP]] tracks rollout decisions.",
       "",
     ].join("\n"));
+    await writePage("wiki/Archive/retained.md", "- Retained archive note.\n");
+    await writePage("wiki/projects/.retained.md", "- Retained system note.\n");
 
     const plan = await runMigrateToNarrative({
       vaultRoot: tmp,

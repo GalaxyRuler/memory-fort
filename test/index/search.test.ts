@@ -82,6 +82,22 @@ describe("lexicalSearch", () => {
     ).toEqual(["wiki/projects/archived-00.md"]);
   });
 
+  it("never returns pre-existing protected archive or system records when includeArchived is requested", async () => {
+    const { vaultRoot, indexDb } = await createHarness();
+    await writeVaultFile(
+      vaultRoot,
+      "wiki/projects/ordinary-archived.md",
+      "---\ntitle: Ordinary archived\ntype: projects\nstatus: archived\n---\n\narchiveinclude token",
+    );
+    await reconcileIndex(indexDb, vaultRoot);
+    insertPreexistingIndexRecord(indexDb, "wiki/Archive/retained.md", "archiveinclude token");
+    insertPreexistingIndexRecord(indexDb, "raw/.retained.md", "archiveinclude token");
+    insertPreexistingIndexRecord(indexDb, "archive/retained.md", "archiveinclude token");
+
+    expect(lexicalSearch(indexDb, "archiveinclude", { includeArchived: true }).map((result) => result.relPath))
+      .toEqual(["wiki/projects/ordinary-archived.md"]);
+  });
+
   it("applies as_of validity before the FTS candidate limit", async () => {
     const { vaultRoot, indexDb } = await createHarness();
     for (let index = 0; index < 25; index += 1) {
@@ -435,5 +451,18 @@ describe("lexicalSearch", () => {
     const path = join(vaultRoot, ...relPath.split("/"));
     await mkdir(dirname(path), { recursive: true });
     await writeFile(path, content, "utf8");
+  }
+
+  function insertPreexistingIndexRecord(indexDb: IndexDb, relPath: string, text: string): void {
+    indexDb.database.prepare<unknown[]>(`
+      INSERT INTO files(
+        relPath, kind, sizeBytes, mtimeMs, contentHash, frontmatterStatus,
+        sourceFactCount, derivedFromCount, generation, lastSeenRunId, indexedAt
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(relPath, relPath.startsWith("raw/") ? "raw" : "wiki", text.length, 0, `legacy-${relPath}`, "active", 0, 0, 1, 1, 0);
+    indexDb.database.prepare<unknown[]>(`
+      INSERT INTO chunks(chunkId, relPath, ordinal, headingPath, byteStart, byteEnd, text, textHash, generation)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(`legacy-${relPath}`, relPath, 0, null, 0, text.length, text, `legacy-${relPath}`, 1);
   }
 });

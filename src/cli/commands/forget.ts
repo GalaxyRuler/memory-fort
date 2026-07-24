@@ -63,13 +63,40 @@ export interface ForgetPlan {
 
 export interface ForgetResult {
   mode: ForgetMode;
-  status: "planned" | "live-erased/history-retained";
+  status: "planned" | "live-erased/history-retained" | "partial-live-mutation/rebuild-incomplete";
   plan: ForgetPlan;
   /** Fully deleted live paths. Partial fact rewrites are excluded. */
   erased: string[];
   /** Fact files retained after removing only attributable facts. */
   rewritten: string[];
   report: string;
+}
+
+export interface ForgetPartialMutationReceipt {
+  mode: "apply";
+  status: "partial-live-mutation/rebuild-incomplete";
+  plan: ForgetPlan;
+  erased: string[];
+  rewritten: string[];
+  failed: { operation: "delete" | "rewrite"; path: string; detail: string };
+  report: string;
+}
+
+/**
+ * Live forgetting is intentionally not rolled back after a filesystem error.
+ * This receipt records exactly what completed while the index generation stays
+ * invalidating, so callers never mistake a partial mutation for success.
+ */
+export class ForgetPartialMutationError extends Error {
+  readonly receipt: ForgetPartialMutationReceipt;
+
+  constructor(receipt: ForgetPartialMutationReceipt) {
+    super(
+      `memory forget: partial live mutation; derived index remains quiesced after failed ${receipt.failed.operation} ${receipt.failed.path}: ${receipt.failed.detail}`,
+    );
+    this.name = "ForgetPartialMutationError";
+    this.receipt = receipt;
+  }
 }
 
 interface GeneratedPage {
@@ -163,22 +190,49 @@ export async function runForget(opts: ForgetOptions = {}): Promise<ForgetResult>
 
   const erased: string[] = [];
   const rewritten: string[] = [];
-  for (const relPath of plan.raw) {
-    await removeLivePath(root, relPath);
-    erased.push(relPath);
-  }
-  for (const fact of facts) {
-    if (fact.removeWholeFile) {
-      await removeLivePath(root, fact.relPath);
-    } else {
-      await writeFile(join(root, ...fact.relPath.split("/")), fact.content, "utf8");
-      rewritten.push(fact.relPath);
+  let failed: { operation: "delete" | "rewrite"; path: string } | null = null;
+  try {
+    for (const relPath of plan.raw) {
+      failed = { operation: "delete", path: relPath };
+      await removeLivePath(root, relPath);
+      erased.push(relPath);
     }
-    if (fact.removeWholeFile) erased.push(fact.relPath);
-  }
-  for (const relPath of plan.generated) {
-    await removeLivePath(root, relPath);
-    erased.push(relPath);
+    for (const fact of facts) {
+      if (fact.removeWholeFile) {
+        failed = { operation: "delete", path: fact.relPath };
+        await removeLivePath(root, fact.relPath);
+        erased.push(fact.relPath);
+      } else {
+        failed = { operation: "rewrite", path: fact.relPath };
+        await writeFile(join(root, ...fact.relPath.split("/")), fact.content, "utf8");
+        rewritten.push(fact.relPath);
+      }
+    }
+    for (const relPath of plan.generated) {
+      failed = { operation: "delete", path: relPath };
+      await removeLivePath(root, relPath);
+      erased.push(relPath);
+    }
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    const receipt: ForgetPartialMutationReceipt = {
+      mode: "apply",
+      status: "partial-live-mutation/rebuild-incomplete",
+      plan,
+      erased: erased.sort(),
+      rewritten: rewritten.sort(),
+      failed: {
+        operation: failed?.operation ?? "delete",
+        path: failed?.path ?? "unknown",
+        detail,
+      },
+      report: formatForgetPartialMutationReport(plan, erased, rewritten, {
+        operation: failed?.operation ?? "delete",
+        path: failed?.path ?? "unknown",
+        detail,
+      }),
+    };
+    throw new ForgetPartialMutationError(receipt);
   }
 
   // Both generated index.md and SQLite FTS/vector state are derived data. The
@@ -206,13 +260,13 @@ function normalizeSelectors(opts: ForgetOptions): { paths: string[]; rawPaths: s
     if (!path.startsWith("raw/") && !path.startsWith("wiki/")) {
       throw new Error(`memory forget: --path supports only canonical raw/... or wiki/... paths, got ${path}`);
     }
-    if (isArchivedRawPath(path)) {
-      throw new Error(`memory forget: archived raw copies cannot be selected: ${path}`);
+    if (hasArchiveOrSystemPathComponent(path)) {
+      throw new Error(`memory forget: protected archive or system paths cannot be selected: ${path}`);
     }
   }
   for (const path of rawPaths) {
-    if (isArchivedRawPath(path)) {
-      throw new Error(`memory forget: archived raw copies cannot be selected: ${path}`);
+    if (hasArchiveOrSystemPathComponent(path)) {
+      throw new Error(`memory forget: protected archive or system paths cannot be selected: ${path}`);
     }
     if (!path.startsWith("raw/") || !path.toLowerCase().endsWith(".md")) {
       throw new Error(`memory forget: --raw requires a canonical raw/... markdown path, got ${path}`);
@@ -239,10 +293,6 @@ function canonicalRelPath(value: string): string | null {
   if (!value || value !== value.trim() || value !== value.normalize("NFC") || value.includes("\\") || isAbsolute(value) || /^[A-Za-z]:/u.test(value)) return null;
   if (value.startsWith("/") || value.includes("//") || value.split("/").some((part) => !part || part === "." || part === "..")) return null;
   return value;
-}
-
-function isArchivedRawPath(path: string): boolean {
-  return path.toLowerCase().startsWith("raw/") && hasArchiveOrSystemPathComponent(path);
 }
 
 async function selectedRawPaths(
@@ -640,4 +690,23 @@ function appendInventorySection(lines: string[], heading: string, paths: readonl
   lines.push("", `${heading}: ${paths.length}`);
   if (paths.length === 0) lines.push("- (none)");
   else lines.push(...paths.map((path) => `- ${path}`));
+}
+
+function formatForgetPartialMutationReport(
+  plan: ForgetPlan,
+  erased: readonly string[],
+  rewritten: readonly string[],
+  failed: ForgetPartialMutationReceipt["failed"],
+): string {
+  const lines = [
+    "Memory forget partial-live-mutation/rebuild-incomplete",
+    "Status: partial-live-mutation/rebuild-incomplete",
+    "Derived index: invalidating; dashboard search remains quiesced until a successful rebuild.",
+    `Failed ${failed.operation}: ${failed.path}`,
+    `Failure detail: ${failed.detail}`,
+  ];
+  appendInventorySection(lines, "Completed live deletions", [...erased].sort());
+  appendInventorySection(lines, "Completed fact rewrites", [...rewritten].sort());
+  appendInventorySection(lines, "Planned live raw paths", plan.raw);
+  return `${lines.join("\n")}\n`;
 }

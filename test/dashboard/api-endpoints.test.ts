@@ -82,15 +82,20 @@ describe("GET /api/pages", () => {
     expect(result.body["pages"]).toHaveLength(0); // only "tools" exists
   });
 
-  it("skips dot-directories", async () => {
+  it("skips case-variant archive and dot/system components including final leaves", async () => {
     const dotDir = join(vaultRoot, "wiki", ".archive");
+    const caseArchiveDir = join(vaultRoot, "wiki", "Archive");
     await mkdir(dotDir, { recursive: true });
+    await mkdir(caseArchiveDir, { recursive: true });
     await writeFile(
       join(dotDir, "old.md"),
       "---\ntype: tools\ntitle: Old\ncreated: \"2025-01-01\"\nupdated: \"2025-01-01\"\n---\nold\n",
     );
+    await writeFile(join(caseArchiveDir, "old.md"), "---\ntype: tools\ntitle: Case Old\n---\nold\n");
+    await writeFile(join(vaultRoot, "wiki", "tools", ".retained.md"), "---\ntype: tools\ntitle: Retained\n---\nold\n");
     const result = await handleGetPages({ vaultRoot });
     const pages = result.body["pages"] as Array<{ path: string }>;
     expect(pages.every((p) => !p.path.includes(".archive"))).toBe(true);
+    expect(pages.map((page) => page.path)).toEqual(["wiki/tools/voyage.md"]);
   });
 });

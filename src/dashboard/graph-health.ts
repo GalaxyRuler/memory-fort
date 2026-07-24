@@ -7,7 +7,7 @@ import {
   isReasoningEdge,
 } from "../retrieval/edge-classes.js";
 import type { RelationMap } from "../retrieval/relations.js";
-import { isEntityWikiPath } from "../retrieval/wiki-paths.js";
+import { isEntityWikiPath, isWikiProtectedPath } from "../retrieval/wiki-paths.js";
 
 export type HealthStatus = "pass" | "warn" | "fail" | "n/a";
 
@@ -775,7 +775,7 @@ function dateOnlyUtcMs(day: string): number {
 }
 
 function isLiveNarrativeThread(page: WikiHealthPage): boolean {
-  return page.relPath.startsWith("wiki/threads/") && !page.relPath.includes("/archive/");
+  return page.relPath.startsWith("wiki/threads/") && !isWikiProtectedPath(page.relPath);
 }
 
 function isThreadDiscoveryEntity(path: string): boolean {
@@ -806,11 +806,9 @@ function liveThreadEntityTargets(input: GraphHealthInput): Set<string> {
 }
 
 function graphHealthWikiPages(input: GraphHealthInput): WikiHealthPage[] {
-  // wiki/archive/ holds merge artifacts and superseded pages — counting them
-  // against live pages keeps duplicate/health metrics permanently warm.
-  return input.wikiPages.filter((page) =>
-    isEntityWikiPath(page.relPath) && !page.relPath.startsWith("wiki/archive/")
-  );
+  // Protected paths hold merge artifacts, retained records, and operational
+  // state; counting them against live pages keeps health metrics permanently warm.
+  return input.wikiPages.filter((page) => isEntityWikiPath(page.relPath));
 }
 
 function metric(result: Omit<MetricResult, "topOffenders"> & { topOffenders?: Offender[] }): MetricResult {

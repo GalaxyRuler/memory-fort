@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve } from "node:path";
 import { parseFrontmatter } from "../../storage/frontmatter.js";
-import { isWikiDotDirectoryPath } from "../../retrieval/wiki-paths.js";
+import { hasArchiveOrSystemPathComponent } from "../../storage/archive-paths.js";
 import { normalizeEvidenceId } from "../longmemeval/scoring.js";
 import type { RetrievalGoldType } from "./types.js";
 
@@ -816,10 +816,7 @@ function normalizePath(path: string): string {
 
 function isRecallScaffoldExcludedPath(relPath: string): boolean {
   const normalized = normalizePath(relPath);
-  return isWikiDotDirectoryPath(normalized)
-    || /^raw\/\.[^/]+(?:\/|$)/u.test(normalized)
-    || normalized === "wiki/archive"
-    || normalized.startsWith("wiki/archive/");
+  return hasArchiveOrSystemPathComponent(normalized);
 }
 
 function markdownCell(value: string): string {

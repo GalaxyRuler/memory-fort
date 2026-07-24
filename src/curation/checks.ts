@@ -84,10 +84,11 @@ export async function loadWiki(rootDir?: string): Promise<WikiPage[]> {
         }
         await walk(full);
       } else if (entry.isFile() && entry.name.endsWith(".md")) {
+        const rel = relative(root, full).replace(/\\/g, "/");
+        if (hasArchiveOrSystemPathComponent(`wiki/${rel}`)) continue;
         try {
           const content = await readFile(full, "utf-8");
           const { frontmatter, body } = parseFrontmatter(content);
-          const rel = relative(root, full).replace(/\\/g, "/");
           pages.push({ path: rel, fullPath: full, frontmatter, body });
         } catch {
           // Malformed pages are handled by a separate filesystem-level check.

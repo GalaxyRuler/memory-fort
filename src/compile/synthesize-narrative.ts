@@ -5,6 +5,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from "node:pat
 import type { LLMProvider, LLMTokenUsage } from "../llm/types.js";
 import { readRelations, writeRelations, type RelationMap } from "../retrieval/relations.js";
 import { atomicWrite } from "../storage/atomic-write.js";
+import { hasArchiveOrSystemPathComponent } from "../storage/archive-paths.js";
 import { parseFrontmatter, serializeFrontmatter, type Frontmatter } from "../storage/frontmatter.js";
 import { kebabCase } from "../storage/slug.js";
 import type { ConsolidationFact } from "./filter-noise.js";
@@ -603,8 +604,9 @@ async function listWikiEntityPages(wikiRoot: string): Promise<string[]> {
     for (const entry of entries) {
       const fullPath = join(dir, entry.name);
       const rel = relative(wikiRoot, fullPath).replace(/\\/g, "/");
+      if (hasArchiveOrSystemPathComponent(`wiki/${rel}`)) continue;
       if (entry.isDirectory()) {
-        if (rel.split("/").some((part) => part.startsWith(".") || part.endsWith("-proposed") || part === "archive")) continue;
+        if (rel.split("/").some((part) => part.toLowerCase().endsWith("-proposed"))) continue;
         await walk(fullPath);
       } else if (entry.isFile() && entry.name.endsWith(".md")) {
         files.push(fullPath);

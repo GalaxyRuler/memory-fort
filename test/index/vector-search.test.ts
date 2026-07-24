@@ -209,6 +209,30 @@ describe("vector search", () => {
       .toEqual(["wiki/projects/archived-0.md"]);
   });
 
+  it("never returns pre-existing protected archive or system vectors when includeArchived is requested", async () => {
+    const { vaultRoot, indexDb } = await createHarness();
+    const profile = profileFingerprint();
+    await writeVaultFile(
+      vaultRoot,
+      "wiki/projects/ordinary-archived.md",
+      "---\ntitle: Ordinary archived\ntype: projects\nstatus: archived\n---\n\nordinary archived payload",
+    );
+    await reconcileIndex(indexDb, vaultRoot);
+    insertPreexistingIndexRecord(indexDb, "wiki/Archive/retained.md", "protected archived payload");
+    insertPreexistingIndexRecord(indexDb, "archive/retained.md", "protected archived payload");
+    await embedPath(indexDb, "wiki/projects/ordinary-archived.md", profile, vector(1));
+    await embedPath(indexDb, "wiki/Archive/retained.md", profile, vector(0));
+    await embedPath(indexDb, "archive/retained.md", profile, vector(0));
+
+    expect(twoStageVectorSearch(indexDb.database, {
+      profile,
+      queryVector: vector(0),
+      k: 1,
+      oversample: 2,
+      includeArchived: true,
+    }).map((result) => result.relPath)).toEqual(["wiki/projects/ordinary-archived.md"]);
+  });
+
   it("applies as_of before the vector candidate limit", async () => {
     const { vaultRoot, indexDb } = await createHarness();
     const profile = profileFingerprint();
@@ -668,6 +692,19 @@ describe("vector search", () => {
     return Number(
       indexDb.database.prepare<[string], { rowid: number }>("SELECT rowid FROM chunks WHERE relPath = ?").get(relPath)?.rowid,
     );
+  }
+
+  function insertPreexistingIndexRecord(indexDb: IndexDb, relPath: string, text: string): void {
+    indexDb.database.prepare<unknown[]>(`
+      INSERT INTO files(
+        relPath, kind, sizeBytes, mtimeMs, contentHash, frontmatterStatus,
+        sourceFactCount, derivedFromCount, generation, lastSeenRunId, indexedAt
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(relPath, relPath.startsWith("raw/") ? "raw" : "wiki", text.length, 0, `legacy-${relPath}`, "active", 0, 0, 1, 1, 0);
+    indexDb.database.prepare<unknown[]>(`
+      INSERT INTO chunks(chunkId, relPath, ordinal, headingPath, byteStart, byteEnd, text, textHash, generation)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(`legacy-${relPath}`, relPath, 0, null, 0, text.length, text, `legacy-${relPath}`, 1);
   }
 
   function upsertMeta(indexDb: IndexDb, key: string, value: string): void {

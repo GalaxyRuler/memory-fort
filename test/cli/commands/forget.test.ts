@@ -1,12 +1,29 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { runForget } from "../../../src/cli/commands/forget.js";
+const forgetRmFailure = vi.hoisted(() => ({ target: null as string | null }));
+
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs/promises")>();
+  return {
+    ...actual,
+    rm: async (...args: Parameters<typeof actual.rm>) => {
+      const target = forgetRmFailure.target;
+      if (target && String(args[0]).replace(/\\/g, "/").endsWith(target)) {
+        throw new Error(`injected remove failure: ${target}`);
+      }
+      return actual.rm(...args);
+    },
+  };
+});
+
+import { ForgetPartialMutationError, runForget } from "../../../src/cli/commands/forget.js";
 import { openIndexDb, openReadOnlyIndexDb } from "../../../src/index/db.js";
 import { lexicalSearch } from "../../../src/index/search.js";
 import { reconcileIndex } from "../../../src/index/reconcile.js";
+import { readIndexGeneration } from "../../../src/index/generation.js";
 import { loadSearchCorpus } from "../../../src/retrieval/corpus.js";
 
 describe("runForget", () => {
@@ -26,6 +43,7 @@ describe("runForget", () => {
   });
 
   afterEach(async () => {
+    forgetRmFailure.target = null;
     if (previousMemoryRoot === undefined) delete process.env["MEMORY_ROOT"];
     else process.env["MEMORY_ROOT"] = previousMemoryRoot;
     if (previousIndexPath === undefined) delete process.env["MEMORY_INDEX_DB_PATH"];
@@ -111,6 +129,37 @@ describe("runForget", () => {
     }
   });
 
+  it("returns a truthful partial-mutation receipt and keeps search quiesced when a live erase fails", async () => {
+    const raw = "raw/2026-05-20/codex-session.md";
+    const failedFact = "facts/2026-05-20/session.json";
+    await seedAttributableRaw(raw);
+    await rebuildFixtureIndex();
+    forgetRmFailure.target = failedFact;
+
+    let failure: unknown;
+    try {
+      await runForget({ mode: "apply", rawPaths: [raw] });
+    } catch (error) {
+      failure = error;
+    }
+
+    expect(failure).toBeInstanceOf(ForgetPartialMutationError);
+    const receipt = (failure as ForgetPartialMutationError).receipt;
+    expect(receipt).toMatchObject({
+      status: "partial-live-mutation/rebuild-incomplete",
+      erased: [raw],
+      rewritten: [],
+      failed: { operation: "delete", path: failedFact },
+    });
+    expect(receipt.report).toContain("Completed live deletions: 1\n- raw/2026-05-20/codex-session.md");
+    expect(receipt.report).toContain(`Failed delete: ${failedFact}`);
+    expect(readIndexGeneration(root).state).toBe("invalidating");
+    expect(existsSync(process.env["MEMORY_INDEX_DB_PATH"]!)).toBe(false);
+    expect(existsSync(join(root, ...raw.split("/")))).toBe(false);
+    expect(existsSync(join(root, ...failedFact.split("/")))).toBe(true);
+    expect(existsSync(join(root, "wiki", "projects", "generated.md"))).toBe(true);
+  });
+
   it("blocks an ambiguous manually curated page rather than erasing a mixed page", async () => {
     const raw = "raw/2026-05-20/codex-session.md";
     await writeAt(raw, "sensitive session");
@@ -171,9 +220,13 @@ describe("runForget", () => {
     expect(existsSync(join(root, ...caseArchive.split("/")))).toBe(true);
     for (const archivedPath of ["raw/.compact-archive", compactArchive, dotArchive, caseArchive]) {
       await expect(runForget({ rawPaths: [archivedPath] }))
-        .rejects.toThrow("archived raw copies cannot be selected");
+        .rejects.toThrow("protected archive or system paths cannot be selected");
       await expect(runForget({ paths: [archivedPath] }))
-        .rejects.toThrow("archived raw copies cannot be selected");
+        .rejects.toThrow("protected archive or system paths cannot be selected");
+    }
+    for (const protectedWikiPath of ["wiki/Archive/retained.md", "wiki/projects/.retained.md"]) {
+      await expect(runForget({ paths: [protectedWikiPath] }))
+        .rejects.toThrow("protected archive or system paths cannot be selected");
     }
   });
 

@@ -86,6 +86,12 @@ describe("entity dedup", () => {
       created: "2026-05-28",
       updated: "2026-05-28",
     });
+    await writePage("wiki/Archive/procedure-propose-4.md", {
+      type: "references",
+      title: "procedure propose audit",
+      created: "2026-05-28",
+      updated: "2026-05-28",
+    });
 
     await expect(collectEntityMergeProposals(tmp)).resolves.toEqual([]);
   });

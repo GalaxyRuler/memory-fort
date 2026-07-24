@@ -109,9 +109,6 @@ export async function collectEntityMergeProposals(vaultRoot: string): Promise<En
   const wikiDocs = corpus.documents.filter((document) =>
     document.kind === "wiki"
     && isEntityWikiPath(document.relPath)
-    // Archived pages are merge artifacts and historical records — matching
-    // them against live pages re-proposes every completed merge forever.
-    && !document.relPath.startsWith("wiki/archive/")
   );
   const counts = new Map<string, number>();
   const records = wikiDocs.map((document): EntityRecord => {

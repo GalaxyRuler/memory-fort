@@ -18,7 +18,7 @@ import { parseFrontmatter, serializeFrontmatter } from "../storage/frontmatter.j
 import { atomicWrite } from "../storage/atomic-write.js";
 import { resolveStrictChild } from "../storage/path-safety.js";
 import { commitVaultChange as defaultCommitVaultChange } from "../sync/commit-vault-change.js";
-import { isWikiDotDirectoryPath } from "../retrieval/wiki-paths.js";
+import { isWikiProtectedPath } from "../retrieval/wiki-paths.js";
 import { isNarrativeKnowledgePagePath } from "../compile/synthesize-narrative.js";
 import {
   getActiveEmbedderConfig,
@@ -128,7 +128,7 @@ export async function readPage(
   // Search results return vault-relative paths (wiki/references/x.md); accept
   // those directly so `search` output pastes straight into `read_page`.
   const relPath = input.path.replace(/^wiki\//, "");
-  if (isWikiDotDirectoryPath(`wiki/${relPath}`)) {
+  if (isWikiProtectedPath(`wiki/${relPath}`)) {
     return {
       content: [
         {
@@ -217,9 +217,9 @@ export async function listPages(
       const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
       const wikiRel = `wiki/${rel}`;
       if (entry.isDirectory()) {
-        if (isWikiDotDirectoryPath(wikiRel)) continue;
+        if (isWikiProtectedPath(wikiRel)) continue;
         await scan(full, rel);
-      } else if (entry.isFile() && entry.name.endsWith(".md") && !isWikiDotDirectoryPath(wikiRel)) {
+      } else if (entry.isFile() && entry.name.endsWith(".md") && !isWikiProtectedPath(wikiRel)) {
         try {
           const content = await readFn(full, "utf-8");
           const { frontmatter } = parseFrontmatter(content);
@@ -532,7 +532,7 @@ export async function searchCapabilities(
 async function bumpLastAccessed(path: string, now: Date, knownContent?: string): Promise<void> {
   const wikiRel = path.startsWith("wiki/") ? path : `wiki/${path}`;
   if (!isNarrativeKnowledgePagePath(wikiRel)) return;
-  if (isWikiDotDirectoryPath(wikiRel)) return;
+  if (isWikiProtectedPath(wikiRel)) return;
   const relUnderWiki = wikiRel.replace(/^wiki\//, "");
   const fullPath = join(wikiDir(), relUnderWiki);
   if (!existsSync(fullPath)) return;
@@ -762,7 +762,7 @@ function normalizeSearchResults(value: unknown, limit: number): ApiSearchResultW
     const item = value[index];
     if (!isSearchResultWithStringPath(item)) continue;
     const path = truncate(item.path, MAX_SEARCH_PATH_LENGTH);
-    if (isWikiDotDirectoryPath(path)) continue;
+    if (isWikiProtectedPath(path)) continue;
     results.push({ ...item, path });
   }
   return results;

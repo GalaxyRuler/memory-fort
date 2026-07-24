@@ -27,6 +27,7 @@ import {
 import { type LLMProvider } from "../../llm/types.js";
 import { readRuntimePrompt } from "../../prompts/runtime.js";
 import { loadMemoryConfig, resolveCompileConfig, type MemoryConfig } from "../../storage/config.js";
+import { hasArchiveOrSystemPathComponent } from "../../storage/archive-paths.js";
 import { withFileLock } from "../../storage/file-lock.js";
 import { listRawMarkdownFiles } from "../../storage/raw-walker.js";
 import {
@@ -1087,9 +1088,9 @@ async function listWikiPageFiles(wikiRoot: string): Promise<string[]> {
 }
 
 function isExcludedWikiContextPath(relPath: string): boolean {
-  return relPath
+  return hasArchiveOrSystemPathComponent(relPath) || relPath
     .split("/")
-    .some((part) => part === ".audit" || part === "archive" || part.endsWith("-proposed"));
+    .some((part) => part.toLowerCase().endsWith("-proposed"));
 }
 
 function scoreExistingPageReference(rawContent: string, relPath: string, title: string): number {

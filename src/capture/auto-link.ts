@@ -12,6 +12,7 @@ import { readRelations, writeRelations, type RelationEdge, type RelationMap } fr
 import { isEntityWikiPath } from "../retrieval/wiki-paths.js";
 import { mutateRawFrontmatter } from "../hooks/raw-file.js";
 import { parseFrontmatter } from "../storage/frontmatter.js";
+import { hasArchiveOrSystemPathComponent } from "../storage/archive-paths.js";
 import { memoryRoot as defaultMemoryRoot } from "../storage/paths.js";
 
 export type AutoLinkStrategy = "embedding" | "title";
@@ -240,8 +241,9 @@ async function listWikiCandidates(vaultRoot: string): Promise<WikiCandidate[]> {
     for (const entry of entries) {
       const fullPath = join(dir, entry.name);
       const relPath = relative(vaultRoot, fullPath).replace(/\\/g, "/");
+      if (hasArchiveOrSystemPathComponent(relPath)) continue;
       if (entry.isDirectory()) {
-        if (relPath.split("/").some((part) => part.startsWith(".") || part.endsWith("-proposed") || part === "archive")) {
+        if (relPath.split("/").some((part) => part.toLowerCase().endsWith("-proposed"))) {
           continue;
         }
         await walk(fullPath);

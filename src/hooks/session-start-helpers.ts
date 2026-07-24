@@ -4,6 +4,7 @@ import { basename, join } from "node:path";
 import { readRelationEntry } from "../retrieval/relations.js";
 import { getConfidenceScore } from "../storage/confidence.js";
 import { parseFrontmatter } from "../storage/frontmatter.js";
+import { hasArchiveOrSystemPathComponent } from "../storage/archive-paths.js";
 import { indexPath, memoryRoot as defaultMemoryRoot } from "../storage/paths.js";
 
 export interface ConfidenceAwareIndexOptions {
@@ -191,7 +192,7 @@ async function listProjectCandidates(
   }
 
   return entries
-    .filter((entry) => entry.isFile() && entry.name.endsWith(".md") && !entry.name.startsWith("."))
+    .filter((entry) => entry.isFile() && entry.name.endsWith(".md") && !hasArchiveOrSystemPathComponent(`wiki/projects/${entry.name}`))
     .sort((a, b) => a.name.localeCompare(b.name))
     .slice(0, maxProjectPages)
     .map((entry) => {
@@ -653,7 +654,7 @@ async function collectRawObservations(input: {
   }
   const rawFiles: string[] = [];
   for (const entry of topEntries) {
-    if (entry.name.startsWith(".")) continue;
+    if (hasArchiveOrSystemPathComponent(`raw/${entry.name}`)) continue;
     if (entry.isDirectory()) {
       const isDated = /^\d{4}-\d{2}-\d{2}$/.test(entry.name);
       if (isDated && (entry.name < input.cutoffDate || entry.name > input.todayDate)) continue;
@@ -696,8 +697,8 @@ async function listMarkdownFiles(
 
   const files: string[] = [];
   for (const entry of entries) {
-    if (entry.name.startsWith(".")) continue;
     const rel = `${prefix}/${entry.name}`.replace(/\\/g, "/");
+    if (hasArchiveOrSystemPathComponent(rel)) continue;
     const full = join(dir, entry.name);
     if (entry.isDirectory()) {
       files.push(...await listMarkdownFiles(full, readdir, rel));

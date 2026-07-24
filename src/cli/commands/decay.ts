@@ -4,6 +4,7 @@ import { dirname, join, relative } from "node:path";
 import { atomicWrite } from "../../storage/atomic-write.js";
 import { parseFrontmatter, serializeFrontmatter } from "../../storage/frontmatter.js";
 import { memoryRoot } from "../../storage/paths.js";
+import { hasArchiveOrSystemPathComponent } from "../../storage/archive-paths.js";
 import { isNarrativeKnowledgePagePath, moveToArchive } from "../../compile/synthesize-narrative.js";
 
 export type DecayMode = "plan" | "apply";
@@ -104,11 +105,12 @@ async function listNarrativePages(root: string): Promise<string[]> {
     for (const entry of await readdir(dir, { withFileTypes: true })) {
       const fullPath = join(dir, entry.name);
       const rel = relative(wikiRoot, fullPath).replace(/\\/g, "/");
+      const relPath = `wiki/${rel}`;
+      if (hasArchiveOrSystemPathComponent(relPath)) continue;
       if (entry.isDirectory()) {
-        if (rel.split("/").some((part) => part.startsWith(".") || part.endsWith("-proposed") || part === "archive")) continue;
+        if (rel.split("/").some((part) => part.toLowerCase().endsWith("-proposed"))) continue;
         await walk(fullPath);
       } else if (entry.isFile() && entry.name.endsWith(".md")) {
-        const relPath = `wiki/${rel}`;
         if (isNarrativeKnowledgePagePath(relPath)) pages.push(relPath);
       }
     }

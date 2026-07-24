@@ -3,6 +3,7 @@ import { mkdir, readdir, readFile } from "node:fs/promises";
 import { dirname, join, relative } from "node:path";
 import { atomicWrite } from "../../storage/atomic-write.js";
 import { memoryRoot } from "../../storage/paths.js";
+import { hasArchiveOrSystemPathComponent } from "../../storage/archive-paths.js";
 import { parseFrontmatter, serializeFrontmatter, type Frontmatter } from "../../storage/frontmatter.js";
 
 export interface BackfillSourceOptions {
@@ -86,7 +87,7 @@ async function loadLiveWikiPages(vaultRoot: string): Promise<WikiSourcePage[]> {
   const pages: WikiSourcePage[] = [];
   for (const fullPath of files) {
     const relPath = relative(vaultRoot, fullPath).replace(/\\/g, "/");
-    if (relPath.startsWith("wiki/archive/")) continue;
+    if (hasArchiveOrSystemPathComponent(relPath)) continue;
     const parsed = parseFrontmatter(await readFile(fullPath, "utf-8"));
     pages.push({
       relPath,
@@ -105,8 +106,8 @@ async function listMarkdown(root: string, vaultRoot: string): Promise<string[]> 
     for (const entry of await readdir(dir, { withFileTypes: true })) {
       const fullPath = join(dir, entry.name);
       const relPath = relative(vaultRoot, fullPath).replace(/\\/g, "/");
+      if (hasArchiveOrSystemPathComponent(relPath)) continue;
       if (entry.isDirectory()) {
-        if (relPath === "wiki/archive" || relPath.startsWith("wiki/archive/")) continue;
         await walk(fullPath);
       } else if (entry.isFile() && entry.name.endsWith(".md")) {
         files.push(fullPath);
@@ -188,7 +189,7 @@ function formatBackfillSourceReport(opts: {
 }): string {
   const lines = [
     `Memory backfill-source ${opts.mode}`,
-    `total wiki pages: ${opts.total} (excluding archive)`,
+    `total wiki pages: ${opts.total} (excluding protected archive/system paths)`,
     `missing/unknown source: ${opts.missing}`,
   ];
   for (const proposal of opts.proposals) {

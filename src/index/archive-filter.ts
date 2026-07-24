@@ -6,8 +6,11 @@
 export function activeArchiveSystemPathSql(filesAlias: string): string[] {
   const path = `lower(${filesAlias}.relPath)`;
   return [
+    `${path} NOT GLOB 'archive'`,
+    `${path} NOT GLOB 'archive/*'`,
     `${path} NOT GLOB '*/archive'`,
     `${path} NOT GLOB '*/archive/*'`,
+    `${path} NOT GLOB '.*'`,
     `${path} NOT GLOB '*/.*'`,
   ];
 }
