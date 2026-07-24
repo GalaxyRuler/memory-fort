@@ -468,6 +468,8 @@ describe("getClientStatuses", () => {
 
   it("probes Hermes and OpenClaw with their configured vault MCP launcher", async () => {
     const mcpServer = join(memDir, "hooks", "mcp-server.mjs");
+    await writeFile(join(memDir, "hooks", "session-start.mjs"), "// session start hook\n");
+    await writeFile(join(memDir, "hooks", "session-end.mjs"), "// session end hook\n");
     await writeHermesConfig(mcpServer);
     await writeOpenClawConfig(mcpServer);
     const probeMcpCommand = vi.fn(async (command: { command: string; args: string[] }) => (
@@ -522,6 +524,30 @@ describe("getClientStatuses", () => {
     expect(probeMcpCommand).not.toHaveBeenCalled();
 
     await writeHermesConfig(hookMcpServer, { sessionStart: `node ${claudeMcpServer}` });
+    status = (await getClientIntegrationStatuses({ probeMcp: true, probeMcpCommand }))
+      .find((item) => item.client === "hermes")!;
+    expect(status.installation).toBe("stale");
+    expect(status.health).toBe("unknown");
+    expect(probeMcpCommand).not.toHaveBeenCalled();
+  });
+
+  it("marks Hermes stale when a managed hook launcher is missing or a directory", async () => {
+    const hookMcpServer = join(memDir, "hooks", "mcp-server.mjs");
+    const sessionStart = join(memDir, "hooks", "session-start.mjs");
+    const sessionEnd = join(memDir, "hooks", "session-end.mjs");
+    const probeMcpCommand = vi.fn(async () => "healthy" as const);
+    await writeHermesConfig(hookMcpServer);
+
+    await rm(sessionStart, { force: true });
+    let status = (await getClientIntegrationStatuses({ probeMcp: true, probeMcpCommand }))
+      .find((item) => item.client === "hermes")!;
+    expect(status.installation).toBe("stale");
+    expect(status.health).toBe("unknown");
+    expect(probeMcpCommand).not.toHaveBeenCalled();
+
+    await writeFile(sessionStart, "// restored session hook\n");
+    await rm(sessionEnd, { force: true });
+    await mkdir(sessionEnd);
     status = (await getClientIntegrationStatuses({ probeMcp: true, probeMcpCommand }))
       .find((item) => item.client === "hermes")!;
     expect(status.installation).toBe("stale");

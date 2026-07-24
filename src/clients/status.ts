@@ -347,12 +347,17 @@ async function hasExpectedHermesHooks(path: string): Promise<boolean> {
   try {
     const parsed = yaml.load(await readFile(path, "utf-8"), { schema: yaml.JSON_SCHEMA });
     const hooks = asRecord(asRecord(parsed)?.["hooks"]);
+    const sessionStart = join(memoryRoot(), "hooks", "session-start.mjs");
+    const sessionEnd = join(memoryRoot(), "hooks", "session-end.mjs");
+    if (!(await Promise.all([isRegularFile(sessionStart), isRegularFile(sessionEnd)])).every(Boolean)) {
+      return false;
+    }
     return isExpectedHermesHookCommand(
       hooks?.["on_session_start"],
-      join(memoryRoot(), "hooks", "session-start.mjs"),
+      sessionStart,
     ) && isExpectedHermesHookCommand(
       hooks?.["on_session_end"],
-      join(memoryRoot(), "hooks", "session-end.mjs"),
+      sessionEnd,
     );
   } catch {
     return false;
