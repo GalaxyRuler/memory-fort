@@ -55,12 +55,18 @@ describe("runForget", () => {
     await seedAttributableRaw(raw);
     await writeAt("wiki/archive/2026-05-21/raw/2026-05-20/codex-session.md", "archived secret");
     await writeAt("wiki/archive/2026-05-22/raw/2026-05-20/codex-session.md", "duplicate archived secret");
+    await writeAt("wiki/.archive/2026-05-23/raw/2026-05-20/codex-session.md", "canonical archived secret");
     await writeAt("raw/2026-05-20/codex-other.md", "same-size-sessio");
     await rebuildFixtureIndex();
 
     const result = await runForget({ mode: "apply", rawPaths: [raw] });
 
     expect(result.status).toBe("live-erased/history-retained");
+    expect(result.plan.archive).toEqual([
+      "wiki/.archive/2026-05-23/raw/2026-05-20/codex-session.md",
+      "wiki/archive/2026-05-21/raw/2026-05-20/codex-session.md",
+      "wiki/archive/2026-05-22/raw/2026-05-20/codex-session.md",
+    ]);
     expect(result.erased).toEqual(expect.arrayContaining([
       raw,
       "facts/2026-05-20/session.json",
@@ -73,6 +79,8 @@ describe("runForget", () => {
       .toContain("archived secret");
     expect(await readFile(join(root, "wiki", "archive", "2026-05-22", "raw", "2026-05-20", "codex-session.md"), "utf8"))
       .toContain("duplicate archived secret");
+    expect(await readFile(join(root, "wiki", ".archive", "2026-05-23", "raw", "2026-05-20", "codex-session.md"), "utf8"))
+      .toContain("canonical archived secret");
     const corpus = await loadSearchCorpus({ vaultRoot: root, scope: "all" });
     expect(corpus.documents.map((document) => document.relPath)).not.toEqual(expect.arrayContaining([
       raw,
@@ -149,6 +157,73 @@ describe("runForget", () => {
       .rejects.toThrow("ambiguous manual curated content");
     expect(existsSync(join(root, ...selected.split("/")))).toBe(true);
     expect(existsSync(join(root, ...retained.split("/")))).toBe(true);
+  });
+
+  it("blocks generated pages selected directly or by source when canonical raw lineage is absent", async () => {
+    await writeWiki(
+      "projects/no-provenance.md",
+      { type: "projects", title: "No provenance", generated: true },
+      "A generated page with no canonical raw lineage.",
+    );
+    await writeWiki(
+      "projects/broad-source.md",
+      { type: "projects", title: "Broad source", generated: true, source: "compile" },
+      "A generated page selected only through a broad source label.",
+    );
+
+    const direct = await runForget({ paths: ["wiki/projects/no-provenance.md"] });
+    const broad = await runForget({ sourceIds: ["compile"] });
+
+    expect(direct.plan.blocked).toEqual(["wiki/projects/no-provenance.md"]);
+    expect(broad.plan.blocked).toEqual(["wiki/projects/broad-source.md"]);
+    await expect(runForget({ mode: "apply", paths: ["wiki/projects/no-provenance.md"] }))
+      .rejects.toThrow("ambiguous manual curated content");
+    await expect(runForget({ mode: "apply", sourceIds: ["compile"] }))
+      .rejects.toThrow("ambiguous manual curated content");
+    expect(existsSync(join(root, "wiki", "projects", "no-provenance.md"))).toBe(true);
+    expect(existsSync(join(root, "wiki", "projects", "broad-source.md"))).toBe(true);
+  });
+
+  it("does not claim a zero external-backup inventory when the backup target is not recorded", async () => {
+    const raw = "raw/2026-05-20/codex-session.md";
+    await writeAt(raw, "sensitive session");
+    const externalTarget = join(tmp, "external-backups");
+    await mkdir(externalTarget, { recursive: true });
+    await writeFile(join(externalTarget, "backup-manifest.json"), "{}\n");
+
+    const plan = await runForget({ rawPaths: [raw] });
+
+    expect(plan.plan.history.backupManifests).toEqual([]);
+    expect(plan.plan.history.externalBackupDiscovery).toBe("unavailable-or-not-configured");
+    expect(plan.report).toContain("External backup discovery: unavailable or not configured");
+  });
+
+  it("reports a fact file as partially redacted when unrelated facts remain", async () => {
+    const selected = "raw/2026-05-20/codex-selected.md";
+    const retained = "raw/2026-05-20/codex-retained.md";
+    await writeAt(selected, "selected session");
+    await writeAt(retained, "retained session");
+    await writeAt(
+      "facts/2026-05-20/mixed.json",
+      JSON.stringify({
+        facts: [
+          { sourceRawPath: selected, narrative: "selected" },
+          { sourceRawPath: retained, narrative: "retained" },
+        ],
+      }),
+    );
+
+    const plan = await runForget({ rawPaths: [selected] });
+    const applied = await runForget({ mode: "apply", rawPaths: [selected] });
+
+    expect(plan.plan.facts).toEqual([]);
+    expect(plan.plan.rewrittenFacts).toEqual(["facts/2026-05-20/mixed.json"]);
+    expect(applied.erased).not.toContain("facts/2026-05-20/mixed.json");
+    expect(applied.rewritten).toEqual(["facts/2026-05-20/mixed.json"]);
+    expect(applied.report).toContain("Derived fact files partially redacted: 1");
+    expect(applied.report).toContain("Partially redacted fact files retained: facts/2026-05-20/mixed.json");
+    await expect(readFile(join(root, "facts", "2026-05-20", "mixed.json"), "utf8"))
+      .resolves.toContain(retained);
   });
 
   async function seedAttributableRaw(raw: string): Promise<void> {

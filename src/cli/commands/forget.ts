@@ -36,11 +36,15 @@ export interface ForgetHistoryInventory {
   status: "history-retained";
   gitCommits: string[];
   backupManifests: string[];
+  externalBackupDiscovery: "unavailable-or-not-configured";
 }
 
 export interface ForgetPlan {
   raw: string[];
+  /** Fact files fully removed because every fact in them was attributable. */
   facts: string[];
+  /** Fact files retained after removing only attributable entries. */
+  rewrittenFacts: string[];
   generated: string[];
   /** Generated documents with direct provenance relation(s) to the target. */
   relations: string[];
@@ -59,13 +63,17 @@ export interface ForgetResult {
   mode: ForgetMode;
   status: "planned" | "live-erased/history-retained";
   plan: ForgetPlan;
+  /** Fully deleted live paths. Partial fact rewrites are excluded. */
   erased: string[];
+  /** Fact files retained after removing only attributable facts. */
+  rewritten: string[];
   report: string;
 }
 
 interface GeneratedPage {
   relPath: string;
   sources: string[];
+  selectedSources: string[];
   hasDerivedRelation: boolean;
   generated: boolean;
 }
@@ -92,9 +100,19 @@ export async function runForget(opts: ForgetOptions = {}): Promise<ForgetResult>
   const selectedRaw = await selectedRawPaths(root, selectors);
   const pages = await collectGeneratedPages(root, selectors, selectedRaw);
   const facts = await collectFactChanges(root, selectedRaw);
-  const generated = pages.filter((page) => page.generated && page.sources.every((source) => selectedRaw.has(source)));
+  const generated = pages.filter((page) =>
+    page.generated &&
+    page.selectedSources.length > 0 &&
+    page.sources.length > 0 &&
+    page.sources.every((source) => selectedRaw.has(source)),
+  );
   const blocked = pages
-    .filter((page) => !page.generated || page.sources.some((source) => !selectedRaw.has(source)))
+    .filter((page) =>
+      !page.generated ||
+      page.selectedSources.length === 0 ||
+      page.sources.length === 0 ||
+      page.sources.some((source) => !selectedRaw.has(source)),
+    )
     .map((page) => page.relPath);
   const directPages = selectors.paths.filter((path) => path.startsWith("wiki/"));
   for (const relPath of directPages) {
@@ -106,7 +124,8 @@ export async function runForget(opts: ForgetOptions = {}): Promise<ForgetResult>
   const plannedPaths = [...selectedRaw, ...generated.map((page) => page.relPath)];
   const plan: ForgetPlan = {
     raw: [...selectedRaw].sort(),
-    facts: facts.map((fact) => fact.relPath).sort(),
+    facts: facts.filter((fact) => fact.removeWholeFile).map((fact) => fact.relPath).sort(),
+    rewrittenFacts: facts.filter((fact) => !fact.removeWholeFile).map((fact) => fact.relPath).sort(),
     generated: generated.map((page) => page.relPath).sort(),
     relations: generated.filter((page) => page.hasDerivedRelation).map((page) => page.relPath).sort(),
     archive: await findArchivedCopies(root, selectedRaw),
@@ -123,6 +142,7 @@ export async function runForget(opts: ForgetOptions = {}): Promise<ForgetResult>
       status: "planned",
       plan,
       erased: [],
+      rewritten: [],
       report: formatForgetReport("plan", plan, []),
     };
   }
@@ -132,6 +152,7 @@ export async function runForget(opts: ForgetOptions = {}): Promise<ForgetResult>
   }
 
   const erased: string[] = [];
+  const rewritten: string[] = [];
   for (const relPath of plan.raw) {
     await removeLivePath(root, relPath);
     erased.push(relPath);
@@ -141,8 +162,9 @@ export async function runForget(opts: ForgetOptions = {}): Promise<ForgetResult>
       await removeLivePath(root, fact.relPath);
     } else {
       await writeFile(join(root, ...fact.relPath.split("/")), fact.content, "utf8");
+      rewritten.push(fact.relPath);
     }
-    erased.push(fact.relPath);
+    if (fact.removeWholeFile) erased.push(fact.relPath);
   }
   for (const relPath of plan.generated) {
     await removeLivePath(root, relPath);
@@ -160,6 +182,7 @@ export async function runForget(opts: ForgetOptions = {}): Promise<ForgetResult>
     status: "live-erased/history-retained",
     plan,
     erased: erased.sort(),
+    rewritten: rewritten.sort(),
     report: formatForgetReport("apply", plan, erased.sort()),
   };
 }
@@ -261,6 +284,7 @@ async function collectGeneratedPages(
     pages.push({
       relPath,
       sources: allSources.length > 0 ? allSources : sources,
+      selectedSources: sources,
       hasDerivedRelation: hasSelectedDerivedRelation(frontmatter, selectedRaw),
       generated: isGeneratedPage(frontmatter),
     });
@@ -367,7 +391,7 @@ async function findArchivedCopies(root: string, selectedRaw: Set<string>): Promi
 }
 
 function archiveOriginalPath(relPath: string): string | null {
-  const match = /(?:^|\/)(?:archive|\.compact-archive)\/[^/]+\/(raw\/.*)$/u.exec(relPath);
+  const match = /(?:^|\/)(?:archive|\.archive|\.compact-archive)\/[^/]+\/(raw\/.*)$/u.exec(relPath);
   return match?.[1] ?? null;
 }
 
@@ -402,7 +426,12 @@ async function readHistoryInventory(root: string, selectedRaw: Set<string>): Pro
     ...(await listFiles(root, ".backups", (name) => /manifest.*\.json$/iu.test(name))),
   ].sort();
   if (selectedRaw.size === 0 || !existsSync(join(root, ".git"))) {
-    return { status: "history-retained", gitCommits: [], backupManifests };
+    return {
+      status: "history-retained",
+      gitCommits: [],
+      backupManifests,
+      externalBackupDiscovery: "unavailable-or-not-configured",
+    };
   }
   try {
     const { stdout } = await execFileAsync("git", ["-C", root, "log", "--all", "--format=%H", "--", ...selectedRaw], {
@@ -413,9 +442,15 @@ async function readHistoryInventory(root: string, selectedRaw: Set<string>): Pro
       status: "history-retained",
       gitCommits: stdout.split(/\r?\n/u).filter(Boolean).sort(),
       backupManifests,
+      externalBackupDiscovery: "unavailable-or-not-configured",
     };
   } catch {
-    return { status: "history-retained", gitCommits: [], backupManifests };
+    return {
+      status: "history-retained",
+      gitCommits: [],
+      backupManifests,
+      externalBackupDiscovery: "unavailable-or-not-configured",
+    };
   }
 }
 
@@ -477,17 +512,20 @@ function formatForgetReport(mode: ForgetMode, plan: ForgetPlan, erased: string[]
   const lines = [
     `Memory forget ${mode}`,
     `Live raw: ${plan.raw.length}`,
-    `Derived facts: ${plan.facts.length}`,
+    `Derived fact files deleted: ${plan.facts.length}`,
+    `Derived fact files partially redacted: ${plan.rewrittenFacts.length}`,
     `Generated pages: ${plan.generated.length}`,
     `SQLite FTS rows: ${plan.index.fts.length}`,
     `SQLite vector rows: ${plan.index.vectors.length}`,
     `Archived copies retained: ${plan.archive.length}`,
     `Crystals retained: ${plan.crystals.length}`,
     `Git history retained: ${plan.history.gitCommits.length}`,
-    `Backup manifests retained: ${plan.history.backupManifests.length}`,
+    `Vault-local backup manifests retained: ${plan.history.backupManifests.length}`,
+    "External backup discovery: unavailable or not configured",
     `Status: ${mode === "apply" ? "live-erased/history-retained" : "planned; history-retained"}`,
   ];
   if (plan.blocked.length > 0) lines.push(`Blocked manual curated pages: ${plan.blocked.join(", ")}`);
+  if (plan.rewrittenFacts.length > 0) lines.push(`Partially redacted fact files retained: ${plan.rewrittenFacts.join(", ")}`);
   if (erased.length > 0) lines.push("", "Live material erased:", ...erased.map((path) => `- ${path}`));
   return `${lines.join("\n")}\n`;
 }
