@@ -11,10 +11,17 @@ on:
 permissions:
   contents: read
 
+env:
+  ONNXRUNTIME_NODE_INSTALL: skip
+
 jobs:
   test:
-    name: Test (suite, excl. dashboard/server)
+    name: Test (suite, excl. dashboard/server, Node ${{ matrix.node }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ["22", "24"]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -23,7 +30,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: "24"
+          node-version: ${{ matrix.node }}
           cache: npm
       - name: Install dependencies
         run: npm install
@@ -33,8 +40,12 @@ jobs:
         run: npm test -- --exclude '**/dashboard/server.test.ts' --reporter=dot
 
   test-server:
-    name: Test (dashboard/server, isolated)
+    name: Test (dashboard/server, isolated, Node ${{ matrix.node }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ["22", "24"]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -43,7 +54,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: "24"
+          node-version: ${{ matrix.node }}
           cache: npm
       - name: Install dependencies
         run: npm install
@@ -67,6 +78,8 @@ jobs:
           cache: npm
       - name: Install dependencies
         run: npm install
+      - name: Verify install configuration contract
+        run: npm run smoke:install-contract
       - name: Typecheck
         run: npm run typecheck
       - name: Build

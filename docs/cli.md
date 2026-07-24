@@ -295,6 +295,42 @@ Live `tail -f` on `~/.memory/errors.log`. Ctrl+C to exit.
 
 ---
 
+## backup and guarded forgetting
+
+Create a manifested backup outside the vault, verify it independently, then run a disposable restore drill:
+
+```bash
+memory backup create --target <directory> [--vault <path>] [--repository <path>]
+memory backup verify <archive>
+memory backup drill <archive>
+```
+
+`backup create` hashes every included file, records the Git source, runs strict full-object `git fsck`, verifies the completed archive, and reports whether the target is on the same filesystem device. It does not attest off-host durability. `backup drill` extracts only into a disposable directory, verifies the manifest and Git objects, rebuilds the search index, proves a known-content search, removes the workspace, and writes signed `memory-fort-restore-drill` evidence beside the archive.
+
+Live forgetting is plan-first. The default command is non-mutating; `--apply` erases only the itemized live material and rebuilds derived search state:
+
+```bash
+memory forget --raw raw/2026-07-24/session.md
+memory forget --raw raw/2026-07-24/session.md --apply
+```
+
+Selectors are `--path`, `--raw`, and `--source`. A successful apply reports `live-erased/history-retained`. For a Git-backed vault, it also writes a signed receipt outside the protected repository. Git history, archives, crystals, and backups remain. If final evidence persistence is interrupted after mutation, rerun the same selector command with `--apply`; the verified prepared journal resumes receipt finalization without repeating the erase.
+
+History rewriting is a separate command and is also plan-first:
+
+```bash
+memory forget --purge-history \
+  --raw raw/2026-07-24/session.md \
+  --purge-ref refs/heads/main \
+  --live-erase-receipt <receipt.json> \
+  --restore-drill-evidence <drill-evidence.json> \
+  --disposable-clone
+```
+
+Run it only in a clean, separate disposable clone. The selection must exactly match a fresh successful live-erase receipt; the restore-drill evidence must prove the same repository and a freshly verified backup; every local `refs/heads/...` ref is itemized. The plan prints the exact phrase required by `--confirm-purge-history`. The confirmed run rewrites only those local refs and emits a signed `memory-fort-history-purge` receipt. It never force-pushes, deletes backups, expires reflogs, runs garbage collection, or changes other clones. If final evidence is interrupted after refs move, rerun the identical command to finalize from the verified prepared journal; mixed ref state fails closed with recovery guidance.
+
+---
+
 ## Common patterns
 
 **Verify install after `memory install <platform>`:**

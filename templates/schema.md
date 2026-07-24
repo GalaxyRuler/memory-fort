@@ -824,6 +824,23 @@ The `storage.atomic-write-retries` verify check reports process-local retry coun
 
 ---
 
+### Backup and erasure evidence records
+
+Backup and erasure receipts are operational JSON evidence, not wiki-page frontmatter and not knowledge-graph nodes. They use these versioned `kind` values:
+
+| `kind` | Current schema | Meaning |
+|---|---:|---|
+| `memory-fort-backup` | 1 | Archive manifest with file hashes, Git verification mode, restore canary, exclusions, and durability classification |
+| `memory-fort-restore-drill` | 2 | Signed proof that an archive verified, restored into a disposable workspace, rebuilt its index, matched its canary, and removed the workspace |
+| `memory-fort-live-erase` | 2 | Signed successful live-erasure receipt with exact selectors, target inventory, content fingerprints, repository/ref identity, and ready-index postconditions |
+| `memory-fort-history-purge` | 2 | Signed limited-scope local-history rewrite receipt with evidence preconditions, before/after refs, object counts, validation commands, limitations, and manual next steps |
+
+Live erase and history purge also persist signed prepared journals before their irreversible boundary. Completed receipts are exposed only after atomic persistence, signature verification, and read-back comparison. Live-erase and purge records live under the user-scoped evidence security directory, outside the protected repository; restore-drill evidence lives beside its verified backup archive.
+
+The `auth` object contains `algorithm: HMAC-SHA256`, a device-key ID, and a signature over the stable payload. Verification requires the same device-local key. This detects payload edits; it does not provide independent timestamping, remote attestation, off-host durability, or proof of deletion from remotes, other clones, reflogs, unreachable objects, or backups.
+
+---
+
 ## 12. User identity & preferences
 
 The `memory init` wizard records your name, email, and GitHub handle into this section at

@@ -45,6 +45,9 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
+env:
+  ONNXRUNTIME_NODE_INSTALL: skip
+
 jobs:
   smoke:
     name: Smoke (${{ matrix.os }})

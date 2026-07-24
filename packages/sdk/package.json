@@ -24,7 +24,7 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
-  "engines": { "node": ">=18" },
+  "engines": { "node": ">=22" },
   "license": "GPL-3.0-only",
   "devDependencies": {
     "tsdown": "^0.22",

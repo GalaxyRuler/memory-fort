@@ -29,7 +29,7 @@ Run this checklist for **any** change that ships publicly — feature, fix, upgr
 - Pushing the `vX.Y.Z` tag to the **public** repo triggers `.github/workflows/release.yml`: a Windows/macOS/Linux build matrix produces installers and uploads them to a **draft** GitHub Release.
 - Build matrix (fixed in `electron-builder.yml`): **Windows** NSIS `x64 + arm64`, **macOS** DMG `arm64` only (no Intel), **Linux** AppImage. See [memoryfort-build-targets].
 - Publish the draft once builds are green: `gh release edit vX.Y.Z --repo GalaxyRuler/memory-fort --draft=false --latest`.
-- **Lockfile gotcha:** after any `electron-builder` dependency change, regenerate `package-lock.json` inside a Linux `node:20` Docker container — Windows `npm install` prunes electron-builder's optional deps from the lock and CI `npm ci` then fails.
+- **Lockfile gotcha:** after any `electron-builder` dependency change, validate the lockfile on both Windows and Linux Node 22 with `ONNXRUNTIME_NODE_INSTALL=skip`. npm can reconcile platform-specific optional dependencies differently on each OS, so current CI and release workflows intentionally use `npm install`; inspect and commit only intentional lockfile changes.
 - Verify the desktop app on all three OSes via the `electron` job in `.github/workflows/smoke.yml` (launches the real Electron shell headless and asserts the dashboard serves).
 
 ## 8. Upgrade the local install (REQUIRED — a release is not done until the installed binary is current)

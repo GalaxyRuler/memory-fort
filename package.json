@@ -20,6 +20,7 @@
     "test": "vitest run",
     "test:ui": "vitest run test/dashboard-ui",
     "test:watch": "vitest",
+    "smoke:install-contract": "node scripts/install-contract-smoke.mjs",
     "install:dev-hooks": "node scripts/install-dev-hooks.mjs",
     "scan:leaks": "node scripts/scan-leaks.mjs",
     "prepublishOnly": "npm run scan:leaks && npm run build",

@@ -12,6 +12,7 @@ concurrency:
 
 env:
   MEMORY_CAP_EMBED_REQUIRED: "1"
+  ONNXRUNTIME_NODE_INSTALL: skip
 
 jobs:
   win-arm64:

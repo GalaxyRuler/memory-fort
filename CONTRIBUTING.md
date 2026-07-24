@@ -17,7 +17,7 @@ Thank you for your interest in contributing. This guide covers everything you ne
 
 **Prerequisites**
 
-- Node.js >= 20
+- Node.js >= 22
 - [ripgrep](https://github.com/BurntSushi/ripgrep) (`rg`) — must be on `PATH`; used by the search stack at runtime
 
 **Steps**
@@ -25,10 +25,12 @@ Thank you for your interest in contributing. This guide covers everything you ne
 ```sh
 git clone https://github.com/GalaxyRuler/memory-fort.git
 cd memory-fort
-npm ci
+ONNXRUNTIME_NODE_INSTALL=skip npm ci
 npm run build
 npm run install:dev-hooks   # installs the pre-push scan-leaks gate
 ```
+
+In PowerShell, run `$env:ONNXRUNTIME_NODE_INSTALL = "skip"` before `npm ci`. The pinned ONNX package supports this environment variable. Do not add its third-party setting to `.npmrc`; current npm versions warn on unknown project config keys.
 
 The `install:dev-hooks` step sets up a pre-push hook that runs `npm run scan:leaks` before every push. It will block pushes that introduce secrets or PII patterns.
 
