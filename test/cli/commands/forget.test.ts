@@ -56,6 +56,7 @@ describe("runForget", () => {
     await writeAt("wiki/archive/2026-05-21/raw/2026-05-20/codex-session.md", "archived secret");
     await writeAt("wiki/archive/2026-05-22/raw/2026-05-20/codex-session.md", "duplicate archived secret");
     await writeAt("wiki/.archive/2026-05-23/raw/2026-05-20/codex-session.md", "canonical archived secret");
+    await writeAt("raw/.compact-archive/2026-05-24/2026-05-20/codex-session.md", "compacted archived secret");
     await writeAt("raw/2026-05-20/codex-other.md", "same-size-sessio");
     await rebuildFixtureIndex();
 
@@ -63,6 +64,7 @@ describe("runForget", () => {
 
     expect(result.status).toBe("live-erased/history-retained");
     expect(result.plan.archive).toEqual([
+      "raw/.compact-archive/2026-05-24/2026-05-20/codex-session.md",
       "wiki/.archive/2026-05-23/raw/2026-05-20/codex-session.md",
       "wiki/archive/2026-05-21/raw/2026-05-20/codex-session.md",
       "wiki/archive/2026-05-22/raw/2026-05-20/codex-session.md",
@@ -81,6 +83,8 @@ describe("runForget", () => {
       .toContain("duplicate archived secret");
     expect(await readFile(join(root, "wiki", ".archive", "2026-05-23", "raw", "2026-05-20", "codex-session.md"), "utf8"))
       .toContain("canonical archived secret");
+    expect(await readFile(join(root, "raw", ".compact-archive", "2026-05-24", "2026-05-20", "codex-session.md"), "utf8"))
+      .toContain("compacted archived secret");
     const corpus = await loadSearchCorpus({ vaultRoot: root, scope: "all" });
     expect(corpus.documents.map((document) => document.relPath)).not.toEqual(expect.arrayContaining([
       raw,
@@ -131,6 +135,39 @@ describe("runForget", () => {
       .rejects.toThrow("canonical vault-relative path");
     await expect(runForget({ paths: ["crystals/keep.md"] }))
       .rejects.toThrow("crystals are excluded");
+  });
+
+  it("keeps compact raw archive copies out of source-selected live data and rejects them as direct raw selectors", async () => {
+    const raw = "raw/2026-05-20/codex-session.md";
+    const compactArchive = "raw/.compact-archive/2026-05-24/2026-05-20/codex-session.md";
+    await writeAt(raw, "---\nsource: codex\n---\n\nlive sensitive session\n");
+    await writeAt(compactArchive, "---\nsource: codex\n---\n\nretained compact archive\n");
+
+    const plan = await runForget({ sourceIds: ["codex"] });
+    expect(plan.plan.raw).toEqual([raw]);
+    expect(plan.plan.archive).toEqual([compactArchive]);
+
+    const applied = await runForget({ mode: "apply", sourceIds: ["codex"] });
+    expect(applied.erased).toEqual([raw]);
+    expect(existsSync(join(root, ...raw.split("/")))).toBe(false);
+    expect(existsSync(join(root, ...compactArchive.split("/")))).toBe(true);
+    await expect(runForget({ rawPaths: [compactArchive] }))
+      .rejects.toThrow("archived raw copies cannot be selected");
+  });
+
+  it("invalidates stale derived search state before reporting an incomplete rebuild", async () => {
+    const raw = "raw/2026-05-20/codex-session.md";
+    await seedAttributableRaw(raw);
+    await rebuildFixtureIndex();
+    const indexPath = process.env["MEMORY_INDEX_DB_PATH"]!;
+    expect(existsSync(indexPath)).toBe(true);
+    await writeAt("wiki/projects/malformed.md", "---\ntitle: [\n---\n\nmalformed\n");
+
+    await expect(runForget({ mode: "apply", rawPaths: [raw] }))
+      .rejects.toThrow("live data erased but derived index rebuild is incomplete");
+
+    expect(existsSync(join(root, ...raw.split("/")))).toBe(false);
+    expect(existsSync(indexPath)).toBe(false);
   });
 
   it("blocks a generated page with multi-lineage instead of deleting its unrelated source material", async () => {

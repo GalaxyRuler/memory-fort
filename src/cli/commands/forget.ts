@@ -171,11 +171,10 @@ export async function runForget(opts: ForgetOptions = {}): Promise<ForgetResult>
     erased.push(relPath);
   }
 
-  // Both generated index.md and SQLite FTS/vector state are derived data. A
-  // fresh reconciliation after erasing prevents stale hits from surviving the
-  // live-source deletion, including same-size replacement edge cases.
-  await rebuildIndex(root);
-  await rebuildSearchIndex(root);
+  // Both generated index.md and SQLite FTS/vector state are derived data. The
+  // previous SQLite generation is invalidated before any fallible rebuild so a
+  // malformed unrelated page cannot leave deleted material searchable.
+  await rebuildDerivedState(root);
 
   return {
     mode,
@@ -197,10 +196,16 @@ function normalizeSelectors(opts: ForgetOptions): { paths: string[]; rawPaths: s
     if (!path.startsWith("raw/") && !path.startsWith("wiki/")) {
       throw new Error(`memory forget: --path supports only canonical raw/... or wiki/... paths, got ${path}`);
     }
+    if (isArchivedRawPath(path)) {
+      throw new Error(`memory forget: archived raw copies cannot be selected: ${path}`);
+    }
   }
   for (const path of rawPaths) {
     if (!path.startsWith("raw/") || !path.toLowerCase().endsWith(".md")) {
       throw new Error(`memory forget: --raw requires a canonical raw/... markdown path, got ${path}`);
+    }
+    if (isArchivedRawPath(path)) {
+      throw new Error(`memory forget: archived raw copies cannot be selected: ${path}`);
     }
   }
   const sourceIds = [...new Set((opts.sourceIds ?? []).map((source) => source.trim()).filter(Boolean))].sort();
@@ -226,11 +231,16 @@ function canonicalRelPath(value: string): string | null {
   return value;
 }
 
+function isArchivedRawPath(path: string): boolean {
+  if (!path.startsWith("raw/")) return false;
+  return path.split("/").slice(1, -1).some((part) => part === "archive" || part.startsWith("."));
+}
+
 async function selectedRawPaths(
   root: string,
   selectors: ReturnType<typeof normalizeSelectors>,
 ): Promise<Set<string>> {
-  const allRaw = await listMarkdownFiles(root, "raw");
+  const allRaw = await listMarkdownFiles(root, "raw", { excludeArchives: true });
   const selected = new Set<string>([...selectors.rawPaths, ...selectors.paths.filter((path) => path.startsWith("raw/"))]);
   const sourceSet = new Set(selectors.sourceIds);
   if (sourceSet.size > 0) {
@@ -391,7 +401,9 @@ async function findArchivedCopies(root: string, selectedRaw: Set<string>): Promi
 }
 
 function archiveOriginalPath(relPath: string): string | null {
-  const match = /(?:^|\/)(?:archive|\.archive|\.compact-archive)\/[^/]+\/(raw\/.*)$/u.exec(relPath);
+  const compactRawMatch = /^raw\/\.compact-archive\/[^/]+\/(.+)$/u.exec(relPath);
+  if (compactRawMatch?.[1]) return `raw/${compactRawMatch[1]}`;
+  const match = /(?:^|\/)(?:archive|\.archive)\/[^/]+\/(raw\/.*)$/u.exec(relPath);
   return match?.[1] ?? null;
 }
 
@@ -454,11 +466,26 @@ async function readHistoryInventory(root: string, selectedRaw: Set<string>): Pro
   }
 }
 
+async function rebuildDerivedState(root: string): Promise<void> {
+  deleteIndexDbFiles(resolveIndexDbPath({ vaultRoot: root }));
+  try {
+    await rebuildIndex(root);
+    await rebuildSearchIndex(root);
+  } catch (error) {
+    // Also remove any partial new generation. Leaving no search database is
+    // safer and more honest than keeping stale or incomplete derived hits.
+    deleteIndexDbFiles(resolveIndexDbPath({ vaultRoot: root }));
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `memory forget: live data erased but derived index rebuild is incomplete; stale index was removed: ${detail}`,
+    );
+  }
+}
+
 async function rebuildSearchIndex(root: string): Promise<void> {
   // This database contains only derived chunks, FTS postings, and vectors.
-  // Remove the old generation first so no stale live hit can survive a failed
-  // reconciliation; the new database is populated solely from the post-erase vault.
-  deleteIndexDbFiles(resolveIndexDbPath({ vaultRoot: root }));
+  // It is rebuilt solely from the post-erase vault after the prior generation
+  // has already been invalidated.
   const index = openIndexDb({ vaultRoot: root });
   try {
     await reconcileIndex(index, root);

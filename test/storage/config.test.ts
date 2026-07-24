@@ -253,8 +253,8 @@ describe("memory config reader", () => {
     const warnings = warn.mock.calls.map((call) => String(call[0])).join("\n");
     expect(warnings).toContain("retention.raw_compile_before_delete is deprecated");
     expect(warnings).toContain("retention.embeddings_prune_with_raw is deprecated");
-    expect(validateMemoryConfig({ retention: { raw_action: "destroy" } })).toContain(
-      "retention.raw_action must be archive or delete",
+    expect(validateMemoryConfig({ retention: { raw_action: "delete" as never } })).toContain(
+      "retention.raw_action must be archive; delete retention is not implemented",
     );
     warn.mockRestore();
   });

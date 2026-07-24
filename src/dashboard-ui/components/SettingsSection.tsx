@@ -13,12 +13,25 @@ function getRetentionLabel(key: string, value: ConfigValue): string | null {
     case "raw_window_days":
       return `Keep raw sessions for ${String(value)} days`;
     case "raw_action":
-      return `Raw retention action: ${String(value)}`;
+      return value === "archive"
+        ? "Raw retention action: archive"
+        : `Unsupported raw retention action: ${String(value)} (inactive)`;
     case "wiki_status_stale_days":
       return `Mark wiki pages stale after ${String(value)} days`;
     default:
-      return null;
+      return isInactiveRetentionKey(key)
+        ? `Inactive retention setting (no effect): ${key}`
+        : null;
   }
+}
+
+function isInactiveRetentionKey(key: string): boolean {
+  return [
+    "raw_compile_before_delete",
+    "embeddings_prune_with_raw",
+    "crystals_never_auto_delete",
+    "archive_before_delete",
+  ].includes(key);
 }
 
 function RetentionField({ rawKey, label }: { rawKey: string; label: string }) {

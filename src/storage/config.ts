@@ -111,9 +111,9 @@ export interface MemoryConfig {
   };
   retention?: {
     raw_window_days?: number;
-    /** Archive is the safe default. `delete` is reserved for an explicitly implemented retention action. */
-    raw_action?: "archive" | "delete";
-    /** @deprecated No longer implemented; use raw_action and memory forget. */
+    /** Archive is the sole implemented raw-retention action. */
+    raw_action?: "archive";
+    /** @deprecated Inactive: it has no effect. */
     raw_compile_before_delete?: boolean;
     /** @deprecated No longer implemented; derived indexes are rebuilt by memory forget. */
     embeddings_prune_with_raw?: boolean;
@@ -334,8 +334,8 @@ export function validateMemoryConfig(config: MemoryConfig): string[] {
       warnings.push(`retention.${key} must be an integer between 1 and 3650`);
     }
   }
-  if (retention?.["raw_action"] !== undefined && retention["raw_action"] !== "archive" && retention["raw_action"] !== "delete") {
-    warnings.push("retention.raw_action must be archive or delete");
+  if (retention?.["raw_action"] !== undefined && retention["raw_action"] !== "archive") {
+    warnings.push("retention.raw_action must be archive; delete retention is not implemented");
   }
   for (const key of [
     "raw_compile_before_delete",
@@ -344,7 +344,7 @@ export function validateMemoryConfig(config: MemoryConfig): string[] {
     "archive_before_delete",
   ]) {
     if (retention?.[key] !== undefined) {
-      warnings.push(`retention.${key} is deprecated and has no effect; use retention.raw_action or memory forget`);
+      warnings.push(`retention.${key} is deprecated and has no effect; use retention.raw_action: archive or memory forget`);
     }
   }
   const clients = asRecord(config.clients);

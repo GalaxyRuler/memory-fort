@@ -180,6 +180,24 @@ describe("settings page", () => {
     expect(screen.getByText("wiki_status_stale_days")).toBeInTheDocument();
   });
 
+  test("SettingsSection marks unsupported and legacy retention keys as inactive", () => {
+    render(
+      <SettingsSection
+        title="retention"
+        data={{
+          raw_action: "delete",
+          raw_compile_before_delete: true,
+          embeddings_prune_with_raw: true,
+        }}
+      />,
+    );
+
+    expect(screen.getByText("Unsupported raw retention action: delete (inactive)")).toBeInTheDocument();
+    expect(screen.getByText("Inactive retention setting (no effect): raw_compile_before_delete")).toBeInTheDocument();
+    expect(screen.getByText("Inactive retention setting (no effect): embeddings_prune_with_raw")).toBeInTheDocument();
+    expect(screen.queryByText("raw compile before delete")).not.toBeInTheDocument();
+  });
+
   test("SettingsPage renders sections from config", () => {
     configHook.useConfig.mockReturnValue({
       data: {
