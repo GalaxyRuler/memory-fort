@@ -268,7 +268,10 @@ async function buildPreflight(opts: HistoryPurgeOptions): Promise<Preflight> {
   );
   assertFreshEvidence("live erase receipt", liveReceipt.completedAt, now);
   if (!liveReceipt.selection.contentFingerprints.coverageComplete) {
-    throw new Error("memory forget --purge-history: live erase fingerprint coverage is incomplete; no history rewrite is allowed");
+    const reason = liveReceipt.selection.contentFingerprints.coverageReason;
+    throw new Error(
+      `memory forget --purge-history: live erase fingerprint coverage is incomplete (${reason}); no history rewrite is allowed`,
+    );
   }
   if (liveReceipt.repository === null) {
     throw new Error("memory forget --purge-history: live erase receipt has no Git repository evidence");

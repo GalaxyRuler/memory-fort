@@ -38,6 +38,8 @@ const COPIED_PATH = "wiki/notes/copied-marker.md";
 const COPIED_RETAINED_MARKER = "SYNTHETIC-COPIED-RETAINED-5B18";
 const SHARED_GENERIC_LINE = "source: codex";
 const BODY_COLLIDES_WITH_FRONTMATTER = "category: synthetic";
+const LOW_SPECIFICITY_RAW = "raw/2026-07-23/codex-low-specificity.md";
+const SHARED_GENERIC_BODY_LINES = ["Done", "Notes", "2026"] as const;
 const SCOPED_REFS = ["refs/heads/main", "refs/heads/auxiliary"] as const;
 
 interface PurgeFixture {
@@ -166,15 +168,23 @@ describe("memory forget --purge-history", () => {
   });
 
   it("blocks before rewrite when the deterministic fingerprint safety ceiling is exceeded", async () => {
+    const capPath = "raw/2026-07-23/fingerprint-cap.md";
+    await writeAt(fixture.cloneRoot, capPath, [
+      "SYNTHETIC-FINGERPRINT-CAP-MARKER-ALPHA-7E2A",
+      "",
+      "SYNTHETIC-FINGERPRINT-CAP-MARKER-BETA-91C4",
+      "",
+    ].join("\n"));
     const fingerprints = await collectSelectedContentFingerprints(
       fixture.cloneRoot,
-      [FORGOTTEN_RAW],
+      [capPath],
       1,
     );
     expect(fingerprints).toMatchObject({
       coverageComplete: false,
+      coverageReason: "fingerprint-limit-exceeded",
       count: 1,
-      totalCount: 3,
+      totalCount: 2,
       maxCount: 1,
     });
 
@@ -190,6 +200,38 @@ describe("memory forget --purge-history", () => {
     await writeFile(fixture.liveEraseReceiptPath, `${JSON.stringify(resigned, null, 2)}\n`);
 
     await expect(runHistoryPurge(purgeOptions(fixture))).rejects.toThrow(/fingerprint coverage is incomplete/i);
+    expect(await git(fixture.cloneRoot, ["rev-parse", "refs/heads/main"])).toBe(originalMain);
+  });
+
+  it("blocks purge planning when selected content has no sufficiently specific units", async () => {
+    const lowSpecificityErase = await runForget({
+      mode: "apply",
+      rawPaths: [LOW_SPECIFICITY_RAW],
+      now: new Date("2026-07-24T10:12:00.000Z"),
+      evidenceSecurityDir: fixture.evidenceSecurityDir,
+    });
+    expect(lowSpecificityErase.receipt?.path).toBeTruthy();
+    const receipt = JSON.parse(await readFile(lowSpecificityErase.receipt!.path, "utf8")) as {
+      selection: {
+        contentFingerprints: {
+          coverageComplete: boolean;
+          coverageReason?: string;
+          count: number;
+        };
+      };
+    };
+    expect(receipt.selection.contentFingerprints).toMatchObject({
+      coverageComplete: false,
+      coverageReason: "no-sufficiently-specific-units",
+      count: 0,
+    });
+
+    const originalMain = await git(fixture.cloneRoot, ["rev-parse", "refs/heads/main"]);
+    await expect(runHistoryPurge({
+      ...purgeOptions(fixture),
+      rawPaths: [LOW_SPECIFICITY_RAW],
+      liveEraseReceiptPath: lowSpecificityErase.receipt!.path,
+    })).rejects.toThrow(/no-sufficiently-specific-units.*no history rewrite/i);
     expect(await git(fixture.cloneRoot, ["rev-parse", "refs/heads/main"])).toBe(originalMain);
   });
 
@@ -285,6 +327,18 @@ describe("memory forget --purge-history", () => {
     expect(copiedBody).toContain(COPIED_RETAINED_MARKER);
     expect(copiedBody).toContain(SHARED_GENERIC_LINE);
     expect(copiedBody).toContain(BODY_COLLIDES_WITH_FRONTMATTER);
+    for (const genericLine of SHARED_GENERIC_BODY_LINES) {
+      expect(copiedBody).toContain(genericLine);
+      expect(await git(fixture.cloneRoot, [
+        "log",
+        ...SCOPED_REFS,
+        "--format=%H",
+        "-S",
+        genericLine,
+        "--",
+        COPIED_PATH,
+      ])).not.toBe("");
+    }
     expect(await readFile(join(fixture.cloneRoot, "raw", "2026-07-23", "codex-other.md"), "utf8"))
       .toContain(RETAINED_MARKER);
     const retainedHistory = await git(fixture.cloneRoot, [
@@ -328,6 +382,8 @@ describe("memory forget --purge-history", () => {
           algorithm: string;
           coverageComplete: boolean;
           count: number;
+          coverageReason: string;
+          specificity: Record<string, string | number>;
           hashes: string[];
         };
         additionalAffectedPaths: string[];
@@ -349,8 +405,20 @@ describe("memory forget --purge-history", () => {
     expect(receipt.validation.passed).toBe(true);
     expect(receipt.validation.commands.every((command) => command.result === "passed")).toBe(true);
     expect(receipt.selection.contentFingerprints).toMatchObject({
-      algorithm: "sha256-normalized-text-v1",
+      algorithm: "sha256-normalized-specific-text-v2",
       coverageComplete: true,
+      coverageReason: "complete",
+      specificity: {
+        policy: "specificity-v1",
+        lineMinCharacters: 24,
+        lineMinTokens: 4,
+        entropyTokenMinCharacters: 16,
+        entropyTokenMinCharacterClasses: 2,
+        entropyTokenMinDistinctAlphanumerics: 10,
+        blockMinLines: 2,
+        blockMinCharacters: 80,
+        blockMinTokens: 12,
+      },
     });
     expect(receipt.selection.contentFingerprints.count).toBeGreaterThan(0);
     expect(receipt.selection.contentFingerprints.hashes).toHaveLength(
@@ -402,8 +470,14 @@ async function makePurgeFixture(): Promise<PurgeFixture> {
     "---",
     FORGOTTEN_MARKER,
     BODY_COLLIDES_WITH_FRONTMATTER,
+    ...SHARED_GENERIC_BODY_LINES,
     "",
   ].join("\n"));
+  await writeAt(
+    canonicalRoot,
+    LOW_SPECIFICITY_RAW,
+    ["---", "source: codex", "---", ...SHARED_GENERIC_BODY_LINES, ""].join("\n"),
+  );
   await writeAt(
     canonicalRoot,
     "raw/2026-07-23/codex-other.md",
@@ -412,7 +486,7 @@ async function makePurgeFixture(): Promise<PurgeFixture> {
   await writeAt(
     canonicalRoot,
     COPIED_PATH,
-    `---\n${SHARED_GENERIC_LINE}\n${BODY_COLLIDES_WITH_FRONTMATTER}\n---\n${FORGOTTEN_MARKER}\n${COPIED_RETAINED_MARKER}\n`,
+    `---\n${SHARED_GENERIC_LINE}\n${BODY_COLLIDES_WITH_FRONTMATTER}\n---\n${FORGOTTEN_MARKER}\n${SHARED_GENERIC_BODY_LINES.join("\n")}\n${COPIED_RETAINED_MARKER}\n`,
   );
   await writeAt(
     canonicalRoot,
