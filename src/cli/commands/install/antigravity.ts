@@ -330,6 +330,7 @@ function emitSessionStartContext(payload, root) {
   const schemaParts = [];
   const indexParts = [];
   const logParts = [];
+  const rememberParts = [];
   if (generation) try {
     const projectBlock = currentProjectMemoryBlock(root, stringField(payload, "cwd") || stringField(payload, "working_directory"));
     if (projectBlock.trim().length > 0) projectParts.push("\\n" + projectBlock.trim() + "\\n");
@@ -339,6 +340,7 @@ function emitSessionStartContext(payload, root) {
   appendContextSection(schemaParts, "Schema", join(root, "schema.md"));
   if (generation) appendFilteredIndexContext(indexParts, root, join(root, "index.md"));
   appendContextSection(logParts, "Recent log", join(root, "log.md"), 20);
+  if (generation) appendWikiPreferenceContext(rememberParts, root);
   const derivedReady = generation && sameReadyIndexGeneration(root, generation);
   const parts = [
     "[memory:session-start] context loading\\n",
@@ -346,6 +348,7 @@ function emitSessionStartContext(payload, root) {
     ...schemaParts,
     ...(derivedReady ? indexParts : []),
     ...logParts,
+    ...(derivedReady ? rememberParts : []),
   ];
   process.stdout.write(parts.join(""));
 }
@@ -389,6 +392,65 @@ function appendFilteredIndexContext(parts, root, path) {
   } catch {
     // Missing files are normal on fresh installs.
   }
+}
+
+function appendWikiPreferenceContext(parts, root) {
+  const entries = [];
+  const floorValue = Number(process.env.MEMORY_FORT_INJECTION_CONF_FLOOR || "0");
+  const floor = Number.isFinite(floorValue) && floorValue >= 0 && floorValue <= 1 ? floorValue : 0;
+  for (const relPath of listVisibleWikiMarkdown(root)) {
+    const explicit = relPath === "wiki/preferences.md";
+    const parsed = parseFrontmatter(safeRead(join(root, ...relPath.split("/"))));
+    const tags = frontmatterArray(parsed.frontmatterText, "tags").map((tag) => tag.toLowerCase());
+    if (!explicit && !tags.includes("preference")) continue;
+    const confidenceValue = Number(frontmatterField(parsed.frontmatterText, "confidence") || "0.5");
+    const confidence = Number.isFinite(confidenceValue) ? confidenceValue : 0.5;
+    if (!explicit && confidence < floor) continue;
+    const body = parsed.body.replace(/\\s+/g, " ").trim();
+    if (!body) continue;
+    entries.push({
+      path: relPath,
+      title: frontmatterField(parsed.frontmatterText, "title") || titleFromRelPath(relPath),
+      text: truncateWithMarker(body, 1200),
+      confidence,
+      explicit,
+      updated: timestampToSortKey(
+        frontmatterField(parsed.frontmatterText, "updated") || frontmatterField(parsed.frontmatterText, "created"),
+      ),
+    });
+  }
+  if (entries.length === 0) return;
+  entries.sort((a, b) => {
+    if (a.explicit !== b.explicit) return a.explicit ? -1 : 1;
+    if (b.updated !== a.updated) return b.updated - a.updated;
+    return a.path.localeCompare(b.path);
+  });
+  const lines = ["--- What you should remember ---", "Preferences / durable directives:"];
+  lines.push(...entries.slice(0, 5).map((entry) =>
+    "- " + entry.path + " (confidence " + entry.confidence.toFixed(2) + "): " + entry.title + ": " + entry.text
+  ));
+  parts.push("\\n" + lines.join("\\n") + "\\n");
+}
+
+function listVisibleWikiMarkdown(root) {
+  const result = [];
+  function walk(absoluteDir, relDir) {
+    let entries = [];
+    try {
+      entries = readdirSync(absoluteDir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+      const relPath = relDir + "/" + entry.name;
+      if (hasArchiveOrSystemPathComponent(relPath)) continue;
+      const fullPath = join(absoluteDir, entry.name);
+      if (entry.isDirectory()) walk(fullPath, relPath);
+      else if (entry.isFile() && entry.name.endsWith(".md")) result.push(relPath);
+    }
+  }
+  walk(join(root, "wiki"), "wiki");
+  return result;
 }
 
 function currentProjectMemoryBlock(root, cwd) {

@@ -1,12 +1,16 @@
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { readFile, readdir, stat, unlink } from "node:fs/promises";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { TextDecoder } from "node:util";
 import { captureSpoolDir, rawSessionFile } from "../storage/paths.js";
 import { redactSecrets } from "../privacy/redaction.js";
 import { atomicAppend, atomicCreate, atomicWrite } from "../storage/atomic-write.js";
-import { FileLockTimeoutError, withFileLock } from "../storage/file-lock.js";
+import {
+  FileLockTimeoutError,
+  withFileLock,
+  type FileLockOptions,
+} from "../storage/file-lock.js";
 import {
   parseFrontmatter,
   serializeFrontmatter,
@@ -26,11 +30,18 @@ const CAPTURE_EVENT_MARKER = "memory-fort-capture";
 const CAPTURE_SPOOLED_DIAGNOSTICS_FILE = "capture-spooled.jsonl";
 const CAPTURE_DRAIN_FAILURES_FILE = "capture-drain-failures.jsonl";
 const CAPTURE_REPLAY_CURSOR_FILE = "capture-replay-cursor.txt";
+const CAPTURE_SPOOL_COORDINATION_TARGET = ".capture-spool-coordination";
 
 interface CaptureEvent { version: 1; id: string; hash: string; rawPath: string; block: string; createdAt: string; }
 interface CaptureSpoolEntry { name: string; path: string; event: CaptureEvent; }
 export interface CaptureSpooledDiagnostic { type: "capture_spooled"; eventId: string; hash: string; createdAt: string; }
 export interface CaptureSpoolStatus { pendingEventCount: number; oldestPendingAgeMs: number | null; drainFailures: number; captureSpooled: CaptureSpooledDiagnostic[]; }
+export interface CaptureSpoolAttribution {
+  status: "none" | "pending-attributable" | "removed-attributable";
+  pendingEventCount: number;
+  /** Absolute operational event paths only; capture block contents are never exposed. */
+  paths: string[];
+}
 
 export async function getCaptureSpoolStatus(now = new Date()): Promise<CaptureSpoolStatus> {
   const events = await readCaptureSpoolEvents();
@@ -58,6 +69,46 @@ export async function getCaptureSpoolStatus(now = new Date()): Promise<CaptureSp
     drainFailures: await countCaptureDrainFailures(),
     captureSpooled: [...captureSpooled.values()],
   };
+}
+
+export async function inspectCaptureSpoolAttribution(
+  absoluteRawPaths: readonly string[],
+): Promise<CaptureSpoolAttribution> {
+  return captureSpoolAttribution(
+    await readCaptureSpoolEntries(),
+    rawTargetKeys(absoluteRawPaths),
+    "pending-attributable",
+  );
+}
+
+/**
+ * Remove queued captures attributable to the selected raws while holding the
+ * same spool-then-raw lock order used by replay. The callback runs with those
+ * locks still held, allowing forget to delete the raw files before replay can
+ * observe the now-removed queue entries.
+ */
+export async function withCaptureSpoolEventsRemoved<T>(
+  absoluteRawPaths: readonly string[],
+  operation: (attribution: CaptureSpoolAttribution) => Promise<T>,
+): Promise<T> {
+  const rawPaths = uniqueAbsoluteRawPaths(absoluteRawPaths);
+  const targetKeys = rawTargetKeys(rawPaths);
+  return withCaptureSpoolLock(async () => withRawFileLocks(rawPaths, async () => {
+    const entries = await readCaptureSpoolEntries();
+    const attributable = entries.filter((entry) => targetKeys.has(normalizeRawTarget(entry.event.rawPath)));
+    for (const entry of attributable) {
+      try {
+        await unlink(entry.path);
+      } catch (error) {
+        if (!isCode(error, "ENOENT")) throw error;
+      }
+    }
+    return operation(captureSpoolAttribution(
+      attributable,
+      targetKeys,
+      "removed-attributable",
+    ));
+  }));
 }
 
 /**
@@ -337,34 +388,44 @@ function renderCaptureEvent(event: CaptureEvent): string {
 }
 function marker(event: CaptureEvent): string { return `${CAPTURE_EVENT_MARKER} id=${event.id}`; }
 async function spoolCaptureEvent(event: CaptureEvent): Promise<void> {
-  const spoolDir = captureSpoolDir();
-  await atomicCreate(join(spoolDir, `${event.id}.json`), `${JSON.stringify(event)}\n`);
-  await ensureCaptureSpooledDiagnostic(event);
+  await withCaptureSpoolLock(async () => {
+    const spoolDir = captureSpoolDir();
+    await atomicCreate(join(spoolDir, `${event.id}.json`), `${JSON.stringify(event)}\n`);
+    await ensureCaptureSpooledDiagnostic(event);
+  });
 }
 async function drainCaptureSpool(): Promise<void> {
-  const entries = rotateCaptureSpoolEntries(
-    await readCaptureSpoolEntries(),
-    await readCaptureReplayCursor(),
-  );
-  for (const entry of entries.slice(0, CAPTURE_REPLAY_EVENT_BUDGET)) {
-    try {
-      await withFileLock(entry.event.rawPath, async () => {
-        let existing = "";
-        try { existing = await readFile(entry.event.rawPath, "utf-8"); }
-        catch (error) { if (!isCode(error, "ENOENT")) throw error; }
-        if (!existing.includes(marker(entry.event))) await atomicAppend(entry.event.rawPath, renderCaptureEvent(entry.event));
-        await ensureCaptureSpooledDiagnostic(entry.event);
+  try {
+    await withCaptureSpoolLock(async () => {
+      const entries = rotateCaptureSpoolEntries(
+        await readCaptureSpoolEntries(),
+        await readCaptureReplayCursor(),
+      );
+      for (const entry of entries.slice(0, CAPTURE_REPLAY_EVENT_BUDGET)) {
         try {
-          await unlink(entry.path);
-        } catch (error) {
-          // Another replayer already persisted this event and removed the spool.
-          if (!isCode(error, "ENOENT")) throw error;
+          await withFileLock(entry.event.rawPath, async () => {
+            let existing = "";
+            try { existing = await readFile(entry.event.rawPath, "utf-8"); }
+            catch (error) { if (!isCode(error, "ENOENT")) throw error; }
+            if (!existing.includes(marker(entry.event))) await atomicAppend(entry.event.rawPath, renderCaptureEvent(entry.event));
+            await ensureCaptureSpooledDiagnostic(entry.event);
+            try {
+              await unlink(entry.path);
+            } catch (error) {
+              // Another replayer already persisted this event and removed the spool.
+              if (!isCode(error, "ENOENT")) throw error;
+            }
+          }, CAPTURE_REPLAY_LOCK);
+        } catch {
+          await recordCaptureDrainFailure(entry.event);
         }
-      }, CAPTURE_REPLAY_LOCK);
-    } catch {
-      await recordCaptureDrainFailure(entry.event);
-    }
-    await advanceCaptureReplayCursor(entry.name);
+        await advanceCaptureReplayCursor(entry.name);
+      }
+    }, CAPTURE_REPLAY_LOCK);
+  } catch (error) {
+    // Replay remains opportunistic: a contended coordinator must not delay the
+    // current hook capture behind another replay/forget transaction.
+    if (!(error instanceof FileLockTimeoutError)) throw error;
   }
 }
 function rotateCaptureSpoolEntries(entries: CaptureSpoolEntry[], cursor: string | null): CaptureSpoolEntry[] {
@@ -481,6 +542,54 @@ async function readCaptureSpoolEntries(): Promise<CaptureSpoolEntry[]> {
     }
   }
   return entries;
+}
+function withCaptureSpoolLock<T>(
+  operation: () => Promise<T>,
+  options: FileLockOptions = RAW_FILE_LOCK,
+): Promise<T> {
+  return withFileLock(
+    join(captureSpoolDir(), CAPTURE_SPOOL_COORDINATION_TARGET),
+    operation,
+    options,
+  );
+}
+function uniqueAbsoluteRawPaths(paths: readonly string[]): string[] {
+  const unique = new Map<string, string>();
+  for (const path of paths) {
+    const absolute = resolve(path);
+    unique.set(normalizeRawTarget(absolute), absolute);
+  }
+  return [...unique.values()].sort((a, b) => a.localeCompare(b));
+}
+function rawTargetKeys(paths: readonly string[]): Set<string> {
+  return new Set(paths.map(normalizeRawTarget));
+}
+function normalizeRawTarget(path: string): string {
+  const normalized = resolve(path).replace(/\\/g, "/");
+  return process.platform === "win32" ? normalized.toLowerCase() : normalized;
+}
+function captureSpoolAttribution(
+  entries: readonly CaptureSpoolEntry[],
+  targetKeys: ReadonlySet<string>,
+  matchedStatus: "pending-attributable" | "removed-attributable",
+): CaptureSpoolAttribution {
+  const paths = entries
+    .filter((entry) => targetKeys.has(normalizeRawTarget(entry.event.rawPath)))
+    .map((entry) => entry.path)
+    .sort((a, b) => a.localeCompare(b));
+  return {
+    status: paths.length > 0 ? matchedStatus : "none",
+    pendingEventCount: paths.length,
+    paths,
+  };
+}
+async function withRawFileLocks<T>(
+  absolutePaths: readonly string[],
+  operation: () => Promise<T>,
+): Promise<T> {
+  const [first, ...rest] = absolutePaths;
+  if (!first) return operation();
+  return withRawFileLock(first, () => withRawFileLocks(rest, operation));
 }
 function isCode(error: unknown, code: string): boolean {
   return typeof error === "object" && error !== null && "code" in error && (error as { code?: unknown }).code === code;

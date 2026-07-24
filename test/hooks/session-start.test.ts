@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, it, expect } from "vitest";
-import { mkdir, mkdtemp, rm, utimes, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -315,6 +315,11 @@ describe("sessionStartBody", () => {
 
   it("suppresses stale index and current-project context while the derived generation is invalidating", async () => {
     await writeSessionStartFiles(tmp);
+    await mkdir(join(tmp, "wiki"), { recursive: true });
+    await writeFile(
+      join(tmp, "wiki", "preferences.md"),
+      "---\ntitle: Operator Preferences\n---\n\nSTALE-REMINDER-MUST-STAY-QUIESCED\n",
+    );
     await writeProjectPage(
       tmp,
       "memory-system",
@@ -346,6 +351,38 @@ describe("sessionStartBody", () => {
     expect(output).not.toContain("--- Related memory");
     expect(output).not.toContain("--- Index");
     expect(output).not.toContain("STALE-FORGOTTEN-SUMMARY");
+    expect(output).not.toContain("--- What you should remember ---");
+    expect(output).not.toContain("STALE-REMINDER-MUST-STAY-QUIESCED");
+  });
+
+  it("discards reminder content when the ready generation changes during reminder assembly", async () => {
+    await writeSessionStartFiles(tmp);
+    await mkdir(join(tmp, "wiki"), { recursive: true });
+    await writeFile(
+      join(tmp, "wiki", "preferences.md"),
+      "---\ntitle: Operator Preferences\n---\n\nREMINDER-READ-BEFORE-FENCE-CHANGE\n",
+    );
+    let invalidatedDuringReminder = false;
+    const writes: string[] = [];
+
+    await sessionStartBody({}, {
+      readFile: async (path) => {
+        const content = await readFile(path, "utf-8");
+        if (!invalidatedDuringReminder && path.replace(/\\/g, "/").endsWith("/wiki/preferences.md")) {
+          invalidatedDuringReminder = true;
+          await beginIndexInvalidation(tmp);
+        }
+        return content;
+      },
+      write: (text) => writes.push(text),
+    });
+
+    const output = writes.join("");
+    expect(invalidatedDuringReminder).toBe(true);
+    expect(output).toContain("--- Schema");
+    expect(output).toContain("--- Recent log");
+    expect(output).not.toContain("--- What you should remember ---");
+    expect(output).not.toContain("REMINDER-READ-BEFORE-FENCE-CHANGE");
   });
 
   it("keeps stale archive index entries and physical relation targets out of project context", async () => {

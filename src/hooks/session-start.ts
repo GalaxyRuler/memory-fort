@@ -129,13 +129,17 @@ export async function sessionStartBody(
     }
   }
 
-  const remember = await whatToRememberBlock({ memoryRoot: root, readFile: readFn, now: nowFn() });
-  if (remember.trim().length > 0) {
-    sections.push({ label: "remember", text: `\n${remember}`, priority: 3 });
+  if (derivedGeneration) {
+    const remember = await whatToRememberBlock({ memoryRoot: root, readFile: readFn, now: nowFn() });
+    if (remember.trim().length > 0) {
+      sections.push({ label: "remember", text: `\n${remember}`, priority: 3 });
+    }
   }
 
   const safeSections = derivedGeneration && !sameReadyIndexGeneration(root, derivedGeneration)
-    ? sections.filter((section) => section.label !== "project" && section.label !== "Index")
+    ? sections.filter((section) =>
+      section.label !== "project" && section.label !== "Index" && section.label !== "remember"
+    )
     : sections;
   writeFn(applyInjectionBudget(safeSections, readTotalInjectionBudget()));
 }

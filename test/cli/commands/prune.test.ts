@@ -15,18 +15,23 @@ describe("runPrune", () => {
   let tmp: string;
   let root: string;
   let previousMemoryRoot: string | undefined;
+  let previousSpoolDir: string | undefined;
 
   beforeEach(async () => {
     tmp = await mkdtemp(join(tmpdir(), "prune-"));
     root = join(tmp, ".memory");
     previousMemoryRoot = process.env["MEMORY_ROOT"];
+    previousSpoolDir = process.env["MEMORY_CAPTURE_SPOOL_DIR"];
     process.env["MEMORY_ROOT"] = root;
+    process.env["MEMORY_CAPTURE_SPOOL_DIR"] = join(tmp, "capture-spool");
     await mkdir(root, { recursive: true });
   });
 
   afterEach(async () => {
     if (previousMemoryRoot === undefined) delete process.env["MEMORY_ROOT"];
     else process.env["MEMORY_ROOT"] = previousMemoryRoot;
+    if (previousSpoolDir === undefined) delete process.env["MEMORY_CAPTURE_SPOOL_DIR"];
+    else process.env["MEMORY_CAPTURE_SPOOL_DIR"] = previousSpoolDir;
     await rm(tmp, { recursive: true, force: true });
   });
 

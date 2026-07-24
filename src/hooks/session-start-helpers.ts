@@ -500,6 +500,8 @@ export async function whatToRememberBlock(
   opts: WhatToRememberOptions = {},
 ): Promise<string> {
   const root = opts.memoryRoot ?? defaultMemoryRoot();
+  const generation = readyIndexGeneration(root);
+  if (!generation) return "";
   const readFile = opts.readFile ?? ((path: string) => readFsFile(path, "utf-8"));
   const readdir = opts.readdir ?? readFsDir;
   const maxPreferences = opts.maxPreferences ?? DEFAULT_MAX_PREFERENCES;
@@ -551,7 +553,9 @@ export async function whatToRememberBlock(
       ...recent.map((entry) => formatRememberEntry(entry)),
     );
   }
-  return `${sections.join("\n")}\n`;
+  return sameReadyIndexGeneration(root, generation)
+    ? `${sections.join("\n")}\n`
+    : "";
 }
 
 async function confidenceForIndexLine(

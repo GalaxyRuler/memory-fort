@@ -1,20 +1,40 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, mkdtemp, readFile, readdir, rm, utimes, writeFile } from "node:fs/promises";
+import { hostname, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-const forgetRmFailure = vi.hoisted(() => ({ target: null as string | null }));
+const forgetRmFailure = vi.hoisted(() => ({
+  target: null as string | null,
+  pauseTarget: null as string | null,
+  pauseStarted: null as (() => void) | null,
+  pauseRelease: null as Promise<void> | null,
+  unlinkTarget: null as string | null,
+}));
 
 vi.mock("node:fs/promises", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs/promises")>();
   return {
     ...actual,
     rm: async (...args: Parameters<typeof actual.rm>) => {
+      const normalized = String(args[0]).replace(/\\/g, "/");
+      const pauseTarget = forgetRmFailure.pauseTarget;
+      if (pauseTarget && normalized.endsWith(pauseTarget)) {
+        forgetRmFailure.pauseTarget = null;
+        forgetRmFailure.pauseStarted?.();
+        await forgetRmFailure.pauseRelease;
+      }
       const target = forgetRmFailure.target;
-      if (target && String(args[0]).replace(/\\/g, "/").endsWith(target)) {
+      if (target && normalized.endsWith(target)) {
         throw new Error(`injected remove failure: ${target}`);
       }
       return actual.rm(...args);
+    },
+    unlink: async (...args: Parameters<typeof actual.unlink>) => {
+      const target = forgetRmFailure.unlinkTarget;
+      if (target && String(args[0]).replace(/\\/g, "/").endsWith(target)) {
+        throw new Error(`injected unlink failure: ${target}`);
+      }
+      return actual.unlink(...args);
     },
   };
 });
@@ -30,29 +50,39 @@ import { reconcileIndex } from "../../../src/index/reconcile.js";
 import { readIndexGeneration } from "../../../src/index/generation.js";
 import { loadSearchCorpus } from "../../../src/retrieval/corpus.js";
 import { confidenceAwareIndex } from "../../../src/hooks/session-start-helpers.js";
+import { appendBlock } from "../../../src/hooks/raw-file.js";
 
 describe("runForget", () => {
   let tmp: string;
   let root: string;
   let previousMemoryRoot: string | undefined;
   let previousIndexPath: string | undefined;
+  let previousSpoolDir: string | undefined;
 
   beforeEach(async () => {
     tmp = await mkdtemp(join(tmpdir(), "forget-"));
     root = join(tmp, ".memory");
     previousMemoryRoot = process.env["MEMORY_ROOT"];
     previousIndexPath = process.env["MEMORY_INDEX_DB_PATH"];
+    previousSpoolDir = process.env["MEMORY_CAPTURE_SPOOL_DIR"];
     process.env["MEMORY_ROOT"] = root;
     process.env["MEMORY_INDEX_DB_PATH"] = join(tmp, "index.db");
+    process.env["MEMORY_CAPTURE_SPOOL_DIR"] = join(tmp, "capture-spool");
     await mkdir(root, { recursive: true });
   });
 
   afterEach(async () => {
     forgetRmFailure.target = null;
+    forgetRmFailure.pauseTarget = null;
+    forgetRmFailure.pauseStarted = null;
+    forgetRmFailure.pauseRelease = null;
+    forgetRmFailure.unlinkTarget = null;
     if (previousMemoryRoot === undefined) delete process.env["MEMORY_ROOT"];
     else process.env["MEMORY_ROOT"] = previousMemoryRoot;
     if (previousIndexPath === undefined) delete process.env["MEMORY_INDEX_DB_PATH"];
     else process.env["MEMORY_INDEX_DB_PATH"] = previousIndexPath;
+    if (previousSpoolDir === undefined) delete process.env["MEMORY_CAPTURE_SPOOL_DIR"];
+    else process.env["MEMORY_CAPTURE_SPOOL_DIR"] = previousSpoolDir;
     await rm(tmp, { recursive: true, force: true });
   });
 
@@ -152,6 +182,160 @@ describe("runForget", () => {
     } finally {
       index.close();
     }
+  });
+
+  it("serializes concurrent applies from fresh planning through ready publication", async () => {
+    const firstRaw = "raw/2026-05-20/codex-first.md";
+    const secondRaw = "raw/2026-05-20/codex-second.md";
+    await writeAt(firstRaw, "first sensitive session");
+    await writeAt(secondRaw, "second sensitive session");
+    await writeAt("index.md", "STALE-CONCURRENT-DERIVED-CONTEXT\n");
+    let releaseFirst!: () => void;
+    const firstPaused = new Promise<void>((resolve) => {
+      forgetRmFailure.pauseStarted = resolve;
+    });
+    forgetRmFailure.pauseRelease = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    forgetRmFailure.pauseTarget = firstRaw;
+
+    const firstApply = runForget({ mode: "apply", rawPaths: [firstRaw] });
+    await firstPaused;
+    expect(readIndexGeneration(root).state).toBe("invalidating");
+
+    const secondApply = runForget({ mode: "apply", rawPaths: [secondRaw] });
+    await new Promise((resolve) => setTimeout(resolve, 75));
+    const secondStillPresentWhileFirstPaused = existsSync(join(root, ...secondRaw.split("/")));
+
+    releaseFirst();
+    await expect(firstApply).resolves.toMatchObject({ status: "live-erased/history-retained" });
+    const secondStillPresentAfterFirstReady = existsSync(join(root, ...secondRaw.split("/")));
+    const generationAfterFirst = readIndexGeneration(root).state;
+
+    await expect(secondApply).resolves.toMatchObject({ status: "live-erased/history-retained" });
+    expect(secondStillPresentWhileFirstPaused).toBe(true);
+    expect(secondStillPresentAfterFirstReady).toBe(true);
+    expect(generationAfterFirst).toBe("ready");
+    expect(existsSync(join(root, ...secondRaw.split("/")))).toBe(false);
+    expect(readIndexGeneration(root).state).toBe("ready");
+    await expect(readFile(join(root, "index.md"), "utf-8"))
+      .resolves.not.toContain("STALE-CONCURRENT-DERIVED-CONTEXT");
+  });
+
+  it("recovers a forget-apply lock only when the existing holder is stale and dead", async () => {
+    const raw = "raw/2026-05-20/codex-stale-lock.md";
+    const lockPath = join(root, "var", "forget-apply.lock");
+    await writeAt(raw, "stale lock recovery fixture");
+    await mkdir(dirname(lockPath), { recursive: true });
+    await writeFile(lockPath, JSON.stringify({
+      pid: 2 ** 30,
+      host: hostname(),
+      acquiredAt: "2020-01-01T00:00:00.000Z",
+    }));
+    const stale = new Date("2020-01-01T00:00:00.000Z");
+    await utimes(lockPath, stale, stale);
+
+    await expect(runForget({ mode: "apply", rawPaths: [raw] }))
+      .resolves.toMatchObject({ status: "live-erased/history-retained" });
+    expect(existsSync(join(root, ...raw.split("/")))).toBe(false);
+  });
+
+  it("inventories and removes only attributable queued captures before replay", async () => {
+    const selected = "raw/2026-05-20/codex-selected-spool.md";
+    const unrelated = "raw/2026-05-20/codex-unrelated-spool.md";
+    const selectedPath = join(root, ...selected.split("/"));
+    const unrelatedPath = join(root, ...unrelated.split("/"));
+    const spoolDir = process.env["MEMORY_CAPTURE_SPOOL_DIR"]!;
+    const selectedEventPath = join(spoolDir, "selected-event.json");
+    const unrelatedEventPath = join(spoolDir, "unrelated-event.json");
+    await writeAt(selected, "selected live raw");
+    await writeAt(unrelated, "unrelated live raw");
+    await mkdir(spoolDir, { recursive: true });
+    await writeFile(selectedEventPath, JSON.stringify({
+      version: 1,
+      id: "selected-spool-event",
+      hash: "selected-spool-hash",
+      rawPath: selectedPath,
+      block: "SELECTED-SPOOL-BLOCK-MUST-BE-FORGOTTEN",
+      createdAt: "2026-05-20T00:00:00.000Z",
+    }));
+    await writeFile(unrelatedEventPath, JSON.stringify({
+      version: 1,
+      id: "unrelated-spool-event",
+      hash: "unrelated-spool-hash",
+      rawPath: unrelatedPath,
+      block: "UNRELATED-SPOOL-BLOCK-MUST-SURVIVE",
+      createdAt: "2026-05-20T00:00:01.000Z",
+    }));
+
+    const planned = await runForget({ rawPaths: [selected] });
+    expect(planned.plan.captureSpool).toEqual({
+      status: "pending-attributable",
+      pendingEventCount: 1,
+      paths: [selectedEventPath],
+    });
+    expect(planned.report).toContain(`Attributable capture-spool events: 1\n- ${selectedEventPath}`);
+    expect(planned.report).not.toContain("SELECTED-SPOOL-BLOCK-MUST-BE-FORGOTTEN");
+
+    const applied = await runForget({ mode: "apply", rawPaths: [selected] });
+    expect(applied.plan.captureSpool).toEqual({
+      status: "removed-attributable",
+      pendingEventCount: 1,
+      paths: [selectedEventPath],
+    });
+    expect((await readdir(spoolDir)).filter((name) => name.endsWith(".json")))
+      .toEqual(["unrelated-event.json"]);
+
+    await appendBlock({
+      tool: "manual",
+      sessionId: "replay-trigger",
+      block: "replay trigger",
+      now: new Date("2026-05-20T00:00:02.000Z"),
+      vaultRoot: root,
+    });
+    expect(existsSync(selectedPath)).toBe(false);
+    await expect(readFile(unrelatedPath, "utf-8"))
+      .resolves.toContain("UNRELATED-SPOOL-BLOCK-MUST-SURVIVE");
+  });
+
+  it("aborts before live deletion and stays quiesced when spool coordination fails", async () => {
+    const selected = "raw/2026-05-20/codex-spool-failure.md";
+    const selectedPath = join(root, ...selected.split("/"));
+    const spoolDir = process.env["MEMORY_CAPTURE_SPOOL_DIR"]!;
+    const eventPath = join(spoolDir, "blocked-event.json");
+    await writeAt(selected, "selected raw must remain after spool failure");
+    await writeAt("index.md", "STALE-SPOOL-FAILURE-CONTEXT\n");
+    await mkdir(spoolDir, { recursive: true });
+    await writeFile(eventPath, JSON.stringify({
+      version: 1,
+      id: "blocked-spool-event",
+      hash: "blocked-spool-hash",
+      rawPath: selectedPath,
+      block: "blocked queued capture",
+      createdAt: "2026-05-20T00:00:00.000Z",
+    }));
+    forgetRmFailure.unlinkTarget = "blocked-event.json";
+
+    let failure: unknown;
+    try {
+      await runForget({ mode: "apply", rawPaths: [selected] });
+    } catch (error) {
+      failure = error;
+    }
+
+    expect(failure).toBeInstanceOf(ForgetPartialMutationError);
+    const receipt = (failure as ForgetPartialMutationError).receipt;
+    expect(receipt).toMatchObject({
+      status: "aborted-before-live-mutation/index-invalidating",
+      erased: [],
+      rewritten: [],
+      failed: { operation: "spool", path: "capture-spool" },
+    });
+    expect(receipt.report).toContain("Status: aborted-before-live-mutation/index-invalidating");
+    expect(existsSync(selectedPath)).toBe(true);
+    expect(existsSync(eventPath)).toBe(true);
+    expect(existsSync(join(root, "index.md"))).toBe(false);
+    expect(readIndexGeneration(root).state).toBe("invalidating");
   });
 
   it("returns a truthful partial-mutation receipt and keeps search quiesced when a live erase fails", async () => {

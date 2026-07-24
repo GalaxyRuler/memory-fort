@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { atomicWrite } from "../storage/atomic-write.js";
+import { withFileLock } from "../storage/file-lock.js";
 
 export type IndexGenerationState = "ready" | "invalidating";
 
@@ -12,6 +13,15 @@ export interface IndexGeneration {
 }
 
 const DEFAULT_GENERATION: IndexGeneration = { state: "ready", token: "initial" };
+
+export class IndexGenerationOwnershipError extends Error {
+  constructor(expectedToken: string, current: IndexGeneration) {
+    super(
+      `index generation ownership changed: expected invalidating:${expectedToken}, found ${current.state}:${current.token}`,
+    );
+    this.name = "IndexGenerationOwnershipError";
+  }
+}
 
 export function indexGenerationPath(vaultRoot: string): string {
   return join(vaultRoot, "var", "index-generation");
@@ -32,11 +42,23 @@ export function readIndexGeneration(vaultRoot: string): IndexGeneration {
 }
 
 export async function beginIndexInvalidation(vaultRoot: string): Promise<IndexGeneration> {
-  return writeIndexGeneration(vaultRoot, "invalidating");
+  return withFileLock(
+    indexGenerationPath(vaultRoot),
+    () => writeIndexGeneration(vaultRoot, "invalidating"),
+  );
 }
 
-export async function completeIndexInvalidation(vaultRoot: string): Promise<IndexGeneration> {
-  return writeIndexGeneration(vaultRoot, "ready");
+export async function completeIndexInvalidation(
+  vaultRoot: string,
+  expectedInvalidatingToken: string,
+): Promise<IndexGeneration> {
+  return withFileLock(indexGenerationPath(vaultRoot), async () => {
+    const current = readIndexGeneration(vaultRoot);
+    if (current.state !== "invalidating" || current.token !== expectedInvalidatingToken) {
+      throw new IndexGenerationOwnershipError(expectedInvalidatingToken, current);
+    }
+    return writeIndexGeneration(vaultRoot, "ready");
+  });
 }
 
 async function writeIndexGeneration(vaultRoot: string, state: IndexGenerationState): Promise<IndexGeneration> {

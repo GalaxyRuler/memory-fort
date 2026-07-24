@@ -254,6 +254,10 @@ describe("installAntigravity", () => {
 
   it("session_start hook suppresses index and current-project context while the generation is invalidating", async () => {
     await writeAntigravityProjectMemoryFixture(memDir);
+    await writeFile(
+      join(memDir, "wiki", "preferences.md"),
+      "---\ntitle: Operator Preferences\n---\n\nANTIGRAVITY-STALE-REMINDER\n",
+    );
     await rm(join(memDir, "wiki", "projects", "agentmemory.md"));
     await writeFile(
       join(memDir, "index.md"),
@@ -282,7 +286,49 @@ describe("installAntigravity", () => {
     expect(hook.stdout).not.toContain("--- Related memory");
     expect(hook.stdout).not.toContain("--- Index");
     expect(hook.stdout).not.toContain("STALE-FORGOTTEN-SUMMARY");
+    expect(hook.stdout).not.toContain("--- What you should remember ---");
+    expect(hook.stdout).not.toContain("ANTIGRAVITY-STALE-REMINDER");
     expect(existsSync(join(memDir, "raw", "2026-06-02", "antigravity-project-memory-invalidating.md"))).toBe(true);
+  });
+
+  it("session_start hook emits live wiki preferences only while the generation remains ready", async () => {
+    await writeAntigravityProjectMemoryFixture(memDir);
+    await writeFile(
+      join(memDir, "wiki", "preferences.md"),
+      "---\ntitle: Operator Preferences\nupdated: 2026-06-02\n---\n\nANTIGRAVITY-LIVE-REMINDER\n",
+    );
+    const result = await installAntigravity({
+      antigravityDir,
+      antigravityVersion: "2.1.0",
+    });
+    const hookPath = join(result.pluginDir, "hooks", "session_start.mjs");
+
+    const ready = spawnSync(process.execPath, [hookPath], {
+      input: JSON.stringify({
+        sessionId: "preference-ready",
+        timestamp: "2026-06-02T00:00:00.000Z",
+        cwd: "C:\\Repos\\memory-system",
+      }),
+      encoding: "utf-8",
+      env: { ...process.env, MEMORY_ROOT: memDir },
+    });
+    expect(ready.status).toBe(0);
+    expect(ready.stdout).toContain("--- What you should remember ---");
+    expect(ready.stdout).toContain("ANTIGRAVITY-LIVE-REMINDER");
+
+    await beginIndexInvalidation(memDir);
+    const invalidating = spawnSync(process.execPath, [hookPath], {
+      input: JSON.stringify({
+        sessionId: "preference-invalidating",
+        timestamp: "2026-06-02T00:00:01.000Z",
+        cwd: "C:\\Repos\\memory-system",
+      }),
+      encoding: "utf-8",
+      env: { ...process.env, MEMORY_ROOT: memDir },
+    });
+    expect(invalidating.status).toBe(0);
+    expect(invalidating.stdout).not.toContain("--- What you should remember ---");
+    expect(invalidating.stdout).not.toContain("ANTIGRAVITY-LIVE-REMINDER");
   });
 
   it("session_start hook drops missing relation targets and stale generated-index lines", async () => {
