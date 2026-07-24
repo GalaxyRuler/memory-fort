@@ -28,19 +28,53 @@ const CAPTURE_REPLAY_LOCK = { timeoutMs: 100, staleMs: 60_000, pollMs: 50 } as c
 const CAPTURE_REPLAY_EVENT_BUDGET = 2;
 const CAPTURE_EVENT_MARKER = "memory-fort-capture";
 const CAPTURE_SPOOLED_DIAGNOSTICS_FILE = "capture-spooled.jsonl";
+const CAPTURE_DROPPED_DIAGNOSTICS_FILE = "capture-dropped-stale.jsonl";
 const CAPTURE_DRAIN_FAILURES_FILE = "capture-drain-failures.jsonl";
 const CAPTURE_REPLAY_CURSOR_FILE = "capture-replay-cursor.txt";
 const CAPTURE_SPOOL_COORDINATION_TARGET = ".capture-spool-coordination";
+const CAPTURE_EPOCHS_DIR = "epochs";
 
-interface CaptureEvent { version: 1; id: string; hash: string; rawPath: string; block: string; createdAt: string; }
+interface CaptureEvent {
+  version: 1 | 2;
+  id: string;
+  hash: string;
+  rawPath: string;
+  block: string;
+  createdAt: string;
+  captureEpoch?: string;
+}
 interface CaptureSpoolEntry { name: string; path: string; event: CaptureEvent; }
+interface RawCaptureEpochState { version: 1; state: "ready" | "invalidating"; token: string; }
+export interface RawCaptureEpochTransition { rawPath: string; invalidatingToken: string; }
 export interface CaptureSpooledDiagnostic { type: "capture_spooled"; eventId: string; hash: string; createdAt: string; }
 export interface CaptureSpoolStatus { pendingEventCount: number; oldestPendingAgeMs: number | null; drainFailures: number; captureSpooled: CaptureSpooledDiagnostic[]; }
 export interface CaptureSpoolAttribution {
-  status: "none" | "pending-attributable" | "removed-attributable";
+  status:
+    | "none"
+    | "pending-attributable"
+    | "removed-attributable"
+    | "partial-removed-attributable";
+  attributableEventCount: number;
   pendingEventCount: number;
+  removedEventCount: number;
   /** Absolute operational event paths only; capture block contents are never exposed. */
   paths: string[];
+  removedPaths: string[];
+  failedPath?: string;
+}
+
+export class CaptureSpoolRemovalError extends Error {
+  readonly attribution: CaptureSpoolAttribution;
+  readonly failedPath: string;
+
+  constructor(attribution: CaptureSpoolAttribution, failedPath: string, cause: unknown) {
+    const detail = cause instanceof Error ? cause.message : String(cause);
+    super(`capture spool removal failed for ${failedPath}: ${detail}`);
+    this.name = "CaptureSpoolRemovalError";
+    this.attribution = attribution;
+    this.failedPath = failedPath;
+    this.cause = cause;
+  }
 }
 
 export async function getCaptureSpoolStatus(now = new Date()): Promise<CaptureSpoolStatus> {
@@ -78,6 +112,7 @@ export async function inspectCaptureSpoolAttribution(
     await readCaptureSpoolEntries(),
     rawTargetKeys(absoluteRawPaths),
     "pending-attributable",
+    [],
   );
 }
 
@@ -89,26 +124,83 @@ export async function inspectCaptureSpoolAttribution(
  */
 export async function withCaptureSpoolEventsRemoved<T>(
   absoluteRawPaths: readonly string[],
-  operation: (attribution: CaptureSpoolAttribution) => Promise<T>,
+  beforeRemoval: () => Promise<void>,
+  operation: (
+    attribution: CaptureSpoolAttribution,
+    epochs: readonly RawCaptureEpochTransition[],
+  ) => Promise<T>,
 ): Promise<T> {
   const rawPaths = uniqueAbsoluteRawPaths(absoluteRawPaths);
   const targetKeys = rawTargetKeys(rawPaths);
   return withCaptureSpoolLock(async () => withRawFileLocks(rawPaths, async () => {
     const entries = await readCaptureSpoolEntries();
     const attributable = entries.filter((entry) => targetKeys.has(normalizeRawTarget(entry.event.rawPath)));
+    await beforeRemoval();
+    const removedPaths: string[] = [];
     for (const entry of attributable) {
       try {
         await unlink(entry.path);
+        removedPaths.push(entry.path);
       } catch (error) {
-        if (!isCode(error, "ENOENT")) throw error;
+        if (isCode(error, "ENOENT")) {
+          removedPaths.push(entry.path);
+          continue;
+        }
+        throw new CaptureSpoolRemovalError(
+          captureSpoolAttribution(
+            attributable,
+            targetKeys,
+            "partial-removed-attributable",
+            removedPaths,
+            entry.path,
+          ),
+          entry.path,
+          error,
+        );
       }
     }
+    const epochs = await beginRawCaptureEpochInvalidation(rawPaths);
     return operation(captureSpoolAttribution(
       attributable,
       targetKeys,
       "removed-attributable",
-    ));
+      removedPaths,
+    ), epochs);
   }));
+}
+
+/** Advance selected capture epochs while their raw locks are held. */
+async function beginRawCaptureEpochInvalidation(
+  rawPaths: readonly string[],
+): Promise<RawCaptureEpochTransition[]> {
+  const transitions: RawCaptureEpochTransition[] = [];
+  for (const rawPath of rawPaths) {
+    const invalidatingToken = randomUUID();
+    await writeRawCaptureEpoch(rawPath, { version: 1, state: "invalidating", token: invalidatingToken });
+    transitions.push({ rawPath, invalidatingToken });
+  }
+  return transitions;
+}
+
+/** Publish fresh ready epochs after the owning generation is ready, while raw locks remain held. */
+export async function completeRawCaptureEpochInvalidation(
+  transitions: readonly RawCaptureEpochTransition[],
+): Promise<void> {
+  for (const transition of transitions) {
+    const current = await readRawCaptureEpoch(transition.rawPath);
+    if (
+      !current
+      || current.state !== "invalidating"
+      || current.token !== transition.invalidatingToken
+    ) {
+      throw new Error(`raw capture epoch ownership changed for ${transition.rawPath}`);
+    }
+    await writeRawCaptureEpoch(transition.rawPath, {
+      version: 1,
+      state: "ready",
+      token: randomUUID(),
+    });
+  }
 }
 
 /**
@@ -310,7 +402,10 @@ export async function ensureRawSessionFile(input: {
   const path = rawSessionFile(input.tool, input.sessionId, now, input.vaultRoot);
   const existsFn = input.exists ?? defaultExists;
   const writeFn = input.write ?? atomicWrite;
-  if (await existsFn(path)) return path;
+  if (
+    (input.exists !== undefined || input.write !== undefined)
+    && await existsFn(path)
+  ) return path;
   const agentId = cleanIdentity(process.env["MEMORY_FORT_AGENT_ID"]);
   const userId = cleanIdentity(process.env["MEMORY_FORT_USER_ID"]);
   const fm: Frontmatter = {
@@ -335,6 +430,7 @@ export async function ensureRawSessionFile(input: {
     return path;
   }
   await withRawFileLock(path, async () => {
+    await ensureRawCaptureEpoch(path);
     if (await defaultExists(path)) return;
     await writeFn(path, header);
   });
@@ -357,20 +453,30 @@ export async function appendBlock(input: {
   now?: Date;
   vaultRoot?: string;
   append?: (path: string, content: string) => Promise<void>;
+  lockOptions?: FileLockOptions;
 }): Promise<void> {
   const now = input.now ?? new Date();
   const path = rawSessionFile(input.tool, input.sessionId, now, input.vaultRoot);
   const appendFn = input.append ?? atomicAppend;
   if (input.append !== undefined) {
-    await appendFn(path, renderCaptureEvent(createCaptureEvent(path, input.block, now)));
+    await appendFn(path, renderCaptureEvent(createLegacyCaptureEvent(path, input.block, now)));
     return;
   }
-  const event = createCaptureEvent(path, input.block, now);
+  const event = await createCaptureEvent(path, input.block, now);
+  if (!event.captureEpoch) {
+    await spoolCaptureEvent(event);
+    return;
+  }
   await drainCaptureSpool();
+  let disposition: "current" | "stale" | "unverifiable";
   try {
-    await withRawFileLock(path, async () => {
-      await appendFn(path, renderCaptureEvent(event));
-    });
+    disposition = await withFileLock(path, async () => {
+      const currentDisposition = await captureEventEpochDisposition(event);
+      if (currentDisposition === "current") {
+        await appendFn(path, renderCaptureEvent(event));
+      }
+      return currentDisposition;
+    }, input.lockOptions ?? RAW_FILE_LOCK);
   } catch (err) {
     if (err instanceof FileLockTimeoutError) {
       await spoolCaptureEvent(event);
@@ -378,10 +484,36 @@ export async function appendBlock(input: {
     }
     throw err;
   }
+  if (disposition === "stale") await recordCaptureDropped(event, "stale-epoch");
+  else if (disposition === "unverifiable") await spoolCaptureEvent(event);
 }
 
-function createCaptureEvent(rawPath: string, block: string, now: Date): CaptureEvent {
-  return { version: 1, id: randomUUID(), hash: createHash("sha256").update(block, "utf-8").digest("hex"), rawPath, block, createdAt: now.toISOString() };
+async function createCaptureEvent(rawPath: string, block: string, now: Date): Promise<CaptureEvent> {
+  let captureEpoch: string | undefined;
+  try {
+    captureEpoch = (await readRawCaptureEpoch(rawPath))?.token;
+  } catch {
+    // Missing or corrupt epoch state is fail-closed below.
+  }
+  return {
+    version: 2,
+    id: randomUUID(),
+    hash: createHash("sha256").update(block, "utf-8").digest("hex"),
+    rawPath,
+    block,
+    createdAt: now.toISOString(),
+    captureEpoch,
+  };
+}
+function createLegacyCaptureEvent(rawPath: string, block: string, now: Date): CaptureEvent {
+  return {
+    version: 1,
+    id: randomUUID(),
+    hash: createHash("sha256").update(block, "utf-8").digest("hex"),
+    rawPath,
+    block,
+    createdAt: now.toISOString(),
+  };
 }
 function renderCaptureEvent(event: CaptureEvent): string {
   return `${event.block}\n<!-- ${CAPTURE_EVENT_MARKER} id=${event.id} hash=${event.hash} -->\n`;
@@ -404,11 +536,18 @@ async function drainCaptureSpool(): Promise<void> {
       for (const entry of entries.slice(0, CAPTURE_REPLAY_EVENT_BUDGET)) {
         try {
           await withFileLock(entry.event.rawPath, async () => {
-            let existing = "";
-            try { existing = await readFile(entry.event.rawPath, "utf-8"); }
-            catch (error) { if (!isCode(error, "ENOENT")) throw error; }
-            if (!existing.includes(marker(entry.event))) await atomicAppend(entry.event.rawPath, renderCaptureEvent(entry.event));
-            await ensureCaptureSpooledDiagnostic(entry.event);
+            const disposition = await captureEventEpochDisposition(entry.event);
+            if (disposition === "current") {
+              let existing = "";
+              try { existing = await readFile(entry.event.rawPath, "utf-8"); }
+              catch (error) { if (!isCode(error, "ENOENT")) throw error; }
+              if (!existing.includes(marker(entry.event))) await atomicAppend(entry.event.rawPath, renderCaptureEvent(entry.event));
+              await ensureCaptureSpooledDiagnostic(entry.event);
+            } else if (disposition === "stale") {
+              await recordCaptureDropped(entry.event, "stale-epoch", entry.path);
+            } else {
+              throw new Error(`capture epoch is unavailable for queued event ${entry.name}`);
+            }
             try {
               await unlink(entry.path);
             } catch (error) {
@@ -457,6 +596,29 @@ async function recordCaptureDrainFailure(event: CaptureEvent): Promise<void> {
     );
   } catch {
     // Recovery telemetry must not prevent the current capture from persisting.
+  }
+}
+async function recordCaptureDropped(
+  event: CaptureEvent,
+  reason: "stale-epoch" | "epoch-unavailable",
+  eventPath?: string,
+): Promise<void> {
+  try {
+    await atomicAppend(
+      join(captureSpoolDir(), CAPTURE_DROPPED_DIAGNOSTICS_FILE),
+      `${JSON.stringify({
+        type: "capture_dropped_stale",
+        eventId: event.id,
+        hash: event.hash,
+        rawPath: event.rawPath,
+        ...(eventPath ? { eventPath } : {}),
+        reason,
+        createdAt: event.createdAt,
+        droppedAt: new Date().toISOString(),
+      })}\n`,
+    );
+  } catch {
+    // A stale event remains dropped even when content-free telemetry is unavailable.
   }
 }
 async function countCaptureDrainFailures(): Promise<number> {
@@ -536,7 +698,17 @@ async function readCaptureSpoolEntries(): Promise<CaptureSpoolEntry[]> {
     try {
       const path = join(captureSpoolDir(), name);
       const event = JSON.parse(await readFile(path, "utf-8")) as CaptureEvent;
-      if (event.version === 1 && typeof event.id === "string" && typeof event.hash === "string" && typeof event.rawPath === "string" && typeof event.block === "string" && typeof event.createdAt === "string") entries.push({ name, path, event });
+      if (
+        (event.version === 1 || event.version === 2)
+        && typeof event.id === "string"
+        && typeof event.hash === "string"
+        && typeof event.rawPath === "string"
+        && typeof event.block === "string"
+        && typeof event.createdAt === "string"
+        && (event.version === 1
+          || event.captureEpoch === undefined
+          || typeof event.captureEpoch === "string")
+      ) entries.push({ name, path, event });
     } catch {
       // Passive observation is not a drain attempt and must not affect drain accounting.
     }
@@ -568,19 +740,90 @@ function normalizeRawTarget(path: string): string {
   const normalized = resolve(path).replace(/\\/g, "/");
   return process.platform === "win32" ? normalized.toLowerCase() : normalized;
 }
+export function rawCaptureEpochPath(rawPath: string): string {
+  const key = createHash("sha256").update(normalizeRawTarget(rawPath), "utf-8").digest("hex");
+  return join(captureSpoolDir(), CAPTURE_EPOCHS_DIR, `${key}.json`);
+}
+export async function ensureRawCaptureEpoch(rawPath: string): Promise<string> {
+  const existing = await readRawCaptureEpoch(rawPath);
+  if (existing) return existing.token;
+  const initial: RawCaptureEpochState = { version: 1, state: "ready", token: randomUUID() };
+  try {
+    await atomicCreate(rawCaptureEpochPath(rawPath), `${JSON.stringify(initial)}\n`);
+    return initial.token;
+  } catch (error) {
+    if (!isCode(error, "EEXIST")) throw error;
+    const raced = await readRawCaptureEpoch(rawPath);
+    if (!raced) throw new Error(`raw capture epoch disappeared for ${rawPath}`);
+    return raced.token;
+  }
+}
+async function readRawCaptureEpoch(rawPath: string): Promise<RawCaptureEpochState | null> {
+  let content: string;
+  try {
+    content = await readFile(rawCaptureEpochPath(rawPath), "utf-8");
+  } catch (error) {
+    if (isCode(error, "ENOENT")) return null;
+    throw error;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(content);
+  } catch {
+    throw new Error(`raw capture epoch is corrupt for ${rawPath}`);
+  }
+  if (
+    typeof parsed !== "object"
+    || parsed === null
+    || (parsed as { version?: unknown }).version !== 1
+    || ((parsed as { state?: unknown }).state !== "ready"
+      && (parsed as { state?: unknown }).state !== "invalidating")
+    || typeof (parsed as { token?: unknown }).token !== "string"
+    || (parsed as { token: string }).token.length === 0
+  ) {
+    throw new Error(`raw capture epoch is corrupt for ${rawPath}`);
+  }
+  return parsed as RawCaptureEpochState;
+}
+async function writeRawCaptureEpoch(rawPath: string, state: RawCaptureEpochState): Promise<void> {
+  await atomicWrite(rawCaptureEpochPath(rawPath), `${JSON.stringify(state)}\n`);
+}
+async function captureEventEpochDisposition(
+  event: CaptureEvent,
+): Promise<"current" | "stale" | "unverifiable"> {
+  if (event.version !== 2 || typeof event.captureEpoch !== "string") return "unverifiable";
+  try {
+    const current = await readRawCaptureEpoch(event.rawPath);
+    if (!current) return "unverifiable";
+    if (current.state !== "ready") return "stale";
+    return current.token === event.captureEpoch ? "current" : "stale";
+  } catch {
+    return "unverifiable";
+  }
+}
 function captureSpoolAttribution(
   entries: readonly CaptureSpoolEntry[],
   targetKeys: ReadonlySet<string>,
-  matchedStatus: "pending-attributable" | "removed-attributable",
+  matchedStatus:
+    | "pending-attributable"
+    | "removed-attributable"
+    | "partial-removed-attributable",
+  removedPaths: readonly string[],
+  failedPath?: string,
 ): CaptureSpoolAttribution {
   const paths = entries
     .filter((entry) => targetKeys.has(normalizeRawTarget(entry.event.rawPath)))
     .map((entry) => entry.path)
     .sort((a, b) => a.localeCompare(b));
+  const removed = [...removedPaths].sort((a, b) => a.localeCompare(b));
   return {
     status: paths.length > 0 ? matchedStatus : "none",
-    pendingEventCount: paths.length,
+    attributableEventCount: paths.length,
+    pendingEventCount: Math.max(0, paths.length - removed.length),
+    removedEventCount: removed.length,
     paths,
+    removedPaths: removed,
+    ...(failedPath ? { failedPath } : {}),
   };
 }
 async function withRawFileLocks<T>(

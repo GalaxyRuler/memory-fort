@@ -28,7 +28,7 @@ import { type LLMProvider } from "../../llm/types.js";
 import { readRuntimePrompt } from "../../prompts/runtime.js";
 import { loadMemoryConfig, resolveCompileConfig, type MemoryConfig } from "../../storage/config.js";
 import { hasArchiveOrSystemPathComponent } from "../../storage/archive-paths.js";
-import { withFileLock } from "../../storage/file-lock.js";
+import { withCompileExecuteLock } from "../../compile/execute-lock.js";
 import { listRawMarkdownFiles } from "../../storage/raw-walker.js";
 import {
   memoryRoot,
@@ -190,11 +190,7 @@ export async function runCompile(
   opts: CompileOptions = {},
 ): Promise<CompileResult> {
   const root = opts.vaultRoot ?? memoryRoot();
-  return withFileLock(
-    join(root, "var", "compile", "execute"),
-    () => runCompileImpl({ ...opts, vaultRoot: root }),
-    { timeoutMs: 60_000, staleMs: 300_000 },
-  );
+  return withCompileExecuteLock(root, () => runCompileImpl({ ...opts, vaultRoot: root }));
 }
 
 async function runCompileImpl(

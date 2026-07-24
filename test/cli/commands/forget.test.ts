@@ -50,7 +50,8 @@ import { reconcileIndex } from "../../../src/index/reconcile.js";
 import { readIndexGeneration } from "../../../src/index/generation.js";
 import { loadSearchCorpus } from "../../../src/retrieval/corpus.js";
 import { confidenceAwareIndex } from "../../../src/hooks/session-start-helpers.js";
-import { appendBlock } from "../../../src/hooks/raw-file.js";
+import { appendBlock, ensureRawSessionFile, getCaptureSpoolStatus } from "../../../src/hooks/raw-file.js";
+import { withFileLock } from "../../../src/storage/file-lock.js";
 
 describe("runForget", () => {
   let tmp: string;
@@ -240,7 +241,7 @@ describe("runForget", () => {
     expect(existsSync(join(root, ...raw.split("/")))).toBe(false);
   });
 
-  it("inventories and removes only attributable queued captures before replay", async () => {
+  it("removes only attributable queued captures and preserves unrelated legacy recovery evidence", async () => {
     const selected = "raw/2026-05-20/codex-selected-spool.md";
     const unrelated = "raw/2026-05-20/codex-unrelated-spool.md";
     const selectedPath = join(root, ...selected.split("/"));
@@ -271,8 +272,11 @@ describe("runForget", () => {
     const planned = await runForget({ rawPaths: [selected] });
     expect(planned.plan.captureSpool).toEqual({
       status: "pending-attributable",
+      attributableEventCount: 1,
       pendingEventCount: 1,
+      removedEventCount: 0,
       paths: [selectedEventPath],
+      removedPaths: [],
     });
     expect(planned.report).toContain(`Attributable capture-spool events: 1\n- ${selectedEventPath}`);
     expect(planned.report).not.toContain("SELECTED-SPOOL-BLOCK-MUST-BE-FORGOTTEN");
@@ -280,12 +284,22 @@ describe("runForget", () => {
     const applied = await runForget({ mode: "apply", rawPaths: [selected] });
     expect(applied.plan.captureSpool).toEqual({
       status: "removed-attributable",
-      pendingEventCount: 1,
+      attributableEventCount: 1,
+      pendingEventCount: 0,
+      removedEventCount: 1,
       paths: [selectedEventPath],
+      removedPaths: [selectedEventPath],
     });
     expect((await readdir(spoolDir)).filter((name) => name.endsWith(".json")))
       .toEqual(["unrelated-event.json"]);
 
+    await ensureRawSessionFile({
+      tool: "manual",
+      sessionId: "replay-trigger",
+      cwd: "C:/work",
+      now: new Date("2026-05-20T00:00:02.000Z"),
+      vaultRoot: root,
+    });
     await appendBlock({
       tool: "manual",
       sessionId: "replay-trigger",
@@ -295,7 +309,12 @@ describe("runForget", () => {
     });
     expect(existsSync(selectedPath)).toBe(false);
     await expect(readFile(unrelatedPath, "utf-8"))
-      .resolves.toContain("UNRELATED-SPOOL-BLOCK-MUST-SURVIVE");
+      .resolves.not.toContain("UNRELATED-SPOOL-BLOCK-MUST-SURVIVE");
+    expect(existsSync(unrelatedEventPath)).toBe(true);
+    await expect(getCaptureSpoolStatus()).resolves.toMatchObject({
+      pendingEventCount: 1,
+      drainFailures: 1,
+    });
   });
 
   it("aborts before live deletion and stays quiesced when spool coordination fails", async () => {
@@ -329,13 +348,266 @@ describe("runForget", () => {
       status: "aborted-before-live-mutation/index-invalidating",
       erased: [],
       rewritten: [],
-      failed: { operation: "spool", path: "capture-spool" },
+      failed: { operation: "spool", path: eventPath },
+      plan: {
+        captureSpool: {
+          status: "partial-removed-attributable",
+          attributableEventCount: 1,
+          pendingEventCount: 1,
+          removedEventCount: 0,
+          removedPaths: [],
+          failedPath: eventPath,
+        },
+      },
     });
     expect(receipt.report).toContain("Status: aborted-before-live-mutation/index-invalidating");
     expect(existsSync(selectedPath)).toBe(true);
     expect(existsSync(eventPath)).toBe(true);
     expect(existsSync(join(root, "index.md"))).toBe(false);
     expect(readIndexGeneration(root).state).toBe("invalidating");
+  });
+
+  it("leaves the generation quiesced when invalidation setup fails after derived mutation begins", async () => {
+    const raw = "raw/2026-05-20/codex-invalidation-setup.md";
+    await seedAttributableRaw(raw);
+    await writeAt("index.md", "STALE-SETUP-FAILURE-CONTEXT\n");
+    await rebuildFixtureIndex();
+    forgetRmFailure.target = "/index.md";
+
+    let failure: unknown;
+    try {
+      await runForget({ mode: "apply", rawPaths: [raw] });
+    } catch (error) {
+      failure = error;
+    }
+
+    expect(failure).toBeInstanceOf(ForgetPartialMutationError);
+    const receipt = (failure as ForgetPartialMutationError).receipt;
+    expect(receipt).toMatchObject({
+      status: "aborted-before-live-mutation/index-invalidating",
+      erased: [],
+      rewritten: [],
+      failed: { operation: "invalidation", path: "derived-index" },
+    });
+    expect(receipt.report).toContain("Failed invalidation: derived-index");
+    expect(existsSync(join(root, ...raw.split("/")))).toBe(true);
+    expect(existsSync(process.env["MEMORY_INDEX_DB_PATH"]!)).toBe(false);
+    expect(readIndexGeneration(root).state).toBe("invalidating");
+    await expect(confidenceAwareIndex({
+      indexFilePath: join(root, "index.md"),
+      memoryRoot: root,
+    })).resolves.toBe("");
+  });
+
+  it("reports exact partial spool removal when the second attributable unlink fails", async () => {
+    const selected = "raw/2026-05-20/codex-partial-spool.md";
+    const selectedPath = join(root, ...selected.split("/"));
+    const spoolDir = process.env["MEMORY_CAPTURE_SPOOL_DIR"]!;
+    const firstEventPath = join(spoolDir, "01-first-event.json");
+    const secondEventPath = join(spoolDir, "02-second-event.json");
+    await writeAt(selected, "selected raw remains on partial spool removal");
+    await mkdir(spoolDir, { recursive: true });
+    for (const [path, id] of [[firstEventPath, "first"], [secondEventPath, "second"]] as const) {
+      await writeFile(path, JSON.stringify({
+        version: 1,
+        id: `${id}-event`,
+        hash: `${id}-hash`,
+        rawPath: selectedPath,
+        block: `${id} private block`,
+        createdAt: "2026-05-20T00:00:00.000Z",
+      }));
+    }
+    forgetRmFailure.unlinkTarget = "02-second-event.json";
+
+    let failure: unknown;
+    try {
+      await runForget({ mode: "apply", rawPaths: [selected] });
+    } catch (error) {
+      failure = error;
+    }
+
+    expect(failure).toBeInstanceOf(ForgetPartialMutationError);
+    const receipt = (failure as ForgetPartialMutationError).receipt;
+    expect(receipt).toMatchObject({
+      status: "aborted-before-live-mutation/index-invalidating",
+      erased: [],
+      rewritten: [],
+      failed: { operation: "spool", path: secondEventPath },
+      plan: {
+        captureSpool: {
+          status: "partial-removed-attributable",
+          attributableEventCount: 2,
+          pendingEventCount: 1,
+          removedEventCount: 1,
+          paths: [firstEventPath, secondEventPath],
+          removedPaths: [firstEventPath],
+          failedPath: secondEventPath,
+        },
+      },
+    });
+    expect(receipt.report).toContain(`Removed attributable capture-spool events: 1\n- ${firstEventPath}`);
+    expect(receipt.report).toContain(`Failed spool: ${secondEventPath}`);
+    expect(receipt.report).not.toContain("first private block");
+    expect(receipt.report).not.toContain("second private block");
+    expect(existsSync(firstEventPath)).toBe(false);
+    expect(existsSync(secondEventPath)).toBe(true);
+    expect(existsSync(selectedPath)).toBe(true);
+    expect(readIndexGeneration(root).state).toBe("invalidating");
+  });
+
+  it("drops a capture that starts while forget holds the selected raw lock", async () => {
+    const now = new Date("2026-05-20T00:00:00.000Z");
+    const raw = "raw/2026-05-20/codex-epoch-direct.md";
+    const rawPath = join(root, ...raw.split("/"));
+    await writeAt(raw, "selected live raw\n");
+    let releaseForget!: () => void;
+    const forgetPaused = new Promise<void>((resolve) => { forgetRmFailure.pauseStarted = resolve; });
+    forgetRmFailure.pauseRelease = new Promise<void>((resolve) => { releaseForget = resolve; });
+    forgetRmFailure.pauseTarget = raw;
+
+    const forgetting = runForget({ mode: "apply", rawPaths: [raw] });
+    await forgetPaused;
+    const lateCapture = appendBlock({
+      tool: "codex",
+      sessionId: "epoch-direct",
+      block: "CAPTURE-STARTED-DURING-FORGET",
+      now,
+      vaultRoot: root,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 125));
+    releaseForget();
+
+    await expect(forgetting).resolves.toMatchObject({ status: "live-erased/history-retained" });
+    await expect(lateCapture).resolves.toBeUndefined();
+    expect(existsSync(rawPath)).toBe(false);
+    expect(existsSync(`${rawPath}.capture-epoch`)).toBe(false);
+  });
+
+  it("cannot replay a timed-out pre-forget capture but allows a genuine post-forget capture", async () => {
+    const now = new Date("2026-05-20T00:00:00.000Z");
+    const raw = "raw/2026-05-20/codex-epoch-spool.md";
+    const rawPath = join(root, ...raw.split("/"));
+    await writeAt(raw, "selected live raw\n");
+    let releaseForget!: () => void;
+    const forgetPaused = new Promise<void>((resolve) => { forgetRmFailure.pauseStarted = resolve; });
+    forgetRmFailure.pauseRelease = new Promise<void>((resolve) => { releaseForget = resolve; });
+    forgetRmFailure.pauseTarget = raw;
+
+    const forgetting = runForget({ mode: "apply", rawPaths: [raw] });
+    await forgetPaused;
+    const timedOutCapture = appendBlock({
+      tool: "codex",
+      sessionId: "epoch-spool",
+      block: "STALE-TIMED-OUT-CAPTURE",
+      now,
+      vaultRoot: root,
+      lockOptions: { timeoutMs: 30, staleMs: 60_000, pollMs: 10 },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 175));
+    releaseForget();
+
+    await expect(forgetting).resolves.toMatchObject({ status: "live-erased/history-retained" });
+    await expect(timedOutCapture).resolves.toBeUndefined();
+    expect(existsSync(rawPath)).toBe(false);
+    expect((await readdir(process.env["MEMORY_CAPTURE_SPOOL_DIR"]!)).filter((name) => name.endsWith(".json")))
+      .toHaveLength(1);
+
+    await ensureRawSessionFile({
+      tool: "codex",
+      sessionId: "epoch-spool",
+      cwd: "C:/post-forget",
+      now: new Date("2026-05-20T00:00:01.000Z"),
+      vaultRoot: root,
+    });
+    await appendBlock({
+      tool: "codex",
+      sessionId: "epoch-spool",
+      block: "FRESH-POST-FORGET-CAPTURE",
+      now: new Date("2026-05-20T00:00:01.000Z"),
+      vaultRoot: root,
+    });
+
+    const content = await readFile(rawPath, "utf-8");
+    expect(content).toContain("FRESH-POST-FORGET-CAPTURE");
+    expect(content).not.toContain("STALE-TIMED-OUT-CAPTURE");
+    expect((await readdir(process.env["MEMORY_CAPTURE_SPOOL_DIR"]!)).filter((name) => name.endsWith(".json")))
+      .toEqual([]);
+    expect(existsSync(`${rawPath}.capture-epoch`)).toBe(false);
+  });
+
+  it("waits for an active compile and replans its derived output before erasing", async () => {
+    const raw = "raw/2026-05-20/codex-compile-before-forget.md";
+    const derivative = "wiki/projects/compile-before-forget.md";
+    await writeAt(raw, "compile source must be forgotten\n");
+    let releaseCompile!: () => void;
+    let compileStarted!: () => void;
+    const started = new Promise<void>((resolve) => { compileStarted = resolve; });
+    const release = new Promise<void>((resolve) => { releaseCompile = resolve; });
+    const compile = withFileLock(join(root, "var", "compile", "execute"), async () => {
+      compileStarted();
+      await release;
+      await writeWiki("projects/compile-before-forget.md", {
+        type: "projects",
+        title: "Compile race derivative",
+        generated: true,
+        source_facts: [raw],
+        relations: { derived_from: [raw] },
+      }, "late compile derivative");
+    });
+    await started;
+    let forgetSettled = false;
+    const forgetting = runForget({ mode: "apply", rawPaths: [raw] })
+      .finally(() => { forgetSettled = true; });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    expect(forgetSettled).toBe(false);
+    expect(existsSync(join(root, ...raw.split("/")))).toBe(true);
+    releaseCompile();
+    await compile;
+    const result = await forgetting;
+
+    expect(result.erased).toEqual(expect.arrayContaining([raw, derivative]));
+    expect(existsSync(join(root, ...raw.split("/")))).toBe(false);
+    expect(existsSync(join(root, ...derivative.split("/")))).toBe(false);
+  });
+
+  it("holds the compile execute lock until forget is ready and prevents late provenance publication", async () => {
+    const raw = "raw/2026-05-20/codex-compile-after-forget.md";
+    const derivative = "wiki/projects/compile-after-forget.md";
+    await writeAt(raw, "compile source must be forgotten\n");
+    let releaseForget!: () => void;
+    const forgetPaused = new Promise<void>((resolve) => { forgetRmFailure.pauseStarted = resolve; });
+    forgetRmFailure.pauseRelease = new Promise<void>((resolve) => { releaseForget = resolve; });
+    forgetRmFailure.pauseTarget = raw;
+
+    const forgetting = runForget({ mode: "apply", rawPaths: [raw] });
+    await forgetPaused;
+    let compileEntered = false;
+    let generationAtCompile: string | null = null;
+    const compile = withFileLock(join(root, "var", "compile", "execute"), async () => {
+      compileEntered = true;
+      generationAtCompile = readIndexGeneration(root).state;
+      if (existsSync(join(root, ...raw.split("/")))) {
+        await writeWiki("projects/compile-after-forget.md", {
+          type: "projects",
+          title: "Late compile derivative",
+          generated: true,
+          source_facts: [raw],
+          relations: { derived_from: [raw] },
+        }, "must not publish after forget");
+      }
+    });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    expect(compileEntered).toBe(false);
+    releaseForget();
+    await expect(forgetting).resolves.toMatchObject({ status: "live-erased/history-retained" });
+    await compile;
+
+    expect(compileEntered).toBe(true);
+    expect(generationAtCompile).toBe("ready");
+    expect(existsSync(join(root, ...raw.split("/")))).toBe(false);
+    expect(existsSync(join(root, ...derivative.split("/")))).toBe(false);
   });
 
   it("returns a truthful partial-mutation receipt and keeps search quiesced when a live erase fails", async () => {

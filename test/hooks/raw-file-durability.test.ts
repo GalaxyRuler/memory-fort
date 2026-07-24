@@ -1,10 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { existsSync } from "node:fs";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { access, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { hostname, tmpdir } from "node:os";
 import { join } from "node:path";
-import { appendBlock, ensureRawSessionFile, getCaptureSpoolStatus } from "../../src/hooks/raw-file.js";
+import {
+  appendBlock,
+  ensureRawCaptureEpoch,
+  ensureRawSessionFile,
+  getCaptureSpoolStatus,
+  rawCaptureEpochPath,
+} from "../../src/hooks/raw-file.js";
 import { captureSpoolDir } from "../../src/storage/paths.js";
 
 describe("durable raw capture", () => {
@@ -84,6 +91,12 @@ describe("durable raw capture", () => {
     });
 
     await rm(`${path}.lock`);
+    await ensureRawSessionFile({
+      tool: "codex",
+      sessionId: "next-hook",
+      cwd: "C:/work",
+      now: new Date("2026-07-23T04:00:06.000Z"),
+    });
     await appendBlock({
       tool: "codex",
       sessionId: "next-hook",
@@ -134,16 +147,90 @@ describe("durable raw capture", () => {
     });
   });
 
-  it("persists a real replay failure for a fresh status reader after the hook exits", async () => {
+  it("quarantines a legacy event instead of recreating its missing raw path", async () => {
+    const missingRaw = join(root, "raw", "forgotten-legacy.md");
+    const legacyPath = join(captureSpoolDir(), "legacy-missing-raw.json");
     await mkdir(captureSpoolDir(), { recursive: true });
-    await writeFile(join(captureSpoolDir(), "child-failure.json"), JSON.stringify({
+    await writeFile(legacyPath, JSON.stringify({
       version: 1,
+      id: "legacy-missing-raw-event",
+      hash: "legacy-missing-raw-hash",
+      rawPath: missingRaw,
+      block: "LEGACY-MUST-NOT-RESURRECT",
+      createdAt: "2026-07-23T04:00:00.000Z",
+    }), "utf-8");
+
+    await ensureRawSessionFile({
+      tool: "codex",
+      sessionId: "legacy-drain-trigger",
+      cwd: "C:/work",
+      now: new Date("2026-07-23T04:00:01.000Z"),
+    });
+    await appendBlock({
+      tool: "codex",
+      sessionId: "legacy-drain-trigger",
+      block: "trigger",
+      now: new Date("2026-07-23T04:00:01.000Z"),
+    });
+
+    await expect(access(missingRaw)).rejects.toThrow();
+    expect(await readFile(legacyPath, "utf-8")).toContain("LEGACY-MUST-NOT-RESURRECT");
+    await expect(getCaptureSpoolStatus()).resolves.toMatchObject({
+      pendingEventCount: 1,
+      drainFailures: 1,
+    });
+  });
+
+  it.each(["missing", "corrupt"] as const)(
+    "preserves an epoch-bearing event when its epoch state is %s",
+    async (stateFailure) => {
+      const replayPath = join(root, "raw", `epoch-${stateFailure}.md`);
+      await mkdir(join(root, "raw"), { recursive: true });
+      await writeFile(replayPath, "live raw remains unchanged\n", "utf-8");
+      const captureEpoch = await ensureRawCaptureEpoch(replayPath);
+      const eventPath = join(captureSpoolDir(), `epoch-${stateFailure}.json`);
+      await writeFile(eventPath, JSON.stringify({
+        version: 2,
+        id: `epoch-${stateFailure}-event`,
+        hash: `epoch-${stateFailure}-hash`,
+        rawPath: replayPath,
+        block: "UNVERIFIABLE-EPOCH-MUST-NOT-APPEND",
+        createdAt: "2026-07-23T04:00:00.000Z",
+        captureEpoch,
+      }), "utf-8");
+      if (stateFailure === "missing") await rm(rawCaptureEpochPath(replayPath));
+      else await writeFile(rawCaptureEpochPath(replayPath), "not-json", "utf-8");
+
+      await ensureRawSessionFile({
+        tool: "codex",
+        sessionId: `epoch-${stateFailure}-trigger`,
+        cwd: "C:/work",
+        now: new Date("2026-07-23T04:00:01.000Z"),
+      });
+      await appendBlock({
+        tool: "codex",
+        sessionId: `epoch-${stateFailure}-trigger`,
+        block: "trigger",
+        now: new Date("2026-07-23T04:00:01.000Z"),
+      });
+
+      expect(await readFile(replayPath, "utf-8")).not.toContain("UNVERIFIABLE-EPOCH-MUST-NOT-APPEND");
+      expect(existsSync(eventPath)).toBe(true);
+      await expect(getCaptureSpoolStatus()).resolves.toMatchObject({
+        pendingEventCount: 1,
+        drainFailures: 1,
+      });
+    },
+  );
+
+  it("persists a real replay failure for a fresh status reader after the hook exits", async () => {
+    await writeReplayEvent("child-failure.json", {
       id: "child-failure-event",
       hash: "child-failure-hash",
       rawPath: root,
       block: "child replay failure payload",
       createdAt: "2026-07-23T04:00:00.000Z",
-    }), "utf-8");
+    });
     const viteNode = join(process.cwd(), "node_modules", "vite-node", "vite-node.mjs");
     const fixture = join(process.cwd(), "test", "fixtures", "capture-replay-failure-child.ts");
 
@@ -187,14 +274,13 @@ describe("durable raw capture", () => {
       ["03-deferred.json", "deferred-replay", join(root, "deferred-replay.md")],
     ] as const;
     for (const [name, id, rawPath] of pending) {
-      await writeFile(join(captureSpoolDir(), name), JSON.stringify({
-        version: 1,
+      await writeReplayEvent(name, {
         id,
         hash: `${id}-hash`,
         rawPath,
         block: `\n## [04:00:00] Prompt\n\n${id}\n`,
         createdAt: now.toISOString(),
-      }), "utf-8");
+      });
     }
 
     const started = Date.now();
@@ -218,15 +304,13 @@ describe("durable raw capture", () => {
     const replayPath = join(root, "concurrent-replay.md");
     const readyDir = join(root, "replay-ready");
     const startPath = join(root, "start-replay");
-    await mkdir(captureSpoolDir(), { recursive: true });
-    await writeFile(join(captureSpoolDir(), "concurrent.json"), JSON.stringify({
-      version: 1,
+    await writeReplayEvent("concurrent.json", {
       id: "concurrent-replay-event",
       hash: "concurrent-replay-hash",
       rawPath: replayPath,
       block: "\n## [04:00:00] Prompt\n\nconcurrent-replay-payload\n",
       createdAt: "2026-07-23T04:00:00.000Z",
-    }), "utf-8");
+    });
     await writeFile(`${replayPath}.lock`, JSON.stringify({
       pid: process.pid,
       host: hostname(),
@@ -271,15 +355,13 @@ describe("durable raw capture", () => {
       cwd: "C:/work",
       now,
     });
-    await mkdir(captureSpoolDir(), { recursive: true });
-    await writeFile(join(captureSpoolDir(), "failed-replay.json"), JSON.stringify({
-      version: 1,
+    await writeReplayEvent("failed-replay.json", {
       id: "telemetry-failure-event",
       hash: "telemetry-failure-hash",
       rawPath: root,
       block: "prior replay failure",
       createdAt: now.toISOString(),
-    }), "utf-8");
+    });
     await mkdir(join(captureSpoolDir(), "capture-drain-failures.jsonl"));
 
     await expect(appendBlock({
@@ -306,14 +388,13 @@ describe("durable raw capture", () => {
     const replayPath = join(root, "cursor-replay.md");
     await mkdir(captureSpoolDir(), { recursive: true });
     await writeFile(replayPath, "", "utf-8");
-    await writeFile(join(captureSpoolDir(), "cursor-replay.json"), JSON.stringify({
-      version: 1,
+    await writeReplayEvent("cursor-replay.json", {
       id: "cursor-replay-event",
       hash: "cursor-replay-hash",
       rawPath: replayPath,
       block: "cursor replay payload",
       createdAt: now.toISOString(),
-    }), "utf-8");
+    });
     await mkdir(join(captureSpoolDir(), "capture-replay-cursor.txt"));
 
     await expect(appendBlock({
@@ -336,14 +417,13 @@ describe("durable raw capture", () => {
       ["03-drainable.json", "drainable-three", drainablePath, "drainable-three-payload"],
     ] as const;
     for (const [name, id, rawPath, payload] of entries) {
-      await writeFile(join(captureSpoolDir(), name), JSON.stringify({
-        version: 1,
+      await writeReplayEvent(name, {
         id,
         hash: `${id}-hash`,
         rawPath,
         block: `\n## [04:00:00] Prompt\n\n${payload}\n`,
         createdAt: "2026-07-23T04:00:00.000Z",
-      }), "utf-8");
+      });
     }
     const viteNode = join(process.cwd(), "node_modules", "vite-node", "vite-node.mjs");
     const fixture = join(process.cwd(), "test", "fixtures", "capture-replay-failure-child.ts");
@@ -372,15 +452,20 @@ describe("durable raw capture", () => {
   it("counts one real failed opportunistic drain exactly once", async () => {
     await mkdir(captureSpoolDir(), { recursive: true });
     await writeFile(join(captureSpoolDir(), "malformed.json"), "not-json", "utf-8");
-    await writeFile(join(captureSpoolDir(), "failed-drain.json"), JSON.stringify({
-      version: 1,
+    await writeReplayEvent("failed-drain.json", {
       id: "failed-drain-event",
       hash: "failed-drain-hash",
       rawPath: root,
       block: "failed drain payload",
       createdAt: "2026-07-23T04:00:00.000Z",
-    }), "utf-8");
+    });
 
+    await ensureRawSessionFile({
+      tool: "codex",
+      sessionId: "next-hook",
+      cwd: "C:/work",
+      now: new Date("2026-07-23T04:00:01.000Z"),
+    });
     await appendBlock({
       tool: "codex",
       sessionId: "next-hook",
@@ -407,6 +492,7 @@ describe("durable raw capture", () => {
 
     await writeFile(path, `${await readFile(path, "utf-8")}${event.block}\n<!-- memory-fort-capture id=${event.id} hash=${event.hash} -->\n`);
     await rm(`${path}.lock`);
+    await ensureRawSessionFile({ tool: "codex", sessionId: "next-hook", cwd: "C:/work", now });
     await appendBlock({ tool: "codex", sessionId: "next-hook", block: "\n## [04:01:01] Prompt\n\nnext\n", now });
 
     expect((await readdir(captureSpoolDir())).filter((name) => name.endsWith(".json"))).toEqual([]);
@@ -423,5 +509,24 @@ describe("durable raw capture", () => {
       if (Date.now() >= deadline) throw new Error("replay children did not become ready");
       await new Promise((resolve) => setTimeout(resolve, 10));
     }
+  }
+
+  async function writeReplayEvent(
+    name: string,
+    event: {
+      id: string;
+      hash: string;
+      rawPath: string;
+      block: string;
+      createdAt: string;
+    },
+  ): Promise<void> {
+    await mkdir(captureSpoolDir(), { recursive: true });
+    const captureEpoch = await ensureRawCaptureEpoch(event.rawPath);
+    await writeFile(join(captureSpoolDir(), name), JSON.stringify({
+      version: 2,
+      ...event,
+      captureEpoch,
+    }), "utf-8");
   }
 });

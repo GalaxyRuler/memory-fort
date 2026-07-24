@@ -1,6 +1,6 @@
 import { access, mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import { appendBlock } from "../../src/hooks/raw-file.js";
+import { appendBlock, ensureRawSessionFile } from "../../src/hooks/raw-file.js";
 
 const readyFile = requiredEnv("MEMORY_TEST_READY_FILE");
 const startFile = requiredEnv("MEMORY_TEST_START_FILE");
@@ -8,6 +8,12 @@ const sessionId = requiredEnv("MEMORY_TEST_SESSION_ID");
 await mkdir(dirname(readyFile), { recursive: true });
 await writeFile(readyFile, "ready", "utf-8");
 await waitForFile(startFile);
+await ensureRawSessionFile({
+  tool: "codex",
+  sessionId,
+  cwd: process.cwd(),
+  now: new Date("2026-07-23T04:00:01.000Z"),
+});
 await appendBlock({
   tool: "codex",
   sessionId,

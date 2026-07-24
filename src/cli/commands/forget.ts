@@ -17,10 +17,14 @@ import {
   type IndexGeneration,
 } from "../../index/generation.js";
 import { withFileLock } from "../../storage/file-lock.js";
+import { withCompileExecuteLock } from "../../compile/execute-lock.js";
 import {
+  CaptureSpoolRemovalError,
+  completeRawCaptureEpochInvalidation,
   inspectCaptureSpoolAttribution,
   withCaptureSpoolEventsRemoved,
   type CaptureSpoolAttribution,
+  type RawCaptureEpochTransition,
 } from "../../hooks/raw-file.js";
 
 const execFileAsync = promisify(execFile);
@@ -93,7 +97,11 @@ export interface ForgetPartialMutationReceipt {
   plan: ForgetPlan;
   erased: string[];
   rewritten: string[];
-  failed: { operation: "spool" | "delete" | "rewrite" | "rebuild"; path: string; detail: string };
+  failed: {
+    operation: "invalidation" | "spool" | "delete" | "rewrite" | "rebuild";
+    path: string;
+    detail: string;
+  };
   report: string;
 }
 
@@ -145,7 +153,7 @@ export async function runForget(opts: ForgetOptions = {}): Promise<ForgetResult>
   if (mode === "apply") {
     return withFileLock(
       join(root, "var", "forget-apply"),
-      () => runForgetAtRoot(root, opts, mode),
+      () => withCompileExecuteLock(root, () => runForgetAtRoot(root, opts, mode)),
       FORGET_APPLY_LOCK,
     );
   }
@@ -226,45 +234,56 @@ async function runForgetAtRoot(
     throw new Error("memory forget: no live data matched selectors; nothing was erased or rebuilt");
   }
 
-  const invalidation = await beginDerivedIndexInvalidation(root);
-
   const erased: string[] = [];
   const rewritten: string[] = [];
-  let failed: { operation: "spool" | "delete" | "rewrite" | "rebuild"; path: string } = {
-    operation: "spool",
-    path: "capture-spool",
+  let invalidation: IndexGeneration | null = null;
+  let failed: { operation: "invalidation" | "spool" | "delete" | "rewrite" | "rebuild"; path: string } = {
+    operation: "invalidation",
+    path: "derived-index",
   };
   try {
-    await withCaptureSpoolEventsRemoved(selectedRawAbsolutePaths, async (captureSpool) => {
-      plan.captureSpool = captureSpool;
-      for (const relPath of plan.raw) {
-        failed = { operation: "delete", path: relPath };
-        await removeLivePath(root, relPath);
-        erased.push(relPath);
-      }
-      for (const fact of facts) {
-        if (fact.removeWholeFile) {
-          failed = { operation: "delete", path: fact.relPath };
-          await removeLivePath(root, fact.relPath);
-          erased.push(fact.relPath);
-        } else {
-          failed = { operation: "rewrite", path: fact.relPath };
-          await writeFile(join(root, ...fact.relPath.split("/")), fact.content, "utf8");
-          rewritten.push(fact.relPath);
+    await withCaptureSpoolEventsRemoved(
+      selectedRawAbsolutePaths,
+      async () => {
+        failed = { operation: "invalidation", path: "derived-index" };
+        invalidation = await beginDerivedIndexInvalidation(root);
+      },
+      async (captureSpool, epochs) => {
+        plan.captureSpool = captureSpool;
+        for (const relPath of plan.raw) {
+          failed = { operation: "delete", path: relPath };
+          await removeLivePath(root, relPath);
+          erased.push(relPath);
         }
-      }
-      for (const relPath of plan.generated) {
-        failed = { operation: "delete", path: relPath };
-        await removeLivePath(root, relPath);
-        erased.push(relPath);
-      }
+        for (const fact of facts) {
+          if (fact.removeWholeFile) {
+            failed = { operation: "delete", path: fact.relPath };
+            await removeLivePath(root, fact.relPath);
+            erased.push(fact.relPath);
+          } else {
+            failed = { operation: "rewrite", path: fact.relPath };
+            await writeFile(join(root, ...fact.relPath.split("/")), fact.content, "utf8");
+            rewritten.push(fact.relPath);
+          }
+        }
+        for (const relPath of plan.generated) {
+          failed = { operation: "delete", path: relPath };
+          await removeLivePath(root, relPath);
+          erased.push(relPath);
+        }
 
-      // Keep the spool/raw locks through ready publication. No queued event can
-      // race back into the selected raw path between erase and the fresh index.
-      failed = { operation: "rebuild", path: "derived-index" };
-      await rebuildDerivedState(root, invalidation.token);
-    });
+        // Keep the spool/raw locks through ready publication. No queued event can
+        // race back into the selected raw path between erase and the fresh index.
+        failed = { operation: "rebuild", path: "derived-index" };
+        if (!invalidation) throw new Error("derived index invalidation token was not published");
+        await rebuildDerivedState(root, invalidation.token, epochs);
+      },
+    );
   } catch (error) {
+    if (error instanceof CaptureSpoolRemovalError) {
+      plan.captureSpool = error.attribution;
+      failed = { operation: "spool", path: error.failedPath };
+    }
     throw partialForgetMutationError(plan, erased, rewritten, {
       operation: failed.operation,
       path: failed.path,
@@ -635,11 +654,26 @@ async function readHistoryInventory(root: string, selectedRaw: Set<string>): Pro
   }
 }
 
-async function rebuildDerivedState(root: string, invalidatingToken: string): Promise<void> {
+async function rebuildDerivedState(
+  root: string,
+  invalidatingToken: string,
+  epochs: readonly RawCaptureEpochTransition[],
+): Promise<void> {
   try {
     await rebuildIndex(root);
     await rebuildSearchIndex(root);
     await completeIndexInvalidation(root, invalidatingToken);
+    try {
+      // Keep capture epochs invalidating until the derived generation is ready.
+      // The selected raw locks are still held, so a capture can only append
+      // after this final boundary has published a fresh ready epoch.
+      await completeRawCaptureEpochInvalidation(epochs);
+    } catch (error) {
+      // Ready derived data with an unavailable capture boundary is not a
+      // complete forget transaction. Re-quiesce search before surfacing it.
+      await beginIndexInvalidation(root).catch(() => undefined);
+      throw error;
+    }
   } catch (error) {
     // Also remove any partial new generation. Leaving no search database is
     // safer and more honest than keeping stale or incomplete derived hits. The
@@ -666,11 +700,10 @@ async function rebuildDerivedState(root: string, invalidatingToken: string): Pro
 }
 
 async function beginDerivedIndexInvalidation(root: string): Promise<IndexGeneration> {
-  let invalidation: IndexGeneration | null = null;
+  const invalidation = await beginIndexInvalidation(root);
   try {
     // Publish the fence before the first live deletion. Dashboard controllers
     // close their cached readers and refuse to reopen while this state holds.
-    invalidation = await beginIndexInvalidation(root);
     deleteIndexDbFiles(resolveIndexDbPath({ vaultRoot: root }));
     // Root index.md is the auto-generated human-readable view of the same
     // generation. Remove only this known generated root artifact; nested wiki
@@ -678,15 +711,9 @@ async function beginDerivedIndexInvalidation(root: string): Promise<IndexGenerat
     await rm(join(root, "index.md"), { force: true });
     return invalidation;
   } catch (error) {
-    // No live path has been touched yet. Re-enable the prior generation only
-    // when the fence can be completed; otherwise it stays quiesced safely.
-    if (invalidation) {
-      try {
-        await completeIndexInvalidation(root, invalidation.token);
-      } catch {
-        // The failure below truthfully records that index invalidation remains incomplete.
-      }
-    }
+    // Once the invalidating token is visible, setup may already have removed a
+    // derived artifact. Keep the fence quiesced; republishing ready would expose
+    // a partial or stale generation.
     const detail = error instanceof Error ? error.message : String(error);
     throw new Error(
       `memory forget: derived index invalidation is incomplete; live data was not erased: ${detail}`,
@@ -757,7 +784,9 @@ function formatForgetReport(mode: ForgetMode, plan: ForgetPlan, erased: string[]
     `SQLite FTS rows: ${plan.index.fts.length}`,
     `SQLite vector rows: ${plan.index.vectors.length}`,
     `Capture spool status: ${plan.captureSpool.status}`,
-    `Capture spool attributable events: ${plan.captureSpool.pendingEventCount}`,
+    `Capture spool attributable events: ${plan.captureSpool.attributableEventCount}`,
+    `Capture spool pending events: ${plan.captureSpool.pendingEventCount}`,
+    `Capture spool removed/dropped events: ${plan.captureSpool.removedEventCount}`,
     `Archived copies retained: ${plan.archive.length}`,
     `Crystals retained: ${plan.crystals.length}`,
     `Git history retained: ${plan.history.gitCommits.length}`,
@@ -784,7 +813,7 @@ function formatForgetReport(mode: ForgetMode, plan: ForgetPlan, erased: string[]
   }
   if (mode !== "plan" && plan.blocked.length > 0) lines.push(`Blocked manual curated pages: ${plan.blocked.join(", ")}`);
   if (mode !== "plan") {
-    appendInventorySection(lines, "Removed attributable capture-spool events", plan.captureSpool.paths);
+    appendInventorySection(lines, "Removed attributable capture-spool events", plan.captureSpool.removedPaths);
   }
   if (plan.rewrittenFacts.length > 0) lines.push(`Partially redacted fact files retained: ${plan.rewrittenFacts.join(", ")}`);
   if (erased.length > 0) lines.push("", "Live material erased:", ...erased.map((path) => `- ${path}`));
@@ -811,11 +840,15 @@ function formatForgetPartialMutationReport(
     `Failed ${failed.operation}: ${failed.path}`,
     `Failure detail: ${failed.detail}`,
     `Capture spool status: ${plan.captureSpool.status}`,
+    `Capture spool attributable events: ${plan.captureSpool.attributableEventCount}`,
+    `Capture spool pending events: ${plan.captureSpool.pendingEventCount}`,
+    `Capture spool removed/dropped events: ${plan.captureSpool.removedEventCount}`,
   ];
   appendInventorySection(lines, "Completed live deletions", [...erased].sort());
   appendInventorySection(lines, "Completed fact rewrites", [...rewritten].sort());
   appendInventorySection(lines, "Planned live raw paths", plan.raw);
   appendInventorySection(lines, "Attributable capture-spool events", plan.captureSpool.paths);
+  appendInventorySection(lines, "Removed attributable capture-spool events", plan.captureSpool.removedPaths);
   return `${lines.join("\n")}\n`;
 }
 
@@ -826,7 +859,9 @@ function partialForgetMutationError(
   failed: ForgetPartialMutationReceipt["failed"],
 ): ForgetPartialMutationError {
   const status: ForgetPartialMutationReceipt["status"] =
-    failed.operation === "spool" && erased.length === 0 && rewritten.length === 0
+    (failed.operation === "spool" || failed.operation === "invalidation")
+      && erased.length === 0
+      && rewritten.length === 0
       ? "aborted-before-live-mutation/index-invalidating"
       : "partial-live-mutation/rebuild-incomplete";
   const receipt: ForgetPartialMutationReceipt = {

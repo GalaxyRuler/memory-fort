@@ -1,4 +1,11 @@
-import { appendBlock } from "../../src/hooks/raw-file.js";
+import { appendBlock, ensureRawSessionFile } from "../../src/hooks/raw-file.js";
+
+await ensureRawSessionFile({
+  tool: "codex",
+  sessionId: "child-replay-failure",
+  cwd: process.cwd(),
+  now: new Date("2026-07-23T04:00:01.000Z"),
+});
 
 await appendBlock({
   tool: "codex",

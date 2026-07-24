@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtemp, rm, readFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import {
   formatTimestamp,
   formatPromptBlock,
@@ -13,8 +13,10 @@ import {
   ensureRawSessionFile,
   appendBlock,
   mutateRawFrontmatter,
+  rawCaptureEpochPath,
 } from "../../src/hooks/raw-file.js";
 import { parseFrontmatter } from "../../src/storage/frontmatter.js";
+import { rawSessionFile } from "../../src/storage/paths.js";
 
 describe("raw-file formatters", () => {
   const t = new Date(Date.UTC(2026, 4, 21, 9, 8, 7));
@@ -149,14 +151,19 @@ describe("raw-file formatters", () => {
 describe("raw-file I/O", () => {
   let tmp: string;
   let oldRoot: string | undefined;
+  let oldSpool: string | undefined;
   beforeEach(async () => {
     tmp = await mkdtemp(join(tmpdir(), "memtest-rawfile-"));
     oldRoot = process.env["MEMORY_ROOT"];
+    oldSpool = process.env["MEMORY_CAPTURE_SPOOL_DIR"];
     process.env["MEMORY_ROOT"] = tmp;
+    process.env["MEMORY_CAPTURE_SPOOL_DIR"] = join(tmp, "capture-spool");
   });
   afterEach(async () => {
     if (oldRoot === undefined) delete process.env["MEMORY_ROOT"];
     else process.env["MEMORY_ROOT"] = oldRoot;
+    if (oldSpool === undefined) delete process.env["MEMORY_CAPTURE_SPOOL_DIR"];
+    else process.env["MEMORY_CAPTURE_SPOOL_DIR"] = oldSpool;
     await rm(tmp, { recursive: true, force: true });
   });
 
@@ -192,6 +199,32 @@ describe("raw-file I/O", () => {
     });
     const second = await readFile(path, "utf-8");
     expect(second).toBe(first);
+  });
+
+  it("bootstraps an operational capture epoch for an existing legacy session", async () => {
+    const t = new Date(Date.UTC(2026, 4, 21));
+    const path = rawSessionFile("claude-code", "legacy-session", t, tmp);
+    await mkdir(dirname(path), { recursive: true });
+    await writeFile(path, "legacy raw content\n", "utf-8");
+
+    await ensureRawSessionFile({
+      tool: "claude-code",
+      sessionId: "legacy-session",
+      cwd: "C:\\test",
+      now: t,
+    });
+    await appendBlock({
+      tool: "claude-code",
+      sessionId: "legacy-session",
+      block: "\n## [09:00:00] Prompt\n\npost-upgrade capture\n",
+      now: t,
+    });
+
+    expect(JSON.parse(await readFile(rawCaptureEpochPath(path), "utf-8"))).toMatchObject({
+      version: 1,
+      state: "ready",
+    });
+    expect(await readFile(path, "utf-8")).toContain("post-upgrade capture");
   });
 
   it("appendBlock appends to existing session file", async () => {
