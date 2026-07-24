@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { ClientIntegrationStatus } from "../../clients/status.js";
+import type { ClientIntegrationStatus } from "../../clients/presentation.js";
 import type { ConfigurableClientId } from "../../clients/catalog.js";
 import { apiGet, apiPost } from "../lib/api.js";
 

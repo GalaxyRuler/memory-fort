@@ -1,5 +1,5 @@
 import { CLIENT_CATALOG, readConfiguredClientEnabled } from "../../clients/catalog.js";
-import { classifyClientPresentation } from "../../clients/status.js";
+import { classifyClientPresentation } from "../../clients/presentation.js";
 import { useConfig } from "../hooks/useConfig.js";
 import { useUpdateConfig } from "../hooks/useUpdateConfig.js";
 import { useClientAction, useClientStatuses } from "../hooks/useClientStatus.js";

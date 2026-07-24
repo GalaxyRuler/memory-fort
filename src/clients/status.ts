@@ -17,39 +17,26 @@ import { isClaudeCodePluginEnabled } from "../cli/commands/install/claude-code.j
 import { readOpenCodeReadiness } from "../cli/commands/install/opencode.js";
 import { readOpenCovenReadiness } from "../cli/commands/install/opencoven.js";
 import { vscodeMcpConfigPath } from "../cli/commands/install/vscode.js";
+import {
+  type ClientHealth,
+  type ClientInstallation,
+  type ClientIntegrationStatus,
+  type ClientName,
+} from "./presentation.js";
 
-export type ClientName =
-  | "claude-code"
-  | "claude-desktop"
-  | "codex"
-  | "antigravity"
-  | "antigravity-ide"
-  | "chatgpt"
-  | "hermes"
-  | "pi"
-  | "openclaw"
-  | "opencoven"
-  | "opencode"
-  | "vscode";
-
-export type ClientInstallation = "missing" | "stale" | "installed";
-export type ClientHealth = "unknown" | "healthy" | "unhealthy";
+export {
+  classifyClientPresentation,
+  type ClientHealth,
+  type ClientInstallation,
+  type ClientIntegrationStatus,
+  type ClientName,
+} from "./presentation.js";
 
 /**
  * The single truth for every surface (CLI, dashboard, and Electron bootstrap).
  * Installation and health deliberately remain separate: a config file does not
  * prove that its referenced hook or MCP process is usable.
  */
-export interface ClientIntegrationStatus {
-  client: ClientName;
-  captureEnabled: boolean;
-  installation: ClientInstallation;
-  health: ClientHealth;
-  lastCheckedAt: string | null;
-  evidence: string[];
-  configPath?: string;
-}
-
 export const CLIENTS: ClientName[] = [
   "claude-code", "claude-desktop", "codex", "antigravity", "antigravity-ide",
   "chatgpt", "hermes", "pi", "openclaw", "opencoven", "opencode", "vscode",
@@ -75,21 +62,6 @@ export interface ClientStatusOptions {
   now?: () => Date;
   probeMcpCommand?: (command: McpProbeCommand) => Promise<ClientHealth>;
   probeChatGpt?: (port: number) => Promise<ClientHealth>;
-}
-
-export function classifyClientPresentation(status: ClientIntegrationStatus):
-  | "Off"
-  | "Not installed"
-  | "Needs repair"
-  | "Installed — health unknown"
-  | "Healthy"
-  | "Unhealthy" {
-  if (!status.captureEnabled) return "Off";
-  if (status.installation === "missing") return "Not installed";
-  if (status.installation === "stale") return "Needs repair";
-  if (status.health === "healthy") return "Healthy";
-  if (status.health === "unhealthy") return "Unhealthy";
-  return "Installed — health unknown";
 }
 
 export async function getClientIntegrationStatuses(
