@@ -64,6 +64,8 @@ describe("runPrune", () => {
       "wiki/archive/2026-05-24/raw/2025-01-01/codex-old.md",
       "wiki/archive/2026-05-24/wiki/projects/eligible.md",
     ]);
+    expect(applied.report).toContain("Archived:");
+    expect(applied.report).toContain("does not delete");
     expect(existsSync(join(root, "wiki", "projects", "eligible.md"))).toBe(false);
     expect(
       existsSync(

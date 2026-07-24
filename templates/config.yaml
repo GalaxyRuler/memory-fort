@@ -3,11 +3,8 @@
 
 retention:
   raw_window_days: 90
-  raw_compile_before_delete: true
-  embeddings_prune_with_raw: true
+  raw_action: archive
   wiki_status_stale_days: 180
-  crystals_never_auto_delete: true
-  archive_before_delete: true
 
 embedder:
   provider: lexical

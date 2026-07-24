@@ -277,6 +277,7 @@ function formatPruneReport(
   restored: PruneMove | null,
 ): string {
   const lines = [`Memory prune ${mode}`];
+  if (mode === "apply") lines.push("Prune archives candidates; it does not delete live data.");
   if (restored) {
     lines.push(`Restored: ${restored.from} -> ${restored.to}`);
     return `${lines.join("\n")}\n`;
@@ -287,7 +288,7 @@ function formatPruneReport(
     lines.push(`- [${candidate.category}] ${candidate.path}`);
   }
   if (moved.length > 0) {
-    lines.push("", "Moved:");
+    lines.push("", "Archived:");
     for (const move of moved) lines.push(`- ${move.from} -> ${move.to}`);
   }
   return `${lines.join("\n")}\n`;

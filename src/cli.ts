@@ -63,6 +63,7 @@ import {
   runTestLLM,
 } from "./cli/commands/provider.js";
 import { runPrune } from "./cli/commands/prune.js";
+import { runForget } from "./cli/commands/forget.js";
 import {
   formatRewriteImportedTimestampsResult,
   runRewriteImportedTimestamps,
@@ -945,6 +946,33 @@ program
           ? { mode: "restore", path: opts.restore }
           : { mode: opts.apply ? "apply" : "plan" },
       );
+      process.stdout.write(result.report);
+    } catch (err) {
+      console.error((err as Error).message);
+      process.exit(1);
+    }
+  });
+
+program
+  .command("forget")
+  .description("Plan or erase attributable live data while retaining Git, backups, archives, and crystals")
+  .option("--path <path...>", "canonical vault-relative path selector")
+  .option("--raw <path...>", "canonical raw/... path selector")
+  .option("--source <id...>", "capture/source identifier selector")
+  .option("--plan", "print the default non-mutating erase plan")
+  .option("--apply", "erase only the planned live material")
+  .action(async (opts: { path?: string[]; raw?: string[]; source?: string[]; plan?: boolean; apply?: boolean }) => {
+    if (opts.plan && opts.apply) {
+      console.error("memory forget: choose at most one of --plan or --apply");
+      process.exit(2);
+    }
+    try {
+      const result = await runForget({
+        mode: opts.apply ? "apply" : "plan",
+        paths: opts.path,
+        rawPaths: opts.raw,
+        sourceIds: opts.source,
+      });
       process.stdout.write(result.report);
     } catch (err) {
       console.error((err as Error).message);

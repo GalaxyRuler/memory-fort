@@ -111,10 +111,16 @@ export interface MemoryConfig {
   };
   retention?: {
     raw_window_days?: number;
+    /** Archive is the safe default. `delete` is reserved for an explicitly implemented retention action. */
+    raw_action?: "archive" | "delete";
+    /** @deprecated No longer implemented; use raw_action and memory forget. */
     raw_compile_before_delete?: boolean;
+    /** @deprecated No longer implemented; derived indexes are rebuilt by memory forget. */
     embeddings_prune_with_raw?: boolean;
     wiki_status_stale_days?: number;
+    /** @deprecated Crystals are excluded by behavior, not a toggle. */
     crystals_never_auto_delete?: boolean;
+    /** @deprecated `memory prune` archives by command contract. */
     archive_before_delete?: boolean;
   };
   dashboard?: {
@@ -326,6 +332,19 @@ export function validateMemoryConfig(config: MemoryConfig): string[] {
   for (const key of ["raw_window_days", "wiki_status_stale_days"]) {
     if (retention?.[key] !== undefined && !isIntegerInRange(retention[key], 1, 3650)) {
       warnings.push(`retention.${key} must be an integer between 1 and 3650`);
+    }
+  }
+  if (retention?.["raw_action"] !== undefined && retention["raw_action"] !== "archive" && retention["raw_action"] !== "delete") {
+    warnings.push("retention.raw_action must be archive or delete");
+  }
+  for (const key of [
+    "raw_compile_before_delete",
+    "embeddings_prune_with_raw",
+    "crystals_never_auto_delete",
+    "archive_before_delete",
+  ]) {
+    if (retention?.[key] !== undefined) {
+      warnings.push(`retention.${key} is deprecated and has no effect; use retention.raw_action or memory forget`);
     }
   }
   const clients = asRecord(config.clients);

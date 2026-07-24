@@ -8,22 +8,14 @@ export interface SettingsSectionProps {
   data: Record<string, ConfigValue> | undefined;
 }
 
-function yesNo(value: ConfigValue): string {
-  return value === true ? "Yes" : "No";
-}
-
 function getRetentionLabel(key: string, value: ConfigValue): string | null {
   switch (key) {
     case "raw_window_days":
       return `Keep raw sessions for ${String(value)} days`;
-    case "raw_compile_before_delete":
-      return `Compile before deleting raw sessions: ${yesNo(value)}`;
-    case "embeddings_prune_with_raw":
-      return `Prune embeddings with raw sessions: ${yesNo(value)}`;
+    case "raw_action":
+      return `Raw retention action: ${String(value)}`;
     case "wiki_status_stale_days":
       return `Mark wiki pages stale after ${String(value)} days`;
-    case "crystals_never_auto_delete":
-      return `Never auto-delete crystals: ${yesNo(value)}`;
     default:
       return null;
   }

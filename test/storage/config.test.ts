@@ -233,6 +233,31 @@ describe("memory config reader", () => {
     expect(config.compress?.max_chunks).toBe(8);
     expect(config.compress?.max_call_tokens).toBe(100_000);
   });
+
+  it("uses an explicit raw retention action and warns that superseded retention booleans do nothing", async () => {
+    await writeFile(
+      join(tmp, "config.yaml"),
+      [
+        "retention:",
+        "  raw_window_days: 30",
+        "  raw_action: archive",
+        "  raw_compile_before_delete: true",
+        "  embeddings_prune_with_raw: true",
+      ].join("\n"),
+    );
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    await expect(loadMemoryConfig(tmp)).resolves.toMatchObject({
+      retention: { raw_window_days: 30, raw_action: "archive" },
+    });
+    const warnings = warn.mock.calls.map((call) => String(call[0])).join("\n");
+    expect(warnings).toContain("retention.raw_compile_before_delete is deprecated");
+    expect(warnings).toContain("retention.embeddings_prune_with_raw is deprecated");
+    expect(validateMemoryConfig({ retention: { raw_action: "destroy" } })).toContain(
+      "retention.raw_action must be archive or delete",
+    );
+    warn.mockRestore();
+  });
 });
 
 describe("client toggles", () => {

@@ -165,25 +165,19 @@ describe("settings page", () => {
         title="retention"
         data={{
           raw_window_days: 90,
-          raw_compile_before_delete: true,
-          embeddings_prune_with_raw: true,
+          raw_action: "archive",
           wiki_status_stale_days: 180,
-          crystals_never_auto_delete: true,
         }}
       />,
     );
 
     expect(screen.getByText("Keep raw sessions for 90 days")).toBeInTheDocument();
-    expect(screen.getByText("Compile before deleting raw sessions: Yes")).toBeInTheDocument();
-    expect(screen.getByText("Prune embeddings with raw sessions: Yes")).toBeInTheDocument();
+    expect(screen.getByText("Raw retention action: archive")).toBeInTheDocument();
     expect(screen.getByText("Mark wiki pages stale after 180 days")).toBeInTheDocument();
-    expect(screen.getByText("Never auto-delete crystals: Yes")).toBeInTheDocument();
 
     expect(screen.getByText("raw_window_days")).toBeInTheDocument();
-    expect(screen.getByText("raw_compile_before_delete")).toBeInTheDocument();
-    expect(screen.getByText("embeddings_prune_with_raw")).toBeInTheDocument();
+    expect(screen.getByText("raw_action")).toBeInTheDocument();
     expect(screen.getByText("wiki_status_stale_days")).toBeInTheDocument();
-    expect(screen.getByText("crystals_never_auto_delete")).toBeInTheDocument();
   });
 
   test("SettingsPage renders sections from config", () => {
