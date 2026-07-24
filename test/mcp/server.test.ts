@@ -378,6 +378,9 @@ describe("memory.search MCP tool", () => {
         ]),
       });
       expect(parsed.results.some((item: { path: string }) => item.path.startsWith("wiki/.audit/"))).toBe(false);
+      expect(parsed.results.some((item: { path: string }) => item.path.includes(".compact-archive"))).toBe(false);
+      expect(parsed.results.some((item: { path: string }) => item.path.includes("_archive"))).toBe(false);
+      expect(parsed.results.some((item: { path: string }) => item.path.startsWith("Archive/"))).toBe(false);
       const parsedPage = parseFrontmatter(await readFile(join(tmp, "wiki", "tools", "voyageai.md"), "utf-8"));
       expect(parsedPage.frontmatter.last_accessed).toBe("2026-06-02");
       expect(parsedPage.frontmatter.version).toBe(2);
@@ -1505,6 +1508,32 @@ function searchFixture() {
         source: "bm25",
         sources: [{ source: "bm25", rank: 0 }],
         kind: "wiki",
+      },
+      {
+        path: "raw/.compact-archive/2026-05-29/retained.md",
+        title: "Retained raw",
+        snippet: "Retained raw details should not reach MCP search.",
+        score: 0.98,
+        source: "bm25",
+        sources: [{ source: "bm25", rank: 1 }],
+        kind: "raw",
+      },
+      {
+        path: "wiki/_archive/retained.md",
+        title: "Retained maintenance page",
+        snippet: "Retained maintenance details should not reach MCP search.",
+        score: 0.97,
+        source: "bm25",
+        sources: [{ source: "bm25", rank: 2 }],
+        kind: "wiki",
+      },
+      {
+        path: "Archive/legacy-retained.md",
+        title: "Unprefixed retained page",
+        snippet: "Unprefixed retained details should not reach MCP search.",
+        score: 0.96,
+        source: "bm25",
+        sources: [{ source: "bm25", rank: 3 }],
       },
       {
         path: "wiki/tools/voyageai.md",

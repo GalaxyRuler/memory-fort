@@ -333,7 +333,7 @@ function emitSessionStartContext(payload, root) {
     // Project context is opportunistic; keep the schema/index/log fallback.
   }
   appendContextSection(parts, "Schema", join(root, "schema.md"));
-  appendContextSection(parts, "Index", join(root, "index.md"));
+  appendFilteredIndexContext(parts, join(root, "index.md"));
   appendContextSection(parts, "Recent log", join(root, "log.md"), 20);
   process.stdout.write(parts.join(""));
 }
@@ -348,6 +348,19 @@ function appendContextSection(parts, label, path, tail) {
   }
 }
 
+function appendFilteredIndexContext(parts, path) {
+  try {
+    const content = readFileSync(path, "utf-8");
+    const visible = content.split(/\\r?\\n/).filter((line) => {
+      const reference = indexReferencePath(line);
+      return !reference || !isProtectedMemoryReference(reference);
+    }).join("\\n");
+    parts.push("\\n--- Index (" + path + ") ---\\n" + visible.trim() + "\\n");
+  } catch {
+    // Missing files are normal on fresh installs.
+  }
+}
+
 function currentProjectMemoryBlock(root, cwd) {
   if (!cwd) return "";
   const projectRelPath = resolveProjectForCwd(cwd, root);
@@ -356,7 +369,7 @@ function currentProjectMemoryBlock(root, cwd) {
   const indexEntries = parseIndexEntries(safeRead(join(root, "index.md")));
   const related = collectRelatedEntries(root, projectRelPath, project.frontmatterText, project.body, indexEntries);
   const block = [
-    formatCurrentProjectSection(projectRelPath, project.frontmatterText, project.body),
+    formatCurrentProjectSection(projectRelPath, project.frontmatterText, omitProtectedWikilinks(project.body)),
     formatRelatedMemorySection(related),
   ].join("\\n");
   return truncateWithMarker(block, 8000);
@@ -425,7 +438,7 @@ function collectRelatedEntries(root, projectRelPath, frontmatterText, body, inde
   const related = [];
   for (const candidate of candidates) {
     const relPath = resolveMemoryReference(candidate, indexBySlug);
-    if (!relPath || relPath === projectRelPath || seen.has(relPath)) continue;
+    if (!relPath || isProtectedMemoryReference(relPath) || relPath === projectRelPath || seen.has(relPath)) continue;
     seen.add(relPath);
     const indexEntry = indexByPath.get(relPath) || {
       path: relPath,
@@ -493,13 +506,13 @@ function parseIndexEntries(indexContent) {
     const markdown = line.match(/^-[ \\t]+\\[([^\\]]+)\\]\\(([^)#]+)(?:#[^)]+)?\\)[ \\t]+-[ \\t]*(.*)$/);
     if (markdown) {
       const path = normalizeReferencePath(markdown[2]);
-      if (path) entries.push({ title: markdown[1].trim(), path, summary: markdown[3].trim() });
+      if (path && !isProtectedMemoryReference(path)) entries.push({ title: markdown[1].trim(), path, summary: markdown[3].trim() });
       continue;
     }
     const wiki = line.match(/^-[ \\t]+\\[\\[([^\\]|#]+)(?:#[^\\]|]*)?(?:\\|([^\\]]+))?\\]\\][ \\t]*(?:-[ \\t]*)?(.*)$/);
     if (wiki) {
       const path = normalizeReferencePath(wiki[1]);
-      if (path) entries.push({ title: (wiki[2] || titleFromRelPath(path)).trim(), path, summary: wiki[3].trim() || titleFromRelPath(path) });
+      if (path && !isProtectedMemoryReference(path)) entries.push({ title: (wiki[2] || titleFromRelPath(path)).trim(), path, summary: wiki[3].trim() || titleFromRelPath(path) });
     }
   }
   return entries;
@@ -529,8 +542,33 @@ function normalizeReferencePath(value) {
   if (["projects", "people", "decisions", "lessons", "references", "tools", "threads", "procedures", "prospective"].includes(first)) {
     return "wiki/" + normalized;
   }
-  if (normalized.startsWith("wiki/") || normalized.startsWith("crystals/")) return normalized;
+  if (normalized.startsWith("wiki/") || normalized.startsWith("crystals/") || normalized.startsWith("raw/")) return normalized;
   return normalized;
+}
+
+function isProtectedMemoryReference(relPath) {
+  return String(relPath).includes("/") && hasArchiveOrSystemPathComponent(relPath);
+}
+
+function hasArchiveOrSystemPathComponent(relPath) {
+  return String(relPath).replace(/\\\\/g, "/").split("/").some((component) => {
+    const normalized = component.toLowerCase();
+    return normalized === "archive" || normalized === "_archive" || normalized.startsWith(".");
+  });
+}
+
+function indexReferencePath(line) {
+  const markdown = line.match(/\\]\\(([^)#]+)(?:#[^)]+)?\\)/);
+  const wiki = line.match(/\\[\\[([^\\]|#]+)(?:#[^\\]|]*)?(?:\\|[^\\]]*)?\\]\\]/);
+  return normalizeReferencePath((wiki && wiki[1]) || (markdown && markdown[1]) || "");
+}
+
+function omitProtectedWikilinks(body) {
+  return body.replace(/\\[\\[([^\\]|#]+)(?:#[^\\]|]*)?(?:\\|([^\\]]+))?\\]\\]/g, (match, target, label) => {
+    const relPath = normalizeReferencePath(target);
+    if (!relPath || !isProtectedMemoryReference(relPath)) return match;
+    return String(label || "").trim() || "[retained reference omitted]";
+  });
 }
 
 function readRelatedMetadata(root, relPath) {

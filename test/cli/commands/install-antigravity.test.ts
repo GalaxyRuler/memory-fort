@@ -251,6 +251,58 @@ describe("installAntigravity", () => {
     expect(raw).toContain("## [00:00:00] Session Start");
   });
 
+  it("session_start hook excludes retained paths from project, related, and index context", async () => {
+    await writeAntigravityProjectMemoryFixture(
+      memDir,
+      "Project body references [[raw/.compact-archive/2026-06-02/retained.md]].",
+    );
+    const projectPath = join(memDir, "wiki", "projects", "memory-system.md");
+    const project = await readFile(projectPath, "utf-8");
+    await writeFile(
+      projectPath,
+      project.replace(
+        "    - wiki/projects/agentmemory.md",
+        [
+          "    - wiki/projects/agentmemory.md",
+          "    - wiki/archive/retained-from-relation.md",
+          "    - wiki/_archive/retained-from-maintenance.md",
+        ].join("\n"),
+      ),
+    );
+    await writeFile(
+      join(memDir, "index.md"),
+      [
+        "- [AgentMemory](wiki/projects/agentmemory.md) - Live summary.",
+        "- [Retained](wiki/archive/retained.md) - RETAINED-INDEX-MARKER",
+        "- [Maintenance](wiki/_archive/retained.md) - MAINTENANCE-INDEX-MARKER",
+      ].join("\n"),
+    );
+    const result = await installAntigravity({
+      antigravityDir,
+      antigravityVersion: "2.1.0",
+    });
+    const hookPath = join(result.pluginDir, "hooks", "session_start.mjs");
+
+    const hook = spawnSync(process.execPath, [hookPath], {
+      input: JSON.stringify({
+        sessionId: "project-memory-retained",
+        timestamp: "2026-06-02T00:00:00.000Z",
+        cwd: "C:\\Repos\\memory-system",
+      }),
+      encoding: "utf-8",
+      env: { ...process.env, MEMORY_ROOT: memDir },
+    });
+
+    expect(hook.status).toBe(0);
+    expect(hook.stdout).toContain("AgentMemory (wiki/projects/agentmemory.md)");
+    expect(hook.stdout).toContain("[retained reference omitted]");
+    expect(hook.stdout).not.toContain("raw/.compact-archive/");
+    expect(hook.stdout).not.toContain("wiki/archive/");
+    expect(hook.stdout).not.toContain("wiki/_archive/");
+    expect(hook.stdout).not.toContain("RETAINED-INDEX-MARKER");
+    expect(hook.stdout).not.toContain("MAINTENANCE-INDEX-MARKER");
+  });
+
   it("session_start hook omits project sections for unknown cwd", async () => {
     await writeAntigravityProjectMemoryFixture(memDir);
     const result = await installAntigravity({

@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   applyCompileOperations,
+  applyOperation,
   isKnowledgePageType,
   parseCompileOperationsBlock,
 } from "../../src/compile/execute.js";
@@ -48,6 +49,42 @@ describe("compile execute operations", () => {
     expect(isKnowledgePageType("prospective")).toBe(true);
     expect(isKnowledgePageType("procedures")).toBe(true);
     expect(isKnowledgePageType("threads")).toBe(false);
+  });
+
+  it("rejects protected physical paths before compile operations can read or write them", async () => {
+    const protectedPaths = [
+      "wiki/projects/.retained.md",
+      "wiki/archive/retained.md",
+      "wiki/_archive/retained.md",
+      "wiki/Archive/retained.md",
+    ];
+    const result = await applyCompileOperations({
+      vaultRoot: tmp,
+      operations: protectedPaths.map((path) => ({
+        kind: "write_page" as const,
+        path,
+        frontmatter: { type: "projects" as const, title: "Retained" },
+        body: "Retained content must stay retained.",
+      })),
+    });
+
+    expect(result.applied).toEqual([]);
+    expect(result.rejected).toEqual(protectedPaths.map((path) => ({
+      path,
+      reason: `protected archive or system path not allowed: ${path}`,
+    })));
+    for (const path of protectedPaths) {
+      expect(existsSync(join(tmp, ...path.split("/")))).toBe(false);
+    }
+
+    await expect(applyOperation(tmp, {
+      kind: "append_page",
+      path: "wiki/projects/.retained.md",
+      section: "Must not be read.",
+    })).resolves.toEqual({
+      ok: false,
+      reason: "protected archive or system path not allowed: wiki/projects/.retained.md",
+    });
   });
 
   it("applies high-confidence write_page operations after grounding and redaction", async () => {

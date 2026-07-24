@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
+import { ARCHIVE_OR_SYSTEM_RIPGREP_EXCLUSION_GLOBS } from "../../storage/archive-paths.js";
 import { rawDir, wikiDir } from "../../storage/paths.js";
 
 export type GrepScope = "raw" | "wiki" | "both";
@@ -70,6 +71,10 @@ export async function runGrep(opts: GrepOptions): Promise<GrepResult> {
     String(ctx),
     "--color",
     "never",
+    // Exclude retained and operational components before rg reads or emits
+    // content. Case-insensitive glob matching keeps this aligned on Windows.
+    "--glob-case-insensitive",
+    ...ARCHIVE_OR_SYSTEM_RIPGREP_EXCLUSION_GLOBS.flatMap((glob) => ["--glob", glob]),
     "--",
     opts.pattern,
     ...dirs,

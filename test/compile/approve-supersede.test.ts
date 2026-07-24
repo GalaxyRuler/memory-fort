@@ -155,6 +155,45 @@ describe("applyApprovedSupersedeProposal", () => {
     if (!result.ok) expect(result.reason).toContain("path traversal blocked");
   });
 
+  it.each([
+    "wiki/tools/.retained.md",
+    "wiki/archive/retained.md",
+    "wiki/_archive/retained.md",
+    "wiki/Archive/retained.md",
+  ])("rejects protected old_page targets without reading or archiving %s", async (oldPage) => {
+    const { root, proposedDir, archiveDir } = await setupVault();
+    const proposalPath = join(proposedDir, "supersede-protected-old-12345.md");
+    await writeFile(proposalPath, makeProposal({ old_page: oldPage }));
+
+    const result = await applyApprovedSupersedeProposal({ vaultRoot: root, proposalPath });
+
+    expect(result).toEqual({
+      ok: false,
+      reason: `protected archive or system path not allowed for old_page: ${oldPage}`,
+    });
+    await expect(readdir(archiveDir)).rejects.toThrow();
+  });
+
+  it.each([
+    "wiki/tools/.replacement.md",
+    "wiki/archive/replacement.md",
+    "wiki/_archive/replacement.md",
+    "wiki/Archive/replacement.md",
+  ])("rejects protected new_page targets before patching old content %s", async (newPage) => {
+    const { root, wikiDir, proposedDir, archiveDir } = await setupVault();
+    const proposalPath = join(proposedDir, "supersede-protected-new-12345.md");
+    await writeFile(proposalPath, makeProposal({ new_page: newPage }));
+
+    const result = await applyApprovedSupersedeProposal({ vaultRoot: root, proposalPath });
+
+    expect(result).toEqual({
+      ok: false,
+      reason: `protected archive or system path not allowed for new_page: ${newPage}`,
+    });
+    await expect(readFile(join(wikiDir, "old-tool.md"), "utf-8")).resolves.toContain("status: active");
+    await expect(readdir(archiveDir)).rejects.toThrow();
+  });
+
   it("is idempotent — re-approving an already-approved proposal succeeds", async () => {
     const { root, wikiDir, proposedDir } = await setupVault();
     const proposalPath = join(proposedDir, "supersede-old-tool-12345.md");

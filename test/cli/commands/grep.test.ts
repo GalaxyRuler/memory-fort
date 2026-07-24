@@ -72,6 +72,12 @@ describe("runGrep (mocked spawn)", () => {
     expect(result.dirsSearched.some((dir) => dir.includes("raw"))).toBe(true);
     expect(result.dirsSearched.some((dir) => dir.includes("wiki"))).toBe(true);
     expect(capturedArgs).toContain("foo");
+    expect(capturedArgs).toContain("--glob-case-insensitive");
+    expect(capturedArgs).toEqual(expect.arrayContaining([
+      "!**/archive/**",
+      "!**/_archive/**",
+      "!**/.*/**",
+    ]));
   });
 
   it("restricts to raw/ only when scope=raw", async () => {
@@ -199,4 +205,45 @@ describe("runGrep (real rg integration)", () => {
     expect(stdoutCapture).toContain("agentmemory.md");
     expect(stdoutCapture).toContain("stale port");
   });
+
+  realRgIt("excludes archive, _archive, and system descendants case-insensitively", async () => {
+    await mkdir(join(tmp, "raw", "2026-05-21"), { recursive: true });
+    await mkdir(join(tmp, "raw", "Archive"), { recursive: true });
+    await mkdir(join(tmp, "raw", "_archive"), { recursive: true });
+    await mkdir(join(tmp, "raw", ".compact-archive", "2026-05-21"), { recursive: true });
+    await mkdir(join(tmp, "wiki", "Archive"), { recursive: true });
+    await mkdir(join(tmp, "wiki", "_archive"), { recursive: true });
+    await mkdir(join(tmp, "wiki", ".audit"), { recursive: true });
+    await Promise.all([
+      writeFile(join(tmp, "raw", "2026-05-21", "live.md"), "GREP-LIVE-RAW-FIREWALL\n"),
+      writeFile(join(tmp, "wiki", "projects", "live.md"), "GREP-LIVE-WIKI-FIREWALL\n"),
+      writeFile(join(tmp, "raw", "Archive", "retained.md"), "GREP-ARCHIVED-RAW-FIREWALL\n"),
+      writeFile(join(tmp, "raw", "_archive", "retained.md"), "GREP-CANONICAL-ARCHIVE-RAW-FIREWALL\n"),
+      writeFile(join(tmp, "raw", ".compact-archive", "2026-05-21", "retained.md"), "GREP-SYSTEM-RAW-FIREWALL\n"),
+      writeFile(join(tmp, "wiki", "Archive", "retained.md"), "GREP-ARCHIVED-WIKI-FIREWALL\n"),
+      writeFile(join(tmp, "wiki", "_archive", "retained.md"), "GREP-CANONICAL-ARCHIVE-WIKI-FIREWALL\n"),
+      writeFile(join(tmp, "wiki", ".audit", "retained.md"), "GREP-SYSTEM-WIKI-FIREWALL\n"),
+    ]);
+
+    let stdoutCapture = "";
+    const result = await runGrep({
+      pattern: "GREP-.*-FIREWALL",
+      scope: "both",
+      stdout: (text) => {
+        stdoutCapture += text;
+      },
+      stderr: () => {},
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(stdoutCapture).toContain("GREP-LIVE-RAW-FIREWALL");
+    expect(stdoutCapture).toContain("GREP-LIVE-WIKI-FIREWALL");
+    expect(stdoutCapture).not.toContain("ARCHIVED-RAW");
+    expect(stdoutCapture).not.toContain("CANONICAL-ARCHIVE-RAW");
+    expect(stdoutCapture).not.toContain("SYSTEM-RAW");
+    expect(stdoutCapture).not.toContain("ARCHIVED-WIKI");
+    expect(stdoutCapture).not.toContain("CANONICAL-ARCHIVE-WIKI");
+    expect(stdoutCapture).not.toContain("SYSTEM-WIKI");
+  });
+
 });

@@ -2,6 +2,7 @@ import { readFile, mkdir, writeFile } from "node:fs/promises";
 import { join, resolve, relative, isAbsolute, basename } from "node:path";
 import { parseFrontmatter, serializeFrontmatter } from "../storage/frontmatter.js";
 import { atomicWrite } from "../storage/atomic-write.js";
+import { hasArchiveOrSystemPathComponent } from "../storage/archive-paths.js";
 
 interface ApproveOpts {
   vaultRoot: string;
@@ -62,12 +63,24 @@ export async function applyApprovedSupersedeProposal(
   if (!oldPageRel || !patch) {
     return { ok: false, reason: "proposal missing old_page or old_page_patch" };
   }
-
-  // Path safety: old_page must resolve inside vaultRoot
   const oldFullPath = resolve(opts.vaultRoot, oldPageRel);
-  const relCheck = relative(resolve(opts.vaultRoot), oldFullPath);
-  if (relCheck.startsWith("..") || isAbsolute(relCheck)) {
+  const oldRelCheck = relative(resolve(opts.vaultRoot), oldFullPath);
+  if (oldRelCheck.startsWith("..") || isAbsolute(oldRelCheck)) {
     return { ok: false, reason: `path traversal blocked: ${oldPageRel}` };
+  }
+  if (hasArchiveOrSystemPathComponent(oldPageRel)) {
+    return { ok: false, reason: `protected archive or system path not allowed for old_page: ${oldPageRel}` };
+  }
+  let newFullPath: string | undefined;
+  if (newPageRel) {
+    newFullPath = resolve(opts.vaultRoot, newPageRel);
+    const newRelCheck = relative(resolve(opts.vaultRoot), newFullPath);
+    if (newRelCheck.startsWith("..") || isAbsolute(newRelCheck)) {
+      return { ok: false, reason: `path traversal blocked: ${newPageRel}` };
+    }
+    if (hasArchiveOrSystemPathComponent(newPageRel)) {
+      return { ok: false, reason: `protected archive or system path not allowed for new_page: ${newPageRel}` };
+    }
   }
 
   // Read old page
@@ -83,8 +96,7 @@ export async function applyApprovedSupersedeProposal(
 
   // Verify replacement page exists before touching anything
   if (newPageRel) {
-    const newFullPath = resolve(opts.vaultRoot, newPageRel);
-    if (!(await fileExists(newFullPath))) {
+    if (!(await fileExists(newFullPath!))) {
       return { ok: false, reason: `replacement page not found: ${newPageRel}` };
     }
   }

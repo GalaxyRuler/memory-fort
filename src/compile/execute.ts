@@ -7,6 +7,7 @@ import { filterWikiReferencesToExisting, stripProsePathLeaksFromText } from "../
 import { redactSecrets } from "../privacy/redaction.js";
 import { readRelationTarget, type SerializedRelationEdge } from "../retrieval/relations.js";
 import { atomicAppend, atomicWrite } from "../storage/atomic-write.js";
+import { hasArchiveOrSystemPathComponent } from "../storage/archive-paths.js";
 import { parseFrontmatter, serializeFrontmatter, type Frontmatter } from "../storage/frontmatter.js";
 import { type PageType } from "../storage/paths.js";
 import { kebabCase, normalizeWikiPagePath } from "../storage/slug.js";
@@ -279,6 +280,17 @@ export async function applyCompileOperations(
 
   for (const preparedOperation of prepared.operations) {
     const relPath = compileOperationPath(preparedOperation.operation);
+    const pathValidation = validateCompileRelPath(relPath);
+    if (!pathValidation.ok) {
+      result.rejected.push({ path: relPath, reason: pathValidation.reason });
+      result.outcomes.push({
+        path: relPath,
+        outcome: "rejected",
+        reason: pathValidation.reason,
+        contentPreserved: false,
+      });
+      continue;
+    }
     if (opts.journal && !opts.plan && journaledKeys.has(operationKey(preparedOperation.operation))) {
       result.applied.push(relPath);
       result.outcomes.push({
@@ -286,16 +298,6 @@ export async function applyCompileOperations(
         outcome: "skipped: already applied",
         reason: "recorded in ops journal from an interrupted compile",
         contentPreserved: true,
-      });
-      continue;
-    }
-    if (!isAllowedCompileRelPath(relPath)) {
-      result.rejected.push({ path: relPath, reason: "path outside allowed vault targets" });
-      result.outcomes.push({
-        path: relPath,
-        outcome: "rejected",
-        reason: "path outside allowed vault targets",
-        contentPreserved: false,
       });
       continue;
     }
@@ -484,8 +486,15 @@ function prepareCompileOperations(
 
   for (const operation of operations) {
     const originalPath = compileOperationPath(operation);
-    if (!isAllowedCompileRelPath(originalPath)) {
-      prepared.push({ operation });
+    const pathValidation = validateCompileRelPath(originalPath);
+    if (!pathValidation.ok) {
+      rejected.push({ path: originalPath, reason: pathValidation.reason });
+      outcomes.push({
+        path: originalPath,
+        outcome: "rejected",
+        reason: pathValidation.reason,
+        contentPreserved: false,
+      });
       continue;
     }
 
@@ -806,6 +815,8 @@ export async function applyOperation(
   touchedPaths?: string[];
 } | { ok: false; reason: string }> {
   const relPath = compileOperationPath(operation);
+  const pathValidation = validateCompileRelPath(relPath);
+  if (!pathValidation.ok) return { ok: false, reason: pathValidation.reason };
   const fullPath = join(vaultRoot, ...relPath.split("/"));
   switch (operation.kind) {
     case "write_page": {
@@ -1858,6 +1869,19 @@ export function compileOperationPath(operation: CompileOperation): string {
 }
 
 export function isAllowedCompileRelPath(relPath: string): boolean {
-  if (relPath.includes("..") || relPath.startsWith("/") || /^[a-z]:/i.test(relPath)) return false;
-  return (relPath.startsWith("wiki/") && relPath.endsWith(".md")) || relPath === "index.md" || relPath === "log.md";
+  return validateCompileRelPath(relPath).ok;
+}
+
+export function validateCompileRelPath(relPath: string): { ok: true } | { ok: false; reason: string } {
+  const normalized = relPath.replace(/\\/g, "/");
+  if (normalized.includes("..") || normalized.startsWith("/") || /^[a-z]:/i.test(normalized)) {
+    return { ok: false, reason: "path outside allowed vault targets" };
+  }
+  if (hasArchiveOrSystemPathComponent(normalized)) {
+    return { ok: false, reason: `protected archive or system path not allowed: ${relPath}` };
+  }
+  if ((normalized.startsWith("wiki/") && normalized.endsWith(".md")) || normalized === "index.md" || normalized === "log.md") {
+    return { ok: true };
+  }
+  return { ok: false, reason: "path outside allowed vault targets" };
 }

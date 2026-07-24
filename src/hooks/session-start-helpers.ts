@@ -172,7 +172,7 @@ export async function currentProjectMemoryBlock(
   });
 
   const block = [
-    formatCurrentProjectSection(projectRelPath, frontmatter, body),
+    formatCurrentProjectSection(projectRelPath, frontmatter, omitProtectedWikilinks(body)),
     formatRelatedMemorySection(related),
   ].join("\n");
 
@@ -245,7 +245,7 @@ function parseIndexEntries(indexContent: string): IndexEntry[] {
     const markdown = line.match(/^-\s+\[([^\]]+)\]\(([^)#]+)(?:#[^)]+)?\)\s+-\s*(.*)$/);
     if (markdown) {
       const path = normalizeReferencePath(markdown[2]!);
-      if (path) {
+      if (path && !isProtectedMemoryReference(path)) {
         entries.push({
           title: markdown[1]!.trim(),
           path,
@@ -258,7 +258,7 @@ function parseIndexEntries(indexContent: string): IndexEntry[] {
     const wiki = line.match(/^-\s+\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|([^\]]+))?\]\]\s*(?:-\s*)?(.*)$/);
     if (wiki) {
       const path = normalizeReferencePath(wiki[1]!);
-      if (path) {
+      if (path && !isProtectedMemoryReference(path)) {
         const title = (wiki[2] ?? titleFromRelPath(path)).trim();
         const summary = wiki[3]!.trim() || title;
         entries.push({ title, path, summary });
@@ -287,7 +287,12 @@ async function collectRelatedEntries(input: {
 
   for (const candidate of candidates) {
     const relPath = resolveMemoryReference(candidate, indexBySlug);
-    if (!relPath || relPath === input.projectRelPath || seen.has(relPath)) continue;
+    if (
+      !relPath
+      || isProtectedMemoryReference(relPath)
+      || relPath === input.projectRelPath
+      || seen.has(relPath)
+    ) continue;
     seen.add(relPath);
 
     const indexEntry = indexByPath.get(relPath) ?? {
@@ -332,6 +337,17 @@ function wikilinkTargets(body: string): string[] {
   return targets;
 }
 
+function omitProtectedWikilinks(body: string): string {
+  return body.replace(
+    /\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|([^\]]+))?\]\]/g,
+    (match, target: string, label: string | undefined) => {
+      const relPath = normalizeReferencePath(target);
+      if (!relPath || !isProtectedMemoryReference(relPath)) return match;
+      return label?.trim() || "[retained reference omitted]";
+    },
+  );
+}
+
 function buildIndexBySlug(entries: IndexEntry[]): Map<string, string | null> {
   const result = new Map<string, string | null>();
   for (const entry of entries) {
@@ -365,7 +381,7 @@ function normalizeReferencePath(value: string): string | null {
   if (firstSegment && WIKI_CATEGORIES.has(firstSegment)) {
     return `wiki/${normalized}`;
   }
-  if (normalized.startsWith("wiki/") || normalized.startsWith("crystals/")) {
+  if (normalized.startsWith("wiki/") || normalized.startsWith("crystals/") || normalized.startsWith("raw/")) {
     return normalized;
   }
   return normalized;
@@ -454,6 +470,11 @@ export async function confidenceAwareIndex(
 
   for (const line of indexContent.split(/\r?\n/)) {
     if (line.trim().length === 0) continue;
+    const relPath = extractIndexedPagePath(line);
+    // Never let a stale generated index turn retained physical content into
+    // session context. Filter before confidence lookup so no protected page is
+    // read merely to decide whether it should be emitted.
+    if (relPath && isProtectedMemoryReference(relPath)) continue;
     const confidence = await confidenceForIndexLine(line, { readFile, root });
     if (confidence < floor) continue;
     if (confidence >= 0.8) buckets.high.push({ confidence, line });
@@ -558,11 +579,18 @@ function extractIndexedPagePath(line: string): string | null {
   if (firstSegment && WIKI_CATEGORIES.has(firstSegment)) {
     return `wiki/${normalized}`;
   }
-  if (normalized.startsWith("wiki/") || normalized.startsWith("crystals/")) {
+  if (normalized.startsWith("wiki/") || normalized.startsWith("crystals/") || normalized.startsWith("raw/")) {
     return normalized;
   }
 
   return null;
+}
+
+function isProtectedMemoryReference(relPath: string): boolean {
+  // A bare wikilink can be a human title (for example, "Archive"), not a
+  // physical vault path. Once a separator appears, this is a physical target
+  // and must follow the archive/system component fence.
+  return relPath.includes("/") && hasArchiveOrSystemPathComponent(relPath);
 }
 
 function readRememberRawDays(): number {

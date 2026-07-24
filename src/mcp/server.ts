@@ -17,6 +17,7 @@ import {
 import { parseFrontmatter, serializeFrontmatter } from "../storage/frontmatter.js";
 import { atomicWrite } from "../storage/atomic-write.js";
 import { resolveStrictChild } from "../storage/path-safety.js";
+import { hasArchiveOrSystemPathComponent } from "../storage/archive-paths.js";
 import { commitVaultChange as defaultCommitVaultChange } from "../sync/commit-vault-change.js";
 import { isWikiProtectedPath } from "../retrieval/wiki-paths.js";
 import { isNarrativeKnowledgePagePath } from "../compile/synthesize-narrative.js";
@@ -762,7 +763,10 @@ function normalizeSearchResults(value: unknown, limit: number): ApiSearchResultW
     const item = value[index];
     if (!isSearchResultWithStringPath(item)) continue;
     const path = truncate(item.path, MAX_SEARCH_PATH_LENGTH);
-    if (isWikiProtectedPath(path)) continue;
+    // Search results can be raw, wiki, crystal, or legacy unprefixed vault
+    // paths. Do not rely on the wiki-only guard here: a stale raw compact
+    // record must not expose its path or snippet to MCP callers.
+    if (hasArchiveOrSystemPathComponent(path)) continue;
     results.push({ ...item, path });
   }
   return results;

@@ -14,3 +14,14 @@ export function hasArchiveOrSystemPathComponent(relPath: string): boolean {
       return normalized === "archive" || normalized === "_archive" || normalized.startsWith(".");
     });
 }
+
+/**
+ * Ripgrep callers pair these with `--glob-case-insensitive` so physical
+ * traversal follows the same Windows-safe component policy as the predicate.
+ */
+export const ARCHIVE_OR_SYSTEM_RIPGREP_EXCLUSION_GLOBS = [
+  "!**/archive/**",
+  "!**/_archive/**",
+  "!**/.*",
+  "!**/.*/**",
+] as const;

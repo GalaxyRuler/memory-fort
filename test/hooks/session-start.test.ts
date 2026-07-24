@@ -312,6 +312,52 @@ describe("sessionStartBody", () => {
     expect(all).toContain("- Session Start Memory (wiki/lessons/session-start-memory.md): SessionStart memory");
   });
 
+  it("keeps stale archive index entries and physical relation targets out of project context", async () => {
+    await writeProjectPage(
+      tmp,
+      "memory-system",
+      "Current project links [[stale-archive]] and [[raw/.compact-archive/2026-05-21/retained.md]].",
+      {
+        relations: [
+          "relations:",
+          "  linked:",
+          "    - wiki/tools/live-tool.md",
+          "    - wiki/archive/retained-from-relation.md",
+          "    - wiki/_archive/retained-from-maintenance.md",
+          "    - raw/.compact-archive/2026-05-21/retained.md",
+        ],
+      },
+    );
+    await mkdir(join(tmp, "wiki", "tools"), { recursive: true });
+    await writeFile(
+      join(tmp, "wiki", "tools", "live-tool.md"),
+      "---\ntype: tools\ntitle: Live Tool\nstrength: 0.9\nupdated: 2026-06-02\n---\n\nCurrent tool summary.\n",
+    );
+    await writeFile(
+      join(tmp, "index.md"),
+      [
+        "- [Live Tool](wiki/tools/live-tool.md) - Current tool summary.",
+        "- [Stale Archive](wiki/archive/stale-archive.md) - RETAINED-STALE-INDEX",
+        "- [Stale Maintenance](wiki/_archive/stale-maintenance.md) - RETAINED-MAINTENANCE-INDEX",
+      ].join("\n"),
+    );
+
+    const block = await currentProjectMemoryBlock({
+      cwd: "C:\\Repos\\memory-system",
+      memoryRoot: tmp,
+    });
+
+    expect(block).toContain("Live Tool (wiki/tools/live-tool.md)");
+    const related = block!.slice(block!.indexOf("--- Related memory ---"));
+    expect(block).not.toContain("raw/.compact-archive/");
+    expect(block).toContain("[retained reference omitted]");
+    expect(related).not.toContain("wiki/archive/");
+    expect(related).not.toContain("wiki/_archive/");
+    expect(related).not.toContain("raw/.compact-archive/");
+    expect(related).not.toContain("RETAINED-STALE-INDEX");
+    expect(related).not.toContain("RETAINED-MAINTENANCE-INDEX");
+  });
+
   it("keeps no-match output byte-for-byte equivalent to the legacy session-start output", async () => {
     await writeSessionStartFiles(tmp);
     await writeProjectPage(tmp, "memory-system", "Memory-system body.");
@@ -559,6 +605,35 @@ describe("confidenceAwareIndex", () => {
     expect(output).toContain("--- Medium-confidence entries (1) ---");
     expect(output).not.toContain("--- Low-confidence / drafts");
     expect(output).not.toContain("projects/low");
+  });
+
+  it("filters protected physical index paths before confidence reads and output", async () => {
+    const readPaths: string[] = [];
+    const output = await confidenceAwareIndex({
+      indexFilePath: join("C:/mem", "index.md"),
+      memoryRoot: "C:/mem",
+      readFile: async (path: string) => {
+        const normalized = path.replace(/\\/g, "/");
+        readPaths.push(normalized);
+        if (normalized.endsWith("/index.md")) {
+          return [
+            "- [Live](wiki/projects/live.md) - live context",
+            "- [Archive](wiki/archive/retained.md) - retained archive context",
+            "- [Canonical](wiki/_archive/retained.md) - retained canonical context",
+            "- [Raw archive](raw/.compact-archive/2026-05-21/retained.md) - retained raw context",
+          ].join("\n");
+        }
+        return "---\nconfidence: 0.9\n---\nLive page.";
+      },
+    });
+
+    expect(output).toContain("wiki/projects/live.md");
+    expect(output).not.toContain("retained archive context");
+    expect(output).not.toContain("retained canonical context");
+    expect(output).not.toContain("retained raw context");
+    expect(readPaths.some((path) => path.includes("/wiki/archive/"))).toBe(false);
+    expect(readPaths.some((path) => path.includes("/wiki/_archive/"))).toBe(false);
+    expect(readPaths.some((path) => path.includes("/raw/.compact-archive/"))).toBe(false);
   });
 });
 

@@ -12,8 +12,8 @@ import {
 import {
   applyOperation,
   compileOperationPath,
-  isAllowedCompileRelPath,
   parseCompileOperationBlock,
+  validateCompileRelPath,
 } from "../compile/execute.js";
 import { rebuildIndex } from "../compile/index.js";
 import { recordProposalResolved } from "../compile/proposal-ledger.js";
@@ -207,8 +207,9 @@ async function promoteCompileProposal(vaultRoot: string, slug: string): Promise<
     throw new Error(`invalid compile proposal ${proposalPath}: ${parsed.reason}`);
   }
   const promotedPath = compileOperationPath(parsed.operation);
-  if (!isAllowedCompileRelPath(promotedPath)) {
-    throw new Error(`invalid compile proposal target: ${promotedPath}`);
+  const pathValidation = validateCompileRelPath(promotedPath);
+  if (!pathValidation.ok) {
+    throw new Error(`invalid compile proposal target: ${pathValidation.reason}`);
   }
 
   const targetExisted = existsSync(join(vaultRoot, ...promotedPath.split("/")));

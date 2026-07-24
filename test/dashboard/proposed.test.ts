@@ -155,6 +155,20 @@ describe("dashboard proposed draft actions", () => {
     expect(existsSync(join(tmp, "wiki", "compile-proposed", "memory-fort.md"))).toBe(true);
   });
 
+  it("refuses to promote a compile proposal that targets a protected archive path", async () => {
+    await writeFileAt("wiki/compile-proposed/retained.md", compileProposal({
+      kind: "write_page",
+      path: "wiki/_archive/retained.md",
+      frontmatter: { type: "references", title: "Retained" },
+      body: "Must not become live content.",
+    }));
+
+    await expect(promoteProposedDraft(tmp, "compile", "retained"))
+      .rejects.toThrow("protected archive or system path not allowed: wiki/_archive/retained.md");
+    expect(existsSync(join(tmp, "wiki", "compile-proposed", "retained.md"))).toBe(true);
+    expect(existsSync(join(tmp, "wiki", "_archive", "retained.md"))).toBe(false);
+  });
+
   it("rejects a compile proposal by deleting only the proposal", async () => {
     await writeFileAt("wiki/projects/acme.md", [
       "---",
