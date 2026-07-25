@@ -319,6 +319,25 @@ describe("runForget", () => {
     expect(existsSync(join(root, ...laterRaw.split("/")))).toBe(false);
   });
 
+  it("erases a re-captured identical raw path after a completed erase", async () => {
+    const raw = "raw/2026-05-20/re-captured-identical-path.md";
+    const evidenceSecurityDir = join(tmp, "evidence-security");
+    await writeAt(raw, "first sensitive capture\n");
+    await execFileAsync("git", ["init", "-b", "main"], { cwd: root });
+    await execFileAsync("git", ["config", "user.email", "memory-fort-tests@example.invalid"], { cwd: root });
+    await execFileAsync("git", ["config", "user.name", "Memory Fort Tests"], { cwd: root });
+    await execFileAsync("git", ["add", raw], { cwd: root });
+    await execFileAsync("git", ["commit", "-m", "seed identical-path fixture"], { cwd: root });
+
+    await expect(runForget({ mode: "apply", rawPaths: [raw], evidenceSecurityDir }))
+      .resolves.toMatchObject({ erased: expect.arrayContaining([raw]) });
+    await writeAt(raw, "later sensitive capture at the same path\n");
+
+    await expect(runForget({ mode: "apply", rawPaths: [raw], evidenceSecurityDir }))
+      .resolves.toMatchObject({ erased: expect.arrayContaining([raw]) });
+    expect(existsSync(join(root, ...raw.split("/")))).toBe(false);
+  });
+
   it("restarts an exact prepared live erase after pre-delete invalidation recovery", async () => {
     const raw = "raw/2026-05-20/prepared-restart.md";
     const evidenceSecurityDir = join(tmp, "evidence-security");

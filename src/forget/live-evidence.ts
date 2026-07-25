@@ -130,17 +130,15 @@ export async function prepareLiveEraseEvidence(
   const targets = targetsFromPlan(opts.plan);
   const selectionDigest = forgetSelectionDigest(opts.selectors, targets);
   const operationDigest = liveEraseOperationDigest(root, selectionDigest);
-  const operationDir = evidenceOperationDir("live-erase", operationDigest, opts.evidenceSecurityDir);
+  const operationDir = evidenceOperationDir(
+    "live-erase",
+    sha256Text(stableJson({ operationDigest, attemptId: randomUUID() })),
+    opts.evidenceSecurityDir,
+  );
   const journalPath = join(operationDir, "prepared.json");
   const receiptPath = join(operationDir, "receipt.json");
   assertExternalEvidencePath(root, journalPath, "live erase prepared journal");
   assertExternalEvidencePath(root, receiptPath, "live erase receipt");
-  if (existsSync(journalPath)) {
-    throw new Error(
-      `memory forget: a prepared live erase journal already exists at ${journalPath}; rerun the same forget --apply command to recover`,
-    );
-  }
-
   const signer = await (opts.signerFactory ?? createEvidenceSigner)(opts.evidenceSecurityDir);
   const payload: LiveErasePreparedPayload = {
     schemaVersion: 1,
