@@ -46,58 +46,16 @@ const DENYLIST = [
 ];
 
 const args = parseArgs(process.argv.slice(2));
-const root = resolve(args.root ?? process.cwd());
-const files = await listFiles(root);
 const hits = [];
 
-for (const relPath of files) {
-  if (isQuarantined(relPath)) continue;
-  if (ALLOWLIST_PATHS.has(relPath)) continue;
-
-  let content;
-  try {
-    content = await readFile(join(root, ...relPath.split("/")), "utf8");
-  } catch {
-    continue;
+if (args.packagedRoots.length > 0 || args.packagedOutput) {
+  const targets = await resolvePackagedTargets(args);
+  for (const target of targets) {
+    await scanTarget(target, { quarantine: false, prefix: target.prefix, requireFiles: true });
   }
-
-  const lines = content.split(/\r?\n/);
-  for (const [index, line] of lines.entries()) {
-    for (const rule of DENYLIST) {
-      if (rule.exampleOnly && !isMarkdownOrJson(relPath)) continue;
-      if (rule.skipTests && isTestPath(relPath)) continue;
-      const match = rule.regex.exec(line);
-      if (match) {
-        hits.push({ path: relPath, line: index + 1, token: match[0] });
-      }
-    }
-  }
-}
-
-// Second pass: scan dist/ for the two infra tokens that leaked in 0.1.0.
-// dist/** is quarantined from the main scan (too large/minified), but these
-// specific literals must never appear there.
-const INFRA_TOKENS = [["srv", "1317946"].join(""), ["tail", "6916d8"].join("")];
-const distDir = join(root, "dist");
-if (await pathExists(distDir)) {
-  const distFiles = await walkDistFiles(distDir);
-  for (const fullPath of distFiles) {
-    let content;
-    try {
-      content = await readFile(fullPath, "utf8");
-    } catch {
-      continue;
-    }
-    const lines = content.split(/\r?\n/);
-    for (const [index, line] of lines.entries()) {
-      for (const token of INFRA_TOKENS) {
-        if (line.includes(token)) {
-          const rel = toPosixPath(relative(root, fullPath));
-          hits.push({ path: rel, line: index + 1, token, scope: "dist" });
-        }
-      }
-    }
-  }
+} else {
+  const root = resolve(args.root ?? process.cwd());
+  await scanTarget({ root, prefix: "" }, { quarantine: true, prefix: "", requireFiles: false });
 }
 
 if (args.json) {
@@ -109,6 +67,119 @@ if (args.json) {
 }
 
 process.exitCode = hits.length > 0 ? 1 : 0;
+
+async function scanTarget(target, options) {
+  const files = await listFiles(target.root, { quarantine: options.quarantine });
+  if (options.requireFiles && files.length === 0) {
+    throw new Error(`package scan root contains no files: ${target.root}`);
+  }
+
+  for (const relPath of files) {
+    if (options.quarantine && isQuarantined(relPath)) continue;
+    if (ALLOWLIST_PATHS.has(relPath)) continue;
+
+    let content;
+    try {
+      content = await readFile(join(target.root, ...relPath.split("/")), "utf8");
+    } catch {
+      continue;
+    }
+
+    const lines = content.split(/\r?\n/);
+    for (const [index, line] of lines.entries()) {
+      for (const rule of DENYLIST) {
+        if (rule.exampleOnly && !isMarkdownOrJson(relPath)) continue;
+        if (rule.skipTests && isTestPath(relPath)) continue;
+        const match = rule.regex.exec(line);
+        if (match) {
+          hits.push({ path: withPrefix(options.prefix, relPath), line: index + 1, token: match[0] });
+        }
+      }
+    }
+  }
+
+  if (options.quarantine) {
+    // Second pass: scan dist/ for the two infra tokens that leaked in 0.1.0.
+    // dist/** is quarantined from the main scan (too large/minified), but these
+    // specific literals must never appear there.
+    const INFRA_TOKENS = [["srv", "1317946"].join(""), ["tail", "6916d8"].join("")];
+    const distDir = join(target.root, "dist");
+    if (await pathExists(distDir)) {
+      const distFiles = await walkDistFiles(distDir);
+      for (const fullPath of distFiles) {
+        let content;
+        try {
+          content = await readFile(fullPath, "utf8");
+        } catch {
+          continue;
+        }
+        const lines = content.split(/\r?\n/);
+        for (const [index, line] of lines.entries()) {
+          for (const token of INFRA_TOKENS) {
+            if (line.includes(token)) {
+              const rel = toPosixPath(relative(target.root, fullPath));
+              hits.push({ path: rel, line: index + 1, token, scope: "dist" });
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+async function resolvePackagedTargets(options) {
+  const targets = [];
+  for (const packagedRoot of options.packagedRoots) {
+    const root = resolve(packagedRoot);
+    await requireDirectory(root, "package scan root");
+    targets.push({ root, prefix: "" });
+  }
+  if (options.packagedOutput) {
+    const outputRoot = resolve(options.packagedOutput);
+    await requireDirectory(outputRoot, "package scan output");
+    const entries = await readdir(outputRoot, { withFileTypes: true });
+    for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+      if (!entry.isDirectory()) continue;
+      const appRelativePath = entry.name.endsWith(".app")
+        ? join(entry.name, "Contents", "Resources", "app")
+        : entry.name.endsWith("-unpacked")
+          ? join(entry.name, "resources", "app")
+          : null;
+      if (!appRelativePath) continue;
+      const root = join(outputRoot, appRelativePath);
+      if (await isDirectory(root)) {
+        targets.push({ root, prefix: toPosixPath(appRelativePath) });
+      }
+    }
+  }
+  const uniqueTargets = [...new Map(targets.map((target) => [target.root, target])).values()];
+  if (uniqueTargets.length === 0) {
+    throw new Error("package scan output contains no unpacked app roots");
+  }
+  return uniqueTargets;
+}
+
+async function requireDirectory(path, label) {
+  try {
+    const info = await stat(path);
+    if (info.isDirectory()) return;
+  } catch {
+    // The caller receives the same fail-closed error for a missing path.
+  }
+  throw new Error(`${label} does not exist or is not a directory: ${path}`);
+}
+
+async function isDirectory(path) {
+  try {
+    return (await stat(path)).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+function withPrefix(prefix, relPath) {
+  return prefix ? `${prefix}/${relPath}` : relPath;
+}
 
 async function walkDistFiles(dir) {
   const results = [];
@@ -133,7 +204,7 @@ async function walkDistFiles(dir) {
 }
 
 function parseArgs(argv) {
-  const parsed = { json: false, root: undefined };
+  const parsed = { json: false, root: undefined, packagedRoots: [], packagedOutput: undefined };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === "--json") {
@@ -147,13 +218,31 @@ function parseArgs(argv) {
       index += 1;
       continue;
     }
+    if (arg === "--packaged-root") {
+      const value = argv[index + 1];
+      if (!value) throw new Error("--packaged-root requires a path");
+      parsed.packagedRoots.push(value);
+      index += 1;
+      continue;
+    }
+    if (arg === "--packaged-output") {
+      const value = argv[index + 1];
+      if (!value) throw new Error("--packaged-output requires a path");
+      if (parsed.packagedOutput) throw new Error("--packaged-output may only be provided once");
+      parsed.packagedOutput = value;
+      index += 1;
+      continue;
+    }
     throw new Error(`unknown argument: ${arg}`);
+  }
+  if (parsed.root && (parsed.packagedRoots.length > 0 || parsed.packagedOutput)) {
+    throw new Error("--root cannot be combined with packaged scan options");
   }
   return parsed;
 }
 
-async function listFiles(rootPath) {
-  if (await pathExists(join(rootPath, ".git"))) {
+async function listFiles(rootPath, options) {
+  if (options.quarantine && await pathExists(join(rootPath, ".git"))) {
     try {
       return execFileSync("git", ["-C", rootPath, "ls-files", "-z"], {
         encoding: "utf8",
@@ -164,13 +253,13 @@ async function listFiles(rootPath) {
         .map(toPosixPath)
         .sort();
     } catch {
-      return walkFiles(rootPath);
+      return walkFiles(rootPath, options);
     }
   }
-  return walkFiles(rootPath);
+  return walkFiles(rootPath, options);
 }
 
-async function walkFiles(rootPath) {
+async function walkFiles(rootPath, options) {
   const files = [];
 
   async function walk(dir) {
@@ -184,7 +273,7 @@ async function walkFiles(rootPath) {
     for (const entry of entries) {
       const fullPath = join(dir, entry.name);
       const relPath = toPosixPath(relative(rootPath, fullPath));
-      if (isQuarantined(relPath)) continue;
+      if (options.quarantine && isQuarantined(relPath)) continue;
       if (entry.isDirectory()) {
         await walk(fullPath);
       } else if (entry.isFile()) {

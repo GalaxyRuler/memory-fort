@@ -194,10 +194,46 @@ describe("scan-leaks release gate", () => {
     await mkdir(appRoot, { recursive: true });
     await writeFile(join(appRoot, "main.mjs"), `export const endpoint = "${token}";\n`);
 
-    const result = await runScan(["--root", appRoot]);
+    const result = await runScan(["--packaged-root", appRoot]);
 
     expect(result.exitCode).toBe(1);
     expect(result.stdout).toContain(`main.mjs:1: ${token}`);
+  });
+
+  it("scans denylist tokens across every discovered packaged payload", async () => {
+    const token = ["C:", "\\", "Users", "\\", "Admin"].join("");
+    await writeText("electron-installer/win-unpacked/resources/app/dist/electron-main.mjs", `export const buildPath = "${token}";\n`);
+    await writeText("electron-installer/win-arm64-unpacked/resources/app/node_modules/example/index.js", `module.exports = "${token}";\n`);
+    await writeText("electron-installer/MemoryFort.app/Contents/Resources/app/dist/main.mjs", `export const macBuildPath = "${token}";\n`);
+
+    const result = await runScan(["--packaged-output", join(tmp, "electron-installer"), "--json"]);
+
+    expect(result.exitCode).toBe(1);
+    expect(JSON.parse(result.stdout)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: "win-unpacked/resources/app/dist/electron-main.mjs", token }),
+      expect.objectContaining({ path: "win-arm64-unpacked/resources/app/node_modules/example/index.js", token }),
+      expect.objectContaining({ path: "MemoryFort.app/Contents/Resources/app/dist/main.mjs", token }),
+    ]));
+  });
+
+  it("fails closed when an explicit packaged root is missing or empty", async () => {
+    const missing = await runScan(["--packaged-root", join(tmp, "missing")]);
+    const missingOutput = await runScan(["--packaged-output", join(tmp, "missing-output")]);
+    const emptyRoot = join(tmp, "empty-package");
+    await mkdir(emptyRoot, { recursive: true });
+    const empty = await runScan(["--packaged-root", emptyRoot]);
+    const outputWithoutApps = join(tmp, "output-without-apps");
+    await mkdir(outputWithoutApps, { recursive: true });
+    const noAppRoots = await runScan(["--packaged-output", outputWithoutApps]);
+
+    expect(missing.exitCode).toBe(1);
+    expect(missing.stderr).toContain("package scan root does not exist");
+    expect(missingOutput.exitCode).toBe(1);
+    expect(missingOutput.stderr).toContain("package scan output does not exist");
+    expect(empty.exitCode).toBe(1);
+    expect(empty.stderr).toContain("package scan root contains no files");
+    expect(noAppRoots.exitCode).toBe(1);
+    expect(noAppRoots.stderr).toContain("package scan output contains no unpacked app roots");
   });
 
   async function writeText(relPath: string, content: string): Promise<void> {
