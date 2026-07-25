@@ -1321,15 +1321,22 @@ describe("dashboard server", () => {
         "Archived page content.\n",
       ),
     );
+    await mkdir(join(tmp, "wiki", ".audit"), { recursive: true });
+    await writeFile(join(tmp, "wiki", ".audit", "secret.md"), "# Internal audit\n");
     const server = await createServer({ vaultRoot: tmp, port: 0 });
 
     try {
       const relPath = encodeURIComponent("wiki/archive/old.md");
       const hidden = await fetch(`http://${server.host}:${server.port}/api/page/${relPath}`);
-      const visible = await fetch(`http://${server.host}:${server.port}/api/page/${relPath}?includeArchived=1`);
+      const visible = await fetch(`http://${server.host}:${server.port}/api/page/${relPath}?includeArchived=true`);
+      const invalid = await fetch(`http://${server.host}:${server.port}/api/page/${relPath}?includeArchived=yes`);
+      const auditPath = encodeURIComponent("wiki/.audit/secret.md");
+      const audit = await fetch(`http://${server.host}:${server.port}/api/page/${auditPath}?includeArchived=true`);
 
       expect(hidden.status).toBe(404);
       expect(visible.status).toBe(200);
+      expect(invalid.status).toBe(400);
+      expect(audit.status).toBe(404);
       await expect(visible.json()).resolves.toMatchObject({
         relPath: "wiki/archive/old.md",
         frontmatter: { title: "Archived Foo" },

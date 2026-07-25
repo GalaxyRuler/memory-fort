@@ -636,9 +636,14 @@ describe("dashboard loaders", () => {
 
   it("loadPageDetail allows an archived page only through explicit read-only access", async () => {
     await mkdir(join(tmp, "wiki", "Archive"), { recursive: true });
+    await mkdir(join(tmp, "wiki", ".audit"), { recursive: true });
     await writeFile(
       join(tmp, "wiki", "Archive", "old.md"),
       page({ type: "references", title: "Archived", created: "2026-05-29", updated: "2026-05-29" }, "Archived body.\n"),
+    );
+    await writeFile(
+      join(tmp, "wiki", ".audit", "llm-2026-05-29.md"),
+      page({ type: "references", title: "Audit Log", created: "2026-05-29", updated: "2026-05-29" }, "Audit body.\n"),
     );
 
     await expect(loadPageDetail(tmp, "Archive/old.md", { includeArchived: true }))
