@@ -47,6 +47,7 @@ const VAULT_RUNTIME_EXCLUSIONS = [
   "var/",
   "embeddings/* except embeddings/auto-heal.jsonl",
   "raw/**/*.tmp",
+  ".git/**/*.lock",
   "**/*.*.lock",
   ".auto-push-pending.lock",
 ] as const;
@@ -707,6 +708,7 @@ function isExcludedPath(component: BackupComponent, relPath: string): boolean {
   const first = parts[0] ?? "";
   if (["backups", "logs", "var"].includes(first)) return true;
   if (["errors.log", "auto-sync.log", ".auto-push-pending.lock"].includes(relPath)) return true;
+  if (first === ".git" && relPath.endsWith(".lock")) return true;
   if (first === "embeddings" && relPath !== "embeddings/auto-heal.jsonl") return true;
   if (first === "raw" && relPath.endsWith(".tmp")) return true;
   return /(?:^|\/)[^/]+\.[^/]+\.lock$/u.test(relPath);

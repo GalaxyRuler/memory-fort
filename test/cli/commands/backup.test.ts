@@ -47,6 +47,17 @@ describe("memory backup", () => {
     });
   });
 
+  it("excludes stale Git lock files from a worktree backup", async () => {
+    const harness = await createVaultHarness();
+    await writeFile(join(harness.vaultRoot, ".git", "index.lock"), "stale lock\n", "utf8");
+
+    const created = await createBackup({ vaultRoot: harness.vaultRoot, targetDir: harness.targetDir });
+    const manifestResult = await execFile("tar", ["-xOf", created.archivePath, "backup-manifest.json"], { windowsHide: true });
+    const manifest = JSON.parse(manifestResult.stdout) as BackupManifest;
+
+    expect(manifest.entries.some((entry) => entry.path.endsWith("/.git/index.lock"))).toBe(false);
+  });
+
   it("rejects an archive whose payload no longer matches its internal manifest", async () => {
     const harness = await createVaultHarness();
     const created = await createBackup({ vaultRoot: harness.vaultRoot, targetDir: harness.targetDir });
