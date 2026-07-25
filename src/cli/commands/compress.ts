@@ -304,18 +304,22 @@ export async function runCompress(opts: CompressOptions = {}): Promise<CompressR
       delete quarantine[raw.relPath]; // a successful pass clears the fail tally
     } catch (err) {
       const rawReason = errorMessage(err);
-      const reason = redactSecrets(rawReason);
+      let reason = redactSecrets(rawReason);
       const failureCategory = compressionFailureCategory(reason);
       const failureFingerprint = sha256(rawReason).slice(0, 16);
-      await writeCompressionRejectionReview({
-        vaultRoot: root,
-        rawRelPath: raw.relPath,
-        sourceHash: rawSourceHash,
-        bytes: info.size,
-        failureCategory,
-        failureFingerprint,
-        now: opts.now ?? new Date(),
-      });
+      try {
+        await writeCompressionRejectionReview({
+          vaultRoot: root,
+          rawRelPath: raw.relPath,
+          sourceHash: rawSourceHash,
+          bytes: info.size,
+          failureCategory,
+          failureFingerprint,
+          now: opts.now ?? new Date(),
+        });
+      } catch {
+        reason = `${reason}; rejection review unavailable`;
+      }
       const prior = quarantine[raw.relPath];
       // Reset the tally when the source changed (size OR mtime) — a corrected
       // file is a new source version and deserves fresh attempts.

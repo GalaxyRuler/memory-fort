@@ -72,6 +72,32 @@ describe("compression rejection review", () => {
     expect((await readCompileStateFile(root)).compressed?.[relPath]).toBeUndefined();
   });
 
+  it("continues the batch when a rejection review cannot be written", async () => {
+    const root = await setup("session-review-path-one.md");
+    await writeFile(
+      join(root, "raw", "2026-07-17", "session-review-path-two.md"),
+      "## [10:01:00] Observation\nMemory System shipped Phase 3 retrieval.\n",
+      "utf-8",
+    );
+    await mkdir(join(root, "wiki"), { recursive: true });
+    await writeFile(join(root, "wiki", ".audit"), "not a directory\n", "utf-8");
+    const llm = responseLlm({ facts: [] });
+
+    const result = await runCompress({
+      vaultRoot: root,
+      apply: true,
+      configLoader: async () => ({ llm: { provider: "ollama", model: "llama3.2" } }),
+      llmFactory: () => llm,
+      env: {},
+    });
+
+    expect(result.summary).toMatchObject({ scanned: 2, failed: 2 });
+    expect(result.files).toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: "raw/2026-07-17/session-review-path-one.md", outcome: "failed", reason: expect.stringContaining("rejection review unavailable") }),
+      expect.objectContaining({ path: "raw/2026-07-17/session-review-path-two.md", outcome: "failed", reason: expect.stringContaining("rejection review unavailable") }),
+    ]));
+  });
+
   async function setup(name: string): Promise<string> {
     const root = await mkdtemp(join(tmpdir(), "memory-compress-review-"));
     roots.push(root);
