@@ -208,7 +208,7 @@ describe("settings page", () => {
       isLoading: false,
     });
 
-    render(<SettingsPage />);
+    renderWithQueryClient(<SettingsPage />);
 
     expect(screen.getByRole("heading", { name: "retention" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "embedding" })).not.toBeInTheDocument();
@@ -229,7 +229,7 @@ describe("settings page", () => {
       isLoading: false,
     });
 
-    render(<SettingsPage />);
+    renderWithQueryClient(<SettingsPage />);
 
     expect(screen.getByRole("heading", { name: "Embedder" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "LLM" })).toBeInTheDocument();
@@ -255,7 +255,7 @@ describe("settings page", () => {
     });
     updateHook.useUpdateConfig.mockReturnValue({ mutate, isPending: false, error: null });
 
-    render(<SettingsPage />);
+    renderWithQueryClient(<SettingsPage />);
 
     expect(screen.getByRole("heading", { name: "Auto-promote" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Compile" })).toBeInTheDocument();
@@ -294,7 +294,7 @@ describe("settings page", () => {
       error: null,
     });
 
-    render(<SettingsPage />);
+    renderWithQueryClient(<SettingsPage />);
 
     expect(screen.getByText(/read-only mirror/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /edit embedder/i })).toBeDisabled();

@@ -41,9 +41,9 @@ describe("useUpdateConfig", () => {
     expect(String(url)).toContain("/memory/api/config");
     expect(init).toMatchObject({
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ llm: { provider: "ollama", model: "llama3.2" } }),
     });
+    expect(new Headers(init?.headers).get("Content-Type")).toBe("application/json");
     await waitFor(() => {
       expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["config"] });
       expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["providers"] });
