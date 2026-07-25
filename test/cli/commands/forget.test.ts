@@ -338,6 +338,23 @@ describe("runForget", () => {
     expect(existsSync(join(root, ...raw.split("/")))).toBe(false);
   });
 
+  it("ignores an unverifiable pending journal from another vault", async () => {
+    const raw = "raw/2026-05-20/current-vault.md";
+    const evidenceSecurityDir = join(tmp, "evidence-security");
+    await writeAt(raw, "current vault sensitive capture\n");
+    await execFileAsync("git", ["init", "-b", "main"], { cwd: root });
+    await execFileAsync("git", ["config", "user.email", "memory-fort-tests@example.invalid"], { cwd: root });
+    await execFileAsync("git", ["config", "user.name", "Memory Fort Tests"], { cwd: root });
+    await execFileAsync("git", ["add", raw], { cwd: root });
+    await execFileAsync("git", ["commit", "-m", "seed cross-vault fixture"], { cwd: root });
+    const foreignJournal = join(evidenceSecurityDir, "records", "live-erase", "f".repeat(64), "prepared.json");
+    await mkdir(join(foreignJournal, ".."), { recursive: true });
+    await writeFile(foreignJournal, "not signed evidence\n", "utf8");
+
+    await expect(runForget({ mode: "apply", rawPaths: [raw], evidenceSecurityDir }))
+      .resolves.toMatchObject({ erased: expect.arrayContaining([raw]) });
+  });
+
   it("restarts an exact prepared live erase after pre-delete invalidation recovery", async () => {
     const raw = "raw/2026-05-20/prepared-restart.md";
     const evidenceSecurityDir = join(tmp, "evidence-security");

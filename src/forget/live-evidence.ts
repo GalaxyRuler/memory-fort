@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { readdir, realpath } from "node:fs/promises";
+import { readFile, readdir, realpath } from "node:fs/promises";
 import { join } from "node:path";
 
 import type {
@@ -399,11 +399,13 @@ async function findPendingPreparedLiveErase(
     if (!existsSync(journalPath) || existsSync(receiptPath)) continue;
     assertExternalEvidencePath(root, journalPath, "live erase prepared journal");
     assertExternalEvidencePath(root, receiptPath, "live erase receipt");
-    const journal = await readPreparedJournal(journalPath, evidenceSecurityDir);
-    if (journal.canonicalRootFingerprint !== pathFingerprint(root)
-      || stableJson(journal.selection.selectors) !== stableJson(cloneSelectors(selectors))) {
+    const candidate = await readUnverifiedPreparedJournalIdentity(journalPath);
+    if (!candidate
+      || candidate.canonicalRootFingerprint !== pathFingerprint(root)
+      || stableJson(candidate.selectors) !== stableJson(cloneSelectors(selectors))) {
       continue;
     }
+    const journal = await readPreparedJournal(journalPath, evidenceSecurityDir);
     assertPreparedJournalMatches(journal, root, selectors);
     pending.push({ journalPath, receiptPath, journal });
   }
@@ -411,6 +413,23 @@ async function findPendingPreparedLiveErase(
     throw new Error("memory forget: multiple pending live erase journals match this selector set; inspect signed evidence before retrying");
   }
   return pending[0] ?? null;
+}
+
+async function readUnverifiedPreparedJournalIdentity(
+  journalPath: string,
+): Promise<{ canonicalRootFingerprint: string; selectors: unknown } | null> {
+  try {
+    const value: unknown = JSON.parse(await readFile(journalPath, "utf8"));
+    if (!isRecord(value) || typeof value["canonicalRootFingerprint"] !== "string" || !isRecord(value["selection"])) {
+      return null;
+    }
+    return {
+      canonicalRootFingerprint: value["canonicalRootFingerprint"],
+      selectors: value["selection"]["selectors"],
+    };
+  } catch {
+    return null;
+  }
 }
 
 function assertPreparedJournalMatches(
