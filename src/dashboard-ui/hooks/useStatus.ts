@@ -11,6 +11,8 @@ export interface DashboardStatus {
   } | null;
   counts: {
     wikiPages: number;
+    archivedWikiPages?: number;
+    retainedWikiPages?: number;
     rawObservations: number;
     crystals: number;
   };

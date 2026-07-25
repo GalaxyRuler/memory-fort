@@ -94,7 +94,7 @@ describe("Overview route", () => {
       data: {
         vaultRoot: "C:/memory",
         repoHead: { shortSha: "abc123" },
-        counts: { wikiPages: 4, rawObservations: 0, crystals: 0 },
+        counts: { wikiPages: 4, archivedWikiPages: 2, retainedWikiPages: 3, rawObservations: 0, crystals: 0 },
         lastCompile: null,
         errorsLog: { sizeBytes: 0, lastLine: null, isClean: true },
         syncState: {
@@ -202,5 +202,19 @@ describe("Overview route", () => {
     expect(screen.getByText("No recent activity yet")).toBeInTheDocument();
     expect(screen.getByText(/Compile, sync, or capture a session/i)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /open activity/i })).toHaveAttribute("href", "/activity");
+  });
+
+  test("labels the live-only page metric and discloses archived and retained counts", async () => {
+    const { Route } = await import("../../../src/dashboard-ui/routes/index.js");
+    const Overview = Route.options.component as () => ReactNode;
+
+    wikiHook.useWikiIndex.mockReturnValue({ data: { byCategory: {}, total: 0 }, isLoading: false });
+    graphHook.useGraph.mockReturnValue({ data: { nodes: [], edges: [], unresolvedTargets: [] } });
+
+    render(<Overview />);
+
+    expect(screen.getByText("Live Pages")).toBeInTheDocument();
+    expect(screen.queryByText("Total Pages")).not.toBeInTheDocument();
+    expect(screen.getByText(/2 archived.*3 retained/i)).toBeInTheDocument();
   });
 });

@@ -61,6 +61,8 @@ describe("dashboard loaders", () => {
 
     await expect(loadCounts(tmp)).resolves.toEqual({
       wikiPages: 0,
+      archivedWikiPages: 0,
+      retainedWikiPages: 0,
       rawObservations: 0,
       crystals: 0,
     });
@@ -84,6 +86,8 @@ describe("dashboard loaders", () => {
 
     await expect(loadCounts(tmp)).resolves.toEqual({
       wikiPages: 2,
+      archivedWikiPages: 2,
+      retainedWikiPages: 1,
       rawObservations: 5,
       crystals: 0,
     });

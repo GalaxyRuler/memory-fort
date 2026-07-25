@@ -51,6 +51,11 @@ function OverviewScreen() {
   const categoryBreakdown = Object.entries(byCategory)
     .map(([cat, list]) => `${cat.slice(0, 4)}:${list.length}`)
     .join(" ");
+  const pageBreakdown = [
+    categoryBreakdown,
+    `${counts?.archivedWikiPages ?? 0} archived`,
+    `${counts?.retainedWikiPages ?? 0} retained`,
+  ].filter(Boolean).join(" · ");
 
   // 2. Edges metric and breakdown
   const totalEdges = graph.data?.edges?.length ?? 0;
@@ -126,13 +131,13 @@ function OverviewScreen() {
       {/* Top Row: 4 Metric Cards */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
-          label="Total Pages"
+          label="Live Pages"
           value={counts?.wikiPages ?? "-"}
           sparkline={wikiSpark}
           sparklineColor="rgba(74, 222, 128, 0.7)"
           borderColor="border-t-2 border-t-[#4ade80]"
           glowClass="glow-subtle"
-          footer={categoryBreakdown || "calculating..."}
+          footer={pageBreakdown || "calculating..."}
         />
         <StatCard
           label="Total Edges"

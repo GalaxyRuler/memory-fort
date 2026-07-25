@@ -37,6 +37,8 @@ export interface DashboardStatus {
   } | null;
   counts: {
     wikiPages: number;
+    archivedWikiPages: number;
+    retainedWikiPages: number;
     rawObservations: number;
     crystals: number;
   };
@@ -644,13 +646,41 @@ async function countMarkdownFiles(root: string): Promise<number> {
   return count;
 }
 
+type WikiPageCountKey = "wikiPages" | "archivedWikiPages" | "retainedWikiPages";
+
+function wikiPageCountKey(relPath: string): WikiPageCountKey {
+  const components = relPath.replace(/\\/g, "/").split("/").map((component) => component.toLowerCase());
+  if (components.some((component) => component === "archive" || component === "_archive")) return "archivedWikiPages";
+  if (components.some((component) => component.startsWith("."))) return "retainedWikiPages";
+  return "wikiPages";
+}
+
+async function countWikiMarkdownFiles(root: string): Promise<Pick<DashboardStatus["counts"], "wikiPages" | "archivedWikiPages" | "retainedWikiPages">> {
+  const counts = { wikiPages: 0, archivedWikiPages: 0, retainedWikiPages: 0 };
+  if (!(await pathExists(root))) return counts;
+
+  async function walk(dir: string): Promise<void> {
+    for (const entry of await readdir(dir, { withFileTypes: true })) {
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        await walk(full);
+      } else if (entry.isFile() && entry.name.endsWith(".md")) {
+        counts[wikiPageCountKey(relative(root, full))] += 1;
+      }
+    }
+  }
+
+  await walk(root);
+  return counts;
+}
+
 export async function loadCounts(vaultRoot: string): Promise<DashboardStatus["counts"]> {
-  const [wikiPages, rawObservations, crystals] = await Promise.all([
-    countMarkdownFiles(join(vaultRoot, "wiki")),
+  const [wikiCounts, rawObservations, crystals] = await Promise.all([
+    countWikiMarkdownFiles(join(vaultRoot, "wiki")),
     countMarkdownFiles(join(vaultRoot, "raw")),
     countMarkdownFiles(join(vaultRoot, "crystals")),
   ]);
-  return { wikiPages, rawObservations, crystals };
+  return { ...wikiCounts, rawObservations, crystals };
 }
 
 export async function loadLastCompile(vaultRoot: string): Promise<DashboardStatus["lastCompile"]> {
