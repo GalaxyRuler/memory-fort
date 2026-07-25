@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { realpath } from "node:fs/promises";
+import { readdir, realpath } from "node:fs/promises";
 import { join } from "node:path";
 
 import type {
@@ -35,6 +35,7 @@ import {
   evidenceOperationDir,
   persistVerifiedSignedEvidence,
   readVerifiedEvidenceFile,
+  resolveEvidenceRecordsRoot,
   type EvidenceWrite,
 } from "./evidence-store.js";
 import { readForgetRecovery } from "./recovery.js";
@@ -128,7 +129,7 @@ export async function prepareLiveEraseEvidence(
 
   const targets = targetsFromPlan(opts.plan);
   const selectionDigest = forgetSelectionDigest(opts.selectors, targets);
-  const operationDigest = liveEraseOperationDigest(root, opts.selectors);
+  const operationDigest = liveEraseOperationDigest(root, selectionDigest);
   const operationDir = evidenceOperationDir("live-erase", operationDigest, opts.evidenceSecurityDir);
   const journalPath = join(operationDir, "prepared.json");
   const receiptPath = join(operationDir, "receipt.json");
@@ -201,41 +202,28 @@ export async function resumePreparedLiveEraseEvidence(
   },
 ): Promise<LiveEraseResume | null> {
   const root = await realpath(rootInput);
-  const operationDigest = liveEraseOperationDigest(root, selectors);
-  const operationDir = evidenceOperationDir("live-erase", operationDigest, opts.evidenceSecurityDir);
-  const journalPath = join(operationDir, "prepared.json");
-  if (!existsSync(journalPath)) return null;
-  const receiptPath = join(operationDir, "receipt.json");
-  assertExternalEvidencePath(root, journalPath, "live erase prepared journal");
-  assertExternalEvidencePath(root, receiptPath, "live erase receipt");
-  const journal = await readPreparedJournal(journalPath, opts.evidenceSecurityDir);
-  assertPreparedJournalMatches(journal, root, selectors, operationDigest);
+  const pending = await findPendingPreparedLiveErase(root, selectors, opts.evidenceSecurityDir);
+  if (!pending) return null;
+  const { journalPath, receiptPath, journal } = pending;
 
   let receipt: PersistedLiveEraseReceipt;
-  if (existsSync(receiptPath)) {
-    const persisted = await readLiveEraseReceipt(receiptPath, opts.evidenceSecurityDir);
-    assertReceiptMatchesJournal(persisted, journal);
-    await validateLiveErasePostconditions(root, journal);
-    receipt = persistedReceipt(receiptPath, persisted);
-  } else {
-    const state = await classifyPreparedLiveEraseState(root, journalPath, journal);
-    const signer = await (opts.signerFactory ?? createEvidenceSigner)(opts.evidenceSecurityDir);
-    if (signer.keyId !== journal.evidenceKeyId) {
-      throw new Error("memory forget: prepared live erase journal evidence key ID does not match this device");
-    }
-    const prepared = {
-      journalPath,
-      receiptPath,
-      journal,
-      signer,
-      evidenceSecurityDir: opts.evidenceSecurityDir,
-      write: opts.write,
-    } satisfies PreparedLiveEraseEvidence;
-    if (state === "prepared") {
-      return { state: "restart-prepared", prepared };
-    }
-    receipt = await finalizeLiveEraseEvidence(prepared, root, opts.now);
+  const state = await classifyPreparedLiveEraseState(root, journalPath, journal);
+  const signer = await (opts.signerFactory ?? createEvidenceSigner)(opts.evidenceSecurityDir);
+  if (signer.keyId !== journal.evidenceKeyId) {
+    throw new Error("memory forget: prepared live erase journal evidence key ID does not match this device");
   }
+  const prepared = {
+    journalPath,
+    receiptPath,
+    journal,
+    signer,
+    evidenceSecurityDir: opts.evidenceSecurityDir,
+    write: opts.write,
+  } satisfies PreparedLiveEraseEvidence;
+  if (state === "prepared") {
+    return { state: "restart-prepared", prepared };
+  }
+  receipt = await finalizeLiveEraseEvidence(prepared, root, opts.now);
   return {
     state: "completed",
     plan: clonePlan(journal.plan),
@@ -306,7 +294,6 @@ export async function finalizeLiveEraseEvidence(
       verified,
       root,
       prepared.journal.selection.selectors,
-      prepared.journal.operationDigest,
     );
     const detail = error instanceof Error ? error.message : String(error);
     throw new LiveEraseEvidencePendingError(
@@ -398,13 +385,46 @@ async function readPreparedJournal(
   return value;
 }
 
+async function findPendingPreparedLiveErase(
+  root: string,
+  selectors: NormalizedForgetSelectors,
+  evidenceSecurityDir?: string,
+): Promise<{ journalPath: string; receiptPath: string; journal: LiveErasePreparedJournal } | null> {
+  const operationsRoot = join(resolveEvidenceRecordsRoot(evidenceSecurityDir), "live-erase");
+  if (!existsSync(operationsRoot)) return null;
+  const pending: Array<{ journalPath: string; receiptPath: string; journal: LiveErasePreparedJournal }> = [];
+  for (const entry of await readdir(operationsRoot, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const operationDir = join(operationsRoot, entry.name);
+    const journalPath = join(operationDir, "prepared.json");
+    const receiptPath = join(operationDir, "receipt.json");
+    if (!existsSync(journalPath) || existsSync(receiptPath)) continue;
+    assertExternalEvidencePath(root, journalPath, "live erase prepared journal");
+    assertExternalEvidencePath(root, receiptPath, "live erase receipt");
+    const journal = await readPreparedJournal(journalPath, evidenceSecurityDir);
+    if (journal.canonicalRootFingerprint !== pathFingerprint(root)
+      || stableJson(journal.selection.selectors) !== stableJson(cloneSelectors(selectors))) {
+      continue;
+    }
+    assertPreparedJournalMatches(journal, root, selectors);
+    pending.push({ journalPath, receiptPath, journal });
+  }
+  if (pending.length > 1) {
+    throw new Error("memory forget: multiple pending live erase journals match this selector set; inspect signed evidence before retrying");
+  }
+  return pending[0] ?? null;
+}
+
 function assertPreparedJournalMatches(
   journal: LiveErasePreparedJournal,
   root: string,
   selectors: NormalizedForgetSelectors,
-  operationDigest: string,
 ): void {
-  if (journal.operationDigest !== operationDigest
+  const expectedOperationDigests = new Set([
+    liveEraseOperationDigest(root, journal.selection.digest),
+    legacyLiveEraseOperationDigest(root, selectors),
+  ]);
+  if (!expectedOperationDigests.has(journal.operationDigest)
     || journal.canonicalRootFingerprint !== pathFingerprint(root)
     || stableJson(journal.selection.selectors) !== stableJson(cloneSelectors(selectors))) {
     throw new Error("memory forget: prepared live erase journal does not match this root and exact selector set");
@@ -433,7 +453,15 @@ function persistedReceipt(path: string, receipt: LiveEraseReceipt): PersistedLiv
   };
 }
 
-function liveEraseOperationDigest(root: string, selectors: NormalizedForgetSelectors): string {
+function liveEraseOperationDigest(root: string, selectionDigest: string): string {
+  return sha256Text(stableJson({
+    kind: "memory-fort-live-erase-operation-v2",
+    canonicalRootFingerprint: pathFingerprint(root),
+    selectionDigest,
+  }));
+}
+
+function legacyLiveEraseOperationDigest(root: string, selectors: NormalizedForgetSelectors): string {
   return sha256Text(stableJson({
     kind: "memory-fort-live-erase-operation-v1",
     canonicalRootFingerprint: pathFingerprint(root),

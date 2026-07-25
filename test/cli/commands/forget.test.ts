@@ -289,6 +289,36 @@ describe("runForget", () => {
       .resolves.toMatchObject({ status: "live-erased/history-retained" });
   });
 
+  it("does not reuse a completed source-selector receipt after new matching live capture", async () => {
+    const firstRaw = "raw/2026-05-20/source-receipt-first.md";
+    const laterRaw = "raw/2026-05-21/source-receipt-later.md";
+    const evidenceSecurityDir = join(tmp, "evidence-security");
+    await writeAt(firstRaw, "---\nsource: codex\n---\n\nfirst source-selected session\n");
+    await execFileAsync("git", ["init", "-b", "main"], { cwd: root });
+    await execFileAsync("git", ["config", "user.email", "memory-fort-tests@example.invalid"], { cwd: root });
+    await execFileAsync("git", ["config", "user.name", "Memory Fort Tests"], { cwd: root });
+    await execFileAsync("git", ["add", firstRaw], { cwd: root });
+    await execFileAsync("git", ["commit", "-m", "seed source selector fixture"], { cwd: root });
+
+    await expect(runForget({
+      mode: "apply",
+      sourceIds: ["codex"],
+      evidenceSecurityDir,
+    })).resolves.toMatchObject({ erased: expect.arrayContaining([firstRaw]) });
+    expect(existsSync(join(root, ...firstRaw.split("/")))).toBe(false);
+
+    await writeAt(laterRaw, "---\nsource: codex\n---\n\nlater source-selected session\n");
+
+    const second = await runForget({
+      mode: "apply",
+      sourceIds: ["codex"],
+      evidenceSecurityDir,
+    });
+
+    expect(second.erased).toEqual(expect.arrayContaining([laterRaw]));
+    expect(existsSync(join(root, ...laterRaw.split("/")))).toBe(false);
+  });
+
   it("restarts an exact prepared live erase after pre-delete invalidation recovery", async () => {
     const raw = "raw/2026-05-20/prepared-restart.md";
     const evidenceSecurityDir = join(tmp, "evidence-security");
