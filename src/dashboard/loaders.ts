@@ -19,7 +19,7 @@ import {
 import { readCompileStateFile } from "../compile/state.js";
 import { loadSearchCorpus, type CognitiveType, type SearchScope } from "../retrieval/corpus.js";
 import { buildGraph } from "../retrieval/graph.js";
-import { hasArchiveOrSystemPathComponent } from "../storage/archive-paths.js";
+import { hasArchivePathComponent, hasArchiveOrSystemPathComponent, hasSystemPathComponent } from "../storage/archive-paths.js";
 import { getConfidenceScore } from "../storage/confidence.js";
 import { loadMemoryConfig } from "../storage/config.js";
 import { parseFrontmatter, serializeFrontmatter } from "../storage/frontmatter.js";
@@ -466,7 +466,7 @@ function parseWikiMarkdown(content: string): { frontmatter: Frontmatter; body: s
   return { frontmatter: data as Frontmatter, body: content.slice(bodyStart) };
 }
 
-async function loadWikiPages(root: string): Promise<WikiPage[]> {
+async function loadWikiPages(root: string, opts: { includeArchived?: boolean } = {}): Promise<WikiPage[]> {
   if (!(await pathExists(root))) return [];
   const pages: WikiPage[] = [];
 
@@ -476,7 +476,7 @@ async function loadWikiPages(root: string): Promise<WikiPage[]> {
       const full = join(dir, entry.name);
       const relPath = relative(root, full).replace(/\\/g, "/");
       const wikiRelPath = `wiki/${relPath}`;
-      if (hasArchiveOrSystemPathComponent(wikiRelPath)) continue;
+      if (hasSystemPathComponent(wikiRelPath) || (hasArchivePathComponent(wikiRelPath) && !opts.includeArchived)) continue;
       if (entry.isDirectory()) {
         await walk(full);
       } else if (entry.isFile() && entry.name.endsWith(".md")) {
@@ -1053,14 +1053,19 @@ export async function loadWikiIndex(vaultRoot: string): Promise<WikiIndex> {
   return { byCategory, total: entries.length };
 }
 
-export async function loadPageDetail(vaultRoot: string, relPath: string): Promise<PageDetail | null> {
+export async function loadPageDetail(
+  vaultRoot: string,
+  relPath: string,
+  opts: { includeArchived?: boolean } = {},
+): Promise<PageDetail | null> {
   if (relPath.includes("\\") || !relPath.endsWith(".md")) return null;
-  if (hasArchiveOrSystemPathComponent(`wiki/${relPath}`)) return null;
+  const wikiRelPath = `wiki/${relPath}`;
+  if (hasSystemPathComponent(wikiRelPath) || (hasArchivePathComponent(wikiRelPath) && !opts.includeArchived)) return null;
   const wikiRoot = join(vaultRoot, "wiki");
   const fullPath = safeResolveUnder(wikiRoot, relPath);
   if (!fullPath || !(await pathExists(fullPath))) return null;
 
-  const pages = await loadWikiPages(wikiRoot);
+  const pages = await loadWikiPages(wikiRoot, opts);
   const page = pages.find((candidate) => candidate.path === relPath);
   if (!page) return null;
 

@@ -1312,6 +1312,33 @@ describe("dashboard server", () => {
     }
   });
 
+  it("GET /api/page/:relpath requires explicit opt-in for archived pages", async () => {
+    await mkdir(join(tmp, "wiki", "archive"), { recursive: true });
+    await writeFile(
+      join(tmp, "wiki", "archive", "old.md"),
+      page(
+        { type: "projects", title: "Archived Foo", status: "archived", updated: "2026-05-23" },
+        "Archived page content.\n",
+      ),
+    );
+    const server = await createServer({ vaultRoot: tmp, port: 0 });
+
+    try {
+      const relPath = encodeURIComponent("wiki/archive/old.md");
+      const hidden = await fetch(`http://${server.host}:${server.port}/api/page/${relPath}`);
+      const visible = await fetch(`http://${server.host}:${server.port}/api/page/${relPath}?includeArchived=1`);
+
+      expect(hidden.status).toBe(404);
+      expect(visible.status).toBe(200);
+      await expect(visible.json()).resolves.toMatchObject({
+        relPath: "wiki/archive/old.md",
+        frontmatter: { title: "Archived Foo" },
+      });
+    } finally {
+      await server.close();
+    }
+  });
+
   it("GET /api/page/:relpath returns 404 for a non-existent page", async () => {
     await mkdir(join(tmp, "wiki", "projects"), { recursive: true });
     const server = await createServer({ vaultRoot: tmp, port: 0 });

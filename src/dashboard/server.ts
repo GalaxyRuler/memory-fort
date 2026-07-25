@@ -1975,7 +1975,9 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
           writeJsonError(res, 400, "malformed page path");
           return;
         }
-        const page = await loadPageDetail(opts.vaultRoot, relPath.slice("wiki/".length));
+        const page = await loadPageDetail(opts.vaultRoot, relPath.slice("wiki/".length), {
+          includeArchived: url.searchParams.get("includeArchived") === "1",
+        });
         if (!page) {
           writeJsonError(res, 404, "page not found");
           return;
@@ -2156,7 +2158,11 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
 
       if (segments.length === 2 && segments[0] === "api" && segments[1] === "pages") {
         const typeFilter = url.searchParams.get("type") ?? undefined;
-        const result = await handleGetPages({ vaultRoot: opts.vaultRoot, type: typeFilter });
+        const result = await handleGetPages({
+          vaultRoot: opts.vaultRoot,
+          type: typeFilter,
+          includeArchived: url.searchParams.get("includeArchived") === "1",
+        });
         writeJson(res, result.body);
         return;
       }
@@ -2262,7 +2268,9 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
           writeHtml(res, 400, renderBadRequest("Malformed wiki path."));
           return;
         }
-        const page = await loadPageDetail(opts.vaultRoot, relPath);
+        const page = await loadPageDetail(opts.vaultRoot, relPath, {
+          includeArchived: url.searchParams.get("includeArchived") === "1",
+        });
         if (!page) {
           writeHtml(res, 404, renderNotFound(path));
           return;
@@ -2277,7 +2285,9 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
           writeJsonError(res, 400, "malformed wiki path");
           return;
         }
-        const page = await loadPageDetail(opts.vaultRoot, relPath);
+        const page = await loadPageDetail(opts.vaultRoot, relPath, {
+          includeArchived: url.searchParams.get("includeArchived") === "1",
+        });
         if (!page) {
           writeJsonError(res, 404, "page not found");
           return;

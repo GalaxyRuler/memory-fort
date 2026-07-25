@@ -1,7 +1,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { parseFrontmatter } from "../storage/frontmatter.js";
-import { hasArchiveOrSystemPathComponent } from "../storage/archive-paths.js";
+import { hasArchivePathComponent, hasSystemPathComponent } from "../storage/archive-paths.js";
 
 interface HandlerResult {
   status: number;
@@ -11,6 +11,7 @@ interface HandlerResult {
 export interface ApiPageMeta {
   path: string;
   title: string;
+  archived: boolean;
   type?: string;
   updated?: string;
   status?: string;
@@ -57,11 +58,12 @@ export async function handlePostObservation(opts: {
 
 /**
  * GET /api/pages — list wiki page metadata, optionally filtered by type.
- * Walks vaultRoot/wiki, skipping dot-directories and the archive.
+ * Walks vaultRoot/wiki, skipping dot-directories and optionally including archives.
  */
 export async function handleGetPages(opts: {
   vaultRoot: string;
   type?: string;
+  includeArchived?: boolean;
 }): Promise<HandlerResult> {
   const wikiRoot = join(opts.vaultRoot, "wiki");
   const pages: ApiPageMeta[] = [];
@@ -76,7 +78,8 @@ export async function handleGetPages(opts: {
     for (const entry of entries) {
       const full = join(dir, entry.name);
       const relPath = `wiki/${relative(wikiRoot, full).replace(/\\/g, "/")}`;
-      if (hasArchiveOrSystemPathComponent(relPath)) continue;
+      const archived = hasArchivePathComponent(relPath);
+      if (hasSystemPathComponent(relPath) || (archived && !opts.includeArchived)) continue;
       if (entry.isDirectory()) {
         await walk(full);
       } else if (entry.isFile() && entry.name.endsWith(".md")) {
@@ -89,6 +92,7 @@ export async function handleGetPages(opts: {
               typeof parsed.frontmatter.title === "string"
                 ? parsed.frontmatter.title
                 : entry.name.replace(/\.md$/, ""),
+            archived,
             type: typeof parsed.frontmatter.type === "string" ? parsed.frontmatter.type : undefined,
             updated:
               typeof parsed.frontmatter.updated === "string"

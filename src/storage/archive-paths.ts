@@ -6,13 +6,22 @@
  * exact canonical component rather than a broad substring rule.
  */
 export function hasArchiveOrSystemPathComponent(relPath: string): boolean {
+  return hasArchivePathComponent(relPath) || hasSystemPathComponent(relPath);
+}
+
+export function hasArchivePathComponent(relPath: string): boolean {
+  return pathComponents(relPath).some((component) => component === "archive" || component === "_archive");
+}
+
+export function hasSystemPathComponent(relPath: string): boolean {
+  return pathComponents(relPath).some((component) => component.startsWith("."));
+}
+
+function pathComponents(relPath: string): string[] {
   return relPath
     .replace(/\\/g, "/")
     .split("/")
-    .some((component) => {
-      const normalized = component.toLowerCase();
-      return normalized === "archive" || normalized === "_archive" || normalized.startsWith(".");
-    });
+    .map((component) => component.toLowerCase());
 }
 
 /**

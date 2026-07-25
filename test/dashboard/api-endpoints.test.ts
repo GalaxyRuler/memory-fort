@@ -98,4 +98,22 @@ describe("GET /api/pages", () => {
     expect(pages.every((p) => !p.path.includes(".archive"))).toBe(true);
     expect(pages.map((page) => page.path)).toEqual(["wiki/tools/voyage.md"]);
   });
+
+  it("includes archived pages only when explicitly requested and never exposes retained paths", async () => {
+    const archiveDir = join(vaultRoot, "wiki", "Archive");
+    const retainedDir = join(vaultRoot, "wiki", ".audit");
+    await mkdir(archiveDir, { recursive: true });
+    await mkdir(retainedDir, { recursive: true });
+    await writeFile(join(archiveDir, "old.md"), "---\ntype: tools\ntitle: Archived Tool\n---\nold\n");
+    await writeFile(join(retainedDir, "review.md"), "---\ntype: tools\ntitle: Retained Review\n---\nreview\n");
+
+    const result = await handleGetPages({ vaultRoot, includeArchived: true });
+    const pages = result.body["pages"] as Array<{ path: string; archived?: boolean }>;
+
+    expect(pages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: "wiki/Archive/old.md", archived: true }),
+      expect.objectContaining({ path: "wiki/tools/voyage.md", archived: false }),
+    ]));
+    expect(pages.some((page) => page.path.includes(".audit"))).toBe(false);
+  });
 });

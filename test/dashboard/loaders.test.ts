@@ -618,6 +618,11 @@ describe("dashboard loaders", () => {
 
   it("loadPageDetail rejects archive, maintenance archive, and dot/system paths", async () => {
     await mkdir(join(tmp, "wiki", ".audit"), { recursive: true });
+    await mkdir(join(tmp, "wiki", "Archive"), { recursive: true });
+    await writeFile(
+      join(tmp, "wiki", "Archive", "old.md"),
+      page({ type: "references", title: "Archived", created: "2026-05-29", updated: "2026-05-29" }, "Archived body.\n"),
+    );
     await writeFile(
       join(tmp, "wiki", ".audit", "llm-2026-05-29.md"),
       page({ type: "references", title: "Audit Log", created: "2026-05-29", updated: "2026-05-29" }, "Audit body.\n"),
@@ -627,6 +632,18 @@ describe("dashboard loaders", () => {
     await expect(loadPageDetail(tmp, "Archive/old.md")).resolves.toBeNull();
     await expect(loadPageDetail(tmp, "_archive/old.md")).resolves.toBeNull();
     await expect(loadPageDetail(tmp, "projects/.retained.md")).resolves.toBeNull();
+  });
+
+  it("loadPageDetail allows an archived page only through explicit read-only access", async () => {
+    await mkdir(join(tmp, "wiki", "Archive"), { recursive: true });
+    await writeFile(
+      join(tmp, "wiki", "Archive", "old.md"),
+      page({ type: "references", title: "Archived", created: "2026-05-29", updated: "2026-05-29" }, "Archived body.\n"),
+    );
+
+    await expect(loadPageDetail(tmp, "Archive/old.md", { includeArchived: true }))
+      .resolves.toMatchObject({ relPath: "Archive/old.md", body: expect.stringContaining("Archived body.") });
+    await expect(loadPageDetail(tmp, ".audit/llm-2026-05-29.md", { includeArchived: true })).resolves.toBeNull();
   });
 
   it("loadRawIndex walks the raw tree", async () => {
