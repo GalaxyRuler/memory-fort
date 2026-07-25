@@ -22,7 +22,7 @@ export function findBM25Mentions(
   const threshold = opts.threshold ?? DEFAULT_THRESHOLD;
   const topK = opts.topK ?? DEFAULT_TOP_K;
   const wikiDocs = corpus.filter((doc) =>
-    doc.kind === "wiki" && !doc.relPath.startsWith("wiki/.audit/")
+    (doc.kind === "wiki" || doc.kind === "crystal") && !doc.relPath.startsWith("wiki/.audit/")
   );
   const docsByPath = new Map(wikiDocs.map((doc) => [doc.relPath, doc]));
   const index = buildBm25Index(

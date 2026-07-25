@@ -162,6 +162,9 @@ describe("runDoctor", () => {
   it("reports client connection status separately from structural checks", async () => {
     await runInit({ sourceRepoDir: process.cwd() });
     await mkdir(process.env["MEMORY_VSCODE_USER_DIR"]!, { recursive: true });
+    const mcpServer = join(process.env["MEMORY_ROOT"]!, "claude-code-plugin", "scripts", "mcp-server.mjs");
+    await mkdir(join(process.env["MEMORY_ROOT"]!, "claude-code-plugin", "scripts"), { recursive: true });
+    await writeFile(mcpServer, "// test MCP server\n");
     await writeFile(
       join(process.env["MEMORY_VSCODE_USER_DIR"]!, "mcp.json"),
       JSON.stringify({
@@ -169,7 +172,7 @@ describe("runDoctor", () => {
           memory: {
             type: "stdio",
             command: "node",
-            args: ["C:/tmp/mcp-server.mjs"],
+            args: [mcpServer],
           },
         },
       }),

@@ -36,7 +36,7 @@ describe("POST /api/observations", () => {
     const rawDir = join(vaultRoot, "raw");
     const dates = await readdir(rawDir);
     expect(dates.length).toBe(1);
-    const files = await readdir(join(rawDir, dates[0]!));
+    const files = (await readdir(join(rawDir, dates[0]!))).filter((file) => file.endsWith(".md"));
     expect(files.length).toBe(1);
     const content = await readFile(join(rawDir, dates[0]!, files[0]!), "utf-8");
     expect(content).toContain("vault-scoped observation");

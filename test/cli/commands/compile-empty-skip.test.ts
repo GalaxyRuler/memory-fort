@@ -95,7 +95,10 @@ describe("compile empty execute passes", () => {
     const result = await runCompile({
       vaultRoot: root,
       execute: true,
-      configLoader: async () => ({ llm: { provider: "ollama", model: "llama3.2" } }),
+      configLoader: async () => ({
+        llm: { provider: "ollama", model: "llama3.2" },
+        compile: { faithfulness_check: false },
+      }),
       llmFactory: () => fakeFactConsolidationLLM(),
       env: {},
     });

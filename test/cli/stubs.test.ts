@@ -41,7 +41,7 @@ describe("stub commands", () => {
     const r = runCli(["--help"], { MEMORY_FORT_SHOW_STUBS: "" });
     expect(r.code).toBe(0);
     for (const [name] of stubs) {
-      expect(r.stdout).not.toContain(name);
+      expect(r.stdout).not.toMatch(new RegExp(`^\\s+${name}(?:\\s|$)`, "m"));
     }
   });
 

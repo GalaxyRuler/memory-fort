@@ -29,6 +29,7 @@ describe("getClientStatuses", () => {
       MEMORY_OPENCLAW_DIR: process.env["MEMORY_OPENCLAW_DIR"],
       MEMORY_OPENCOVEN_COMMAND: process.env["MEMORY_OPENCOVEN_COMMAND"],
       MEMORY_VSCODE_USER_DIR: process.env["MEMORY_VSCODE_USER_DIR"],
+      MEMORY_CHATGPT_BRIDGE_PID_PATH: process.env["MEMORY_CHATGPT_BRIDGE_PID_PATH"],
     };
     process.env["MEMORY_ROOT"] = memDir;
     process.env["MEMORY_CLAUDE_DIR"] = claudeDir;
@@ -40,6 +41,7 @@ describe("getClientStatuses", () => {
     process.env["MEMORY_OPENCLAW_DIR"] = join(tmp, ".openclaw");
     process.env["MEMORY_OPENCOVEN_COMMAND"] = join(tmp, "missing-coven");
     process.env["MEMORY_VSCODE_USER_DIR"] = join(tmp, "Code", "User");
+    process.env["MEMORY_CHATGPT_BRIDGE_PID_PATH"] = join(tmp, "chatgpt-bridge.pid");
     await runInit({ sourceRepoDir: process.cwd() });
     await mkdir(join(memDir, "claude-code-plugin", ".claude-plugin"), {
       recursive: true,

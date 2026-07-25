@@ -40,7 +40,7 @@ export function buildTitleIndex(corpus: SearchDocument[]): TitleIndex {
   const byKey = new Map<string, TitleIndexEntry>();
 
   for (const doc of corpus) {
-    if (doc.kind !== "wiki") continue;
+    if (doc.kind !== "wiki" && doc.kind !== "crystal") continue;
     if (doc.relPath.startsWith("wiki/.audit/")) continue;
     for (const title of titlesForDocument(doc)) {
       addEntry(byKey, titleToRelPath, {

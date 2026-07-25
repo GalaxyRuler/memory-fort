@@ -94,12 +94,22 @@ describe("scheduleAutoPush", () => {
     expect(existsSync(join(tmp, "errors.log"))).toBe(false);
   });
 
-  it("breaks a stale pending lock left by a dead process instead of wedging forever", async () => {
+  it("reclaims a stale pending lock claim left by a dead process instead of wedging forever", async () => {
     const lockPath = join(tmp, ".auto-push-pending.lock");
-    // A dead holder: a pid that cannot be alive, with an old mtime (stale).
-    await writeFile(lockPath, JSON.stringify({ pid: 2 ** 30, host: hostname(), acquiredAt: "2020-01-01T00:00:00.000Z" }));
+    const claimPath = join(lockPath, "dead-owner.json");
+    // A dead v2 holder: a pid that cannot be alive, with an old mtime (stale).
+    await mkdir(lockPath);
+    await writeFile(claimPath, JSON.stringify({
+      version: 2,
+      pid: 2 ** 30,
+      host: hostname(),
+      acquiredAt: "2020-01-01T00:00:00.000Z",
+      ownerToken: "dead-owner",
+      choosing: false,
+      ticket: 1,
+    }));
     const past = new Date(Date.now() - 120_000);
-    await utimes(lockPath, past, past);
+    await utimes(claimPath, past, past);
 
     const ok = await writePendingFile(tmp, { token: "t1", scheduledAt: new Date().toISOString(), debounceMs: 1 });
     expect(ok).toBe(true); // previously: false forever — a killed hook disabled auto-push permanently
