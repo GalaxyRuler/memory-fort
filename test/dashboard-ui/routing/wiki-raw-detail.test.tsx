@@ -7,13 +7,14 @@ import {
 import { render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { routeTree } from "../../../src/dashboard-ui/routeTree.gen.js";
-import { apiGet } from "../../../src/dashboard-ui/lib/api.js";
+import { apiFetch, apiGet } from "../../../src/dashboard-ui/lib/api.js";
 import type { PageDetail } from "../../../src/dashboard-ui/hooks/usePageDetail.js";
 import type { RawSessionDetail } from "../../../src/dashboard-ui/hooks/useRawSession.js";
 import type { WikiIndex } from "../../../src/dashboard-ui/hooks/useWikiIndex.js";
 import type { RawIndexEntry } from "../../../src/dashboard-ui/hooks/useRawIndex.js";
 
 vi.mock("../../../src/dashboard-ui/lib/api.js", () => ({
+  apiFetch: vi.fn(async () => ({ ok: false })),
   apiGet: vi.fn(),
 }));
 
@@ -50,10 +51,12 @@ vi.mock("../../../src/dashboard-ui/hooks/useSyncState.js", () => ({
 }));
 
 const mockApiGet = vi.mocked(apiGet);
+const mockApiFetch = vi.mocked(apiFetch);
 
 describe("dashboard wiki/raw routing", () => {
   beforeEach(() => {
     mockApiGet.mockReset();
+    mockApiFetch.mockResolvedValue({ ok: false } as Response);
     vi.stubGlobal("scrollTo", vi.fn());
   });
 

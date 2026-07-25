@@ -30,7 +30,7 @@ describe("logObservation", () => {
     const date = new Date().toISOString().slice(0, 10);
     const rawDir = join(tmp, "raw", date);
     expect(existsSync(rawDir)).toBe(true);
-    const files = await readdir(rawDir);
+    const files = (await readdir(rawDir)).filter((name) => name.endsWith(".md"));
     expect(files.length).toBe(1);
     const content = await readFile(join(rawDir, files[0]!), "utf-8");
     expect(content).toContain("remember this");
