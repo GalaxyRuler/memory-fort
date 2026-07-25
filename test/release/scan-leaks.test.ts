@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
@@ -178,6 +178,26 @@ describe("scan-leaks release gate", () => {
       token,
       scope: "dist",
     }]);
+  });
+
+  it("requires the Windows packaging command to scan the unpacked shipped app", async () => {
+    const manifest = JSON.parse(await readFile(resolve(process.cwd(), "package.json"), "utf8")) as {
+      scripts?: Record<string, string>;
+    };
+
+    expect(manifest.scripts?.["electron:build"]).toContain("scan:leaks:package");
+  });
+
+  it("scans a packaged app root outside a Git worktree", async () => {
+    const token = ["srv", "1317946"].join("");
+    const appRoot = join(tmp, "electron-installer", "win-unpacked", "resources", "app");
+    await mkdir(appRoot, { recursive: true });
+    await writeFile(join(appRoot, "main.mjs"), `export const endpoint = "${token}";\n`);
+
+    const result = await runScan(["--root", appRoot]);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toContain(`main.mjs:1: ${token}`);
   });
 
   async function writeText(relPath: string, content: string): Promise<void> {

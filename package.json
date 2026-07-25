@@ -23,11 +23,12 @@
     "smoke:install-contract": "node scripts/install-contract-smoke.mjs",
     "install:dev-hooks": "node scripts/install-dev-hooks.mjs",
     "scan:leaks": "node scripts/scan-leaks.mjs",
+    "scan:leaks:package": "node scripts/scan-leaks.mjs --root dist/electron-installer/win-unpacked/resources/app",
     "prepublishOnly": "npm run scan:leaks && npm run build",
     "memory": "node dist/cli.mjs",
     "electron:dev": "npm run build && electron .",
     "electron:rebuild": "electron-rebuild -f",
-    "electron:build": "npm run build && npm run electron:rebuild && electron-builder build --win"
+    "electron:build": "npm run build && npm run electron:rebuild && electron-builder build --win && npm run scan:leaks:package"
   },
   "engines": {
     "node": ">=22"
