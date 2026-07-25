@@ -53,4 +53,28 @@ describe("release workflow contracts", () => {
     expect(publishSteps).toContain("validate-desktop-artifacts.mjs");
     expect(publishSteps).toContain("gh release upload");
   });
+
+  it("scans every packaged application payload before release artifacts are zipped or uploaded", () => {
+    const release = workflow("release.yml");
+    const steps = (release.jobs?.build?.steps ?? []) as Array<{ name?: string; run?: string; if?: string }>;
+    const indexOf = (name: string) => steps.findIndex((step) => step.name === name);
+    const packageIndex = indexOf("Package desktop app without publishing");
+    const unpackedScanIndex = indexOf("Scan unpacked packaged app payload");
+    const linuxScanIndex = indexOf("Scan extracted Linux app payload");
+    const zipIndex = indexOf("Zip installers (Windows)");
+    const uploadIndex = indexOf("Upload validated package inputs");
+
+    expect(packageIndex).toBeGreaterThanOrEqual(0);
+    expect(unpackedScanIndex).toBeGreaterThan(packageIndex);
+    expect(linuxScanIndex).toBeGreaterThan(packageIndex);
+    expect(zipIndex).toBeGreaterThan(unpackedScanIndex);
+    expect(zipIndex).toBeGreaterThan(linuxScanIndex);
+    expect(uploadIndex).toBeGreaterThan(unpackedScanIndex);
+    expect(uploadIndex).toBeGreaterThan(linuxScanIndex);
+    expect(steps[unpackedScanIndex]?.run).toContain("npm run scan:leaks:package");
+    expect(steps[unpackedScanIndex]?.if).toBe("runner.os != 'Linux'");
+    expect(steps[linuxScanIndex]?.run).toContain("--appimage-extract");
+    expect(steps[linuxScanIndex]?.run).toContain("--packaged-root");
+    expect(steps[linuxScanIndex]?.if).toBe("runner.os == 'Linux'");
+  });
 });

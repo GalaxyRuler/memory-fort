@@ -204,7 +204,7 @@ describe("scan-leaks release gate", () => {
     const token = ["C:", "\\", "Users", "\\", "Admin"].join("");
     await writeText("electron-installer/win-unpacked/resources/app/dist/electron-main.mjs", `export const buildPath = "${token}";\n`);
     await writeText("electron-installer/win-arm64-unpacked/resources/app/node_modules/example/index.js", `module.exports = "${token}";\n`);
-    await writeText("electron-installer/MemoryFort.app/Contents/Resources/app/dist/main.mjs", `export const macBuildPath = "${token}";\n`);
+    await writeText("electron-installer/mac-arm64/MemoryFort.app/Contents/Resources/app/dist/main.mjs", `export const macBuildPath = "${token}";\n`);
 
     const result = await runScan(["--packaged-output", join(tmp, "electron-installer"), "--json"]);
 
@@ -212,7 +212,7 @@ describe("scan-leaks release gate", () => {
     expect(JSON.parse(result.stdout)).toEqual(expect.arrayContaining([
       expect.objectContaining({ path: "win-unpacked/resources/app/dist/electron-main.mjs", token }),
       expect.objectContaining({ path: "win-arm64-unpacked/resources/app/node_modules/example/index.js", token }),
-      expect.objectContaining({ path: "MemoryFort.app/Contents/Resources/app/dist/main.mjs", token }),
+      expect.objectContaining({ path: "mac-arm64/MemoryFort.app/Contents/Resources/app/dist/main.mjs", token }),
     ]));
   });
 

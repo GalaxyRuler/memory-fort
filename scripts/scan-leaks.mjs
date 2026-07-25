@@ -137,26 +137,40 @@ async function resolvePackagedTargets(options) {
   if (options.packagedOutput) {
     const outputRoot = resolve(options.packagedOutput);
     await requireDirectory(outputRoot, "package scan output");
-    const entries = await readdir(outputRoot, { withFileTypes: true });
-    for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
-      if (!entry.isDirectory()) continue;
-      const appRelativePath = entry.name.endsWith(".app")
-        ? join(entry.name, "Contents", "Resources", "app")
-        : entry.name.endsWith("-unpacked")
-          ? join(entry.name, "resources", "app")
-          : null;
-      if (!appRelativePath) continue;
-      const root = join(outputRoot, appRelativePath);
-      if (await isDirectory(root)) {
-        targets.push({ root, prefix: toPosixPath(appRelativePath) });
-      }
-    }
+    targets.push(...await discoverPackagedAppRoots(outputRoot));
   }
   const uniqueTargets = [...new Map(targets.map((target) => [target.root, target])).values()];
   if (uniqueTargets.length === 0) {
     throw new Error("package scan output contains no unpacked app roots");
   }
   return uniqueTargets;
+}
+
+async function discoverPackagedAppRoots(outputRoot) {
+  const targets = [];
+  await walk(outputRoot, "");
+  return targets;
+
+  async function walk(directory, relativeDirectory) {
+    const entries = await readdir(directory, { withFileTypes: true });
+    for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+      if (!entry.isDirectory()) continue;
+      const relPath = relativeDirectory ? join(relativeDirectory, entry.name) : entry.name;
+      const appRelativePath = entry.name.endsWith(".app")
+        ? join(relPath, "Contents", "Resources", "app")
+        : entry.name.endsWith("-unpacked")
+          ? join(relPath, "resources", "app")
+          : null;
+      if (appRelativePath) {
+        const root = join(outputRoot, appRelativePath);
+        if (await isDirectory(root)) {
+          targets.push({ root, prefix: toPosixPath(appRelativePath) });
+          continue;
+        }
+      }
+      await walk(join(directory, entry.name), relPath);
+    }
+  }
 }
 
 async function requireDirectory(path, label) {

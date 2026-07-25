@@ -69,6 +69,28 @@ jobs:
         run: npx electron-builder --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
+      - name: Scan unpacked packaged app payload
+        if: runner.os != 'Linux'
+        run: npm run scan:leaks:package
+      - name: Scan extracted Linux app payload
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd dist/electron-installer
+          shopt -s nullglob
+          appimages=( *.AppImage )
+          if [ "${#appimages[@]}" -eq 0 ]; then
+            echo "No AppImage found to scan" >&2
+            exit 1
+          fi
+          for appimage in "${appimages[@]}"; do
+            rm -rf -- squashfs-root
+            chmod +x "$appimage"
+            "./$appimage" --appimage-extract >/dev/null
+            node "$GITHUB_WORKSPACE/scripts/scan-leaks.mjs" --packaged-root "$PWD/squashfs-root/resources/app"
+            rm -rf -- squashfs-root
+          done
       - name: Zip installers (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
