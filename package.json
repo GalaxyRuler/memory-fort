@@ -24,7 +24,7 @@
     "install:dev-hooks": "node scripts/install-dev-hooks.mjs",
     "scan:leaks": "node scripts/scan-leaks.mjs",
     "scan:leaks:package": "node scripts/scan-leaks.mjs --packaged-output dist/electron-installer --expect-roots 2",
-    "prepublishOnly": "npm run scan:leaks && npm run build",
+    "prepublishOnly": "npm run build && npm run scan:leaks",
     "memory": "node dist/cli.mjs",
     "electron:dev": "npm run build && electron .",
     "electron:rebuild": "electron-rebuild -f",

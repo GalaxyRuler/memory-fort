@@ -187,6 +187,14 @@ describe("scan-leaks release gate", () => {
     expect(result.stdout).not.toContain(token);
   });
 
+  it("builds before scanning repository leaks during prepublish", async () => {
+    const manifest = JSON.parse(await readFile(resolve(process.cwd(), "package.json"), "utf8")) as {
+      scripts?: Record<string, string>;
+    };
+
+    expect(manifest.scripts?.prepublishOnly).toBe("npm run build && npm run scan:leaks");
+  });
+
   it("requires the Windows packaging command to scan the unpacked shipped app", async () => {
     const manifest = JSON.parse(await readFile(resolve(process.cwd(), "package.json"), "utf8")) as {
       scripts?: Record<string, string>;
