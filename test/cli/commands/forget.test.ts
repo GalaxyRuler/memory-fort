@@ -504,16 +504,22 @@ describe("runForget", () => {
   it("redacts a nonconforming operation directory from same-vault journal warnings", async () => {
     const raw = "raw/2026-05-20/private-operation-directory.md";
     const evidenceSecurityDir = join(tmp, "evidence-security");
-    const rawOperationDirectory = "PRIVATE-JOURNAL-DIRECTORY-NAME-MUST-NOT-LEAK";
-    await writeAt(raw, "sensitive session");
-    await writeUnresolvedSameVaultJournal(evidenceSecurityDir, rawOperationDirectory);
+    const rawOperationDirectory = "raw-private-operation-name";
+    const unresolvedMarker = "PRIVATE-JOURNAL-CONTENT-MUST-NOT-LEAK";
+    await seedAttributableRaw(raw);
+    await writeUnresolvedSameVaultJournal(
+      evidenceSecurityDir,
+      rawOperationDirectory,
+      unresolvedMarker,
+    );
 
     const plan = await runForget({ rawPaths: [raw], evidenceSecurityDir });
 
-    expect(plan.report.match(/live-erase\/\S+\/prepared\.json/g)).toEqual([
-      "live-erase/(unrecognized-operation)/prepared.json",
-    ]);
+    expect(plan.report).toContain("Warning: unresolved pending live erase journal");
+    expect(plan.report).toContain("live-erase/(unrecognized-operation)/prepared.json");
+    expect(plan.report).toContain("inspect or quarantine");
     expect(plan.report).not.toContain(rawOperationDirectory);
+    expect(plan.report).not.toContain(unresolvedMarker);
   });
 
   it("retains same-vault journal warnings on blocked and no-match apply aborts", async () => {
