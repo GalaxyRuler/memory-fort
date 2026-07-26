@@ -1,7 +1,19 @@
 import { Link } from "@tanstack/react-router";
-import ReactMarkdown from "react-markdown";
+import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { wikiPathToRouterParams } from "../lib/wikilinks.js";
+
+const WIKI_URL_PREFIX = "wiki:";
+
+function markdownUrlTransform(url: string): string {
+  if (
+    url.startsWith(WIKI_URL_PREFIX)
+    && wikiPathToRouterParams(url.slice(WIKI_URL_PREFIX.length))
+  ) {
+    return url;
+  }
+  return defaultUrlTransform(url);
+}
 
 export interface MarkdownBodyProps {
   source: string;
@@ -31,6 +43,7 @@ export function MarkdownBody({ source }: MarkdownBodyProps) {
           },
         }}
         remarkPlugins={[remarkGfm]}
+        urlTransform={markdownUrlTransform}
       >
         {source}
       </ReactMarkdown>
