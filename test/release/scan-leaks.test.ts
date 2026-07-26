@@ -217,6 +217,7 @@ describe("scan-leaks release gate", () => {
   });
 
   it("fails closed when an explicit packaged root is missing or empty", async () => {
+    const missingRoot = await runScan(["--root", join(tmp, "missing-root")]);
     const missing = await runScan(["--packaged-root", join(tmp, "missing")]);
     const missingOutput = await runScan(["--packaged-output", join(tmp, "missing-output")]);
     const emptyRoot = join(tmp, "empty-package");
@@ -227,6 +228,8 @@ describe("scan-leaks release gate", () => {
     const noAppRoots = await runScan(["--packaged-output", outputWithoutApps]);
 
     expect(missing.exitCode).toBe(1);
+    expect(missingRoot.exitCode).toBe(1);
+    expect(missingRoot.stderr).toContain("scan root does not exist");
     expect(missing.stderr).toContain("package scan root does not exist");
     expect(missingOutput.exitCode).toBe(1);
     expect(missingOutput.stderr).toContain("package scan output does not exist");

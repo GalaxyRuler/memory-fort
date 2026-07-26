@@ -55,6 +55,7 @@ if (args.packagedRoots.length > 0 || args.packagedOutput) {
   }
 } else {
   const root = resolve(args.root ?? process.cwd());
+  if (args.root) await requireDirectory(root, "scan root");
   await scanTarget({ root, prefix: "" }, { quarantine: true, prefix: "", requireFiles: false });
 }
 
@@ -69,7 +70,7 @@ if (args.json) {
 process.exitCode = hits.length > 0 ? 1 : 0;
 
 async function scanTarget(target, options) {
-  const files = await listFiles(target.root, { quarantine: options.quarantine });
+  const files = await listFiles(target.root, { quarantine: options.quarantine, strict: options.requireFiles });
   if (options.requireFiles && files.length === 0) {
     throw new Error(`package scan root contains no files: ${target.root}`);
   }
@@ -81,7 +82,10 @@ async function scanTarget(target, options) {
     let content;
     try {
       content = await readFile(join(target.root, ...relPath.split("/")), "utf8");
-    } catch {
+    } catch (error) {
+      if (options.requireFiles) {
+        throw new Error(`package scan could not read ${withPrefix(options.prefix, relPath)}: ${errorMessage(error)}`);
+      }
       continue;
     }
 
@@ -201,7 +205,8 @@ async function walkDistFiles(dir) {
     let entries;
     try {
       entries = await readdir(current, { withFileTypes: true });
-    } catch {
+    } catch (error) {
+      if (options.strict) throw new Error(`package scan could not enumerate ${dir}: ${errorMessage(error)}`);
       return;
     }
     for (const entry of entries) {
@@ -291,7 +296,13 @@ async function walkFiles(rootPath, options) {
       if (entry.isDirectory()) {
         await walk(fullPath);
       } else if (entry.isFile()) {
-        const info = await stat(fullPath);
+        let info;
+        try {
+          info = await stat(fullPath);
+        } catch (error) {
+          if (options.strict) throw new Error(`package scan could not inspect ${relPath}: ${errorMessage(error)}`);
+          continue;
+        }
         if (info.isFile()) files.push(relPath);
       }
     }
@@ -348,6 +359,10 @@ function pathSegments(segments) {
 
 function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function errorMessage(error) {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function toPosixPath(value) {
