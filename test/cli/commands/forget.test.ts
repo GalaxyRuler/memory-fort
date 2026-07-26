@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, readdir, rm, utimes, writeFile } from "node:fs/promises";
 import { hostname, tmpdir } from "node:os";
@@ -72,7 +73,7 @@ import {
 } from "../../../src/hooks/raw-file.js";
 import { withFileLock } from "../../../src/storage/file-lock.js";
 import { readLiveEraseReceipt } from "../../../src/forget/evidence.js";
-import { verifyEvidenceSignature } from "../../../src/forget/evidence-auth.js";
+import { createEvidenceSigner, stableJson, verifyEvidenceSignature } from "../../../src/forget/evidence-auth.js";
 import { atomicWrite } from "../../../src/storage/atomic-write.js";
 
 const execFileAsync = promisify(execFile);
@@ -394,6 +395,43 @@ describe("runForget", () => {
     expect(existsSync(join(root, ...raw.split("/")))).toBe(false);
     await expect(readLiveEraseReceipt(resumed.receipt!.path, evidenceSecurityDir))
       .resolves.toMatchObject({ status: "live-erased/history-retained" });
+  });
+
+  it("resumes a signed legacy-v1 pending live erase journal", async () => {
+    const raw = "raw/2026-05-20/legacy-v1-pending.md";
+    const evidenceSecurityDir = join(tmp, "evidence-security");
+    await seedAttributableRaw(raw);
+    await writeAt("index.md", "STALE-LEGACY-V1-CONTEXT\n");
+    await execFileAsync("git", ["init", "-b", "main"], { cwd: root });
+    await execFileAsync("git", ["config", "user.email", "memory-fort-tests@example.invalid"], { cwd: root });
+    await execFileAsync("git", ["config", "user.name", "Memory Fort Tests"], { cwd: root });
+    await execFileAsync("git", ["add", "."], { cwd: root });
+    await execFileAsync("git", ["commit", "-m", "seed legacy v1 fixture"], { cwd: root });
+    await rebuildFixtureIndex();
+    forgetRmFailure.target = "/index.md";
+
+    await expect(runForget({ mode: "apply", rawPaths: [raw], evidenceSecurityDir }))
+      .rejects.toBeInstanceOf(ForgetPartialMutationError);
+    const operationsRoot = join(evidenceSecurityDir, "records", "live-erase");
+    const [operation] = await readdir(operationsRoot);
+    const journalPath = join(operationsRoot, operation!, "prepared.json");
+    const signed = JSON.parse(await readFile(journalPath, "utf8")) as Record<string, unknown>;
+    const { auth: _auth, ...payload } = signed;
+    const selection = payload["selection"] as { selectors: unknown };
+    payload["operationDigest"] = createHash("sha256")
+      .update(stableJson({
+        kind: "memory-fort-live-erase-operation-v1",
+        canonicalRootFingerprint: payload["canonicalRootFingerprint"],
+        selectors: selection.selectors,
+      }))
+      .digest("hex");
+    const signer = await createEvidenceSigner(evidenceSecurityDir);
+    await writeFile(journalPath, `${JSON.stringify(await signer.sign(payload), null, 2)}\n`, "utf8");
+
+    forgetRmFailure.target = null;
+    await runReindex({ vaultRoot: root });
+    await expect(runForget({ mode: "apply", rawPaths: [raw], evidenceSecurityDir }))
+      .resolves.toMatchObject({ status: "live-erased/history-retained", erased: expect.arrayContaining([raw]) });
   });
 
   it("serializes concurrent applies from fresh planning through ready publication", async () => {
