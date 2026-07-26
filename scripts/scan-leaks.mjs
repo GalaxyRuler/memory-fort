@@ -81,7 +81,7 @@ export async function main(argv = process.argv.slice(2)) {
     process.stdout.write(hits.length > 0 ? `${JSON.stringify(hits, null, 2)}\n` : "");
   } else {
     for (const hit of hits) {
-      process.stdout.write(`${hit.path}:${hit.line}: denied content\n`);
+      process.stdout.write(`${hit.path}:${hit.line}: denied ${hit.kind ?? "content"}\n`);
     }
   }
 
@@ -94,9 +94,19 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
 }
 
 export async function scanTarget(target, options, { fileSystem = defaultFileSystem, hits = [] } = {}) {
-  const files = await listFiles(target.root, { quarantine: options.quarantine, strict: options.requireFiles }, fileSystem);
+  const inventory = await listFiles(
+    target.root,
+    { quarantine: options.quarantine, strict: options.requireFiles },
+    fileSystem,
+  );
+  const { files, paths } = inventory;
   if (options.requireFiles && files.length === 0) {
-    throw new Error(`package scan root contains no files: ${target.root}`);
+    throw new Error(`package scan root contains no files: ${redact(target.root)}`);
+  }
+
+  for (const relPath of paths) {
+    if (options.quarantine && isQuarantined(relPath)) continue;
+    scanPath(relPath, options, hits);
   }
 
   let scanEligibleFiles = 0;
@@ -118,9 +128,7 @@ export async function scanTarget(target, options, { fileSystem = defaultFileSyst
     const lines = content.split(/\r?\n/);
     for (const [index, line] of lines.entries()) {
       for (const rule of DENYLIST) {
-        if (rule.exampleOnly && !isMarkdownOrJson(relPath)) continue;
-        if (rule.skipTests && isTestPath(relPath)) continue;
-        if (isAllowedPackageAttributionMatch(relPath, rule, options)) continue;
+        if (!shouldApplyRule(rule, relPath, options)) continue;
         const match = rule.regex.exec(line);
         if (match) {
           hits.push({ path: withPrefix(options.prefix, relPath), line: index + 1 });
@@ -130,7 +138,7 @@ export async function scanTarget(target, options, { fileSystem = defaultFileSyst
   }
 
   if (options.requireFiles && scanEligibleFiles === 0) {
-    throw new Error(`package scan root contains no scan-eligible files: ${target.root}`);
+    throw new Error(`package scan root contains no scan-eligible files: ${redact(target.root)}`);
   }
 
   if (options.quarantine) {
@@ -145,15 +153,17 @@ export async function scanTarget(target, options, { fileSystem = defaultFileSyst
         let content;
         try {
           content = await fileSystem.readFile(fullPath, "utf8");
-        } catch {
-          continue;
+        } catch (error) {
+          throw new Error(
+            `repository scan could not read ${distRelativePath(distDir, fullPath)}: ${errorMessage(error)}`,
+          );
         }
         const lines = content.split(/\r?\n/);
         for (const [index, line] of lines.entries()) {
           for (const token of INFRA_TOKENS) {
             if (line.includes(token)) {
               const rel = toPosixPath(relative(target.root, fullPath));
-              hits.push({ path: rel, line: index + 1, scope: "dist" });
+              hits.push({ path: redact(rel), line: index + 1, scope: "dist" });
             }
           }
         }
@@ -197,7 +207,13 @@ async function discoverPackagedAppRoots(outputRoot) {
   return targets;
 
   async function walk(directory, relativeDirectory) {
-    const entries = await readdir(directory, { withFileTypes: true });
+    let entries;
+    try {
+      entries = await readdir(directory, { withFileTypes: true });
+    } catch (error) {
+      const relPath = toPosixPath(relative(outputRoot, directory)) || ".";
+      throw new Error(`package scan could not enumerate ${redact(relPath)}: ${errorMessage(error)}`);
+    }
     for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
       if (!entry.isDirectory()) continue;
       const relPath = relativeDirectory ? join(relativeDirectory, entry.name) : entry.name;
@@ -225,7 +241,7 @@ async function requireDirectory(path, label) {
   } catch {
     // The caller receives the same fail-closed error for a missing path.
   }
-  throw new Error(`${label} does not exist or is not a directory: ${path}`);
+  throw new Error(`${label} does not exist or is not a directory: ${redact(path)}`);
 }
 
 async function isDirectory(path) {
@@ -237,7 +253,7 @@ async function isDirectory(path) {
 }
 
 function withPrefix(prefix, relPath) {
-  return prefix ? `${prefix}/${relPath}` : relPath;
+  return redact(prefix ? `${prefix}/${relPath}` : relPath);
 }
 
 function shouldSkipFile(relPath, options) {
@@ -252,26 +268,65 @@ function isAllowedPackageAttributionMatch(relPath, rule, options) {
     && rule.allowInPackageAttribution;
 }
 
+function shouldApplyRule(rule, relPath, options, { path = false } = {}) {
+  if (!path && rule.exampleOnly && !isMarkdownOrJson(relPath)) return false;
+  if (rule.skipTests && isTestPath(relPath)) return false;
+  if (isAllowedPackageAttributionMatch(relPath, rule, options)) return false;
+  return true;
+}
+
+function scanPath(relPath, options, hits) {
+  for (const rule of DENYLIST) {
+    if (!shouldApplyRule(rule, relPath, options, { path: true })) continue;
+    if (rule.regex.test(relPath)) {
+      hits.push({ path: withPrefix(options.prefix, relPath), line: 0, kind: "path" });
+    }
+  }
+}
+
 async function walkDistFiles(dir, fileSystem = defaultFileSystem) {
   const results = [];
   async function walk(current) {
     let entries;
     try {
       entries = await fileSystem.readdir(current, { withFileTypes: true });
-    } catch {
-      return;
+    } catch (error) {
+      throw new Error(`repository scan could not enumerate ${distRelativePath(dir, current)}: ${errorMessage(error)}`);
     }
     for (const entry of entries) {
       const fullPath = join(current, entry.name);
-      if (entry.isDirectory()) {
+      const relPath = distRelativePath(dir, fullPath);
+      if (typeof entry.isSymbolicLink === "function" && entry.isSymbolicLink()) {
+        throw new Error(`repository scan does not support symbolic link: ${redact(relPath)}`);
+      }
+      const isDirectoryEntry = entry.isDirectory();
+      const isFileEntry = entry.isFile();
+      if (!isDirectoryEntry && !isFileEntry) {
+        throw new Error(`repository scan encountered unsupported entry: ${redact(relPath)}`);
+      }
+      let info;
+      try {
+        info = await fileSystem.stat(fullPath);
+      } catch (error) {
+        throw new Error(`repository scan could not inspect ${redact(relPath)}: ${errorMessage(error)}`);
+      }
+      if ((isDirectoryEntry && !info.isDirectory()) || (isFileEntry && !info.isFile())) {
+        throw new Error(`repository scan entry type mismatch: ${redact(relPath)}`);
+      }
+      if (isDirectoryEntry) {
         await walk(fullPath);
-      } else if (entry.isFile()) {
+      } else {
         results.push(fullPath);
       }
     }
   }
   await walk(dir);
   return results;
+}
+
+function distRelativePath(distDir, path) {
+  const relPath = toPosixPath(relative(distDir, path));
+  return relPath ? `dist/${relPath}` : "dist";
 }
 
 function parseArgs(argv) {
@@ -316,7 +371,7 @@ function parseArgs(argv) {
       index += 1;
       continue;
     }
-    throw new Error(`unknown argument: ${arg}`);
+    throw new Error(`unknown argument: ${redact(arg)}`);
   }
   if (parsed.root && (parsed.packagedRoots.length > 0 || parsed.packagedOutput)) {
     throw new Error("--root cannot be combined with packaged scan options");
@@ -330,7 +385,7 @@ function parseArgs(argv) {
 async function listFiles(rootPath, options, fileSystem = defaultFileSystem) {
   if (options.quarantine && await pathExists(join(rootPath, ".git"), fileSystem)) {
     try {
-      return execFileSync("git", ["-C", rootPath, "ls-files", "-z"], {
+      const files = execFileSync("git", ["-C", rootPath, "ls-files", "-z"], {
         encoding: "utf8",
         windowsHide: true,
       })
@@ -338,6 +393,7 @@ async function listFiles(rootPath, options, fileSystem = defaultFileSystem) {
         .filter(Boolean)
         .map(toPosixPath)
         .sort();
+      return { files, paths: pathsFromFiles(files) };
     } catch {
       return walkFiles(rootPath, options, fileSystem);
     }
@@ -347,6 +403,7 @@ async function listFiles(rootPath, options, fileSystem = defaultFileSystem) {
 
 async function walkFiles(rootPath, options, fileSystem = defaultFileSystem) {
   const files = [];
+  const paths = [];
 
   async function walk(dir) {
     let entries;
@@ -355,7 +412,7 @@ async function walkFiles(rootPath, options, fileSystem = defaultFileSystem) {
     } catch (error) {
       if (options.strict) {
         const relDir = toPosixPath(relative(rootPath, dir)) || ".";
-        throw new Error(`package scan could not enumerate ${relDir}: ${errorMessage(error)}`);
+        throw new Error(`package scan could not enumerate ${redact(relDir)}: ${errorMessage(error)}`);
       }
       return;
     }
@@ -366,27 +423,62 @@ async function walkFiles(rootPath, options, fileSystem = defaultFileSystem) {
       if (options.quarantine && isQuarantined(relPath)) continue;
       if (typeof entry.isSymbolicLink === "function" && entry.isSymbolicLink()) {
         if (options.strict) {
-          throw new Error(`package scan does not support symbolic link: ${relPath}`);
+          throw new Error(`package scan does not support symbolic link: ${redact(relPath)}`);
         }
         continue;
       }
-      if (entry.isDirectory()) {
-        await walk(fullPath);
-      } else if (entry.isFile()) {
-        let info;
+      const isDirectoryEntry = entry.isDirectory();
+      const isFileEntry = entry.isFile();
+      if (!isDirectoryEntry && !isFileEntry) {
+        if (options.strict) {
+          throw new Error(`package scan encountered unsupported entry: ${redact(relPath)}`);
+        }
+        continue;
+      }
+      let info;
+      if (options.strict) {
         try {
           info = await fileSystem.stat(fullPath);
         } catch (error) {
-          if (options.strict) throw new Error(`package scan could not inspect ${relPath}: ${errorMessage(error)}`);
-          continue;
+          throw new Error(`package scan could not inspect ${redact(relPath)}: ${errorMessage(error)}`);
         }
-        if (info.isFile()) files.push(relPath);
+        if ((isDirectoryEntry && !info.isDirectory()) || (isFileEntry && !info.isFile())) {
+          throw new Error(`package scan entry type mismatch: ${redact(relPath)}`);
+        }
+      }
+      paths.push(relPath);
+      if (isDirectoryEntry) {
+        await walk(fullPath);
+      } else {
+        if (!options.strict) {
+          try {
+            info = await fileSystem.stat(fullPath);
+          } catch {
+            continue;
+          }
+          if (!info.isFile()) continue;
+        }
+        files.push(relPath);
       }
     }
   }
 
   await walk(rootPath);
-  return files.sort();
+  return {
+    files: files.sort(),
+    paths: [...new Set(paths)].sort(),
+  };
+}
+
+function pathsFromFiles(files) {
+  const paths = new Set();
+  for (const file of files) {
+    const segments = file.split("/");
+    for (let index = 1; index <= segments.length; index += 1) {
+      paths.add(segments.slice(0, index).join("/"));
+    }
+  }
+  return [...paths].sort();
 }
 
 async function pathExists(path, fileSystem = defaultFileSystem) {
@@ -440,7 +532,15 @@ function escapeRegExp(value) {
 }
 
 function errorMessage(error) {
-  return error instanceof Error ? error.message : String(error);
+  return redact(error instanceof Error ? error.message : String(error));
+}
+
+function redact(value) {
+  let result = String(value);
+  for (const rule of DENYLIST) {
+    result = result.replace(new RegExp(rule.regex.source, "gi"), "[REDACTED]");
+  }
+  return result;
 }
 
 function toPosixPath(value) {

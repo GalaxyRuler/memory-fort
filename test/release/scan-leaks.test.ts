@@ -235,6 +235,23 @@ describe("scan-leaks release gate", () => {
     expect(result.stdout).not.toContain(token);
   });
 
+  it("scans packaged file and directory names as redacted path hits", async () => {
+    const token = ["srv", "1317946"].join("");
+    const appRoot = join(tmp, "path-names");
+    await writeText(`path-names/dir-${token}/clean.js`, "export const clean = true;\n");
+    await writeText(`path-names/clean-${token}.js`, "export const clean = true;\n");
+
+    const result = await runScan(["--packaged-root", appRoot, "--json"]);
+    const hits = JSON.parse(result.stdout) as Array<{ path: string; line: number; kind?: string }>;
+
+    expect(result.exitCode).toBe(1);
+    expect(hits).toEqual(expect.arrayContaining([
+      { path: "dir-[REDACTED]", line: 0, kind: "path" },
+      { path: "clean-[REDACTED].js", line: 0, kind: "path" },
+    ]));
+    expect(result.stdout).not.toContain(token);
+  });
+
   it("rejects a packaged root that contains only fully allowlisted files", async () => {
     const appRoot = join(tmp, "allowlisted-only");
     await mkdir(appRoot, { recursive: true });
@@ -296,6 +313,97 @@ describe("scan-leaks release gate", () => {
       { quarantine: false, prefix: "", requireFiles: true },
       { fileSystem },
     )).rejects.toThrow("package scan does not support symbolic link: linked.js");
+  });
+
+  it("fails closed on an unsupported packaged directory entry", async () => {
+    const fileSystem = {
+      access: async () => undefined,
+      readdir: async () => [unknownEntry("fifo")],
+      readFile: async () => "",
+      stat: async () => ({ isFile: () => false, isDirectory: () => false }),
+    };
+
+    await expect(scanTarget(
+      { root: "package", prefix: "" },
+      { quarantine: false, prefix: "", requireFiles: true },
+      { fileSystem },
+    )).rejects.toThrow("package scan encountered unsupported entry: fifo");
+  });
+
+  it("fails closed when a packaged dirent disagrees with stat", async () => {
+    const fileAsDirectory = {
+      access: async () => undefined,
+      readdir: async () => [fileEntry("payload.js")],
+      readFile: async () => "",
+      stat: async () => ({ isFile: () => false, isDirectory: () => true }),
+    };
+    const directoryAsFile = {
+      access: async () => undefined,
+      readdir: async () => [directoryEntry("assets")],
+      readFile: async () => "",
+      stat: async () => ({ isFile: () => true, isDirectory: () => false }),
+    };
+
+    await expect(scanTarget(
+      { root: "package", prefix: "" },
+      { quarantine: false, prefix: "", requireFiles: true },
+      { fileSystem: fileAsDirectory },
+    )).rejects.toThrow("package scan entry type mismatch: payload.js");
+    await expect(scanTarget(
+      { root: "package", prefix: "" },
+      { quarantine: false, prefix: "", requireFiles: true },
+      { fileSystem: directoryAsFile },
+    )).rejects.toThrow("package scan entry type mismatch: assets");
+  });
+
+  it("redacts tokens from strict packaged scan diagnostics", async () => {
+    const token = ["srv", "1317946"].join("");
+    const fileSystem = {
+      access: async () => undefined,
+      readdir: async () => [fileEntry(`${token}.js`)],
+      readFile: async () => {
+        throw new Error(`${token} unreadable`);
+      },
+      stat: async () => ({ isFile: () => true, isDirectory: () => false }),
+    };
+    let failure: unknown;
+    try {
+      await scanTarget(
+        { root: "package", prefix: "" },
+        { quarantine: false, prefix: "", requireFiles: true },
+        { fileSystem },
+      );
+    } catch (error) {
+      failure = error;
+    }
+
+    expect(failure).toBeInstanceOf(Error);
+    expect((failure as Error).message).toContain("[REDACTED]");
+    expect((failure as Error).message).not.toContain(token);
+  });
+
+  it("fails closed when the repository dist pass cannot enumerate or read", async () => {
+    const enumerateFailure = repositoryDistFileSystem(async (path) => {
+      if (path.endsWith("dist")) throw new Error("permission denied");
+      return [directoryEntry("dist")];
+    });
+    const readFailure = repositoryDistFileSystem(async (path) => {
+      if (path.endsWith("dist")) return [fileEntry("unreadable.mjs")];
+      return [directoryEntry("dist")];
+    }, async () => {
+      throw new Error("permission denied");
+    });
+
+    await expect(scanTarget(
+      { root: "repo", prefix: "" },
+      { quarantine: true, prefix: "", requireFiles: false },
+      { fileSystem: enumerateFailure },
+    )).rejects.toThrow("repository scan could not enumerate dist: permission denied");
+    await expect(scanTarget(
+      { root: "repo", prefix: "" },
+      { quarantine: true, prefix: "", requireFiles: false },
+      { fileSystem: readFailure },
+    )).rejects.toThrow("repository scan could not read dist/unreadable.mjs: permission denied");
   });
 
   it("scans denylist tokens across every discovered packaged payload", async () => {
@@ -392,4 +500,25 @@ function fileEntry(name: string) {
 
 function symlinkEntry(name: string) {
   return { name, isDirectory: () => false, isFile: () => false, isSymbolicLink: () => true };
+}
+
+function unknownEntry(name: string) {
+  return { name, isDirectory: () => false, isFile: () => false, isSymbolicLink: () => false };
+}
+
+function repositoryDistFileSystem(
+  readdir: (path: string) => Promise<ReturnType<typeof directoryEntry>[] | ReturnType<typeof fileEntry>[]>,
+  readFile: (path: string) => Promise<string> = async () => "",
+) {
+  return {
+    access: async (path: string) => {
+      if (path.endsWith(".git")) throw new Error("not found");
+    },
+    readdir,
+    readFile,
+    stat: async (path: string) => ({
+      isFile: () => path.endsWith(".mjs"),
+      isDirectory: () => path.endsWith("dist"),
+    }),
+  };
 }
