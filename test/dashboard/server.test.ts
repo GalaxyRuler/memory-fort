@@ -1301,6 +1301,7 @@ describe("dashboard server", () => {
       expect(response.headers.get("content-type")).toContain("application/json");
       expect(body).toEqual({
         relPath: "wiki/projects/foo.md",
+        archived: false,
         frontmatter: expect.objectContaining({ title: "Foo", type: "projects" }),
         body: expect.stringContaining("Foo page content."),
         relations: expect.any(Array),
@@ -1329,18 +1330,37 @@ describe("dashboard server", () => {
       const relPath = encodeURIComponent("wiki/archive/old.md");
       const hidden = await fetch(`http://${server.host}:${server.port}/api/page/${relPath}`);
       const visible = await fetch(`http://${server.host}:${server.port}/api/page/${relPath}?includeArchived=true`);
+      const numericVisible = await fetch(`http://${server.host}:${server.port}/api/page/${relPath}?includeArchived=1`);
+      const numericHidden = await fetch(`http://${server.host}:${server.port}/api/page/${relPath}?includeArchived=0`);
+      const listed = await fetch(`http://${server.host}:${server.port}/api/pages?includeArchived=1`);
+      const wikiPage = await fetch(`http://${server.host}:${server.port}/wiki/archive/old?includeArchived=1`);
+      const apiWikiPage = await fetch(`http://${server.host}:${server.port}/api/wiki/archive/old?includeArchived=1`);
       const invalid = await fetch(`http://${server.host}:${server.port}/api/page/${relPath}?includeArchived=yes`);
       const auditPath = encodeURIComponent("wiki/.audit/secret.md");
       const audit = await fetch(`http://${server.host}:${server.port}/api/page/${auditPath}?includeArchived=true`);
 
       expect(hidden.status).toBe(404);
       expect(visible.status).toBe(200);
+      expect(numericVisible.status).toBe(200);
+      expect(numericHidden.status).toBe(404);
+      expect(listed.status).toBe(200);
+      expect(wikiPage.status).toBe(200);
+      expect(apiWikiPage.status).toBe(200);
       expect(invalid.status).toBe(400);
       expect(audit.status).toBe(404);
       await expect(visible.json()).resolves.toMatchObject({
         relPath: "wiki/archive/old.md",
+        archived: true,
         frontmatter: { title: "Archived Foo" },
       });
+      await expect(apiWikiPage.json()).resolves.toMatchObject({
+        relPath: "archive/old.md",
+        archived: true,
+      });
+      await expect(listed.json()).resolves.toMatchObject({
+        pages: expect.arrayContaining([expect.objectContaining({ path: "wiki/archive/old.md", archived: true })]),
+      });
+      await expect(wikiPage.text()).resolves.toContain("<dt>Archived</dt><dd>yes</dd>");
     } finally {
       await server.close();
     }

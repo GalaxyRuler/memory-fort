@@ -647,7 +647,11 @@ describe("dashboard loaders", () => {
     );
 
     await expect(loadPageDetail(tmp, "Archive/old.md", { includeArchived: true }))
-      .resolves.toMatchObject({ relPath: "Archive/old.md", body: expect.stringContaining("Archived body.") });
+      .resolves.toMatchObject({
+        relPath: "Archive/old.md",
+        archived: true,
+        body: expect.stringContaining("Archived body."),
+      });
     await expect(loadPageDetail(tmp, ".audit/llm-2026-05-29.md", { includeArchived: true })).resolves.toBeNull();
   });
 

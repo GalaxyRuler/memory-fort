@@ -31,6 +31,7 @@ vi.mock("@tanstack/react-router", () => ({
 function makePage(): PageDetail {
   return {
     relPath: "wiki/decisions/foo.md",
+    archived: false,
     frontmatter: {
       type: "decisions",
       title: "Foo Decision",
@@ -54,6 +55,16 @@ describe("wiki page detail components", () => {
     expect(screen.getByText("decisions")).toBeInTheDocument();
     expect(screen.getByText("active")).toBeInTheDocument();
     expect(screen.getByText("voyage")).toBeInTheDocument();
+  });
+
+  test("PageHeader shows archived when the page path is archived", () => {
+    const archived = makePage();
+    archived.archived = true;
+
+    render(<PageHeader page={archived} />);
+
+    expect(screen.getByText("archived")).toBeInTheDocument();
+    expect(screen.queryByText("active")).not.toBeInTheDocument();
   });
 
   test("PageRelations groups by edge type", () => {

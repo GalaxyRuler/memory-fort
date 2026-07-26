@@ -17,6 +17,7 @@ export interface PageInbound {
 
 export interface PageDetail {
   relPath: string;
+  archived: boolean;
   frontmatter: {
     type?: string;
     title?: string;

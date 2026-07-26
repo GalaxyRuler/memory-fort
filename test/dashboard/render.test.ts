@@ -112,6 +112,7 @@ describe("dashboard render", () => {
   it("renderWikiPage renders relations + inbound sections with proper links", () => {
     const page: PageDetail = {
       relPath: "projects/a.md",
+      archived: false,
       frontmatter: {
         type: "projects",
         title: "A",
@@ -140,6 +141,21 @@ describe("dashboard render", () => {
     expect(html).toContain('<a href="/wiki/projects/d">');
     expect(html).toContain("via wikilink");
     expect(html).toContain("via relation:uses");
+  });
+
+  it("renders archive state over an active frontmatter status", () => {
+    const html = renderWikiPage({
+      relPath: "archive/old.md",
+      archived: true,
+      frontmatter: { title: "Old", status: "active" },
+      body: "Archived body.",
+      relations: [],
+      inbound: [],
+    });
+
+    expect(html).toContain("<dt>Status</dt><dd>archived</dd>");
+    expect(html).toContain("<dt>Archived</dt><dd>yes</dd>");
+    expect(html).not.toContain("<dt>Status</dt><dd>active</dd>");
   });
 
   it("renderRawSession escapes HTML in raw content", () => {

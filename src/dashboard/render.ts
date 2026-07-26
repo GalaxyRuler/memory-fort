@@ -161,7 +161,7 @@ ${pageEnd()}`;
 export function renderWikiPage(page: PageDetail): string {
   const title = typeof page.frontmatter.title === "string" ? page.frontmatter.title : page.relPath;
   const category = page.relPath.split("/")[0] ?? "";
-  const status = renderScalar(page.frontmatter.status ?? "active");
+  const status = page.archived ? "archived" : renderScalar(page.frontmatter.status ?? "active");
   const confidence = page.frontmatter.confidence === undefined
     ? "(unset)"
     : String(getConfidenceScore(page.frontmatter.confidence));
@@ -173,6 +173,7 @@ export function renderWikiPage(page: PageDetail): string {
 <section id="frontmatter"><h2>Metadata</h2><dl>
 <dt>Category</dt><dd>${escapeHtml(category)}</dd>
 <dt>Status</dt><dd>${escapeHtml(status)}</dd>
+<dt>Archived</dt><dd>${page.archived ? "yes" : "no"}</dd>
 <dt>Confidence</dt><dd>${escapeHtml(confidence)}</dd>
 <dt>Tags</dt><dd>${escapeHtml(tags)}</dd>
 <dt>Updated</dt><dd>${escapeHtml(renderScalar(page.frontmatter.updated))}</dd>

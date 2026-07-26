@@ -128,6 +128,7 @@ export interface WikiIndex {
 
 export interface PageDetail {
   relPath: string;
+  archived: boolean;
   frontmatter: Frontmatter;
   body: string;
   relations: Array<{
@@ -1060,7 +1061,8 @@ export async function loadPageDetail(
 ): Promise<PageDetail | null> {
   if (relPath.includes("\\") || !relPath.endsWith(".md")) return null;
   const wikiRelPath = `wiki/${relPath}`;
-  if (hasSystemPathComponent(wikiRelPath) || (hasArchivePathComponent(wikiRelPath) && !opts.includeArchived)) return null;
+  const archived = hasArchivePathComponent(wikiRelPath);
+  if (hasSystemPathComponent(wikiRelPath) || (archived && !opts.includeArchived)) return null;
   const wikiRoot = join(vaultRoot, "wiki");
   const fullPath = safeResolveUnder(wikiRoot, relPath);
   if (!fullPath || !(await pathExists(fullPath))) return null;
@@ -1072,6 +1074,7 @@ export async function loadPageDetail(
   const idx = buildResolutionIndex(pages);
   return {
     relPath: page.path,
+    archived,
     frontmatter: page.frontmatter,
     body: page.body,
     relations: resolveRelations(page, idx),

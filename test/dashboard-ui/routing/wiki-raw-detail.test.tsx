@@ -152,6 +152,7 @@ function renderAt(path: string) {
 function wikiPageFixture(): PageDetail {
   return {
     relPath: "wiki/decisions/2026-05-20-voyage-ai-for-embeddings.md",
+    archived: false,
     frontmatter: {
       title: "Voyage AI for Embeddings",
       type: "decisions",

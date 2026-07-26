@@ -20,7 +20,7 @@ export function PageHeader({ page }: { page: PageDetail }) {
   const frontmatter = page.frontmatter;
   const status = frontmatter.status;
   const type = frontmatter.type;
-  const validStatus = isStatusKind(status) ? status : "active";
+  const validStatus = page.archived ? "archived" : isStatusKind(status) ? status : "active";
   const validType = isEntityType(type) ? type : "projects";
 
   return (

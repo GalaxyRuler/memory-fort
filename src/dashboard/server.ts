@@ -810,7 +810,7 @@ function parseSearchBoolean(value: string | null): boolean {
 }
 
 function parseArchivedPageOptIn(value: string | null): boolean | null {
-  if (value === null || value === "false") return false;
+  if (value === null || value === "false" || value === "0") return false;
   if (value === "true" || value === "1") return true;
   return null;
 }
