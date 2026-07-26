@@ -52,7 +52,12 @@ describe("memory backup", () => {
     await writeFile(join(harness.vaultRoot, ".git", "index.lock"), "stale lock\n", "utf8");
 
     const created = await createBackup({ vaultRoot: harness.vaultRoot, targetDir: harness.targetDir });
-    const manifestResult = await execFile("tar", ["-xOf", created.archivePath, "backup-manifest.json"], { windowsHide: true });
+    const archiveEntries = (await execFile("tar", ["-tzf", created.archivePath], { windowsHide: true })).stdout
+      .split(/\r?\n/u)
+      .filter(Boolean);
+    const manifestEntry = archiveEntries.find((entry) => entry.replaceAll("\\", "/").replace(/^\.\//u, "") === "backup-manifest.json");
+    expect(manifestEntry).toBeDefined();
+    const manifestResult = await execFile("tar", ["-xOf", created.archivePath, manifestEntry!], { windowsHide: true });
     const manifest = JSON.parse(manifestResult.stdout) as BackupManifest;
 
     expect(manifest.entries.some((entry) => entry.path.endsWith("/.git/index.lock"))).toBe(false);

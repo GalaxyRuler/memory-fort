@@ -211,7 +211,7 @@ describe("memory forget --purge-history", () => {
     const lowSpecificityErase = await runForget({
       mode: "apply",
       rawPaths: [LOW_SPECIFICITY_RAW],
-      now: new Date("2026-07-24T10:12:00.000Z"),
+      now: new Date(),
       evidenceSecurityDir: fixture.evidenceSecurityDir,
     });
     expect(lowSpecificityErase.receipt?.path).toBeTruthy();
@@ -616,6 +616,7 @@ function purgeOptions(fixture: PurgeFixture) {
 }
 
 async function makePurgeFixture(): Promise<PurgeFixture> {
+  const fixtureNow = new Date();
   const tmp = await mkdtemp(join(tmpdir(), "forget-history-"));
   const canonicalRoot = join(tmp, "canonical");
   const cloneRoot = join(tmp, "disposable-clone");
@@ -695,11 +696,11 @@ async function makePurgeFixture(): Promise<PurgeFixture> {
   const backup = await createBackup({
     vaultRoot: canonicalRoot,
     targetDir: backupRoot,
-    now: new Date("2026-07-24T10:00:00.000Z"),
+    now: new Date(fixtureNow.getTime() - 10 * 60 * 1000),
     tempRoot: join(tmp, "backup-work"),
   });
   const drill = await runRestoreDrill(backup.archivePath, {
-    now: new Date("2026-07-24T10:05:00.000Z"),
+    now: new Date(fixtureNow.getTime() - 5 * 60 * 1000),
     tempRoot: join(tmp, "drill-work"),
     evidenceSecurityDir,
   });
@@ -710,7 +711,7 @@ async function makePurgeFixture(): Promise<PurgeFixture> {
   const liveErase = await runForget({
     mode: "apply",
     rawPaths: [FORGOTTEN_RAW],
-    now: new Date("2026-07-24T10:10:00.000Z"),
+    now: fixtureNow,
     evidenceSecurityDir,
   });
   expect(liveErase.status).toBe("live-erased/history-retained");
