@@ -382,28 +382,57 @@ describe("scan-leaks release gate", () => {
     expect((failure as Error).message).not.toContain(token);
   });
 
-  it("fails closed when the repository dist pass cannot enumerate or read", async () => {
+  it("redacts repository dist paths when enumeration fails", async () => {
+    const token = ["srv", "1317946"].join("");
     const enumerateFailure = repositoryDistFileSystem(async (path) => {
-      if (path.endsWith("dist")) throw new Error("permission denied");
+      if (path.endsWith(`${token}-dist`)) throw new Error("permission denied");
+      if (path.endsWith("dist")) return [directoryEntry(`${token}-dist`)];
       return [directoryEntry("dist")];
     });
+
+    let failure: unknown;
+    try {
+      await scanTarget(
+        { root: "repo", prefix: "" },
+        { quarantine: true, prefix: "", requireFiles: false },
+        { fileSystem: enumerateFailure },
+      );
+    } catch (error) {
+      failure = error;
+    }
+
+    expect(failure).toBeInstanceOf(Error);
+    expect((failure as Error).message).toBe(
+      "repository scan could not enumerate dist/[REDACTED]-dist: permission denied",
+    );
+    expect((failure as Error).message).not.toContain(token);
+  });
+
+  it("redacts repository dist paths when file reads fail", async () => {
+    const token = ["srv", "1317946"].join("");
     const readFailure = repositoryDistFileSystem(async (path) => {
-      if (path.endsWith("dist")) return [fileEntry("unreadable.mjs")];
+      if (path.endsWith("dist")) return [fileEntry(`unreadable-${token}.mjs`)];
       return [directoryEntry("dist")];
     }, async () => {
       throw new Error("permission denied");
     });
 
-    await expect(scanTarget(
-      { root: "repo", prefix: "" },
-      { quarantine: true, prefix: "", requireFiles: false },
-      { fileSystem: enumerateFailure },
-    )).rejects.toThrow("repository scan could not enumerate dist: permission denied");
-    await expect(scanTarget(
-      { root: "repo", prefix: "" },
-      { quarantine: true, prefix: "", requireFiles: false },
-      { fileSystem: readFailure },
-    )).rejects.toThrow("repository scan could not read dist/unreadable.mjs: permission denied");
+    let failure: unknown;
+    try {
+      await scanTarget(
+        { root: "repo", prefix: "" },
+        { quarantine: true, prefix: "", requireFiles: false },
+        { fileSystem: readFailure },
+      );
+    } catch (error) {
+      failure = error;
+    }
+
+    expect(failure).toBeInstanceOf(Error);
+    expect((failure as Error).message).toBe(
+      "repository scan could not read dist/unreadable-[REDACTED].mjs: permission denied",
+    );
+    expect((failure as Error).message).not.toContain(token);
   });
 
   it("scans denylist tokens across every discovered packaged payload", async () => {

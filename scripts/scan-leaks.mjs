@@ -155,7 +155,7 @@ export async function scanTarget(target, options, { fileSystem = defaultFileSyst
           content = await fileSystem.readFile(fullPath, "utf8");
         } catch (error) {
           throw new Error(
-            `repository scan could not read ${distRelativePath(distDir, fullPath)}: ${errorMessage(error)}`,
+            `repository scan could not read ${redact(distRelativePath(distDir, fullPath))}: ${errorMessage(error)}`,
           );
         }
         const lines = content.split(/\r?\n/);
@@ -291,7 +291,7 @@ async function walkDistFiles(dir, fileSystem = defaultFileSystem) {
     try {
       entries = await fileSystem.readdir(current, { withFileTypes: true });
     } catch (error) {
-      throw new Error(`repository scan could not enumerate ${distRelativePath(dir, current)}: ${errorMessage(error)}`);
+      throw new Error(`repository scan could not enumerate ${redact(distRelativePath(dir, current))}: ${errorMessage(error)}`);
     }
     for (const entry of entries) {
       const fullPath = join(current, entry.name);
