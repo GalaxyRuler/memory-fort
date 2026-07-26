@@ -20,7 +20,7 @@ Lane shape:
 
 - class `container`, hardware `cpu`, image `node:22-bookworm` (engines require Node `>=22`)
 - network `bridge`, used only for `npm install` against the public npm registry
-- commands: `npm install --no-audit --no-fund` -> `npm run build` -> `npm run typecheck`
+- commands: `ONNXRUNTIME_NODE_INSTALL=skip npm install --no-audit --no-fund` -> `npm run build` -> `npm run typecheck`
   (+ `typecheck:ui`) -> `npm test -- --reporter=dot`. Install is `npm install`, NOT
   `npm ci`: the Windows-generated lockfile omits Linux's electron-builder optional
   subtree, so `npm ci` hard-fails on Linux (see the `install` note in the profile and
