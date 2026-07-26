@@ -888,14 +888,14 @@ async function resumePreflightFromJournal(
   journal: HistoryPurgePreparedJournal,
   root: string,
 ): Promise<Preflight> {
-  const now = opts.now ?? new Date();
+  // Initial freshness was proven before mutation; recovery remains pinned to the
+  // signed journal's immutable evidence identities and backup hashes.
   const liveReceipt = await readLiveEraseReceipt(journal.evidence.liveEraseReceiptPath, opts.evidenceSecurityDir);
   if (liveReceipt.evidenceId !== journal.evidence.liveEraseEvidenceId
     || liveReceipt.selection.digest !== journal.selectionDigest
     || !sameSelectors(liveReceipt.selection.selectors, journal.selectors)) {
     throw new Error("memory forget --purge-history: prepared journal live erase evidence no longer matches");
   }
-  assertFreshEvidence("live erase receipt", liveReceipt.completedAt, now);
   const canonicalRoot = await realpath(memoryRoot());
   if (pathFingerprint(canonicalRoot) !== journal.canonicalRootFingerprint
     || pathFingerprint(canonicalRoot) !== liveReceipt.canonicalRootFingerprint) {
@@ -917,8 +917,6 @@ async function resumePreflightFromJournal(
   if (drillEvidence.evidenceId !== journal.evidence.restoreDrillEvidenceId) {
     throw new Error("memory forget --purge-history: prepared restore drill evidence no longer matches");
   }
-  assertFreshEvidence("restore drill evidence", drillEvidence.completedAt, now);
-  assertFreshEvidence("backup archive", drillEvidence.archive.createdAt, now);
   const verifiedBackup = await verifyBackup(drillEvidence.archive.path);
   if (verifiedBackup.archiveSha256 !== journal.evidence.backupArchiveSha256
     || verifiedBackup.manifestSha256 !== journal.evidence.backupManifestSha256) {

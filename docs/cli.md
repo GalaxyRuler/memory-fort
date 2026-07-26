@@ -327,7 +327,7 @@ memory forget --purge-history \
   --disposable-clone
 ```
 
-Run it only in a clean, separate disposable clone. The selection must exactly match a fresh successful live-erase receipt; the restore-drill evidence must prove the same repository and a freshly verified backup; every local `refs/heads/...` ref is itemized. The plan prints the exact phrase required by `--confirm-purge-history`. The confirmed run rewrites only those local refs and emits a signed `memory-fort-history-purge` receipt. It never force-pushes, deletes backups, expires reflogs, runs garbage collection, or changes other clones. If final evidence is interrupted after refs move, rerun the identical command to finalize from the verified prepared journal; mixed ref state fails closed with recovery guidance.
+Run it only in a clean, separate disposable clone. The selection must exactly match a fresh successful live-erase receipt; the restore-drill evidence must prove the same repository and a freshly verified backup; every local `refs/heads/...` ref is itemized. The plan prints the exact phrase required by `--confirm-purge-history`. The confirmed run rewrites only those local refs and emits a signed `memory-fort-history-purge` receipt. It never force-pushes, deletes backups, expires reflogs, runs garbage collection, or changes other clones. If final evidence is interrupted after refs move, the verified prepared recovery does not expire: rerun the identical command to finalize the receipt; mixed ref state fails closed with recovery guidance.
 
 ---
 

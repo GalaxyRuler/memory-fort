@@ -225,6 +225,49 @@ describe("memory forget --purge-history", () => {
     await assertNoPurgeSideEffects();
   });
 
+  it("rejects a fresh signed restore drill for a stale backup archive before side effects", async () => {
+    const now = new Date();
+    const drillEvidence = JSON.parse(await readFile(fixture.drillEvidencePath, "utf8")) as {
+      auth: unknown;
+      archive: Record<string, unknown>;
+      [key: string]: unknown;
+    };
+    const { auth: _auth, ...drillPayload } = drillEvidence;
+    const signedStaleArchiveDrill = await signEvidencePayload({
+      ...drillPayload,
+      completedAt: now.toISOString(),
+      archive: {
+        ...drillEvidence.archive,
+        createdAt: new Date(now.getTime() - 48 * 60 * 60 * 1000).toISOString(),
+      },
+    }, fixture.evidenceSecurityDir);
+    await expect(verifyEvidenceSignature(
+      signedStaleArchiveDrill,
+      fixture.evidenceSecurityDir,
+      "restore drill evidence",
+    )).resolves.toBeUndefined();
+    await writeFile(
+      fixture.drillEvidencePath,
+      `${JSON.stringify(signedStaleArchiveDrill, null, 2)}\n`,
+    );
+
+    let evidenceWrites = 0;
+    await expect(runHistoryPurge({
+      ...purgeOptions(fixture),
+      confirmation: PURGE_HISTORY_CONFIRMATION,
+      now,
+      evidenceWrite: async () => {
+        evidenceWrites += 1;
+        throw new Error("freshness failures must not write purge evidence");
+      },
+    })).rejects.toThrow(/backup archive is stale/i);
+    expect(await git(fixture.cloneRoot, ["rev-parse", "refs/heads/main"]))
+      .toBe(fixture.originalMain);
+    expect(await git(fixture.cloneRoot, ["rev-parse", "refs/heads/auxiliary"]))
+      .toBe(fixture.originalAuxiliary);
+    expect(evidenceWrites).toBe(0);
+  });
+
   it("blocks before rewrite when the deterministic fingerprint safety ceiling is exceeded", async () => {
     const capPath = "raw/2026-07-23/fingerprint-cap.md";
     await writeAt(fixture.cloneRoot, capPath, [
@@ -406,12 +449,14 @@ describe("memory forget --purge-history", () => {
   });
 
   it("fails closed on final receipt write, reports mixed refs, and finalizes only after exact recovery", async () => {
+    const initialNow = new Date();
     let failFinalReceipt = true;
     let failure: unknown;
     try {
       await runHistoryPurge({
         ...purgeOptions(fixture),
         confirmation: PURGE_HISTORY_CONFIRMATION,
+        now: initialNow,
         evidenceWrite: async (path, content) => {
           const normalized = path.replace(/\\/g, "/");
           if (
@@ -469,12 +514,28 @@ describe("memory forget --purge-history", () => {
     expect(await git(fixture.cloneRoot, ["rev-parse", auxiliary.name])).toBe(auxiliary.before);
 
     await git(fixture.cloneRoot, ["branch", "-f", "auxiliary", auxiliary.after]);
+    const refsBeforeDelayedRecovery = new Map(await Promise.all(journal.refs.map(async (ref) => [
+      ref.name,
+      await git(fixture.cloneRoot, ["rev-parse", ref.name]),
+    ] as const)));
+    const recoveryWritePaths: string[] = [];
     const resumed = await runHistoryPurge({
       ...purgeOptions(fixture),
       confirmation: PURGE_HISTORY_CONFIRMATION,
+      now: new Date(initialNow.getTime() + 25 * 60 * 60 * 1000),
+      evidenceWrite: async (path, content) => {
+        recoveryWritePaths.push(path.replace(/\\/g, "/"));
+        await atomicWrite(path, content);
+      },
     });
     expect(resumed.status).toBe("purged-local-history/limited-scope");
     expect(resumed.refs).toEqual(journal.refs);
+    expect(recoveryWritePaths).toHaveLength(1);
+    expect(recoveryWritePaths[0]).toMatch(/\/receipt\.json$/u);
+    for (const ref of journal.refs) {
+      expect(await git(fixture.cloneRoot, ["rev-parse", ref.name]))
+        .toBe(refsBeforeDelayedRecovery.get(ref.name));
+    }
   });
 
   it("rewrites only itemized local heads, preserves unrelated history, and records truthful limits", async () => {
