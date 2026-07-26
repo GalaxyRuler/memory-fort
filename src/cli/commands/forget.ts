@@ -45,6 +45,7 @@ import type { EvidenceWrite } from "../../forget/evidence-store.js";
 import {
   assertPreparedLiveEraseRestart,
   finalizeLiveEraseEvidence,
+  inspectPendingPreparedLiveEraseWarnings,
   prepareLiveEraseEvidence,
   resumePreparedLiveEraseEvidence,
   type PreparedLiveEraseEvidence,
@@ -218,6 +219,16 @@ async function runForgetAtRoot(
   mode: ForgetMode,
   ownership?: CompileExecuteLockOwnership,
 ): Promise<ForgetResult> {
+  const selectors = normalizeForgetSelectors(opts);
+  if (selectors.paths.length + selectors.rawPaths.length + selectors.sourceIds.length === 0) {
+    throw new Error("memory forget: provide at least one --path, --raw, or --source selector");
+  }
+  const pendingJournalWarnings = [...new Set(await inspectPendingPreparedLiveEraseWarnings(
+    root,
+    opts.evidenceSecurityDir,
+  ))];
+
+  try {
   if (mode === "apply") {
     const generation = readIndexGeneration(root);
     if (generation.state === "invalidating") {
@@ -228,13 +239,8 @@ async function runForgetAtRoot(
       throw new Error(`memory forget: ${detail}; fix the reported cause, then run memory reindex`);
     }
   }
-  const selectors = normalizeForgetSelectors(opts);
-  if (selectors.paths.length + selectors.rawPaths.length + selectors.sourceIds.length === 0) {
-    throw new Error("memory forget: provide at least one --path, --raw, or --source selector");
-  }
 
   let resumedPrepared: PreparedLiveEraseEvidence | null = null;
-  const pendingJournalWarnings: string[] = [];
   if (mode === "apply") {
     const resumeResult = await resumePreparedLiveEraseEvidence(root, selectors, {
       now: opts.now,
@@ -242,7 +248,9 @@ async function runForgetAtRoot(
       signerFactory: opts.evidenceSignerFactory,
       write: opts.evidenceWrite,
     });
-    pendingJournalWarnings.push(...resumeResult.warnings);
+    for (const warning of resumeResult.warnings) {
+      if (!pendingJournalWarnings.includes(warning)) pendingJournalWarnings.push(warning);
+    }
     const resumed = resumeResult.resume;
     if (resumed?.state === "completed") {
       return {
@@ -316,7 +324,11 @@ async function runForgetAtRoot(
       plan,
       erased: [],
       rewritten: [],
-      report: formatForgetReport("plan", plan, []),
+      report: [
+        formatForgetReport("plan", plan, []).trimEnd(),
+        ...pendingJournalWarningLines(pendingJournalWarnings),
+        "",
+      ].join("\n"),
     };
   }
 
@@ -427,6 +439,9 @@ async function runForgetAtRoot(
       "",
     ].join("\n"),
   };
+  } catch (error) {
+    throw appendPendingJournalWarnings(error, pendingJournalWarnings);
+  }
 }
 
 export function normalizeForgetSelectors(opts: ForgetOptions): NormalizedForgetSelectors {
@@ -978,6 +993,19 @@ function formatForgetReport(mode: ForgetMode, plan: ForgetPlan, erased: string[]
 
 function pendingJournalWarningLines(warnings: readonly string[]): string[] {
   return warnings.length > 0 ? ["", ...warnings.map((warning) => `Warning: ${warning}`)] : [];
+}
+
+function appendPendingJournalWarnings(error: unknown, warnings: readonly string[]): Error {
+  const warningLines = pendingJournalWarningLines(warnings);
+  if (warningLines.length === 0) {
+    return error instanceof Error ? error : new Error(String(error));
+  }
+  const suffix = warningLines.join("\n");
+  if (error instanceof Error) {
+    if (!error.message.includes(suffix)) error.message = `${error.message}\n${suffix}`;
+    return error;
+  }
+  return new Error(`${String(error)}\n${suffix}`);
 }
 
 function appendInventorySection(lines: string[], heading: string, paths: readonly string[]): void {

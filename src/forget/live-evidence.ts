@@ -108,7 +108,7 @@ export type LiveEraseResume = ResumedLiveEraseEvidence | RestartPreparedLiveEras
 
 export interface LiveEraseResumeResult {
   readonly resume: LiveEraseResume | null;
-  /** Unidentified pending journals were left untouched and did not block this operation. */
+  /** Unresolved same-vault journals were left untouched and did not block this operation. */
   readonly warnings: string[];
 }
 
@@ -140,6 +140,19 @@ export class LiveEraseEvidencePendingError extends Error {
     this.journalPath = journalPath;
     this.recoveryAction = recoveryAction;
   }
+}
+
+/**
+ * Read-only preflight for malformed pending evidence belonging to this vault.
+ * Unknown or foreign records stay silent: their identity cannot be safely
+ * attributed to the current vault.
+ */
+export async function inspectPendingPreparedLiveEraseWarnings(
+  rootInput: string,
+  evidenceSecurityDir?: string,
+): Promise<string[]> {
+  const root = await realpath(rootInput);
+  return collectPendingPreparedLiveEraseWarnings(root, evidenceSecurityDir);
 }
 
 export async function prepareLiveEraseEvidence(
@@ -418,7 +431,7 @@ async function findPendingPreparedLiveErase(
   const rootFingerprint = pathFingerprint(root);
   const expectedSelectors = stableJson(cloneSelectors(selectors));
   const pending: PendingPreparedLiveErase[] = [];
-  const warnings: string[] = [];
+  const warnings = await collectPendingPreparedLiveEraseWarnings(root, evidenceSecurityDir);
   for (const entry of await readdir(operationsRoot, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
     const operationDir = join(operationsRoot, entry.name);
@@ -428,17 +441,11 @@ async function findPendingPreparedLiveErase(
     assertExternalEvidencePath(root, journalPath, "live erase prepared journal");
     assertExternalEvidencePath(root, receiptPath, "live erase receipt");
     const candidate = await readUnverifiedPreparedJournalIdentity(journalPath);
-    if (!candidate || candidate.canonicalRootFingerprint === null) {
-      warnings.push(unidentifiedPreparedJournalWarning(entry.name));
-      continue;
-    }
+    if (!candidate || candidate.canonicalRootFingerprint === null) continue;
     if (candidate.canonicalRootFingerprint !== rootFingerprint) {
       continue;
     }
-    if (!isRecord(candidate.selectors)) {
-      warnings.push(unidentifiedPreparedJournalWarning(entry.name));
-      continue;
-    }
+    if (!isRecord(candidate.selectors)) continue;
     if (stableJson(candidate.selectors) !== expectedSelectors) {
       continue;
     }
@@ -450,6 +457,31 @@ async function findPendingPreparedLiveErase(
     throw new Error("memory forget: multiple pending live erase journals match this selector set; inspect signed evidence before retrying");
   }
   return { pending: pending[0] ?? null, warnings };
+}
+
+async function collectPendingPreparedLiveEraseWarnings(
+  root: string,
+  evidenceSecurityDir?: string,
+): Promise<string[]> {
+  const operationsRoot = join(resolveEvidenceRecordsRoot(evidenceSecurityDir), "live-erase");
+  if (!existsSync(operationsRoot)) return [];
+  const rootFingerprint = pathFingerprint(root);
+  const warnings: string[] = [];
+  for (const entry of await readdir(operationsRoot, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const operationDir = join(operationsRoot, entry.name);
+    const journalPath = join(operationDir, "prepared.json");
+    const receiptPath = join(operationDir, "receipt.json");
+    if (!existsSync(journalPath) || existsSync(receiptPath)) continue;
+    assertExternalEvidencePath(root, journalPath, "live erase prepared journal");
+    assertExternalEvidencePath(root, receiptPath, "live erase receipt");
+    const candidate = await readUnverifiedPreparedJournalIdentity(journalPath);
+    if (!candidate || candidate.canonicalRootFingerprint !== rootFingerprint) continue;
+    if (!isRecord(candidate.selectors)) {
+      warnings.push(unidentifiedPreparedJournalWarning(entry.name));
+    }
+  }
+  return warnings;
 }
 
 async function readUnverifiedPreparedJournalIdentity(
@@ -472,7 +504,10 @@ async function readUnverifiedPreparedJournalIdentity(
 }
 
 function unidentifiedPreparedJournalWarning(operationId: string): string {
-  return `unresolved pending live erase journal ${operationId}/prepared.json could not be identified; inspect external evidence before relying on this result`;
+  const recordPath = /^[0-9a-f]{64}$/i.test(operationId)
+    ? `live-erase/${operationId}/prepared.json`
+    : "live-erase/(unrecognized-operation)/prepared.json";
+  return `unresolved pending live erase journal ${recordPath} could not be identified; inspect or quarantine that record in the evidence store before retrying`;
 }
 
 function assertPreparedJournalMatches(

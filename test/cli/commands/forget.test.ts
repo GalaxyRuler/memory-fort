@@ -72,7 +72,7 @@ import {
   rawCaptureEpochPath,
 } from "../../../src/hooks/raw-file.js";
 import { withFileLock } from "../../../src/storage/file-lock.js";
-import { readLiveEraseReceipt } from "../../../src/forget/evidence.js";
+import { pathFingerprint, readLiveEraseReceipt } from "../../../src/forget/evidence.js";
 import { createEvidenceSigner, stableJson, verifyEvidenceSignature } from "../../../src/forget/evidence-auth.js";
 import { atomicWrite } from "../../../src/storage/atomic-write.js";
 
@@ -236,6 +236,9 @@ describe("runForget", () => {
     })).rejects.toThrow("injected signer readiness failure");
     expect(existsSync(join(root, ...signerRaw.split("/")))).toBe(true);
 
+    const unresolvedOperation = "a".repeat(64);
+    const unresolvedMarker = "UNVERIFIED-JOURNAL-CONTENT-MUST-NOT-APPEAR";
+    await writeUnresolvedSameVaultJournal(evidenceSecurityDir, unresolvedOperation, unresolvedMarker);
     let failFinalReceipt = true;
     let failure: unknown;
     try {
@@ -263,6 +266,9 @@ describe("runForget", () => {
     expect(failure).toBeInstanceOf(LiveEraseEvidencePendingError);
     const pending = failure as LiveEraseEvidencePendingError;
     expect(pending.message).toContain("injected final receipt write failure");
+    expect(pending.message).toContain("Warning: unresolved pending live erase journal");
+    expect(pending.message).toContain(`live-erase/${unresolvedOperation}/prepared.json`);
+    expect(pending.message).not.toContain(unresolvedMarker);
     expect(pending.recoveryAction).toContain("forget --apply");
     expect(pending.journalPath).toContain(join("records", "live-erase"));
     expect(relative(root, pending.journalPath).startsWith(".."))
@@ -276,16 +282,6 @@ describe("runForget", () => {
       "live erase prepared journal",
     )).resolves.toBeUndefined();
     expect(await readFile(pending.journalPath, "utf8")).not.toContain(pendingMarker);
-    const unresolvedJournal = join(
-      evidenceSecurityDir,
-      "records",
-      "live-erase",
-      "u".repeat(64),
-      "prepared.json",
-    );
-    await mkdir(join(unresolvedJournal, ".."), { recursive: true });
-    await writeFile(unresolvedJournal, "{ not valid json\n", "utf8");
-
     const resumed = await runForget({
       mode: "apply",
       rawPaths: [pendingRaw],
@@ -296,6 +292,9 @@ describe("runForget", () => {
     expect(relative(root, resumed.receipt!.path).startsWith(".."))
       .toBe(true);
     expect(resumed.report).toContain("Warning: unresolved pending live erase journal");
+    expect(resumed.report).toContain(`live-erase/${unresolvedOperation}/prepared.json`);
+    expect(resumed.report).toContain("inspect or quarantine");
+    expect(resumed.report).not.toContain(unresolvedMarker);
     await expect(readLiveEraseReceipt(resumed.receipt!.path, evidenceSecurityDir))
       .resolves.toMatchObject({ status: "live-erased/history-retained" });
   });
@@ -362,8 +361,10 @@ describe("runForget", () => {
     await mkdir(join(foreignJournal, ".."), { recursive: true });
     await writeFile(foreignJournal, "not signed evidence\n", "utf8");
 
-    await expect(runForget({ mode: "apply", rawPaths: [raw], evidenceSecurityDir }))
-      .resolves.toMatchObject({ erased: expect.arrayContaining([raw]) });
+    const result = await runForget({ mode: "apply", rawPaths: [raw], evidenceSecurityDir });
+
+    expect(result).toMatchObject({ erased: expect.arrayContaining([raw]) });
+    expect(result.report).not.toContain("unresolved pending live erase journal");
   });
 
   it("ignores a parseable foreign-vault pending journal without warning", async () => {
@@ -468,9 +469,11 @@ describe("runForget", () => {
       .resolves.toMatchObject({ status: "live-erased/history-retained", erased: expect.arrayContaining([raw]) });
   });
 
-  it("reports an unidentifiable same-vault pending journal before completing a fresh erase", async () => {
+  it("reports an actionable same-vault pending journal in plan mode and before a fresh erase", async () => {
     const raw = "raw/2026-05-20/corrupt-pending.md";
     const evidenceSecurityDir = join(tmp, "evidence-security");
+    const unresolvedOperation = "b".repeat(64);
+    const unresolvedMarker = "SAME-VAULT-UNVERIFIED-CONTENT-MUST-NOT-APPEAR";
     await seedAttributableRaw(raw);
     await writeAt("index.md", "STALE-CORRUPT-PENDING-CONTEXT\n");
     await execFileAsync("git", ["init", "-b", "main"], { cwd: root });
@@ -479,17 +482,15 @@ describe("runForget", () => {
     await execFileAsync("git", ["add", "."], { cwd: root });
     await execFileAsync("git", ["commit", "-m", "seed corrupt pending fixture"], { cwd: root });
     await rebuildFixtureIndex();
-    forgetRmFailure.target = "/index.md";
+    await writeUnresolvedSameVaultJournal(evidenceSecurityDir, unresolvedOperation, unresolvedMarker);
+    const plan = await runForget({ rawPaths: [raw], evidenceSecurityDir });
 
-    await expect(runForget({ mode: "apply", rawPaths: [raw], evidenceSecurityDir }))
-      .rejects.toBeInstanceOf(ForgetPartialMutationError);
-    const operationsRoot = join(evidenceSecurityDir, "records", "live-erase");
-    const [operation] = await readdir(operationsRoot);
-    const journalPath = join(operationsRoot, operation!, "prepared.json");
-    await writeFile(journalPath, "{ not valid json\n", "utf8");
-
-    forgetRmFailure.target = null;
-    await runReindex({ vaultRoot: root });
+    expect(plan.mode).toBe("plan");
+    expect(plan.report).toContain("Warning: unresolved pending live erase journal");
+    expect(plan.report).toContain(`live-erase/${unresolvedOperation}/prepared.json`);
+    expect(plan.report).toContain("inspect or quarantine");
+    expect(plan.report).not.toContain(unresolvedMarker);
+    expect(existsSync(join(root, ...raw.split("/")))).toBe(true);
     const result = await runForget({ mode: "apply", rawPaths: [raw], evidenceSecurityDir });
 
     expect(result).toMatchObject({
@@ -498,6 +499,29 @@ describe("runForget", () => {
     });
     expect(result.report).toContain("Warning: unresolved pending live erase journal");
     expect(result.report).toContain("could not be identified");
+  });
+
+  it("retains same-vault journal warnings on blocked and no-match apply aborts", async () => {
+    const raw = "raw/2026-05-20/blocked-pending.md";
+    const evidenceSecurityDir = join(tmp, "evidence-security");
+    await writeAt(raw, "sensitive session");
+    await writeWiki(
+      "projects/blocked-pending.md",
+      {
+        type: "projects",
+        title: "Blocked pending journal fixture",
+        source_facts: [raw],
+        relations: { derived_from: [raw] },
+      },
+      "Human-curated content remains blocked.",
+    );
+    await writeUnresolvedSameVaultJournal(evidenceSecurityDir, "c".repeat(64));
+
+    await expect(runForget({ mode: "apply", rawPaths: [raw], evidenceSecurityDir }))
+      .rejects.toThrow(/ambiguous manual curated content[\s\S]*Warning: unresolved pending live erase journal/);
+    await expect(runForget({ mode: "apply", sourceIds: ["unknown-source"], evidenceSecurityDir }))
+      .rejects.toThrow(/no live data matched selectors[\s\S]*Warning: unresolved pending live erase journal/);
+    expect(existsSync(join(root, ...raw.split("/")))).toBe(true);
   });
 
   it("carries a malformed pending journal warning into a partial mutation receipt", async () => {
@@ -1747,5 +1771,24 @@ describe("runForget", () => {
     const full = join(root, ...relPath.split("/"));
     await mkdir(dirname(full), { recursive: true });
     await writeFile(full, content);
+  }
+
+  async function writeUnresolvedSameVaultJournal(
+    evidenceSecurityDir: string,
+    operationId: string,
+    marker = "unverified pending journal payload",
+  ): Promise<void> {
+    const journalPath = join(
+      evidenceSecurityDir,
+      "records",
+      "live-erase",
+      operationId,
+      "prepared.json",
+    );
+    await mkdir(dirname(journalPath), { recursive: true });
+    await writeFile(journalPath, `${JSON.stringify({
+      canonicalRootFingerprint: pathFingerprint(root),
+      selection: marker,
+    })}\n`, "utf8");
   }
 });
