@@ -33,6 +33,14 @@ Run this checklist for **any** change that ships publicly — feature, fix, upgr
 - **Lockfile gotcha:** after any `electron-builder` dependency change, validate the lockfile on both Windows and Linux Node 22 with `ONNXRUNTIME_NODE_INSTALL=skip`. npm can reconcile platform-specific optional dependencies differently on each OS, so current CI and release workflows intentionally use `npm install`; inspect and commit only intentional lockfile changes.
 - The `electron` job in `.github/workflows/smoke.yml` launches the real shell headlessly, but it is not an installed-artifact smoke. Run the manual `.github/workflows/installed-native-probe.yml` before calling an installer release complete.
 
+### Host-Node recovery after local packaging
+
+`npm run electron:build` runs `electron-rebuild`, which retargets native modules such as
+`better-sqlite3` to Electron's ABI. If host-Node Vitest needs to run after packaging, use
+an **isolated worktree** and run `npm rebuild better-sqlite3` there before the focused host
+tests. This repairs only ignored `node_modules` for host validation; it is not a substitute
+for validating the packaged artifact and must not be used to alter a release payload.
+
 ## 8. Upgrade the local install (REQUIRED — a release is not done until the installed binary is current)
 - Publishing the installer to the GitHub Release is **not enough**. The `memory` CLI is `npm link`'d to the repo, so it tracks the rebuilt `dist` automatically and is already current — but the installed desktop app (`%LOCALAPPDATA%\Programs\MemoryFort\MemoryFort.exe`) is a **separate artifact** that nothing in the build/publish steps touches. Leaving it stale means "released" while the running app is the old version.
 - Steps: download `MemoryFort-Setup-X.Y.Z.exe` from the release, verify its sha512 against the release `latest.yml`, stop any running `MemoryFort.exe`, run it silently (`/S` — NSIS is `oneClick:false` assisted but per-user, so no UAC), then confirm **both** the uninstall-registry `DisplayVersion` **and** the exe `ProductVersion` read `X.Y.Z`.

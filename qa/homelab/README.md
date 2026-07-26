@@ -13,8 +13,9 @@ scheduled tasks, `.lnk` shortcuts, VS Code / APPDATA paths) is tested through in
 `platform` / `execFile` parameters and tmpdir-scoped env vars, not real syscalls, so the
 full suite passes on Linux once the build generates `dist/` and
 `src/dashboard-ui/routeTree.gen.ts`. This supersedes the earlier note that no
-container-equivalent full-suite profile was possible. Verified 2026-07-19 on the VPS at
-branch tip: 356 files / 2309 tests.
+container-equivalent full-suite profile was possible. Treat each live dispatch as its own
+evidence: retain that run's Vitest `Test Files` and `Tests` summary lines rather than
+repeating a static historical file/test count for a new branch.
 
 Lane shape:
 
