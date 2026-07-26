@@ -47,6 +47,19 @@ describe("MarkdownBody", () => {
     expect(link).not.toHaveAttribute("data-router-link");
   });
 
+  test.each([
+    "wiki/projects/foo..bar.md",
+    "wiki/projects/foo%ZZ.md",
+    "wiki/projects/foo%41.md",
+    "wiki/projects/%25%32%65%25%32%65/settings.md",
+  ])("does not preserve the noncanonical wiki href %s", (path) => {
+    render(<MarkdownBody source={`[Unsafe](wiki:${path})`} />);
+
+    const link = screen.getByText("Unsafe").closest("a");
+    expect(link).toHaveAttribute("href", "");
+    expect(link).not.toHaveAttribute("data-router-link");
+  });
+
   test("does not preserve a canonical wiki URL on an image source", () => {
     render(<MarkdownBody source="![Preview](wiki:wiki/projects/foo.md)" />);
 

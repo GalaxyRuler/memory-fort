@@ -2,8 +2,7 @@ import { type PageRelation } from "../hooks/usePageDetail.js";
 
 const WIKI_PATH_PREFIX = "wiki/";
 const MARKDOWN_EXTENSION = ".md";
-// Reject encoded dots or separators at any percent-encoding depth without decoding.
-const ENCODED_UNSAFE_PATH_RE = /%(?:25)*(?:2e|2f|5c)/i;
+const SAFE_WIKI_SEGMENT_RE = /^[A-Za-z0-9._-]+$/;
 
 export function preprocessWikilinks(body: string, relations: PageRelation[]): string {
   const resolutionMap = new Map<string, string>();
@@ -33,7 +32,6 @@ export function wikiPathToRouterParams(resolvedPath: string): { category: string
     || resolvedPath.includes("\\")
     || resolvedPath.includes("?")
     || resolvedPath.includes("#")
-    || ENCODED_UNSAFE_PATH_RE.test(resolvedPath)
   ) {
     return null;
   }
@@ -42,7 +40,12 @@ export function wikiPathToRouterParams(resolvedPath: string): { category: string
   const parts = pagePath.split("/");
   if (
     parts.length < 2
-    || parts.some((part) => part.length === 0 || part === "." || part === "..")
+    || parts.some((part) => (
+      part.length === 0
+      || part === "."
+      || part.includes("..")
+      || !SAFE_WIKI_SEGMENT_RE.test(part)
+    ))
   ) {
     return null;
   }
