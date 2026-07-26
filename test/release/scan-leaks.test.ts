@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { scanTarget } from "../../scripts/scan-leaks.mjs";
 
 const execFileAsync = promisify(execFile);
 const scannerPath = resolve(process.cwd(), "scripts", "scan-leaks.mjs");
@@ -200,6 +201,43 @@ describe("scan-leaks release gate", () => {
     expect(result.stdout).toContain(`main.mjs:1: ${token}`);
   });
 
+  it("fails closed when a packaged subtree cannot be enumerated", async () => {
+    let readdirCalls = 0;
+    const fileSystem = {
+      access: async () => undefined,
+      readdir: async () => {
+        readdirCalls += 1;
+        if (readdirCalls === 1) return [directoryEntry("locked")];
+        throw new Error("permission denied");
+      },
+      readFile: async () => "",
+      stat: async () => ({ isFile: () => false, isDirectory: () => true }),
+    };
+
+    await expect(scanTarget(
+      { root: "package", prefix: "" },
+      { quarantine: false, prefix: "", requireFiles: true },
+      { fileSystem },
+    )).rejects.toThrow("package scan could not enumerate locked: permission denied");
+  });
+
+  it("fails closed when a packaged file cannot be read", async () => {
+    const fileSystem = {
+      access: async () => undefined,
+      readdir: async () => [fileEntry("payload.js")],
+      readFile: async () => {
+        throw new Error("permission denied");
+      },
+      stat: async () => ({ isFile: () => true, isDirectory: () => false }),
+    };
+
+    await expect(scanTarget(
+      { root: "package", prefix: "" },
+      { quarantine: false, prefix: "", requireFiles: true },
+      { fileSystem },
+    )).rejects.toThrow("package scan could not read payload.js: permission denied");
+  });
+
   it("scans denylist tokens across every discovered packaged payload", async () => {
     const token = ["C:", "\\", "Users", "\\", "Admin"].join("");
     await writeText("electron-installer/win-unpacked/resources/app/dist/electron-main.mjs", `export const buildPath = "${token}";\n`);
@@ -261,4 +299,12 @@ async function runScan(args: string[]): Promise<{ exitCode: number; stdout: stri
       stderr: err.stderr ?? "",
     };
   }
+}
+
+function directoryEntry(name: string) {
+  return { name, isDirectory: () => true, isFile: () => false };
+}
+
+function fileEntry(name: string) {
+  return { name, isDirectory: () => false, isFile: () => true };
 }

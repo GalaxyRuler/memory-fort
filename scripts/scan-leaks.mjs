@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import { constants } from "node:fs";
 import { access, readdir, readFile, stat } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { isReleaseQuarantined } from "./release/quarantine.mjs";
 
 const ALLOWLIST_PATHS = new Set([
@@ -45,32 +46,41 @@ const DENYLIST = [
   deny(word(["Abdul", "lah"].join(""))),
 ];
 
-const args = parseArgs(process.argv.slice(2));
-const hits = [];
+const defaultFileSystem = { access, readdir, readFile, stat };
 
-if (args.packagedRoots.length > 0 || args.packagedOutput) {
-  const targets = await resolvePackagedTargets(args);
-  for (const target of targets) {
-    await scanTarget(target, { quarantine: false, prefix: target.prefix, requireFiles: true });
+export async function main(argv = process.argv.slice(2)) {
+  const args = parseArgs(argv);
+  const hits = [];
+
+  if (args.packagedRoots.length > 0 || args.packagedOutput) {
+    const targets = await resolvePackagedTargets(args);
+    for (const target of targets) {
+      await scanTarget(target, { quarantine: false, prefix: target.prefix, requireFiles: true }, { hits });
+    }
+  } else {
+    const root = resolve(args.root ?? process.cwd());
+    if (args.root) await requireDirectory(root, "scan root");
+    await scanTarget({ root, prefix: "" }, { quarantine: true, prefix: "", requireFiles: false }, { hits });
   }
-} else {
-  const root = resolve(args.root ?? process.cwd());
-  if (args.root) await requireDirectory(root, "scan root");
-  await scanTarget({ root, prefix: "" }, { quarantine: true, prefix: "", requireFiles: false });
+
+  if (args.json) {
+    process.stdout.write(hits.length > 0 ? `${JSON.stringify(hits, null, 2)}\n` : "");
+  } else {
+    for (const hit of hits) {
+      process.stdout.write(`${hit.path}:${hit.line}: ${hit.token}\n`);
+    }
+  }
+
+  process.exitCode = hits.length > 0 ? 1 : 0;
+  return hits;
 }
 
-if (args.json) {
-  process.stdout.write(hits.length > 0 ? `${JSON.stringify(hits, null, 2)}\n` : "");
-} else {
-  for (const hit of hits) {
-    process.stdout.write(`${hit.path}:${hit.line}: ${hit.token}\n`);
-  }
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  await main();
 }
 
-process.exitCode = hits.length > 0 ? 1 : 0;
-
-async function scanTarget(target, options) {
-  const files = await listFiles(target.root, { quarantine: options.quarantine, strict: options.requireFiles });
+export async function scanTarget(target, options, { fileSystem = defaultFileSystem, hits = [] } = {}) {
+  const files = await listFiles(target.root, { quarantine: options.quarantine, strict: options.requireFiles }, fileSystem);
   if (options.requireFiles && files.length === 0) {
     throw new Error(`package scan root contains no files: ${target.root}`);
   }
@@ -81,7 +91,7 @@ async function scanTarget(target, options) {
 
     let content;
     try {
-      content = await readFile(join(target.root, ...relPath.split("/")), "utf8");
+      content = await fileSystem.readFile(join(target.root, ...relPath.split("/")), "utf8");
     } catch (error) {
       if (options.requireFiles) {
         throw new Error(`package scan could not read ${withPrefix(options.prefix, relPath)}: ${errorMessage(error)}`);
@@ -108,12 +118,12 @@ async function scanTarget(target, options) {
     // specific literals must never appear there.
     const INFRA_TOKENS = [["srv", "1317946"].join(""), ["tail", "6916d8"].join("")];
     const distDir = join(target.root, "dist");
-    if (await pathExists(distDir)) {
-      const distFiles = await walkDistFiles(distDir);
+    if (await pathExists(distDir, fileSystem)) {
+      const distFiles = await walkDistFiles(distDir, fileSystem);
       for (const fullPath of distFiles) {
         let content;
         try {
-          content = await readFile(fullPath, "utf8");
+          content = await fileSystem.readFile(fullPath, "utf8");
         } catch {
           continue;
         }
@@ -129,6 +139,8 @@ async function scanTarget(target, options) {
       }
     }
   }
+
+  return hits;
 }
 
 async function resolvePackagedTargets(options) {
@@ -199,14 +211,13 @@ function withPrefix(prefix, relPath) {
   return prefix ? `${prefix}/${relPath}` : relPath;
 }
 
-async function walkDistFiles(dir) {
+async function walkDistFiles(dir, fileSystem = defaultFileSystem) {
   const results = [];
   async function walk(current) {
     let entries;
     try {
-      entries = await readdir(current, { withFileTypes: true });
-    } catch (error) {
-      if (options.strict) throw new Error(`package scan could not enumerate ${dir}: ${errorMessage(error)}`);
+      entries = await fileSystem.readdir(current, { withFileTypes: true });
+    } catch {
       return;
     }
     for (const entry of entries) {
@@ -260,8 +271,8 @@ function parseArgs(argv) {
   return parsed;
 }
 
-async function listFiles(rootPath, options) {
-  if (options.quarantine && await pathExists(join(rootPath, ".git"))) {
+async function listFiles(rootPath, options, fileSystem = defaultFileSystem) {
+  if (options.quarantine && await pathExists(join(rootPath, ".git"), fileSystem)) {
     try {
       return execFileSync("git", ["-C", rootPath, "ls-files", "-z"], {
         encoding: "utf8",
@@ -272,20 +283,24 @@ async function listFiles(rootPath, options) {
         .map(toPosixPath)
         .sort();
     } catch {
-      return walkFiles(rootPath, options);
+      return walkFiles(rootPath, options, fileSystem);
     }
   }
-  return walkFiles(rootPath, options);
+  return walkFiles(rootPath, options, fileSystem);
 }
 
-async function walkFiles(rootPath, options) {
+async function walkFiles(rootPath, options, fileSystem = defaultFileSystem) {
   const files = [];
 
   async function walk(dir) {
     let entries;
     try {
-      entries = await readdir(dir, { withFileTypes: true });
-    } catch {
+      entries = await fileSystem.readdir(dir, { withFileTypes: true });
+    } catch (error) {
+      if (options.strict) {
+        const relDir = toPosixPath(relative(rootPath, dir)) || ".";
+        throw new Error(`package scan could not enumerate ${relDir}: ${errorMessage(error)}`);
+      }
       return;
     }
 
@@ -298,7 +313,7 @@ async function walkFiles(rootPath, options) {
       } else if (entry.isFile()) {
         let info;
         try {
-          info = await stat(fullPath);
+          info = await fileSystem.stat(fullPath);
         } catch (error) {
           if (options.strict) throw new Error(`package scan could not inspect ${relPath}: ${errorMessage(error)}`);
           continue;
@@ -312,9 +327,9 @@ async function walkFiles(rootPath, options) {
   return files.sort();
 }
 
-async function pathExists(path) {
+async function pathExists(path, fileSystem = defaultFileSystem) {
   try {
-    await access(path, constants.F_OK);
+    await fileSystem.access(path, constants.F_OK);
     return true;
   } catch {
     return false;
