@@ -97,6 +97,21 @@ describe("SearchResultCard", () => {
       .toHaveAttribute("href", "/wiki/archive/old?includeArchived=1");
   });
 
+  test("detects the case-insensitive _archive path component", () => {
+    const result: SearchResult = {
+      ...RESULT,
+      kind: "wiki",
+      path: "wiki/_ArChIvE/old.md",
+      title: "Maintenance Archive",
+      provenance: { ...RESULT.provenance, kind: "wiki", path: "wiki/_ArChIvE/old.md" },
+    };
+
+    render(<SearchResultCard result={result} />);
+
+    expect(screen.getByRole("link", { name: "Maintenance Archive" }))
+      .toHaveAttribute("href", "/wiki/_ArChIvE/old?includeArchived=1");
+  });
+
   test("falls back to the crystals page for top-level crystal result paths", () => {
     const result: SearchResult = {
       ...RESULT,
