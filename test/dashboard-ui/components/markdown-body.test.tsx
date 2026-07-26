@@ -47,6 +47,13 @@ describe("MarkdownBody", () => {
     expect(link).not.toHaveAttribute("data-router-link");
   });
 
+  test("does not preserve a canonical wiki URL on an image source", () => {
+    render(<MarkdownBody source="![Preview](wiki:wiki/projects/foo.md)" />);
+
+    const image = screen.getByRole("img", { name: "Preview" });
+    expect(image.getAttribute("src") ?? "").toBe("");
+  });
+
   test("preserves an ordinary external URL through the default transform", () => {
     render(<MarkdownBody source="[Example](https://example.com/docs)" />);
 

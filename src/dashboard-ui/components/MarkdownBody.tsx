@@ -1,19 +1,21 @@
 import { Link } from "@tanstack/react-router";
-import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
+import ReactMarkdown, { defaultUrlTransform, type UrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { wikiPathToRouterParams } from "../lib/wikilinks.js";
 
 const WIKI_URL_PREFIX = "wiki:";
 
-function markdownUrlTransform(url: string): string {
+const markdownUrlTransform: UrlTransform = (url, key, node) => {
   if (
-    url.startsWith(WIKI_URL_PREFIX)
+    key === "href"
+    && node.tagName === "a"
+    && url.startsWith(WIKI_URL_PREFIX)
     && wikiPathToRouterParams(url.slice(WIKI_URL_PREFIX.length))
   ) {
     return url;
   }
   return defaultUrlTransform(url);
-}
+};
 
 export interface MarkdownBodyProps {
   source: string;
