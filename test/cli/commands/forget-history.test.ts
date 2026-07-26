@@ -84,7 +84,7 @@ describe("memory forget --purge-history", () => {
     await rm(fixture.tmp, { recursive: true, force: true });
   });
 
-  it("fails closed for missing, failed, stale, mismatched, or wrong-selection evidence", async () => {
+  it("fails closed for missing, failed, mismatched, or wrong-selection evidence", async () => {
     const originalMain = await git(fixture.cloneRoot, ["rev-parse", "refs/heads/main"]);
     const base = purgeOptions(fixture);
 
@@ -120,12 +120,6 @@ describe("memory forget --purge-history", () => {
     await writeFile(fixture.drillEvidencePath, `${JSON.stringify({
       ...evidence,
       checks: { ...evidence.checks, canaryMatched: false },
-    }, null, 2)}\n`);
-    await expect(runHistoryPurge(base)).rejects.toThrow(/restore drill evidence.*signature/i);
-
-    await writeFile(fixture.drillEvidencePath, `${JSON.stringify({
-      ...evidence,
-      completedAt: "2026-07-01T00:00:00.000Z",
     }, null, 2)}\n`);
     await expect(runHistoryPurge(base)).rejects.toThrow(/restore drill evidence.*signature/i);
 
@@ -169,6 +163,66 @@ describe("memory forget --purge-history", () => {
     await rm(join(fixture.evidenceSecurityDir, "evidence-hmac-v1.key"), { force: true });
     await expect(runHistoryPurge(base)).rejects.toThrow(/evidence.*key.*missing/i);
     expect(await git(fixture.cloneRoot, ["rev-parse", "refs/heads/main"])).toBe(originalMain);
+  });
+
+  it("rejects validly signed stale and far-future evidence before any rewrite or purge evidence write", async () => {
+    const now = new Date();
+    const base = purgeOptions(fixture);
+    const originalDrillEvidence = await readFile(fixture.drillEvidencePath, "utf8");
+    const originalLiveReceipt = await readFile(fixture.liveEraseReceiptPath, "utf8");
+    let evidenceWrites = 0;
+    const rejectEvidenceWrite = async (): Promise<void> => {
+      evidenceWrites += 1;
+      throw new Error("freshness failures must not write purge evidence");
+    };
+    const assertNoPurgeSideEffects = async () => {
+      expect(await git(fixture.cloneRoot, ["rev-parse", "refs/heads/main"])).toBe(fixture.originalMain);
+      expect(await git(fixture.cloneRoot, ["rev-parse", "refs/heads/auxiliary"])).toBe(fixture.originalAuxiliary);
+      expect(evidenceWrites).toBe(0);
+    };
+
+    const staleDrill = JSON.parse(originalDrillEvidence) as Record<string, unknown>;
+    const { auth: _staleAuth, ...staleDrillPayload } = staleDrill;
+    const signedStaleDrill = await signEvidencePayload({
+      ...staleDrillPayload,
+      completedAt: new Date(now.getTime() - 48 * 60 * 60 * 1000).toISOString(),
+    }, fixture.evidenceSecurityDir);
+    await expect(verifyEvidenceSignature(
+      signedStaleDrill,
+      fixture.evidenceSecurityDir,
+      "restore drill evidence",
+    )).resolves.toBeUndefined();
+    await writeFile(fixture.drillEvidencePath, `${JSON.stringify(signedStaleDrill, null, 2)}\n`);
+
+    await expect(runHistoryPurge({
+      ...base,
+      confirmation: PURGE_HISTORY_CONFIRMATION,
+      now,
+      evidenceWrite: rejectEvidenceWrite,
+    })).rejects.toThrow(/restore drill evidence is stale/i);
+    await assertNoPurgeSideEffects();
+
+    await writeFile(fixture.drillEvidencePath, originalDrillEvidence);
+    const futureLiveReceipt = JSON.parse(originalLiveReceipt) as Record<string, unknown>;
+    const { auth: _futureAuth, ...futureLiveReceiptPayload } = futureLiveReceipt;
+    const signedFutureLiveReceipt = await signEvidencePayload({
+      ...futureLiveReceiptPayload,
+      completedAt: new Date(now.getTime() + 48 * 60 * 60 * 1000).toISOString(),
+    }, fixture.evidenceSecurityDir);
+    await expect(verifyEvidenceSignature(
+      signedFutureLiveReceipt,
+      fixture.evidenceSecurityDir,
+      "live erase receipt",
+    )).resolves.toBeUndefined();
+    await writeFile(fixture.liveEraseReceiptPath, `${JSON.stringify(signedFutureLiveReceipt, null, 2)}\n`);
+
+    await expect(runHistoryPurge({
+      ...base,
+      confirmation: PURGE_HISTORY_CONFIRMATION,
+      now,
+      evidenceWrite: rejectEvidenceWrite,
+    })).rejects.toThrow(/live erase receipt timestamp is in the future/i);
+    await assertNoPurgeSideEffects();
   });
 
   it("blocks before rewrite when the deterministic fingerprint safety ceiling is exceeded", async () => {
