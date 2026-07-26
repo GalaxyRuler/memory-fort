@@ -38,16 +38,39 @@ const SEARCH_BACKENDS = new Set<SearchBackend>(["legacy", "index-lexical", "inde
 const MAX_SEARCH_CAPABILITY_PARAMS = 32;
 const MAX_SEARCH_CAPABILITY_PARAM_LENGTH = 128;
 const MAX_SEARCH_CAPABILITY_SCOPES = 4;
+
+/**
+ * Parse the archive opt-in shared by page-detail and index-search endpoints.
+ * `1` is the canonical URL spelling; the boolean spellings remain accepted
+ * for bookmarked links created before that convention.
+ */
+export function parseIncludeArchivedQuery(value: unknown): boolean | null {
+  if (
+    value === undefined
+    || value === null
+    || value === false
+    || value === 0
+    || value === "false"
+    || value === "0"
+  ) {
+    return false;
+  }
+  if (value === true || value === 1 || value === "true" || value === "1") return true;
+  return null;
+}
+
+export function canonicalIncludeArchivedQuery(value: unknown): "1" | undefined {
+  return parseIncludeArchivedQuery(value) === true ? "1" : undefined;
+}
+
 export function validateSearchFilterParams(url: URL): SearchFilterValidation {
   const scope = url.searchParams.get("scope");
   const identityMode = url.searchParams.get("identity_mode");
-  const includeArchived = url.searchParams.get("includeArchived");
+  const includeArchived = parseIncludeArchivedQuery(url.searchParams.get("includeArchived"));
   const invalidParams = [
     ...(scope !== null && !SEARCH_SCOPES.has(scope as SearchScope) ? ["scope"] : []),
     ...(identityMode !== null && !IDENTITY_MODES.has(identityMode) ? ["identity_mode"] : []),
-    ...(includeArchived !== null && includeArchived !== "true" && includeArchived !== "false"
-      ? ["includeArchived"]
-      : []),
+    ...(includeArchived === null ? ["includeArchived"] : []),
   ];
   if (invalidParams.length > 0) {
     return { ok: false, body: { error: "invalid_params", invalid_params: invalidParams } };
@@ -56,7 +79,7 @@ export function validateSearchFilterParams(url: URL): SearchFilterValidation {
     ok: true,
     filters: {
       scope: (scope as SearchScope | null) ?? "all",
-      includeArchived: includeArchived === "true",
+      includeArchived: includeArchived ?? false,
       identityMode: (identityMode as "inclusive" | "strict" | null) ?? "inclusive",
     },
   };

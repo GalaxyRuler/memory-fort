@@ -36,10 +36,14 @@ export interface PageDetail {
   inbound: PageInbound[];
 }
 
-export function usePageDetail(relPath: string) {
+export function usePageDetail(relPath: string, opts: { includeArchived?: boolean } = {}) {
+  const includeArchived = opts.includeArchived === true;
+  const requestPath = `/page/${encodeURIComponent(relPath)}`;
   return useQuery({
-    queryKey: ["page", relPath],
-    queryFn: () => apiGet<PageDetail>(`/page/${encodeURIComponent(relPath)}`),
+    queryKey: ["page", relPath, includeArchived],
+    queryFn: () => includeArchived
+      ? apiGet<PageDetail>(requestPath, { includeArchived: "1" })
+      : apiGet<PageDetail>(requestPath),
     enabled: relPath.length > 0,
     staleTime: 30_000,
   });

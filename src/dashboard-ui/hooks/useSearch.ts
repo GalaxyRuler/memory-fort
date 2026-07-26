@@ -162,7 +162,7 @@ export function useSearch({
         scope,
         k,
         noRerank: noRerank ? "true" : undefined,
-        includeArchived: includeArchived ? "true" : undefined,
+        includeArchived: includeArchived ? "1" : undefined,
       });
       return normalizeSearchResponse(response);
     },

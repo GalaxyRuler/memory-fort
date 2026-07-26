@@ -72,6 +72,7 @@ describe("dashboard loaders", () => {
     await mkdir(join(tmp, "wiki", "projects"), { recursive: true });
     await mkdir(join(tmp, "wiki", "Archive"), { recursive: true });
     await mkdir(join(tmp, "wiki", "_archive"), { recursive: true });
+    await mkdir(join(tmp, "wiki", "Archive", ".audit"), { recursive: true });
     await mkdir(join(tmp, "raw", "2026-05-23"), { recursive: true });
     await mkdir(join(tmp, "crystals"), { recursive: true });
     await writeFile(join(tmp, "wiki", "a.md"), "# A\n");
@@ -79,6 +80,7 @@ describe("dashboard loaders", () => {
     await writeFile(join(tmp, "wiki", "Archive", "retained.md"), "# retained\n");
     await writeFile(join(tmp, "wiki", "_archive", "retained.md"), "# maintenance retained\n");
     await writeFile(join(tmp, "wiki", "projects", ".retained.md"), "# system\n");
+    await writeFile(join(tmp, "wiki", "Archive", ".audit", "hidden.md"), "# nested system\n");
     await writeFile(join(tmp, "wiki", "ignore.txt"), "nope\n");
     for (let i = 0; i < 5; i += 1) {
       await writeFile(join(tmp, "raw", "2026-05-23", `${i}.md`), `raw ${i}\n`);
@@ -87,7 +89,7 @@ describe("dashboard loaders", () => {
     await expect(loadCounts(tmp)).resolves.toEqual({
       wikiPages: 2,
       archivedWikiPages: 2,
-      retainedWikiPages: 1,
+      retainedWikiPages: 2,
       rawObservations: 5,
       crystals: 0,
     });

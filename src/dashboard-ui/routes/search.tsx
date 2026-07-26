@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { SearchPage } from "../components/SearchPage.js";
 import { type SearchScope } from "../hooks/useSearch.js";
+import { canonicalIncludeArchivedQuery } from "../../search/contract.js";
 
 export const Route = createFileRoute("/search")({
   component: SearchPage,
@@ -9,7 +10,7 @@ export const Route = createFileRoute("/search")({
     scope: isSearchScope(search.scope) ? search.scope : undefined,
     k: parseK(search.k),
     noRerank: search.noRerank === true || search.noRerank === "true" ? true : undefined,
-    includeArchived: search.includeArchived === true || search.includeArchived === "true" ? true : undefined,
+    includeArchived: canonicalIncludeArchivedQuery(search.includeArchived),
   }),
 });
 
@@ -18,7 +19,7 @@ export interface SearchPageSearch {
   scope?: SearchScope;
   k?: number;
   noRerank?: boolean;
-  includeArchived?: boolean;
+  includeArchived?: "1";
 }
 
 function isSearchScope(value: unknown): value is SearchScope {

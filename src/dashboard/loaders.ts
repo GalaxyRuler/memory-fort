@@ -650,9 +650,8 @@ async function countMarkdownFiles(root: string): Promise<number> {
 type WikiPageCountKey = "wikiPages" | "archivedWikiPages" | "retainedWikiPages";
 
 function wikiPageCountKey(relPath: string): WikiPageCountKey {
-  const components = relPath.replace(/\\/g, "/").split("/").map((component) => component.toLowerCase());
-  if (components.some((component) => component === "archive" || component === "_archive")) return "archivedWikiPages";
-  if (components.some((component) => component.startsWith("."))) return "retainedWikiPages";
+  if (hasSystemPathComponent(relPath)) return "retainedWikiPages";
+  if (hasArchivePathComponent(relPath)) return "archivedWikiPages";
   return "wikiPages";
 }
 

@@ -5,7 +5,7 @@ vi.mock("@tanstack/react-router", () => ({
 }));
 
 describe("Search route", () => {
-  test("preserves a valid includeArchived query value", async () => {
+  test("canonicalizes valid includeArchived query values", async () => {
     const { Route } = await import("../../../src/dashboard-ui/routes/search.js");
     const validateSearch = Route.options.validateSearch as (
       search: Record<string, unknown>,
@@ -14,13 +14,13 @@ describe("Search route", () => {
     expect(validateSearch({
       q: "needle",
       scope: "crystals",
-      includeArchived: "true",
+      includeArchived: "1",
     })).toEqual({
       q: "needle",
       scope: "crystals",
       k: undefined,
       noRerank: undefined,
-      includeArchived: true,
+      includeArchived: "1",
     });
   });
 });

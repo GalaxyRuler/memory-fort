@@ -15,7 +15,7 @@ interface SearchPageSearch {
   scope?: SearchScope;
   k?: number;
   noRerank?: boolean;
-  includeArchived?: boolean;
+  includeArchived?: "1";
 }
 
 export function SearchPage() {
@@ -26,7 +26,7 @@ export function SearchPage() {
   const scope = params.scope ?? "wiki";
   const k = params.k ?? 20;
   const noRerank = params.noRerank ?? false;
-  const includeArchived = params.includeArchived ?? false;
+  const includeArchived = params.includeArchived === "1";
   const capabilities = useSearchCapabilities();
   const supportedParams = capabilities.data?.supportedParams ?? [];
   const scopes = capabilities.data?.scopes ?? [];
@@ -110,9 +110,15 @@ export function SearchPage() {
           includeArchived={includeArchived}
           supportedParams={supportedParams}
           scopes={scopes}
-          onChange={(next) =>
+          onChange={({ includeArchived: nextIncludeArchived, ...next }) =>
             navigate({
-              search: (previous: SearchPageSearch) => ({ ...previous, ...next }),
+              search: (previous: SearchPageSearch) => ({
+                ...previous,
+                ...next,
+                ...(nextIncludeArchived === undefined
+                  ? {}
+                  : { includeArchived: nextIncludeArchived ? "1" : undefined }),
+              }),
               replace: true,
             })
           }

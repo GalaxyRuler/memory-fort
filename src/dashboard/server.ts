@@ -45,6 +45,7 @@ import {
 import {
   capabilitiesForSearchBackend,
   collectUnsupportedIndexSearchParams,
+  parseIncludeArchivedQuery,
   unsupportedParamsBody,
   validateSearchFilterParams,
 } from "../search/contract.js";
@@ -807,12 +808,6 @@ interface SkippedIndexFileRow {
 
 function parseSearchBoolean(value: string | null): boolean {
   return value === "true";
-}
-
-function parseArchivedPageOptIn(value: string | null): boolean | null {
-  if (value === null || value === "false" || value === "0") return false;
-  if (value === "true" || value === "1") return true;
-  return null;
 }
 
 function parseClampedInt(value: string | null, fallback: number, min: number, max: number): number {
@@ -1981,7 +1976,7 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
           writeJsonError(res, 400, "malformed page path");
           return;
         }
-        const includeArchived = parseArchivedPageOptIn(url.searchParams.get("includeArchived"));
+        const includeArchived = parseIncludeArchivedQuery(url.searchParams.get("includeArchived"));
         if (includeArchived === null) {
           writeJsonError(res, 400, "invalid includeArchived parameter");
           return;
@@ -2167,7 +2162,7 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
 
       if (segments.length === 2 && segments[0] === "api" && segments[1] === "pages") {
         const typeFilter = url.searchParams.get("type") ?? undefined;
-        const includeArchived = parseArchivedPageOptIn(url.searchParams.get("includeArchived"));
+        const includeArchived = parseIncludeArchivedQuery(url.searchParams.get("includeArchived"));
         if (includeArchived === null) {
           writeJsonError(res, 400, "invalid includeArchived parameter");
           return;
@@ -2282,7 +2277,7 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
           writeHtml(res, 400, renderBadRequest("Malformed wiki path."));
           return;
         }
-        const includeArchived = parseArchivedPageOptIn(url.searchParams.get("includeArchived"));
+        const includeArchived = parseIncludeArchivedQuery(url.searchParams.get("includeArchived"));
         if (includeArchived === null) {
           writeHtml(res, 400, renderBadRequest("Invalid includeArchived parameter."));
           return;
@@ -2302,7 +2297,7 @@ export async function createServer(opts: ServerOptions): Promise<RunningServer> 
           writeJsonError(res, 400, "malformed wiki path");
           return;
         }
-        const includeArchived = parseArchivedPageOptIn(url.searchParams.get("includeArchived"));
+        const includeArchived = parseIncludeArchivedQuery(url.searchParams.get("includeArchived"));
         if (includeArchived === null) {
           writeJsonError(res, 400, "invalid includeArchived parameter");
           return;

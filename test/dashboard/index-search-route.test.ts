@@ -151,7 +151,7 @@ describe("dashboard index search route", () => {
     for (const [query, invalidParam] of [
       ["scope=bogus", "scope"],
       ["identity_mode=bogus", "identity_mode"],
-      ["includeArchived=1", "includeArchived"],
+      ["includeArchived=yes", "includeArchived"],
     ] as const) {
       const response = await fetch(
         `http://${server.host}:${server.port}/api/search?q=needle&${query}`,
@@ -785,7 +785,7 @@ describe("dashboard index search route", () => {
       searchExecutor,
     });
 
-    const response = await fetch(`http://${server.host}:${server.port}/api/search?q=needle&limit=5`);
+    const response = await fetch(`http://${server.host}:${server.port}/api/search?q=needle&limit=5&includeArchived=1`);
     const body = await response.json();
 
     expect(response.status).toBe(200);
@@ -794,7 +794,7 @@ describe("dashboard index search route", () => {
       limit: 5,
       cursor: null,
       scope: "all",
-      includeArchived: false,
+      includeArchived: true,
       asOf: undefined,
       agentId: undefined,
       userId: undefined,

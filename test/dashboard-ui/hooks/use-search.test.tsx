@@ -225,6 +225,23 @@ describe("useSearch", () => {
     expect(String(fetchMock.mock.calls[0][0])).toContain("noRerank=true");
   });
 
+  test("uses the canonical numeric archived-page opt-in in search requests", async () => {
+    const fetchMock = vi.fn(
+      async (_input: RequestInfo | URL) => new Response(JSON.stringify(makeSearchResponse()), { status: 200 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderHook(
+      () => useSearch({ query: "archived", scope: "wiki", includeArchived: true }),
+      { wrapper: wrapperWithQueryClient },
+    );
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalled();
+    });
+    expect(String(fetchMock.mock.calls[0][0])).toContain("includeArchived=1");
+  });
+
   test("keeps previous data visible while a new query is pending", async () => {
     let releaseSecondRequest: ((response: Response) => void) | undefined;
     const secondRequest = new Promise<Response>((resolve) => {

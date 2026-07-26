@@ -14,11 +14,13 @@ vi.mock("@tanstack/react-router", async (importOriginal) => {
       children,
       className,
       params,
+      search,
       to,
     }: {
       children: React.ReactNode;
       className?: string;
       params?: Record<string, string>;
+      search?: { includeArchived?: string };
       to: string;
     }) => {
       const href = params
@@ -28,8 +30,9 @@ vi.mock("@tanstack/react-router", async (importOriginal) => {
             .replace("$date", params.date ?? "")
             .replace("$filename", params.filename ?? "")
         : to;
+      const archiveQuery = search?.includeArchived ? `?includeArchived=${search.includeArchived}` : "";
       return (
-        <a className={className} href={href}>
+        <a className={className} href={`${href}${archiveQuery}`}>
           {children}
         </a>
       );
@@ -77,6 +80,21 @@ describe("SearchResultCard", () => {
     render(<SearchResultCard result={result} />);
 
     expect(screen.getByRole("link", { name: "Retrieval Crystal" })).toHaveAttribute("href", "/wiki/crystals/retrieval");
+  });
+
+  test("links archived wiki results through the explicit detail opt-in", () => {
+    const result: SearchResult = {
+      ...RESULT,
+      kind: "wiki",
+      path: "wiki/archive/old.md",
+      title: "Archived Project",
+      provenance: { ...RESULT.provenance, kind: "wiki", path: "wiki/archive/old.md" },
+    };
+
+    render(<SearchResultCard result={result} />);
+
+    expect(screen.getByRole("link", { name: "Archived Project" }))
+      .toHaveAttribute("href", "/wiki/archive/old?includeArchived=1");
   });
 
   test("falls back to the crystals page for top-level crystal result paths", () => {

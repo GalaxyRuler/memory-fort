@@ -1,4 +1,4 @@
-import { useParams } from "@tanstack/react-router";
+import { useParams, useSearch } from "@tanstack/react-router";
 import { useState } from "react";
 import { usePageDetail } from "../hooks/usePageDetail.js";
 import { preprocessWikilinks } from "../lib/wikilinks.js";
@@ -11,9 +11,10 @@ import { PageTOC } from "./PageTOC.js";
 
 export function WikiPageDetail() {
   const { category, slug } = useParams({ from: "/wiki/$category/$slug" });
+  const search = useSearch({ from: "/wiki/$category/$slug" }) as { includeArchived?: "1" };
   const [mobileSheet, setMobileSheet] = useState<"toc" | "relations" | null>(null);
   const relPath = `wiki/${category}/${slug}.md`;
-  const page = usePageDetail(relPath);
+  const page = usePageDetail(relPath, { includeArchived: search.includeArchived === "1" });
 
   if (page.isLoading) {
     return <div className="p-6 text-sm text-text-muted">Loading page...</div>;

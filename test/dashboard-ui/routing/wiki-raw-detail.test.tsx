@@ -88,6 +88,31 @@ describe("dashboard wiki/raw routing", () => {
     expect(screen.queryByRole("heading", { name: "Wiki" })).not.toBeInTheDocument();
   });
 
+  test("passes an explicit archive opt-in from a direct wiki detail URL to the page request", async () => {
+    mockApiGet.mockImplementation(async (path, params) => {
+      if (
+        path === "/page/wiki%2Farchive%2Fold.md"
+        && params?.includeArchived === "1"
+      ) {
+        return {
+          ...wikiPageFixture(),
+          relPath: "wiki/archive/old.md",
+          archived: true,
+          frontmatter: { ...wikiPageFixture().frontmatter, title: "Archived Decision" },
+        } as never;
+      }
+      throw new Error(`unexpected api request ${path}`);
+    });
+
+    renderAt("/wiki/archive/old?includeArchived=1");
+
+    expect(await screen.findByRole("heading", { name: "Archived Decision" })).toBeInTheDocument();
+    expect(mockApiGet).toHaveBeenCalledWith(
+      "/page/wiki%2Farchive%2Fold.md",
+      { includeArchived: "1" },
+    );
+  });
+
   test("mounts wiki index on /wiki", async () => {
     mockApiGet.mockImplementation(async (path) => {
       if (path === "/wiki") return wikiIndexFixture() as never;

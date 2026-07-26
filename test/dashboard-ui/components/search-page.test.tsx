@@ -21,11 +21,13 @@ vi.mock("@tanstack/react-router", async (importOriginal) => {
       children,
       className,
       params,
+      search,
       to,
     }: {
       children: React.ReactNode;
       className?: string;
       params?: Record<string, string>;
+      search?: { includeArchived?: string };
       to: string;
     }) => {
       const href = params
@@ -35,8 +37,9 @@ vi.mock("@tanstack/react-router", async (importOriginal) => {
             .replace("$date", params.date ?? "")
             .replace("$filename", params.filename ?? "")
         : to;
+      const archiveQuery = search?.includeArchived ? `?includeArchived=${search.includeArchived}` : "";
       return (
-        <a className={className} href={href}>
+        <a className={className} href={`${href}${archiveQuery}`}>
           {children}
         </a>
       );
@@ -476,6 +479,40 @@ describe("SearchPage", () => {
     expect(routerState.navigate).toHaveBeenCalledWith({
       to: "/wiki/$category/$slug",
       params: { category: "crystals", slug: "retrieval" },
+    });
+  });
+
+  test("activating an archived wiki result retains the explicit detail opt-in", () => {
+    routerState.search = { q: "archived" };
+    const archivedResult: SearchResult = {
+      ...makeResult(),
+      path: "wiki/archive/old.md",
+      title: "Archived Project",
+      provenance: {
+        ...makeResult().provenance,
+        path: "wiki/archive/old.md",
+      },
+    };
+    searchHook.useSearch.mockReturnValue({
+      data: {
+        results: [archivedResult],
+        timings: { totalMs: 42 },
+        degraded: false,
+        warnings: [],
+      },
+      isLoading: false,
+    });
+
+    render(<SearchPage />);
+
+    const list = screen.getByRole("list", { name: "Search results" });
+    list.focus();
+    fireEvent.keyDown(list, { key: "Enter" });
+
+    expect(routerState.navigate).toHaveBeenCalledWith({
+      to: "/wiki/$category/$slug",
+      params: { category: "archive", slug: "old" },
+      search: { includeArchived: "1" },
     });
   });
 

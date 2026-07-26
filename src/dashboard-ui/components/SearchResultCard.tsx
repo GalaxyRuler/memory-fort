@@ -4,6 +4,7 @@ import { type SearchResult } from "../hooks/useSearch.js";
 import { cn } from "../lib/cn.js";
 import { apiPost } from "../lib/api.js";
 import { formatSearchSourceLabel, normalizeSearchSignals } from "../lib/search-sources.js";
+import { hasArchivePathComponent } from "../../storage/archive-paths.js";
 import { BottomSheet } from "./BottomSheet.js";
 import { Card } from "./Card.js";
 import { ScoreBreakdown } from "./ScoreBreakdown.js";
@@ -15,7 +16,11 @@ const KIND_COLOR: Record<string, string> = {
 };
 
 export type ResultLinkProps =
-  | { to: "/wiki/$category/$slug"; params: { category: string; slug: string } }
+  | {
+    to: "/wiki/$category/$slug";
+    params: { category: string; slug: string };
+    search?: { includeArchived: "1" };
+  }
   | { to: "/raw/$date/$filename"; params: { date: string; filename: string } }
   | { to: "/crystals" };
 
@@ -175,16 +180,22 @@ function crystalLinkFromPath(path: string): ResultLinkProps | null {
 }
 
 function wikiLinkFromPath(path: string): ResultLinkProps | null {
-  const parts = normalizeMarkdownPath(path).replace(/^wiki\//, "").split("/");
+  const normalized = normalizeMarkdownPath(path);
+  const parts = normalized.replace(/^wiki\//, "").split("/");
   if (parts.length < 2) return null;
-  return wikiLinkFromParts(parts[0] ?? "", parts.slice(1).join("/"));
+  return wikiLinkFromParts(
+    parts[0] ?? "",
+    parts.slice(1).join("/"),
+    hasArchivePathComponent(normalized),
+  );
 }
 
-function wikiLinkFromParts(category: string, slug: string): ResultLinkProps | null {
+function wikiLinkFromParts(category: string, slug: string, includeArchived = false): ResultLinkProps | null {
   if (!category || !slug) return null;
   return {
     to: "/wiki/$category/$slug",
     params: { category, slug },
+    ...(includeArchived ? { search: { includeArchived: "1" as const } } : {}),
   };
 }
 
