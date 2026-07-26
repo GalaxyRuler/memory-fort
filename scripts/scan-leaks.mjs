@@ -6,7 +6,7 @@ import { join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { isReleaseQuarantined } from "./release/quarantine.mjs";
 
-const ALLOWLIST_PATHS = new Set([
+const REPOSITORY_ALLOWLIST_PATHS = new Set([
   "AUTHORSHIP.md",
   "LICENSE",
   "LICENSE-NOTICE.md",
@@ -15,6 +15,20 @@ const ALLOWLIST_PATHS = new Set([
   // model manifest); their 30K-wordpiece vocab contains common first names.
   "assets/embedding-models/bge-small-en-v1.5/tokenizer.json",
   "assets/embedding-models/bge-small-en-v1.5/vocab.txt",
+]);
+
+const PACKAGE_FULLY_ALLOWLIST_PATHS = new Set([
+  // Upstream-vendored public bge-small-en-v1.5 files (sha256-pinned in the
+  // model manifest); their 30K-wordpiece vocab contains common first names.
+  "assets/embedding-models/bge-small-en-v1.5/tokenizer.json",
+  "assets/embedding-models/bge-small-en-v1.5/vocab.txt",
+]);
+
+const PACKAGE_ROOT_ATTRIBUTION_PATHS = new Set([
+  "AUTHORSHIP.md",
+  "LICENSE",
+  "LICENSE-NOTICE.md",
+  "package.json",
 ]);
 
 const DENYLIST = [
@@ -43,7 +57,7 @@ const DENYLIST = [
   deny(literal(["native", " ", "qt"].join(""))),
   deny(literal(["arabic", " ", "python"].join(""))),
   deny(literal(["personal", " ", "website"].join(""))),
-  deny(word(["Abdul", "lah"].join(""))),
+  deny(word(["Abdul", "lah"].join("")), { allowInPackageAttribution: true }),
 ];
 
 const defaultFileSystem = { access, readdir, readFile, stat };
@@ -67,7 +81,7 @@ export async function main(argv = process.argv.slice(2)) {
     process.stdout.write(hits.length > 0 ? `${JSON.stringify(hits, null, 2)}\n` : "");
   } else {
     for (const hit of hits) {
-      process.stdout.write(`${hit.path}:${hit.line}: ${hit.token}\n`);
+      process.stdout.write(`${hit.path}:${hit.line}: denied content\n`);
     }
   }
 
@@ -85,9 +99,11 @@ export async function scanTarget(target, options, { fileSystem = defaultFileSyst
     throw new Error(`package scan root contains no files: ${target.root}`);
   }
 
+  let scanEligibleFiles = 0;
   for (const relPath of files) {
     if (options.quarantine && isQuarantined(relPath)) continue;
-    if (ALLOWLIST_PATHS.has(relPath)) continue;
+    if (shouldSkipFile(relPath, options)) continue;
+    scanEligibleFiles += 1;
 
     let content;
     try {
@@ -104,12 +120,17 @@ export async function scanTarget(target, options, { fileSystem = defaultFileSyst
       for (const rule of DENYLIST) {
         if (rule.exampleOnly && !isMarkdownOrJson(relPath)) continue;
         if (rule.skipTests && isTestPath(relPath)) continue;
+        if (isAllowedPackageAttributionMatch(relPath, rule, options)) continue;
         const match = rule.regex.exec(line);
         if (match) {
-          hits.push({ path: withPrefix(options.prefix, relPath), line: index + 1, token: match[0] });
+          hits.push({ path: withPrefix(options.prefix, relPath), line: index + 1 });
         }
       }
     }
+  }
+
+  if (options.requireFiles && scanEligibleFiles === 0) {
+    throw new Error(`package scan root contains no scan-eligible files: ${target.root}`);
   }
 
   if (options.quarantine) {
@@ -132,7 +153,7 @@ export async function scanTarget(target, options, { fileSystem = defaultFileSyst
           for (const token of INFRA_TOKENS) {
             if (line.includes(token)) {
               const rel = toPosixPath(relative(target.root, fullPath));
-              hits.push({ path: rel, line: index + 1, token, scope: "dist" });
+              hits.push({ path: rel, line: index + 1, scope: "dist" });
             }
           }
         }
@@ -209,6 +230,18 @@ async function isDirectory(path) {
 
 function withPrefix(prefix, relPath) {
   return prefix ? `${prefix}/${relPath}` : relPath;
+}
+
+function shouldSkipFile(relPath, options) {
+  return options.requireFiles
+    ? PACKAGE_FULLY_ALLOWLIST_PATHS.has(relPath)
+    : REPOSITORY_ALLOWLIST_PATHS.has(relPath);
+}
+
+function isAllowedPackageAttributionMatch(relPath, rule, options) {
+  return options.requireFiles
+    && PACKAGE_ROOT_ATTRIBUTION_PATHS.has(relPath)
+    && rule.allowInPackageAttribution;
 }
 
 async function walkDistFiles(dir, fileSystem = defaultFileSystem) {
@@ -308,6 +341,12 @@ async function walkFiles(rootPath, options, fileSystem = defaultFileSystem) {
       const fullPath = join(dir, entry.name);
       const relPath = toPosixPath(relative(rootPath, fullPath));
       if (options.quarantine && isQuarantined(relPath)) continue;
+      if (typeof entry.isSymbolicLink === "function" && entry.isSymbolicLink()) {
+        if (options.strict) {
+          throw new Error(`package scan does not support symbolic link: ${relPath}`);
+        }
+        continue;
+      }
       if (entry.isDirectory()) {
         await walk(fullPath);
       } else if (entry.isFile()) {
@@ -353,6 +392,7 @@ function deny(source, options = {}) {
     regex: new RegExp(source, "i"),
     exampleOnly: Boolean(options.exampleOnly),
     skipTests: Boolean(options.skipTests),
+    allowInPackageAttribution: Boolean(options.allowInPackageAttribution),
   };
 }
 

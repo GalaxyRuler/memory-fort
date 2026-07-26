@@ -27,7 +27,8 @@ describe("scan-leaks release gate", () => {
     const result = await runScan(["--root", tmp]);
 
     expect(result.exitCode).toBe(1);
-    expect(result.stdout).toContain(`src/public.ts:1: ${token}`);
+    expect(result.stdout).toContain("src/public.ts:1: denied content");
+    expect(result.stdout).not.toContain(token);
   });
 
   it("reports private project path literals in escaped and slash forms", async () => {
@@ -42,8 +43,10 @@ describe("scan-leaks release gate", () => {
     const result = await runScan(["--root", tmp]);
 
     expect(result.exitCode).toBe(1);
-    expect(result.stdout).toContain(`src/paths.ts:1: ${escapedPath}`);
-    expect(result.stdout).toContain(`src/paths.ts:2: ${slashPath}`);
+    expect(result.stdout).toContain("src/paths.ts:1: denied content");
+    expect(result.stdout).toContain("src/paths.ts:2: denied content");
+    expect(result.stdout).not.toContain(escapedPath);
+    expect(result.stdout).not.toContain(slashPath);
   });
 
   it("reports escaped user-profile paths in source files", async () => {
@@ -58,8 +61,10 @@ describe("scan-leaks release gate", () => {
     const result = await runScan(["--root", tmp]);
 
     expect(result.exitCode).toBe(1);
-    expect(result.stdout).toContain(`src/paths.ts:1: ${escapedUserPath}`);
-    expect(result.stdout).toContain(`src/paths.ts:2: ${repeatedEscapedUserPath}`);
+    expect(result.stdout).toContain("src/paths.ts:1: denied content");
+    expect(result.stdout).toContain("src/paths.ts:2: denied content");
+    expect(result.stdout).not.toContain(escapedUserPath);
+    expect(result.stdout).not.toContain(repeatedEscapedUserPath);
   });
 
   it("reports escaped user-profile paths and private project-root slugs in public examples", async () => {
@@ -85,10 +90,10 @@ describe("scan-leaks release gate", () => {
     const result = await runScan(["--root", tmp]);
 
     expect(result.exitCode).toBe(1);
-    expect(result.stdout).toContain(`README.md:1: ${escapedUserPath}`);
-    expect(result.stdout).toContain(["Claude", "Code", "Projects"].join(""));
-    expect(result.stdout).toContain(`src/example.json:2: ${jsonRenderedUserPath}`);
-    expect(result.stdout).toContain(["Codex", "Projects"].join(""));
+    expect(result.stdout).toContain("README.md:1: denied content");
+    expect(result.stdout).toContain("src/example.json:2: denied content");
+    expect(result.stdout).not.toContain(escapedUserPath);
+    expect(result.stdout).not.toContain(jsonRenderedUserPath);
   });
 
   it("allows owner name tokens in package.json", async () => {
@@ -111,8 +116,8 @@ describe("scan-leaks release gate", () => {
     expect(JSON.parse(result.stdout)).toEqual([{
       path: "src/about.ts",
       line: 1,
-      token,
     }]);
+    expect(result.stdout).not.toContain(token);
   });
 
   it("allows public owner and predecessor project names anywhere", async () => {
@@ -160,9 +165,10 @@ describe("scan-leaks release gate", () => {
     const result = await runScan(["--root", tmp]);
 
     expect(result.exitCode).toBe(1);
-    expect(result.stdout).toContain(`docs/compatibility-matrix.md:1: ${token}`);
-    expect(result.stdout).toContain(`docs/release-evidence/2026-06-07-v1.1-credibility.md:1: ${token}`);
+    expect(result.stdout).toContain("docs/compatibility-matrix.md:1: denied content");
+    expect(result.stdout).toContain("docs/release-evidence/2026-06-07-v1.1-credibility.md:1: denied content");
     expect(result.stdout).not.toContain("docs/release-evidence/private.txt");
+    expect(result.stdout).not.toContain(token);
   });
 
   it("reports dist-only infra token hits as json", async () => {
@@ -176,9 +182,9 @@ describe("scan-leaks release gate", () => {
     expect(JSON.parse(result.stdout)).toEqual([{
       path: "dist/cli.mjs",
       line: 1,
-      token,
       scope: "dist",
     }]);
+    expect(result.stdout).not.toContain(token);
   });
 
   it("requires the Windows packaging command to scan the unpacked shipped app", async () => {
@@ -198,7 +204,45 @@ describe("scan-leaks release gate", () => {
     const result = await runScan(["--packaged-root", appRoot]);
 
     expect(result.exitCode).toBe(1);
-    expect(result.stdout).toContain(`main.mjs:1: ${token}`);
+    expect(result.stdout).toContain("main.mjs:1: denied content");
+    expect(result.stdout).not.toContain(token);
+  });
+
+  it("allows the intentional owner attribution in packaged package metadata", async () => {
+    const owner = ["Abdul", "lah"].join("");
+    const appRoot = join(tmp, "attribution-only");
+    await mkdir(appRoot, { recursive: true });
+    await writeFile(join(appRoot, "package.json"), JSON.stringify({ author: owner }));
+
+    const result = await runScan(["--packaged-root", appRoot]);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe("");
+  });
+
+  it("scans packaged package metadata outside the narrow attribution allowance", async () => {
+    const owner = ["Abdul", "lah"].join("");
+    const token = ["srv", "1317946"].join("");
+    const appRoot = join(tmp, "app");
+    await mkdir(appRoot, { recursive: true });
+    await writeFile(join(appRoot, "package.json"), JSON.stringify({ author: owner, privateEndpoint: token }));
+
+    const result = await runScan(["--packaged-root", appRoot]);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stdout).toContain("package.json:1: denied content");
+    expect(result.stdout).not.toContain(token);
+  });
+
+  it("rejects a packaged root that contains only fully allowlisted files", async () => {
+    const appRoot = join(tmp, "allowlisted-only");
+    await mkdir(appRoot, { recursive: true });
+    await writeText("allowlisted-only/assets/embedding-models/bge-small-en-v1.5/tokenizer.json", "{}\n");
+
+    const result = await runScan(["--packaged-root", appRoot]);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("package scan root contains no scan-eligible files");
   });
 
   it("fails closed when a packaged subtree cannot be enumerated", async () => {
@@ -238,6 +282,21 @@ describe("scan-leaks release gate", () => {
     )).rejects.toThrow("package scan could not read payload.js: permission denied");
   });
 
+  it("rejects symbolic links in a packaged payload", async () => {
+    const fileSystem = {
+      access: async () => undefined,
+      readdir: async () => [symlinkEntry("linked.js")],
+      readFile: async () => "",
+      stat: async () => ({ isFile: () => false, isDirectory: () => false }),
+    };
+
+    await expect(scanTarget(
+      { root: "package", prefix: "" },
+      { quarantine: false, prefix: "", requireFiles: true },
+      { fileSystem },
+    )).rejects.toThrow("package scan does not support symbolic link: linked.js");
+  });
+
   it("scans denylist tokens across every discovered packaged payload", async () => {
     const token = ["C:", "\\", "Users", "\\", "Admin"].join("");
     await writeText("electron-installer/win-unpacked/resources/app/dist/electron-main.mjs", `export const buildPath = "${token}";\n`);
@@ -248,10 +307,11 @@ describe("scan-leaks release gate", () => {
 
     expect(result.exitCode).toBe(1);
     expect(JSON.parse(result.stdout)).toEqual(expect.arrayContaining([
-      expect.objectContaining({ path: "win-unpacked/resources/app/dist/electron-main.mjs", token }),
-      expect.objectContaining({ path: "win-arm64-unpacked/resources/app/node_modules/example/index.js", token }),
-      expect.objectContaining({ path: "mac-arm64/MemoryFort.app/Contents/Resources/app/dist/main.mjs", token }),
+      expect.objectContaining({ path: "win-unpacked/resources/app/dist/electron-main.mjs" }),
+      expect.objectContaining({ path: "win-arm64-unpacked/resources/app/node_modules/example/index.js" }),
+      expect.objectContaining({ path: "mac-arm64/MemoryFort.app/Contents/Resources/app/dist/main.mjs" }),
     ]));
+    expect(result.stdout).not.toContain(token);
   });
 
   it("fails closed when an explicit packaged root is missing or empty", async () => {
@@ -307,4 +367,8 @@ function directoryEntry(name: string) {
 
 function fileEntry(name: string) {
   return { name, isDirectory: () => false, isFile: () => true };
+}
+
+function symlinkEntry(name: string) {
+  return { name, isDirectory: () => false, isFile: () => false, isSymbolicLink: () => true };
 }
