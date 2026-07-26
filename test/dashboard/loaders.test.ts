@@ -22,6 +22,7 @@ import {
   loadWikiIndex,
   timelineLaneForEvent,
 } from "../../src/dashboard/loaders.js";
+import { preprocessWikilinks } from "../../src/dashboard-ui/lib/wikilinks.js";
 
 function page(frontmatter: Record<string, unknown>, body: string): string {
   const lines = Object.entries(frontmatter).flatMap(([key, value]) => {
@@ -572,7 +573,7 @@ describe("dashboard loaders", () => {
     expect(JSON.stringify(index)).not.toContain("Retained");
   });
 
-  it("loadPageDetail resolves relations and inbound references", async () => {
+  it("loadPageDetail returns navigable wiki paths for relations and inbound references", async () => {
     await mkdir(join(tmp, "wiki", "projects"), { recursive: true });
     await mkdir(join(tmp, "wiki", "lessons"), { recursive: true });
     await writeFile(
@@ -585,7 +586,7 @@ describe("dashboard loaders", () => {
           updated: "2026-05-23",
           relations: { uses: ["b"] },
         },
-        "A body.\n",
+        "Links to [[B]].\n",
       ),
     );
     await writeFile(
@@ -602,11 +603,14 @@ describe("dashboard loaders", () => {
     expect(detail?.relations[0]).toMatchObject({
       key: "uses",
       target: "b",
-      resolvedPath: "projects/b.md",
+      resolvedPath: "wiki/projects/b.md",
       resolvedTitle: "B",
     });
+    expect(preprocessWikilinks(detail!.body, detail!.relations)).toContain(
+      "[B](wiki:wiki/projects/b.md)",
+    );
     expect(detail?.inbound).toContainEqual({
-      fromPath: "lessons/c.md",
+      fromPath: "wiki/lessons/c.md",
       fromTitle: "C",
       via: "wikilink",
     });

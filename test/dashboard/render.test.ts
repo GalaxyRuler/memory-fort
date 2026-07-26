@@ -124,12 +124,12 @@ describe("dashboard render", () => {
       },
       body: "A body.",
       relations: [
-        { key: "uses", target: "b", resolvedPath: "projects/b.md", resolvedTitle: "B" },
+        { key: "uses", target: "b", resolvedPath: "wiki/projects/b.md", resolvedTitle: "B" },
         { key: "uses", target: "ghost", resolvedPath: null, resolvedTitle: null },
       ],
       inbound: [
-        { fromPath: "lessons/c.md", fromTitle: "C", via: "wikilink" },
-        { fromPath: "projects/d.md", fromTitle: "D", via: "relation:uses" },
+        { fromPath: "wiki/lessons/c.md", fromTitle: "C", via: "wikilink" },
+        { fromPath: "wiki/projects/d.md", fromTitle: "D", via: "relation:uses" },
       ],
     };
 

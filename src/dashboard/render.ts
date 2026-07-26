@@ -66,7 +66,7 @@ function pageEnd(): string {
 }
 
 function wikiHref(relPath: string): string {
-  const withoutExt = relPath.replace(/\.md$/, "");
+  const withoutExt = relPath.replace(/^wiki\//, "").replace(/\.md$/, "");
   return `/wiki/${withoutExt.split("/").map((segment) => encodeURIComponent(segment)).join("/")}`;
 }
 

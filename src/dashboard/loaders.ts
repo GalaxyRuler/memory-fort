@@ -1076,8 +1076,14 @@ export async function loadPageDetail(
     archived,
     frontmatter: page.frontmatter,
     body: page.body,
-    relations: resolveRelations(page, idx),
-    inbound: findInbound(page, pages, idx),
+    relations: resolveRelations(page, idx).map((relation) => ({
+      ...relation,
+      resolvedPath: relation.resolvedPath === null ? null : `wiki/${relation.resolvedPath}`,
+    })),
+    inbound: findInbound(page, pages, idx).map((reference) => ({
+      ...reference,
+      fromPath: `wiki/${reference.fromPath}`,
+    })),
   };
 }
 
