@@ -26,11 +26,12 @@ Run this checklist for **any** change that ships publicly — feature, fix, upgr
 - Push the same commit + tag to the private mirror. Versions are now identical (no `-private`), so the mirror is a true fast-forward with no version conflict.
 
 ## 7. Desktop installers (when shipping the app)
-- Pushing the `vX.Y.Z` tag to the **public** repo triggers `.github/workflows/release.yml`: a Windows/macOS/Linux build matrix produces installers and uploads them to a **draft** GitHub Release.
+- Pushing the `vX.Y.Z` tag to the **public** repo triggers `.github/workflows/release.yml`: a Windows/macOS/Linux build matrix produces installers, scans every expected unpacked runtime payload, validates the complete artifact set, then creates, uploads, and publishes the GitHub Release automatically. A packaging or validation failure creates no public release; an upload failure leaves its draft non-public for inspection.
 - Build matrix (fixed in `electron-builder.yml`): **Windows** NSIS `x64 + arm64`, **macOS** DMG `arm64` only (no Intel), **Linux** AppImage. See [memoryfort-build-targets].
-- Publish the draft once builds are green: `gh release edit vX.Y.Z --repo GalaxyRuler/memory-fort --draft=false --latest`.
+- The Windows NSIS output is one multi-architecture installer even though the release scan requires two unpacked app payloads. Do not replace the expected-root check with an installer-file count.
+- The privacy gate scans `resources/app` (or the extracted AppImage equivalent): that is the runtime tree the installer lays down. The raw installer and its zipped copy are hash-bound in the platform artifact manifest before publication; the binary containers themselves are not decoded by the leak scanner.
 - **Lockfile gotcha:** after any `electron-builder` dependency change, validate the lockfile on both Windows and Linux Node 22 with `ONNXRUNTIME_NODE_INSTALL=skip`. npm can reconcile platform-specific optional dependencies differently on each OS, so current CI and release workflows intentionally use `npm install`; inspect and commit only intentional lockfile changes.
-- Verify the desktop app on all three OSes via the `electron` job in `.github/workflows/smoke.yml` (launches the real Electron shell headless and asserts the dashboard serves).
+- The `electron` job in `.github/workflows/smoke.yml` launches the real shell headlessly, but it is not an installed-artifact smoke. Run the manual `.github/workflows/installed-native-probe.yml` before calling an installer release complete.
 
 ## 8. Upgrade the local install (REQUIRED — a release is not done until the installed binary is current)
 - Publishing the installer to the GitHub Release is **not enough**. The `memory` CLI is `npm link`'d to the repo, so it tracks the rebuilt `dist` automatically and is already current — but the installed desktop app (`%LOCALAPPDATA%\Programs\MemoryFort\MemoryFort.exe`) is a **separate artifact** that nothing in the build/publish steps touches. Leaving it stale means "released" while the running app is the old version.

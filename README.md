@@ -392,7 +392,7 @@ Memory Fort ships as a native desktop application so you don't need Node.js or a
 
 | OS | Installer |
 |----|-----------|
-| Windows (x64 + ARM64) | `MemoryFort-Setup-X.Y.Z.exe` (NSIS) |
+| Windows (x64 + ARM64) | `MemoryFort-Setup-X.Y.Z.exe` (one multi-architecture NSIS installer) |
 | macOS (Apple Silicon) | `MemoryFort-X.Y.Z-arm64.dmg` |
 | Linux (any distro) | `MemoryFort-X.Y.Z.AppImage` |
 
@@ -412,7 +412,7 @@ The app is the same dashboard in a native window — it starts the local server 
 >
 > then launch it normally. Alternatively, try to open the app once, then look for **Open Anyway** under **System Settings → Privacy & Security** ([Apple's documented override flow](https://support.apple.com/guide/mac-help/open-a-mac-app-from-an-unknown-developer-mh40616/mac)) — but on macOS 26 Tahoe the "damaged" dialog for unsigned apps often comes with no Open Anyway button, so the `xattr` command is the reliable path. Only override Gatekeeper for software you trust.
 
-**Build it yourself:** `npm run electron:build` produces an installer for your current OS in `dist/electron-installer/`.
+**Build it yourself:** `npm run electron:build` produces the Windows multi-architecture installer in `dist/electron-installer/`. Its release leak check scans the unpacked `resources/app` runtime payloads before the installer is accepted.
 
 ---
 

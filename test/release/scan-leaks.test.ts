@@ -193,6 +193,7 @@ describe("scan-leaks release gate", () => {
     };
 
     expect(manifest.scripts?.["electron:build"]).toContain("scan:leaks:package");
+    expect(manifest.scripts?.["scan:leaks:package"]).toContain("--expect-roots 2");
   });
 
   it("scans a packaged app root outside a Git worktree", async () => {
@@ -312,6 +313,26 @@ describe("scan-leaks release gate", () => {
       expect.objectContaining({ path: "mac-arm64/MemoryFort.app/Contents/Resources/app/dist/main.mjs" }),
     ]));
     expect(result.stdout).not.toContain(token);
+  });
+
+  it("requires the exact number of discovered packaged app roots", async () => {
+    const output = join(tmp, "expected-roots");
+    await writeText("expected-roots/win-unpacked/resources/app/main.mjs", "export const ok = true;\n");
+    await writeText("expected-roots/win-arm64-unpacked/resources/app/main.mjs", "export const ok = true;\n");
+
+    const complete = await runScan(["--packaged-output", output, "--expect-roots", "2"]);
+    const incomplete = await runScan(["--packaged-output", output, "--expect-roots", "3"]);
+
+    expect(complete.exitCode).toBe(0);
+    expect(incomplete.exitCode).toBe(1);
+    expect(incomplete.stderr).toContain("package scan output expected 3 unpacked app roots, found 2");
+  });
+
+  it("rejects an invalid expected packaged app-root count", async () => {
+    const result = await runScan(["--packaged-output", tmp, "--expect-roots", "0"]);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("--expect-roots must be a positive integer");
   });
 
   it("fails closed when an explicit packaged root is missing or empty", async () => {

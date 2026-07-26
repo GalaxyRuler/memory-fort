@@ -69,9 +69,12 @@ jobs:
         run: npx electron-builder --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
-      - name: Scan unpacked packaged app payload
-        if: runner.os != 'Linux'
+      - name: Scan unpacked Windows app payloads
+        if: runner.os == 'Windows'
         run: npm run scan:leaks:package
+      - name: Scan unpacked macOS app payload
+        if: runner.os == 'macOS'
+        run: node scripts/scan-leaks.mjs --packaged-output dist/electron-installer --expect-roots 1
       - name: Scan extracted Linux app payload
         if: runner.os == 'Linux'
         shell: bash
@@ -80,8 +83,8 @@ jobs:
           cd dist/electron-installer
           shopt -s nullglob
           appimages=( *.AppImage )
-          if [ "${#appimages[@]}" -eq 0 ]; then
-            echo "No AppImage found to scan" >&2
+          if [ "${#appimages[@]}" -ne 1 ]; then
+            echo "Expected exactly one AppImage to scan, found ${#appimages[@]}" >&2
             exit 1
           fi
           for appimage in "${appimages[@]}"; do

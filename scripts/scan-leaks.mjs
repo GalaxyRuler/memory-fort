@@ -174,7 +174,15 @@ async function resolvePackagedTargets(options) {
   if (options.packagedOutput) {
     const outputRoot = resolve(options.packagedOutput);
     await requireDirectory(outputRoot, "package scan output");
-    targets.push(...await discoverPackagedAppRoots(outputRoot));
+    const discoveredTargets = [...new Map(
+      (await discoverPackagedAppRoots(outputRoot)).map((target) => [target.root, target]),
+    ).values()];
+    if (options.expectedRoots !== undefined && discoveredTargets.length !== options.expectedRoots) {
+      throw new Error(
+        `package scan output expected ${options.expectedRoots} unpacked app roots, found ${discoveredTargets.length}`,
+      );
+    }
+    targets.push(...discoveredTargets);
   }
   const uniqueTargets = [...new Map(targets.map((target) => [target.root, target])).values()];
   if (uniqueTargets.length === 0) {
@@ -267,7 +275,7 @@ async function walkDistFiles(dir, fileSystem = defaultFileSystem) {
 }
 
 function parseArgs(argv) {
-  const parsed = { json: false, root: undefined, packagedRoots: [], packagedOutput: undefined };
+  const parsed = { json: false, root: undefined, packagedRoots: [], packagedOutput: undefined, expectedRoots: undefined };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
     if (arg === "--json") {
@@ -296,10 +304,25 @@ function parseArgs(argv) {
       index += 1;
       continue;
     }
+    if (arg === "--expect-roots") {
+      const value = argv[index + 1];
+      if (!value) throw new Error("--expect-roots requires a positive integer");
+      if (parsed.expectedRoots !== undefined) throw new Error("--expect-roots may only be provided once");
+      const expectedRoots = Number(value);
+      if (!/^[1-9]\d*$/.test(value) || !Number.isSafeInteger(expectedRoots)) {
+        throw new Error("--expect-roots must be a positive integer");
+      }
+      parsed.expectedRoots = expectedRoots;
+      index += 1;
+      continue;
+    }
     throw new Error(`unknown argument: ${arg}`);
   }
   if (parsed.root && (parsed.packagedRoots.length > 0 || parsed.packagedOutput)) {
     throw new Error("--root cannot be combined with packaged scan options");
+  }
+  if (parsed.expectedRoots !== undefined && !parsed.packagedOutput) {
+    throw new Error("--expect-roots requires --packaged-output");
   }
   return parsed;
 }
