@@ -276,6 +276,15 @@ describe("runForget", () => {
       "live erase prepared journal",
     )).resolves.toBeUndefined();
     expect(await readFile(pending.journalPath, "utf8")).not.toContain(pendingMarker);
+    const unresolvedJournal = join(
+      evidenceSecurityDir,
+      "records",
+      "live-erase",
+      "u".repeat(64),
+      "prepared.json",
+    );
+    await mkdir(join(unresolvedJournal, ".."), { recursive: true });
+    await writeFile(unresolvedJournal, "{ not valid json\n", "utf8");
 
     const resumed = await runForget({
       mode: "apply",
@@ -286,6 +295,7 @@ describe("runForget", () => {
     expect(resumed.receipt?.path).toContain(join("records", "live-erase"));
     expect(relative(root, resumed.receipt!.path).startsWith(".."))
       .toBe(true);
+    expect(resumed.report).toContain("Warning: unresolved pending live erase journal");
     await expect(readLiveEraseReceipt(resumed.receipt!.path, evidenceSecurityDir))
       .resolves.toMatchObject({ status: "live-erased/history-retained" });
   });
@@ -432,6 +442,107 @@ describe("runForget", () => {
     await runReindex({ vaultRoot: root });
     await expect(runForget({ mode: "apply", rawPaths: [raw], evidenceSecurityDir }))
       .resolves.toMatchObject({ status: "live-erased/history-retained", erased: expect.arrayContaining([raw]) });
+  });
+
+  it("reports an unidentifiable same-vault pending journal before completing a fresh erase", async () => {
+    const raw = "raw/2026-05-20/corrupt-pending.md";
+    const evidenceSecurityDir = join(tmp, "evidence-security");
+    await seedAttributableRaw(raw);
+    await writeAt("index.md", "STALE-CORRUPT-PENDING-CONTEXT\n");
+    await execFileAsync("git", ["init", "-b", "main"], { cwd: root });
+    await execFileAsync("git", ["config", "user.email", "memory-fort-tests@example.invalid"], { cwd: root });
+    await execFileAsync("git", ["config", "user.name", "Memory Fort Tests"], { cwd: root });
+    await execFileAsync("git", ["add", "."], { cwd: root });
+    await execFileAsync("git", ["commit", "-m", "seed corrupt pending fixture"], { cwd: root });
+    await rebuildFixtureIndex();
+    forgetRmFailure.target = "/index.md";
+
+    await expect(runForget({ mode: "apply", rawPaths: [raw], evidenceSecurityDir }))
+      .rejects.toBeInstanceOf(ForgetPartialMutationError);
+    const operationsRoot = join(evidenceSecurityDir, "records", "live-erase");
+    const [operation] = await readdir(operationsRoot);
+    const journalPath = join(operationsRoot, operation!, "prepared.json");
+    await writeFile(journalPath, "{ not valid json\n", "utf8");
+
+    forgetRmFailure.target = null;
+    await runReindex({ vaultRoot: root });
+    const result = await runForget({ mode: "apply", rawPaths: [raw], evidenceSecurityDir });
+
+    expect(result).toMatchObject({
+      status: "live-erased/history-retained",
+      erased: expect.arrayContaining([raw]),
+    });
+    expect(result.report).toContain("Warning: unresolved pending live erase journal");
+    expect(result.report).toContain("could not be identified");
+  });
+
+  it("carries a malformed pending journal warning into a partial mutation receipt", async () => {
+    const raw = "raw/2026-05-20/missing-selector-pending.md";
+    const evidenceSecurityDir = join(tmp, "evidence-security");
+    await seedAttributableRaw(raw);
+    await writeAt("index.md", "STALE-MISSING-SELECTOR-CONTEXT\n");
+    await execFileAsync("git", ["init", "-b", "main"], { cwd: root });
+    await execFileAsync("git", ["config", "user.email", "memory-fort-tests@example.invalid"], { cwd: root });
+    await execFileAsync("git", ["config", "user.name", "Memory Fort Tests"], { cwd: root });
+    await execFileAsync("git", ["add", "."], { cwd: root });
+    await execFileAsync("git", ["commit", "-m", "seed missing selector pending fixture"], { cwd: root });
+    await rebuildFixtureIndex();
+    forgetRmFailure.target = "/index.md";
+
+    await expect(runForget({ mode: "apply", rawPaths: [raw], evidenceSecurityDir }))
+      .rejects.toBeInstanceOf(ForgetPartialMutationError);
+    const operationsRoot = join(evidenceSecurityDir, "records", "live-erase");
+    const [operation] = await readdir(operationsRoot);
+    const journalPath = join(operationsRoot, operation!, "prepared.json");
+    const signed = JSON.parse(await readFile(journalPath, "utf8")) as Record<string, unknown>;
+    const { auth: _auth, ...payload } = signed;
+    delete payload["selection"];
+    const signer = await createEvidenceSigner(evidenceSecurityDir);
+    await writeFile(journalPath, `${JSON.stringify(await signer.sign(payload), null, 2)}\n`, "utf8");
+
+    forgetRmFailure.target = null;
+    await runReindex({ vaultRoot: root });
+    forgetRmFailure.target = "/index.md";
+    let failure: unknown;
+    try {
+      await runForget({ mode: "apply", rawPaths: [raw], evidenceSecurityDir });
+    } catch (error) {
+      failure = error;
+    }
+
+    expect(failure).toBeInstanceOf(ForgetPartialMutationError);
+    expect((failure as ForgetPartialMutationError).receipt.report)
+      .toContain("Warning: unresolved pending live erase journal");
+  });
+
+  it("fails closed for a parseable matching pending journal with a bad signature", async () => {
+    const raw = "raw/2026-05-20/tampered-pending.md";
+    const evidenceSecurityDir = join(tmp, "evidence-security");
+    await seedAttributableRaw(raw);
+    await writeAt("index.md", "STALE-TAMPERED-PENDING-CONTEXT\n");
+    await execFileAsync("git", ["init", "-b", "main"], { cwd: root });
+    await execFileAsync("git", ["config", "user.email", "memory-fort-tests@example.invalid"], { cwd: root });
+    await execFileAsync("git", ["config", "user.name", "Memory Fort Tests"], { cwd: root });
+    await execFileAsync("git", ["add", "."], { cwd: root });
+    await execFileAsync("git", ["commit", "-m", "seed tampered pending fixture"], { cwd: root });
+    await rebuildFixtureIndex();
+    forgetRmFailure.target = "/index.md";
+
+    await expect(runForget({ mode: "apply", rawPaths: [raw], evidenceSecurityDir }))
+      .rejects.toBeInstanceOf(ForgetPartialMutationError);
+    const operationsRoot = join(evidenceSecurityDir, "records", "live-erase");
+    const [operation] = await readdir(operationsRoot);
+    const journalPath = join(operationsRoot, operation!, "prepared.json");
+    const tampered = JSON.parse(await readFile(journalPath, "utf8")) as Record<string, unknown>;
+    tampered["preparedAt"] = "2099-01-01T00:00:00.000Z";
+    await writeFile(journalPath, `${JSON.stringify(tampered, null, 2)}\n`, "utf8");
+
+    forgetRmFailure.target = null;
+    await runReindex({ vaultRoot: root });
+    await expect(runForget({ mode: "apply", rawPaths: [raw], evidenceSecurityDir }))
+      .rejects.toThrow("signature verification failed");
+    expect(existsSync(join(root, ...raw.split("/")))).toBe(true);
+    expect(await readdir(operationsRoot)).toEqual([operation]);
   });
 
   it("serializes concurrent applies from fresh planning through ready publication", async () => {

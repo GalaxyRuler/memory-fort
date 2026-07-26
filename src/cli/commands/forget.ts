@@ -234,13 +234,16 @@ async function runForgetAtRoot(
   }
 
   let resumedPrepared: PreparedLiveEraseEvidence | null = null;
+  const pendingJournalWarnings: string[] = [];
   if (mode === "apply") {
-    const resumed = await resumePreparedLiveEraseEvidence(root, selectors, {
+    const resumeResult = await resumePreparedLiveEraseEvidence(root, selectors, {
       now: opts.now,
       evidenceSecurityDir: opts.evidenceSecurityDir,
       signerFactory: opts.evidenceSignerFactory,
       write: opts.evidenceWrite,
     });
+    pendingJournalWarnings.push(...resumeResult.warnings);
+    const resumed = resumeResult.resume;
     if (resumed?.state === "completed") {
       return {
         mode,
@@ -251,12 +254,13 @@ async function runForgetAtRoot(
         receipt: resumed.receipt,
         report: [
           formatForgetReport("apply", resumed.plan, resumed.erased).trimEnd(),
+          ...pendingJournalWarningLines(pendingJournalWarnings),
           `Live erase receipt: ${resumed.receipt.path}`,
           "",
         ].join("\n"),
       };
     }
-    resumedPrepared = resumed?.prepared ?? null;
+    resumedPrepared = resumed?.state === "restart-prepared" ? resumed.prepared : null;
   }
 
   const selectedRaw = await selectedRawPaths(root, selectors);
@@ -403,7 +407,7 @@ async function runForgetAtRoot(
       operation: failed.operation,
       path: failed.path,
       detail: error instanceof Error ? error.message : String(error),
-    });
+    }, pendingJournalWarnings);
   }
 
   const receipt = preparedEvidence
@@ -418,6 +422,7 @@ async function runForgetAtRoot(
     receipt: receipt ?? undefined,
     report: [
       formatForgetReport("apply", plan, erased.sort()).trimEnd(),
+      ...pendingJournalWarningLines(pendingJournalWarnings),
       ...(receipt ? [`Live erase receipt: ${receipt.path}`] : []),
       "",
     ].join("\n"),
@@ -971,6 +976,10 @@ function formatForgetReport(mode: ForgetMode, plan: ForgetPlan, erased: string[]
   return `${lines.join("\n")}\n`;
 }
 
+function pendingJournalWarningLines(warnings: readonly string[]): string[] {
+  return warnings.length > 0 ? ["", ...warnings.map((warning) => `Warning: ${warning}`)] : [];
+}
+
 function appendInventorySection(lines: string[], heading: string, paths: readonly string[]): void {
   lines.push("", `${heading}: ${paths.length}`);
   if (paths.length === 0) lines.push("- (none)");
@@ -983,6 +992,7 @@ function formatForgetPartialMutationReport(
   rewritten: readonly string[],
   failed: ForgetPartialMutationReceipt["failed"],
   status: ForgetPartialMutationReceipt["status"],
+  pendingJournalWarnings: readonly string[],
 ): string {
   const lines = [
     `Memory forget ${status}`,
@@ -1015,6 +1025,7 @@ function formatForgetPartialMutationReport(
       plan.captureSpool.epochInvalidation.pendingRawPaths,
     );
   }
+  lines.push(...pendingJournalWarningLines(pendingJournalWarnings));
   return `${lines.join("\n")}\n`;
 }
 
@@ -1023,6 +1034,7 @@ function partialForgetMutationError(
   erased: readonly string[],
   rewritten: readonly string[],
   failed: ForgetPartialMutationReceipt["failed"],
+  pendingJournalWarnings: readonly string[],
 ): ForgetPartialMutationError {
   const status: ForgetPartialMutationReceipt["status"] =
     (failed.operation === "spool"
@@ -1039,7 +1051,7 @@ function partialForgetMutationError(
     erased: [...erased].sort(),
     rewritten: [...rewritten].sort(),
     failed,
-    report: formatForgetPartialMutationReport(plan, erased, rewritten, failed, status),
+    report: formatForgetPartialMutationReport(plan, erased, rewritten, failed, status, pendingJournalWarnings),
   };
   return new ForgetPartialMutationError(receipt);
 }

@@ -106,6 +106,28 @@ export interface RestartPreparedLiveEraseEvidence {
 
 export type LiveEraseResume = ResumedLiveEraseEvidence | RestartPreparedLiveEraseEvidence;
 
+export interface LiveEraseResumeResult {
+  readonly resume: LiveEraseResume | null;
+  /** Unidentified pending journals were left untouched and did not block this operation. */
+  readonly warnings: string[];
+}
+
+interface PendingPreparedLiveErase {
+  readonly journalPath: string;
+  readonly receiptPath: string;
+  readonly journal: LiveErasePreparedJournal;
+}
+
+interface PendingPreparedLiveEraseSearch {
+  readonly pending: PendingPreparedLiveErase | null;
+  readonly warnings: string[];
+}
+
+interface UnverifiedPreparedJournalIdentity {
+  readonly canonicalRootFingerprint: string | null;
+  readonly selectors: unknown | null;
+}
+
 export class LiveEraseEvidencePendingError extends Error {
   readonly journalPath: string;
   readonly recoveryAction: string;
@@ -198,10 +220,10 @@ export async function resumePreparedLiveEraseEvidence(
     readonly signerFactory?: EvidenceSignerFactory;
     readonly write?: EvidenceWrite;
   },
-): Promise<LiveEraseResume | null> {
+): Promise<LiveEraseResumeResult> {
   const root = await realpath(rootInput);
-  const pending = await findPendingPreparedLiveErase(root, selectors, opts.evidenceSecurityDir);
-  if (!pending) return null;
+  const { pending, warnings } = await findPendingPreparedLiveErase(root, selectors, opts.evidenceSecurityDir);
+  if (!pending) return { resume: null, warnings };
   const { journalPath, receiptPath, journal } = pending;
 
   let receipt: PersistedLiveEraseReceipt;
@@ -219,15 +241,18 @@ export async function resumePreparedLiveEraseEvidence(
     write: opts.write,
   } satisfies PreparedLiveEraseEvidence;
   if (state === "prepared") {
-    return { state: "restart-prepared", prepared };
+    return { resume: { state: "restart-prepared", prepared }, warnings };
   }
   receipt = await finalizeLiveEraseEvidence(prepared, root, opts.now);
   return {
-    state: "completed",
-    plan: clonePlan(journal.plan),
-    erased: erasedFromPlan(journal.plan),
-    rewritten: [...journal.plan.rewrittenFacts].sort(),
-    receipt,
+    resume: {
+      state: "completed",
+      plan: clonePlan(journal.plan),
+      erased: erasedFromPlan(journal.plan),
+      rewritten: [...journal.plan.rewrittenFacts].sort(),
+      receipt,
+    },
+    warnings,
   };
 }
 
@@ -387,10 +412,13 @@ async function findPendingPreparedLiveErase(
   root: string,
   selectors: NormalizedForgetSelectors,
   evidenceSecurityDir?: string,
-): Promise<{ journalPath: string; receiptPath: string; journal: LiveErasePreparedJournal } | null> {
+): Promise<PendingPreparedLiveEraseSearch> {
   const operationsRoot = join(resolveEvidenceRecordsRoot(evidenceSecurityDir), "live-erase");
-  if (!existsSync(operationsRoot)) return null;
-  const pending: Array<{ journalPath: string; receiptPath: string; journal: LiveErasePreparedJournal }> = [];
+  if (!existsSync(operationsRoot)) return { pending: null, warnings: [] };
+  const rootFingerprint = pathFingerprint(root);
+  const expectedSelectors = stableJson(cloneSelectors(selectors));
+  const pending: PendingPreparedLiveErase[] = [];
+  const warnings: string[] = [];
   for (const entry of await readdir(operationsRoot, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
     const operationDir = join(operationsRoot, entry.name);
@@ -400,9 +428,18 @@ async function findPendingPreparedLiveErase(
     assertExternalEvidencePath(root, journalPath, "live erase prepared journal");
     assertExternalEvidencePath(root, receiptPath, "live erase receipt");
     const candidate = await readUnverifiedPreparedJournalIdentity(journalPath);
-    if (!candidate
-      || candidate.canonicalRootFingerprint !== pathFingerprint(root)
-      || stableJson(candidate.selectors) !== stableJson(cloneSelectors(selectors))) {
+    if (!candidate || candidate.canonicalRootFingerprint === null) {
+      warnings.push(unidentifiedPreparedJournalWarning(entry.name));
+      continue;
+    }
+    if (candidate.canonicalRootFingerprint !== rootFingerprint) {
+      continue;
+    }
+    if (!isRecord(candidate.selectors)) {
+      warnings.push(unidentifiedPreparedJournalWarning(entry.name));
+      continue;
+    }
+    if (stableJson(candidate.selectors) !== expectedSelectors) {
       continue;
     }
     const journal = await readPreparedJournal(journalPath, evidenceSecurityDir);
@@ -412,24 +449,30 @@ async function findPendingPreparedLiveErase(
   if (pending.length > 1) {
     throw new Error("memory forget: multiple pending live erase journals match this selector set; inspect signed evidence before retrying");
   }
-  return pending[0] ?? null;
+  return { pending: pending[0] ?? null, warnings };
 }
 
 async function readUnverifiedPreparedJournalIdentity(
   journalPath: string,
-): Promise<{ canonicalRootFingerprint: string; selectors: unknown } | null> {
+): Promise<UnverifiedPreparedJournalIdentity | null> {
   try {
     const value: unknown = JSON.parse(await readFile(journalPath, "utf8"));
-    if (!isRecord(value) || typeof value["canonicalRootFingerprint"] !== "string" || !isRecord(value["selection"])) {
+    if (!isRecord(value)) {
       return null;
     }
     return {
-      canonicalRootFingerprint: value["canonicalRootFingerprint"],
-      selectors: value["selection"]["selectors"],
+      canonicalRootFingerprint: typeof value["canonicalRootFingerprint"] === "string"
+        ? value["canonicalRootFingerprint"]
+        : null,
+      selectors: isRecord(value["selection"]) ? value["selection"]["selectors"] ?? null : null,
     };
   } catch {
     return null;
   }
+}
+
+function unidentifiedPreparedJournalWarning(operationId: string): string {
+  return `unresolved pending live erase journal ${operationId}/prepared.json could not be identified; inspect external evidence before relying on this result`;
 }
 
 function assertPreparedJournalMatches(
