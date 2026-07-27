@@ -25,7 +25,7 @@ Prove, by output, in the **installed** desktop app with `MEMORY_INDEX_SEARCH=1`,
   4. assert the legacy `loadSearchCorpus` is never invoked in index mode (e.g. a log marker / absence).
 - Targets: Win x64, **win-arm64**, macOS arm64, Linux x64 (the matrix already exists for the native probe). win-arm64 + macOS arm64 are load-bearing. A skipped target is a NO-GO.
 
-### Part B — local: the REAL 754 MB vault (WHITEDRAGON, user-run)
+### Part B — local: the REAL 754 MB vault (designated Windows test host, user-run)
 - Claude/operator runs the **installed** app on the actual `~/.memory` vault (~754 MB) with `MEMORY_INDEX_SEARCH=1`: confirm `/api/search` returns sensible results; confirm the reconcile-owner process RSS/heap stays bounded (Task 0 thresholds) — the genuine OOM-fix proof on real data. Record in `docs/release-evidence/phase3-<date>.md`.
 
 ### Part C — golden-query drift harness
@@ -33,7 +33,7 @@ Prove, by output, in the **installed** desktop app with `MEMORY_INDEX_SEARCH=1`,
 
 ## Acceptance (THE GATE)
 - Part A green on all four targets (esp. win-arm64 + macOS arm64): index search works + memory bounded within Task 0 thresholds + used-heap not corpus-proportional + legacy never called.
-- Part B: real-vault run on WHITEDRAGON shows bounded memory + working search (recorded).
+- Part B: real-vault run on the designated Windows test host shows bounded memory + working search (recorded).
 - Golden-query harness green.
 - Evidence in `docs/release-evidence/phase3-<date>.md`.
 - Native load already proven in Phase 0 — a native failure here is a Phase-0 regression.

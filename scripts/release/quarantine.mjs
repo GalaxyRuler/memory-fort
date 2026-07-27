@@ -6,7 +6,6 @@ export const QUARANTINE_GLOBS = [
   ".codex/**",
   "coverage/**",
   ".vitest/**",
-  "docs/**",
   "AGENTS.md",
   "src/cli/commands/install-vps.ts",
   "src/cli/commands/install-tailscale-route.ts",
@@ -16,7 +15,6 @@ export const QUARANTINE_GLOBS = [
   "test/cli/commands/install-tailscale-route.test.ts",
   "test/cli/commands/sync-bootstrap.test.ts",
   "test/cli/private-ops.test.ts",
-  "scripts/release/**",
 ];
 
 export const PUBLIC_RELEASE_DOC_PATHS = new Set([

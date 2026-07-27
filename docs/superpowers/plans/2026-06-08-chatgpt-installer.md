@@ -8,7 +8,7 @@
 
 **Tech Stack:** Node.js `node:http`, `@modelcontextprotocol/sdk@^1.29` (`SSEServerTransport` from `server/sse.js`), Commander.js, `reg.exe` for Windows autostart, `vitest` for tests.
 
-**Working directory for all tasks:** `C:\CodexProjects\memory-system\.claude\worktrees\pedantic-meninsky-cc94d4`
+**Working directory for all tasks:** <repository-root>\.claude\worktrees\example-worktree
 
 ---
 

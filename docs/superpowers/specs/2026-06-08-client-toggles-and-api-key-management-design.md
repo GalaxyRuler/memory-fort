@@ -2,7 +2,7 @@
 
 **Date:** 2026-06-08
 **Status:** Approved (design), pending implementation plan
-**Author:** a.o.alkulaib@gmail.com + Claude
+**Author:** Project maintainer + Claude
 
 ## Motivation
 

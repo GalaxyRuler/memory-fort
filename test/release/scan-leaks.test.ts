@@ -4,10 +4,15 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { isReleaseQuarantined } from "../../scripts/release/quarantine.mjs";
 import { scanTarget } from "../../scripts/scan-leaks.mjs";
 
 const execFileAsync = promisify(execFile);
 const scannerPath = resolve(process.cwd(), "scripts", "scan-leaks.mjs");
+const REVIEWED_TRACKED_QUARANTINE_PATHS = [
+  // Developer-tool launch metadata; any additional tracked match requires deliberate review.
+  ".claude/launch.json",
+];
 
 describe("scan-leaks release gate", () => {
   let tmp: string;
@@ -146,14 +151,21 @@ describe("scan-leaks release gate", () => {
     expect(result.stdout).toBe("");
   });
 
-  it("does not flag denylist tokens in quarantined paths", async () => {
+  it("scans ordinary public documentation and release scripts", async () => {
     const token = ["C:", "\\", "Users", "\\", "Admin"].join("");
     await writeText("docs/private-brief.md", `Path: ${token}\n`);
     await writeText("src/cli/commands/install-vps.ts", `const host = "${["srv", "1317946"].join("")}";\n`);
 
     const result = await runScan(["--root", tmp]);
 
-    expect(result.exitCode).toBe(0);
+    await writeText("scripts/release/private-brief.mjs", `Path: ${token}\n`);
+    const releaseResult = await runScan(["--root", tmp]);
+
+    expect([result.exitCode, releaseResult.exitCode]).toEqual([1, 1]);
+    expect(result.stdout).toContain("docs/private-brief.md:1");
+    expect(releaseResult.stdout).toContain("scripts/release/private-brief.mjs:1");
+    expect(result.stdout).not.toContain(token);
+    expect(releaseResult.stdout).not.toContain(token);
   });
 
   it("flags denylist tokens in public release docs", async () => {
@@ -167,7 +179,7 @@ describe("scan-leaks release gate", () => {
     expect(result.exitCode).toBe(1);
     expect(result.stdout).toContain("docs/compatibility-matrix.md:1: denied content");
     expect(result.stdout).toContain("docs/release-evidence/2026-06-07-v1.1-credibility.md:1: denied content");
-    expect(result.stdout).not.toContain("docs/release-evidence/private.txt");
+    expect(result.stdout).toContain("docs/release-evidence/private.txt:1: denied content");
     expect(result.stdout).not.toContain(token);
   });
 
@@ -501,6 +513,18 @@ describe("scan-leaks release gate", () => {
     expect(empty.stderr).toContain("package scan root contains no files");
     expect(noAppRoots.exitCode).toBe(1);
     expect(noAppRoots.stderr).toContain("package scan output contains no unpacked app roots");
+  });
+
+  it("requires every tracked quarantined path to be explicitly reviewed", async () => {
+    const { stdout } = await execFileAsync("git", ["ls-files", "-z"], {
+      cwd: process.cwd(),
+      encoding: "utf8",
+      windowsHide: true,
+    });
+    const trackedPaths = stdout.split("\0").filter(Boolean);
+    const trackedQuarantinedPaths = trackedPaths.filter(isReleaseQuarantined).sort();
+
+    expect(trackedQuarantinedPaths).toEqual(REVIEWED_TRACKED_QUARANTINE_PATHS);
   });
 
   async function writeText(relPath: string, content: string): Promise<void> {

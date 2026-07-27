@@ -38,7 +38,7 @@ Build a **derived, incremental, on-disk index** and make search/graph/health que
    - **`sqlite-vector`** (sqliteai / Marco Bambini) — vectors as BLOBs in ordinary tables, SIMD + quantization, "production-grade," ~30 MB, benchmarks faster than sqlite-vec ([sqliteai/sqlite-vector](https://github.com/sqliteai/sqlite-vector), [state of vector search in SQLite](https://marcobambini.substack.com/p/the-state-of-vector-search-in-sqlite)). Preferred to evaluate first.
    - Rejected: libSQL/Turso native vector (indexing reportedly hours at 100k vectors), `Vec1` (not released).
 3. **Process model:** host the index + search/graph/health service in a **long-lived Electron `utilityProcess`** (Chromium-spawned Node child with MessagePort, purpose-built for "CPU-intensive/crash-prone" work — [Electron utilityProcess](https://www.electronjs.org/docs/latest/api/utility-process)), **not** the main process and **not** a per-query child. `worker_threads` is rejected for isolation: workers share the process, so a global OOM aborts everything ([Node worker_threads](https://nodejs.org/api/worker_threads.html)); a separate process is a true OOM boundary.
-4. **Canonical vs derived:** Markdown stays canonical. The SQLite index lives under the app's local data dir (NOT inside the Obsidian/OneDrive-synced vault — WAL must not run on a network FS, [SQLite WAL](https://sqlite.org/wal.html)), is fully **rebuildable**, and is disposable.
+4. **Canonical vs derived:** Markdown stays canonical. The SQLite index lives under the app's local data directory (NOT inside the Obsidian/cloud-synced vault — WAL must not run on a network FS, [SQLite WAL](https://sqlite.org/wal.html)), is fully **rebuildable**, and is disposable.
 
 ## Options considered
 

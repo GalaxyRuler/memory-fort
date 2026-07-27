@@ -75,7 +75,7 @@ Prove the native stack (better-sqlite3 FTS5 + sqlite-vec exact KNN, on WAL, with
 - `npx tsc --noEmit` + `npx tsc -p tsconfig.ui.json --noEmit` — both 0.
 - `npm run build` — green; `capability-probe.mjs` (and `electron-main.mjs`) **self-contained** (`grep -cE '(from|import\()\s*"\.\.?/' dist/...` == 0; better-sqlite3 + sqlite-vec external).
 - Local Windows-x64: `npm run electron:rebuild`, run the packaged app with `MEMORY_CAP_PROBE=1`; confirm the relevant steps `ok` and the logged binary paths/stats are **inside the installed app**.
-- Do NOT run the full vitest suite on WHITEDRAGON (repo policy; `server.test.ts` is a known CPU-load flake) — targeted files only.
+- Do NOT run the full vitest suite on the active development desktop (repo policy; server.test.ts is a known CPU-load flake) — targeted files only.
 
 ## What NOT to do
 - **No `src/index/**` feature code** — no reconciler/search/index wiring; probe + bootstrap only.
