@@ -108,11 +108,134 @@ describe("preprocessWikilinks", () => {
     ].join("\n"));
   });
 
+  it.each([
+    {
+      name: "blockquote",
+      body: [
+        "> ```md",
+        "> [[foo]]",
+        "Outside [[foo]].",
+      ].join("\n"),
+      expected: [
+        "> ```md",
+        "> [[foo]]",
+        "Outside [foo](wiki:wiki/projects/foo.md).",
+      ].join("\n"),
+    },
+    {
+      name: "list item",
+      body: [
+        "- ```md",
+        "  [[foo]]",
+        "Outside [[foo]].",
+      ].join("\n"),
+      expected: [
+        "- ```md",
+        "  [[foo]]",
+        "Outside [foo](wiki:wiki/projects/foo.md).",
+      ].join("\n"),
+    },
+  ])("ends an unclosed fence when its $name container ends", ({ body, expected }) => {
+    expect(preprocessWikilinks(body, [fooRelation])).toBe(expected);
+  });
+
+  it("preserves a fenced block nested through a list into a blockquote", () => {
+    const body = [
+      "- > ```md",
+      "  > [[foo]]",
+      "  > ```",
+      "Outside [[foo]].",
+    ].join("\n");
+
+    expect(preprocessWikilinks(body, [fooRelation])).toBe([
+      "- > ```md",
+      "  > [[foo]]",
+      "  > ```",
+      "Outside [foo](wiki:wiki/projects/foo.md).",
+    ].join("\n"));
+  });
+
+  it("preserves a fenced block nested through a blockquote, list, and blockquote", () => {
+    const body = [
+      "> - > ~~~md",
+      ">   > [[foo]]",
+      ">   > ~~~",
+      "Outside [[foo]].",
+    ].join("\n");
+
+    expect(preprocessWikilinks(body, [fooRelation])).toBe([
+      "> - > ~~~md",
+      ">   > [[foo]]",
+      ">   > ~~~",
+      "Outside [foo](wiki:wiki/projects/foo.md).",
+    ].join("\n"));
+  });
+
+  it("follows remark when an ordered list marker cannot interrupt a paragraph", () => {
+    const body = [
+      "Paragraph",
+      "2. ```md",
+      "   [[foo]]",
+      "   ```",
+      "After [[foo]]",
+    ].join("\n");
+
+    expect(preprocessWikilinks(body, [fooRelation])).toBe([
+      "Paragraph",
+      "2. ```md",
+      "   [foo](wiki:wiki/projects/foo.md)",
+      "   ```",
+      "After [[foo]]",
+    ].join("\n"));
+  });
+
+  it("preserves a list fence with tab-indented content and closing delimiter", () => {
+    const body = [
+      "- ```md",
+      "\t[[foo]]",
+      "\t```",
+      "After [[foo]].",
+    ].join("\n");
+
+    expect(preprocessWikilinks(body, [fooRelation])).toBe([
+      "- ```md",
+      "\t[[foo]]",
+      "\t```",
+      "After [foo](wiki:wiki/projects/foo.md).",
+    ].join("\n"));
+  });
+
+  it("uses remark source offsets correctly with CRLF line endings", () => {
+    const body = [
+      "Before [[foo]].",
+      "```md",
+      "[[foo]]",
+      "```",
+      "After [[foo]].",
+    ].join("\r\n");
+
+    expect(preprocessWikilinks(body, [fooRelation])).toBe([
+      "Before [foo](wiki:wiki/projects/foo.md).",
+      "```md",
+      "[[foo]]",
+      "```",
+      "After [foo](wiki:wiki/projects/foo.md).",
+    ].join("\r\n"));
+  });
+
   it("treats odd-backslash escaped backtick runs as prose delimiters", () => {
     const body = "\\`[[foo]]\\` and [[foo]], but \\\\`[[foo]]\\\\` stays code.";
 
     expect(preprocessWikilinks(body, [fooRelation])).toBe(
       "\\`[foo](wiki:wiki/projects/foo.md)\\` and [foo](wiki:wiki/projects/foo.md), but \\\\`[[foo]]\\\\` stays code.",
+    );
+  });
+
+  it("preserves inline code formed by the unescaped remainder of a backtick run", () => {
+    const body = "\\``[[foo]]` and [[foo]].";
+
+    expect(preprocessWikilinks(body, [fooRelation])).toBe(
+      "\\``[[foo]]` and [foo](wiki:wiki/projects/foo.md).",
     );
   });
 
