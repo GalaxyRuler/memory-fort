@@ -250,34 +250,31 @@ describe("scan-leaks release gate", () => {
     expect(result.stdout).not.toContain(token);
   });
 
-  it("reads only eligible repository dist text artifacts", async () => {
+  it("streams both repository dist markers from an unknown extensionless file", async () => {
     const tokens = [
       ["srv", "1317946"].join(""),
       ["tail", "6916d8"].join(""),
     ];
-    const readCounts = { text: 0, nonText: 0 };
+    const content = Buffer.from([
+      "header",
+      tokens[0],
+      tokens[1],
+      "",
+    ].join("\n"));
+    let openCount = 0;
+    let closeCount = 0;
     const fileSystem = repositoryDistFileSystem(
       async (path) => path.endsWith("dist")
-        ? [
-          fileEntry(`cli-${tokens[0]}.mjs`),
-          fileEntry("installer.exe"),
-          fileEntry("native.dll"),
-          fileEntry("model.onnx"),
-        ]
+        ? [fileEntry(`payload-${tokens[0]}`)]
         : [directoryEntry("dist")],
-      async (path) => {
-        if (path.endsWith(".mjs")) {
-          readCounts.text += 1;
-          return [
-            `const route = "${tokens[0]}";`,
-            `const host = "${tokens[1]}";`,
-            "",
-          ].join("\n");
-        }
-        readCounts.nonText += 1;
-        return tokens.join("\n");
+      async () => {
+        openCount += 1;
+        return memoryDistHandle(content, {
+          onClose: () => {
+            closeCount += 1;
+          },
+        });
       },
-      () => 64,
     );
 
     const hits = await scanTarget(
@@ -291,33 +288,33 @@ describe("scan-leaks release gate", () => {
       hitCount: hits.length,
       lines: hits.map((hit) => hit.line),
       allDistScoped: hits.every((hit) => hit.scope === "dist"),
-      allPathsRedacted: hits.every((hit) => hit.path === "dist/cli-[REDACTED].mjs"),
-      textReads: readCounts.text,
-      nonTextReads: readCounts.nonText,
+      allPathsRedacted: hits.every((hit) => hit.path === "dist/payload-[REDACTED]"),
       leakedMarker: tokens.some((token) => serialized.includes(token)),
+      openCount,
+      closeCount,
     }).toEqual({
       hitCount: 2,
-      lines: [1, 2],
+      lines: [2, 3],
       allDistScoped: true,
       allPathsRedacted: true,
-      textReads: 1,
-      nonTextReads: 0,
       leakedMarker: false,
+      openCount: 1,
+      closeCount: 1,
     });
   });
 
-  it("does not scan binary-looking content in eligible repository dist files", async () => {
+  it("finds repository dist markers in NUL-bearing binary content", async () => {
     const token = ["tail", "6916d8"].join("");
-    let readCount = 0;
+    const content = Buffer.concat([
+      Buffer.from([0, 255, 0]),
+      Buffer.from(token),
+      Buffer.from([0, 10]),
+    ]);
     const fileSystem = repositoryDistFileSystem(
       async (path) => path.endsWith("dist")
-        ? [fileEntry("binary-looking.js")]
+        ? [fileEntry("binary-looking.bin")]
         : [directoryEntry("dist")],
-      async () => {
-        readCount += 1;
-        return `\0${token}\n`;
-      },
-      () => 32,
+      async () => memoryDistHandle(content),
     );
 
     const hits = await scanTarget(
@@ -327,73 +324,144 @@ describe("scan-leaks release gate", () => {
     );
 
     expect({
-      readCount,
       hitCount: hits.length,
+      line: hits[0]?.line,
+      scope: hits[0]?.scope,
       leakedToken: JSON.stringify(hits).includes(token),
     }).toEqual({
-      readCount: 1,
-      hitCount: 0,
+      hitCount: 1,
+      line: 1,
+      scope: "dist",
       leakedToken: false,
     });
   });
 
-  it("rejects oversized eligible repository dist text before reading it", async () => {
+  it("finds a split repository dist marker without duplicate same-line hits", async () => {
     const token = ["tail", "6916d8"].join("");
-    let readCount = 0;
+    const chunkBytes = 64 * 1024;
+    const content = Buffer.concat([
+      Buffer.alloc(chunkBytes - 3, 97),
+      Buffer.from(token),
+      Buffer.from(`-${token}\n${token}\n`),
+    ]);
     const fileSystem = repositoryDistFileSystem(
       async (path) => path.endsWith("dist")
-        ? [fileEntry(`oversized-${token}.mjs`)]
+        ? [fileEntry("boundary.dat")]
         : [directoryEntry("dist")],
-      async () => {
-        readCount += 1;
-        return token;
-      },
-      () => 33 * 1024 * 1024,
+      async () => memoryDistHandle(content),
     );
-    let failure: unknown;
 
-    try {
-      await scanTarget(
-        { root: "repo", prefix: "" },
-        { quarantine: true, prefix: "", requireFiles: false },
-        { fileSystem },
-      );
-    } catch (error) {
-      failure = error;
-    }
-    const message = failure instanceof Error ? failure.message : "";
+    const hits = await scanTarget(
+      { root: "repo", prefix: "" },
+      { quarantine: true, prefix: "", requireFiles: false },
+      { fileSystem },
+    );
 
     expect({
-      isError: failure instanceof Error,
-      isLimitFailure: message.includes("exceeds 32 MiB limit"),
-      redactedPath: message.includes("dist/oversized-[REDACTED].mjs"),
-      leakedToken: message.includes(token),
-      readCount,
+      hitCount: hits.length,
+      lines: hits.map((hit) => hit.line),
+      leakedToken: JSON.stringify(hits).includes(token),
     }).toEqual({
-      isError: true,
-      isLimitFailure: true,
-      redactedPath: true,
+      hitCount: 2,
+      lines: [1, 2],
       leakedToken: false,
-      readCount: 0,
     });
   });
 
-  it("fails closed on invalid repository dist file sizes", async () => {
-    const token = ["tail", "6916d8"].join("");
-    const invalidSizes = [undefined, -1, Number.NaN, 1.5];
+  it("redacts repository dist open, stat, read, and close failures", async () => {
+    const tokens = [
+      ["srv", "1317946"].join(""),
+      ["tail", "6916d8"].join(""),
+    ];
+    const scenarios = [
+      { stage: "open", diagnostic: "could not open", expectedCloses: 0 },
+      { stage: "stat", diagnostic: "could not inspect", expectedCloses: 1 },
+      { stage: "read", diagnostic: "could not read", expectedCloses: 1 },
+      { stage: "close", diagnostic: "could not close", expectedCloses: 1 },
+    ];
     const outcomes = [];
 
-    for (const invalidSize of invalidSizes) {
-      let readCount = 0;
+    for (const scenario of scenarios) {
+      let closeCount = 0;
+      const stageError = new Error(`failure-${tokens[1]}`);
       const fileSystem = repositoryDistFileSystem(
         async (path) => path.endsWith("dist")
-          ? [fileEntry(`invalid-${token}.js`)]
+          ? [fileEntry(`failure-${tokens[0]}`)]
           : [directoryEntry("dist")],
         async () => {
-          readCount += 1;
-          return token;
+          if (scenario.stage === "open") throw stageError;
+          return memoryDistHandle(Buffer.alloc(8, 97), {
+            statError: scenario.stage === "stat" ? stageError : undefined,
+            readError: scenario.stage === "read" ? stageError : undefined,
+            closeError: scenario.stage === "close" ? stageError : undefined,
+            onClose: () => {
+              closeCount += 1;
+            },
+          });
         },
-        () => invalidSize,
+      );
+      let failure: unknown;
+
+      try {
+        await scanTarget(
+          { root: "repo", prefix: "" },
+          { quarantine: true, prefix: "", requireFiles: false },
+          { fileSystem },
+        );
+      } catch (error) {
+        failure = error;
+      }
+      const message = failure instanceof Error ? failure.message : "";
+      outcomes.push({
+        stage: scenario.stage,
+        isError: failure instanceof Error,
+        hasDiagnostic: message.includes(scenario.diagnostic),
+        redactedPath: message.includes("dist/failure-[REDACTED]"),
+        leakedMarker: tokens.some((token) => message.includes(token)),
+        closeCount,
+        expectedCloses: scenario.expectedCloses,
+      });
+    }
+
+    expect({
+      outcomeCount: outcomes.length,
+      allFailedClosed: outcomes.every((outcome) => (
+        outcome.isError
+        && outcome.hasDiagnostic
+        && outcome.redactedPath
+        && !outcome.leakedMarker
+        && outcome.closeCount === outcome.expectedCloses
+      )),
+    }).toEqual({
+      outcomeCount: scenarios.length,
+      allFailedClosed: true,
+    });
+  });
+
+  it("rejects non-regular and invalid-sized opened repository dist handles", async () => {
+    const token = ["tail", "6916d8"].join("");
+    const invalidHandles = [
+      { isFile: false, size: 0, diagnostic: "not a regular file" },
+      { isFile: true, size: undefined, diagnostic: "invalid file size" },
+      { isFile: true, size: -1, diagnostic: "invalid file size" },
+      { isFile: true, size: Number.NaN, diagnostic: "invalid file size" },
+      { isFile: true, size: 1.5, diagnostic: "invalid file size" },
+    ];
+    const outcomes = [];
+
+    for (const invalidHandle of invalidHandles) {
+      let closeCount = 0;
+      const fileSystem = repositoryDistFileSystem(
+        async (path) => path.endsWith("dist")
+          ? [fileEntry(`invalid-${token}`)]
+          : [directoryEntry("dist")],
+        async () => memoryDistHandle(Buffer.alloc(0), {
+          isFile: invalidHandle.isFile,
+          size: invalidHandle.size,
+          onClose: () => {
+            closeCount += 1;
+          },
+        }),
       );
       let failure: unknown;
 
@@ -409,10 +477,10 @@ describe("scan-leaks release gate", () => {
       const message = failure instanceof Error ? failure.message : "";
       outcomes.push({
         isError: failure instanceof Error,
-        isInvalidSizeFailure: message.includes("invalid file size"),
-        redactedPath: message.includes("dist/invalid-[REDACTED].js"),
+        hasDiagnostic: message.includes(invalidHandle.diagnostic),
+        redactedPath: message.includes("dist/invalid-[REDACTED]"),
         leakedToken: message.includes(token),
-        readCount,
+        closeCount,
       });
     }
 
@@ -420,14 +488,121 @@ describe("scan-leaks release gate", () => {
       outcomeCount: outcomes.length,
       allFailedClosed: outcomes.every((outcome) => (
         outcome.isError
-        && outcome.isInvalidSizeFailure
+        && outcome.hasDiagnostic
         && outcome.redactedPath
         && !outcome.leakedToken
-        && outcome.readCount === 0
+        && outcome.closeCount === 1
       )),
     }).toEqual({
-      outcomeCount: invalidSizes.length,
+      outcomeCount: invalidHandles.length,
       allFailedClosed: true,
+    });
+  });
+
+  it("fails closed when an opened repository dist file truncates, grows, or changes size", async () => {
+    const token = ["tail", "6916d8"].join("");
+    const scenarios = [
+      { contentSize: 8, openedSize: 16, endSize: undefined },
+      { contentSize: 9, openedSize: 8, endSize: undefined },
+      { contentSize: 16, openedSize: 16, endSize: 17 },
+    ];
+    const outcomes = [];
+
+    for (const scenario of scenarios) {
+      let closeCount = 0;
+      const fileSystem = repositoryDistFileSystem(
+        async (path) => path.endsWith("dist")
+          ? [fileEntry(`changing-${token}`)]
+          : [directoryEntry("dist")],
+        async () => memoryDistHandle(Buffer.alloc(scenario.contentSize, 97), {
+          size: scenario.openedSize,
+          endSize: scenario.endSize,
+          onClose: () => {
+            closeCount += 1;
+          },
+        }),
+      );
+      let failure: unknown;
+
+      try {
+        await scanTarget(
+          { root: "repo", prefix: "" },
+          { quarantine: true, prefix: "", requireFiles: false },
+          { fileSystem },
+        );
+      } catch (error) {
+        failure = error;
+      }
+      const message = failure instanceof Error ? failure.message : "";
+      outcomes.push({
+        isError: failure instanceof Error,
+        isUnstableFailure: message.includes("changed size while reading"),
+        redactedPath: message.includes("dist/changing-[REDACTED]"),
+        leakedToken: message.includes(token),
+        closeCount,
+      });
+    }
+
+    expect({
+      outcomeCount: outcomes.length,
+      allFailedClosed: outcomes.every((outcome) => (
+        outcome.isError
+        && outcome.isUnstableFailure
+        && outcome.redactedPath
+        && !outcome.leakedToken
+        && outcome.closeCount === 1
+      )),
+    }).toEqual({
+      outcomeCount: scenarios.length,
+      allFailedClosed: true,
+    });
+  });
+
+  it("streams repository dist files above the former cap with bounded buffers", async () => {
+    const virtualSize = 33 * 1024 * 1024 + 17;
+    let maxBufferBytes = 0;
+    let readCount = 0;
+    let closeCount = 0;
+    const handle = {
+      stat: async () => ({
+        isFile: () => true,
+        isDirectory: () => false,
+        size: virtualSize,
+      }),
+      read: async (buffer: Buffer, offset: number, length: number, position: number) => {
+        readCount += 1;
+        maxBufferBytes = Math.max(maxBufferBytes, buffer.length);
+        const bytesRead = Math.min(length, Math.max(0, virtualSize - position));
+        buffer.fill(97, offset, offset + bytesRead);
+        return { bytesRead, buffer };
+      },
+      close: async () => {
+        closeCount += 1;
+      },
+    };
+    const fileSystem = repositoryDistFileSystem(
+      async (path) => path.endsWith("dist")
+        ? [fileEntry("large-native-payload")]
+        : [directoryEntry("dist")],
+      async () => handle,
+    );
+
+    const hits = await scanTarget(
+      { root: "repo", prefix: "" },
+      { quarantine: true, prefix: "", requireFiles: false },
+      { fileSystem },
+    );
+
+    expect({
+      hitCount: hits.length,
+      usedMultipleReads: readCount > 2,
+      boundedBuffer: maxBufferBytes <= 64 * 1024,
+      closeCount,
+    }).toEqual({
+      hitCount: 0,
+      usedMultipleReads: true,
+      boundedBuffer: true,
+      closeCount: 1,
     });
   });
 
@@ -673,33 +848,6 @@ describe("scan-leaks release gate", () => {
     expect((failure as Error).message).not.toContain(token);
   });
 
-  it("redacts repository dist paths when file reads fail", async () => {
-    const token = ["srv", "1317946"].join("");
-    const readFailure = repositoryDistFileSystem(async (path) => {
-      if (path.endsWith("dist")) return [fileEntry(`unreadable-${token}.mjs`)];
-      return [directoryEntry("dist")];
-    }, async () => {
-      throw new Error("permission denied");
-    });
-
-    let failure: unknown;
-    try {
-      await scanTarget(
-        { root: "repo", prefix: "" },
-        { quarantine: true, prefix: "", requireFiles: false },
-        { fileSystem: readFailure },
-      );
-    } catch (error) {
-      failure = error;
-    }
-
-    expect(failure).toBeInstanceOf(Error);
-    expect((failure as Error).message).toBe(
-      "repository scan could not read dist/unreadable-[REDACTED].mjs: permission denied",
-    );
-    expect((failure as Error).message).not.toContain(token);
-  });
-
   it("scans denylist tokens across every discovered packaged payload", async () => {
     const token = ["C:", "\\", "Users", "\\", "Admin"].join("");
     await writeText("electron-installer/win-unpacked/resources/app/dist/electron-main.mjs", `export const buildPath = "${token}";\n`);
@@ -855,22 +1003,65 @@ function unknownEntry(name: string) {
 
 function repositoryDistFileSystem(
   readdir: (path: string) => Promise<ReturnType<typeof directoryEntry>[] | ReturnType<typeof fileEntry>[]>,
-  readFile: (path: string) => Promise<string> = async () => "",
-  sizeForPath: (path: string) => number | undefined = () => 0,
+  openFile: (path: string) => Promise<ReturnType<typeof memoryDistHandle>> = async () => (
+    memoryDistHandle(Buffer.alloc(0))
+  ),
 ) {
   return {
     access: async (path: string) => {
       if (path.endsWith(".git")) throw new Error("not found");
     },
     readdir,
-    readFile,
+    readFile: async () => "",
+    open: openFile,
     stat: async (path: string) => {
       const isDirectory = path.endsWith("dist");
       return {
         isFile: () => !isDirectory,
         isDirectory: () => isDirectory,
-        size: isDirectory ? 0 : sizeForPath(path),
+        size: 0,
       };
+    },
+  };
+}
+
+function memoryDistHandle(
+  content: Buffer,
+  options: {
+    isFile?: boolean;
+    size?: number;
+    endSize?: number;
+    statError?: Error;
+    readError?: Error;
+    closeError?: Error;
+    onClose?: () => void;
+  } = {},
+) {
+  let statCount = 0;
+  const hasExplicitSize = Object.prototype.hasOwnProperty.call(options, "size");
+  const initialSize = hasExplicitSize ? options.size : content.length;
+
+  return {
+    stat: async () => {
+      if (options.statError) throw options.statError;
+      statCount += 1;
+      return {
+        isFile: () => options.isFile ?? true,
+        isDirectory: () => !(options.isFile ?? true),
+        size: statCount > 1 && options.endSize !== undefined
+          ? options.endSize
+          : initialSize,
+      };
+    },
+    read: async (buffer: Buffer, offset: number, length: number, position: number) => {
+      if (options.readError) throw options.readError;
+      const bytesRead = Math.min(length, Math.max(0, content.length - position));
+      content.copy(buffer, offset, position, position + bytesRead);
+      return { bytesRead, buffer };
+    },
+    close: async () => {
+      options.onClose?.();
+      if (options.closeError) throw options.closeError;
     },
   };
 }

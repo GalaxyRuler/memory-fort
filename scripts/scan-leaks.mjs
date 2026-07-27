@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 import { execFileSync } from "node:child_process";
 import { constants } from "node:fs";
-import { access, readdir, readFile, stat } from "node:fs/promises";
-import { basename, extname, join, relative, resolve } from "node:path";
+import { access, open, readdir, readFile, stat } from "node:fs/promises";
+import { join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { isReleaseQuarantined } from "./release/quarantine.mjs";
 
@@ -49,81 +49,9 @@ const DENYLIST = [
   deny(word(["Abdul", "lah"].join("")), { allowInAttribution: true }),
 ];
 
-const defaultFileSystem = { access, readdir, readFile, stat };
-const REPOSITORY_DIST_MAX_TEXT_BYTES = 32 * 1024 * 1024;
-const REPOSITORY_DIST_TEXT_EXTENSIONS = new Set([
-  ".1",
-  ".apache2",
-  ".bnf",
-  ".bsd",
-  ".c",
-  ".cjs",
-  ".conf",
-  ".config",
-  ".cpp",
-  ".css",
-  ".cts",
-  ".drc",
-  ".flow",
-  ".glsl",
-  ".graphql",
-  ".gyp",
-  ".gypi",
-  ".h",
-  ".hpp",
-  ".htm",
-  ".html",
-  ".ini",
-  ".js",
-  ".json",
-  ".json5",
-  ".jsonc",
-  ".jsx",
-  ".license",
-  ".lock",
-  ".map",
-  ".md",
-  ".mdx",
-  ".mit",
-  ".mjs",
-  ".mts",
-  ".patch",
-  ".properties",
-  ".scss",
-  ".sh",
-  ".sql",
-  ".svelte",
-  ".svg",
-  ".toml",
-  ".ts",
-  ".tsbuildinfo",
-  ".tsx",
-  ".txt",
-  ".vue",
-  ".xml",
-  ".yaml",
-  ".yml",
-]);
-const REPOSITORY_DIST_TEXT_BASENAMES = new Set([
-  ".babelrc",
-  ".editorconfig",
-  ".eslintrc",
-  ".keep",
-  ".npmignore",
-  ".npmrc",
-  ".nycrc",
-  ".prettierrc",
-  ".yarnrc",
-  "authors",
-  "changelog",
-  "copying",
-  "copyright",
-  "license",
-  "notice",
-  "readme",
-  "third-party-notices",
-  "third_party_notices",
-]);
+const defaultFileSystem = { access, open, readdir, readFile, stat };
+const REPOSITORY_DIST_CHUNK_BYTES = 64 * 1024;
+const LF_BYTE = 0x0a;
 
 export async function main(argv = process.argv.slice(2)) {
   const args = parseArgs(argv);
@@ -212,32 +140,18 @@ export async function scanTarget(target, options, { fileSystem = defaultFileSyst
     const distDir = join(target.root, "dist");
     if (await pathExists(distDir, fileSystem)) {
       const distFiles = await walkDistFiles(distDir, fileSystem);
-      for (const { fullPath, size } of distFiles) {
-        if (!isRepositoryDistTextFile(fullPath)) continue;
-        const relPath = distRelativePath(distDir, fullPath);
-        if (size > REPOSITORY_DIST_MAX_TEXT_BYTES) {
-          throw new Error(
-            `repository scan file exceeds 32 MiB limit: ${redact(relPath)}`,
-          );
-        }
-        let content;
-        try {
-          content = await fileSystem.readFile(fullPath, "utf8");
-        } catch (error) {
-          throw new Error(
-            `repository scan could not read ${redact(relPath)}: ${errorMessage(error)}`,
-          );
-        }
-        if (content.includes("\0")) continue;
-        const lines = content.split(/\r?\n/);
-        for (const [index, line] of lines.entries()) {
-          for (const token of INFRA_TOKENS) {
-            if (line.includes(token)) {
-              const rel = toPosixPath(relative(target.root, fullPath));
-              hits.push({ path: redact(rel), line: index + 1, scope: "dist" });
-            }
-          }
-        }
+      const markerBuffers = INFRA_TOKENS.map((token) => Buffer.from(token, "utf8"));
+      for (const fullPath of distFiles) {
+        await scanRepositoryDistFile(
+          fullPath,
+          {
+            distDir,
+            root: target.root,
+            markerBuffers,
+          },
+          fileSystem,
+          hits,
+        );
       }
     }
   }
@@ -373,22 +287,19 @@ async function walkDistFiles(dir, fileSystem = defaultFileSystem) {
       if (!isDirectoryEntry && !isFileEntry) {
         throw new Error(`repository scan encountered unsupported entry: ${redact(relPath)}`);
       }
-      let info;
-      try {
-        info = await fileSystem.stat(fullPath);
-      } catch (error) {
-        throw new Error(`repository scan could not inspect ${redact(relPath)}: ${errorMessage(error)}`);
-      }
-      if ((isDirectoryEntry && !info.isDirectory()) || (isFileEntry && !info.isFile())) {
-        throw new Error(`repository scan entry type mismatch: ${redact(relPath)}`);
-      }
       if (isDirectoryEntry) {
+        let info;
+        try {
+          info = await fileSystem.stat(fullPath);
+        } catch (error) {
+          throw new Error(`repository scan could not inspect ${redact(relPath)}: ${errorMessage(error)}`);
+        }
+        if (!info.isDirectory()) {
+          throw new Error(`repository scan entry type mismatch: ${redact(relPath)}`);
+        }
         await walk(fullPath);
       } else {
-        if (!Number.isSafeInteger(info.size) || info.size < 0) {
-          throw new Error(`repository scan has invalid file size: ${redact(relPath)}`);
-        }
-        results.push({ fullPath, size: info.size });
+        results.push(fullPath);
       }
     }
   }
@@ -396,10 +307,186 @@ async function walkDistFiles(dir, fileSystem = defaultFileSystem) {
   return results;
 }
 
-function isRepositoryDistTextFile(path) {
-  const name = basename(path).toLowerCase();
-  return REPOSITORY_DIST_TEXT_EXTENSIONS.has(extname(name))
-    || REPOSITORY_DIST_TEXT_BASENAMES.has(name);
+async function scanRepositoryDistFile(fullPath, options, fileSystem, hits) {
+  const distPath = distRelativePath(options.distDir, fullPath);
+  const resultPath = redact(toPosixPath(relative(options.root, fullPath)));
+  let handle;
+  try {
+    handle = await fileSystem.open(fullPath, "r");
+  } catch (error) {
+    throw new Error(`repository scan could not open ${redact(distPath)}: ${errorMessage(error)}`);
+  }
+
+  let scanFailure;
+  let closeFailure;
+  try {
+    const initialInfo = await inspectOpenedRepositoryDistFile(handle, distPath);
+    const initialSize = validateOpenedRepositoryDistFile(initialInfo, distPath);
+    await scanOpenedRepositoryDistFile(
+      handle,
+      {
+        initialSize,
+        markerBuffers: options.markerBuffers,
+        resultPath,
+        distPath,
+      },
+      hits,
+    );
+    const finalInfo = await inspectOpenedRepositoryDistFile(handle, distPath);
+    const finalSize = validateOpenedRepositoryDistFile(finalInfo, distPath);
+    if (finalSize !== initialSize) {
+      throw new Error(`repository scan file changed size while reading ${redact(distPath)}`);
+    }
+  } catch (error) {
+    scanFailure = new Error(errorMessage(error));
+  } finally {
+    try {
+      await handle.close();
+    } catch (error) {
+      closeFailure = new Error(
+        `repository scan could not close ${redact(distPath)}: ${errorMessage(error)}`,
+      );
+    }
+  }
+
+  if (scanFailure && closeFailure) {
+    throw new Error(`${scanFailure.message}; ${closeFailure.message}`);
+  }
+  if (scanFailure) throw scanFailure;
+  if (closeFailure) throw closeFailure;
+}
+
+async function inspectOpenedRepositoryDistFile(handle, distPath) {
+  try {
+    return await handle.stat();
+  } catch (error) {
+    throw new Error(
+      `repository scan could not inspect ${redact(distPath)}: ${errorMessage(error)}`,
+    );
+  }
+}
+
+function validateOpenedRepositoryDistFile(info, distPath) {
+  if (!info || typeof info.isFile !== "function" || !info.isFile()) {
+    throw new Error(`repository scan opened path is not a regular file: ${redact(distPath)}`);
+  }
+  if (!Number.isSafeInteger(info.size) || info.size < 0) {
+    throw new Error(`repository scan opened file has invalid file size: ${redact(distPath)}`);
+  }
+  return info.size;
+}
+
+async function scanOpenedRepositoryDistFile(handle, options, hits) {
+  const chunk = Buffer.allocUnsafe(REPOSITORY_DIST_CHUNK_BYTES);
+  const growthProbe = Buffer.allocUnsafe(1);
+  const overlapBytes = Math.max(...options.markerBuffers.map((marker) => marker.length)) - 1;
+  const lastReportedLine = options.markerBuffers.map(() => 0);
+  let tail = Buffer.alloc(0);
+  let position = 0;
+  let lineAtFreshStart = 1;
+
+  while (position < options.initialSize) {
+    const length = Math.min(REPOSITORY_DIST_CHUNK_BYTES, options.initialSize - position);
+    const bytesRead = await readOpenedRepositoryDistFile(
+      handle,
+      chunk,
+      length,
+      position,
+      options.distPath,
+    );
+    if (bytesRead === 0) {
+      throw new Error(
+        `repository scan file changed size while reading ${redact(options.distPath)}`,
+      );
+    }
+
+    const fresh = chunk.subarray(0, bytesRead);
+    const combined = tail.length > 0 ? Buffer.concat([tail, fresh]) : fresh;
+    const lineAtCombinedStart = lineAtFreshStart - countLfBytes(tail);
+    scanRepositoryDistChunk(
+      combined,
+      lineAtCombinedStart,
+      options.markerBuffers,
+      lastReportedLine,
+      options.resultPath,
+      hits,
+    );
+    lineAtFreshStart += countLfBytes(fresh);
+    position += bytesRead;
+    tail = overlapBytes > 0
+      ? Buffer.from(combined.subarray(Math.max(0, combined.length - overlapBytes)))
+      : Buffer.alloc(0);
+  }
+
+  const growthBytes = await readOpenedRepositoryDistFile(
+    handle,
+    growthProbe,
+    growthProbe.length,
+    options.initialSize,
+    options.distPath,
+  );
+  if (growthBytes !== 0) {
+    throw new Error(
+      `repository scan file changed size while reading ${redact(options.distPath)}`,
+    );
+  }
+}
+
+async function readOpenedRepositoryDistFile(handle, buffer, length, position, distPath) {
+  let result;
+  try {
+    result = await handle.read(buffer, 0, length, position);
+  } catch (error) {
+    throw new Error(`repository scan could not read ${redact(distPath)}: ${errorMessage(error)}`);
+  }
+  if (
+    !result
+    || !Number.isSafeInteger(result.bytesRead)
+    || result.bytesRead < 0
+    || result.bytesRead > length
+  ) {
+    throw new Error(`repository scan received invalid read result for ${redact(distPath)}`);
+  }
+  return result.bytesRead;
+}
+
+function scanRepositoryDistChunk(
+  content,
+  startingLine,
+  markerBuffers,
+  lastReportedLine,
+  resultPath,
+  hits,
+) {
+  const matches = [];
+  for (const [markerIndex, marker] of markerBuffers.entries()) {
+    let offset = content.indexOf(marker);
+    while (offset !== -1) {
+      matches.push({ markerIndex, offset });
+      offset = content.indexOf(marker, offset + 1);
+    }
+  }
+  matches.sort((left, right) => (
+    left.offset - right.offset || left.markerIndex - right.markerIndex
+  ));
+
+  let line = startingLine;
+  let lineCursor = 0;
+  for (const match of matches) {
+    line += countLfBytes(content, lineCursor, match.offset);
+    lineCursor = match.offset;
+    if (line <= lastReportedLine[match.markerIndex]) continue;
+    lastReportedLine[match.markerIndex] = line;
+    hits.push({ path: resultPath, line, scope: "dist" });
+  }
+}
+
+function countLfBytes(content, start = 0, end = content.length) {
+  let count = 0;
+  for (let index = start; index < end; index += 1) {
+    if (content[index] === LF_BYTE) count += 1;
+  }
+  return count;
 }
 
 function distRelativePath(distDir, path) {
