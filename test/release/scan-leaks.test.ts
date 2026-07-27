@@ -168,6 +168,30 @@ describe("scan-leaks release gate", () => {
     expect(releaseResult.stdout).not.toContain(token);
   });
 
+  it("scans tracked docs and release-script paths through Git inventory", async () => {
+    const syntheticPathMarker = ["One", "Drive"].join("");
+    const docPath = `docs/example-${syntheticPathMarker}.md`;
+    const releaseScriptPath = `scripts/release/example-${syntheticPathMarker}.mjs`;
+    await writeText(docPath, "# Public fixture\n");
+    await writeText(releaseScriptPath, "export {};\n");
+    await execFileAsync("git", ["init", "--quiet"], { cwd: tmp, windowsHide: true });
+    await execFileAsync("git", ["add", "--", docPath, releaseScriptPath], {
+      cwd: tmp,
+      windowsHide: true,
+    });
+
+    const result = await runScan(["--root", tmp, "--json"]);
+    const hits = JSON.parse(result.stdout) as Array<{ path: string; line: number; kind?: string }>;
+
+    expect(result.exitCode).toBe(1);
+    expect(hits).toHaveLength(2);
+    expect(hits).toEqual(expect.arrayContaining([
+      { path: "docs/example-[REDACTED].md", line: 0, kind: "path" },
+      { path: "scripts/release/example-[REDACTED].mjs", line: 0, kind: "path" },
+    ]));
+    expect(result.stdout).not.toContain(syntheticPathMarker);
+  });
+
   it("flags denylist tokens in public release docs", async () => {
     const token = ["C:", "\\", "Users", "\\", "Admin"].join("");
     await writeText("docs/compatibility-matrix.md", `Path: ${token}\n`);
@@ -515,6 +539,20 @@ describe("scan-leaks release gate", () => {
     expect(noAppRoots.stderr).toContain("package scan output contains no unpacked app roots");
   });
 
+  it("reports tracked quarantine drift without exposing path values", () => {
+    const unexpectedPath = ".claude/review-required.json";
+    const missingPath = ".claude/reviewed-config.json";
+    const diagnostics = [
+      captureFailure(() => assertTrackedQuarantineCoverage([unexpectedPath], [])),
+      captureFailure(() => assertTrackedQuarantineCoverage([], [missingPath])),
+    ].join("\n");
+
+    expect(diagnostics).toContain("unexpectedCount");
+    expect(diagnostics).toContain("missingCount");
+    expect(diagnostics).not.toContain(unexpectedPath);
+    expect(diagnostics).not.toContain(missingPath);
+  });
+
   it("requires every tracked quarantined path to be explicitly reviewed", async () => {
     const { stdout } = await execFileAsync("git", ["ls-files", "-z"], {
       cwd: process.cwd(),
@@ -524,7 +562,10 @@ describe("scan-leaks release gate", () => {
     const trackedPaths = stdout.split("\0").filter(Boolean);
     const trackedQuarantinedPaths = trackedPaths.filter(isReleaseQuarantined).sort();
 
-    expect(trackedQuarantinedPaths).toEqual(REVIEWED_TRACKED_QUARANTINE_PATHS);
+    assertTrackedQuarantineCoverage(
+      trackedQuarantinedPaths,
+      REVIEWED_TRACKED_QUARANTINE_PATHS,
+    );
   });
 
   async function writeText(relPath: string, content: string): Promise<void> {
@@ -533,6 +574,30 @@ describe("scan-leaks release gate", () => {
     await writeFile(fullPath, content);
   }
 });
+
+function assertTrackedQuarantineCoverage(
+  actual: readonly string[],
+  reviewed: readonly string[],
+): void {
+  const actualSet = new Set(actual);
+  const reviewedSet = new Set(reviewed);
+  const unexpectedCount = [...actualSet].filter((path) => !reviewedSet.has(path)).length;
+  const missingCount = [...reviewedSet].filter((path) => !actualSet.has(path)).length;
+
+  expect({ unexpectedCount, missingCount }).toEqual({
+    unexpectedCount: 0,
+    missingCount: 0,
+  });
+}
+
+function captureFailure(operation: () => void): string {
+  try {
+    operation();
+    return "";
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+}
 
 async function runScan(args: string[]): Promise<{ exitCode: number; stdout: string; stderr: string }> {
   try {
