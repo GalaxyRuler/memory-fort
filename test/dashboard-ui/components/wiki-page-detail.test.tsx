@@ -12,14 +12,29 @@ vi.mock("@tanstack/react-router", () => ({
     children,
     className,
     params,
+    search,
     to,
   }: {
     children: ReactNode;
     className?: string;
     params?: Record<string, string>;
+    search?: Record<string, number | string | undefined>;
     to: string;
   }) => {
-    const href = params ? to.replace("$category", params.category).replace("$slug", params.slug) : to;
+    let href = to;
+    for (const [key, value] of Object.entries(params ?? {}).sort(([left], [right]) =>
+      left.localeCompare(right),
+    )) {
+      href = href.replace(`$${key}`, encodeURIComponent(value));
+    }
+    const query = new URLSearchParams();
+    for (const [key, value] of Object.entries(search ?? {}).sort(([left], [right]) =>
+      left.localeCompare(right),
+    )) {
+      if (value !== undefined) query.set(key, String(value));
+    }
+    const queryString = query.toString();
+    if (queryString) href += `?${queryString}`;
     return (
       <a className={className} href={href}>
         {children}
@@ -85,6 +100,69 @@ describe("wiki page detail components", () => {
     expect(screen.getByText("depends_on")).toBeInTheDocument();
   });
 
+  test("PageRelations links resolved outward and inbound pages without archive opt-in", () => {
+    render(
+      <PageRelations
+        inbound={[
+          {
+            fromPath: "wiki/decisions/source.md",
+            fromTitle: "Source Decision",
+            via: "uses",
+          },
+        ]}
+        relations={[
+          {
+            key: "uses",
+            target: "voyageai",
+            resolvedPath: "wiki/tools/voyageai.md",
+            resolvedTitle: "Voyage AI",
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByRole("link", { name: "Voyage AI" })).toHaveAttribute(
+      "href",
+      "/wiki/tools/voyageai",
+    );
+    expect(screen.getByRole("link", { name: "Source Decision" })).toHaveAttribute(
+      "href",
+      "/wiki/decisions/source",
+    );
+  });
+
+  test("PageRelations preserves archive opt-in on resolved outward and inbound links", () => {
+    render(
+      <PageRelations
+        includeArchived
+        inbound={[
+          {
+            fromPath: "wiki/decisions/source.md",
+            fromTitle: "Source Decision",
+            via: "uses",
+          },
+        ]}
+        relations={[
+          {
+            key: "uses",
+            target: "voyageai",
+            resolvedPath: "wiki/tools/voyageai.md",
+            resolvedTitle: "Voyage AI",
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getByRole("link", { name: "Voyage AI" })).toHaveAttribute(
+      "href",
+      "/wiki/tools/voyageai?includeArchived=1",
+    );
+    expect(screen.getByRole("link", { name: "Source Decision" })).toHaveAttribute(
+      "href",
+      "/wiki/decisions/source?includeArchived=1",
+    );
+  });
+
   test("PageRelations exposes the empty state in a named region", () => {
     render(<PageRelations inbound={[]} relations={[]} />);
 
@@ -102,6 +180,7 @@ describe("wiki page detail components", () => {
     );
 
     expect(screen.getByText("[unresolved]")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /missing/ })).not.toBeInTheDocument();
   });
 
   test("PageTOC extracts second and third level headings", () => {
