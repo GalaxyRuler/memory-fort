@@ -41,6 +41,6 @@ Until a CLA process is in place, pull requests from outside contributors will be
 
 ## Verifying authorship in git history
 
-Every commit in Memory Fort is signed by `GalaxyRuler <aoa@live.ca>` as author and committer. AI-assisted commits include the `Co-Authored-By:` trailer in the commit message body. The git history is the authoritative record of who contributed what and when.
+Every commit in Memory Fort is signed by `GalaxyRuler` as author and committer. AI-assisted commits include the `Co-Authored-By:` trailer in the commit message body. The git history is the authoritative record of who contributed what and when.
 
-Note: `aoa@live.ca` is the GitHub-facing commit email per the author's preference. The primary contact email for all licensing, commercial, and IP matters is `Abdullah@alkulaib.io`.
+The GitHub-facing commit email is recorded in the public git history per the author's preference. The primary contact email for all licensing, commercial, and IP matters is `Abdullah@alkulaib.io`.

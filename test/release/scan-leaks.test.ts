@@ -101,14 +101,41 @@ describe("scan-leaks release gate", () => {
     expect(result.stdout).not.toContain(jsonRenderedUserPath);
   });
 
-  it("allows owner name tokens in package.json", async () => {
-    const token = ["Abdul", "lah"].join("");
-    await writeText("package.json", JSON.stringify({ author: token }));
+  it("allows intentional owner attribution in repository attribution files", async () => {
+    const owner = ["Abdul", "lah"].join("");
+    await writeText("package.json", JSON.stringify({ author: owner }));
+    await writeText("AUTHORSHIP.md", `Project owner: ${owner}\n`);
+    await writeText("LICENSE", `Copyright (c) ${owner}\n`);
+    await writeText("LICENSE-NOTICE.md", `Project attribution: ${owner}\n`);
 
     const result = await runScan(["--root", tmp]);
 
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toBe("");
+  });
+
+  it("scans repository attribution files outside the narrow owner allowance", async () => {
+    const owner = ["Abdul", "lah"].join("");
+    const token = ["srv", "1317946"].join("");
+    await writeText("package.json", JSON.stringify({ author: owner, privateEndpoint: token }));
+    await writeText("LICENSE-NOTICE.md", [
+      `Project attribution: ${owner}`,
+      `Private endpoint: ${token}`,
+      "",
+    ].join("\n"));
+
+    const result = await runScan(["--root", tmp, "--json"]);
+    const hits = result.stdout
+      ? JSON.parse(result.stdout) as Array<{ path: string; line: number }>
+      : [];
+
+    expect(result.exitCode).toBe(1);
+    expect(hits).toEqual([
+      { path: "LICENSE-NOTICE.md", line: 2 },
+      { path: "package.json", line: 1 },
+    ]);
+    expect(result.stdout).not.toContain(owner);
+    expect(result.stdout).not.toContain(token);
   });
 
   it("flags owner name tokens outside allowlist files", async () => {
@@ -253,11 +280,14 @@ describe("scan-leaks release gate", () => {
     expect(result.stdout).not.toContain(token);
   });
 
-  it("allows the intentional owner attribution in packaged package metadata", async () => {
+  it("allows intentional owner attribution in packaged attribution files", async () => {
     const owner = ["Abdul", "lah"].join("");
     const appRoot = join(tmp, "attribution-only");
     await mkdir(appRoot, { recursive: true });
     await writeFile(join(appRoot, "package.json"), JSON.stringify({ author: owner }));
+    await writeFile(join(appRoot, "AUTHORSHIP.md"), `Project owner: ${owner}\n`);
+    await writeFile(join(appRoot, "LICENSE"), `Copyright (c) ${owner}\n`);
+    await writeFile(join(appRoot, "LICENSE-NOTICE.md"), `Project attribution: ${owner}\n`);
 
     const result = await runScan(["--packaged-root", appRoot]);
 
@@ -265,17 +295,27 @@ describe("scan-leaks release gate", () => {
     expect(result.stdout).toBe("");
   });
 
-  it("scans packaged package metadata outside the narrow attribution allowance", async () => {
+  it("scans packaged attribution files outside the narrow owner allowance", async () => {
     const owner = ["Abdul", "lah"].join("");
     const token = ["srv", "1317946"].join("");
     const appRoot = join(tmp, "app");
     await mkdir(appRoot, { recursive: true });
     await writeFile(join(appRoot, "package.json"), JSON.stringify({ author: owner, privateEndpoint: token }));
+    await writeFile(join(appRoot, "AUTHORSHIP.md"), [
+      `Project owner: ${owner}`,
+      `Private endpoint: ${token}`,
+      "",
+    ].join("\n"));
 
-    const result = await runScan(["--packaged-root", appRoot]);
+    const result = await runScan(["--packaged-root", appRoot, "--json"]);
+    const hits = JSON.parse(result.stdout) as Array<{ path: string; line: number }>;
 
     expect(result.exitCode).toBe(1);
-    expect(result.stdout).toContain("package.json:1: denied content");
+    expect(hits).toEqual([
+      { path: "AUTHORSHIP.md", line: 2 },
+      { path: "package.json", line: 1 },
+    ]);
+    expect(result.stdout).not.toContain(owner);
     expect(result.stdout).not.toContain(token);
   });
 

@@ -6,25 +6,14 @@ import { join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { isReleaseQuarantined } from "./release/quarantine.mjs";
 
-const REPOSITORY_ALLOWLIST_PATHS = new Set([
-  "AUTHORSHIP.md",
-  "LICENSE",
-  "LICENSE-NOTICE.md",
-  "package.json",
+const FULLY_ALLOWLIST_PATHS = new Set([
   // Upstream-vendored public bge-small-en-v1.5 files (sha256-pinned in the
   // model manifest); their 30K-wordpiece vocab contains common first names.
   "assets/embedding-models/bge-small-en-v1.5/tokenizer.json",
   "assets/embedding-models/bge-small-en-v1.5/vocab.txt",
 ]);
 
-const PACKAGE_FULLY_ALLOWLIST_PATHS = new Set([
-  // Upstream-vendored public bge-small-en-v1.5 files (sha256-pinned in the
-  // model manifest); their 30K-wordpiece vocab contains common first names.
-  "assets/embedding-models/bge-small-en-v1.5/tokenizer.json",
-  "assets/embedding-models/bge-small-en-v1.5/vocab.txt",
-]);
-
-const PACKAGE_ROOT_ATTRIBUTION_PATHS = new Set([
+const ATTRIBUTION_PATHS = new Set([
   "AUTHORSHIP.md",
   "LICENSE",
   "LICENSE-NOTICE.md",
@@ -57,7 +46,7 @@ const DENYLIST = [
   deny(literal(["native", " ", "qt"].join(""))),
   deny(literal(["arabic", " ", "python"].join(""))),
   deny(literal(["personal", " ", "website"].join(""))),
-  deny(word(["Abdul", "lah"].join("")), { allowInPackageAttribution: true }),
+  deny(word(["Abdul", "lah"].join("")), { allowInAttribution: true }),
 ];
 
 const defaultFileSystem = { access, readdir, readFile, stat };
@@ -112,7 +101,7 @@ export async function scanTarget(target, options, { fileSystem = defaultFileSyst
   let scanEligibleFiles = 0;
   for (const relPath of files) {
     if (options.quarantine && isQuarantined(relPath)) continue;
-    if (shouldSkipFile(relPath, options)) continue;
+    if (shouldSkipFile(relPath)) continue;
     scanEligibleFiles += 1;
 
     let content;
@@ -128,7 +117,7 @@ export async function scanTarget(target, options, { fileSystem = defaultFileSyst
     const lines = content.split(/\r?\n/);
     for (const [index, line] of lines.entries()) {
       for (const rule of DENYLIST) {
-        if (!shouldApplyRule(rule, relPath, options)) continue;
+        if (!shouldApplyRule(rule, relPath)) continue;
         const match = rule.regex.exec(line);
         if (match) {
           hits.push({ path: withPrefix(options.prefix, relPath), line: index + 1 });
@@ -256,28 +245,26 @@ function withPrefix(prefix, relPath) {
   return redact(prefix ? `${prefix}/${relPath}` : relPath);
 }
 
-function shouldSkipFile(relPath, options) {
-  return options.requireFiles
-    ? PACKAGE_FULLY_ALLOWLIST_PATHS.has(relPath)
-    : REPOSITORY_ALLOWLIST_PATHS.has(relPath);
+function shouldSkipFile(relPath) {
+  return FULLY_ALLOWLIST_PATHS.has(relPath);
 }
 
-function isAllowedPackageAttributionMatch(relPath, rule, options) {
-  return options.requireFiles
-    && PACKAGE_ROOT_ATTRIBUTION_PATHS.has(relPath)
-    && rule.allowInPackageAttribution;
+function isAllowedAttributionMatch(relPath, rule, { path }) {
+  return !path
+    && ATTRIBUTION_PATHS.has(relPath)
+    && rule.allowInAttribution;
 }
 
-function shouldApplyRule(rule, relPath, options, { path = false } = {}) {
+function shouldApplyRule(rule, relPath, { path = false } = {}) {
   if (!path && rule.exampleOnly && !isMarkdownOrJson(relPath)) return false;
   if (rule.skipTests && isTestPath(relPath)) return false;
-  if (isAllowedPackageAttributionMatch(relPath, rule, options)) return false;
+  if (isAllowedAttributionMatch(relPath, rule, { path })) return false;
   return true;
 }
 
 function scanPath(relPath, options, hits) {
   for (const rule of DENYLIST) {
-    if (!shouldApplyRule(rule, relPath, options, { path: true })) continue;
+    if (!shouldApplyRule(rule, relPath, { path: true })) continue;
     if (rule.regex.test(relPath)) {
       hits.push({ path: withPrefix(options.prefix, relPath), line: 0, kind: "path" });
     }
@@ -507,7 +494,7 @@ function deny(source, options = {}) {
     regex: new RegExp(source, "i"),
     exampleOnly: Boolean(options.exampleOnly),
     skipTests: Boolean(options.skipTests),
-    allowInPackageAttribution: Boolean(options.allowInPackageAttribution),
+    allowInAttribution: Boolean(options.allowInAttribution),
   };
 }
 
