@@ -19,7 +19,7 @@ export type ResultLinkProps =
   | {
     to: "/wiki/$category/$slug";
     params: { category: string; slug: string };
-    search?: { includeArchived: "1" };
+    search?: { includeArchived: 1 };
   }
   | { to: "/raw/$date/$filename"; params: { date: string; filename: string } }
   | { to: "/crystals" };
@@ -195,7 +195,7 @@ function wikiLinkFromParts(category: string, slug: string, includeArchived = fal
   return {
     to: "/wiki/$category/$slug",
     params: { category, slug },
-    ...(includeArchived ? { search: { includeArchived: "1" as const } } : {}),
+    ...(includeArchived ? { search: { includeArchived: 1 as const } } : {}),
   };
 }
 

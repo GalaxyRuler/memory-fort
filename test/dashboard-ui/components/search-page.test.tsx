@@ -27,7 +27,7 @@ vi.mock("@tanstack/react-router", async (importOriginal) => {
       children: React.ReactNode;
       className?: string;
       params?: Record<string, string>;
-      search?: { includeArchived?: string };
+      search?: { includeArchived?: "1" | 1 };
       to: string;
     }) => {
       const href = params
@@ -512,7 +512,7 @@ describe("SearchPage", () => {
     expect(routerState.navigate).toHaveBeenCalledWith({
       to: "/wiki/$category/$slug",
       params: { category: "archive", slug: "old" },
-      search: { includeArchived: "1" },
+      search: { includeArchived: 1 },
     });
   });
 

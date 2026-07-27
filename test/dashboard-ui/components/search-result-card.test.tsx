@@ -20,7 +20,7 @@ vi.mock("@tanstack/react-router", async (importOriginal) => {
       children: React.ReactNode;
       className?: string;
       params?: Record<string, string>;
-      search?: { includeArchived?: string };
+      search?: { includeArchived?: 1 };
       to: string;
     }) => {
       const href = params
