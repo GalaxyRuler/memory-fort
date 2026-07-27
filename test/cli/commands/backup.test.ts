@@ -49,17 +49,23 @@ describe("memory backup", () => {
 
   it("excludes stale Git lock files from a worktree backup", async () => {
     const harness = await createVaultHarness();
+    const durableGitControl = ".git/round5-durable-control.txt";
     await writeFile(join(harness.vaultRoot, ".git", "index.lock"), "stale lock\n", "utf8");
+    await writeFile(join(harness.vaultRoot, durableGitControl), "durable Git control\n", "utf8");
 
     const created = await createBackup({ vaultRoot: harness.vaultRoot, targetDir: harness.targetDir });
     const archiveEntries = (await execFile("tar", ["-tzf", created.archivePath], { windowsHide: true })).stdout
       .split(/\r?\n/u)
       .filter(Boolean);
-    const manifestEntry = archiveEntries.find((entry) => entry.replaceAll("\\", "/").replace(/^\.\//u, "") === "backup-manifest.json");
+    const normalizedArchiveEntries = archiveEntries.map((entry) => entry.replaceAll("\\", "/").replace(/^\.\//u, ""));
+    const manifestEntry = normalizedArchiveEntries.find((entry) => entry === "backup-manifest.json");
     expect(manifestEntry).toBeDefined();
     const manifestResult = await execFile("tar", ["-xOf", created.archivePath, manifestEntry!], { windowsHide: true });
     const manifest = JSON.parse(manifestResult.stdout) as BackupManifest;
 
+    expect(normalizedArchiveEntries.some((entry) => entry.endsWith(`/${durableGitControl}`))).toBe(true);
+    expect(manifest.entries.some((entry) => entry.path.endsWith(`/${durableGitControl}`))).toBe(true);
+    expect(normalizedArchiveEntries.some((entry) => entry.endsWith("/.git/index.lock"))).toBe(false);
     expect(manifest.entries.some((entry) => entry.path.endsWith("/.git/index.lock"))).toBe(false);
   });
 
