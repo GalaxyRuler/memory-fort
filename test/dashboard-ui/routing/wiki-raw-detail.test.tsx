@@ -4,7 +4,7 @@ import {
   createRouter,
   RouterProvider,
 } from "@tanstack/react-router";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { routeTree } from "../../../src/dashboard-ui/routeTree.gen.js";
 import { apiFetch, apiGet } from "../../../src/dashboard-ui/lib/api.js";
@@ -113,6 +113,87 @@ describe("dashboard wiki/raw routing", () => {
     );
   });
 
+  test.each([
+    {
+      linkName: "Relation Target",
+      destinationPath: "/wiki/archive/relation-target",
+      requestPath: "/page/wiki%2Farchive%2Frelation-target.md",
+    },
+    {
+      linkName: "Inbound Target",
+      destinationPath: "/wiki/archive/inbound-target",
+      requestPath: "/page/wiki%2Farchive%2Finbound-target.md",
+    },
+    {
+      linkName: "body-alias",
+      destinationPath: "/wiki/archive/body-target",
+      requestPath: "/page/wiki%2Farchive%2Fbody-target.md",
+    },
+  ])("preserves archive opt-in through the $linkName wiki link", async ({
+    linkName,
+    destinationPath,
+    requestPath,
+  }) => {
+    mockApiGet.mockImplementation(async (path, params) => {
+      if (
+        path === "/page/wiki%2Farchive%2Fsource.md"
+        && params?.includeArchived === "1"
+      ) {
+        return linkedWikiPageFixture(true) as never;
+      }
+      if (path === requestPath && params?.includeArchived === "1") {
+        return destinationWikiPageFixture(destinationPath) as never;
+      }
+      throw new Error(`unexpected api request ${path}`);
+    });
+
+    const { router } = renderAt("/wiki/archive/source?includeArchived=1");
+
+    expect(await screen.findByRole("heading", { name: "Archived Source" })).toBeInTheDocument();
+    const link = screen.getByRole("link", { name: linkName });
+    expect(link).toHaveAttribute("href", `${destinationPath}?includeArchived=1`);
+
+    mockApiGet.mockClear();
+    fireEvent.click(link);
+
+    await waitFor(() => {
+      expect(router.state.location.href).toBe(`${destinationPath}?includeArchived=1`);
+    });
+    expect(await screen.findByRole("heading", { name: "Archive Destination" })).toBeInTheDocument();
+    expect(mockApiGet).toHaveBeenCalledWith(requestPath, { includeArchived: "1" });
+  });
+
+  test("keeps normal wiki links free of an archive opt-in", async () => {
+    mockApiGet.mockImplementation(async (path, params) => {
+      if (path === "/page/wiki%2Farchive%2Fsource.md" && params === undefined) {
+        return linkedWikiPageFixture(false) as never;
+      }
+      if (path === "/page/wiki%2Farchive%2Fbody-target.md" && params === undefined) {
+        return destinationWikiPageFixture("/wiki/archive/body-target") as never;
+      }
+      throw new Error(`unexpected api request ${path}`);
+    });
+
+    const { router } = renderAt("/wiki/archive/source");
+
+    expect(await screen.findByRole("heading", { name: "Active Source" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Relation Target" }))
+      .toHaveAttribute("href", "/wiki/archive/relation-target");
+    expect(screen.getByRole("link", { name: "Inbound Target" }))
+      .toHaveAttribute("href", "/wiki/archive/inbound-target");
+    const bodyLink = screen.getByRole("link", { name: "body-alias" });
+    expect(bodyLink).toHaveAttribute("href", "/wiki/archive/body-target");
+
+    mockApiGet.mockClear();
+    fireEvent.click(bodyLink);
+
+    await waitFor(() => {
+      expect(router.state.location.href).toBe("/wiki/archive/body-target");
+    });
+    expect(await screen.findByRole("heading", { name: "Archive Destination" })).toBeInTheDocument();
+    expect(mockApiGet).toHaveBeenCalledWith("/page/wiki%2Farchive%2Fbody-target.md");
+  });
+
   test("mounts wiki index on /wiki", async () => {
     mockApiGet.mockImplementation(async (path) => {
       if (path === "/wiki") return wikiIndexFixture() as never;
@@ -167,11 +248,12 @@ function renderAt(path: string) {
     routeTree,
     history: createMemoryHistory({ initialEntries: [path] }),
   });
-  return render(
+  const view = render(
     <QueryClientProvider client={queryClient}>
       <RouterProvider router={router} />
     </QueryClientProvider>,
   );
+  return { ...view, router };
 }
 
 function wikiPageFixture(): PageDetail {
@@ -188,6 +270,55 @@ function wikiPageFixture(): PageDetail {
       tags: ["search"],
     },
     body: "## Decision\nUse Voyage embeddings for semantic recall.",
+    relations: [],
+    inbound: [],
+  };
+}
+
+function linkedWikiPageFixture(archived: boolean): PageDetail {
+  return {
+    relPath: "wiki/archive/source.md",
+    archived,
+    frontmatter: {
+      title: archived ? "Archived Source" : "Active Source",
+      type: "archive",
+      status: archived ? "archived" : "active",
+    },
+    body: "See [[body-alias]].",
+    relations: [
+      {
+        key: "uses",
+        target: "relation-alias",
+        resolvedPath: "wiki/archive/relation-target.md",
+        resolvedTitle: "Relation Target",
+      },
+      {
+        key: "references",
+        target: "body-alias",
+        resolvedPath: "wiki/archive/body-target.md",
+        resolvedTitle: "Body Relation Resolver",
+      },
+    ],
+    inbound: [
+      {
+        fromPath: "wiki/archive/inbound-target.md",
+        fromTitle: "Inbound Target",
+        via: "related_to",
+      },
+    ],
+  };
+}
+
+function destinationWikiPageFixture(path: string): PageDetail {
+  return {
+    relPath: `${path.slice(1)}.md`,
+    archived: true,
+    frontmatter: {
+      title: "Archive Destination",
+      type: "archive",
+      status: "archived",
+    },
+    body: "Destination body.",
     relations: [],
     inbound: [],
   };

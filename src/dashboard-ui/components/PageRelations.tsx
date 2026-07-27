@@ -15,10 +15,12 @@ export function PageRelations({
   className,
   relations,
   inbound,
+  includeArchived = false,
 }: {
   className?: string;
   relations: PageRelation[];
   inbound: PageInbound[];
+  includeArchived?: boolean;
 }) {
   const grouped = new Map<string, PageRelation[]>();
   for (const relation of relations) {
@@ -77,7 +79,7 @@ export function PageRelations({
                       key={`${relation.key}-${relation.target}-${index}`}
                       {...listNav.getItemProps(relationIndexByKey.get(`relation-${relation.key}-${relation.target}-${relations.indexOf(relation)}`) ?? 0)}
                     >
-                      <RelationTarget relation={relation} />
+                      <RelationTarget includeArchived={includeArchived} relation={relation} />
                     </li>
                   ))}
                 </ul>
@@ -100,7 +102,12 @@ export function PageRelations({
                   {...listNav.getItemProps(relationIndexByKey.get(`inbound-${reference.fromPath}-${index}`) ?? 0)}
                 >
                   {params ? (
-                    <Link className="break-words text-primary hover:underline sm:truncate" params={params} to="/wiki/$category/$slug">
+                    <Link
+                      className="break-words text-primary hover:underline sm:truncate"
+                      params={params}
+                      to="/wiki/$category/$slug"
+                      {...(includeArchived ? { search: { includeArchived: 1 as const } } : {})}
+                    >
                       {reference.fromTitle ?? reference.fromPath}
                     </Link>
                   ) : (
@@ -117,7 +124,13 @@ export function PageRelations({
   );
 }
 
-function RelationTarget({ relation }: { relation: PageRelation }) {
+function RelationTarget({
+  includeArchived,
+  relation,
+}: {
+  includeArchived: boolean;
+  relation: PageRelation;
+}) {
   if (!relation.resolvedPath) {
     return (
       <span className="text-text-muted">
@@ -130,7 +143,12 @@ function RelationTarget({ relation }: { relation: PageRelation }) {
     return <span>{relation.resolvedTitle ?? relation.target}</span>;
   }
   return (
-    <Link className="text-primary hover:underline" params={params} to="/wiki/$category/$slug">
+    <Link
+      className="text-primary hover:underline"
+      params={params}
+      to="/wiki/$category/$slug"
+      {...(includeArchived ? { search: { includeArchived: 1 as const } } : {})}
+    >
       {relation.resolvedTitle ?? relation.target}
     </Link>
   );

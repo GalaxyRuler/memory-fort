@@ -1,14 +1,18 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, type SearchSchemaInput } from "@tanstack/react-router";
 import { WikiPageDetail } from "../components/WikiPageDetail.js";
-import { canonicalIncludeArchivedQuery } from "../../search/contract.js";
+import { parseIncludeArchivedQuery } from "../../search/contract.js";
 
 export const Route = createFileRoute("/wiki/$category/$slug")({
   component: WikiPageDetail,
-  validateSearch: (search): WikiPageDetailSearch => ({
-    includeArchived: canonicalIncludeArchivedQuery(search.includeArchived),
+  validateSearch: (search: WikiPageDetailSearchInput): WikiPageDetailSearch => ({
+    includeArchived: parseIncludeArchivedQuery(search.includeArchived) === true ? 1 : undefined,
   }),
 });
 
+export interface WikiPageDetailSearchInput extends SearchSchemaInput {
+  includeArchived?: unknown;
+}
+
 export interface WikiPageDetailSearch {
-  includeArchived?: "1";
+  includeArchived?: 1;
 }

@@ -18,10 +18,11 @@ const markdownUrlTransform: UrlTransform = (url, key, node) => {
 };
 
 export interface MarkdownBodyProps {
+  includeArchived?: boolean;
   source: string;
 }
 
-export function MarkdownBody({ source }: MarkdownBodyProps) {
+export function MarkdownBody({ includeArchived = false, source }: MarkdownBodyProps) {
   return (
     <div className="prose prose-invert max-w-none prose-headings:break-words prose-headings:font-semibold prose-headings:tracking-tight prose-p:break-words prose-a:break-words prose-a:text-primary prose-blockquote:border-l-primary prose-code:break-words prose-code:rounded prose-code:bg-surface-2 prose-code:px-1 prose-code:font-mono prose-code:text-text-primary prose-code:before:content-none prose-code:after:content-none prose-pre:overflow-x-auto prose-pre:border prose-pre:border-border-subtle prose-pre:bg-surface-2">
       <ReactMarkdown
@@ -31,7 +32,12 @@ export function MarkdownBody({ source }: MarkdownBodyProps) {
               const params = wikiPathToRouterParams(href.slice("wiki:".length));
               if (params) {
                 return (
-                  <Link className="text-primary hover:underline" params={params} to="/wiki/$category/$slug">
+                  <Link
+                    className="text-primary hover:underline"
+                    params={params}
+                    to="/wiki/$category/$slug"
+                    {...(includeArchived ? { search: { includeArchived: 1 as const } } : {})}
+                  >
                     {children}
                   </Link>
                 );

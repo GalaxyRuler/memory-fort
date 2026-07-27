@@ -11,10 +11,11 @@ import { PageTOC } from "./PageTOC.js";
 
 export function WikiPageDetail() {
   const { category, slug } = useParams({ from: "/wiki/$category/$slug" });
-  const search = useSearch({ from: "/wiki/$category/$slug" }) as { includeArchived?: "1" };
+  const search = useSearch({ from: "/wiki/$category/$slug" }) as { includeArchived?: 1 };
   const [mobileSheet, setMobileSheet] = useState<"toc" | "relations" | null>(null);
   const relPath = `wiki/${category}/${slug}.md`;
-  const page = usePageDetail(relPath, { includeArchived: search.includeArchived === "1" });
+  const includeArchived = search.includeArchived === 1;
+  const page = usePageDetail(relPath, { includeArchived });
 
   if (page.isLoading) {
     return <div className="p-6 text-sm text-text-muted">Loading page...</div>;
@@ -44,8 +45,13 @@ export function WikiPageDetail() {
               Relations
             </Button>
           </div>
-          <MarkdownBody source={body} />
-          <PageRelations className="hidden md:block" inbound={page.data.inbound} relations={page.data.relations} />
+          <MarkdownBody includeArchived={includeArchived} source={body} />
+          <PageRelations
+            className="hidden md:block"
+            inbound={page.data.inbound}
+            includeArchived={includeArchived}
+            relations={page.data.relations}
+          />
         </article>
         <aside className="hidden md:block">
           <PageTOC body={page.data.body} />
@@ -57,7 +63,12 @@ export function WikiPageDetail() {
         title={mobileSheet === "relations" ? "Relations" : "On this page"}
       >
         {mobileSheet === "relations" ? (
-          <PageRelations className="mt-0" inbound={page.data.inbound} relations={page.data.relations} />
+          <PageRelations
+            className="mt-0"
+            inbound={page.data.inbound}
+            includeArchived={includeArchived}
+            relations={page.data.relations}
+          />
         ) : (
           <PageTOC body={page.data.body} />
         )}
