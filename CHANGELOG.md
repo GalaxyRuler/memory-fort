@@ -4,6 +4,17 @@ All notable changes to Memory Fort are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.1] - 2026-07-27
+
+Maintenance release collecting reliability and privacy fixes completed after 0.13.0.
+
+### Fixed
+- **Archived page access remains explicit and navigable.** Canonical wiki paths are normalized consistently, archived reads still require an explicit opt-in, and that opt-in survives relation, backlink, and body-link navigation without leaking into ordinary live-page links.
+- **Forget and local-history operations recover without weakening their evidence.** Interrupted or repeated erasures can resume safely, pending journals stay isolated to their vault, and history-purge receipts and diagnostics are bound to the operation they attest while remaining recoverable.
+- **Repository and packaged-output leak checks fail closed.** Invalid or incomplete scan roots, unreadable payloads, and unexpected public-boundary files now stop the gate; tracked documentation, release scripts, attribution files, and freshly built distribution output receive narrowly scoped scanning with redacted diagnostics.
+- **Backups exclude transient Git lock state without dropping durable repository metadata.** The archive manifest is checked directly, including a positive control proving durable Git files remain present.
+- **Wikilinks are code-aware and deterministic.** Prose wikilinks render as internal navigation while inline and fenced code stay literal, and target aliases resolve without order-dependent filename clobbering.
+
 ## [0.13.0] - 2026-07-21
 
 An adversarial audit of the v0.12.1–v0.12.3 arc surfaced fourteen findings; this release fixes them and ships one new feature.
