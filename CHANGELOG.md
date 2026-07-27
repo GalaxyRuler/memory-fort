@@ -6,9 +6,17 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [0.13.1] - 2026-07-27
 
-Maintenance release collecting reliability and privacy fixes completed after 0.13.0.
+Changes prepared for 0.13.1.
+
+### Added
+- **Release and recovery checks produce verifiable evidence.** Release workflows require matching per-platform artifact manifests and hashes before their publish step can run, while backup/restore drills can validate staged recovery without replacing the active vault.
 
 ### Fixed
+- **Contended captures are durably spooled and replayed.** Replay is bounded, persisted, review-aware, and recoverable after interruption, so a temporarily busy write path does not silently discard captured observations.
+- **Search capabilities and provenance are reported truthfully.** Search surfaces distinguish supported and ignored parameters, preserve result kind and unknown lineage, bound Python-provider capabilities, and carry indexed provenance through API and UI responses.
+- **Generated-memory mutations fail closed.** Unsafe generated changes, pre-gate facts, rejected compile batches, derived context, and publication evidence remain fenced until their validation and operation ownership are complete.
+- **Non-loopback dashboard APIs enforce authentication.** Canonical API paths share the same protection, and authenticated non-browser writes remain possible without weakening the browser boundary.
+- **Client status separates installation from live MCP health.** Stale probes are invalidated, health-only code stays out of the browser bundle, and managed Hermes commands and launcher files are validated independently.
 - **Archived page access remains explicit and navigable.** Canonical wiki paths are normalized consistently, archived reads still require an explicit opt-in, and that opt-in survives relation, backlink, and body-link navigation without leaking into ordinary live-page links.
 - **Forget and local-history operations recover without weakening their evidence.** Interrupted or repeated erasures can resume safely, pending journals stay isolated to their vault, and history-purge receipts and diagnostics are bound to the operation they attest while remaining recoverable.
 - **Repository and packaged-output leak checks fail closed.** Invalid or incomplete scan roots, unreadable payloads, and unexpected public-boundary files now stop the gate; tracked documentation, release scripts, attribution files, and freshly built distribution output receive narrowly scoped scanning with redacted diagnostics.

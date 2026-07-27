@@ -7,18 +7,68 @@ const packageJson = JSON.parse(
   readFileSync(join(repoRoot, "package.json"), "utf-8"),
 ) as { version: string };
 const changelog = readFileSync(join(repoRoot, "CHANGELOG.md"), "utf-8");
+const semanticVersion = /\b\d+\.\d+\.\d+\b/;
 const versionHeading = /^## \[(\d+\.\d+\.\d+)\] - \d{4}-\d{2}-\d{2}$/;
+
+function assertChangelogContract(version: string, source: string): void {
+  const versionedHeadingLines = source
+    .split(/\r?\n/)
+    .filter((line) => line.startsWith("## ") && semanticVersion.test(line));
+
+  if (versionedHeadingLines.length === 0) {
+    throw new Error("No version headings found");
+  }
+
+  const parsedHeadings = versionedHeadingLines.map((line) => {
+    const match = line.match(versionHeading);
+    if (!match) {
+      throw new Error(`Invalid version heading: ${line}`);
+    }
+    return match;
+  });
+
+  if (parsedHeadings[0]?.[1] !== version) {
+    throw new Error("The first versioned changelog entry does not match the package version");
+  }
+  if (parsedHeadings.filter((match) => match[1] === version).length !== 1) {
+    throw new Error("The package version must appear exactly once in the changelog");
+  }
+}
 
 describe("changelog release contract", () => {
   it("keeps one current package release as the first versioned entry", () => {
-    const versionedHeadingLines = changelog
-      .split(/\r?\n/)
-      .filter((line) => line.startsWith("## ["));
-    const parsedHeadings = versionedHeadingLines.map((line) => line.match(versionHeading));
+    expect(() => assertChangelogContract(packageJson.version, changelog)).not.toThrow();
+  });
 
-    expect(versionedHeadingLines.length).toBeGreaterThan(0);
-    expect(parsedHeadings.every((match) => match !== null)).toBe(true);
-    expect(parsedHeadings[0]?.[1]).toBe(packageJson.version);
-    expect(parsedHeadings.filter((match) => match?.[1] === packageJson.version)).toHaveLength(1);
+  it.each([
+    ["unbracketed", "## 0.13.1 - 2026-07-27"],
+    ["missing separator", "## [0.13.1] 2026-07-27"],
+  ])("rejects a %s semantic-version heading", (_name, heading) => {
+    expect(() => assertChangelogContract("0.13.1", heading)).toThrow("Invalid version heading");
+  });
+
+  it("ignores ordinary level-two headings", () => {
+    const fixture = [
+      "## Unreleased",
+      "## Notes for maintainers",
+      "## [0.13.1] - 2026-07-27",
+      "## [0.13.0] - 2026-07-21",
+    ].join("\n");
+
+    expect(() => assertChangelogContract("0.13.1", fixture)).not.toThrow();
+  });
+
+  it.each([
+    ["missing", "## [0.13.0] - 2026-07-21"],
+    [
+      "displaced",
+      ["## [0.13.0] - 2026-07-21", "## [0.13.1] - 2026-07-27"].join("\n"),
+    ],
+    [
+      "duplicated",
+      ["## [0.13.1] - 2026-07-27", "## [0.13.1] - 2026-07-26"].join("\n"),
+    ],
+  ])("rejects a %s current-version entry", (_name, fixture) => {
+    expect(() => assertChangelogContract("0.13.1", fixture)).toThrow();
   });
 });
