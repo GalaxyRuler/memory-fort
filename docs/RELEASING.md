@@ -3,7 +3,8 @@
 Run this checklist for **any** change that ships publicly — feature, fix, upgrade, or docs. Docs ship **with** the change, in the same release: a feature without README + CHANGELOG updates is not done.
 
 ## 1. Verify
-- `npx tsc --noEmit` — zero errors
+- `npm run typecheck` — zero errors
+- `npm run typecheck:ui` — zero errors. On a clean checkout, run this after step 4's required `npm run build`, which generates `src/dashboard-ui/routeTree.gen.ts`.
 - `npm test` (or at least the affected suites) — green
 
 ## 2. Update docs FOR THE CHANGE (do not skip)
