@@ -8,6 +8,8 @@ const WIKILINK_RE = /\[\[([^\]\n]+)\]\]/g;
 interface Fence {
   marker: "`" | "~";
   length: number;
+  quoteDepth: number;
+  listIndent: number;
 }
 
 function setStableResolution(map: Map<string, string>, key: string, resolvedPath: string): void {
@@ -42,6 +44,14 @@ function findClosingBacktickRun(source: string, start: number, delimiterLength: 
   return -1;
 }
 
+function isEscapedBacktickRun(source: string, start: number): boolean {
+  let backslashCount = 0;
+  for (let cursor = start - 1; cursor >= 0 && source[cursor] === "\\"; cursor -= 1) {
+    backslashCount += 1;
+  }
+  return backslashCount % 2 === 1;
+}
+
 function replaceOutsideInlineCode(source: string, resolutionMap: Map<string, string>): string {
   let output = "";
   let proseStart = 0;
@@ -55,6 +65,8 @@ function replaceOutsideInlineCode(source: string, resolutionMap: Map<string, str
 
     const openerStart = cursor;
     while (source[cursor] === "`") cursor += 1;
+    if (isEscapedBacktickRun(source, openerStart)) continue;
+
     const delimiterLength = cursor - openerStart;
     const closerStart = findClosingBacktickRun(source, cursor, delimiterLength);
     if (closerStart === -1) continue;
@@ -69,25 +81,69 @@ function replaceOutsideInlineCode(source: string, resolutionMap: Map<string, str
   return output + replaceProseWikilinks(source.slice(proseStart), resolutionMap);
 }
 
+function consumeBlockquoteMarker(line: string, start: number): number | null {
+  let cursor = start;
+  let indent = 0;
+  while (indent < 3 && line[cursor] === " ") {
+    cursor += 1;
+    indent += 1;
+  }
+  if (line[cursor] !== ">") return null;
+
+  cursor += 1;
+  if (line[cursor] === " " || line[cursor] === "\t") cursor += 1;
+  return cursor;
+}
+
 function parseOpeningFence(line: string): Fence | null {
-  const match = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+  let cursor = 0;
+  let quoteDepth = 0;
+  while (true) {
+    const next = consumeBlockquoteMarker(line, cursor);
+    if (next === null) break;
+    cursor = next;
+    quoteDepth += 1;
+  }
+
+  let listIndent = 0;
+  while (true) {
+    const listPrefix = /^ {0,3}(?:[-+*]|\d{1,9}[.)])[ \t]{1,4}(?![ \t])/.exec(line.slice(cursor));
+    if (!listPrefix) break;
+    cursor += listPrefix[0].length;
+    listIndent += listPrefix[0].length;
+  }
+
+  const match = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line.slice(cursor));
   if (!match) return null;
 
   const delimiter = match[1]!;
   const marker = delimiter[0] as "`" | "~";
   if (marker === "`" && match[2]!.includes("`")) return null;
-  return { marker, length: delimiter.length };
+  return { marker, length: delimiter.length, quoteDepth, listIndent };
 }
 
 function isClosingFence(line: string, fence: Fence): boolean {
   let cursor = 0;
-  while (cursor < 3 && line[cursor] === " ") cursor += 1;
+  for (let depth = 0; depth < fence.quoteDepth; depth += 1) {
+    const next = consumeBlockquoteMarker(line, cursor);
+    if (next === null) return false;
+    cursor = next;
+  }
+
+  for (let indent = 0; indent < fence.listIndent; indent += 1) {
+    if (line[cursor] !== " ") return false;
+    cursor += 1;
+  }
+
+  const content = line.slice(cursor);
+  cursor = 0;
+  while (cursor < 3 && content[cursor] === " ") cursor += 1;
 
   const markerStart = cursor;
-  while (line[cursor] === fence.marker) cursor += 1;
+  while (content[cursor] === fence.marker) cursor += 1;
   if (cursor - markerStart < fence.length) return false;
 
-  return /^[ \t]*$/.test(line.slice(cursor));
+  return /^[ \t]*$/.test(content.slice(cursor));
 }
 
 function lineBounds(source: string, start: number): {

@@ -72,6 +72,50 @@ describe("preprocessWikilinks", () => {
     ].join("\n"));
   });
 
+  it("preserves wikilinks inside a tilde fence nested in a blockquote", () => {
+    const body = [
+      "Before [[foo]].",
+      "> ~~~md",
+      "> [[foo]]",
+      "> ~~~",
+      "After [[foo]].",
+    ].join("\n");
+
+    expect(preprocessWikilinks(body, [fooRelation])).toBe([
+      "Before [foo](wiki:wiki/projects/foo.md).",
+      "> ~~~md",
+      "> [[foo]]",
+      "> ~~~",
+      "After [foo](wiki:wiki/projects/foo.md).",
+    ].join("\n"));
+  });
+
+  it("preserves wikilinks inside a backtick fence nested in a list item", () => {
+    const body = [
+      "Before [[foo]].",
+      "- ```md",
+      "  [[foo]]",
+      "  ```",
+      "After [[foo]].",
+    ].join("\n");
+
+    expect(preprocessWikilinks(body, [fooRelation])).toBe([
+      "Before [foo](wiki:wiki/projects/foo.md).",
+      "- ```md",
+      "  [[foo]]",
+      "  ```",
+      "After [foo](wiki:wiki/projects/foo.md).",
+    ].join("\n"));
+  });
+
+  it("treats odd-backslash escaped backtick runs as prose delimiters", () => {
+    const body = "\\`[[foo]]\\` and [[foo]], but \\\\`[[foo]]\\\\` stays code.";
+
+    expect(preprocessWikilinks(body, [fooRelation])).toBe(
+      "\\`[foo](wiki:wiki/projects/foo.md)\\` and [foo](wiki:wiki/projects/foo.md), but \\\\`[[foo]]\\\\` stays code.",
+    );
+  });
+
   it("prefers explicit targets over filename aliases regardless of relation order", () => {
     const explicitTarget: PageRelation = {
       key: "uses",
