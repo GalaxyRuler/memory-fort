@@ -2,7 +2,7 @@
 import { execFileSync } from "node:child_process";
 import { constants } from "node:fs";
 import { access, readdir, readFile, stat } from "node:fs/promises";
-import { join, relative, resolve } from "node:path";
+import { basename, extname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { isReleaseQuarantined } from "./release/quarantine.mjs";
 
@@ -50,6 +50,80 @@ const DENYLIST = [
 ];
 
 const defaultFileSystem = { access, readdir, readFile, stat };
+const REPOSITORY_DIST_MAX_TEXT_BYTES = 32 * 1024 * 1024;
+const REPOSITORY_DIST_TEXT_EXTENSIONS = new Set([
+  ".1",
+  ".apache2",
+  ".bnf",
+  ".bsd",
+  ".c",
+  ".cjs",
+  ".conf",
+  ".config",
+  ".cpp",
+  ".css",
+  ".cts",
+  ".drc",
+  ".flow",
+  ".glsl",
+  ".graphql",
+  ".gyp",
+  ".gypi",
+  ".h",
+  ".hpp",
+  ".htm",
+  ".html",
+  ".ini",
+  ".js",
+  ".json",
+  ".json5",
+  ".jsonc",
+  ".jsx",
+  ".license",
+  ".lock",
+  ".map",
+  ".md",
+  ".mdx",
+  ".mit",
+  ".mjs",
+  ".mts",
+  ".patch",
+  ".properties",
+  ".scss",
+  ".sh",
+  ".sql",
+  ".svelte",
+  ".svg",
+  ".toml",
+  ".ts",
+  ".tsbuildinfo",
+  ".tsx",
+  ".txt",
+  ".vue",
+  ".xml",
+  ".yaml",
+  ".yml",
+]);
+const REPOSITORY_DIST_TEXT_BASENAMES = new Set([
+  ".babelrc",
+  ".editorconfig",
+  ".eslintrc",
+  ".keep",
+  ".npmignore",
+  ".npmrc",
+  ".nycrc",
+  ".prettierrc",
+  ".yarnrc",
+  "authors",
+  "changelog",
+  "copying",
+  "copyright",
+  "license",
+  "notice",
+  "readme",
+  "third-party-notices",
+  "third_party_notices",
+]);
 
 export async function main(argv = process.argv.slice(2)) {
   const args = parseArgs(argv);
@@ -138,15 +212,23 @@ export async function scanTarget(target, options, { fileSystem = defaultFileSyst
     const distDir = join(target.root, "dist");
     if (await pathExists(distDir, fileSystem)) {
       const distFiles = await walkDistFiles(distDir, fileSystem);
-      for (const fullPath of distFiles) {
+      for (const { fullPath, size } of distFiles) {
+        if (!isRepositoryDistTextFile(fullPath)) continue;
+        const relPath = distRelativePath(distDir, fullPath);
+        if (size > REPOSITORY_DIST_MAX_TEXT_BYTES) {
+          throw new Error(
+            `repository scan file exceeds 32 MiB limit: ${redact(relPath)}`,
+          );
+        }
         let content;
         try {
           content = await fileSystem.readFile(fullPath, "utf8");
         } catch (error) {
           throw new Error(
-            `repository scan could not read ${redact(distRelativePath(distDir, fullPath))}: ${errorMessage(error)}`,
+            `repository scan could not read ${redact(relPath)}: ${errorMessage(error)}`,
           );
         }
+        if (content.includes("\0")) continue;
         const lines = content.split(/\r?\n/);
         for (const [index, line] of lines.entries()) {
           for (const token of INFRA_TOKENS) {
@@ -303,12 +385,21 @@ async function walkDistFiles(dir, fileSystem = defaultFileSystem) {
       if (isDirectoryEntry) {
         await walk(fullPath);
       } else {
-        results.push(fullPath);
+        if (!Number.isSafeInteger(info.size) || info.size < 0) {
+          throw new Error(`repository scan has invalid file size: ${redact(relPath)}`);
+        }
+        results.push({ fullPath, size: info.size });
       }
     }
   }
   await walk(dir);
   return results;
+}
+
+function isRepositoryDistTextFile(path) {
+  const name = basename(path).toLowerCase();
+  return REPOSITORY_DIST_TEXT_EXTENSIONS.has(extname(name))
+    || REPOSITORY_DIST_TEXT_BASENAMES.has(name);
 }
 
 function distRelativePath(distDir, path) {

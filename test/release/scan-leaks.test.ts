@@ -250,6 +250,180 @@ describe("scan-leaks release gate", () => {
     expect(result.stdout).not.toContain(token);
   });
 
+  it("reads only eligible repository dist text artifacts", async () => {
+    const token = ["tail", "6916d8"].join("");
+    const readCounts = { text: 0, nonText: 0 };
+    const fileSystem = repositoryDistFileSystem(
+      async (path) => path.endsWith("dist")
+        ? [
+          fileEntry(`cli-${token}.mjs`),
+          fileEntry("installer.exe"),
+          fileEntry("native.dll"),
+          fileEntry("model.onnx"),
+        ]
+        : [directoryEntry("dist")],
+      async (path) => {
+        if (path.endsWith(".mjs")) {
+          readCounts.text += 1;
+          return `const route = "${token}";\n`;
+        }
+        readCounts.nonText += 1;
+        return token;
+      },
+      () => 64,
+    );
+
+    const hits = await scanTarget(
+      { root: "repo", prefix: "" },
+      { quarantine: true, prefix: "", requireFiles: false },
+      { fileSystem },
+    );
+    const serialized = JSON.stringify(hits);
+
+    expect({
+      hitCount: hits.length,
+      line: hits[0]?.line,
+      scope: hits[0]?.scope,
+      redactedPath: hits[0]?.path === "dist/cli-[REDACTED].mjs",
+      textReads: readCounts.text,
+      nonTextReads: readCounts.nonText,
+      leakedToken: serialized.includes(token),
+    }).toEqual({
+      hitCount: 1,
+      line: 1,
+      scope: "dist",
+      redactedPath: true,
+      textReads: 1,
+      nonTextReads: 0,
+      leakedToken: false,
+    });
+  });
+
+  it("does not scan binary-looking content in eligible repository dist files", async () => {
+    const token = ["tail", "6916d8"].join("");
+    let readCount = 0;
+    const fileSystem = repositoryDistFileSystem(
+      async (path) => path.endsWith("dist")
+        ? [fileEntry("binary-looking.js")]
+        : [directoryEntry("dist")],
+      async () => {
+        readCount += 1;
+        return `\0${token}\n`;
+      },
+      () => 32,
+    );
+
+    const hits = await scanTarget(
+      { root: "repo", prefix: "" },
+      { quarantine: true, prefix: "", requireFiles: false },
+      { fileSystem },
+    );
+
+    expect({
+      readCount,
+      hitCount: hits.length,
+      leakedToken: JSON.stringify(hits).includes(token),
+    }).toEqual({
+      readCount: 1,
+      hitCount: 0,
+      leakedToken: false,
+    });
+  });
+
+  it("rejects oversized eligible repository dist text before reading it", async () => {
+    const token = ["tail", "6916d8"].join("");
+    let readCount = 0;
+    const fileSystem = repositoryDistFileSystem(
+      async (path) => path.endsWith("dist")
+        ? [fileEntry(`oversized-${token}.mjs`)]
+        : [directoryEntry("dist")],
+      async () => {
+        readCount += 1;
+        return token;
+      },
+      () => 33 * 1024 * 1024,
+    );
+    let failure: unknown;
+
+    try {
+      await scanTarget(
+        { root: "repo", prefix: "" },
+        { quarantine: true, prefix: "", requireFiles: false },
+        { fileSystem },
+      );
+    } catch (error) {
+      failure = error;
+    }
+    const message = failure instanceof Error ? failure.message : "";
+
+    expect({
+      isError: failure instanceof Error,
+      isLimitFailure: message.includes("exceeds 32 MiB limit"),
+      redactedPath: message.includes("dist/oversized-[REDACTED].mjs"),
+      leakedToken: message.includes(token),
+      readCount,
+    }).toEqual({
+      isError: true,
+      isLimitFailure: true,
+      redactedPath: true,
+      leakedToken: false,
+      readCount: 0,
+    });
+  });
+
+  it("fails closed on invalid repository dist file sizes", async () => {
+    const token = ["tail", "6916d8"].join("");
+    const invalidSizes = [undefined, -1, Number.NaN, 1.5];
+    const outcomes = [];
+
+    for (const invalidSize of invalidSizes) {
+      let readCount = 0;
+      const fileSystem = repositoryDistFileSystem(
+        async (path) => path.endsWith("dist")
+          ? [fileEntry(`invalid-${token}.js`)]
+          : [directoryEntry("dist")],
+        async () => {
+          readCount += 1;
+          return token;
+        },
+        () => invalidSize,
+      );
+      let failure: unknown;
+
+      try {
+        await scanTarget(
+          { root: "repo", prefix: "" },
+          { quarantine: true, prefix: "", requireFiles: false },
+          { fileSystem },
+        );
+      } catch (error) {
+        failure = error;
+      }
+      const message = failure instanceof Error ? failure.message : "";
+      outcomes.push({
+        isError: failure instanceof Error,
+        isInvalidSizeFailure: message.includes("invalid file size"),
+        redactedPath: message.includes("dist/invalid-[REDACTED].js"),
+        leakedToken: message.includes(token),
+        readCount,
+      });
+    }
+
+    expect({
+      outcomeCount: outcomes.length,
+      allFailedClosed: outcomes.every((outcome) => (
+        outcome.isError
+        && outcome.isInvalidSizeFailure
+        && outcome.redactedPath
+        && !outcome.leakedToken
+        && outcome.readCount === 0
+      )),
+    }).toEqual({
+      outcomeCount: invalidSizes.length,
+      allFailedClosed: true,
+    });
+  });
+
   it("builds before scanning repository leaks during prepublish", async () => {
     const manifest = JSON.parse(await readFile(resolve(process.cwd(), "package.json"), "utf8")) as {
       scripts?: Record<string, string>;
@@ -675,6 +849,7 @@ function unknownEntry(name: string) {
 function repositoryDistFileSystem(
   readdir: (path: string) => Promise<ReturnType<typeof directoryEntry>[] | ReturnType<typeof fileEntry>[]>,
   readFile: (path: string) => Promise<string> = async () => "",
+  sizeForPath: (path: string) => number | undefined = () => 0,
 ) {
   return {
     access: async (path: string) => {
@@ -682,9 +857,13 @@ function repositoryDistFileSystem(
     },
     readdir,
     readFile,
-    stat: async (path: string) => ({
-      isFile: () => path.endsWith(".mjs"),
-      isDirectory: () => path.endsWith("dist"),
-    }),
+    stat: async (path: string) => {
+      const isDirectory = path.endsWith("dist");
+      return {
+        isFile: () => !isDirectory,
+        isDirectory: () => isDirectory,
+        size: isDirectory ? 0 : sizeForPath(path),
+      };
+    },
   };
 }
