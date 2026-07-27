@@ -134,8 +134,8 @@ describe("scan-leaks release gate", () => {
       { path: "LICENSE-NOTICE.md", line: 2 },
       { path: "package.json", line: 1 },
     ]);
-    expect(result.stdout).not.toContain(owner);
-    expect(result.stdout).not.toContain(token);
+    expect(result.stdout.includes(owner)).toBe(false);
+    expect(result.stdout.includes(token)).toBe(false);
   });
 
   it("flags owner name tokens outside allowlist files", async () => {
@@ -315,8 +315,8 @@ describe("scan-leaks release gate", () => {
       { path: "AUTHORSHIP.md", line: 2 },
       { path: "package.json", line: 1 },
     ]);
-    expect(result.stdout).not.toContain(owner);
-    expect(result.stdout).not.toContain(token);
+    expect(result.stdout.includes(owner)).toBe(false);
+    expect(result.stdout.includes(token)).toBe(false);
   });
 
   it("scans packaged file and directory names as redacted path hits", async () => {
