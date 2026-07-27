@@ -823,6 +823,28 @@ describe("scan-leaks release gate", () => {
     expect((failure as Error).message).not.toContain(token);
   });
 
+  it("fails closed and redacts diagnostics when a repository file cannot be read", async () => {
+    const token = ["srv", "1317946"].join("");
+    const fileSystem = {
+      access: async () => {
+        throw new Error("not found");
+      },
+      readdir: async () => [fileEntry("source.ts")],
+      readFile: async () => {
+        throw new Error(`${token} unreadable`);
+      },
+      stat: async () => ({ isFile: () => true, isDirectory: () => false }),
+    };
+
+    await expect(scanTarget(
+      { root: "repo", prefix: "" },
+      { quarantine: true, prefix: "", requireFiles: false },
+      { fileSystem },
+    )).rejects.toThrow(
+      "repository scan could not read source.ts: [REDACTED] unreadable",
+    );
+  });
+
   it("redacts repository dist paths when enumeration fails", async () => {
     const token = ["srv", "1317946"].join("");
     const enumerateFailure = repositoryDistFileSystem(async (path) => {
@@ -961,12 +983,15 @@ describe("scan-leaks release gate", () => {
     })).rejects.toThrow();
   });
 
-  it("requires every tracked quarantined path to be explicitly reviewed", async () => {
+  it("requires every tracked quarantined path to be explicitly reviewed", async (ctx) => {
     const trackedQuarantinedPaths = await readTrackedQuarantinedPaths(
       process.cwd(),
       process.env,
     );
-    if (trackedQuarantinedPaths === null) return;
+    if (trackedQuarantinedPaths === null) {
+      ctx.skip("archive snapshot has no Git metadata");
+      return;
+    }
 
     assertTrackedQuarantineCoverage(
       trackedQuarantinedPaths,

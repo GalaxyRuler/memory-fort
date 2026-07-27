@@ -35,9 +35,30 @@ function assertChangelogContract(version: string, source: string): void {
   }
 }
 
+function releaseSubsection(source: string, version: string, heading: string): string {
+  const releaseStart = source.indexOf(`## [${version}]`);
+  const nextRelease = source.indexOf("\n## [", releaseStart + 1);
+  const release = source.slice(releaseStart, nextRelease === -1 ? undefined : nextRelease);
+  const sectionStart = release.indexOf(`### ${heading}`);
+  const nextSection = release.indexOf("\n### ", sectionStart + 1);
+  return release.slice(sectionStart, nextSection === -1 ? undefined : nextSection);
+}
+
 describe("changelog release contract", () => {
   it("keeps one current package release as the first versioned entry", () => {
     expect(() => assertChangelogContract(packageJson.version, changelog)).not.toThrow();
+  });
+
+  it("records new commands and deprecated retention keys in their release sections", () => {
+    const added = releaseSubsection(changelog, packageJson.version, "Added");
+    const deprecated = releaseSubsection(changelog, packageJson.version, "Deprecated");
+
+    expect(added).toContain("`memory forget`");
+    expect(added).toContain("`memory backup`");
+    expect(deprecated).toContain("`retention.raw_compile_before_delete`");
+    expect(deprecated).toContain("`retention.embeddings_prune_with_raw`");
+    expect(deprecated).toContain("`retention.crystals_never_auto_delete`");
+    expect(deprecated).toContain("`retention.archive_before_delete`");
   });
 
   it.each([

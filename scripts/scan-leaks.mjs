@@ -110,10 +110,8 @@ export async function scanTarget(target, options, { fileSystem = defaultFileSyst
     try {
       content = await fileSystem.readFile(join(target.root, ...relPath.split("/")), "utf8");
     } catch (error) {
-      if (options.requireFiles) {
-        throw new Error(`package scan could not read ${withPrefix(options.prefix, relPath)}: ${errorMessage(error)}`);
-      }
-      continue;
+      const scope = options.requireFiles ? "package" : "repository";
+      throw new Error(`${scope} scan could not read ${withPrefix(options.prefix, relPath)}: ${errorMessage(error)}`);
     }
 
     const lines = content.split(/\r?\n/);

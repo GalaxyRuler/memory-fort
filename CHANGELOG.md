@@ -10,6 +10,11 @@ Changes prepared for 0.13.1.
 
 ### Added
 - **Release and recovery checks produce verifiable evidence.** Release workflows require matching per-platform artifact manifests and hashes before their publish step can run, while backup/restore drills can validate staged recovery without replacing the active vault.
+- **Selective local erasure is available through `memory forget`.** The command plans or applies bounded raw, curated, and source-selected erasure while preserving signed evidence, recovery journals, and derived-index invalidation.
+- **Cryptographically manifested backups are available through `memory backup`.** The command creates, verifies, and drills restorable archives without replacing the active vault.
+
+### Deprecated
+- **Inactive retention toggles now warn and have no effect.** `retention.raw_compile_before_delete`, `retention.embeddings_prune_with_raw`, `retention.crystals_never_auto_delete`, and `retention.archive_before_delete` are superseded by `retention.raw_action: archive` and explicit `memory forget` operations.
 
 ### Fixed
 - **Contended captures are durably spooled and replayed.** Replay is bounded, persisted, review-aware, and recoverable after interruption, so a temporarily busy write path does not silently discard captured observations.
