@@ -251,12 +251,15 @@ describe("scan-leaks release gate", () => {
   });
 
   it("reads only eligible repository dist text artifacts", async () => {
-    const token = ["tail", "6916d8"].join("");
+    const tokens = [
+      ["srv", "1317946"].join(""),
+      ["tail", "6916d8"].join(""),
+    ];
     const readCounts = { text: 0, nonText: 0 };
     const fileSystem = repositoryDistFileSystem(
       async (path) => path.endsWith("dist")
         ? [
-          fileEntry(`cli-${token}.mjs`),
+          fileEntry(`cli-${tokens[0]}.mjs`),
           fileEntry("installer.exe"),
           fileEntry("native.dll"),
           fileEntry("model.onnx"),
@@ -265,10 +268,14 @@ describe("scan-leaks release gate", () => {
       async (path) => {
         if (path.endsWith(".mjs")) {
           readCounts.text += 1;
-          return `const route = "${token}";\n`;
+          return [
+            `const route = "${tokens[0]}";`,
+            `const host = "${tokens[1]}";`,
+            "",
+          ].join("\n");
         }
         readCounts.nonText += 1;
-        return token;
+        return tokens.join("\n");
       },
       () => 64,
     );
@@ -282,20 +289,20 @@ describe("scan-leaks release gate", () => {
 
     expect({
       hitCount: hits.length,
-      line: hits[0]?.line,
-      scope: hits[0]?.scope,
-      redactedPath: hits[0]?.path === "dist/cli-[REDACTED].mjs",
+      lines: hits.map((hit) => hit.line),
+      allDistScoped: hits.every((hit) => hit.scope === "dist"),
+      allPathsRedacted: hits.every((hit) => hit.path === "dist/cli-[REDACTED].mjs"),
       textReads: readCounts.text,
       nonTextReads: readCounts.nonText,
-      leakedToken: serialized.includes(token),
+      leakedMarker: tokens.some((token) => serialized.includes(token)),
     }).toEqual({
-      hitCount: 1,
-      line: 1,
-      scope: "dist",
-      redactedPath: true,
+      hitCount: 2,
+      lines: [1, 2],
+      allDistScoped: true,
+      allPathsRedacted: true,
       textReads: 1,
       nonTextReads: 0,
-      leakedToken: false,
+      leakedMarker: false,
     });
   });
 
