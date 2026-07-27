@@ -4,8 +4,6 @@ Run this checklist for **any** change that ships publicly — feature, fix, upgr
 
 ## 1. Verify
 - `npm run typecheck` — zero errors
-- `npm run typecheck:ui` — zero errors. On a clean checkout, run this after step 4's required `npm run build`, which generates `src/dashboard-ui/routeTree.gen.ts`.
-- `npm test` (or at least the affected suites) — green
 
 ## 2. Update docs FOR THE CHANGE (do not skip)
 - **README.md** — document new features, CLI flags, config knobs, and usage. Add any new wiki types, graph edge types, or `config.yaml` keys to their tables.
@@ -16,8 +14,10 @@ Run this checklist for **any** change that ships publicly — feature, fix, upgr
 - Bump with `npm version patch|minor|major` (features → minor; fixes/docs → patch). It updates `package.json` **and** `package-lock.json` and creates the `vX.Y.Z` git tag in one atomic step. Do **not** hand-edit the version — a package.json/lockfile mismatch breaks CI `npm ci`.
 - **One unified version** across the public repo and the private mirror — **no `-private` suffix**. (`-private` is a SemVer pre-release identifier that ranks the build *below* the public release, e.g. `0.9.1-private` < `0.9.1`.) If a private build must be marked, use build metadata `X.Y.Z+private` (ignored for precedence), but prefer not to.
 
-## 4. Build (REQUIRED — do not skip)
+## 4. Build + generated UI verification (REQUIRED — do not skip)
 - `npm run build`. The dashboard bakes its version and UI assets at **build time** (Vite `__APP_VERSION__`); skipping the build leaves the dashboard showing the old version.
+- `npm run typecheck:ui` — zero errors. Run it immediately after the build so it checks the freshly generated `src/dashboard-ui/routeTree.gen.ts`.
+- `npm test` (or at least the affected suites) — green. Run tests after the build because dashboard route tests can consume the generated route tree.
 
 ## 5. Privacy gate
 - `npm run scan:leaks` — must pass after the build so it inspects the freshly generated `dist`. Scrub any local paths / secrets it flags (including in test fixtures) before pushing.
