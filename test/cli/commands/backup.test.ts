@@ -58,7 +58,9 @@ describe("memory backup", () => {
       .split(/\r?\n/u)
       .filter(Boolean);
     const normalizedArchiveEntries = archiveEntries.map((entry) => entry.replaceAll("\\", "/").replace(/^\.\//u, ""));
-    const manifestEntry = normalizedArchiveEntries.find((entry) => entry === "backup-manifest.json");
+    const manifestEntry = archiveEntries.find(
+      (entry) => entry.replaceAll("\\", "/").replace(/^\.\//u, "") === "backup-manifest.json",
+    );
     expect(manifestEntry).toBeDefined();
     const manifestResult = await execFile("tar", ["-xOf", created.archivePath, manifestEntry!], { windowsHide: true });
     const manifest = JSON.parse(manifestResult.stdout) as BackupManifest;
