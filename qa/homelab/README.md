@@ -22,7 +22,13 @@ Lane shape:
 - class `container`, hardware `cpu`, image `node:22-bookworm` (engines require Node `>=22`)
 - network `bridge`, used only for `npm install` against the public npm registry
 - commands: `ONNXRUNTIME_NODE_INSTALL=skip npm install --no-audit --no-fund` -> `npm run build` -> `npm run typecheck`
-  (+ `typecheck:ui`) -> `npm test -- --reporter=dot`. Install is `npm install`, NOT
+  (+ `typecheck:ui`) -> `MEMORY_FORT_ARCHIVE_SNAPSHOT=1 npm test -- --reporter=dot
+  --no-file-parallelism`. Homelab extracts a source tar without `.git`, so the explicit
+  marker permits the tracked-quarantine inventory test to skip only when Git metadata
+  is actually absent. A normal source worktree still runs the exact Git inventory guard,
+  even if the marker is set. Test files run serially because parallel execution on the
+  shared runner caused the real dashboard/server file to hit its 120-second ceiling while
+  the affected files passed focused. Install is `npm install`, NOT
   `npm ci`: the Windows-generated lockfile omits Linux's electron-builder optional
   subtree, so `npm ci` hard-fails on Linux (see the `install` note in the profile and
   the `electron-builder-lockfile-linux` project memory).

@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
@@ -9,6 +9,7 @@ import { scanTarget } from "../../scripts/scan-leaks.mjs";
 
 const execFileAsync = promisify(execFile);
 const scannerPath = resolve(process.cwd(), "scripts", "scan-leaks.mjs");
+const ARCHIVE_SNAPSHOT_ENV = "MEMORY_FORT_ARCHIVE_SNAPSHOT";
 const REVIEWED_TRACKED_QUARANTINE_PATHS = [
   // Developer-tool launch metadata; any additional tracked match requires deliberate review.
   ".claude/launch.json",
@@ -922,14 +923,50 @@ describe("scan-leaks release gate", () => {
     expect(diagnostics).not.toContain(missingPath);
   });
 
+  it("bypasses Git inventory only for an explicit archive snapshot without Git metadata", async () => {
+    const archiveRoot = join(tmp, "archive-snapshot");
+    await mkdir(archiveRoot, { recursive: true });
+
+    await expect(readTrackedQuarantinedPaths(archiveRoot, {})).rejects.toThrow();
+    await expect(readTrackedQuarantinedPaths(archiveRoot, {
+      [ARCHIVE_SNAPSHOT_ENV]: "0",
+    })).rejects.toThrow();
+    await expect(readTrackedQuarantinedPaths(archiveRoot, {
+      [ARCHIVE_SNAPSHOT_ENV]: "1",
+    })).resolves.toBeNull();
+
+    const brokenCheckoutRoot = join(tmp, "broken-checkout");
+    await mkdir(join(brokenCheckoutRoot, ".git"), { recursive: true });
+    await expect(readTrackedQuarantinedPaths(brokenCheckoutRoot, {
+      [ARCHIVE_SNAPSHOT_ENV]: "1",
+    })).rejects.toThrow();
+  });
+
+  it("fails closed for a dangling .git lexical entry", async () => {
+    const danglingCheckoutRoot = join(tmp, "dangling-checkout");
+    await mkdir(danglingCheckoutRoot, { recursive: true });
+    try {
+      await symlink(
+        join(danglingCheckoutRoot, "missing-git-metadata"),
+        join(danglingCheckoutRoot, ".git"),
+        "dir",
+      );
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (process.platform === "win32" && (code === "EPERM" || code === "EACCES")) return;
+      throw error;
+    }
+    await expect(readTrackedQuarantinedPaths(danglingCheckoutRoot, {
+      [ARCHIVE_SNAPSHOT_ENV]: "1",
+    })).rejects.toThrow();
+  });
+
   it("requires every tracked quarantined path to be explicitly reviewed", async () => {
-    const { stdout } = await execFileAsync("git", ["ls-files", "-z"], {
-      cwd: process.cwd(),
-      encoding: "utf8",
-      windowsHide: true,
-    });
-    const trackedPaths = stdout.split("\0").filter(Boolean);
-    const trackedQuarantinedPaths = trackedPaths.filter(isReleaseQuarantined).sort();
+    const trackedQuarantinedPaths = await readTrackedQuarantinedPaths(
+      process.cwd(),
+      process.env,
+    );
+    if (trackedQuarantinedPaths === null) return;
 
     assertTrackedQuarantineCoverage(
       trackedQuarantinedPaths,
@@ -943,6 +980,39 @@ describe("scan-leaks release gate", () => {
     await writeFile(fullPath, content);
   }
 });
+
+async function readTrackedQuarantinedPaths(
+  cwd: string,
+  env: NodeJS.ProcessEnv,
+): Promise<string[] | null> {
+  if (
+    env[ARCHIVE_SNAPSHOT_ENV] === "1"
+    && !(await pathEntryExists(join(cwd, ".git")))
+  ) {
+    return null;
+  }
+  const { stdout } = await execFileAsync("git", ["ls-files", "-z"], {
+    cwd,
+    encoding: "utf8",
+    windowsHide: true,
+  });
+  return stdout
+    .split("\0")
+    .filter(Boolean)
+    .filter(isReleaseQuarantined)
+    .sort();
+}
+
+async function pathEntryExists(path: string): Promise<boolean> {
+  try {
+    await lstat(path);
+    return true;
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT" || code === "ENOTDIR") return false;
+    throw error;
+  }
+}
 
 function assertTrackedQuarantineCoverage(
   actual: readonly string[],
