@@ -2,6 +2,12 @@ name: Installed Native Capability Probe
 
 on:
   workflow_dispatch:
+    inputs:
+      run_windows:
+        description: Re-run Windows before the targeted macOS and Linux probe
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -17,6 +23,7 @@ env:
 jobs:
   win-arm64:
     name: Installed probe (Windows ARM64)
+    if: ${{ inputs.run_windows }}
     runs-on: windows-11-arm
     timeout-minutes: 150
     steps:
@@ -129,6 +136,7 @@ jobs:
 
   win-x64:
     name: Installed probe (Windows x64)
+    if: ${{ inputs.run_windows }}
     runs-on: windows-latest
     needs: win-arm64
     timeout-minutes: 150
@@ -247,7 +255,6 @@ jobs:
     # job starts failing at the post-strip launch, the documented macOS first-launch
     # path is broken for users — escalate the distribution posture, don't re-pin.
     runs-on: macos-latest
-    needs: win-x64
     timeout-minutes: 150
     steps:
       - uses: actions/checkout@v4
