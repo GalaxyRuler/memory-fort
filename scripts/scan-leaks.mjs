@@ -2,7 +2,7 @@
 import { execFileSync } from "node:child_process";
 import { constants } from "node:fs";
 import { access, open, readdir, readFile, stat } from "node:fs/promises";
-import { join, relative, resolve } from "node:path";
+import { isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { isReleaseQuarantined } from "./release/quarantine.mjs";
 
@@ -559,7 +559,7 @@ async function listFiles(rootPath, options, fileSystem = defaultFileSystem) {
         .sort();
       return { files, paths: pathsFromFiles(files) };
     } catch (error) {
-      throw new Error(`repository scan could not enumerate Git inventory: ${errorMessage(error)}`);
+      throw new Error(`repository scan could not enumerate Git inventory: ${errorMessage(error, [rootPath])}`);
     }
   }
   return walkFiles(rootPath, options, fileSystem);
@@ -676,8 +676,16 @@ function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function errorMessage(error) {
-  return redact(error instanceof Error ? error.message : String(error));
+function errorMessage(error, sensitivePaths = []) {
+  let message = error instanceof Error ? error.message : String(error);
+  for (const sensitivePath of sensitivePaths) {
+    const path = String(sensitivePath);
+    if (!isAbsolute(path)) continue;
+    for (const variant of new Set([path, toPosixPath(path)])) {
+      message = message.replace(new RegExp(escapeRegExp(variant), "gi"), "[REDACTED]");
+    }
+  }
+  return redact(message);
 }
 
 function redact(value) {
