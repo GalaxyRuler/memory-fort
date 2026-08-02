@@ -41,8 +41,15 @@ dispatch, confirm the selected runner (`vps`) is healthy; its dispatch-health ov
 goes stale past 72h and must be re-probed:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File "$env:CODEX_HOMELAB_ROOT\tools\codex-runner\Test-CodexContainerRunnerHealth.ps1" -RunnerName vps -SshTarget vps -OutputDirectory "$env:TEMP\vps-health" -Json
+$healthDirectory = Join-Path $env:TEMP "vps-health"
+$healthReport = Join-Path $healthDirectory "container-runner-health-vps.json"
+powershell -NoProfile -ExecutionPolicy Bypass -File "$env:CODEX_HOMELAB_ROOT\tools\codex-runner\Test-CodexContainerRunnerHealth.ps1" -RunnerName vps -SshTarget vps-probe -OutputDirectory $healthDirectory -Json
+powershell -NoProfile -ExecutionPolicy Bypass -File "$env:CODEX_HOMELAB_ROOT\tools\codex-runner\Update-CodexContainerDispatchHealth.ps1" -HealthReportPath $healthReport -Json
 ```
+
+`vps-probe` is the hardened alias in Homelab's tracked probe configuration. The
+second command refreshes the dispatch overlay that route resolution reads; a healthy
+standalone report does not make a stale overlay eligible by itself.
 
 To re-close the gate, set both flags back (`dryRunOnly: true`, `liveExecution.allowed: false`).
 
