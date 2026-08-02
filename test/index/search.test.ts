@@ -411,7 +411,7 @@ describe("lexicalSearch", () => {
     expect(lexicalSearch(indexDb, "sharedterm", { limit: 500 })).toHaveLength(100);
   });
 
-  it("limits in chunks_fts before joining chunk rows", () => {
+  it("ranks a bounded FTS-only page before filtering and hydrating chunk rows", () => {
     const capturedSql: string[] = [];
     const capturedParams: unknown[][] = [];
     const fakeDb = {
@@ -422,6 +422,8 @@ describe("lexicalSearch", () => {
           return {
             all: (...params: unknown[]) => {
               capturedParams[statementIndex] = params;
+              if (statementIndex === 0) return [{ rowid: 42, bm25Score: -1 }];
+              if (statementIndex === 1) return [{ rowid: 42 }];
               return [];
             },
           };
@@ -430,18 +432,20 @@ describe("lexicalSearch", () => {
     } as unknown as IndexDb;
 
     expect(lexicalSearch(fakeDb, "needle", { limit: 7 })).toEqual([]);
-    expect(capturedParams[0]).toEqual(['"needle"', 140, 140]);
-    expect(capturedParams[1]).toEqual(["%needle%", 140]);
-    expect(capturedSql[0]).toContain("WITH matched AS");
-    expect(capturedSql[0]).toContain("ranked AS");
+    expect(capturedParams[0]).toEqual(['"needle"', 140, 0]);
+    expect(capturedParams[1]).toEqual([42]);
+    expect(capturedParams[2]).toEqual([42, -1, 140]);
+    expect(capturedParams[3]).toEqual(["%needle%", 140]);
     expect(capturedSql[0]).toContain("FROM chunks_fts WHERE chunks_fts MATCH ?");
-    expect(capturedSql[0]).toContain("chunks_fts.relPath IN ( SELECT files.relPath FROM files");
-    expect(capturedSql[0]).toContain("FROM matched JOIN chunks");
-    expect(capturedSql[0]).toContain("WHERE chunks_fts MATCH ?");
-    expect(capturedSql[0]!.indexOf("LIMIT ?")).toBeLessThan(capturedSql[0]!.indexOf("ranked AS"));
-    expect(capturedSql[0]!.indexOf("LIMIT ?")).toBeLessThan(capturedSql[0]!.indexOf("FROM matched JOIN chunks"));
-    expect(capturedSql[1]).toContain("matched_files AS");
-    expect(capturedSql[1]).toContain("FROM files");
+    expect(capturedSql[0]).toContain("LIMIT ? OFFSET ?");
+    expect(capturedSql[0]).not.toContain("JOIN chunks");
+    expect(capturedSql[0]).not.toContain("JOIN files");
+    expect(capturedSql[1]).toContain("FROM chunks JOIN files");
+    expect(capturedSql[1]).toContain("WHERE chunks.rowid IN (?)");
+    expect(capturedSql[2]).toContain("WITH matched(rowid, bm25Score) AS ( VALUES (?, ?)");
+    expect(capturedSql[2]).toContain("FROM matched JOIN chunks");
+    expect(capturedSql[3]).toContain("matched_files AS");
+    expect(capturedSql[3]).toContain("FROM files");
   });
 
   async function createHarness(): Promise<{ vaultRoot: string; indexDb: IndexDb }> {

@@ -130,6 +130,15 @@ interface LexicalSearchRow extends Omit<LexicalSearchResult, "kind"> {
   readonly frontmatterObservedAt: string | null;
 }
 
+interface FtsCandidate {
+  readonly rowid: number;
+  readonly bm25Score: number;
+}
+
+interface EligibleFtsCandidate {
+  readonly rowid: number;
+}
+
 interface RankedLexicalSearchRow {
   readonly row: LexicalSearchRow;
   readonly pathMatches: number;
@@ -157,28 +166,57 @@ export function lexicalSearch(
   const identityFilter = identitySql(options, "files");
 
   try {
-    // Resolve eligible documents once, then rank FTS rows. Joining files/chunks
-    // for every FTS hit made broad queries scale with the full chunk corpus
-    // before LIMIT could apply (millions of joins in the installed 750 MiB gate).
-    const rows = indexDb.database
-      .prepare<unknown[], LexicalSearchRow>(`
-        WITH matched AS (
+    // Keep the rank scan FTS-only so SQLite can use FTS5's top-N plan. Any
+    // metadata predicate in that statement makes a broad query visit every
+    // matching chunk before LIMIT (2.25M rows in the installed 750 MiB gate).
+    // Filter each ranked page separately and keep paging until the same number
+    // of eligible chunks has been collected, preserving pre-limit semantics.
+    const matched: FtsCandidate[] = [];
+    let offset = 0;
+    while (matched.length < candidateLimit) {
+      const page = indexDb.database
+        .prepare<[string, number, number], FtsCandidate>(`
           SELECT chunks_fts.rowid AS rowid, bm25(chunks_fts) AS bm25Score
           FROM chunks_fts
           WHERE chunks_fts MATCH ?
-            AND chunks_fts.relPath IN (
-              SELECT files.relPath
-              FROM files
-              WHERE ${scopeFilter}
-                AND ${protectedPathFilter}
-                AND ${lifecycleFilter}
-                AND ${temporalFilter}
-                AND ${identityFilter.sql}
-            )
           ORDER BY bm25Score ASC, chunks_fts.rowid ASC
-          LIMIT ?
-        ),
-        ranked AS (
+          LIMIT ? OFFSET ?
+        `)
+        .all(matchQuery, candidateLimit, offset);
+      if (page.length === 0) break;
+
+      const rowidPlaceholders = page.map(() => "?").join(", ");
+      const eligibleRows = indexDb.database
+        .prepare<unknown[], EligibleFtsCandidate>(`
+          SELECT chunks.rowid AS rowid
+          FROM chunks
+          JOIN files ON files.relPath = chunks.relPath
+          WHERE chunks.rowid IN (${rowidPlaceholders})
+            AND ${scopeFilter}
+            AND ${protectedPathFilter}
+            AND ${lifecycleFilter}
+            AND ${temporalFilter}
+            AND ${identityFilter.sql}
+        `)
+        .all(...page.map((candidate) => candidate.rowid), ...temporalParams, ...identityFilter.params);
+      const eligibleRowids = new Set(eligibleRows.map((candidate) => candidate.rowid));
+      for (const candidate of page) {
+        if (eligibleRowids.has(candidate.rowid)) matched.push(candidate);
+        if (matched.length === candidateLimit) break;
+      }
+
+      offset += page.length;
+      if (page.length < candidateLimit) break;
+    }
+
+    const rows = matched.length === 0
+      ? []
+      : indexDb.database
+        .prepare<unknown[], LexicalSearchRow>(`
+          WITH matched(rowid, bm25Score) AS (
+            VALUES ${matched.map(() => "(?, ?)").join(", ")}
+          ),
+          ranked AS (
           SELECT
             chunks.rowid AS rowid,
             chunks.chunkId AS chunkId,
@@ -257,10 +295,10 @@ export function lexicalSearch(
           score
         FROM ranked
         WHERE docRank = 1
-        ORDER BY scopeRank ASC, score ASC, bm25Score ASC, relPath ASC, rowid ASC
-          LIMIT ?
-      `)
-      .all(matchQuery, ...temporalParams, ...identityFilter.params, candidateLimit, candidateLimit);
+          ORDER BY scopeRank ASC, score ASC, bm25Score ASC, relPath ASC, rowid ASC
+            LIMIT ?
+        `)
+        .all(...matched.flatMap((candidate) => [candidate.rowid, candidate.bm25Score]), candidateLimit);
 
     return rankRows(mergeRowsByRelPath(rows, pathCandidateRows(indexDb, terms, candidateLimit, { ...options, asOf })), terms)
       .slice(0, limit)
