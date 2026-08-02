@@ -4,6 +4,11 @@ All notable changes to Memory Fort are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.2] - 2026-08-02
+
+### Fixed
+- **Broad indexed searches keep FTS ranking bounded before metadata filtering.** Scope, archive, lifecycle, temporal, and identity filters are applied to ranked pages without forcing SQLite to join the entire matching chunk corpus before the candidate limit, preventing installed-app search timeouts on large vaults.
+
 ## [0.13.1] - 2026-07-27
 
 Changes prepared for 0.13.1.
