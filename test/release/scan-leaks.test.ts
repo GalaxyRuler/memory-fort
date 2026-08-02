@@ -845,6 +845,62 @@ describe("scan-leaks release gate", () => {
     );
   });
 
+  it("fails closed when repository Git inventory cannot be read", async () => {
+    await mkdir(join(tmp, ".git"), { recursive: true });
+    await writeText("source.ts", "export const safe = true;\n");
+
+    const result = await runScan(["--root", tmp]);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("repository scan could not enumerate Git inventory");
+    expect(result.stderr).not.toContain(tmp);
+    expect(result.stderr).not.toContain(tmp.replace(/\\/g, "/"));
+  });
+
+  it("fails closed when repository fallback cannot enumerate a directory", async () => {
+    const token = ["srv", "1317946"].join("");
+    const fileSystem = {
+      access: async () => {
+        throw new Error("not found");
+      },
+      readdir: async () => {
+        throw new Error(`${token} unreadable`);
+      },
+      readFile: async () => "",
+      stat: async () => ({ isFile: () => false, isDirectory: () => true }),
+    };
+
+    await expect(scanTarget(
+      { root: "repo", prefix: "" },
+      { quarantine: true, prefix: "", requireFiles: false },
+      { fileSystem },
+    )).rejects.toThrow(
+      "repository scan could not enumerate .: [REDACTED] unreadable",
+    );
+  });
+
+  it("fails closed when repository fallback cannot inspect a file", async () => {
+    const token = ["srv", "1317946"].join("");
+    const fileSystem = {
+      access: async () => {
+        throw new Error("not found");
+      },
+      readdir: async () => [fileEntry("source.ts")],
+      readFile: async () => "",
+      stat: async () => {
+        throw new Error(`${token} unreadable`);
+      },
+    };
+
+    await expect(scanTarget(
+      { root: "repo", prefix: "" },
+      { quarantine: true, prefix: "", requireFiles: false },
+      { fileSystem },
+    )).rejects.toThrow(
+      "repository scan could not inspect source.ts: [REDACTED] unreadable",
+    );
+  });
+
   it("redacts repository dist paths when enumeration fails", async () => {
     const token = ["srv", "1317946"].join("");
     const enumerateFailure = repositoryDistFileSystem(async (path) => {
@@ -989,7 +1045,7 @@ describe("scan-leaks release gate", () => {
       process.env,
     );
     if (trackedQuarantinedPaths === null) {
-      ctx.skip("archive snapshot has no Git metadata");
+      ctx.skip();
       return;
     }
 

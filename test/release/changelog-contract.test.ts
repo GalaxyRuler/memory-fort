@@ -7,6 +7,7 @@ const packageJson = JSON.parse(
   readFileSync(join(repoRoot, "package.json"), "utf-8"),
 ) as { version: string };
 const changelog = readFileSync(join(repoRoot, "CHANGELOG.md"), "utf-8");
+const RELEASE_CONTENT_VERSION = "0.13.1";
 const semanticVersion = /\b\d+\.\d+\.\d+\b/;
 const versionHeading = /^## \[(\d+\.\d+\.\d+)\] - \d{4}-\d{2}-\d{2}$/;
 
@@ -50,8 +51,8 @@ describe("changelog release contract", () => {
   });
 
   it("records new commands and deprecated retention keys in their release sections", () => {
-    const added = releaseSubsection(changelog, packageJson.version, "Added");
-    const deprecated = releaseSubsection(changelog, packageJson.version, "Deprecated");
+    const added = releaseSubsection(changelog, RELEASE_CONTENT_VERSION, "Added");
+    const deprecated = releaseSubsection(changelog, RELEASE_CONTENT_VERSION, "Deprecated");
 
     expect(added).toContain("`memory forget`");
     expect(added).toContain("`memory backup`");

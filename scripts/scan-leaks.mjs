@@ -87,7 +87,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
 export async function scanTarget(target, options, { fileSystem = defaultFileSystem, hits = [] } = {}) {
   const inventory = await listFiles(
     target.root,
-    { quarantine: options.quarantine, strict: options.requireFiles },
+    { quarantine: options.quarantine, scope: options.requireFiles ? "package" : "repository" },
     fileSystem,
   );
   const { files, paths } = inventory;
@@ -550,6 +550,7 @@ async function listFiles(rootPath, options, fileSystem = defaultFileSystem) {
     try {
       const files = execFileSync("git", ["-C", rootPath, "ls-files", "-z"], {
         encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
         windowsHide: true,
       })
         .split("\0")
@@ -557,8 +558,8 @@ async function listFiles(rootPath, options, fileSystem = defaultFileSystem) {
         .map(toPosixPath)
         .sort();
       return { files, paths: pathsFromFiles(files) };
-    } catch {
-      return walkFiles(rootPath, options, fileSystem);
+    } catch (error) {
+      throw new Error(`repository scan could not enumerate Git inventory: ${errorMessage(error)}`);
     }
   }
   return walkFiles(rootPath, options, fileSystem);
@@ -573,11 +574,8 @@ async function walkFiles(rootPath, options, fileSystem = defaultFileSystem) {
     try {
       entries = await fileSystem.readdir(dir, { withFileTypes: true });
     } catch (error) {
-      if (options.strict) {
-        const relDir = toPosixPath(relative(rootPath, dir)) || ".";
-        throw new Error(`package scan could not enumerate ${redact(relDir)}: ${errorMessage(error)}`);
-      }
-      return;
+      const relDir = toPosixPath(relative(rootPath, dir)) || ".";
+      throw new Error(`${options.scope} scan could not enumerate ${redact(relDir)}: ${errorMessage(error)}`);
     }
 
     for (const entry of entries) {
@@ -585,42 +583,26 @@ async function walkFiles(rootPath, options, fileSystem = defaultFileSystem) {
       const relPath = toPosixPath(relative(rootPath, fullPath));
       if (options.quarantine && isQuarantined(relPath)) continue;
       if (typeof entry.isSymbolicLink === "function" && entry.isSymbolicLink()) {
-        if (options.strict) {
-          throw new Error(`package scan does not support symbolic link: ${redact(relPath)}`);
-        }
-        continue;
+        throw new Error(`${options.scope} scan does not support symbolic link: ${redact(relPath)}`);
       }
       const isDirectoryEntry = entry.isDirectory();
       const isFileEntry = entry.isFile();
       if (!isDirectoryEntry && !isFileEntry) {
-        if (options.strict) {
-          throw new Error(`package scan encountered unsupported entry: ${redact(relPath)}`);
-        }
-        continue;
+        throw new Error(`${options.scope} scan encountered unsupported entry: ${redact(relPath)}`);
       }
       let info;
-      if (options.strict) {
-        try {
-          info = await fileSystem.stat(fullPath);
-        } catch (error) {
-          throw new Error(`package scan could not inspect ${redact(relPath)}: ${errorMessage(error)}`);
-        }
-        if ((isDirectoryEntry && !info.isDirectory()) || (isFileEntry && !info.isFile())) {
-          throw new Error(`package scan entry type mismatch: ${redact(relPath)}`);
-        }
+      try {
+        info = await fileSystem.stat(fullPath);
+      } catch (error) {
+        throw new Error(`${options.scope} scan could not inspect ${redact(relPath)}: ${errorMessage(error)}`);
+      }
+      if ((isDirectoryEntry && !info.isDirectory()) || (isFileEntry && !info.isFile())) {
+        throw new Error(`${options.scope} scan entry type mismatch: ${redact(relPath)}`);
       }
       paths.push(relPath);
       if (isDirectoryEntry) {
         await walk(fullPath);
       } else {
-        if (!options.strict) {
-          try {
-            info = await fileSystem.stat(fullPath);
-          } catch {
-            continue;
-          }
-          if (!info.isFile()) continue;
-        }
         files.push(relPath);
       }
     }
