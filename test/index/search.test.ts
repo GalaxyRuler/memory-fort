@@ -434,9 +434,12 @@ describe("lexicalSearch", () => {
     expect(capturedParams[1]).toEqual(["%needle%", 140]);
     expect(capturedSql[0]).toContain("WITH matched AS");
     expect(capturedSql[0]).toContain("ranked AS");
-    expect(capturedSql[0]).toContain("FROM chunks_fts JOIN chunks");
+    expect(capturedSql[0]).toContain("FROM chunks_fts WHERE chunks_fts MATCH ?");
+    expect(capturedSql[0]).toContain("chunks_fts.relPath IN ( SELECT files.relPath FROM files");
+    expect(capturedSql[0]).toContain("FROM matched JOIN chunks");
     expect(capturedSql[0]).toContain("WHERE chunks_fts MATCH ?");
     expect(capturedSql[0]!.indexOf("LIMIT ?")).toBeLessThan(capturedSql[0]!.indexOf("ranked AS"));
+    expect(capturedSql[0]!.indexOf("LIMIT ?")).toBeLessThan(capturedSql[0]!.indexOf("FROM matched JOIN chunks"));
     expect(capturedSql[1]).toContain("matched_files AS");
     expect(capturedSql[1]).toContain("FROM files");
   });

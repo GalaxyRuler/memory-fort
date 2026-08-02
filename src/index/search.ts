@@ -157,19 +157,24 @@ export function lexicalSearch(
   const identityFilter = identitySql(options, "files");
 
   try {
+    // Resolve eligible documents once, then rank FTS rows. Joining files/chunks
+    // for every FTS hit made broad queries scale with the full chunk corpus
+    // before LIMIT could apply (millions of joins in the installed 750 MiB gate).
     const rows = indexDb.database
       .prepare<unknown[], LexicalSearchRow>(`
         WITH matched AS (
           SELECT chunks_fts.rowid AS rowid, bm25(chunks_fts) AS bm25Score
           FROM chunks_fts
-          JOIN chunks ON chunks.rowid = chunks_fts.rowid
-          JOIN files ON files.relPath = chunks.relPath
           WHERE chunks_fts MATCH ?
-            AND ${scopeFilter}
-            AND ${protectedPathFilter}
-            AND ${lifecycleFilter}
-            AND ${temporalFilter}
-            AND ${identityFilter.sql}
+            AND chunks_fts.relPath IN (
+              SELECT files.relPath
+              FROM files
+              WHERE ${scopeFilter}
+                AND ${protectedPathFilter}
+                AND ${lifecycleFilter}
+                AND ${temporalFilter}
+                AND ${identityFilter.sql}
+            )
           ORDER BY bm25Score ASC, chunks_fts.rowid ASC
           LIMIT ?
         ),
