@@ -11,10 +11,12 @@ import {
 import { dirname, join, relative } from "node:path";
 import {
   applyCompileOperationsWithCompileLockHeld,
+  compileOperationPath,
   parseCompileOperationsBlock,
   type ApplyCompileOperationsResult,
 } from "../../compile/execute.js";
 import type { FaithfulnessFact } from "../../compile/faithfulness.js";
+import { hashCompileOperationForLedger } from "../../compile/proposal-ledger.js";
 import { pruneOpsJournalForAdvancedRaws } from "../../compile/ops-journal.js";
 import { condenseIndex } from "../../compile/condense-index.js";
 import { filterRawText } from "../../compile/filter-raw.js";
@@ -46,6 +48,7 @@ import {
   readCompileStateFile,
   readCompressedMap,
   readConsumedMap,
+  readRejectedOpsMap,
   summarizeCompilePending,
   writeCompileStateFile,
   type CompilePendingSummary,
@@ -97,6 +100,7 @@ export interface CompileResult {
   execution?: {
     mode: "plan" | "execute";
     rawInputConsumed?: boolean;
+    rejectionQuarantinedRawPaths?: string[];
   } & ApplyCompileOperationsResult;
   indexRebuild?: RebuildIndexResult;
   filterStats?: CompileFilterStats;
@@ -590,6 +594,21 @@ async function runCompileImpl(
       sourceRaws: includedWatermarks.map((item) => item.relPath),
     })
     : undefined;
+  const rejectionQuarantinePaths = new Set(execution?.rejectionQuarantinedRawPaths ?? []);
+  if (rejectionQuarantinePaths.size > 0) {
+    const alreadyScheduled = new Set(noiseOnlyWatermarks.map((item) => item.relPath));
+    for (const included of includedWatermarks) {
+      if (!rejectionQuarantinePaths.has(included.relPath) || alreadyScheduled.has(included.relPath)) continue;
+      alreadyScheduled.add(included.relPath);
+      noiseOnlyWatermarks.push(included);
+      pendingLowSignalQuarantines.push({
+        relPath: included.relPath,
+        signalBytes: included.bytes,
+        at: included.lastObservationAt,
+        reason: "rejected operation reached three consecutive compile executes",
+      });
+    }
+  }
   const { advanced: watermarksAdvanced, contentAdvanced } = await maybeAdvanceWatermarks({
     root,
     watermarkMode,
@@ -646,12 +665,17 @@ async function runCompileImpl(
   };
 }
 
-type LowSignalQuarantineEntry = { relPath: string; signalBytes: number; at: string };
+type LowSignalQuarantineEntry = { relPath: string; signalBytes: number; at: string; reason?: string };
 
 async function appendLowSignalQuarantine(root: string, entry: LowSignalQuarantineEntry): Promise<void> {
   const dir = join(root, "var");
   await mkdir(dir, { recursive: true });
-  const line = JSON.stringify({ relPath: entry.relPath, signalBytes: entry.signalBytes, at: entry.at }) + "\n";
+  const line = JSON.stringify({
+    relPath: entry.relPath,
+    signalBytes: entry.signalBytes,
+    at: entry.at,
+    ...(entry.reason ? { reason: entry.reason } : {}),
+  }) + "\n";
   await appendFile(join(dir, "quarantine-lowsignal.jsonl"), line, "utf-8");
 }
 
@@ -1053,11 +1077,79 @@ async function executeCompilePromptWithCompileLockHeld(
     journal: !opts.plan,
     sourceRaws: opts.sourceRaws,
   });
+  const rejectionQuarantine = opts.plan
+    ? { rawPaths: [] }
+    : await recordRejectedCompileOperations(
+      opts.root,
+      parsed.operations,
+      applied.rejected,
+      opts.sourceRaws ?? [],
+    );
   return {
     mode: opts.plan ? "plan" : "execute",
     rawInputConsumed: applied.rejected.length === 0,
+    ...(rejectionQuarantine.rawPaths.length > 0
+      ? { rejectionQuarantinedRawPaths: rejectionQuarantine.rawPaths }
+      : {}),
     ...applied,
   };
+}
+
+async function recordRejectedCompileOperations(
+  root: string,
+  operations: readonly import("../../compile/execute.js").CompileOperation[],
+  rejected: readonly { path: string; reason: string }[],
+  sourceRaws: readonly string[],
+): Promise<{ rawPaths: string[] }> {
+  const rejectedPathCounts = new Map<string, number>();
+  for (const item of rejected) {
+    const path = normalizeRejectedOperationPath(item.path);
+    rejectedPathCounts.set(path, (rejectedPathCounts.get(path) ?? 0) + 1);
+  }
+
+  const rejectedHashes = new Set<string>();
+  const operationHashes = new Set<string>();
+  for (const operation of operations) {
+    const hash = hashCompileOperationForLedger(operation);
+    operationHashes.add(hash);
+    const path = normalizeRejectedOperationPath(compileOperationPath(operation));
+    const remaining = rejectedPathCounts.get(path) ?? 0;
+    if (remaining <= 0) continue;
+    rejectedPathCounts.set(path, remaining - 1);
+    rejectedHashes.add(hash);
+  }
+
+  if (operationHashes.size === 0) return { rawPaths: [] };
+  const now = new Date().toISOString();
+  const quarantinedRawPaths = new Set<string>();
+  await mutateCompileStateFile(root, (state) => {
+    const rejectedOps = readRejectedOpsMap(state);
+    for (const hash of operationHashes) {
+      if (!rejectedHashes.has(hash)) delete rejectedOps[hash];
+    }
+    for (const hash of rejectedHashes) {
+      const previous = rejectedOps[hash];
+      const consecutiveRejections = (previous?.consecutiveRejections ?? 0) + 1;
+      const allSourceRaws = [...new Set([...(previous?.sourceRaws ?? []), ...sourceRaws])];
+      if (consecutiveRejections >= 3) {
+        for (const relPath of allSourceRaws) quarantinedRawPaths.add(relPath);
+      }
+      rejectedOps[hash] = {
+        consecutiveRejections,
+        sourceRaws: allSourceRaws,
+        lastRejectedAt: now,
+        ...(previous?.quarantinedAt || consecutiveRejections >= 3
+          ? { quarantinedAt: previous?.quarantinedAt ?? now }
+          : {}),
+      };
+    }
+    return { ...state, rejectedOps };
+  });
+  return { rawPaths: [...quarantinedRawPaths] };
+}
+
+function normalizeRejectedOperationPath(path: string): string {
+  return path.replace(/\\/g, "/").toLowerCase();
 }
 
 

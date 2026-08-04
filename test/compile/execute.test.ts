@@ -445,6 +445,61 @@ describe("compile execute operations", () => {
     expect(await readFile(join(tmp, "wiki", "projects", "memory-fort.md"), "utf-8")).toBe(before);
   });
 
+  it("scopes faithfulness facts to the target page instead of the whole batch", async () => {
+    await writeFileAt("raw/2026-05-28/b.md", rawPage("B", "session-b"));
+    const generationFacts = [{
+      fact_id: "raw/2026-05-28/a.md",
+      narrative: "Alpha tracks a distinctive deployment fact.",
+    }];
+    const judge: LLMProvider = {
+      providerName: "fake",
+      modelName: "faithfulness-scope-test",
+      chat: async (request) => {
+        if (request.jsonSchema?.name !== "FaithfulnessOutput") {
+          throw new Error(`unexpected judge request: ${request.jsonSchema?.name ?? "none"}`);
+        }
+        const prompt = request.messages.at(-1)?.content ?? "";
+        return fakeLLMResponse(JSON.stringify({
+          unsupported_claims: prompt.includes("(no source facts)") ? ["Alpha claim"] : [],
+        }));
+      },
+    };
+    const operation = (path: string, title: string) => ({
+      kind: "write_page" as const,
+      path,
+      frontmatter: {
+        type: "projects",
+        title,
+        relations: { derived_from: ["raw/2026-05-28/a.md", "raw/2026-05-28/b.md"] },
+      },
+      body: "Alpha tracks a distinctive deployment fact.",
+    });
+
+    const control = await applyCompileOperations({
+      vaultRoot: tmp,
+      generationLLM: judge,
+      generationFacts,
+      operations: [operation("wiki/projects/alpha.md", "Alpha")],
+    });
+    expect(control.applied).toEqual(["wiki/projects/alpha.md"]);
+    expect(control.proposed).toEqual([]);
+
+    const crossTarget = await applyCompileOperations({
+      vaultRoot: tmp,
+      generationLLM: judge,
+      generationFacts,
+      operations: [operation("wiki/projects/beta.md", "Beta")],
+    });
+    expect(crossTarget.applied).toEqual([]);
+    expect(crossTarget.proposed).toEqual(["wiki/compile-proposed/beta.md"]);
+    expect(crossTarget.outcomes).toContainEqual(expect.objectContaining({
+      path: "wiki/projects/beta.md",
+      outcome: "staged-for-review",
+      reason: expect.stringContaining("unsupported generated claims"),
+    }));
+    expect(existsSync(join(tmp, "wiki", "projects", "beta.md"))).toBe(false);
+  });
+
   it("preserves existing curated relations when rewrite_page emits only derived_from", async () => {
     await writeFileAt("raw/x.md", rawPage("X", "session-x"));
     await writeFileAt("wiki/tools/voyageai.md", page("tools", "VoyageAI", "VoyageAI embeddings."));

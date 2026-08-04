@@ -41,12 +41,20 @@ export interface CompileLastFilterStats {
   at: string;
 }
 
+export interface CompileRejectedOperation {
+  consecutiveRejections: number;
+  sourceRaws: string[];
+  lastRejectedAt: string;
+  quarantinedAt?: string;
+}
+
 export interface CompileStateFile {
   status?: string;
   lastRun?: unknown;
   lastFilterStats?: CompileLastFilterStats;
   consumed?: Record<string, CompileConsumedWatermark>;
   compressed?: Record<string, CompileConsumedWatermark>;
+  rejectedOps?: Record<string, CompileRejectedOperation>;
   [key: string]: unknown;
 }
 
@@ -154,6 +162,36 @@ export function readConsumedMap(state: CompileStateFile): Record<string, Compile
 
 export function readCompressedMap(state: CompileStateFile): Record<string, CompileConsumedWatermark> {
   return readWatermarkMap(state.compressed);
+}
+
+export function readRejectedOpsMap(state: CompileStateFile): Record<string, CompileRejectedOperation> {
+  const value = state.rejectedOps;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const normalized: Record<string, CompileRejectedOperation> = {};
+  for (const [hash, entry] of Object.entries(value)) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
+    const record = entry as unknown as Record<string, unknown>;
+    const consecutiveRejections = record["consecutiveRejections"];
+    const sourceRaws = record["sourceRaws"];
+    const lastRejectedAt = record["lastRejectedAt"];
+    if (
+      typeof consecutiveRejections !== "number" ||
+      !Number.isInteger(consecutiveRejections) ||
+      consecutiveRejections < 1 ||
+      !Array.isArray(sourceRaws) ||
+      !sourceRaws.every((path) => typeof path === "string") ||
+      typeof lastRejectedAt !== "string"
+    ) {
+      continue;
+    }
+    normalized[hash] = {
+      consecutiveRejections,
+      sourceRaws: [...sourceRaws],
+      lastRejectedAt,
+      ...(typeof record["quarantinedAt"] === "string" ? { quarantinedAt: record["quarantinedAt"] } : {}),
+    };
+  }
+  return normalized;
 }
 
 export function createCompilePendingSummaryCache(ttlMs = DEFAULT_PENDING_SUMMARY_CACHE_TTL_MS): CompilePendingSummaryCache {

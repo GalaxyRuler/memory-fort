@@ -1183,9 +1183,10 @@ async function guardLLMGeneratedOperation(opts: {
   if (existsSync(fullPath)) {
     priorBody = parseFrontmatter(await readFile(fullPath, "utf-8")).body;
   }
+  const scopedFacts = await scopeFaithfulnessFactsToPage(opts.vaultRoot, opts.operation, opts.facts ?? []);
   const verdict = await assessClaimSupport({
     body,
-    facts: opts.facts ?? [],
+    facts: scopedFacts,
     priorBody,
     llm: opts.llm,
   });
@@ -1196,6 +1197,60 @@ async function guardLLMGeneratedOperation(opts: {
       ? `unsupported generated claims: ${verdict.unsupportedClaims.join("; ")}`
       : `generated operation unverifiable: ${verdict.reason ?? "unknown judge failure"}`,
   };
+}
+
+async function scopeFaithfulnessFactsToPage(
+  vaultRoot: string,
+  operation: CompileOperation,
+  facts: FaithfulnessFact[],
+): Promise<FaithfulnessFact[]> {
+  if (facts.length === 0) return [];
+  const target = readWikiPageTarget(compileOperationPath(operation));
+  if (target.kind !== "page") return facts;
+
+  const identityParts = [basename(target.path, ".md")];
+  if (operation.kind === "write_page" || operation.kind === "rewrite_page") {
+    appendPageIdentityParts(identityParts, operation.frontmatter?.title);
+    appendPageIdentityParts(identityParts, operation.frontmatter?.concepts);
+  }
+
+  const fullPath = join(vaultRoot, ...target.path.split("/"));
+  if (existsSync(fullPath)) {
+    try {
+      const frontmatter = parseFrontmatter(await readFile(fullPath, "utf-8")).frontmatter;
+      appendPageIdentityParts(identityParts, frontmatter.title);
+      appendPageIdentityParts(identityParts, frontmatter.concepts);
+    } catch {
+      // A malformed existing page is handled by its normal compile guard; the
+      // faithfulness scope remains conservative from the operation target.
+    }
+  }
+
+  const identityTokens = pageRelevanceTokens(identityParts.join(" "));
+  if (identityTokens.size === 0) return [];
+  return facts.filter((fact) => {
+    const factTokens = pageRelevanceTokens(`${fact.fact_id} ${fact.narrative}`);
+    for (const token of identityTokens) {
+      if (factTokens.has(token)) return true;
+    }
+    return false;
+  });
+}
+
+function appendPageIdentityParts(parts: string[], value: unknown): void {
+  if (typeof value === "string") {
+    parts.push(value);
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      if (typeof item === "string") parts.push(item);
+    }
+  }
+}
+
+function pageRelevanceTokens(value: string): Set<string> {
+  return new Set(value.toLocaleLowerCase().match(/[\p{L}\p{N}]{3,}/gu) ?? []);
 }
 
 async function rewriteExistingKnowledgePageUpdate(opts: {

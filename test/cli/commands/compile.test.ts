@@ -13,6 +13,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { mkdtemp } from "node:fs/promises";
 import { formatCompileExecuteSummary, runCompile, runCompileDrain, type CompileResult } from "../../../src/cli/commands/compile.js";
+import { hashCompileOperationForLedger } from "../../../src/compile/proposal-ledger.js";
 import { readCompileStateFile, writeCompileStateFile } from "../../../src/compile/state.js";
 import type { LLMProvider } from "../../../src/llm/types.js";
 
@@ -583,6 +584,72 @@ describe("runCompile", () => {
     const state = await readCompileState();
     expect(state.consumed ?? {}).not.toHaveProperty("raw/2026-05-21/manual-a.md");
     expect(state.consumed ?? {}).not.toHaveProperty("raw/2026-05-21/manual-b.md");
+  });
+
+  it("quarantines source raws after the same rejected operation reaches three strikes", async () => {
+    const rawA = "raw/2026-05-21/manual-a.md";
+    const rawB = "raw/2026-05-21/manual-b.md";
+    await writeFile(join(root, ...rawA.split("/")), "first source observation\n");
+    await writeFile(join(root, ...rawB.split("/")), "second source observation\n");
+    const rejectedOperation = {
+      kind: "write_page" as const,
+      path: "wiki/unknowns/quarantine-me.md",
+      body: "This operation targets an invalid wiki category.",
+    };
+    const llm = fakeExecuteLLMWith(() => [rejectedOperation]);
+
+    const first = await runCompile({ vaultRoot: root, execute: true, llmFactory: () => llm, env: {} });
+    const second = await runCompile({ vaultRoot: root, execute: true, llmFactory: () => llm, env: {} });
+    const third = await runCompile({ vaultRoot: root, execute: true, llmFactory: () => llm, env: {} });
+
+    expect(first.watermarksAdvanced).toEqual([]);
+    expect(second.watermarksAdvanced).toEqual([]);
+    expect(third.execution?.rejected).toHaveLength(1);
+    expect(third.lowSignalQuarantined).toBe(2);
+    expect(third.watermarksAdvanced).toEqual([rawA, rawB]);
+    const state = await readCompileStateFile(root);
+    const rejected = state.rejectedOps?.[hashCompileOperationForLedger(rejectedOperation)];
+    expect(rejected?.consecutiveRejections).toBe(3);
+    const quarantine = await readFile(join(root, "var", "quarantine-lowsignal.jsonl"), "utf-8");
+    expect(quarantine).toContain("rejected operation reached three consecutive compile executes");
+    expect((await readFile(join(root, "raw", "2026-05-21", "manual-a.md"), "utf-8"))).toContain("first source");
+  });
+
+  it("resets a rejected-operation strike count after the same operation succeeds", async () => {
+    const rawA = "raw/2026-05-21/manual-a.md";
+    const rawB = "raw/2026-05-21/manual-b.md";
+    await writeFile(join(root, ...rawA.split("/")), "first source observation\n");
+    await writeFile(join(root, ...rawB.split("/")), "second source observation\n");
+    const body = "This deliberately long generated paragraph is rejected only while it is duplicated across two target pages, then succeeds when emitted for its one intended page.";
+    const operation = {
+      kind: "write_page" as const,
+      path: "wiki/lessons/retry-reset.md",
+      frontmatter: {
+        type: "lessons",
+        title: "Retry Reset",
+        relations: { derived_from: [rawA, rawB] },
+      },
+      body,
+    };
+    const duplicate = { ...operation, path: "wiki/lessons/retry-reset-duplicate.md" };
+    let compileResponses = 0;
+    const llm = fakeExecuteLLMWith(() => {
+      compileResponses += 1;
+      return compileResponses <= 2 ? [operation, duplicate] : [operation];
+    });
+    const hash = hashCompileOperationForLedger(operation);
+
+    await runCompile({ vaultRoot: root, execute: true, llmFactory: () => llm, env: {} });
+    await runCompile({ vaultRoot: root, execute: true, llmFactory: () => llm, env: {} });
+    const afterTwo = await readCompileStateFile(root);
+    expect(afterTwo.rejectedOps?.[hash]?.consecutiveRejections).toBe(2);
+
+    const success = await runCompile({ vaultRoot: root, execute: true, llmFactory: () => llm, env: {} });
+    expect(success.execution?.applied).toContain("wiki/lessons/retry-reset.md");
+    expect(success.watermarksAdvanced).toEqual([rawA, rawB]);
+    const afterSuccess = await readCompileStateFile(root);
+    expect(afterSuccess.rejectedOps?.[hash]).toBeUndefined();
+    expect(existsSync(join(root, "var", "quarantine-lowsignal.jsonl"))).toBe(false);
   });
 
   it("does not advance the watermark when execute only stages proposals", async () => {
