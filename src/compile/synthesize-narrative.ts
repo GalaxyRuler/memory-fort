@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile, rename, readdir, rm } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import type { LLMProvider, LLMTokenUsage } from "../llm/types.js";
+import { redactSecrets } from "../privacy/redaction.js";
 import { readRelations, writeRelations, type RelationMap } from "../retrieval/relations.js";
 import { atomicWrite } from "../storage/atomic-write.js";
 import { hasArchiveOrSystemPathComponent } from "../storage/archive-paths.js";
@@ -207,6 +208,17 @@ export async function synthesizeNarrative(opts: SynthesizeNarrativeOptions): Pro
   // Deterministic conservation checks are the first gate. The judge only adds
   // a semantic check after syntax, dated history, and evidence anchors survive.
   const body = normalizeBody(synth.body);
+  const placeholder = findUnfilledPlaceholder(body);
+  if (placeholder) {
+    // Stage WITHOUT the generated body: a placeholder body is template output,
+    // and staging it would put garbage in front of the reviewer.
+    return stageUnverifiableSynthesis(
+      opts,
+      `synthesized body contains unfilled template placeholder: ${placeholder}`,
+      llmCalls,
+      tokensUsed,
+    );
+  }
   const validation = validateNarrativeBody(body);
   const wikilinkCheck = validateWikilinkRetention(parsed.body, body);
   const datedCheck = validateDatedBlockConservation(parsed.body, body, detect.contradicted_claims);
@@ -259,6 +271,33 @@ export function isNarrativeKnowledgePagePath(relPath: string): boolean {
   const normalized = relPath.replace(/\\/g, "/");
   const match = /^wiki\/([^/.][^/]*)\/[^/]+\.md$/u.exec(normalized);
   return Boolean(match?.[1] && isNarrativeKnowledgePageType(match[1]));
+}
+
+/**
+ * Unfilled template placeholders like "[specific areas of enhancement and
+ * testing]" or "[TBD]": bracketed lowercase multi-word phrases (or TBD/TODO
+ * markers) that are not wikilinks or markdown links. They are LLM template
+ * output, never grounded content.
+ */
+const UNFILLED_PLACEHOLDER_RE = /(?<!\[)\[(?:TBD|TODO[^\]\n]*|\.\.\.|[a-z][a-z0-9'-]*(?: [a-z0-9'-]+){2,})\](?!\]|\()/;
+
+export function findUnfilledPlaceholder(text: string): string | null {
+  const match = UNFILLED_PLACEHOLDER_RE.exec(text);
+  return match ? match[0] : null;
+}
+
+const PROPOSAL_REASON_MAX_CHARS = 300;
+
+/**
+ * Proposal Reason lines are review UI text, not evidence storage. Faithfulness
+ * verdicts can echo whole raw captures (secrets, hostnames, file maps) into the
+ * reason, so redact and hard-bound it before it reaches a staged proposal file.
+ */
+export function sanitizeProposalReason(reason: string): string {
+  const flattened = redactSecrets(reason).replace(/\s+/g, " ").trim();
+  return flattened.length > PROPOSAL_REASON_MAX_CHARS
+    ? `${flattened.slice(0, PROPOSAL_REASON_MAX_CHARS - 3)}...`
+    : flattened;
 }
 
 export function validateNarrativeBody(body: string): { ok: true } | { ok: false; reason: string } {
@@ -350,8 +389,11 @@ export async function stageNarrativeReview(
     ? normalizeBody(record.body as string)
     : normalizeBody(current.body);
   const reason = typeof record.reason === "string" && record.reason.trim().length > 0
-    ? record.reason.trim()
+    ? sanitizeProposalReason(record.reason)
     : "narrative synthesis staged for review";
+  // Keep the ledger fingerprint and review metadata on the sanitized reason so
+  // the proposal file never carries the unbounded raw verdict text.
+  record.reason = reason;
   const reviewMetadata: Record<string, unknown> = {
     path: pageRelPath,
     ...record,

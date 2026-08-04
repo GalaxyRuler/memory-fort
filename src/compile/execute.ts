@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { mkdir, readFile } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import type { LLMProvider, LLMTokenUsage } from "../llm/types.js";
@@ -15,7 +15,12 @@ import { extractEntityFacts } from "./fact-extract.js";
 import { filterNoiseForPage } from "./filter-noise.js";
 import { operationKey, readAppliedOperationKeys, recordAppliedOperation } from "./ops-journal.js";
 import { isProposalResolved } from "./proposal-ledger.js";
-import { NARRATIVE_REVIEW_KEY_FIELD, synthesizeNarrative } from "./synthesize-narrative.js";
+import {
+  NARRATIVE_REVIEW_KEY_FIELD,
+  findUnfilledPlaceholder,
+  sanitizeProposalReason,
+  synthesizeNarrative,
+} from "./synthesize-narrative.js";
 import { assessClaimSupport, type FaithfulnessFact } from "./faithfulness.js";
 import type { CompressedFact } from "../facts/store.js";
 import {
@@ -504,8 +509,9 @@ function prepareCompileOperations(
   const outcomes: CompileOperationOutcome[] = [];
   const pageByPath = new Map<string, PreparedCompileOperation>();
   const date = now.toISOString().slice(0, 10);
+  const duplicatedParagraphs = findCrossTargetDuplicateParagraphs(operations);
 
-  for (const operation of operations) {
+  for (const [index, operation] of operations.entries()) {
     const originalPath = compileOperationPath(operation);
     const pathValidation = validateCompileRelPath(originalPath);
     if (!pathValidation.ok) {
@@ -516,6 +522,22 @@ function prepareCompileOperations(
         reason: pathValidation.reason,
         contentPreserved: false,
       });
+      continue;
+    }
+
+    const prose = operationProseContent(operation);
+    const placeholder = prose === null ? null : findUnfilledPlaceholder(prose);
+    if (placeholder) {
+      const reason = `generated content contains unfilled template placeholder: ${placeholder}`;
+      rejected.push({ path: originalPath, reason });
+      outcomes.push({ path: originalPath, outcome: "rejected", reason, contentPreserved: false });
+      continue;
+    }
+    const duplicated = duplicatedParagraphs.get(index);
+    if (duplicated) {
+      const reason = `same generated paragraph targets multiple pages (cross-page bleed): "${duplicated.slice(0, 60)}..."`;
+      rejected.push({ path: originalPath, reason });
+      outcomes.push({ path: originalPath, outcome: "rejected", reason, contentPreserved: false });
       continue;
     }
 
@@ -542,6 +564,20 @@ function prepareCompileOperations(
 
     const normalizedPath = target.path;
     const fullPath = join(vaultRoot, ...normalizedPath.split("/"));
+    // An LLM rewrite that omits frontmatter on a page that carries relations is
+    // malformed output: on promote the op frontmatter is applied without
+    // grounding, so relation metadata must arrive explicit, never implied.
+    if (
+      operation.kind === "rewrite_page" &&
+      isEffectivelyEmptyFrontmatter(operation.frontmatter) &&
+      existsSync(fullPath) &&
+      pageHasRelationsSync(fullPath)
+    ) {
+      const reason = "rewrite omits frontmatter for a page with relations - regenerate with full frontmatter";
+      rejected.push({ path: originalPath, reason });
+      outcomes.push({ path: originalPath, outcome: "rejected", reason, contentPreserved: false });
+      continue;
+    }
     const existing = pageByPath.get(normalizedPath);
     if (existing) {
       if (
@@ -605,6 +641,69 @@ function prepareCompileOperations(
   }
 
   return { operations: prepared, rejected, outcomes };
+}
+
+function operationProseContent(operation: CompileOperation): string | null {
+  switch (operation.kind) {
+    case "write_page":
+    case "rewrite_page":
+      return operation.body;
+    case "append_page":
+      return operation.section;
+    case "append_log":
+      return operation.line;
+    case "update_index":
+    case "dispute_page":
+    case "supersede_page":
+      return null;
+  }
+}
+
+/**
+ * A substantive paragraph emitted verbatim for two or more distinct target
+ * pages in one batch is cross-page bleed (batch-global prompt themes attributed
+ * to unrelated entities), not grounded page content. Returns op index → the
+ * first offending normalized paragraph.
+ */
+export function findCrossTargetDuplicateParagraphs(operations: CompileOperation[]): Map<number, string> {
+  const paragraphOwners = new Map<string, Set<string>>();
+  const opParagraphs = new Map<number, string[]>();
+  for (const [index, operation] of operations.entries()) {
+    if (operation.kind !== "write_page" && operation.kind !== "append_page" && operation.kind !== "rewrite_page") continue;
+    const content = operationProseContent(operation);
+    if (content === null) continue;
+    const targetKey = normalizeAnchor(compileOperationPath(operation));
+    const paragraphs = splitBlocks(content)
+      .map(normalizeContent)
+      .filter((paragraph) => paragraph.length >= 80);
+    if (paragraphs.length === 0) continue;
+    opParagraphs.set(index, paragraphs);
+    for (const paragraph of new Set(paragraphs)) {
+      const owners = paragraphOwners.get(paragraph) ?? new Set<string>();
+      owners.add(targetKey);
+      paragraphOwners.set(paragraph, owners);
+    }
+  }
+  const flagged = new Map<number, string>();
+  for (const [index, paragraphs] of opParagraphs) {
+    const duplicated = paragraphs.find((paragraph) => (paragraphOwners.get(paragraph)?.size ?? 0) >= 2);
+    if (duplicated) flagged.set(index, duplicated);
+  }
+  return flagged;
+}
+
+function isEffectivelyEmptyFrontmatter(frontmatter: Record<string, unknown> | undefined): boolean {
+  return !frontmatter || Object.keys(frontmatter).filter((key) => key !== "type").length === 0;
+}
+
+// Sync because prepareCompileOperations is sync; single small page read.
+function pageHasRelationsSync(fullPath: string): boolean {
+  try {
+    const parsed = parseFrontmatter(readFileSync(fullPath, "utf-8"));
+    return Object.keys(readRelationBuckets(parsed.frontmatter.relations)).length > 0;
+  } catch {
+    return false;
+  }
 }
 
 function readWikiPageTarget(relPath: string):
@@ -891,10 +990,28 @@ export async function applyOperationWithCompileLockHeld(
         ? Math.max(1, Math.floor(parsed.frontmatter.version))
         : 1;
       const existingSupersedes = Array.isArray(parsed.frontmatter.supersedes) ? parsed.frontmatter.supersedes : [];
+      // Promote applies ops without grounding, so an op carrying junk relations
+      // (e.g. derived_from: ["2026-04-17"]) must never replace real relation
+      // metadata wholesale: filter op relations to existing targets, then merge
+      // with the page's current buckets. Idempotent for pre-grounded ops.
+      const operationFrontmatter: Record<string, unknown> = { ...operation.frontmatter };
+      if (Object.prototype.hasOwnProperty.call(operationFrontmatter, "relations")) {
+        const filteredExisting = await filterRelationBucketsToExisting(
+          vaultRoot,
+          readRelationBuckets(parsed.frontmatter.relations),
+        );
+        const filteredOperation = await filterRelationBucketsToExisting(
+          vaultRoot,
+          readRelationBuckets(operationFrontmatter.relations),
+        );
+        const merged = mergeRelationBuckets(filteredExisting.buckets, filteredOperation.buckets);
+        if (Object.keys(merged).length > 0) operationFrontmatter.relations = merged;
+        else delete operationFrontmatter.relations;
+      }
       const frontmatter = normalizeFrontmatter(
         {
           ...parsed.frontmatter,
-          ...operation.frontmatter,
+          ...operationFrontmatter,
           version: previousVersion + 1,
           supersedes: [
             ...existingSupersedes,
@@ -1385,6 +1502,16 @@ async function guardRewriteOperation(
   if (normalizeContent(parsed.body) === normalizeContent(operation.body)) {
     return { ok: true, stage: false };
   }
+  // Wholesale body deletion is never autonomous curation. Observed failure
+  // mode: rewrite replaced a full project page with one sentence (or an
+  // unrelated README). Operator-directed `memory curate` may legitimately
+  // shrink dated bloat, so the consolidation flag exempts it.
+  const previousLength = normalizeContent(parsed.body).length;
+  const nextLength = normalizeContent(operation.body).length;
+  // ponytail: fixed 400-char/30% heuristic; make configurable only if real rewrites hit it
+  if (!allowDatedSectionConsolidation && previousLength >= 400 && nextLength < previousLength * 0.3) {
+    return { ok: false, reason: "rewrite deletes most of the existing body - rejected as content loss" };
+  }
   const previousFrontmatter = await frontmatterWithExistingRelationsOnly(vaultRoot, parsed.frontmatter);
   const nextFrontmatter = {
     ...previousFrontmatter,
@@ -1723,6 +1850,24 @@ async function recordProposalStage(
   outcomePath: string,
   converted?: CompileOperationConversion,
 ): Promise<void> {
+  // Human review is for wiki page content. Bookkeeping ops (append_log,
+  // update_index) and non-page paths (log.md, wiki/log.md) that fail a guard
+  // are noise in the inbox — reject them so the batch is retried instead.
+  const stageable =
+    (operation.kind === "write_page" || operation.kind === "append_page" || operation.kind === "rewrite_page") &&
+    readWikiPageTarget(compileOperationPath(operation)).kind === "page";
+  if (!stageable) {
+    const rejectReason = `not stageable for review (${operation.kind} ${compileOperationPath(operation)}): ${reason}`;
+    result.rejected.push({ path: outcomePath, reason: rejectReason });
+    result.outcomes.push({
+      path: outcomePath,
+      outcome: "rejected",
+      reason: rejectReason,
+      contentPreserved: false,
+      ...(converted ? { converted } : {}),
+    });
+    return;
+  }
   const staged = await stageCompileProposal(vaultRoot, operation, now, reason);
   if (staged.alreadyResolved) {
     result.resolvedConsumed.push(staged.path);
@@ -1776,7 +1921,7 @@ async function stageCompileProposal(
       [
         `# Compile proposal: ${target}`,
         "",
-        `Reason: ${reason}`,
+        `Reason: ${sanitizeProposalReason(reason)}`,
         "",
         "```compile-op",
         JSON.stringify(operation, null, 2),

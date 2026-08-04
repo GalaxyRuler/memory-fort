@@ -1443,6 +1443,206 @@ function page(type: string, title: string, body = `${title} body.`): string {
   ].join("\n");
 }
 
+describe("compile proposal quality gates", () => {
+  let tmp: string;
+
+  beforeEach(async () => {
+    tmp = await mkdtemp(join(tmpdir(), "compile-gates-"));
+  });
+
+  afterEach(async () => {
+    await rm(tmp, { recursive: true, force: true });
+  });
+
+  it("rejects operations containing unfilled template placeholders", async () => {
+    const result = await applyCompileOperations({
+      vaultRoot: tmp,
+      operations: [{
+        kind: "write_page",
+        path: "wiki/lessons/placeholder.md",
+        frontmatter: { type: "lessons", title: "Placeholder" },
+        body: "Focus on [specific areas of enhancement and testing] before release.",
+      }],
+    });
+
+    expect(result.rejected).toHaveLength(1);
+    expect(result.rejected[0]!.reason).toContain("unfilled template placeholder");
+    expect(result.proposed).toEqual([]);
+    expect(existsSync(join(tmp, "wiki", "lessons", "placeholder.md"))).toBe(false);
+  });
+
+  it("does not flag wikilinks, markdown links, checkboxes, or redaction markers as placeholders", async () => {
+    const result = await applyCompileOperations({
+      vaultRoot: tmp,
+      operations: [{
+        kind: "write_page",
+        path: "wiki/lessons/legit-brackets.md",
+        frontmatter: { type: "lessons", title: "Legit Brackets" },
+        body: [
+          "See [[memory fort planning notes]] and [the docs](https://example.com).",
+          "Key was replaced with [REDACTED: api-key].",
+          "Citation [1] applies.",
+        ].join("\n"),
+      }],
+    });
+
+    expect(result.rejected).toEqual([]);
+  });
+
+  it("rejects operations that emit the same paragraph for multiple target pages", async () => {
+    const bleed = "This project focuses on generating hyperpersonalized actionable suggestions grounded in recent project evidence and filtering candidates for relevance and recency.";
+    const result = await applyCompileOperations({
+      vaultRoot: tmp,
+      operations: [
+        {
+          kind: "write_page",
+          path: "wiki/projects/alpha-new.md",
+          frontmatter: { type: "projects", title: "Alpha" },
+          body: `${bleed}\n\nAlpha-specific detail.`,
+        },
+        {
+          kind: "write_page",
+          path: "wiki/projects/beta-new.md",
+          frontmatter: { type: "projects", title: "Beta" },
+          body: `${bleed}\n\nBeta-specific detail.`,
+        },
+      ],
+    });
+
+    expect(result.rejected).toHaveLength(2);
+    for (const rejection of result.rejected) {
+      expect(rejection.reason).toContain("cross-page bleed");
+    }
+    expect(result.proposed).toEqual([]);
+  });
+
+  it("allows a repeated paragraph when both operations target the same page", async () => {
+    const paragraph = "This paragraph is long enough to trip the duplicate detector when it appears on two different target pages in one compile batch.";
+    const result = await applyCompileOperations({
+      vaultRoot: tmp,
+      operations: [
+        {
+          kind: "write_page",
+          path: "wiki/projects/gamma-new.md",
+          frontmatter: { type: "projects", title: "Gamma" },
+          body: paragraph,
+        },
+        {
+          kind: "append_page",
+          path: "wiki/projects/gamma-new.md",
+          section: paragraph,
+        },
+      ],
+    });
+
+    expect(result.rejected).toEqual([]);
+  });
+
+  it("rejects instead of staging review proposals for non-page targets", async () => {
+    await writeFileAt(tmp, "wiki/log.md", page("references", "Log", "Existing compile log prose."));
+    const result = await applyCompileOperations({
+      vaultRoot: tmp,
+      operations: [{
+        kind: "append_page",
+        path: "wiki/log.md",
+        section: "New compile log summary line for the day.",
+      }],
+    });
+
+    expect(result.proposed).toEqual([]);
+    expect(result.rejected).toHaveLength(1);
+    expect(result.rejected[0]!.reason).toContain("not stageable for review");
+    expect(existsSync(join(tmp, "wiki", "compile-proposed"))).toBe(false);
+  });
+
+  it("rejects rewrite operations that omit frontmatter for a page with relations", async () => {
+    await writeFileAt(tmp, "wiki/projects/rel.md", pageWithRelations());
+    const result = await applyCompileOperations({
+      vaultRoot: tmp,
+      operations: [{
+        kind: "rewrite_page",
+        path: "wiki/projects/rel.md",
+        frontmatter: {},
+        body: "Rewritten body that arrived without any frontmatter at all.",
+      }],
+    });
+
+    expect(result.rejected).toHaveLength(1);
+    expect(result.rejected[0]!.reason).toContain("omits frontmatter");
+    const written = await readFile(join(tmp, "wiki", "projects", "rel.md"), "utf-8");
+    expect(parseFrontmatter(written).body).toContain("Rel body with existing prose");
+  });
+
+  it("rejects autonomous rewrites that delete most of the existing body", async () => {
+    const longBody = Array.from({ length: 12 }, (_, index) =>
+      `Paragraph ${index} holds detailed durable project knowledge that a rewrite must preserve across compile passes.`).join("\n\n");
+    await writeFileAt(tmp, "wiki/projects/dense.md", page("projects", "Dense", longBody));
+    const operations = [{
+      kind: "rewrite_page" as const,
+      path: "wiki/projects/dense.md",
+      frontmatter: { type: "projects", title: "Dense", confidence: 0.9 },
+      body: "One short replacement sentence.",
+    }];
+
+    const rejected = await applyCompileOperations({ vaultRoot: tmp, operations });
+    expect(rejected.rejected).toHaveLength(1);
+    expect(rejected.rejected[0]!.reason).toContain("deletes most of the existing body");
+    const written = await readFile(join(tmp, "wiki", "projects", "dense.md"), "utf-8");
+    expect(parseFrontmatter(written).body).toContain("Paragraph 0");
+
+    const consolidated = await applyCompileOperations({
+      vaultRoot: tmp,
+      operations,
+      allowDatedSectionConsolidation: true,
+    });
+    expect(consolidated.rejected).toEqual([]);
+  });
+
+  it("preserves existing relations when an applied rewrite carries junk relations", async () => {
+    await writeFileAt(tmp, "wiki/tools/vitest.md", page("tools", "Vitest"));
+    await writeFileAt(tmp, "wiki/projects/rel.md", pageWithRelations());
+
+    const applied = await applyOperation(tmp, {
+      kind: "rewrite_page",
+      path: "wiki/projects/rel.md",
+      frontmatter: {
+        type: "projects",
+        title: "Rel",
+        relations: { derived_from: ["2026-04-17"] },
+      },
+      body: "Completely new body for the rel page after promotion.",
+    }, new Date("2026-08-03T12:00:00.000Z"));
+
+    expect(applied.ok).toBe(true);
+    const written = parseFrontmatter(await readFile(join(tmp, "wiki", "projects", "rel.md"), "utf-8"));
+    const relations = written.frontmatter.relations as Record<string, Array<{ target: string }>>;
+    expect(relations.depends_on).toEqual([{ target: "wiki/tools/vitest.md" }]);
+    expect(written.frontmatter.version).toBe(2);
+  });
+
+  async function writeFileAt(root: string, relPath: string, content: string): Promise<void> {
+    const fullPath = join(root, ...relPath.split("/"));
+    await mkdir(dirname(fullPath), { recursive: true });
+    await writeFile(fullPath, content, "utf-8");
+  }
+
+  function pageWithRelations(): string {
+    return [
+      "---",
+      "type: projects",
+      "title: Rel",
+      "created: 2026-05-28",
+      "updated: 2026-05-28",
+      "relations:",
+      "  depends_on:",
+      "    - target: wiki/tools/vitest.md",
+      "---",
+      "",
+      "Rel body with existing prose that documents durable project knowledge.",
+    ].join("\n");
+  }
+});
+
 function rawPage(title: string, session: string): string {
   return [
     "---",

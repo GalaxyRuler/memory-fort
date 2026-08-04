@@ -4,6 +4,9 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  findUnfilledPlaceholder,
+  sanitizeProposalReason,
+  stageNarrativeReview,
   synthesizeNarrative,
   validateNarrativeBody,
   type SynthesisResult,
@@ -11,6 +14,36 @@ import {
 import type { ConsolidationFact } from "../../src/compile/filter-noise.js";
 import type { LLMFinishReason, LLMProvider, LLMRequest, LLMResponse } from "../../src/llm/types.js";
 import { parseFrontmatter, serializeFrontmatter } from "../../src/storage/frontmatter.js";
+
+describe("findUnfilledPlaceholder", () => {
+  it("flags unfilled template placeholders", () => {
+    expect(findUnfilledPlaceholder("Focus on [specific areas of enhancement and testing] next.")).toBe("[specific areas of enhancement and testing]");
+    expect(findUnfilledPlaceholder("Deadline: [TBD]")).toBe("[TBD]");
+    expect(findUnfilledPlaceholder("Note [TODO: fill in the details]")).toBe("[TODO: fill in the details]");
+  });
+
+  it("ignores wikilinks, markdown links, checkboxes, citations, and redaction markers", () => {
+    expect(findUnfilledPlaceholder("See [[memory fort planning notes]] for context.")).toBeNull();
+    expect(findUnfilledPlaceholder("Read [the latest project docs](https://example.com).")).toBeNull();
+    expect(findUnfilledPlaceholder("- [x] done and [ ] pending")).toBeNull();
+    expect(findUnfilledPlaceholder("Citation [1] and [REDACTED: api-key] stay.")).toBeNull();
+  });
+});
+
+describe("sanitizeProposalReason", () => {
+  it("flattens whitespace, redacts secrets, and bounds length", () => {
+    const reason = `unsupported\nclaims: OPENROUTER_API_KEY=sk-live-${"a".repeat(40)} ${"evidence ".repeat(100)}`;
+    const sanitized = sanitizeProposalReason(reason);
+    expect(sanitized.length).toBeLessThanOrEqual(300);
+    expect(sanitized).not.toContain("sk-live-");
+    expect(sanitized).not.toContain("\n");
+    expect(sanitized.endsWith("...")).toBe(true);
+  });
+
+  it("leaves short reasons unchanged", () => {
+    expect(sanitizeProposalReason("low confidence")).toBe("low confidence");
+  });
+});
 
 describe("synthesizeNarrative", () => {
   let tmp: string;
@@ -104,6 +137,53 @@ describe("synthesizeNarrative", () => {
     expect(llm.chat).toHaveBeenCalledTimes(1);
     await expect(readFile(join(tmp, "wiki", "projects", "memory-system.md"), "utf-8")).resolves.toBe(before);
     expect(existsSync(join(tmp, "wiki", ".history"))).toBe(false);
+  });
+
+  it("stages a placeholder-bearing synthesis for review without the generated body", async () => {
+    const llm = fakeNarrativeLLM({
+      detect: {
+        contradicted_claims: ["Phase 3 retrieval is planned."],
+        net_new_facts: ["Something new happened."],
+      },
+      body: "Memory System will improve [specific areas of enhancement and testing] soon.",
+    });
+
+    const result = await synthesizeNarrative({
+      vaultRoot: tmp,
+      pageRelPath: "wiki/projects/memory-system.md",
+      facts: facts(),
+      llm,
+      now: new Date("2026-06-01T10:00:00.000Z"),
+    });
+
+    expect(result.outcome).toBe("staged-for-review");
+    expect(result.reason).toContain("unfilled template placeholder");
+    expect(llm.chat).toHaveBeenCalledTimes(2);
+    const staged = await readFile(join(tmp, "wiki", "compile-proposed", "memory-system.md"), "utf-8");
+    // The Reason line quotes the placeholder; the staged compile-op body must
+    // hold the current page text, never the generated placeholder body.
+    const opBlock = /```compile-op\s*([\s\S]*?)```/m.exec(staged)?.[1];
+    expect(opBlock).toBeDefined();
+    const stagedOp = JSON.parse(opBlock!) as { body: string };
+    expect(stagedOp.body).not.toContain("[specific areas of enhancement and testing]");
+    expect(stagedOp.body).toContain("Memory System captures raw observations.");
+  });
+
+  it("bounds and redacts the staged review reason", async () => {
+    const secret = `OPENROUTER_API_KEY=sk-live-${"a".repeat(40)}`;
+    const staged = await stageNarrativeReview(
+      tmp,
+      "wiki/projects/memory-system.md",
+      { reason: `unsupported claims: ${secret}; ${"details ".repeat(100)}`, facts: [] },
+      new Date("2026-08-03T12:00:00.000Z"),
+    );
+
+    expect(staged.alreadyResolved).toBe(false);
+    const content = await readFile(join(tmp, "wiki", "compile-proposed", "memory-system.md"), "utf-8");
+    const reasonLine = content.split("\n").find((line) => line.startsWith("Reason: "));
+    expect(reasonLine).toBeDefined();
+    expect(reasonLine!.length).toBeLessThanOrEqual("Reason: ".length + 300);
+    expect(content).not.toContain("sk-live-");
   });
 
   it("does not overwrite a concurrent edit with a relation-only update", async () => {
