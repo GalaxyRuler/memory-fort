@@ -258,6 +258,51 @@ describe("memory config reader", () => {
     );
     warn.mockRestore();
   });
+
+  it("appends a given deprecated-config warning only once per process", async () => {
+    await writeFile(
+      join(tmp, "config.yaml"),
+      [
+        "retention:",
+        "  archive_before_delete: true",
+      ].join("\n"),
+    );
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    await loadMemoryConfig(tmp);
+    await loadMemoryConfig(tmp);
+
+    const lines = (await readFile(join(tmp, "errors.log"), "utf-8"))
+      .trim()
+      .split(/\r?\n/)
+      .filter(Boolean);
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain("retention.archive_before_delete is deprecated");
+    expect(warn).toHaveBeenCalledTimes(2);
+    warn.mockRestore();
+  });
+
+  it("atomically bounds an oversized errors.log to its recent tail", async () => {
+    const errorsPath = join(tmp, "errors.log");
+    await writeFile(errorsPath, "oversized-fixture-line\n".repeat(300_000));
+    await writeFile(
+      join(tmp, "config.yaml"),
+      [
+        "embedder:",
+        "  provider: oversized-fixture-provider",
+      ].join("\n"),
+    );
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    await loadMemoryConfig(tmp);
+
+    const content = await readFile(errorsPath, "utf-8");
+    expect(Buffer.byteLength(content, "utf-8")).toBeLessThan(1_100_000);
+    expect(content.startsWith("[")).toBe(true);
+    expect(content).toContain("errors.log truncated after exceeding 5 MB");
+    expect(content).toContain("oversized-fixture-provider");
+    warn.mockRestore();
+  });
 });
 
 describe("client toggles", () => {

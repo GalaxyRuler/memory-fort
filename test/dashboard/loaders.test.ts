@@ -16,6 +16,7 @@ import {
   loadRawIndex,
   loadRawSession,
   loadRawSessionDetail,
+  loadActivityEvents,
   loadTimelineFeed,
   redactConfig,
   loadSyncState,
@@ -766,6 +767,53 @@ describe("dashboard loaders", () => {
     });
     expect(cache.stats.directoryRefreshes).toBe(3);
     expect(cache.stats.directoryCacheHits).toBe(3);
+  });
+
+  it("parses bracketed errors and folds timestamped stack traces into one event", async () => {
+    const errorsPath = join(tmp, "errors.log");
+    const mtime = new Date("2026-07-01T00:00:00.000Z");
+    await writeFile(
+      errorsPath,
+      [
+        "[2026-08-03T10:00:00.000Z] Warning: deprecated config",
+        "2026-08-03T10:01:00.000Z Error: ENOSPC while writing",
+        "    at async writeVault (file:///memory/write.ts:12:3)",
+        "    at processTicksAndRejections (node:internal/process/task_queues:95:5)",
+        "",
+        "[2026-08-03T10:02:00.000Z] Warning: second warning",
+        "unattached continuation without timestamp",
+      ].join("\n"),
+    );
+    await utimes(errorsPath, mtime, mtime);
+
+    const events = (await loadActivityEvents(tmp, { limit: 200 })).events.filter((event) => event.source === "errors");
+    expect(events).toHaveLength(3);
+    expect(events.find((event) => event.summary.includes("deprecated"))).toMatchObject({
+      timestamp: "2026-08-03T10:00:00.000Z",
+      level: "warn",
+    });
+    const enospc = events.find((event) => event.summary.includes("ENOSPC"));
+    expect(enospc).toMatchObject({
+      timestamp: "2026-08-03T10:01:00.000Z",
+      level: "error",
+    });
+    expect(String(enospc?.details?.continuation)).toContain("at async writeVault");
+    expect(String(enospc?.details?.continuation)).toContain("processTicksAndRejections");
+    expect(events.every((event) => event.timestamp !== mtime.toISOString())).toBe(true);
+    expect(events.some((event) => event.summary.includes("at async"))).toBe(false);
+  });
+
+  it("reads the errors-log tail and keeps only the most recent 100 events", async () => {
+    const timestampedErrors = Array.from({ length: 120 }, (_, index) => {
+      const timestamp = new Date(Date.UTC(2026, 7, 3, 0, index, 0)).toISOString();
+      return `${timestamp} Error ${index}`;
+    });
+    await writeFile(join(tmp, "errors.log"), `${"discarded-prefix ".repeat(20_000)}\n${timestampedErrors.join("\n")}`);
+
+    const events = (await loadActivityEvents(tmp, { limit: 200 })).events.filter((event) => event.source === "errors");
+    expect(events).toHaveLength(100);
+    expect(events.some((event) => event.summary === "Error 119")).toBe(true);
+    expect(events.some((event) => event.summary === "Error 19")).toBe(false);
   });
 
   it("loadTimelineFeed includes raw captures in lanes and velocity buckets", async () => {

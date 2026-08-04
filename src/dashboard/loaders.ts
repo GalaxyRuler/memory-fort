@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { constants } from "node:fs";
-import { access, mkdir, readdir, readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
+import { access, mkdir, open, readdir, readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { promisify } from "node:util";
 import {
@@ -70,6 +70,9 @@ const execFileAsync = promisify(execFile);
 const WIKILINK_RE = /\[\[([^\]\n]+)\]\]/g;
 const LOG_HEADING_RE = /^## \[([^\]]+)\] ([A-Za-z0-9_-]+) \| (.*)$/;
 const CHECKOUT_SHA_RE = /\b[0-9a-f]{7,40}\b/i;
+const ERROR_LOG_TAIL_BYTES = 256 * 1024;
+const MAX_ERROR_ACTIVITY_EVENTS = 100;
+const ERROR_TIMESTAMP_PREFIX_RE = /^(?:\[(\d{4}-\d{2}-\d{2}T[0-9:.+-]+Z?)\]|(\d{4}-\d{2}-\d{2}T[0-9:.+-]+Z?))\s+(.*)$/;
 const TIMELINE_LANES = [
   "claude-code",
   "codex",
@@ -1459,26 +1462,84 @@ async function loadErrorActivityEvents(vaultRoot: string): Promise<ActivityEvent
   const errorsPath = join(vaultRoot, "errors.log");
   if (!(await pathExists(errorsPath))) return [];
 
-  const info = await stat(errorsPath);
-  if (info.size === 0) return [];
-  const lines = (await readFile(errorsPath, "utf-8"))
-    .split(/\r?\n/)
-    .filter((line) => line.trim().length > 0);
-  if (lines.length === 0) return [];
-  // Each line starts with an ISO timestamp; parse it so errors sort correctly
-  // in the activity stream even when they're days old.
-  const ISO_PREFIX = /^(\d{4}-\d{2}-\d{2}T[\d:.]+Z)\s+/;
-  return lines.map((line) => {
-    const m = ISO_PREFIX.exec(line);
-    const timestamp = m ? m[1] : info.mtime.toISOString();
-    const summary = m ? line.slice(m[0].length) : line;
-    return {
-      timestamp,
-      source: "errors" as const,
-      level: "error" as const,
-      summary: summary.length > 180 ? `${summary.slice(0, 177)}...` : summary,
-    };
-  });
+  const content = await readFileTail(errorsPath, ERROR_LOG_TAIL_BYTES);
+  if (content.length === 0) return [];
+
+  const events: ActivityEvent[] = [];
+  let current: {
+    event: ActivityEvent;
+    continuation: string[];
+    blankAdjacent: boolean;
+  } | null = null;
+  const flush = (): void => {
+    if (!current) return;
+    const continuation = current.continuation.join("\n").trim();
+    events.push(continuation.length > 0
+      ? { ...current.event, details: { continuation } }
+      : current.event);
+    current = null;
+  };
+
+  for (const line of content.split(/\r?\n/)) {
+    const timestampMatch = ERROR_TIMESTAMP_PREFIX_RE.exec(line);
+    if (timestampMatch) {
+      flush();
+      const timestamp = normalizeIso(timestampMatch[1] ?? timestampMatch[2] ?? "");
+      if (!timestamp) continue;
+      const summary = timestampMatch[3]!.trim();
+      current = {
+        event: {
+          timestamp,
+          source: "errors",
+          level: /^Warning:/i.test(summary) ? "warn" : "error",
+          summary: summary.length > 180 ? `${summary.slice(0, 177)}...` : summary,
+        },
+        continuation: [],
+        blankAdjacent: false,
+      };
+      continue;
+    }
+
+    if (!current) continue;
+    if (line.trim().length === 0) {
+      current.blankAdjacent = true;
+      continue;
+    }
+    const trimmed = line.trimStart();
+    if (line !== trimmed || /^at\b/.test(trimmed) || current.blankAdjacent) {
+      current.continuation.push(line);
+      current.blankAdjacent = false;
+    } else {
+      current.blankAdjacent = false;
+    }
+  }
+  flush();
+  return events.slice(-MAX_ERROR_ACTIVITY_EVENTS);
+}
+
+async function readFileTail(path: string, maxBytes: number): Promise<string> {
+  const handle = await open(path, "r");
+  try {
+    const info = await handle.stat();
+    if (info.size === 0) return "";
+    const start = Math.max(0, info.size - maxBytes);
+    const buffer = Buffer.alloc(info.size - start);
+    let offset = 0;
+    while (offset < buffer.length) {
+      const result = await handle.read(buffer, offset, buffer.length - offset, start + offset);
+      if (result.bytesRead === 0) break;
+      offset += result.bytesRead;
+    }
+    let content = buffer.subarray(0, offset).toString("utf-8");
+    if (start > 0) {
+      const firstNewline = content.indexOf("\n");
+      if (firstNewline < 0) return "";
+      content = content.slice(firstNewline + 1);
+    }
+    return content;
+  } finally {
+    await handle.close();
+  }
 }
 
 async function findCheckoutLogPath(vaultRoot: string): Promise<string | null> {

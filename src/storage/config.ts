@@ -1,8 +1,13 @@
-import { appendFile, readFile } from "node:fs/promises";
+import { appendFile, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import yaml from "js-yaml";
 import { readConfiguredClientEnabled } from "../clients/catalog.js";
+import { atomicWrite } from "./atomic-write.js";
 import { memoryRoot as defaultMemoryRoot } from "./paths.js";
+
+const loggedConfigIssues = new Set<string>();
+const MAX_ERRORS_LOG_BYTES = 5 * 1024 * 1024;
+const RETAINED_ERRORS_LOG_BYTES = 1 * 1024 * 1024;
 
 export interface ResolvedCompileConfig {
   scheduled: boolean;
@@ -376,8 +381,21 @@ function isMissingFile(error: unknown): boolean {
 
 async function logConfigIssue(root: string, message: string): Promise<void> {
   console.warn(message);
+  if (loggedConfigIssues.has(message)) return;
+  loggedConfigIssues.add(message);
+
+  const errorsPath = join(root, "errors.log");
   try {
-    await appendFile(join(root, "errors.log"), `[${new Date().toISOString()}] ${message}\n`, "utf-8");
+    await appendFile(errorsPath, `[${new Date().toISOString()}] ${message}\n`, "utf-8");
+    const info = await stat(errorsPath);
+    if (info.size <= MAX_ERRORS_LOG_BYTES) return;
+
+    const content = await readFile(errorsPath);
+    const start = Math.max(0, content.length - RETAINED_ERRORS_LOG_BYTES);
+    const firstNewline = content.indexOf(0x0a, start);
+    const tail = content.subarray(firstNewline >= 0 ? firstNewline + 1 : start).toString("utf-8");
+    const marker = `[${new Date().toISOString()}] Warning: errors.log truncated after exceeding 5 MB; retained the latest ~1 MB\n`;
+    await atomicWrite(errorsPath, `${marker}${tail}`);
   } catch {
     // Config diagnostics should be visible on stderr even if the vault is not writable yet.
   }
