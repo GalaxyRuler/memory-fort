@@ -34,6 +34,8 @@ import { configValidCheck } from "./config.js";
 import { buildVersionMatchCheck } from "./build.js";
 import { curationContentLossCheck } from "./curation-content-loss.js";
 import { dashboardStatusCheck } from "./dashboard.js";
+import { diskFreeCheck } from "./disk-free.js";
+import { errorsLogBurstCheck } from "./errors-log-burst.js";
 import { episodicRelationsCoverageCheck } from "./episodic-relations.js";
 import { freshnessStaleCheck } from "./freshness.js";
 import {
@@ -57,6 +59,8 @@ export const ALL_CHECKS: CheckDescriptor[] = [
   configValidCheck,
   buildVersionMatchCheck,
   dashboardStatusCheck,
+  diskFreeCheck,
+  errorsLogBurstCheck,
   searchPipelineCheck,
   episodicRelationsCoverageCheck,
   freshnessStaleCheck,

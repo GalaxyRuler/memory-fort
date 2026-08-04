@@ -1458,7 +1458,7 @@ async function loadCheckoutActivityEvents(vaultRoot: string): Promise<ActivityEv
   return events;
 }
 
-async function loadErrorActivityEvents(vaultRoot: string): Promise<ActivityEvent[]> {
+export async function loadErrorActivityEvents(vaultRoot: string): Promise<ActivityEvent[]> {
   const errorsPath = join(vaultRoot, "errors.log");
   if (!(await pathExists(errorsPath))) return [];
 

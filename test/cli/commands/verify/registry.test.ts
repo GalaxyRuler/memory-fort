@@ -7,6 +7,8 @@ const EXPECTED_ROLES = new Map<string, VerifyRole[]>([
   ["config.valid", ["operator", "server"]],
   ["build.version-match", ["operator"]],
   ["dashboard.status", ["operator", "server"]],
+  ["storage.disk-free", ["operator", "server"]],
+  ["storage.errors-log-burst", ["operator", "server"]],
   ["search.pipeline", ["operator", "server"]],
   ["episodic.relations.coverage", ["operator", "server"]],
   ["freshness.staleness", ["operator", "server"]],
