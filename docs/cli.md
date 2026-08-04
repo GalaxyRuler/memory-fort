@@ -236,7 +236,9 @@ memory log "F3 closed" --tag windows --tag mcp --confidence 0.95
 
 `memory verify [--json] [--role user|operator] [--include-search]`
 
-Run all readiness checks (vault, git, clients, compile, dashboard, search, auto-push).
+Run all readiness checks (vault, git, clients, compile, dashboard, search, auto-push, vault-volume disk free, and recent `errors.log` bursts).
+
+The disk check warns below 10% free space and fails below 5%. The `errors.log` check warns when more than 50 non-`Warning:` events were appended during the trailing ten minutes.
 
 **Exit codes:** 0 all pass, 1 any check fails.
 

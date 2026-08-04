@@ -378,6 +378,8 @@ memory-fort dashboard
 
 Built-in React dashboard:
 - Browse the wiki, search (BM25 + semantic + graph), review proposed pages, inspect graph health metrics.
+- The Health banner includes vault-volume disk pressure (warning below 10% free, failure below 5%) and recent non-warning `errors.log` bursts.
+- Recent Activity reads a bounded, timestamped `errors.log` tail and folds stack-trace continuation lines into their parent event instead of presenting them as fresh activity.
 - Audit ranking decisions using **search provenance receipts** (expandable detail showing BM25, embedding, and graph weights).
 - Manage integrations using **client toggles** to enable or disable individual clients (configured via `clients.*` map in `config.yaml`, with verify checks automatically skipping disabled clients).
 - Securely manage API credentials via **API key management** (masked secrets fields stored outside the vault with test-then-save validation flow).

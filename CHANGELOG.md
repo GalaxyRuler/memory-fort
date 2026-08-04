@@ -4,6 +4,15 @@ All notable changes to Memory Fort are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0] - 2026-08-04
+
+### Added
+- **Dashboard health checks now surface vault-volume disk pressure and bursts of non-warning `errors.log` activity.** Disk free space warns below 10% and fails below 5%; the error-burst check warns when more than 50 recent non-warning events occur within ten minutes.
+
+### Fixed
+- **Dashboard error activity is bounded and timestamp-faithful.** Deprecated configuration diagnostics are appended at most once per process, oversized `errors.log` files are capped, and the activity feed reads a bounded tail while preserving bracketed timestamps and stack-trace continuity.
+- **Compile faithfulness is scoped per target page.** Batch-global facts can no longer make an unrelated page appear supported, and the same deterministically rejected operation is quarantined after three consecutive compile executes so a drain cannot retry it forever.
+
 ## [0.13.2] - 2026-08-02
 
 ### Fixed
